@@ -387,7 +387,7 @@ class OpenPort(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
     owner_id: Mapped[str] = mapped_column(String(36))
-    transport_protocol: Mapped[str] = mapped_column(String(10))
+    transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
     port: Mapped[int] = mapped_column(Integer)
     protocol: Mapped[Optional[str]] = mapped_column(String(100))
     protocol_catalog_id: Mapped[Optional[str]] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
