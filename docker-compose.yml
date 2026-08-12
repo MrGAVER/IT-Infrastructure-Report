@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: infra_registry
+      POSTGRES_USER: infra
+      POSTGRES_PASSWORD: infra_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infra -d infra_registry"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  app:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://infra:infra_password@db:5432/infra_registry
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata:
