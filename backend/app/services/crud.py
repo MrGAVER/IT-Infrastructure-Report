@@ -241,7 +241,12 @@ def sync_information_system_details(system_id: str, payload: dict[str, Any], ses
                 if not getattr(obj, 'id', None): session.add(obj)
                 for col in inspect(model).columns:
                     if col.key not in {'id','created_at','updated_at','information_system_id'} and col.key in item:
-                        setattr(obj, col.key, item[col.key])
+                        value = item[col.key]
+                        # An empty string from a disabled/unselected <select> must not be written into a
+                        # foreign-key column: it is not NULL, so SQLite/Postgres reject it with a FK violation
+                        # instead of treating it as "no value". Normalize to NULL for FK columns only.
+                        if value == '' and col.foreign_keys: value = None
+                        setattr(obj, col.key, value)
                 session.flush(); seen.add(obj.id)
             for obj in existing:
                 if obj.id not in seen: session.delete(obj)
@@ -258,7 +263,11 @@ def sync_information_system_details(system_id: str, payload: dict[str, Any], ses
             if obj is None: raise HTTPException(422, 'Источник не принадлежит выбранной ИС')
             if not getattr(obj, 'id', None): session.add(obj)
             for k in ('source_type','physical_device_id','virtual_machine_id','container_id','ip_address','purpose','role','external_interaction'):
-                setattr(obj, k, item.get(k))
+                value = item.get(k)
+                # Same empty-string-vs-NULL issue as above: disabled selects for the fields that don't
+                # apply to the chosen source_type still submit '' rather than null.
+                if value == '' and k in ('physical_device_id','virtual_machine_id','container_id'): value = None
+                setattr(obj, k, value)
             session.flush(); seen.add(obj.id)
         for obj in existing_sources:
             if obj.id not in seen: session.delete(obj)

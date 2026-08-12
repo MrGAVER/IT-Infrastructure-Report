@@ -19,10 +19,10 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 try:
     import sys
     sys.path.insert(0, str(APP_DIR.parent))
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, event
     from sqlalchemy.orm import sessionmaker
-    from app.models import Base, DeviceType, PhysicalDevice
-    from app.services.crud import _find_referencing_counts, delete_resource
+    from app.models import Base, DeviceType, PhysicalDevice, InformationSystem
+    from app.services.crud import _find_referencing_counts, delete_resource, sync_information_system_details
     from fastapi import HTTPException
     DEPS_AVAILABLE = True
 except ImportError:
@@ -33,6 +33,13 @@ except ImportError:
 class ReferentialIntegrityTestCase(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
+
+        @event.listens_for(self.engine, "connect")
+        def _enable_fk(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
@@ -68,6 +75,47 @@ class ReferentialIntegrityTestCase(unittest.TestCase):
         result = delete_resource("device-types", dt.id, self.session)
         self.assertEqual(result["status"], "deleted")
         self.assertIsNone(self.session.get(DeviceType, dt.id))
+
+
+class InformationSystemSourceFKTestCase(unittest.TestCase):
+    """Регрессия: форма ИС отправляет '' (а не null) для FK-полей источника, которые не относятся
+    к выбранному типу источника (например physical_device_id при source_type='manual'), потому что
+    браузер по-прежнему присылает значение неактивного <select>. Пустая строка — не NULL, поэтому
+    SQLite/Postgres отклоняли запись с 'FOREIGN KEY constraint failed', и данные молча терялись."""
+
+    def setUp(self):
+        self.engine = create_engine("sqlite:///:memory:")
+
+        @event.listens_for(self.engine, "connect")
+        def _enable_fk(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        Base.metadata.create_all(self.engine)
+        Session = sessionmaker(bind=self.engine)
+        self.session = Session()
+
+    def tearDown(self):
+        self.session.close()
+
+    def test_empty_string_fk_fields_in_source_are_normalized_to_null(self):
+        isys = InformationSystem(name="ИС для теста FK")
+        self.session.add(isys); self.session.commit()
+
+        payload = {
+            "departments": [], "ips": [], "protocols": [], "devices": [], "vms": [], "containers": [],
+            "sources": [{
+                "source_type": "manual", "physical_device_id": "", "virtual_machine_id": "",
+                "container_id": "", "ip_address": "10.0.0.5", "purpose": "", "role": "",
+                "external_interaction": False,
+            }],
+            "placement_assets": [],
+        }
+        result = sync_information_system_details(isys.id, payload, self.session)
+        self.assertEqual(len(result["sources"]), 1)
+        self.assertEqual(result["sources"][0]["ip_address"], "10.0.0.5")
+        self.assertIsNone(result["sources"][0]["physical_device_id"])
 
 
 if __name__ == "__main__":
