@@ -115,6 +115,31 @@ class Sheet1InformationSystems(ReportingTestCase):
         self.assertNotIn("STALE-SRV", equipment_cell)
         self.assertEqual(equipment_cell.count("NEW-SRV"), 1)
 
+    def test_crypto_column_includes_means_name_when_enabled(self):
+        """Регрессия: столбец СКЗИ показывал только Да/Нет, наименование конкретного средства
+        криптозащиты (crypto_protection_description_id) из БД в отчет не попадало."""
+        C = self.C
+        mean = C["CryptoProtectionMeans"](id="cm1", name="КриптоПро CSP 5.0")
+        isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=True, crypto_protection_description_id="cm1")
+        self.table.update({"InformationSystem": [isys], "CryptoProtectionMeans": [mean]})
+        wb = self.build(Path("/tmp/test_reports_13"))
+        rows = self.sheet_rows(wb, "Перечень ИС")
+        header = rows[0]
+        crypto_idx = self.col_index(header, "криптографической защиты")
+        crypto_cell = rows[1][crypto_idx]
+        self.assertIn("Да", crypto_cell)
+        self.assertIn("КриптоПро CSP 5.0", crypto_cell)
+
+    def test_crypto_column_shows_no_when_disabled(self):
+        C = self.C
+        isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
+        self.table.update({"InformationSystem": [isys]})
+        wb = self.build(Path("/tmp/test_reports_14"))
+        rows = self.sheet_rows(wb, "Перечень ИС")
+        header = rows[0]
+        crypto_idx = self.col_index(header, "криптографической защиты")
+        self.assertEqual(rows[1][crypto_idx], "Нет")
+
 
 class Sheet2PhysicalDevices(ReportingTestCase):
     """Лист 'Инвентаризац. физ. устройств ИС'."""

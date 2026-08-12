@@ -84,6 +84,7 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
     operating_systems={x.id:x for x in session.scalars(select(OperatingSystem)).all()}
     embedded_os={x.id:x for x in session.scalars(select(EmbeddedOperatingSystem)).all()}
     support_methods={x.id:x for x in session.scalars(select(SupportMethod)).all()}
+    crypto_means={x.id:x for x in session.scalars(select(CryptoProtectionMeans)).all()}
     placement_assets={x.id:x for x in session.scalars(select(PlacementAsset)).all()}
     placement_by_is=defaultdict(list)
     for x in session.scalars(select(ISPlacementAsset)).all(): placement_by_is[x.information_system_id].append(x)
@@ -173,7 +174,9 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
         ips_text=join_values(legacy_ips + [x.ip_address for x in source_rows if x.ip_address] + vm_ips)
         support=support_map.get(obj.support_organization_id)
         support_method_name=support_methods[obj.support_method_id].name if obj.support_method_id in support_methods else ""
-        ws1.append([n,obj.name,obj.description or "",obj.purpose or "",departments_text,obj.localization or "",join_values(equipment),join_values(protocols_text),ips_text,"Да" if obj.crypto_protection_enabled else "Нет","Да" if obj.siem_enabled else "Нет",support.name if support else "",support_method_name,obj.process_description or "",join_values([device_label(d) for d in physical_names]),join_values(physical_ips),join_values(vm_names),join_values(vm_ips)])
+        crypto_mean=crypto_means.get(obj.crypto_protection_description_id)
+        crypto_text=join_values(["Да" if obj.crypto_protection_enabled else "Нет", crypto_mean.name if crypto_mean else None])
+        ws1.append([n,obj.name,obj.description or "",obj.purpose or "",departments_text,obj.localization or "",join_values(equipment),join_values(protocols_text),ips_text,crypto_text,"Да" if obj.siem_enabled else "Нет",support.name if support else "",support_method_name,obj.process_description or "",join_values([device_label(d) for d in physical_names]),join_values(physical_ips),join_values(vm_names),join_values(vm_ips)])
 
     # Sheet 2: one row per physical device.
     for n,d in enumerate(devices,1):
