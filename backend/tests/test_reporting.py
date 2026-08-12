@@ -264,6 +264,53 @@ class Sheet3Connections(ReportingTestCase):
         switch_rows = [r for r in rows if r[neighbor_serial_idx] == "123"]  # смотрим со стороны коммутатора на сервер
         self.assertTrue(any("10.10.10.5" in (r[neighbor_ip_idx] or "") for r in switch_rows))
 
+    def test_open_ports_of_physical_device_are_listed(self):
+        """Регрессия: у физического устройства не было способа задать список открытых портов —
+        колонки 'Перечень открытых портов...' и 'Протокол (технология)' всегда оставались пустыми."""
+        C = self.C
+        dev1, _ = self._two_devices_two_connections()
+        p1 = C["OpenPort"](id="op1", owner_type="physical_device", owner_id="d1", port=22, protocol="SSH", transport_protocol="TCP")
+        p2 = C["OpenPort"](id="op2", owner_type="physical_device", owner_id="d1", port=161, protocol="SNMP", transport_protocol="UDP")
+        self.table.update({"OpenPort": [p1, p2]})
+        wb = self.build(Path("/tmp/test_reports_11"))
+        rows = self.sheet_rows(wb, "Организация подключений")[1:]
+        header = self.sheet_rows(wb, "Организация подключений")[0]
+        serial_idx = self.col_index(header, "Серийный номер устройства")
+        ports_idx = self.col_index(header, "Перечень открытых портов")
+        proto_idx = self.col_index(header, "Протокол (технология)")
+        dev1_rows = [r for r in rows if r[serial_idx] == "123"]
+        self.assertTrue(dev1_rows)
+        combined_ports = " ".join(r[ports_idx] or "" for r in dev1_rows)
+        combined_proto = " ".join(r[proto_idx] or "" for r in dev1_rows)
+        self.assertIn("22", combined_ports)
+        self.assertIn("161", combined_ports)
+        self.assertIn("SSH", combined_proto)
+        self.assertIn("SNMP", combined_proto)
+
+
+class Sheet4VirtualMachines(ReportingTestCase):
+    """Лист 'Организация управления ВМ'."""
+
+    def test_software_assets_column_is_filled(self):
+        """Регрессия: не было справочника/связки 'какое ПО развернуто на ВМ' — колонка
+        'Какие программные активы развернуты...' всегда оставалась пустой."""
+        C = self.C
+        vm = C["VirtualMachine"](id="v1", name="VM-1C")
+        sw1 = C["SoftwareAsset"](id="sw1", name="1С:Предприятие")
+        sw2 = C["SoftwareAsset"](id="sw2", name="Web-сервер Nginx")
+        link1 = C["VMSoftware"](id="l1", virtual_machine_id="v1", software_asset_id="sw1")
+        link2 = C["VMSoftware"](id="l2", virtual_machine_id="v1", software_asset_id="sw2")
+        self.table.update({
+            "VirtualMachine": [vm], "SoftwareAsset": [sw1, sw2], "VMSoftware": [link1, link2],
+        })
+        wb = self.build(Path("/tmp/test_reports_15"))
+        rows = self.sheet_rows(wb, "Организация управления ВМ")[1:]
+        header = self.sheet_rows(wb, "Организация управления ВМ")[0]
+        sw_idx = self.col_index(header, "Какие программные активы развернуты")
+        vm_row = next(r for r in rows if r[0] == "VM-1C")
+        self.assertIn("1С:Предприятие", vm_row[sw_idx])
+        self.assertIn("Web-сервер Nginx", vm_row[sw_idx])
+
 
 if __name__ == "__main__":
     unittest.main()
