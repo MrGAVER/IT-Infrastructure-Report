@@ -154,6 +154,38 @@ def delete_resource(resource: str, item_id: str, session: Session):
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
+def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session) -> None:
+    """Применяет данные одного элемента payload['interfaces'] к объекту DeviceInterface:
+    простые поля, VLAN-привязки и вложенные IP. Вынесено из sync_interfaces(), чтобы снизить
+    цикломатическую сложность внешней функции (была 24) — сама логика не изменена."""
+    for key in ('name', 'interface_type_id', 'mac_address', 'speed_id', 'is_management', 'is_data_transfer', 'description'):
+        if key in item: setattr(obj, key, item[key])
+    session.flush()
+    vlan_ids=item.get('vlan_ids') or []
+    if not isinstance(vlan_ids,list): raise HTTPException(422, 'Поле vlan_ids интерфейса должно быть массивом')
+    allowed_type=set(session.scalars(select(DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id==device.device_type_id)).all())
+    allowed_device=set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id==device.id)).all())
+    allowed=set(allowed_type)|set(allowed_device)
+    bad=[v for v in vlan_ids if v not in allowed]
+    if bad: raise HTTPException(422, 'Один или несколько VLAN не разрешены для типа данного устройства')
+    session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.interface_id==obj.id))
+    for vlan_id in dict.fromkeys(vlan_ids): session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=item.get('vlan_mode')))
+    ips = item.get('ips') or []
+    if not isinstance(ips, list): raise HTTPException(422, 'Поле ips интерфейса должно быть массивом')
+    old_ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
+    for ip_data in ips:
+        if not isinstance(ip_data, dict) or not ip_data.get('ip_address'): continue
+        ip_id = ip_data.get('id')
+        if ip_id:
+            ip_obj = old_map.get(ip_id)
+            if not ip_obj: raise HTTPException(422, 'IP не принадлежит выбранному интерфейсу')
+            seen.add(ip_id)
+        else: ip_obj = InterfaceIP(interface_id=obj.id); session.add(ip_obj)
+        ip_obj.ip_address = ip_data['ip_address']; ip_obj.prefix_length = ip_data.get('prefix_length'); ip_obj.purpose = ip_data.get('purpose'); ip_obj.is_management = bool(obj.is_management)
+    for old_ip in old_ips:
+        if old_ip.id not in seen: session.delete(old_ip)
+
+
 def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     device = session.get(PhysicalDevice, device_id)
     if not device: raise HTTPException(404, 'Физическое устройство не найдено')
@@ -169,32 +201,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
                 if not obj: raise HTTPException(422, 'Интерфейс не принадлежит выбранному физическому устройству')
                 incoming_ids.add(iid)
             else: obj = DeviceInterface(physical_device_id=device_id); session.add(obj)
-            for key in ('name', 'interface_type_id', 'mac_address', 'speed_id', 'is_management', 'is_data_transfer', 'description'):
-                if key in item: setattr(obj, key, item[key])
-            session.flush()
-            vlan_ids=item.get('vlan_ids') or []
-            if not isinstance(vlan_ids,list): raise HTTPException(422, 'Поле vlan_ids интерфейса должно быть массивом')
-            allowed_type=set(session.scalars(select(DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id==device.device_type_id)).all())
-            allowed_device=set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id==device.id)).all())
-            allowed=set(allowed_type)|set(allowed_device)
-            bad=[v for v in vlan_ids if v not in allowed]
-            if bad: raise HTTPException(422, 'Один или несколько VLAN не разрешены для типа данного устройства')
-            session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.interface_id==obj.id))
-            for vlan_id in dict.fromkeys(vlan_ids): session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=item.get('vlan_mode')))
-            ips = item.get('ips') or []
-            if not isinstance(ips, list): raise HTTPException(422, 'Поле ips интерфейса должно быть массивом')
-            old_ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
-            for ip_data in ips:
-                if not isinstance(ip_data, dict) or not ip_data.get('ip_address'): continue
-                ip_id = ip_data.get('id')
-                if ip_id:
-                    ip_obj = old_map.get(ip_id)
-                    if not ip_obj: raise HTTPException(422, 'IP не принадлежит выбранному интерфейсу')
-                    seen.add(ip_id)
-                else: ip_obj = InterfaceIP(interface_id=obj.id); session.add(ip_obj)
-                ip_obj.ip_address = ip_data['ip_address']; ip_obj.prefix_length = ip_data.get('prefix_length'); ip_obj.purpose = ip_data.get('purpose'); ip_obj.is_management = bool(obj.is_management)
-            for old_ip in old_ips:
-                if old_ip.id not in seen: session.delete(old_ip)
+            _sync_single_interface(obj, item, device, session)
         for obj in existing:
             if obj.id not in incoming_ids: session.execute(delete(InterfaceIP).where(InterfaceIP.interface_id == obj.id)); session.delete(obj)
         session.flush()
@@ -223,54 +230,67 @@ def get_information_system_details(system_id: str, session: Session) -> dict[str
         'placement_assets': [serialize(x) for x in session.scalars(select(ISPlacementAsset).where(ISPlacementAsset.information_system_id == system_id)).all()],
     }
 
+_LINKED_TABLE_SPECS = [('departments', ISDepartment), ('ips', ISIP), ('protocols', ISProtocol), ('devices', ISDevice), ('vms', ISVM), ('containers', ISContainer), ('placement_assets', ISPlacementAsset)]
+
+
+def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Session) -> None:
+    """Синхронизирует одну из устаревших связанных таблиц (ISDepartment/ISIP/...), которые
+    по-прежнему поддерживаются ради совместимости отчёта Excel. Вынесено из
+    sync_information_system_details(), чтобы снизить цикломатическую сложность внешней функции
+    (была 25) — сама логика не изменена."""
+    if not isinstance(items, list): raise HTTPException(422, f'Поле {key} должно быть массивом')
+    existing = session.scalars(select(model).where(model.information_system_id == system_id)).all()
+    existing_map = {x.id: x for x in existing}; seen=set()
+    for item in items:
+        if not isinstance(item, dict): continue
+        obj = existing_map.get(item.get('id')) if item.get('id') else model(information_system_id=system_id)
+        if obj is None: raise HTTPException(422, f'Запись {key} не принадлежит выбранной ИС')
+        if not getattr(obj, 'id', None): session.add(obj)
+        for col in inspect(model).columns:
+            if col.key not in {'id','created_at','updated_at','information_system_id'} and col.key in item:
+                value = item[col.key]
+                # An empty string from a disabled/unselected <select> must not be written into a
+                # foreign-key column: it is not NULL, so SQLite/Postgres reject it with a FK violation
+                # instead of treating it as "no value". Normalize to NULL for FK columns only.
+                if value == '' and col.foreign_keys: value = None
+                setattr(obj, col.key, value)
+        session.flush(); seen.add(obj.id)
+    for obj in existing:
+        if obj.id not in seen: session.delete(obj)
+
+
+def _sync_information_system_sources(system_id: str, source_items: Any, session: Session) -> None:
+    """Синхронизирует унифицированные записи InformationSystemSource. Вынесено из
+    sync_information_system_details() по той же причине, что и _sync_linked_table()."""
+    if not isinstance(source_items, list): raise HTTPException(422, 'Поле sources должно быть массивом')
+    existing_sources = session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()
+    source_map = {x.id: x for x in existing_sources}; seen=set()
+    for item in source_items:
+        if not isinstance(item, dict): continue
+        source_type = item.get('source_type') or SourceType.MANUAL
+        if source_type not in SourceType.ALL: raise HTTPException(422, 'Недопустимый тип источника')
+        obj = source_map.get(item.get('id')) if item.get('id') else InformationSystemSource(information_system_id=system_id)
+        if obj is None: raise HTTPException(422, 'Источник не принадлежит выбранной ИС')
+        if not getattr(obj, 'id', None): session.add(obj)
+        for k in ('source_type','physical_device_id','virtual_machine_id','container_id','ip_address','purpose','role','external_interaction'):
+            value = item.get(k)
+            # Same empty-string-vs-NULL issue as above: disabled selects for the fields that don't
+            # apply to the chosen source_type still submit '' rather than null.
+            if value == '' and k in ('physical_device_id','virtual_machine_id','container_id'): value = None
+            setattr(obj, k, value)
+        session.flush(); seen.add(obj.id)
+    for obj in existing_sources:
+        if obj.id not in seen: session.delete(obj)
+
+
 def sync_information_system_details(system_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
     if not session.get(InformationSystem, system_id):
         raise HTTPException(404, 'Информационная система не найдена')
     # Legacy linked tables are still synchronized for Excel/report compatibility.
-    specs = [('departments', ISDepartment), ('ips', ISIP), ('protocols', ISProtocol), ('devices', ISDevice), ('vms', ISVM), ('containers', ISContainer), ('placement_assets', ISPlacementAsset)]
     try:
-        for key, model in specs:
-            items = payload.get(key, [])
-            if not isinstance(items, list): raise HTTPException(422, f'Поле {key} должно быть массивом')
-            existing = session.scalars(select(model).where(model.information_system_id == system_id)).all()
-            existing_map = {x.id: x for x in existing}; seen=set()
-            for item in items:
-                if not isinstance(item, dict): continue
-                obj = existing_map.get(item.get('id')) if item.get('id') else model(information_system_id=system_id)
-                if obj is None: raise HTTPException(422, f'Запись {key} не принадлежит выбранной ИС')
-                if not getattr(obj, 'id', None): session.add(obj)
-                for col in inspect(model).columns:
-                    if col.key not in {'id','created_at','updated_at','information_system_id'} and col.key in item:
-                        value = item[col.key]
-                        # An empty string from a disabled/unselected <select> must not be written into a
-                        # foreign-key column: it is not NULL, so SQLite/Postgres reject it with a FK violation
-                        # instead of treating it as "no value". Normalize to NULL for FK columns only.
-                        if value == '' and col.foreign_keys: value = None
-                        setattr(obj, col.key, value)
-                session.flush(); seen.add(obj.id)
-            for obj in existing:
-                if obj.id not in seen: session.delete(obj)
-        # Unified source rows
-        source_items = payload.get('sources', [])
-        if not isinstance(source_items, list): raise HTTPException(422, 'Поле sources должно быть массивом')
-        existing_sources = session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()
-        source_map = {x.id: x for x in existing_sources}; seen=set()
-        for item in source_items:
-            if not isinstance(item, dict): continue
-            source_type = item.get('source_type') or SourceType.MANUAL
-            if source_type not in SourceType.ALL: raise HTTPException(422, 'Недопустимый тип источника')
-            obj = source_map.get(item.get('id')) if item.get('id') else InformationSystemSource(information_system_id=system_id)
-            if obj is None: raise HTTPException(422, 'Источник не принадлежит выбранной ИС')
-            if not getattr(obj, 'id', None): session.add(obj)
-            for k in ('source_type','physical_device_id','virtual_machine_id','container_id','ip_address','purpose','role','external_interaction'):
-                value = item.get(k)
-                # Same empty-string-vs-NULL issue as above: disabled selects for the fields that don't
-                # apply to the chosen source_type still submit '' rather than null.
-                if value == '' and k in ('physical_device_id','virtual_machine_id','container_id'): value = None
-                setattr(obj, k, value)
-            session.flush(); seen.add(obj.id)
-        for obj in existing_sources:
-            if obj.id not in seen: session.delete(obj)
+        for key, model in _LINKED_TABLE_SPECS:
+            _sync_linked_table(key, model, payload.get(key, []), system_id, session)
+        _sync_information_system_sources(system_id, payload.get('sources', []), session)
         session.commit()
         return get_information_system_details(system_id, session)
     except HTTPException:
