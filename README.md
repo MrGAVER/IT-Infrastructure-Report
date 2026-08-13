@@ -605,7 +605,7 @@ Huawei 2288 нельзя выбрать как модель коммутатор
 - Синхронизирована константа версии приложения (`backend/app/config.py: APP_VERSION`) с фактической
   последней записью истории изменений (см. известное расхождение в предыдущей версии README).
 
-### 2.37.0 — устранение критичных замечаний по итогам код-ревью (в разработке)
+### 2.37.0 — устранение критичных замечаний по итогам код-ревью
 
 - **Безопасность (без аутентификации — вынесена отдельно на потом):**
   - CORS больше не выдаёт `allow_credentials=True` вместе с origin `*` (небезопасная комбинация,
@@ -633,12 +633,26 @@ Huawei 2288 нельзя выбрать как модель коммутатор
   - `pyinstaller` вынесен из `requirements.txt` в отдельный `requirements-build.txt` — Docker-образ
     и обычная разработка больше не тянут инструмент сборки EXE; добавлен `requirements-dev.txt`
     (pytest, httpx, ruff).
+  - Разобраны все функции с цикломатической сложностью значительно выше нормы (порог линтера — 10):
+    `build_report` (была 55) разбита на `_load_report_data()` + `_populate_sheet1..4()`;
+    `enrich_information_systems` (была 19) — на `_load_information_systems_links()` +
+    `_enrich_single_information_system()`; `sync_information_system_details` (была 25) — на
+    `_sync_linked_table()` + `_sync_information_system_sources()`; `sync_interfaces` (была 24) —
+    на `_sync_single_interface()`; `validate_resource` (была 18) — на функции по модели
+    (`_validate_physical_device()` и др.); `seed_defaults` (была 17) — на функции по виду
+    справочника. Логика не менялась ни на строку — только перенос кода между функциями.
+- **CI:** добавлен `.github/workflows/ci.yml` — на каждый push/PR в `main` автоматически
+  прогоняются `ruff check --select F,E9`, полный набор тестов (`pytest`), `node --check` по
+  фронтенду и сборка `backend/Dockerfile`. Раньше проверки выполнялись только вручную.
 - **Тесты:** добавлен `backend/tests/test_api.py` (18 тестов) — интеграционные тесты HTTP-эндпоинтов
   на `fastapi.testclient.TestClient` + реальной SQLAlchemy на in-memory SQLite (см. `conftest.py`):
   CRUD-цикл create/get/update/delete, коды конфликтов 409 (`DUPLICATE_SYSTEM_NAME`,
   `RACK_POSITION_OCCUPIED`, `REFERENCED_BY_OTHER_RECORDS`), синхронизация интерфейсов устройства,
   синхронизация деталей информационной системы, генерация и скачивание отчёта. Раньше HTTP-слой и
   `services/crud.py` не были покрыты тестами вовсе.
+- **Документация:** `docs/frontend-modularization.md` — анализ и поэтапная рекомендация по
+  разделению `app.js`/`report_builder.js` на модули (переход на фреймворк признан пока
+  неоправданным при нулевом покрытии фронтенда тестами).
 
 ## Известные ограничения и заметки
 
