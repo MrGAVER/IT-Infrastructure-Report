@@ -142,7 +142,7 @@ def seed_test_data(session: Session = Depends(get_db)):
         return obj
 
     # Catalogs / location
-    org = add(Organization, name=f"{tag} Организация", short_name="TEST")
+    add(Organization, name=f"{tag} Организация", short_name="TEST")
     dept = add(Department, name=f"{tag} ИТ")
     building = add(Building, name=f"{tag} ЦОД-1", address="Тестовый адрес")
     room = add(Room, building_id=building.id, name="Серверная")
@@ -175,8 +175,8 @@ def seed_test_data(session: Session = Depends(get_db)):
     # VM + container + software
     vm = add(VirtualMachine, name=f"{tag}-APP01", operating_system_id=server_os.id, physical_device_id=server.id, purpose="Тестовое приложение", status="active")
     add(VMIP, virtual_machine_id=vm.id, ip_address="10.255.90.20", prefix_length=24, purpose="Application", is_management=True)
-    container = add(Container, name=f"{tag}-WEB", virtual_machine_id=vm.id, purpose="Тестовый web-контейнер", management_ip="10.255.90.21")
-    software = add(SoftwareAsset, name=f"{tag} Web Server", category="Web-server", vendor="Test", version="1.0")
+    add(Container, name=f"{tag}-WEB", virtual_machine_id=vm.id, purpose="Тестовый web-контейнер", management_ip="10.255.90.21")
+    add(SoftwareAsset, name=f"{tag} Web Server", category="Web-server", vendor="Test", version="1.0")
 
     # Information system
     info = add(InformationSystem, number=None, name=f"{tag} Информационная система", description="Тестовая ИС для проверки интерфейса и Excel", purpose="Демонстрация связей реестра", localization="ЦОД-1", support_method="Внутренняя поддержка", process_description="Тестовый процесс функционирования", crypto_protection_enabled=False, siem_enabled=True, status="active")

@@ -1,5 +1,7 @@
 # РИС — Реестр ИТ-инфраструктуры
 
+[![CI](https://github.com/MrGAVER/IT-Infrastructure-Report/actions/workflows/ci.yml/badge.svg)](https://github.com/MrGAVER/IT-Infrastructure-Report/actions/workflows/ci.yml)
+
 Приложение для учёта информационных систем, физических устройств, сетевой инфраструктуры,
 виртуальных машин, контейнеров и программных активов организации с выгрузкой регламентированного
 Excel-отчёта из 4 листов (перечень ИС, инвентаризация физических устройств, организация
