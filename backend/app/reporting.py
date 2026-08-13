@@ -14,7 +14,7 @@ from .models import (
     ISContainer, ISDepartment, ISDevice, ISIP, ISPlacementAsset, ISProtocol, ISVM,
     InformationSystem, InformationSystemSource, InterfaceIP, InterfaceType, InterfaceVLAN,
     Manufacturer, OpenPort, OperatingSystem, PhysicalDevice, PhysicalDeviceVLAN, PlacementAsset,
-    ProtocolPortCatalog, Rack, Room, SoftwareAsset, SupportMethod, SupportOrganization, VLAN,
+    ProtocolPortCatalog, Room, SoftwareAsset, SupportMethod, SupportOrganization, VLAN,
     VMIP, VMSoftware, VirtualMachine,
 )
 from .services.computed import ip_label, device_management_ports_and_ips
@@ -88,7 +88,6 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
     models={x.id:x for x in session.scalars(select(DeviceModel)).all()}
     buildings={x.id:x for x in session.scalars(select(Building)).all()}
     rooms={x.id:x for x in session.scalars(select(Room)).all()}
-    racks={x.id:x for x in session.scalars(select(Rack)).all()}
     operating_systems={x.id:x for x in session.scalars(select(OperatingSystem)).all()}
     embedded_os={x.id:x for x in session.scalars(select(EmbeddedOperatingSystem)).all()}
     support_methods={x.id:x for x in session.scalars(select(SupportMethod)).all()}

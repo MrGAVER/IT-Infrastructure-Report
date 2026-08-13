@@ -342,7 +342,6 @@ async function loadVMIPEditor(vmId){
  box.innerHTML=`<div class="interface-editor"><div class="ie-head"><b>IP-адреса виртуальной машины</b><span class="muted">Отметьте галочкой один или несколько IP как «IP администрирования» — они используются в отчете по информационным системам.</span></div><div id="vm-ip-list" class="nested-list">${vmIpRows.map((x,i)=>vmIpRowHtml(x,i)).join('')||'<div class="muted">IP-адреса не добавлены</div>'}</div><button type="button" class="btn gray" onclick="addVMIPRow()">+ IP-адрес</button></div>`;
 }
 function syncVMIPRows(){vmIpEditor.sync();}
-function renderVMIPRows(){vmIpEditor.render();}
 function addVMIPRow(){vmIpEditor.add();}
 function removeVMIPRow(i){vmIpEditor.remove(i);}
 async function saveVMIPs(vmId){
@@ -538,14 +537,6 @@ async function fieldHtml(c,v,item={}){
  const full=String(c.type).toUpperCase().includes('TEXT')||c.name.includes('description')||c.name.includes('purpose')||c.name.includes('process');
  const type=String(c.type).toUpperCase().includes('INTEGER')?'number':'text';
  return full?`<label class="field full"><span>${label}${c.nullable?'':' *'}</span><textarea name="${c.name}" ${c.nullable?'':'required'}>${esc(v??'')}</textarea></label>`:`<label class="field"><span>${label}${c.nullable?'':' *'}</span><input type="${type}" name="${c.name}" value="${esc(v??'')}" ${c.nullable?'':'required'}></label>`;
-}
-async function locationSelectField(name,label,value,item){
- let opts=[];
- if(name==='building_id')opts=(await get(api+'/resources/buildings?limit=1000')).items.map(x=>({id:x.id,label:x.name}));
- if(name==='room_id'){const b=item.building_id||'';opts=(await get(api+'/resources/rooms?limit=1000')).items.filter(x=>!b||x.building_id===b).map(x=>({id:x.id,label:x.name}));}
- if(name==='rack_id'){const r=item.room_id||'';opts=(await get(api+'/resources/racks?limit=1000')).items.filter(x=>!r||x.room_id===r).map(x=>({id:x.id,label:x.name}));}
- const addRes={building_id:'buildings',room_id:'rooms',rack_id:'racks'}[name];
- return `<label class="field"><span>${label}</span><div class="lookup-row"><select id="field-${name}" name="${name}" onchange="${name==='building_id'?'onDeviceBuildingChanged()':name==='room_id'?'onDeviceRoomChanged()':'onDeviceRackChanged()'}"><option value="">— не выбрано —</option>${opts.map(x=>`<option value="${esc(x.id)}" ${x.id===value?'selected':''}>${esc(x.label)}</option>`).join('')}</select><button type="button" class="btn gray inline-add" onclick="openQuickModal('${addRes}','${name}')">＋</button></div></label>`;
 }
 async function onOpenPortOwnerTypeChanged(){
  const typeField=document.getElementById('field-owner_type'),idField=document.getElementById('field-owner_id');

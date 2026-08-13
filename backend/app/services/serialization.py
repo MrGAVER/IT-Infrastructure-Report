@@ -4,7 +4,7 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, InterfaceIP, PhysicalDevice, DeviceType, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, Department, Container, ProtocolPortCatalog, VMIP, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN)
+from ..models import (Connection, ConnectionType, DeviceInterface, InterfaceIP, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, Department, Container, ProtocolPortCatalog, VMIP, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN)
 from .computed import device_management_ports_and_ips
 
 def serialize(obj: Any) -> dict[str, Any]:
@@ -46,10 +46,6 @@ def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[
     return result
 
 
-def enrich_device(obj: PhysicalDevice, session: Session) -> dict[str, Any]:
-    return enrich_devices([obj], session)[0]
-
-
 def enrich_interfaces(items: Sequence[DeviceInterface], session: Session) -> list[dict[str, Any]]:
     if not items:
         return []
@@ -74,10 +70,6 @@ def enrich_interfaces(items: Sequence[DeviceInterface], session: Session) -> lis
         result.append(data)
     return result
 
-def enrich_interface(obj: DeviceInterface, session: Session) -> dict[str, Any]:
-    return enrich_interfaces([obj], session)[0]
-
-
 def enrich_connections(items: Sequence[Connection], session: Session) -> list[dict[str, Any]]:
     if not items:
         return []
@@ -87,9 +79,6 @@ def enrich_connections(items: Sequence[Connection], session: Session) -> list[di
     device_ids = list({x.physical_device_id for x in interfaces})
     devices = session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all() if device_ids else []
     device_by_id = {x.id: x for x in devices}
-    type_ids = list({d.device_type_id for d in devices})
-    types = session.scalars(select(DeviceType).where(DeviceType.id.in_(type_ids))).all() if type_ids else []
-    type_by_id = {x.id: x for x in types}
     ct_ids = list({x.connection_type_id for x in items})
     ctypes = session.scalars(select(ConnectionType).where(ConnectionType.id.in_(ct_ids))).all() if ct_ids else []
     ct_by_id = {x.id: x for x in ctypes}
