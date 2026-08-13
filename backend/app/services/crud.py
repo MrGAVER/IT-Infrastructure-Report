@@ -26,41 +26,55 @@ def allowed_columns(model) -> set[str]:
 def audit(session: Session, entity_type: str, entity_id: str, action: str, details: str = '') -> None:
     if entity_type != 'audit-log': session.add(AuditLog(entity_type=entity_type, entity_id=entity_id, action=action, details=details))
 
+def _validate_physical_device(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    validate_device_model_relation(data, session, item_id); validate_operating_system(data, session); validate_embedded_os(data, session); validate_device_location_hierarchy(data, session)
+    if data.get('system_name') and duplicate_system_name(session, data['system_name'], item_id) and not confirm_duplicate:
+        raise HTTPException(409, detail={'code': ErrorCode.DUPLICATE_SYSTEM_NAME, 'message': 'Системное имя уже используется другим устройством. Сохранить дубликат?'})
+    rack_id = data.get('rack_id'); rack_position = data.get('rack_position')
+    if rack_id and rack_position:
+        stmt = select(PhysicalDevice).where(PhysicalDevice.rack_id == rack_id, PhysicalDevice.rack_position == rack_position)
+        if item_id: stmt = stmt.where(PhysicalDevice.id != item_id)
+        occupant = session.scalar(stmt)
+        if occupant:
+            if not confirm_rack_reassign:
+                raise HTTPException(409, detail={'code': ErrorCode.RACK_POSITION_OCCUPIED, 'message': f'Позиция "{rack_position}" в этой стойке уже занята устройством "{occupant.system_name or occupant.serial_number}". Переназначить позицию на текущее устройство?'})
+            occupant.rack_position = None
+
+
+def _validate_physical_device_vlan(data: dict[str, Any], session: Session) -> None:
+    device=session.get(PhysicalDevice, data.get('physical_device_id')) if data.get('physical_device_id') else None
+    vlan=session.get(VLAN, data.get('vlan_id')) if data.get('vlan_id') else None
+    if not device or not vlan: raise HTTPException(422, 'Необходимо указать физическое устройство и VLAN')
+    # A device may define a local VLAN, or use a VLAN from a shared domain.
+    # The old device-type VLAN catalog remains compatible, but is no longer
+    # required for a newly created device-local VLAN.
+    if vlan.domain_id:
+        member=session.scalar(select(VLANDomainDevice.id).where(
+            VLANDomainDevice.domain_id==vlan.domain_id,
+            VLANDomainDevice.physical_device_id==device.id))
+        if not member:
+            raise HTTPException(422, 'Устройство не включено в домен этого VLAN')
+
+
+def _validate_device_model(data: dict[str, Any], session: Session, item_id: str | None) -> None:
+    if not data.get('manufacturer_id') or not data.get('device_type_id'): raise HTTPException(422, 'Для модели необходимо указать производителя и тип устройства')
+    if data.get('model'):
+        stmt = select(DeviceModel).where(DeviceModel.manufacturer_id == data['manufacturer_id'], DeviceModel.device_type_id == data['device_type_id'], DeviceModel.model == data['model'])
+        if item_id: stmt = stmt.where(DeviceModel.id != item_id)
+        if session.scalar(stmt): raise HTTPException(409, 'Такая модель уже существует для выбранных производителя и типа устройства')
+
+
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
+    """Диспетчеризация по типу модели на per-модель валидаторы выше. Вынесено из одной функции
+    (была сложностью 18) — сама логика проверок не изменена."""
     if model is PhysicalDevice:
-        validate_device_model_relation(data, session, item_id); validate_operating_system(data, session); validate_embedded_os(data, session); validate_device_location_hierarchy(data, session)
-        if data.get('system_name') and duplicate_system_name(session, data['system_name'], item_id) and not confirm_duplicate:
-            raise HTTPException(409, detail={'code': ErrorCode.DUPLICATE_SYSTEM_NAME, 'message': 'Системное имя уже используется другим устройством. Сохранить дубликат?'})
-        rack_id = data.get('rack_id'); rack_position = data.get('rack_position')
-        if rack_id and rack_position:
-            stmt = select(PhysicalDevice).where(PhysicalDevice.rack_id == rack_id, PhysicalDevice.rack_position == rack_position)
-            if item_id: stmt = stmt.where(PhysicalDevice.id != item_id)
-            occupant = session.scalar(stmt)
-            if occupant:
-                if not confirm_rack_reassign:
-                    raise HTTPException(409, detail={'code': ErrorCode.RACK_POSITION_OCCUPIED, 'message': f'Позиция "{rack_position}" в этой стойке уже занята устройством "{occupant.system_name or occupant.serial_number}". Переназначить позицию на текущее устройство?'})
-                occupant.rack_position = None
+        _validate_physical_device(data, session, item_id, confirm_duplicate, confirm_rack_reassign)
     elif model is VirtualMachine:
         validate_operating_system(data, session); validate_hypervisor(data, session); validate_vm_host(data, session)
     elif model.__name__ == 'PhysicalDeviceVLAN':
-        device=session.get(PhysicalDevice, data.get('physical_device_id')) if data.get('physical_device_id') else None
-        vlan=session.get(VLAN, data.get('vlan_id')) if data.get('vlan_id') else None
-        if not device or not vlan: raise HTTPException(422, 'Необходимо указать физическое устройство и VLAN')
-        # A device may define a local VLAN, or use a VLAN from a shared domain.
-        # The old device-type VLAN catalog remains compatible, but is no longer
-        # required for a newly created device-local VLAN.
-        if vlan.domain_id:
-            member=session.scalar(select(VLANDomainDevice.id).where(
-                VLANDomainDevice.domain_id==vlan.domain_id,
-                VLANDomainDevice.physical_device_id==device.id))
-            if not member:
-                raise HTTPException(422, 'Устройство не включено в домен этого VLAN')
+        _validate_physical_device_vlan(data, session)
     elif model is DeviceModel:
-        if not data.get('manufacturer_id') or not data.get('device_type_id'): raise HTTPException(422, 'Для модели необходимо указать производителя и тип устройства')
-        if data.get('model'):
-            stmt = select(DeviceModel).where(DeviceModel.manufacturer_id == data['manufacturer_id'], DeviceModel.device_type_id == data['device_type_id'], DeviceModel.model == data['model'])
-            if item_id: stmt = stmt.where(DeviceModel.id != item_id)
-            if session.scalar(stmt): raise HTTPException(409, 'Такая модель уже существует для выбранных производителя и типа устройства')
+        _validate_device_model(data, session, item_id)
     elif model is Connection: validate_connection(data, session, item_id)
 
 def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None):

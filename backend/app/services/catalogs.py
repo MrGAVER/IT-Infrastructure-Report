@@ -20,12 +20,14 @@ OS_DEFAULTS = [
  ('Сетевая ОС','Cisco IOS XE','Cisco','17'),('Сетевая ОС','Cisco IOS','Cisco','15'),('Сетевая ОС','RouterOS','MikroTik','7'),('ОС средства защиты','FortiOS','Fortinet','7'),
  ('Гипервизор','VMware ESXi','VMware','7.0'),('Гипервизор','VMware ESXi','VMware','8.0'),('Гипервизор','Microsoft Hyper-V','Microsoft','2022'),('Гипервизор','Microsoft Hyper-V','Microsoft','2025'),('Гипервизор','Proxmox VE','Proxmox','8'),('Гипервизор','Proxmox VE','Proxmox','9')]
 
-def seed_defaults(session: Session) -> None:
+def _seed_name_only_catalogs(session: Session) -> None:
     for model, names in DEFAULT_NAMES.items():
         existing = {x.name for x in session.scalars(select(model)).all()}
         for name in names:
             if name not in existing: session.add(model(name=name))
-    session.flush()
+
+
+def _seed_operating_systems(session: Session) -> None:
     categories = {x.name: x for x in session.scalars(select(OperatingSystemCategory)).all()}
     existing_os = {(x.category_id, x.name, x.version) for x in session.scalars(select(OperatingSystem)).all()}
     for category, name, vendor, version in OS_DEFAULTS:
@@ -34,18 +36,40 @@ def seed_defaults(session: Session) -> None:
     existing_embedded = {(x.name, x.version) for x in session.scalars(select(EmbeddedOperatingSystem)).all()}
     for name, version, vendor in EMBEDDED_OS_DEFAULTS:
         if (name, version) not in existing_embedded: session.add(EmbeddedOperatingSystem(name=name, version=version or None, vendor=vendor))
-    session.flush()
+
+
+def _seed_protocols(session: Session) -> None:
     existing_protocols = {(x.port, x.protocol_type) for x in session.scalars(select(ProtocolPortCatalog)).all()}
     for port, protocol_type, description in PROTOCOL_DEFAULTS:
         if (port, protocol_type) not in existing_protocols:
             session.add(ProtocolPortCatalog(port=port, protocol_type=protocol_type, description=description))
-    session.flush()
-    for model, names in [(Manufacturer,['Cisco','Dell','HPE','Huawei','VMware','Microsoft','Proxmox','MikroTik','Fortinet','Lenovo','Supermicro'])]:
-        existing = {x.name for x in session.scalars(select(model)).all()}
-        for name in names:
-            if name not in existing: session.add(model(name=name))
+
+
+def _seed_manufacturers(session: Session) -> None:
+    manufacturer_names = ['Cisco','Dell','HPE','Huawei','VMware','Microsoft','Proxmox','MikroTik','Fortinet','Lenovo','Supermicro']
+    existing = {x.name for x in session.scalars(select(Manufacturer)).all()}
+    for name in manufacturer_names:
+        if name not in existing: session.add(Manufacturer(name=name))
+
+
+def _seed_singleton_records(session: Session) -> None:
+    """Ровно одна запись каждого вида по умолчанию — только если справочник пуст."""
     if not session.scalar(select(Building).limit(1)): session.add(Building(name='Главный офис', address='Адрес организации'))
     if not session.scalar(select(Organization).limit(1)): session.add(Organization(name='Организация', short_name='ООО "Организация"'))
     if not session.scalar(select(SupportOrganization).limit(1)): session.add(SupportOrganization(name='Организация технической поддержки', short_name='Техподдержка'))
     if not session.scalar(select(Department).limit(1)): session.add(Department(name='ИТ'))
+
+
+def seed_defaults(session: Session) -> None:
+    """Оркестратор: наполняет справочники значениями по умолчанию, идемпотентно (не дублирует
+    уже существующие записи). Вынесено в отдельные функции по виду справочника — была одной
+    функцией сложности 17, логика по каждому блоку не изменена."""
+    _seed_name_only_catalogs(session)
+    session.flush()
+    _seed_operating_systems(session)
+    session.flush()
+    _seed_protocols(session)
+    session.flush()
+    _seed_manufacturers(session)
+    _seed_singleton_records(session)
     session.commit()
