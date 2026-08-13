@@ -39,7 +39,7 @@ def _load_and_validate(payload: dict) -> tuple[str, dict, str, str | None]:
     try:
         validate_config(build_entity_metadata(), fmt, config)
     except ReportBuilderError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
     return name, config, fmt, payload.get("description")
 
 
@@ -58,7 +58,7 @@ def preview(payload: dict, session: Session = Depends(get_db)):
         validate_config(build_entity_metadata(), fmt, config)
         return preview_rows(session, config, limit=int(payload.get("limit", 20)))
     except ReportBuilderError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
 
 
 @router.get("/report-templates")
@@ -131,5 +131,5 @@ def generate_template_report(template_id: str, payload: dict | None = None, sess
     try:
         path = build_report_from_template(session, t, REPORT_DIR, params=params)
     except ReportBuilderError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
     return {"file_name": path.name, "download_url": f"/api/v1/reports/download/{path.name}"}

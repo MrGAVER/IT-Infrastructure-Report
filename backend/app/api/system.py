@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from ..config import APP_VERSION, FRONTEND_DIR, REPORT_DIR

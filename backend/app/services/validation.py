@@ -5,8 +5,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from ..models import (
     DeviceModel, DeviceType, OperatingSystem, OperatingSystemCategory, PhysicalDevice,
-    Rack, Room, DeviceInterface, Connection, VirtualMachine, EmbeddedOperatingSystem,
-    DeviceType,
+    Rack, Room, DeviceInterface, Connection, EmbeddedOperatingSystem,
 )
 
 def validate_device_model_relation(data: dict[str, Any], session: Session, current_device_id: str | None = None) -> None:

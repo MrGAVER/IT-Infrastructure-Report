@@ -1,11 +1,9 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 from ..db import get_db
-from ..models import PhysicalDevice
 from ..registry import DISPLAY_NAMES, MODEL_MAP
-from ..services.crud import columns_for, create_resource, delete_resource, list_resource, model_for, sync_interfaces, update_resource, get_information_system_details, sync_information_system_details
+from ..services.crud import columns_for, create_resource, delete_resource, list_resource, model_for, update_resource, get_information_system_details, sync_information_system_details
 from ..services.serialization import serialize
 
 router = APIRouter(prefix='/api/v1/resources', tags=['CRUD'])

@@ -4,7 +4,7 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, InterfaceIP, PhysicalDevice, DeviceModel, DeviceType, Manufacturer, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, OperatingSystem, OperatingSystemCategory, VirtualMachine, InformationSystem, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, Department, Container, ProtocolPortCatalog, VMIP, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceTypeVLAN)
+from ..models import (Connection, ConnectionType, DeviceInterface, InterfaceIP, PhysicalDevice, DeviceType, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, Department, Container, ProtocolPortCatalog, VMIP, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN)
 from .computed import device_management_ports_and_ips
 
 def serialize(obj: Any) -> dict[str, Any]:

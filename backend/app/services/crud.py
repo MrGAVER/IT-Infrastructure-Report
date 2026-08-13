@@ -13,7 +13,7 @@ from .validation import duplicate_system_name, validate_connection, validate_dev
 
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
-    except KeyError: raise HTTPException(404, f"Ресурс '{resource}' не найден")
+    except KeyError as exc: raise HTTPException(404, f"Ресурс '{resource}' не найден") from exc
 
 def columns_for(model):
     return [{'name': c.key, 'type': str(c.type), 'nullable': c.nullable, 'primary_key': c.primary_key, 'default': None if c.default is None else str(c.default.arg), 'foreign_key': next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None} for c in inspect(model).columns]
@@ -103,7 +103,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     try:
         session.flush(); audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit(); return serialize(obj)
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}')
+        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
 def update_resource(resource: str, item_id: str, payload: dict[str, Any], session: Session):
     model = model_for(resource); obj = session.get(model, item_id)
@@ -120,7 +120,7 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     try:
         session.flush(); audit(session, resource, str(obj.id), AuditAction.UPDATE, 'Изменение записи'); session.commit(); return serialize(obj)
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}')
+        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
 def _find_referencing_counts(model, item_id: str, session: Session) -> list[tuple[str, int]]:
     """Для каждого другого зарегистрированного ресурса считает, сколько его записей ссылаются
@@ -151,8 +151,8 @@ def delete_resource(resource: str, item_id: str, session: Session):
         raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': f'Нельзя удалить: запись используется в других данных ({details}).'})
     try:
         session.delete(obj); session.flush(); audit(session, resource, item_id, AuditAction.DELETE, 'Удаление записи'); session.commit(); return {'status': 'deleted', 'id': item_id}
-    except IntegrityError:
-        session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты')
+    except IntegrityError as exc:
+        session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
 def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     device = session.get(PhysicalDevice, device_id)
@@ -206,7 +206,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}')
+        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
 
 def get_information_system_details(system_id: str, session: Session) -> dict[str, Any]:
@@ -276,5 +276,5 @@ def sync_information_system_details(system_id: str, payload: dict[str, Any], ses
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}')
+        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
