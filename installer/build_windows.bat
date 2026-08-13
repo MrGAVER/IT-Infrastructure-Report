@@ -4,7 +4,7 @@ cd /d %~dp0..\
 if not exist .venv py -3.12 -m venv .venv
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
-pip install -r backend\requirements.txt
+pip install -r backend\requirements-build.txt
 rmdir /s /q build 2>nul
 rmdir /s /q dist 2>nul
 python -m PyInstaller --clean --noconfirm infra_registry.spec

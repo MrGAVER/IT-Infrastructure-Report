@@ -1,0 +1,4 @@
+# Зависимости, нужные только для сборки EXE (installer/build_windows.bat), не для
+# рантайма сервера. Устанавливаются поверх requirements.txt.
+-r requirements.txt
+pyinstaller>=6.10,<7

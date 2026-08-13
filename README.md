@@ -333,13 +333,24 @@ docker-compose.yml
 
 ## Тестирование
 
-Backend покрыт тестами на `unittest` (лёгкая мок-замена SQLAlchemy без тяжёлых зависимостей + тесты
-на реальной in-memory SQLite там, где нужна честная проверка внешних ключей):
+Два слоя тестов:
 
-```bash
-cd backend
-python3 -m unittest discover -s tests -v
-```
+- **Лёгкие тесты бизнес-логики** (`test_computed.py`, `test_constants.py`, `test_referential_integrity.py`,
+  `test_report_builder.py`, `test_reporting.py`) — `unittest`, часть на облегчённом моке SQLAlchemy
+  (`mock_sqlalchemy.py`) без тяжёлых зависимостей, не требуют `pip install`:
+  ```bash
+  cd backend
+  python3 -m unittest discover -s tests -v
+  ```
+- **Интеграционные тесты HTTP-слоя** (`test_api.py`) — `fastapi.testclient.TestClient` поверх
+  реальной SQLAlchemy-сессии на in-memory SQLite (см. `conftest.py`): реальные запросы, FK-констрейнты,
+  конфликты 409, полный путь через API, а не только форматирование. Требуют dev-зависимостей:
+  ```bash
+  pip install -r backend/requirements-dev.txt
+  pytest   # или: pytest backend/tests -v
+  ```
+  `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
+  видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
 
 Дополнительно при каждом изменении проверяются:
 
@@ -602,6 +613,20 @@ Huawei 2288 нельзя выбрать как модель коммутатор
     пробрасывают причину через `raise ... from exc`.
   - Устранены неиспользуемые/дублирующиеся импорты (`services/validation.py`,
     `services/serialization.py`, `api/resources.py`, `api/system.py`, `db.py`).
+  - `services/serialization.py`: устранён единственный в файле N+1-запрос (подгрузка `VMIP`
+    внутри цикла по информационным системам) — вынесен в общий батч-запрос, как остальные связи.
+  - `reporting.py`: `from .models import *` заменён на явный список из 39 используемых моделей.
+  - Удалён мёртвый код: `enrich_device()`/`enrich_interface()`, неиспользуемая загрузка `Rack`
+    в `build_report()`, фронтенд-функции `renderVMIPRows()`/`locationSelectField()`.
+  - `pyinstaller` вынесен из `requirements.txt` в отдельный `requirements-build.txt` — Docker-образ
+    и обычная разработка больше не тянут инструмент сборки EXE; добавлен `requirements-dev.txt`
+    (pytest, httpx, ruff).
+- **Тесты:** добавлен `backend/tests/test_api.py` (18 тестов) — интеграционные тесты HTTP-эндпоинтов
+  на `fastapi.testclient.TestClient` + реальной SQLAlchemy на in-memory SQLite (см. `conftest.py`):
+  CRUD-цикл create/get/update/delete, коды конфликтов 409 (`DUPLICATE_SYSTEM_NAME`,
+  `RACK_POSITION_OCCUPIED`, `REFERENCED_BY_OTHER_RECORDS`), синхронизация интерфейсов устройства,
+  синхронизация деталей информационной системы, генерация и скачивание отчёта. Раньше HTTP-слой и
+  `services/crud.py` не были покрыты тестами вовсе.
 
 ## Известные ограничения и заметки
 
