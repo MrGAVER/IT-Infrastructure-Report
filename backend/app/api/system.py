@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from ..config import APP_VERSION, FRONTEND_DIR, REPORT_DIR
+from ..config import APP_VERSION, ENABLE_TEST_DATA_ENDPOINT, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
 from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Organization, Department, Building, Room, Rack, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN)
 from ..services.catalogs import seed_defaults
@@ -123,7 +123,12 @@ def seed(session: Session = Depends(get_db)):
 
 @router.post('/api/v1/seed/test')
 def seed_test_data(session: Session = Depends(get_db)):
-    """Temporary demo-data generator. Creates a coherent test dataset without deleting user data."""
+    """Temporary demo-data generator. Creates a coherent test dataset without deleting user data.
+
+    Disabled by default (INFRA_REGISTRY_ENABLE_TEST_DATA=1 to enable) so it can't be
+    triggered against a real deployment by accident."""
+    if not ENABLE_TEST_DATA_ENDPOINT:
+        raise HTTPException(404, 'Эндпоинт отключен. Установите переменную окружения INFRA_REGISTRY_ENABLE_TEST_DATA=1, чтобы включить')
     from datetime import datetime
     from uuid import uuid4
 

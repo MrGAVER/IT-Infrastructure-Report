@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .config import APP_VERSION, FRONTEND_DIR
+from .config import APP_VERSION, CORS_ALLOWED_ORIGINS, FRONTEND_DIR
 from .api.devices import router as devices_router
 from .api.report_builder import router as report_builder_router
 from .api.resources import router as resources_router
@@ -17,7 +17,10 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
+# allow_credentials=False: the app doesn't use cookies/auth headers, and combining
+# allow_credentials=True with a wildcard origin makes the browser reflect any calling
+# origin as trusted, which is unnecessary risk without any actual benefit here.
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ALLOWED_ORIGINS, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
 app.include_router(system_router)
 app.include_router(devices_router)
 app.include_router(resources_router)

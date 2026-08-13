@@ -2,13 +2,13 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: infra_registry
-      POSTGRES_USER: infra
-      POSTGRES_PASSWORD: infra_password
+      POSTGRES_DB: ${POSTGRES_DB:-infra_registry}
+      POSTGRES_USER: ${POSTGRES_USER:-infra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в .env (см. .env.example)}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U infra -d infra_registry"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-infra} -d ${POSTGRES_DB:-infra_registry}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -17,7 +17,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg://infra:infra_password@db:5432/infra_registry
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-infra}:${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в .env (см. .env.example)}@db:5432/${POSTGRES_DB:-infra_registry}
+      INFRA_REGISTRY_CORS_ORIGINS: ${INFRA_REGISTRY_CORS_ORIGINS:-*}
+      INFRA_REGISTRY_ENABLE_TEST_DATA: ${INFRA_REGISTRY_ENABLE_TEST_DATA:-1}
     ports:
       - "8000:8000"
     depends_on:
