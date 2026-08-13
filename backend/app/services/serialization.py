@@ -156,6 +156,15 @@ def enrich_information_systems(items: Sequence[InformationSystem], session: Sess
     for x in cont_links: cont_by_is.setdefault(x.information_system_id, []).append(x)
     for x in source_rows: source_by_is.setdefault(x.information_system_id, []).append(x)
 
+    # Every VM referenced by any IS (via ISVM or a unified source row) contributes its actual
+    # IPs to that IS's summary. Loaded once here for all systems, instead of once per system
+    # inside the loop below, to avoid an N+1 query against VMIP.
+    all_referenced_vm_ids = set(vm_map.keys())
+    vm_ips_by_vm: dict[str, list[VMIP]] = {}
+    if all_referenced_vm_ids:
+        for x in session.scalars(select(VMIP).where(VMIP.virtual_machine_id.in_(all_referenced_vm_ids))).all():
+            vm_ips_by_vm.setdefault(x.virtual_machine_id, []).append(x)
+
     # Build readable summaries from both the normalized legacy links and the unified source rows.
     result = []
     for obj in items:
@@ -180,9 +189,8 @@ def enrich_information_systems(items: Sequence[InformationSystem], session: Sess
                 containers.append(cont_map[src.container_id])
 
         # If an IS is linked to a VM, include its actual VM IPs in the summary.
-        if vms:
-            vm_ip_rows = session.scalars(select(VMIP).where(VMIP.virtual_machine_id.in_([v.id for v in vms]))).all()
-            ips.extend(f'{x.ip_address}/{x.prefix_length}' if x.prefix_length is not None else x.ip_address for x in vm_ip_rows)
+        for v in vms:
+            ips.extend(f'{x.ip_address}/{x.prefix_length}' if x.prefix_length is not None else x.ip_address for x in vm_ips_by_vm.get(v.id, []))
 
         data['ip_addresses_summary'] = '; '.join(dict.fromkeys(x for x in ips if x))
         data['protocols_summary'] = '; '.join(dict.fromkeys(
