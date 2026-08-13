@@ -191,11 +191,17 @@ def generate_report(information_system_id: str | None = None, session: Session =
     path = build_report(session, REPORT_DIR, information_system_id)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
+REPORT_MEDIA_TYPES = {
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+
 @router.get('/api/v1/reports/download/{filename}')
 def download_report(filename: str):
     path = (REPORT_DIR / filename).resolve()
     if path.parent != REPORT_DIR.resolve() or not path.is_file(): raise HTTPException(404, 'Файл отчета не найден')
-    return FileResponse(path, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename=path.name)
+    media_type = REPORT_MEDIA_TYPES.get(path.suffix.lower(), 'application/octet-stream')
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 @router.get('/', include_in_schema=False)
 def frontend_index():

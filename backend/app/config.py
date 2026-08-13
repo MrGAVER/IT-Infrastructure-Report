@@ -9,4 +9,4 @@ REPORT_DIR = APP_DATA_DIR / 'reports'
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_registry.db"}')
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend'))).expanduser().resolve()
-APP_VERSION = '2.21.0'
+APP_VERSION = '2.22.0'

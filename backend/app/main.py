@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .config import APP_VERSION, FRONTEND_DIR
 from .api.devices import router as devices_router
+from .api.report_builder import router as report_builder_router
 from .api.resources import router as resources_router
 from .api.system import router as system_router
 from .db import SessionLocal
@@ -20,6 +21,7 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, 
 app.include_router(system_router)
 app.include_router(devices_router)
 app.include_router(resources_router)
+app.include_router(report_builder_router)
 
 def seed_catalogs_on_startup():
     session = SessionLocal()

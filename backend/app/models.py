@@ -394,6 +394,22 @@ class OpenPort(TimestampMixin, Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+class ReportTemplate(TimestampMixin, Base):
+    """Пользовательский шаблон произвольного отчёта (конструктор отчётов).
+
+    Вся структура отчёта (листы/блоки, колонки, фильтры, параметры) хранится одним JSON-документом
+    в config, а не отдельными таблицами: набор допустимых полей и связей выводится динамически из
+    MODEL_MAP (см. services/report_meta.py), поэтому жёсткая реляционная схема под конструктор
+    неизбежно дублировала бы её и требовала бы миграции при каждом новом типе колонки. Формат JSON
+    описан в services/report_engine.py.
+    """
+    __tablename__ = "report_templates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    format: Mapped[str] = mapped_column(String(10), default="xlsx")  # xlsx | docx
+    config: Mapped[str] = mapped_column(Text)  # JSON: sheets/blocks, колонки, фильтры, параметры
+
 class AuditLog(TimestampMixin, Base):
     __tablename__ = "audit_log"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
