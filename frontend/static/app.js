@@ -61,6 +61,28 @@ function parseApiError(err) {
   return { code: null, message: err.message };
 }
 function errorMessage(err) { return parseApiError(err).message; }
+
+// Единообразные toast-уведомления вместо alert(): не блокируют интерфейс, автоматически
+// скрываются через notifyMs (кроме ошибок — те остаются, пока их не закроют, чтобы не
+// пропустить сообщение о проблеме). type: 'error' | 'success' | 'info'.
+function _toastContainer(){
+  let el=document.getElementById('toast-container');
+  if(!el){el=document.createElement('div');el.id='toast-container';document.body.appendChild(el);}
+  return el;
+}
+function notify(message,type='info'){
+  const container=_toastContainer();
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  const text=document.createElement('span');text.textContent=message;el.appendChild(text);
+  const closeBtn=document.createElement('button');closeBtn.className='toast-close';closeBtn.setAttribute('aria-label','Закрыть');closeBtn.textContent='×';
+  closeBtn.onclick=()=>el.remove();
+  el.appendChild(closeBtn);
+  container.appendChild(el);
+  if(type!=='error') setTimeout(()=>el.remove(),5000);
+}
+function notifyError(err){notify(errorMessage(err),'error');}
+
 async function get(url,opt){
   const method=(opt&&opt.method)||'GET';
   if(method==='GET'){
@@ -163,7 +185,7 @@ async function renderAuditLog(){
    return `<tr><td>${esc(when)}</td><td>${esc(resourceNames[r.entity_type]||r.entity_type)}</td><td>${entityCell}</td><td>${esc(actionLabels[r.action]||r.action)}</td><td>${esc(r.details||'')}</td></tr>`;
  }).join('')||'<tr><td colspan="5" class="muted">Записей нет</td></tr>'}</tbody></table></div></div>`;
 }
-async function generateTestData(){if(!confirm('Добавить демонстрационные тестовые данные? Существующие данные не будут удалены.'))return;try{const r=await get(api+'/seed/test',{method:'POST'});alert(r.message+`\nИдентификатор набора: ${r.tag}`);await showDashboard();}catch(e){alert(errorMessage(e))}}
+async function generateTestData(){if(!confirm('Добавить демонстрационные тестовые данные? Существующие данные не будут удалены.'))return;try{const r=await get(api+'/seed/test',{method:'POST'});notify(r.message+`\nИдентификатор набора: ${r.tag}`,'success');await showDashboard();}catch(e){notifyError(e)}}
 async function renderVlanDashboard(){
  const data=await get(api+'/vlan-dashboard');
  document.getElementById('content').innerHTML=`<div class="top"><div><h2>VLAN</h2><div class="muted">Одинаковый VLAN ID может иметь разные названия и описания на разных устройствах</div></div><div><button class="btn" onclick="openForm()">+ VLAN</button><button class="btn gray" onclick="openResource('vlan-domains')">Домены VLAN</button><button class="btn gray" onclick="showDashboard()">Dashboard</button></div></div><div class="panel"><div class="tablewrap"><table><thead><tr><th>VLAN ID</th><th>Название / описание</th><th>Домен</th><th>Устройства</th><th>IP / управление</th><th>Действия</th></tr></thead><tbody>${data.items.map(g=>g.definitions.map((v,j)=>`<tr>${j===0?`<td rowspan="${g.definitions.length}"><b>${esc(g.vlan_id)}</b></td>`:''}<td><b>${esc(v.name)}</b><br><span class="muted">${esc(v.description||'')}</span></td><td>${esc(v.domain_name)}</td><td>${esc(v.devices.map(d=>d.device_name).join(', ')||'—')}</td><td>${esc(v.devices.map(d=>d.ip_address?d.ip_address+(d.is_management?' (управление)':''):'не назначен').join(', ')||'—')}</td><td><button class="btn gray" onclick="openForm('${v.id}')">Изменить</button> <button class="btn red" onclick="removeItem('${v.id}')">Удалить</button></td></tr>`).join('')).join('')}</tbody></table></div></div>`;
@@ -277,7 +299,7 @@ async function onISSourceTypeChanged(i){syncISDetails();const x=window.isEditor.
 async function onISSourceDeviceChanged(i){syncISDetails();const e=window.isEditor,x=e.details.sources[i],dev=document.querySelector(`[data-is-source="${i}"][data-k="physical_device_id"]`)?.value||'';x.physical_device_id=dev||null;x.virtual_machine_id=null;renderISDetails()}
 async function onISSourceVMChanged(i){syncISDetails();const e=window.isEditor,x=e.details.sources[i],vm=document.querySelector(`[data-is-source="${i}"][data-k="virtual_machine_id"]`)?.value||'';x.virtual_machine_id=vm||null;x.source_type='vm';if(vm){const obj=e.vms.find(v=>v.id===vm);x.physical_device_id=obj?.physical_device_id||null;}renderISDetails()}
 function syncISDetails(){const e=window.isEditor;if(!e)return;document.querySelectorAll('[data-is-dep]').forEach(el=>{const i=+el.dataset.isDep;if(e.details.departments[i])e.details.departments[i].department_id=el.value});document.querySelectorAll('[data-is-prot]').forEach(el=>{const i=+el.dataset.isProt,k=el.dataset.k;if(e.details.protocols[i]){e.details.protocols[i][k]=el.value;if(k==='protocol_catalog_id'){const cat=e.protocolCatalogs?.find(x=>x.id===el.value);if(cat){e.details.protocols[i].protocol=cat.protocol_type;e.details.protocols[i].port=cat.port;}}}});document.querySelectorAll('[data-is-source]').forEach(el=>{const i=+el.dataset.isSource,k=el.dataset.k;if(!e.details.sources[i])return;if(el.type==='checkbox'){e.details.sources[i][k]=el.checked;return;}const fkKeys=['physical_device_id','virtual_machine_id','container_id'];e.details.sources[i][k]=(fkKeys.includes(k)&&el.value==='')?null:el.value;});document.querySelectorAll('[data-is-pa]').forEach(el=>{const i=+el.dataset.isPa;if(e.details.placement_assets[i])e.details.placement_assets[i].placement_asset_id=el.value});}
-async function saveInformationSystemForm(){syncISDetails();const e=window.isEditor;const data={name:document.getElementById('is-name').value.trim(),description:document.getElementById('is-description').value||null,purpose:document.getElementById('is-purpose').value||null,localization:document.getElementById('is-localization').value||null,support_organization_id:document.getElementById('is-support-org').value||null,support_method_id:document.getElementById('is-support-method').value||null,process_description:document.getElementById('is-process').value||null,crypto_protection_enabled:document.getElementById('is-crypto').value==='true',crypto_protection_description_id:document.getElementById('is-crypto-description').value||null,siem_enabled:document.getElementById('is-siem').value==='true'};if(!data.name)return alert('Укажите наименование ИС.');try{const saved=await get(api+`/resources/information-systems${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const clean={departments:e.details.departments.filter(x=>x.department_id),ips:[],protocols:e.details.protocols.filter(x=>x.protocol_catalog_id||x.protocol?.trim()).map(x=>({...x,protocol_catalog_id:x.protocol_catalog_id||null})),devices:[],vms:[],containers:[],sources:e.details.sources.filter(x=>x.source_type==='manual'?x.ip_address?.trim():true),placement_assets:e.details.placement_assets.filter(x=>x.placement_asset_id)};await get(api+`/resources/information-systems/${saved.id}/details`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(clean)});closeModal(true);await renderList();}catch(err){alert(errorMessage(err))}}
+async function saveInformationSystemForm(){syncISDetails();const e=window.isEditor;const data={name:document.getElementById('is-name').value.trim(),description:document.getElementById('is-description').value||null,purpose:document.getElementById('is-purpose').value||null,localization:document.getElementById('is-localization').value||null,support_organization_id:document.getElementById('is-support-org').value||null,support_method_id:document.getElementById('is-support-method').value||null,process_description:document.getElementById('is-process').value||null,crypto_protection_enabled:document.getElementById('is-crypto').value==='true',crypto_protection_description_id:document.getElementById('is-crypto-description').value||null,siem_enabled:document.getElementById('is-siem').value==='true'};if(!data.name)return notify('Укажите наименование ИС.','error');try{const saved=await get(api+`/resources/information-systems${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const clean={departments:e.details.departments.filter(x=>x.department_id),ips:[],protocols:e.details.protocols.filter(x=>x.protocol_catalog_id||x.protocol?.trim()).map(x=>({...x,protocol_catalog_id:x.protocol_catalog_id||null})),devices:[],vms:[],containers:[],sources:e.details.sources.filter(x=>x.source_type==='manual'?x.ip_address?.trim():true),placement_assets:e.details.placement_assets.filter(x=>x.placement_asset_id)};await get(api+`/resources/information-systems/${saved.id}/details`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(clean)});closeModal(true);await renderList();}catch(err){notifyError(err)}}
 async function openForm(id=''){
  editingId=id;
  if(resource==='device-types'){await openDeviceTypeForm(id);return;}
@@ -450,14 +472,14 @@ async function openVlanForm(id=''){
 async function saveVlanForm(){
  const vlanIdValue=document.getElementById('vlan-vlan_id')?.value||'';
  const name=document.getElementById('vlan-name')?.value.trim()||'';
- if(!vlanIdValue||!name)return alert('Укажите VLAN ID и VLAN Name.');
+ if(!vlanIdValue||!name)return notify('Укажите VLAN ID и VLAN Name.','error');
  const data={vlan_id:Number(vlanIdValue),name,description:document.getElementById('vlan-description').value||null};
  try{
    await get(api+`/resources/vlans${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
    closeModal(true);await renderVlanDashboard();
- }catch(e){alert(errorMessage(e))}
+ }catch(e){notifyError(e)}
 }
-async function saveDeviceTypeForm(){const e=window.deviceTypeEditor,name=document.getElementById('device-type-name').value.trim();if(!name)return alert('Укажите наименование типа устройства.');try{const saved=await get(api+`/resources/device-types${e.id?'/'+e.id:''}`,{method:e.id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const old=(await get(api+'/resources/device-type-vlans?limit=1000')).items.filter(x=>x.device_type_id===saved.id);for(const x of old)await get(api+`/resources/device-type-vlans/${x.id}`,{method:'DELETE'});for(const vlan_id of e.selected)await get(api+'/resources/device-type-vlans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_type_id:saved.id,vlan_id})});closeModal(true);await renderList();}catch(err){alert(errorMessage(err))}}
+async function saveDeviceTypeForm(){const e=window.deviceTypeEditor,name=document.getElementById('device-type-name').value.trim();if(!name)return notify('Укажите наименование типа устройства.','error');try{const saved=await get(api+`/resources/device-types${e.id?'/'+e.id:''}`,{method:e.id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});const old=(await get(api+'/resources/device-type-vlans?limit=1000')).items.filter(x=>x.device_type_id===saved.id);for(const x of old)await get(api+`/resources/device-type-vlans/${x.id}`,{method:'DELETE'});for(const vlan_id of e.selected)await get(api+'/resources/device-type-vlans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_type_id:saved.id,vlan_id})});closeModal(true);await renderList();}catch(err){notifyError(err)}}
 async function fieldHtml(c,v,item={}){
  const label=labels[c.name]||c.name;
  if(resource==='devices'&&c.name==='status'){
@@ -649,7 +671,7 @@ function toggleAllInterfaceSelection(checked){document.querySelectorAll('.if-sel
 function applyBulkInterfaceEdit(){
  syncInterfaceRows();
  const selected=Array.from(document.querySelectorAll('.if-select:checked')).map(el=>+el.dataset.ifSelect);
- if(!selected.length)return alert('Отметьте хотя бы один интерфейс галочкой "Выбрать".');
+ if(!selected.length)return notify('Отметьте хотя бы один интерфейс галочкой "Выбрать".','error');
  const type=document.getElementById('if-bulk-type').value,speed=document.getElementById('if-bulk-speed').value,mgmt=document.getElementById('if-bulk-management').value,dataTransfer=document.getElementById('if-bulk-data-transfer').value;
  const vlanIds=Array.from(document.querySelectorAll('.if-bulk-vlan:checked')).map(el=>el.value);
  for(const i of selected){
@@ -718,15 +740,15 @@ async function createVlanDomainFromDevice(){
  const name=prompt('Наименование домена VLAN:');if(!name)return;const description=prompt('Описание домена (необязательно):')||'';
  try{const d=await get(api+'/resources/vlan-domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,description,source_device_id:editingId,auto_sync:false})});
  await get(api+`/vlan-domains/${d.id}/members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({physical_device_id:editingId})});
- window.currentVlanDomains=[...(window.currentVlanDomains||[]),d];showDeviceVlanAddMenu();alert('Домен создан и привязан к текущему устройству.');renderDeviceVlanRows();
- }catch(e){alert(errorMessage(e))}
+ window.currentVlanDomains=[...(window.currentVlanDomains||[]),d];showDeviceVlanAddMenu();notify('Домен создан и привязан к текущему устройству.','success');renderDeviceVlanRows();
+ }catch(e){notifyError(e)}
 }
 async function copyVlanListFromDevice(){
  const devices=(await get(api+'/resources/devices?limit=1000')).items.filter(d=>d.id!==editingId);
- if(!devices.length)return alert('Нет других устройств.');
+ if(!devices.length)return notify('Нет других устройств.','error');
  const options=devices.map((d,i)=>`${i+1}. ${d.system_name||d.serial_number||d.id}`).join('\n');
  const n=Number(prompt('Выберите номер устройства-источника:\n'+options));if(!n||!devices[n-1])return;
- try{const r=await get(api+`/devices/${editingId}/vlan-copy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_device_id:devices[n-1].id})});await loadDeviceVlanEditor(editingId,document.getElementById('field-device_type_id')?.value||'');alert(`Скопировано VLAN: ${r.assigned}`);}catch(e){alert(errorMessage(e))}
+ try{const r=await get(api+`/devices/${editingId}/vlan-copy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_device_id:devices[n-1].id})});await loadDeviceVlanEditor(editingId,document.getElementById('field-device_type_id')?.value||'');notify(`Скопировано VLAN: ${r.assigned}`,'success');}catch(e){notifyError(e)}
 }
 async function saveDeviceVlans(deviceId){
  syncDeviceVlanRows();
@@ -751,7 +773,7 @@ async function saveInterfaceForm(){
  syncInterfaceRows();
  const x=interfaceRows[0]||{};
  const deviceId=document.getElementById('single-if-device')?.value;
- if(!deviceId||!x.name?.trim()) return alert('Укажите физическое устройство и имя интерфейса.');
+ if(!deviceId||!x.name?.trim()) return notify('Укажите физическое устройство и имя интерфейса.','error');
  const payload={physical_device_id:deviceId,name:x.name.trim(),interface_type_id:x.interface_type_id||null,mac_address:x.mac_address||null,speed_id:x.speed_id||null,is_management:!!x.is_management,description:x.description||null};
  try{
    const saved=await get(api+`/resources/interfaces${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -759,9 +781,9 @@ async function saveInterfaceForm(){
    for(const ip of oldIps) await get(api+`/resources/interface-ips/${ip.id}`,{method:'DELETE'});
    for(const ip of (x.ips||[]).filter(ip=>ip.ip_address?.trim())) await get(api+'/resources/interface-ips',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({interface_id:saved.id,ip_address:ip.ip_address.trim(),prefix_length:ip.prefix_length===''?null:Number(ip.prefix_length),purpose:ip.purpose||null,is_management:!!x.is_management})});
    closeModal(true);await renderList();
- }catch(e){alert(errorMessage(e))}
+ }catch(e){notifyError(e)}
 }
-async function openQuickModal(target,sourceField,sourceIndex=null,parentState=null){if(!quickFields[target])return alert('Для этого справочника быстрое добавление не настроено.');quickTarget={resource:target,sourceField,sourceIndex};quickReturn=parentState||null;document.getElementById('quickModalTitle').textContent='Добавить: '+(quickLabels[target]||labels[sourceField]||target);let html=[];for(const [name,label,type,required] of quickFields[target]){if(type==='fk'){const map={building_id:'buildings',room_id:'rooms',device_type_id:'device-types',manufacturer_id:'manufacturers',category_id:'os-categories',parent_id:'departments'};const rr=map[name],opts=(await get(api+`/resources/${rr}?limit=1000`)).items;let selected='';if(target==='device-models'&&name==='manufacturer_id')selected=document.getElementById('field-manufacturer_id')?.value||'';if(target==='device-models'&&name==='device_type_id')selected=document.getElementById('field-device_type_id')?.value||'';if(target==='rooms'&&name==='building_id')selected=document.getElementById('field-building_id')?.value||'';if(target==='racks'&&name==='room_id')selected=document.getElementById('field-room_id')?.value||'';if(target==='departments'&&name==='parent_id')selected='';let addButton='';if(target==='device-models'&&name==='device_type_id'||target==='device-models'&&name==='manufacturer_id'){const childTarget=rr;const childSource=`device-models-${name}`;addButton=`<button type="button" class="btn gray inline-add" title="Добавить ${esc(label)}" onclick="openNestedDeviceCatalog('${childTarget}','${childSource}')">＋</button>`;}html.push(`<label class="field"><span>${label}${required?' *':''}</span><div class="lookup-row"><select name="${name}" ${required?'required':''}>${opts.map(o=>`<option value="${esc(o.id)}" ${o.id===selected?'selected':''}>${esc(lookupLabel(rr,o))}</option>`).join('')}</select>${addButton}</div></label>`);}else if(type==='textarea')html.push(`<label class="field full"><span>${label}</span><textarea name="${name}"></textarea></label>`);else html.push(`<label class="field"><span>${label}${required?' *':''}</span><input type="${type}" name="${name}" ${required?'required':''}></label>`);}document.getElementById('quickFormGrid').innerHTML=html.join('');if(parentState?.values){for(const [k,v] of Object.entries(parentState.values)){const el=document.querySelector(`#quickForm [name=\"${k}\"]`);if(el)el.value=v||'';}}document.getElementById('quickModal').classList.add('show');}
+async function openQuickModal(target,sourceField,sourceIndex=null,parentState=null){if(!quickFields[target])return notify('Для этого справочника быстрое добавление не настроено.','error');quickTarget={resource:target,sourceField,sourceIndex};quickReturn=parentState||null;document.getElementById('quickModalTitle').textContent='Добавить: '+(quickLabels[target]||labels[sourceField]||target);let html=[];for(const [name,label,type,required] of quickFields[target]){if(type==='fk'){const map={building_id:'buildings',room_id:'rooms',device_type_id:'device-types',manufacturer_id:'manufacturers',category_id:'os-categories',parent_id:'departments'};const rr=map[name],opts=(await get(api+`/resources/${rr}?limit=1000`)).items;let selected='';if(target==='device-models'&&name==='manufacturer_id')selected=document.getElementById('field-manufacturer_id')?.value||'';if(target==='device-models'&&name==='device_type_id')selected=document.getElementById('field-device_type_id')?.value||'';if(target==='rooms'&&name==='building_id')selected=document.getElementById('field-building_id')?.value||'';if(target==='racks'&&name==='room_id')selected=document.getElementById('field-room_id')?.value||'';if(target==='departments'&&name==='parent_id')selected='';let addButton='';if(target==='device-models'&&name==='device_type_id'||target==='device-models'&&name==='manufacturer_id'){const childTarget=rr;const childSource=`device-models-${name}`;addButton=`<button type="button" class="btn gray inline-add" title="Добавить ${esc(label)}" onclick="openNestedDeviceCatalog('${childTarget}','${childSource}')">＋</button>`;}html.push(`<label class="field"><span>${label}${required?' *':''}</span><div class="lookup-row"><select name="${name}" ${required?'required':''}>${opts.map(o=>`<option value="${esc(o.id)}" ${o.id===selected?'selected':''}>${esc(lookupLabel(rr,o))}</option>`).join('')}</select>${addButton}</div></label>`);}else if(type==='textarea')html.push(`<label class="field full"><span>${label}</span><textarea name="${name}"></textarea></label>`);else html.push(`<label class="field"><span>${label}${required?' *':''}</span><input type="${type}" name="${name}" ${required?'required':''}></label>`);}document.getElementById('quickFormGrid').innerHTML=html.join('');if(parentState?.values){for(const [k,v] of Object.entries(parentState.values)){const el=document.querySelector(`#quickForm [name=\"${k}\"]`);if(el)el.value=v||'';}}document.getElementById('quickModal').classList.add('show');}
 async function openNestedDeviceCatalog(target,sourceField){const parent={resource:'device-models',sourceField:'model_id',sourceIndex:null,values:Object.fromEntries(new FormData(document.getElementById('quickForm')).entries())};await openQuickModal(target,sourceField,null,parent);}
 async function saveQuickForm(e){e.preventDefault();if(!quickTarget)return;const target={...quickTarget};let data={};for(const [k,v0] of new FormData(e.target).entries())data[k]=v0===''?null:v0;if(data.height_u!==null&&data.height_u!==undefined)data.height_u=Number(data.height_u);try{const created=await get(api+`/resources/${target.resource}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 if((target.resource==='device-types'||target.resource==='manufacturers')&&target.sourceField?.startsWith('device-models-')){const parent=quickReturn;quickReturn=null;closeQuickModal();if(parent){await openQuickModal(parent.resource,parent.sourceField,parent.sourceIndex,null);const f=document.querySelector(`#quickForm [name=\"${target.sourceField.endsWith('device_type_id')?'device_type_id':'manufacturer_id'}\"]`);if(f){const opt=document.createElement('option');opt.value=created.id;opt.textContent=lookupLabel(target.resource,created);f.appendChild(opt);f.value=created.id;}const vals=parent.values||{};for(const [k,v] of Object.entries(vals)){const el=document.querySelector(`#quickForm [name=\"${k}\"]`);if(el)el.value=v||'';}}return;}if(target.resource==='interface-speeds'||target.resource==='interface-types'){await loadInterfaceCatalogs();if(Number.isInteger(target.sourceIndex)&&interfaceRows[target.sourceIndex]){interfaceRows[target.sourceIndex][target.sourceField]=created.id;}closeQuickModal();renderInterfaceEditor();return;}
@@ -779,7 +801,7 @@ if(target.resource==='vlans'&&target.sourceField==='device-vlan-new'){
      // Persist the link right away for an already-saved device: otherwise the VLAN itself gets
      // created in the catalog (a real, permanent side effect) but the link to this device only
      // lives in memory and is lost if the user cancels the form.
-     try{const link=await get(api+'/resources/device-vlans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({physical_device_id:editingId,vlan_id:created.id,ip_address:null,prefix_length:null,is_management:false,description:null})});row={...row,id:link.id};}catch(e){alert(errorMessage(e))}
+     try{const link=await get(api+'/resources/device-vlans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({physical_device_id:editingId,vlan_id:created.id,ip_address:null,prefix_length:null,is_management:false,description:null})});row={...row,id:link.id};}catch(e){notifyError(e)}
    }
    deviceVlanRows.push(row);
    window.currentDeviceVlanOptions=[...(window.currentDeviceVlanOptions||[]),created];window.currentDeviceVlanAll=[...(window.currentDeviceVlanAll||[]),created];renderDeviceVlanRows();syncDeviceVlanOptionsFromRows();closeQuickModal();return;
@@ -807,9 +829,9 @@ if(target.resource==='vlans'&&target.sourceField==='device-vlan-new'){
  if(target.sourceField==='is-crypto-description'&&window.isEditor){window.isEditor.cryptoMeans.push(created);const sel=document.getElementById('is-crypto-description');if(sel){sel.innerHTML='<option value="">— не выбрано —</option>'+window.isEditor.cryptoMeans.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('');sel.value=created.id;}closeQuickModal();return;}
  if(target.sourceField==='is-placement-asset'&&window.isEditor){window.isEditor.placementAssetsCatalog.push(created);window.isEditor.details.placement_assets.push({placement_asset_id:created.id});renderISDetails();closeQuickModal();return;}
  if(field){const opt=document.createElement('option');opt.value=created.id;opt.textContent=lookupLabel(target.resource,created);field.appendChild(opt);field.value=created.id;field.dispatchEvent(new Event('change',{bubbles:true}));}
- closeQuickModal();}catch(err){alert(errorMessage(err))}}
+ closeQuickModal();}catch(err){notifyError(err)}}
 function closeQuickModal(){document.getElementById('quickModal').classList.remove('show');quickTarget=null}
-async function saveForm(e){e.preventDefault();if(resource==='device-types'){saveDeviceTypeForm();return;}if(resource==='connections'){await saveConnectionForm();return;}if(resource==='interfaces'){await saveInterfaceForm();return;}if(resource==='information-systems'){await saveInformationSystemForm();return;}if(resource==='vlans'){await saveVlanForm();return;}let data={};for(const [k,v0] of new FormData(e.target).entries()){let v=v0===''?null:v0,c=schema.columns.find(x=>x.name===k);if(c?.type==='BOOLEAN'&&v!==null)v=v==='true';if(c&&String(c.type).toUpperCase().includes('INTEGER')&&v!==null)v=Number(v);data[k]=v;}async function send(){return get(api+`/resources/${resource}${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});}try{let saved;for(let attempt=0;attempt<3;attempt++){try{saved=await send();break;}catch(err){const parsed=parseApiError(err);if(resource==='devices'&&parsed.code==='DUPLICATE_SYSTEM_NAME'&&confirm(parsed.message+'\n\nОК — сохранить дубликат.')){data.confirm_system_name_duplicate=true;continue;}if(resource==='devices'&&parsed.code==='RACK_POSITION_OCCUPIED'&&confirm(parsed.message)){data.confirm_rack_position_reassign=true;continue;}throw err;}}if(!saved)return;if(resource==='devices'){await saveDeviceVlans(saved.id);await saveDeviceInterfaces(saved.id);await saveDeviceOpenPorts(saved.id);}if(resource==='vms'){await saveVMIPs(saved.id);await saveVMOpenPorts(saved.id);await saveVMSoftware(saved.id);}closeModal(true);await renderList();}catch(err){alert(errorMessage(err))}}
+async function saveForm(e){e.preventDefault();if(resource==='device-types'){saveDeviceTypeForm();return;}if(resource==='connections'){await saveConnectionForm();return;}if(resource==='interfaces'){await saveInterfaceForm();return;}if(resource==='information-systems'){await saveInformationSystemForm();return;}if(resource==='vlans'){await saveVlanForm();return;}let data={};for(const [k,v0] of new FormData(e.target).entries()){let v=v0===''?null:v0,c=schema.columns.find(x=>x.name===k);if(c?.type==='BOOLEAN'&&v!==null)v=v==='true';if(c&&String(c.type).toUpperCase().includes('INTEGER')&&v!==null)v=Number(v);data[k]=v;}async function send(){return get(api+`/resources/${resource}${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});}try{let saved;for(let attempt=0;attempt<3;attempt++){try{saved=await send();break;}catch(err){const parsed=parseApiError(err);if(resource==='devices'&&parsed.code==='DUPLICATE_SYSTEM_NAME'&&confirm(parsed.message+'\n\nОК — сохранить дубликат.')){data.confirm_system_name_duplicate=true;continue;}if(resource==='devices'&&parsed.code==='RACK_POSITION_OCCUPIED'&&confirm(parsed.message)){data.confirm_rack_position_reassign=true;continue;}throw err;}}if(!saved)return;if(resource==='devices'){await saveDeviceVlans(saved.id);await saveDeviceInterfaces(saved.id);await saveDeviceOpenPorts(saved.id);}if(resource==='vms'){await saveVMIPs(saved.id);await saveVMOpenPorts(saved.id);await saveVMSoftware(saved.id);}closeModal(true);await renderList();}catch(err){notifyError(err)}}
 // Предупреждение о потере несохранённых изменений — только для самых объёмных форм
 // (устройство, ИС), где случайное закрытие теряет больше всего набранного текста и настроек.
 // Для остальных типов записей captureFormSnapshot() намеренно возвращает null, и closeModal()
@@ -935,7 +957,7 @@ window.addEventListener('beforeunload', (e) => {
     e.returnValue = '';
   }
 });
-async function removeItem(id){if(!confirm('Удалить запись?'))return;try{await get(api+`/resources/${resource}/${id}`,{method:'DELETE'});if(resource==='vlans')await renderVlanDashboard();else await renderList()}catch(err){alert(errorMessage(err))}}
+async function removeItem(id){if(!confirm('Удалить запись?'))return;try{await get(api+`/resources/${resource}/${id}`,{method:'DELETE'});if(resource==='vlans')await renderVlanDashboard();else await renderList()}catch(err){notifyError(err)}}
 let connectionState={sourceDevice:'',destinationDevice:'',sourceInterface:'',destinationInterface:'',connection_type_id:'',purpose:'',is_active:true,description:''};
 async function connectionInterfaces(deviceId,current=''){
  if(!deviceId)return [];
@@ -963,11 +985,11 @@ async function saveConnectionForm(){
  const sourceInterface=document.getElementById('conn-source-interface')?.value||'';
  const destinationInterface=document.getElementById('conn-destination-interface')?.value||'';
  const connectionType=document.getElementById('conn-type')?.value||'';
- if(!sourceDevice||!sourceInterface)return alert('Выберите исходное устройство и его порт.');
- if(!destinationDevice||!destinationInterface)return alert('Выберите конечное устройство и его порт.');
- if(!connectionType)return alert('Выберите тип подключения.');
+ if(!sourceDevice||!sourceInterface)return notify('Выберите исходное устройство и его порт.','error');
+ if(!destinationDevice||!destinationInterface)return notify('Выберите конечное устройство и его порт.','error');
+ if(!connectionType)return notify('Выберите тип подключения.','error');
  connectionState={...connectionState,sourceDevice,destinationDevice,sourceInterface,destinationInterface,connection_type_id:connectionType,description:document.getElementById('conn-description').value||null,is_active:document.getElementById('conn-active').value==='true'};
- try{await get(api+`/resources/connections${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_interface_id:sourceInterface,destination_interface_id:destinationInterface,connection_type_id:connectionType,purpose:connectionState.purpose,is_active:connectionState.is_active,description:connectionState.description})});closeModal(true);await renderList();}catch(e){alert(errorMessage(e))}
+ try{await get(api+`/resources/connections${editingId?'/'+editingId:''}`,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_interface_id:sourceInterface,destination_interface_id:destinationInterface,connection_type_id:connectionType,purpose:connectionState.purpose,is_active:connectionState.is_active,description:connectionState.description})});closeModal(true);await renderList();}catch(e){notifyError(e)}
 }
-async function generateReport(){try{const x=await get(api+'/reports/inventory',{method:'POST'});window.location=x.download_url;}catch(e){alert(errorMessage(e))}}
+async function generateReport(){try{const x=await get(api+'/reports/inventory',{method:'POST'});window.location=x.download_url;}catch(e){notifyError(e)}}
 showDashboard();

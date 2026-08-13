@@ -106,12 +106,12 @@ function rbRenderTemplatesList() {
 async function rbDeleteTemplate(id) {
   if (!confirm('Удалить этот шаблон отчёта? Действие необратимо.')) return;
   try { await get(api + `/report-templates/${id}`, { method: 'DELETE' }); await openReportBuilder(); }
-  catch (e) { alert(errorMessage(e)); }
+  catch (e) { notifyError(e); }
 }
 
 async function rbDuplicateTemplate(id) {
   try { await get(api + `/report-templates/${id}/duplicate`, { method: 'POST' }); await openReportBuilder(); }
-  catch (e) { alert(errorMessage(e)); }
+  catch (e) { notifyError(e); }
 }
 
 async function rbGenerateTemplate(id) {
@@ -127,7 +127,7 @@ async function rbGenerateTemplate(id) {
   try {
     const r = await get(api + `/report-templates/${id}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params }) });
     window.location = r.download_url;
-  } catch (e) { alert(errorMessage(e)); }
+  } catch (e) { notifyError(e); }
 }
 
 // ---------- Редактор шаблона ----------
@@ -361,7 +361,7 @@ function rbRenderEditor() {
 
 async function rbSaveTemplate() {
   const e = RB.editor;
-  if (!e.name.trim()) return alert('Укажите название шаблона.');
+  if (!e.name.trim()) return notify('Укажите название шаблона.','error');
   const config = rbCollectConfig();
   const payload = { name: e.name.trim(), description: e.description || null, format: e.format, config };
   try {
@@ -369,7 +369,7 @@ async function rbSaveTemplate() {
       ? await get(api + `/report-templates/${e.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       : await get(api + '/report-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     RB.editor.id = saved.id;
-    alert('Шаблон сохранён.');
+    notify('Шаблон сохранён.','success');
     rbRenderEditor();
-  } catch (e2) { alert(errorMessage(e2)); }
+  } catch (e2) { notifyError(e2); }
 }
