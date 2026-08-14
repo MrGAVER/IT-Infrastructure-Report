@@ -16,6 +16,7 @@ const { JSDOM } = require('jsdom');
 const APP_JS_PATH = path.join(__dirname, '..', 'static', 'app.js');
 const CORE_JS_PATH = path.join(__dirname, '..', 'static', 'core.js');
 const VM_EDITORS_JS_PATH = path.join(__dirname, '..', 'static', 'vm-editors.js');
+const DEVICE_INTERFACES_JS_PATH = path.join(__dirname, '..', 'static', 'device-interfaces.js');
 const CSV_IMPORT_JS_PATH = path.join(__dirname, '..', 'static', 'csv-import.js');
 const CONNECTIONS_JS_PATH = path.join(__dirname, '..', 'static', 'connections.js');
 const REPORT_BUILDER_JS_PATH = path.join(__dirname, '..', 'static', 'report_builder.js');
@@ -46,6 +47,7 @@ function loadAppWindow({ fetchImpl, withReportBuilder = false } = {}) {
   // from the actual page if that ever changes.
   vm.runInContext(fs.readFileSync(CORE_JS_PATH, 'utf-8'), context, { filename: CORE_JS_PATH });
   vm.runInContext(fs.readFileSync(VM_EDITORS_JS_PATH, 'utf-8'), context, { filename: VM_EDITORS_JS_PATH });
+  vm.runInContext(fs.readFileSync(DEVICE_INTERFACES_JS_PATH, 'utf-8'), context, { filename: DEVICE_INTERFACES_JS_PATH });
   vm.runInContext(fs.readFileSync(CSV_IMPORT_JS_PATH, 'utf-8'), context, { filename: CSV_IMPORT_JS_PATH });
   vm.runInContext(fs.readFileSync(CONNECTIONS_JS_PATH, 'utf-8'), context, { filename: CONNECTIONS_JS_PATH });
   vm.runInContext(fs.readFileSync(APP_JS_PATH, 'utf-8'), context, { filename: APP_JS_PATH });
