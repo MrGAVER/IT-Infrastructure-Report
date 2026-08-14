@@ -16,6 +16,7 @@ const { JSDOM } = require('jsdom');
 const APP_JS_PATH = path.join(__dirname, '..', 'static', 'app.js');
 const CORE_JS_PATH = path.join(__dirname, '..', 'static', 'core.js');
 const VM_EDITORS_JS_PATH = path.join(__dirname, '..', 'static', 'vm-editors.js');
+const CSV_IMPORT_JS_PATH = path.join(__dirname, '..', 'static', 'csv-import.js');
 const REPORT_BUILDER_JS_PATH = path.join(__dirname, '..', 'static', 'report_builder.js');
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'index.html');
 
@@ -44,6 +45,7 @@ function loadAppWindow({ fetchImpl, withReportBuilder = false } = {}) {
   // from the actual page if that ever changes.
   vm.runInContext(fs.readFileSync(CORE_JS_PATH, 'utf-8'), context, { filename: CORE_JS_PATH });
   vm.runInContext(fs.readFileSync(VM_EDITORS_JS_PATH, 'utf-8'), context, { filename: VM_EDITORS_JS_PATH });
+  vm.runInContext(fs.readFileSync(CSV_IMPORT_JS_PATH, 'utf-8'), context, { filename: CSV_IMPORT_JS_PATH });
   vm.runInContext(fs.readFileSync(APP_JS_PATH, 'utf-8'), context, { filename: APP_JS_PATH });
   if (withReportBuilder) {
     vm.runInContext(fs.readFileSync(REPORT_BUILDER_JS_PATH, 'utf-8'), context, { filename: REPORT_BUILDER_JS_PATH });
