@@ -14,6 +14,7 @@ const vm = require('vm');
 const { JSDOM } = require('jsdom');
 
 const APP_JS_PATH = path.join(__dirname, '..', 'static', 'app.js');
+const CORE_JS_PATH = path.join(__dirname, '..', 'static', 'core.js');
 const REPORT_BUILDER_JS_PATH = path.join(__dirname, '..', 'static', 'report_builder.js');
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'index.html');
 
@@ -36,6 +37,11 @@ function loadAppWindow({ fetchImpl, withReportBuilder = false } = {}) {
     text: () => Promise.resolve('{}'),
   }));
   const context = dom.getInternalVMContext();
+  // core.js first — same order as <script> tags in index.html; app.js/report_builder.js
+  // reference its functions/constants (esc, notify, get, api, ...) at call time, not at load
+  // time, but keeping the real load order here avoids the test fixture silently diverging
+  // from the actual page if that ever changes.
+  vm.runInContext(fs.readFileSync(CORE_JS_PATH, 'utf-8'), context, { filename: CORE_JS_PATH });
   vm.runInContext(fs.readFileSync(APP_JS_PATH, 'utf-8'), context, { filename: APP_JS_PATH });
   if (withReportBuilder) {
     vm.runInContext(fs.readFileSync(REPORT_BUILDER_JS_PATH, 'utf-8'), context, { filename: REPORT_BUILDER_JS_PATH });
