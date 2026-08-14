@@ -46,9 +46,10 @@ jobs:
         run: npm test
         working-directory: frontend/tests
 
-      - name: Проверка синтаксиса core.js/app.js/report_builder.js
+      - name: Проверка синтаксиса core.js/vm-editors.js/app.js/report_builder.js
         run: |
           node --check frontend/static/core.js
+          node --check frontend/static/vm-editors.js
           node --check frontend/static/app.js
           node --check frontend/static/report_builder.js
 
