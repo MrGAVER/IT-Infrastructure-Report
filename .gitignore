@@ -12,3 +12,4 @@ build/
 dist/
 .env
 .ruff_cache/
+node_modules/

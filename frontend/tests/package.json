@@ -1,0 +1,12 @@
+{
+  "name": "it-infra-frontend-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Smoke-тесты чистых/DOM-функций frontend/static/*.js (node:test + jsdom, без Playwright/браузера).",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}
