@@ -314,6 +314,17 @@ class TestBulkVlanAssign:
         assert r.status_code == 404
 
 
+    def test_bulk_assign_writes_audit_entry(self, client):
+        devices, vlan = self._setup(client, n_devices=2)
+        client.post(
+            "/api/v1/device-vlans/bulk-assign",
+            json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"]},
+        )
+        r = client.get("/api/v1/resources/audit-log?entity_type=device-vlans&limit=300")
+        assert r.status_code == 200
+        assert any(x["entity_id"] == vlan["id"] and x["action"] == "SYNC" for x in r.json()["items"])
+
+
 class TestVlanDomainSync:
     def test_sync_creates_definitions_and_assigns_to_members(self, client):
         """POST /vlan-domains/{id}/sync must propagate every source-device VLAN to every other
@@ -356,6 +367,10 @@ class TestVlanDomainSync:
         r2 = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync")
         assert r2.status_code == 200
         assert r2.json() == {"status": "ok", "created_definitions": 0, "assigned": 0}
+
+        r = client.get("/api/v1/resources/audit-log?entity_type=vlan-domains&limit=300")
+        assert r.status_code == 200
+        assert any(x["entity_id"] == domain["id"] and x["action"] == "SYNC" for x in r.json()["items"])
 
 
 class TestGlobalSearchTextIndex:
@@ -534,6 +549,22 @@ class TestReportTemplateVersions:
         r = client.delete(f"/api/v1/report-templates/{t['id']}")
         assert r.status_code == 200, r.text
         assert client.get(f"/api/v1/report-templates/{t['id']}/versions").status_code == 404
+
+    def test_template_lifecycle_writes_audit_entries(self, client):
+        """Создание/изменение/восстановление/удаление шаблона должны попадать в журнал аудита —
+        как и любая другая мутация в этом комплаенс-приложении (см. crud.audit())."""
+        t = self._create(client, "Шаблон для аудита")
+        client.put(f"/api/v1/report-templates/{t['id']}", json={"name": "Шаблон для аудита v2", "config": self.VALID_CONFIG})
+        version_id = client.get(f"/api/v1/report-templates/{t['id']}/versions").json()[0]["id"]
+        client.post(f"/api/v1/report-templates/{t['id']}/versions/{version_id}/restore")
+        client.delete(f"/api/v1/report-templates/{t['id']}")
+
+        r = client.get("/api/v1/resources/audit-log?entity_type=report-templates&limit=300")
+        assert r.status_code == 200
+        actions = [x["action"] for x in r.json()["items"] if x["entity_id"] == t["id"]]
+        assert actions.count("CREATE") == 1
+        assert actions.count("UPDATE") == 2  # изменение + восстановление версии
+        assert actions.count("DELETE") == 1
 
 
 class TestReports:

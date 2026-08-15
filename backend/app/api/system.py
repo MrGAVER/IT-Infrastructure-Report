@@ -8,6 +8,8 @@ from ..models import (Connection, Container, InformationSystem, PhysicalDevice, 
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
+from ..services.crud import audit
+from ..constants import AuditAction
 from ..reporting import build_report
 
 router = APIRouter(tags=['System'])
@@ -110,6 +112,7 @@ def sync_vlan_domain(domain_id: str, session: Session = Depends(get_db)):
             if target.id not in existing_ids:
                 session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=target.id, description=sv.description))
                 updated += 1
+    audit(session, 'vlan-domains', domain_id, AuditAction.SYNC, f'Синхронизация VLAN-домена: создано определений {created}, назначено {updated}')
     session.commit()
     return {'status':'ok','created_definitions':created,'assigned':updated}
 
@@ -160,6 +163,7 @@ def bulk_assign_vlan(payload: dict, session: Session = Depends(get_db)):
         if device_id in existing: continue
         session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan_id, description=description))
         assigned += 1
+    audit(session, 'device-vlans', vlan_id, AuditAction.SYNC, f'Массовое назначение VLAN: устройств {assigned}, уже было назначено ранее {len(existing)}')
     session.commit()
     return {'status': 'ok', 'assigned': assigned, 'skipped_existing': len(existing)}
 

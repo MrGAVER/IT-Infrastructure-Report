@@ -7,8 +7,10 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..config import REPORT_DIR
+from ..constants import AuditAction
 from ..db import get_db
 from ..models import ReportTemplate, ReportTemplateVersion
+from ..services.crud import audit
 from ..services.report_engine import ReportBuilderError, validate_config
 from ..services.report_meta import build_entity_metadata, entity_metadata_public
 from ..services.report_render import build_report_from_template, preview_rows
@@ -94,7 +96,9 @@ def create_template(payload: dict, session: Session = Depends(get_db)):
     if session.scalar(select(ReportTemplate).where(ReportTemplate.name == name)):
         raise HTTPException(409, "Шаблон с таким названием уже существует")
     t = ReportTemplate(name=name, description=description, format=fmt, config=json.dumps(config, ensure_ascii=False))
-    session.add(t); session.commit(); session.refresh(t)
+    session.add(t); session.flush()
+    audit(session, "report-templates", t.id, AuditAction.CREATE, f"Создан шаблон «{t.name}»")
+    session.commit(); session.refresh(t)
     return _template_out(t)
 
 
@@ -109,6 +113,8 @@ def update_template(template_id: str, payload: dict, session: Session = Depends(
         raise HTTPException(409, "Шаблон с таким названием уже существует")
     _snapshot_version(t, session)
     t.name = name; t.description = description; t.format = fmt; t.config = json.dumps(config, ensure_ascii=False)
+    session.flush()
+    audit(session, "report-templates", t.id, AuditAction.UPDATE, f"Изменён шаблон «{t.name}»")
     session.commit(); session.refresh(t)
     return _template_out(t)
 
@@ -118,8 +124,11 @@ def delete_template(template_id: str, session: Session = Depends(get_db)):
     t = session.get(ReportTemplate, template_id)
     if not t:
         raise HTTPException(404, "Шаблон отчёта не найден")
+    name = t.name
     session.execute(delete(ReportTemplateVersion).where(ReportTemplateVersion.report_template_id == template_id))
-    session.delete(t); session.commit()
+    session.delete(t); session.flush()
+    audit(session, "report-templates", template_id, AuditAction.DELETE, f"Удалён шаблон «{name}»")
+    session.commit()
     return {"status": "ok"}
 
 
@@ -159,6 +168,8 @@ def restore_template_version(template_id: str, version_id: str, session: Session
     # Текущее состояние тоже сохраняется как версия перед восстановлением — откат обратим.
     _snapshot_version(t, session)
     t.name = v.name; t.description = v.description; t.format = v.format; t.config = v.config
+    session.flush()
+    audit(session, "report-templates", t.id, AuditAction.UPDATE, f"Восстановлена версия №{v.version_number} («{v.name}»)")
     session.commit(); session.refresh(t)
     return _template_out(t)
 
@@ -173,7 +184,9 @@ def duplicate_template(template_id: str, session: Session = Depends(get_db)):
     while session.scalar(select(ReportTemplate).where(ReportTemplate.name == name)):
         name = f"{base_name} {n}"; n += 1
     t = ReportTemplate(name=name, description=src.description, format=src.format, config=src.config)
-    session.add(t); session.commit(); session.refresh(t)
+    session.add(t); session.flush()
+    audit(session, "report-templates", t.id, AuditAction.CREATE, f"Дублирован из шаблона «{src.name}»")
+    session.commit(); session.refresh(t)
     return _template_out(t)
 
 
