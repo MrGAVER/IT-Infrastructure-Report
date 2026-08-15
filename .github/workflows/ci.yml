@@ -48,6 +48,7 @@ jobs:
           node --check frontend/static/core.js
           node --check frontend/static/vm-editors.js
           node --check frontend/static/device-interfaces.js
+          node --check frontend/static/information-systems.js
           node --check frontend/static/csv-import.js
           node --check frontend/static/connections.js
           node --check frontend/static/app.js
