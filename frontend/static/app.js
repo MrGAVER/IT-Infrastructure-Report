@@ -51,13 +51,37 @@ async function showDashboard(){
  content.innerHTML=`<div class="top"><h2>Dashboard</h2><div class="actions"><button class="btn gray" onclick="generateTestData(this)">Заполнить тестовыми данными</button><button class="btn gray" onclick="openResource('audit-log')">Аудит</button><button class="btn" onclick="generateReport(this)">Сформировать Excel</button></div></div><div class="cards">${cards.map(x=>`<button class="card" style="text-align:left;cursor:pointer" onclick="openResource('${x[2]}')"><span>${x[1]}</span><b>${d[x[0]]||0}</b><span class="muted">Открыть →</span></button>`).join('')}</div>`;
 }
 async function openResource(r){resource=r;if(r==='vlans'){await renderVlanDashboard();return;}if(r==='audit-log'){await renderAuditLog();return;}schema=await get(api+`/resources/${r}/schema`);await renderList()}
+// var, не let: остальное состояние маршрутизации в этом файле (resource, schema, rows) — тоже
+// на уровне window через неявные глобальные присваивания, а let-биндинг верхнего уровня НЕ
+// становится свойством window (виден только изнутри самого app.js) — тесты и другие модули не
+// смогли бы прочитать/подменить его через win.auditFilters.
+var auditFilters={entityType:'',dateFrom:'',dateTo:''};
+function auditQueryParams(){
+ const p=new URLSearchParams();
+ if(auditFilters.entityType) p.set('entity_type',auditFilters.entityType);
+ if(auditFilters.dateFrom) p.set('date_from',auditFilters.dateFrom);
+ if(auditFilters.dateTo) p.set('date_to',auditFilters.dateTo);
+ return p;
+}
+function setAuditFilter(key,value){auditFilters={...auditFilters,[key]:value};renderAuditLog();}
+function resetAuditFilters(){auditFilters={entityType:'',dateFrom:'',dateTo:''};renderAuditLog();}
+async function exportAuditLog(btn){
+ await withBusyButton(btn,async()=>{
+   try{
+     const qs=auditQueryParams().toString();
+     const x=await get(api+'/reports/audit-log'+(qs?`?${qs}`:''),{method:'POST'});
+     window.location=x.download_url;
+   }catch(e){notifyError(e)}
+ });
+}
 async function renderAuditLog(){
+ const qs=auditQueryParams();qs.set('limit','300');
  const [logData,resourceList]=await Promise.all([
-   get(api+'/resources/audit-log?limit=300'),
+   get(api+`/resources/audit-log?${qs.toString()}`),
    get(api+'/resources'),
  ]);
  const resourceNames=Object.fromEntries(resourceList.map(r=>[r.key,r.name]));
- const rows=[...logData.items].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+ const rows=logData.items; // сервер уже сортирует по created_at desc — см. services/crud.list_resource
  // Резолвим человекочитаемые подписи записей пакетно по типу сущности (один запрос на тип,
  // а не один запрос на каждую строку журнала). SYNC-записи интерфейсов ссылаются на устройство
  // (entity_id — это id устройства, а не интерфейса), поэтому резолвим их по 'devices'.
@@ -70,13 +94,15 @@ async function renderAuditLog(){
    catch(_){labelCache[type]={};}
  }
  const actionLabels={CREATE:'Создание',UPDATE:'Изменение',DELETE:'Удаление',SYNC:'Синхронизация'};
- content.innerHTML=`<div class="top"><div><h2>Аудит</h2><div class="muted">Последние ${rows.length} действий</div></div><div><button class="btn gray" onclick="showDashboard()">Dashboard</button></div></div><div class="panel"><div class="tablewrap"><table><thead><tr><th>Дата и время</th><th>Раздел</th><th>Запись</th><th>Действие</th><th>Подробности</th></tr></thead><tbody>${rows.map(r=>{
+ const filterActive=auditFilters.entityType||auditFilters.dateFrom||auditFilters.dateTo;
+ const sectionOptions=`<option value="">Все разделы</option>`+resourceList.map(r=>`<option value="${esc(r.key)}"${auditFilters.entityType===r.key?' selected':''}>${esc(r.name)}</option>`).join('');
+ content.innerHTML=`<div class="top"><div><h2>Аудит</h2><div class="muted">${filterActive?`Найдено по фильтру: ${rows.length}`:`Последние ${rows.length} действий`}</div></div><div><button class="btn gray" onclick="exportAuditLog(this)">Экспорт в Excel</button> <button class="btn gray" onclick="showDashboard()">Dashboard</button></div></div><div class="panel"><div class="bulk-edit-bar" style="margin-bottom:14px"><label class="field"><span class="if-select-label">Раздел</span><select onchange="setAuditFilter('entityType',this.value)">${sectionOptions}</select></label><label class="field"><span class="if-select-label">С</span><input type="date" value="${esc(auditFilters.dateFrom)}" onchange="setAuditFilter('dateFrom',this.value)"></label><label class="field"><span class="if-select-label">По</span><input type="date" value="${esc(auditFilters.dateTo)}" onchange="setAuditFilter('dateTo',this.value)"></label>${filterActive?'<button class="btn gray" onclick="resetAuditFilters()">Сбросить фильтр</button>':''}</div><div class="tablewrap"><table><thead><tr><th>Дата и время</th><th>Раздел</th><th>Запись</th><th>Действие</th><th>Подробности</th></tr></thead><tbody>${rows.map(r=>{
    const t=lookupType(r);
    const label=labelCache[t]?.[r.entity_id];
    const entityCell=label?esc(label):`<span class="muted">запись удалена (${esc((r.entity_id||'').slice(0,8))}…)</span>`;
    const when=r.created_at?new Date(r.created_at).toLocaleString('ru-RU'):'';
    return `<tr><td>${esc(when)}</td><td>${esc(resourceNames[r.entity_type]||r.entity_type)}</td><td>${entityCell}</td><td>${esc(actionLabels[r.action]||r.action)}</td><td>${esc(r.details||'')}</td></tr>`;
- }).join('')||'<tr><td colspan="5" class="muted">Записей нет</td></tr>'}</tbody></table></div></div>`;
+ }).join('')||`<tr><td colspan="5" class="muted">${filterActive?'Ничего не найдено по заданному фильтру':'Записей нет'}</td></tr>`}</tbody></table></div></div>`;
 }
 async function generateTestData(btn){if(!confirm('Добавить демонстрационные тестовые данные? Существующие данные не будут удалены.'))return;await withBusyButton(btn,async()=>{try{const r=await get(api+'/seed/test',{method:'POST'});notify(r.message+`\nИдентификатор набора: ${r.tag}`,'success');await showDashboard();}catch(e){notifyError(e)}});}
 async function renderVlanDashboard(){

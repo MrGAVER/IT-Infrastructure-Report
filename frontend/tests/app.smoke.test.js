@@ -139,6 +139,45 @@ test('withBusyButton(): восстанавливает кнопку даже е�
   assert.equal(btn.textContent, 'Синхронизировать');
 });
 
+test('auditQueryParams(): собирает query-параметры фильтра аудита без пустых полей', () => {
+  const win = loadAppWindow();
+  win.auditFilters = { entityType: '', dateFrom: '', dateTo: '' };
+  assert.equal(win.auditQueryParams().toString(), '');
+
+  win.auditFilters = { entityType: 'devices', dateFrom: '2026-08-01', dateTo: '' };
+  assert.equal(win.auditQueryParams().toString(), 'entity_type=devices&date_from=2026-08-01');
+
+  win.auditFilters = { entityType: '', dateFrom: '2026-08-01', dateTo: '2026-08-15' };
+  assert.equal(win.auditQueryParams().toString(), 'date_from=2026-08-01&date_to=2026-08-15');
+});
+
+test('setAuditFilter()/resetAuditFilters(): обновляют состояние фильтра аудита', async () => {
+  // renderAuditLog() внутри делает несколько сетевых запросов — им нужны реалистичные формы
+  // ответа (items/массив), иначе необработанное исключение внутри fire-and-forget вызова
+  // renderAuditLog() может уронить тест, даже если сама проверка ниже касается только auditFilters.
+  const win = loadAppWindow({
+    fetchImpl: (url) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(
+        String(url).includes('/resources/audit-log') ? { items: [], total: 0, offset: 0, limit: 300 } :
+        String(url).endsWith('/resources') ? [] : {}
+      ),
+      text: () => Promise.resolve('{}'),
+    }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20)); // дождаться начального showDashboard()
+
+  win.auditFilters = { entityType: '', dateFrom: '', dateTo: '' };
+  win.setAuditFilter('entityType', 'devices');
+  assert.equal(win.auditFilters.entityType, 'devices');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  win.resetAuditFilters();
+  assert.deepEqual(plain(win.auditFilters), { entityType: '', dateFrom: '', dateTo: '' });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+});
+
 test('showDashboard() при загрузке рендерит контент без явного вызова (см. bootstrap внизу app.js)', async () => {
   const win = loadAppWindow();
   // showDashboard() запускается асинхронно самим фактом загрузки файла — дождёмся её завершения.

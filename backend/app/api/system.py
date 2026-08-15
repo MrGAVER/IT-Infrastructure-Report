@@ -7,6 +7,7 @@ from ..db import get_db
 from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Organization, Department, Building, Room, Rack, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN)
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_devices, serialize
+from ..services.audit_export import build_audit_log_report
 from ..reporting import build_report
 
 router = APIRouter(tags=['System'])
@@ -210,6 +211,11 @@ def seed_test_data(session: Session = Depends(get_db)):
 @router.post('/api/v1/reports/inventory')
 def generate_report(information_system_id: str | None = None, session: Session = Depends(get_db)):
     path = build_report(session, REPORT_DIR, information_system_id)
+    return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
+
+@router.post('/api/v1/reports/audit-log')
+def generate_audit_log_report(date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None, session: Session = Depends(get_db)):
+    path = build_audit_log_report(session, REPORT_DIR, date_from, date_to, entity_type)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
 REPORT_MEDIA_TYPES = {

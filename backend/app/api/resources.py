@@ -8,7 +8,7 @@ from ..services.serialization import serialize
 
 router = APIRouter(prefix='/api/v1/resources', tags=['CRUD'])
 
-RESERVED_QUERY_PARAMS = {'q', 'offset', 'limit'}
+RESERVED_QUERY_PARAMS = {'q', 'offset', 'limit', 'date_from', 'date_to'}
 
 @router.get('')
 def resources():
@@ -20,12 +20,12 @@ def resource_schema(resource: str):
     return {'key': resource, 'name': DISPLAY_NAMES.get(resource, resource), 'columns': columns_for(model)}
 
 @router.get('/{resource}')
-def list_endpoint(resource: str, request: Request, q: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), session: Session = Depends(get_db)):
-    # Any query param other than q/offset/limit is treated as an equality filter on that column,
-    # e.g. GET /resources/interfaces?physical_device_id=<id> — validated against real model columns
-    # in list_resource, so this cannot be used to reach arbitrary attributes.
+def list_endpoint(resource: str, request: Request, q: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), date_from: str | None = None, date_to: str | None = None, session: Session = Depends(get_db)):
+    # Any query param other than q/offset/limit/date_from/date_to is treated as an equality filter
+    # on that column, e.g. GET /resources/interfaces?physical_device_id=<id> — validated against
+    # real model columns in list_resource, so this cannot be used to reach arbitrary attributes.
     filters = {k: v for k, v in request.query_params.items() if k not in RESERVED_QUERY_PARAMS}
-    return list_resource(resource, session, q, offset, limit, filters or None)
+    return list_resource(resource, session, q, offset, limit, filters or None, date_from, date_to)
 
 @router.get('/information-systems/{item_id}/details')
 def information_system_details(item_id: str, session: Session = Depends(get_db)):

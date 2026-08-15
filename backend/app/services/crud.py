@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import delete, func, or_, select, update
@@ -25,6 +26,19 @@ def allowed_columns(model) -> set[str]:
 
 def audit(session: Session, entity_type: str, entity_id: str, action: str, details: str = '') -> None:
     if entity_type != 'audit-log': session.add(AuditLog(entity_type=entity_type, entity_id=entity_id, action=action, details=details))
+
+def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
+    """Парсит date_from/date_to для list_resource(). Принимает как чистую дату
+    (input[type=date] с фронтенда, 'YYYY-MM-DD'), так и полный ISO datetime.
+    Чистая дата в end_of_day-позиции трактуется как конец дня (включительно),
+    иначе фильтр 'по 15.08.2026' исключал бы записи, сделанные в течение этого дня."""
+    text = value
+    if end_of_day and 'T' not in value:
+        text = f'{value}T23:59:59.999999'
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(422, f'Некорректная дата: {value}') from exc
 
 def _validate_physical_device(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     validate_device_model_relation(data, session, item_id); validate_operating_system(data, session); validate_embedded_os(data, session); validate_device_location_hierarchy(data, session)
@@ -77,7 +91,7 @@ def validate_resource(model, data: dict[str, Any], session: Session, item_id: st
         _validate_device_model(data, session, item_id)
     elif model is Connection: validate_connection(data, session, item_id)
 
-def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None):
+def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None, date_from: str | None = None, date_to: str | None = None):
     model = model_for(resource); stmt = select(model)
     if model is AuditLog:
         # Without explicit ordering, "limit" returns whatever order the DB happens to store rows
@@ -97,6 +111,10 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
                 stmt = stmt.where(col.is_(None))
             else:
                 stmt = stmt.where(col == value)
+    if date_from:
+        stmt = stmt.where(model.created_at >= _parse_range_datetime(date_from, end_of_day=False))
+    if date_to:
+        stmt = stmt.where(model.created_at <= _parse_range_datetime(date_to, end_of_day=True))
     total = session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = session.scalars(stmt.offset(offset).limit(limit)).all()
     if model is PhysicalDevice:

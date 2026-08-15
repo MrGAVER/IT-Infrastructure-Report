@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+from app.config import REPORT_DIR
+
 
 def test_health(client):
     r = client.get("/api/v1/health")
@@ -258,6 +260,36 @@ class TestAuditLog:
         # Most recently created manufacturer (last id) must appear before the earliest one.
         assert positions[ids[-1]] < positions[ids[0]]
 
+    def test_audit_log_filters_by_entity_type_and_date_range(self, client):
+        r = client.post("/api/v1/resources/manufacturers", json={"name": "Фильтр-тест"})
+        assert r.status_code == 201, r.text
+
+        # entity_type — уже работающий generic equality-фильтр (не новый код), но здесь
+        # это регрессия для комбинации с date_from/date_to.
+        r = client.get("/api/v1/resources/audit-log?entity_type=manufacturers&limit=300")
+        assert r.status_code == 200
+        assert all(x["entity_type"] == "manufacturers" for x in r.json()["items"])
+
+        far_future = "2999-01-01"
+        r = client.get(f"/api/v1/resources/audit-log?date_from={far_future}")
+        assert r.status_code == 200
+        assert r.json()["items"] == []
+
+        far_past = "1970-01-01"
+        r = client.get(f"/api/v1/resources/audit-log?date_from={far_past}&date_to={far_future}")
+        assert r.status_code == 200
+        assert len(r.json()["items"]) >= 1
+
+        # date_to без времени должен включать весь день (до 23:59:59), а не исключать его целиком.
+        today = client.get("/api/v1/resources/audit-log?limit=1").json()["items"][0]["created_at"][:10]
+        r = client.get(f"/api/v1/resources/audit-log?date_from={today}&date_to={today}")
+        assert r.status_code == 200
+        assert len(r.json()["items"]) >= 1
+
+    def test_audit_log_rejects_invalid_date(self, client):
+        r = client.get("/api/v1/resources/audit-log?date_from=не-дата")
+        assert r.status_code == 422
+
 
 class TestReports:
     def test_seed_endpoint_populates_catalogs(self, client):
@@ -280,3 +312,30 @@ class TestReports:
     def test_download_report_rejects_path_traversal(self, client):
         r = client.get("/api/v1/reports/download/..%2F..%2Fetc%2Fpasswd")
         assert r.status_code in (404, 400)
+
+    def test_generate_and_download_audit_log_report(self, client):
+        client.post("/api/v1/resources/manufacturers", json={"name": "Для экспорта аудита"})
+
+        r = client.post("/api/v1/reports/audit-log")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["file_name"].endswith(".xlsx")
+
+        r2 = client.get(body["download_url"])
+        assert r2.status_code == 200
+        assert r2.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    def test_audit_log_report_respects_filters(self, client):
+        client.post("/api/v1/resources/manufacturers", json={"name": "Останется за пределами фильтра"})
+
+        r = client.post("/api/v1/reports/audit-log", params={"date_from": "2999-01-01"})
+        assert r.status_code == 200, r.text
+
+        import openpyxl
+        path = REPORT_DIR / r.json()["file_name"]
+        wb = openpyxl.load_workbook(path)
+        ws = wb.active
+        # Только заголовок — ни одна запись не попадает в диапазон дат из будущего.
+        assert ws.max_row == 1
