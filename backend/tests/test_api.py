@@ -344,6 +344,82 @@ class TestAuditLog:
         assert r.status_code == 422
 
 
+class TestReportTemplateVersions:
+    VALID_CONFIG = {"sheets": [{
+        "title": "Лист1", "root_entity": "information-systems",
+        "columns": [{"header": "Наименование", "source": "field", "path": "name"}],
+    }]}
+
+    def _create(self, client, name="Шаблон версий"):
+        r = client.post("/api/v1/report-templates", json={"name": name, "config": self.VALID_CONFIG})
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    def test_new_template_has_no_version_history(self, client):
+        t = self._create(client)
+        r = client.get(f"/api/v1/report-templates/{t['id']}/versions")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_update_snapshots_previous_state_before_overwriting(self, client):
+        t = self._create(client, "Шаблон А")
+        r = client.put(
+            f"/api/v1/report-templates/{t['id']}",
+            json={"name": "Шаблон А (переименован)", "config": self.VALID_CONFIG},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == "Шаблон А (переименован)"
+
+        r = client.get(f"/api/v1/report-templates/{t['id']}/versions")
+        assert r.status_code == 200
+        versions = r.json()
+        assert len(versions) == 1
+        assert versions[0]["version_number"] == 1
+        assert versions[0]["name"] == "Шаблон А"  # снимок ДО переименования, не после
+
+    def test_multiple_updates_number_versions_sequentially(self, client):
+        t = self._create(client, "Версия 0")
+        for name in ("Версия 1", "Версия 2", "Версия 3"):
+            r = client.put(f"/api/v1/report-templates/{t['id']}", json={"name": name, "config": self.VALID_CONFIG})
+            assert r.status_code == 200, r.text
+        versions = client.get(f"/api/v1/report-templates/{t['id']}/versions").json()
+        assert [v["version_number"] for v in versions] == [3, 2, 1]  # новые сверху
+        assert [v["name"] for v in versions] == ["Версия 2", "Версия 1", "Версия 0"]
+
+    def test_restore_reverts_config_and_is_itself_reversible(self, client):
+        t = self._create(client, "Оригинал")
+        client.put(f"/api/v1/report-templates/{t['id']}", json={"name": "Изменено", "config": self.VALID_CONFIG})
+        versions = client.get(f"/api/v1/report-templates/{t['id']}/versions").json()
+        original_version_id = versions[0]["id"]  # снимок "Оригинал"
+
+        r = client.post(f"/api/v1/report-templates/{t['id']}/versions/{original_version_id}/restore")
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == "Оригинал"
+
+        # Восстановление тоже создаёт снимок — состояние "Изменено" не потеряно безвозвратно.
+        versions_after = client.get(f"/api/v1/report-templates/{t['id']}/versions").json()
+        assert len(versions_after) == 2
+        assert versions_after[0]["name"] == "Изменено"
+
+    def test_restore_rejects_name_collision_with_another_template(self, client):
+        t = self._create(client, "Шаблон Б исходное имя")
+        client.put(f"/api/v1/report-templates/{t['id']}", json={"name": "Шаблон Б", "config": self.VALID_CONFIG})
+        version_id = client.get(f"/api/v1/report-templates/{t['id']}/versions").json()[0]["id"]
+        self._create(client, "Шаблон Б исходное имя")  # занимает старое имя другим шаблоном
+
+        r = client.post(f"/api/v1/report-templates/{t['id']}/versions/{version_id}/restore")
+        assert r.status_code == 409
+
+    def test_delete_template_cascades_version_history(self, client):
+        t = self._create(client, "На удаление")
+        client.put(f"/api/v1/report-templates/{t['id']}", json={"name": "На удаление v2", "config": self.VALID_CONFIG})
+        assert len(client.get(f"/api/v1/report-templates/{t['id']}/versions").json()) == 1
+
+        r = client.delete(f"/api/v1/report-templates/{t['id']}")
+        assert r.status_code == 200, r.text
+        assert client.get(f"/api/v1/report-templates/{t['id']}/versions").status_code == 404
+
+
 class TestReports:
     def test_seed_endpoint_populates_catalogs(self, client):
         r = client.post("/api/v1/seed")

@@ -410,6 +410,20 @@ class ReportTemplate(TimestampMixin, Base):
     format: Mapped[str] = mapped_column(String(10), default="xlsx")  # xlsx | docx
     config: Mapped[str] = mapped_column(Text)  # JSON: sheets/blocks, колонки, фильтры, параметры
 
+class ReportTemplateVersion(TimestampMixin, Base):
+    """Снимок состояния ReportTemplate, сохранённый непосредственно перед тем, как оно было
+    заменено (обновление шаблона или восстановление другой версии). Раньше PUT
+    /report-templates/{id} просто перезаписывал config — случайное сохранение стирало предыдущую
+    версию без возможности отката."""
+    __tablename__ = "report_template_versions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    report_template_id: Mapped[str] = mapped_column(ForeignKey("report_templates.id"), index=True)
+    version_number: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    format: Mapped[str] = mapped_column(String(10))
+    config: Mapped[str] = mapped_column(Text)
+
 class AuditLog(TimestampMixin, Base):
     __tablename__ = "audit_log"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

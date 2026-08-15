@@ -97,10 +97,48 @@ function rbRenderTemplatesList() {
       <button class="btn gray" onclick="rbEditTemplate('${t.id}')">Изменить</button>
       <button class="btn" onclick="rbGenerateTemplate('${t.id}')">Сформировать</button>
       <button class="btn gray" onclick="rbDuplicateTemplate('${t.id}')">Дублировать</button>
+      <button class="btn gray" onclick="rbShowVersionHistory('${t.id}')">История</button>
       <button class="btn red" onclick="rbDeleteTemplate('${t.id}')">Удалить</button>
     </td>
   </tr>`).join('') : `<tr><td colspan="5" class="muted">Пока нет ни одного шаблона отчёта — создайте первый кнопкой выше.</td></tr>`}
   </tbody></table></div></div>`;
+}
+
+// ---------- История версий ----------
+// Раньше сохранение шаблона (PUT /report-templates/{id}) просто перезаписывало config —
+// случайное сохранение или неудачная правка стирали предыдущую рабочую версию без возможности
+// отката. Теперь сервер перед каждой заменой сохраняет снимок (см. report_builder.py
+// _snapshot_version), а этот экран позволяет посмотреть историю и вернуться к любой из них.
+
+async function rbShowVersionHistory(id) {
+  let t, versions;
+  try {
+    t = RB.templates.find(x => x.id === id) || await get(api + `/report-templates/${id}`);
+    versions = await get(api + `/report-templates/${id}/versions`);
+  } catch (e) { notifyError(e); return; }
+  const content = document.getElementById('content');
+  content.innerHTML = `<div class="top"><div><h2>История версий: ${esc(t.name)}</h2><div class="muted">${versions.length ? `${versions.length} сохранённых версий` : 'Шаблон ещё не изменялся после создания'}</div></div><div class="actions"><button class="btn gray" onclick="openReportBuilder()">← К списку шаблонов</button></div></div>
+  <div class="panel"><div class="tablewrap"><table><thead><tr><th>Версия</th><th>Название на тот момент</th><th>Формат</th><th>Сохранена</th><th>Действия</th></tr></thead><tbody>
+  ${versions.length ? versions.map(v => `<tr>
+    <td>№${v.version_number}</td>
+    <td>${esc(v.name)}</td>
+    <td>${v.format === 'docx' ? 'Word (.docx)' : 'Excel (.xlsx)'}</td>
+    <td class="muted">${v.created_at ? new Date(v.created_at).toLocaleString('ru-RU') : ''}</td>
+    <td><button class="btn gray" onclick="rbRestoreVersion('${id}','${v.id}',this)">Восстановить</button></td>
+  </tr>`).join('') : `<tr><td colspan="5" class="muted">История появится после первого изменения этого шаблона.</td></tr>`}
+  </tbody></table></div></div>`;
+}
+
+async function rbRestoreVersion(templateId, versionId, btn) {
+  if (!confirm('Восстановить эту версию? Текущее состояние шаблона тоже будет сохранено в историю — откат обратим.')) return;
+  await withBusyButton(btn, async () => {
+    try {
+      await get(api + `/report-templates/${templateId}/versions/${versionId}/restore`, { method: 'POST' });
+      notify('Версия восстановлена', 'success');
+      RB.templates = await get(api + '/report-templates');
+      await rbShowVersionHistory(templateId);
+    } catch (e) { notifyError(e); }
+  });
 }
 
 async function rbDeleteTemplate(id) {
