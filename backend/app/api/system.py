@@ -84,14 +84,28 @@ def sync_vlan_domain(domain_id: str, session: Session = Depends(get_db)):
     source_ids = session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == domain.source_device_id)).all()
     source_vlans = session.scalars(select(VLAN).where(VLAN.id.in_(source_ids))).all() if source_ids else []
     created=0; updated=0
+    # Domain-local VLAN definitions are shared by every member device, so each source VLAN is
+    # resolved/created here once — not once per (device, source VLAN) pair as before, which was an
+    # N+1 query (member devices × source VLANs) inside the loop below.
+    domain_vlans_by_number = {v.vlan_id: v for v in session.scalars(select(VLAN).where(VLAN.domain_id == domain_id)).all()}
+    target_by_source_id = {}
+    for sv in source_vlans:
+        target = domain_vlans_by_number.get(sv.vlan_id)
+        if not target:
+            target = VLAN(vlan_id=sv.vlan_id, name=sv.name, description=sv.description, domain_id=domain_id)
+            session.add(target); session.flush(); created += 1
+            domain_vlans_by_number[sv.vlan_id] = target
+        target_by_source_id[sv.id] = target
+    # Existing assignments for all member devices, loaded once instead of once per device.
+    existing_by_device = {}
+    if member_ids:
+        for row in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(member_ids))).all():
+            existing_by_device.setdefault(row.physical_device_id, set()).add(row.vlan_id)
     for device_id in member_ids:
         if device_id == domain.source_device_id: continue
-        existing_ids = set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == device_id)).all())
+        existing_ids = existing_by_device.get(device_id, set())
         for sv in source_vlans:
-            target = session.scalar(select(VLAN).where(VLAN.domain_id == domain_id, VLAN.vlan_id == sv.vlan_id))
-            if not target:
-                target = VLAN(vlan_id=sv.vlan_id, name=sv.name, description=sv.description, domain_id=domain_id)
-                session.add(target); session.flush(); created += 1
+            target = target_by_source_id[sv.id]
             if target.id not in existing_ids:
                 session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=target.id, description=sv.description))
                 updated += 1

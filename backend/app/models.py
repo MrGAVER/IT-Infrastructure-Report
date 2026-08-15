@@ -145,13 +145,13 @@ class InformationSystem(TimestampMixin, Base):
 class ISDepartment(TimestampMixin, Base):
     __tablename__ = "information_system_departments"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"))
+    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
 
 class ISIP(TimestampMixin, Base):
     __tablename__ = "information_system_ips"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"))
+    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     ip_address: Mapped[str] = mapped_column(String(64))
     purpose: Mapped[Optional[str]] = mapped_column(String(500))
     protocol: Mapped[Optional[str]] = mapped_column(String(100))
@@ -170,7 +170,7 @@ class ProtocolPortCatalog(TimestampMixin, Base):
 class ISProtocol(TimestampMixin, Base):
     __tablename__ = "information_system_protocols"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"))
+    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     protocol: Mapped[str] = mapped_column(String(200))
     port: Mapped[Optional[int]] = mapped_column(Integer)
     protocol_catalog_id: Mapped[Optional[str]] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
@@ -318,7 +318,7 @@ class Container(TimestampMixin, Base):
     __tablename__ = "containers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255))
-    virtual_machine_id: Mapped[Optional[str]] = mapped_column(ForeignKey("virtual_machines.id"))
+    virtual_machine_id: Mapped[Optional[str]] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
     physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
     runtime: Mapped[Optional[str]] = mapped_column(String(100))
     runtime_version: Mapped[Optional[str]] = mapped_column(String(100))
@@ -364,21 +364,21 @@ class InformationSystemSource(TimestampMixin, Base):
 class ISDevice(TimestampMixin, Base):
     __tablename__ = "information_system_devices"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"))
+    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
     role: Mapped[Optional[str]] = mapped_column(String(255))
 
 class ISVM(TimestampMixin, Base):
     __tablename__ = "information_system_vms"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"))
+    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     virtual_machine_id: Mapped[str] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
     role: Mapped[Optional[str]] = mapped_column(String(255))
 
 class ISContainer(TimestampMixin, Base):
     __tablename__ = "information_system_containers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"))
+    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     container_id: Mapped[str] = mapped_column(ForeignKey("containers.id"))
     role: Mapped[Optional[str]] = mapped_column(String(255))
 

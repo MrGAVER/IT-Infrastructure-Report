@@ -196,6 +196,69 @@ class TestInformationSystemDetails:
         assert r.json()["departments"][0]["department_id"] == dept["id"]
 
 
+class TestVlanDomainSync:
+    def test_sync_creates_definitions_and_assigns_to_members(self, client):
+        """POST /vlan-domains/{id}/sync must propagate every source-device VLAN to every other
+        member device exactly once — regression test for the N+1 refactor in api/system.py."""
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор VLAN-домена"}).json()
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "VD-SRC"}).json()
+        member1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "VD-M1"}).json()
+        member2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "VD-M2"}).json()
+
+        domain = client.post(
+            "/api/v1/resources/vlan-domains",
+            json={"name": "Домен-тест", "source_device_id": source["id"]},
+        ).json()
+        for dev in (source, member1, member2):
+            r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": dev["id"]})
+            assert r.status_code == 200, r.text
+
+        vlan10 = client.post("/api/v1/resources/vlans", json={"vlan_id": 10, "name": "Данные"}).json()
+        vlan20 = client.post("/api/v1/resources/vlans", json={"vlan_id": 20, "name": "Управление"}).json()
+        for vlan in (vlan10, vlan20):
+            r = client.post(
+                "/api/v1/resources/device-vlans",
+                json={"physical_device_id": source["id"], "vlan_id": vlan["id"]},
+            )
+            assert r.status_code == 201, r.text
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["created_definitions"] == 2  # два домен-локальных определения (VLAN 10 и 20)
+        assert body["assigned"] == 4  # 2 участника (member1, member2) × 2 VLAN
+
+        for member in (member1, member2):
+            r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}")
+            assert r.status_code == 200
+            assigned_numbers = sorted(client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] for row in r.json()["items"])
+            assert assigned_numbers == [10, 20]
+
+        # Re-running sync must not create duplicate definitions or duplicate assignments.
+        r2 = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync")
+        assert r2.status_code == 200
+        assert r2.json() == {"status": "ok", "created_definitions": 0, "assigned": 0}
+
+
+class TestAuditLog:
+    def test_audit_log_lists_most_recent_action_first(self, client):
+        """GET /resources/audit-log?limit=N must return the N most recent entries (newest
+        first), not the first N by insertion order — see services/crud.list_resource."""
+        ids = []
+        for name in ("Аудит-А", "Аудит-Б", "Аудит-В"):
+            r = client.post("/api/v1/resources/manufacturers", json={"name": name})
+            assert r.status_code == 201, r.text
+            ids.append(r.json()["id"])
+
+        r = client.get("/api/v1/resources/audit-log?limit=300")
+        assert r.status_code == 200
+        rows = r.json()["items"]
+        positions = {x["entity_id"]: i for i, x in enumerate(rows) if x["entity_id"] in ids}
+        assert len(positions) == 3
+        # Most recently created manufacturer (last id) must appear before the earliest one.
+        assert positions[ids[-1]] < positions[ids[0]]
+
+
 class TestReports:
     def test_seed_endpoint_populates_catalogs(self, client):
         r = client.post("/api/v1/seed")

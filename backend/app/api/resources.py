@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..registry import DISPLAY_NAMES, MODEL_MAP
@@ -38,7 +38,7 @@ def information_system_details_update(item_id: str, payload: dict, session: Sess
 @router.get('/{resource}/{item_id}')
 def get_endpoint(resource: str, item_id: str, session: Session = Depends(get_db)):
     model = model_for(resource); obj = session.get(model, item_id)
-    if not obj: from fastapi import HTTPException; raise HTTPException(404, 'Запись не найдена')
+    if not obj: raise HTTPException(404, 'Запись не найдена')
     return serialize(obj)
 
 @router.post('/{resource}', status_code=201)

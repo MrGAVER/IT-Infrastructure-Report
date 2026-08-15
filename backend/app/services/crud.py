@@ -79,6 +79,11 @@ def validate_resource(model, data: dict[str, Any], session: Session, item_id: st
 
 def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None):
     model = model_for(resource); stmt = select(model)
+    if model is AuditLog:
+        # Without explicit ordering, "limit" returns whatever order the DB happens to store rows
+        # in (insertion order for SQLite) — i.e. the OLDEST entries, not the most recent ones the
+        # UI labels "Последние N действий". Audit log is the one resource where recency matters.
+        stmt = stmt.order_by(AuditLog.created_at.desc())
     if q:
         text_cols = [c for c in inspect(model).columns if str(c.type).upper().startswith(('VARCHAR', 'TEXT', 'CHAR'))]
         if text_cols: stmt = stmt.where(or_(*[func.lower(c).contains(q.lower()) for c in text_cols]))
@@ -168,19 +173,20 @@ def delete_resource(resource: str, item_id: str, session: Session):
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
-def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session) -> None:
+def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]) -> None:
     """Применяет данные одного элемента payload['interfaces'] к объекту DeviceInterface:
     простые поля, VLAN-привязки и вложенные IP. Вынесено из sync_interfaces(), чтобы снизить
-    цикломатическую сложность внешней функции (была 24) — сама логика не изменена."""
+    цикломатическую сложность внешней функции (была 24) — сама логика не изменена.
+
+    allowed_vlans приходит готовым от вызывающей стороны: набор допустимых VLAN одинаков для всех
+    интерфейсов одного device, поэтому вычисляется один раз в sync_interfaces(), а не запросом на
+    каждый интерфейс здесь (было N+1 при синхронизации устройства с несколькими портами)."""
     for key in ('name', 'interface_type_id', 'mac_address', 'speed_id', 'is_management', 'is_data_transfer', 'description'):
         if key in item: setattr(obj, key, item[key])
     session.flush()
     vlan_ids=item.get('vlan_ids') or []
     if not isinstance(vlan_ids,list): raise HTTPException(422, 'Поле vlan_ids интерфейса должно быть массивом')
-    allowed_type=set(session.scalars(select(DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id==device.device_type_id)).all())
-    allowed_device=set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id==device.id)).all())
-    allowed=set(allowed_type)|set(allowed_device)
-    bad=[v for v in vlan_ids if v not in allowed]
+    bad=[v for v in vlan_ids if v not in allowed_vlans]
     if bad: raise HTTPException(422, 'Один или несколько VLAN не разрешены для типа данного устройства')
     session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.interface_id==obj.id))
     for vlan_id in dict.fromkeys(vlan_ids): session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=item.get('vlan_mode')))
@@ -206,6 +212,11 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     items = payload.get('interfaces', [])
     if not isinstance(items, list): raise HTTPException(422, 'Поле interfaces должно быть массивом')
     existing = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all(); existing_map = {x.id: x for x in existing}; incoming_ids: set[str] = set()
+    # Allowed VLANs depend only on the device (its type and its own local VLANs), not on the
+    # interface, so they're resolved once here instead of once per interface inside the loop below.
+    allowed_type = set(session.scalars(select(DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id == device.device_type_id)).all())
+    allowed_device = set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == device.id)).all())
+    allowed_vlans = allowed_type | allowed_device
     try:
         for item in items:
             if not isinstance(item, dict): raise HTTPException(422, 'Каждый интерфейс должен быть объектом')
@@ -215,7 +226,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
                 if not obj: raise HTTPException(422, 'Интерфейс не принадлежит выбранному физическому устройству')
                 incoming_ids.add(iid)
             else: obj = DeviceInterface(physical_device_id=device_id); session.add(obj)
-            _sync_single_interface(obj, item, device, session)
+            _sync_single_interface(obj, item, device, session, allowed_vlans)
         for obj in existing:
             if obj.id not in incoming_ids: session.execute(delete(InterfaceIP).where(InterfaceIP.interface_id == obj.id)); session.delete(obj)
         session.flush()
