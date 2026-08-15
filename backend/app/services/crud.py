@@ -334,6 +334,7 @@ def sync_information_system_details(system_id: str, payload: dict[str, Any], ses
         for key, model in _LINKED_TABLE_SPECS:
             _sync_linked_table(key, model, payload.get(key, []), system_id, session)
         _sync_information_system_sources(system_id, payload.get('sources', []), session)
+        audit(session, 'information-systems', system_id, AuditAction.UPDATE, 'Обновлены связанные данные ИС (подразделения/протоколы/источники/устройства/ВМ/размещение)')
         session.commit()
         return get_information_system_details(system_id, session)
     except HTTPException:

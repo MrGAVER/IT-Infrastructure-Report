@@ -197,6 +197,20 @@ class TestInformationSystemDetails:
         assert r.status_code == 200
         assert r.json()["departments"][0]["department_id"] == dept["id"]
 
+    def test_sync_details_writes_audit_entry(self, client):
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС для аудита деталей"}).json()
+        dept = client.post("/api/v1/resources/departments", json={"name": "Отдел для аудита деталей"}).json()
+
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"departments": [{"department_id": dept["id"]}]},
+        )
+        assert r.status_code == 200, r.text
+
+        r = client.get("/api/v1/resources/audit-log?entity_type=information-systems&limit=300")
+        assert r.status_code == 200
+        assert any(x["entity_id"] == info["id"] and x["action"] == "UPDATE" for x in r.json()["items"])
+
 
 class TestNPlusOneRegressions:
     """Закрепляет количество SQL-запросов к конкретным таблицам там, где раньше был N+1 (см.
