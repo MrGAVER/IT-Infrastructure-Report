@@ -198,6 +198,70 @@ class TestInformationSystemDetails:
         assert r.json()["departments"][0]["department_id"] == dept["id"]
 
 
+class TestBulkVlanAssign:
+    def _setup(self, client, n_devices=3):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для bulk-VLAN"}).json()
+        devices = [
+            client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"BULK-{i}"}).json()
+            for i in range(n_devices)
+        ]
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 88, "name": "Bulk"}).json()
+        return devices, vlan
+
+    def test_assigns_vlan_to_every_listed_device(self, client):
+        devices, vlan = self._setup(client)
+        r = client.post(
+            "/api/v1/device-vlans/bulk-assign",
+            json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"], "description": "Тест"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"status": "ok", "assigned": 3, "skipped_existing": 0}
+        for d in devices:
+            r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={d['id']}")
+            assert any(x["vlan_id"] == vlan["id"] for x in r.json()["items"])
+
+    def test_skips_devices_already_assigned_and_is_idempotent(self, client):
+        devices, vlan = self._setup(client, n_devices=2)
+        client.post(
+            "/api/v1/resources/device-vlans",
+            json={"physical_device_id": devices[0]["id"], "vlan_id": vlan["id"]},
+        )
+        r = client.post(
+            "/api/v1/device-vlans/bulk-assign",
+            json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"]},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"status": "ok", "assigned": 1, "skipped_existing": 1}
+
+        # Повторный вызов с теми же устройствами больше ничего не добавляет.
+        r2 = client.post(
+            "/api/v1/device-vlans/bulk-assign",
+            json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"]},
+        )
+        assert r2.json() == {"status": "ok", "assigned": 0, "skipped_existing": 2}
+
+    def test_rejects_empty_device_list(self, client):
+        _, vlan = self._setup(client, n_devices=0)
+        r = client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [], "vlan_id": vlan["id"]})
+        assert r.status_code == 422
+
+    def test_rejects_unknown_vlan(self, client):
+        devices, _ = self._setup(client, n_devices=1)
+        r = client.post(
+            "/api/v1/device-vlans/bulk-assign",
+            json={"physical_device_ids": [devices[0]["id"]], "vlan_id": "не-существует"},
+        )
+        assert r.status_code == 404
+
+    def test_rejects_unknown_device(self, client):
+        _, vlan = self._setup(client, n_devices=0)
+        r = client.post(
+            "/api/v1/device-vlans/bulk-assign",
+            json={"physical_device_ids": ["не-существует"], "vlan_id": vlan["id"]},
+        )
+        assert r.status_code == 404
+
+
 class TestVlanDomainSync:
     def test_sync_creates_definitions_and_assigns_to_members(self, client):
         """POST /vlan-domains/{id}/sync must propagate every source-device VLAN to every other

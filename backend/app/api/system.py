@@ -131,6 +131,38 @@ def copy_device_vlans(device_id: str, payload: dict, session: Session = Depends(
     session.commit()
     return {'status':'ok','created_definitions':created,'assigned':assigned}
 
+@router.post('/api/v1/device-vlans/bulk-assign')
+def bulk_assign_vlan(payload: dict, session: Session = Depends(get_db)):
+    """Назначает один существующий VLAN сразу нескольким устройствам — без создания формального
+    VLANDomain (тот нужен для периодической синхронизации набора VLAN, см. sync_vlan_domain; это —
+    разовое массовое назначение, по аналогии с bulk-редактором интерфейсов на фронтенде).
+    IP-адрес в bulk-режиме не задаётся намеренно: одинаковый IP на нескольких устройствах в одном
+    VLAN был бы некорректен, а различающиеся значения для каждого устройства — уже не bulk-действие;
+    IP при необходимости проставляется потом по каждой записи individually."""
+    device_ids = payload.get('physical_device_ids')
+    vlan_id = payload.get('vlan_id')
+    description = payload.get('description') or None
+    if not isinstance(device_ids, list) or not device_ids:
+        raise HTTPException(422, 'Укажите хотя бы одно устройство')
+    if not vlan_id or not session.get(VLAN, vlan_id):
+        raise HTTPException(404, 'VLAN не найден')
+    missing = [d for d in device_ids if not session.get(PhysicalDevice, d)]
+    if missing:
+        raise HTTPException(404, f'Устройства не найдены: {", ".join(missing)}')
+    existing = set(session.scalars(
+        select(PhysicalDeviceVLAN.physical_device_id).where(
+            PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
+            PhysicalDeviceVLAN.vlan_id == vlan_id,
+        )
+    ).all())
+    assigned = 0
+    for device_id in dict.fromkeys(device_ids):  # dict.fromkeys: сохраняет порядок, убирает дубли
+        if device_id in existing: continue
+        session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan_id, description=description))
+        assigned += 1
+    session.commit()
+    return {'status': 'ok', 'assigned': assigned, 'skipped_existing': len(existing)}
+
 @router.post('/api/v1/seed')
 def seed(session: Session = Depends(get_db)):
     seed_defaults(session); return {'status':'seeded','message':'Стандартные значения добавлены; пользовательские записи сохранены'}

@@ -141,9 +141,50 @@ async function renderAuditLog(){
  }).join('')||`<tr><td colspan="5" class="muted">${filterActive?'Ничего не найдено по заданному фильтру':'Записей нет'}</td></tr>`}</tbody></table></div></div>`;
 }
 async function generateTestData(btn){if(!confirm('Добавить демонстрационные тестовые данные? Существующие данные не будут удалены.'))return;await withBusyButton(btn,async()=>{try{const r=await get(api+'/seed/test',{method:'POST'});notify(r.message+`\nИдентификатор набора: ${r.tag}`,'success');await showDashboard();}catch(e){notifyError(e)}});}
+let vlanBulkAssignOpen=false;
 async function renderVlanDashboard(){
- const data=await get(api+'/vlan-dashboard');
- document.getElementById('content').innerHTML=`<div class="top"><div><h2>VLAN</h2><div class="muted">Одинаковый VLAN ID может иметь разные названия и описания на разных устройствах</div></div><div><button class="btn" onclick="openForm()">+ VLAN</button><button class="btn gray" onclick="openResource('vlan-domains')">Домены VLAN</button><button class="btn gray" onclick="showDashboard()">Dashboard</button></div></div><div class="panel"><div class="tablewrap"><table><thead><tr><th>VLAN ID</th><th>Название / описание</th><th>Домен</th><th>Устройства</th><th>IP / управление</th><th>Действия</th></tr></thead><tbody>${data.items.map(g=>g.definitions.map((v,j)=>`<tr>${j===0?`<td rowspan="${g.definitions.length}"><b>${esc(g.vlan_id)}</b></td>`:''}<td><b>${esc(v.name)}</b><br><span class="muted">${esc(v.description||'')}</span></td><td>${esc(v.domain_name)}</td><td>${esc(v.devices.map(d=>d.device_name).join(', ')||'—')}</td><td>${esc(v.devices.map(d=>d.ip_address?d.ip_address+(d.is_management?' (управление)':''):'не назначен').join(', ')||'—')}</td><td><button class="btn gray" onclick="openForm('${v.id}')">Изменить</button> <button class="btn red" onclick="removeItem('${v.id}')">Удалить</button></td></tr>`).join('')).join('')}</tbody></table></div></div>`;
+ const [data,devices]=await Promise.all([
+   get(api+'/vlan-dashboard'),
+   get(api+'/resources/devices?limit=1000').then(r=>r.items),
+ ]);
+ const allVlans=data.items.flatMap(g=>g.definitions);
+ document.getElementById('content').innerHTML=`<div class="top"><div><h2>VLAN</h2><div class="muted">Одинаковый VLAN ID может иметь разные названия и описания на разных устройствах</div></div><div><button class="btn" onclick="openForm()">+ VLAN</button><button class="btn gray" onclick="toggleVlanBulkAssign()">${vlanBulkAssignOpen?'Скрыть массовое назначение':'Массовое назначение VLAN'}</button><button class="btn gray" onclick="openResource('vlan-domains')">Домены VLAN</button><button class="btn gray" onclick="showDashboard()">Dashboard</button></div></div><div class="panel">${vlanBulkAssignOpen?vlanBulkAssignPanelHtml(allVlans,devices):''}<div class="tablewrap"><table><thead><tr><th>VLAN ID</th><th>Название / описание</th><th>Домен</th><th>Устройства</th><th>IP / управление</th><th>Действия</th></tr></thead><tbody>${data.items.map(g=>g.definitions.map((v,j)=>`<tr>${j===0?`<td rowspan="${g.definitions.length}"><b>${esc(g.vlan_id)}</b></td>`:''}<td><b>${esc(v.name)}</b><br><span class="muted">${esc(v.description||'')}</span></td><td>${esc(v.domain_name)}</td><td>${esc(v.devices.map(d=>d.device_name).join(', ')||'—')}</td><td>${esc(v.devices.map(d=>d.ip_address?d.ip_address+(d.is_management?' (управление)':''):'не назначен').join(', ')||'—')}</td><td><button class="btn gray" onclick="openForm('${v.id}')">Изменить</button> <button class="btn red" onclick="removeItem('${v.id}')">Удалить</button></td></tr>`).join('')).join('')}</tbody></table></div></div>`;
+}
+
+// Разовое назначение одного VLAN сразу нескольким устройствам — в отличие от доменов VLAN
+// (которые синхронизируют весь набор VLAN с "устройства-источника" и рассчитаны на повторное
+// использование), это одноразовое действие без создания домена. IP-адрес намеренно не
+// запрашивается: один и тот же IP на нескольких устройствах в одном VLAN был бы некорректен, а
+// задание разных IP для каждого устройства сразу — это уже не массовое действие.
+function vlanBulkAssignPanelHtml(allVlans,devices){
+ return `<div class="bulk-edit-bar" style="flex-direction:column;align-items:stretch;gap:10px;margin-bottom:14px">
+   <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
+     <label class="field"><span class="if-select-label">VLAN</span><select id="vlan-bulk-vlan"><option value="">— выберите VLAN —</option>${allVlans.map(v=>`<option value="${esc(v.id)}">${esc(v.vlan_id+' — '+v.name+(v.domain_name?' ('+v.domain_name+')':''))}</option>`).join('')}</select></label>
+     <label class="field"><span class="if-select-label">Описание (опционально)</span><input id="vlan-bulk-description" placeholder="Например: доступ для мониторинга"></label>
+   </div>
+   <div class="vlan-checks" style="max-height:220px;overflow:auto">
+     <label><input type="checkbox" onchange="toggleAllVlanBulkDevices(this.checked)"> Выбрать все (${devices.length})</label>
+     ${devices.map(d=>`<label><input type="checkbox" class="vlan-bulk-device" value="${esc(d.id)}"> ${esc(lookupLabel('devices',d))}</label>`).join('')||'<span class="muted">Устройств нет</span>'}
+   </div>
+   <div><button class="btn" onclick="applyVlanBulkAssign(this)">Назначить выбранным</button></div>
+ </div>`;
+}
+function toggleVlanBulkAssign(){vlanBulkAssignOpen=!vlanBulkAssignOpen;renderVlanDashboard();}
+function toggleAllVlanBulkDevices(checked){document.querySelectorAll('.vlan-bulk-device').forEach(el=>el.checked=checked);}
+async function applyVlanBulkAssign(btn){
+ const vlanId=document.getElementById('vlan-bulk-vlan').value;
+ const deviceIds=Array.from(document.querySelectorAll('.vlan-bulk-device:checked')).map(el=>el.value);
+ const description=document.getElementById('vlan-bulk-description').value||null;
+ if(!vlanId){notify('Выберите VLAN','error');return;}
+ if(!deviceIds.length){notify('Выберите хотя бы одно устройство','error');return;}
+ await withBusyButton(btn,async()=>{
+   try{
+     const r=await get(api+'/device-vlans/bulk-assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({physical_device_ids:deviceIds,vlan_id:vlanId,description})});
+     notify(`Назначено: ${r.assigned}${r.skipped_existing?`, уже было назначено ранее: ${r.skipped_existing}`:''}`,'success');
+     vlanBulkAssignOpen=false;
+     await renderVlanDashboard();
+   }catch(e){notifyError(e)}
+ });
 }
 async function renderList(q=''){
  const d=await get(api+`/resources/${resource}?limit=200&q=${encodeURIComponent(q)}`);rows=d.items;
