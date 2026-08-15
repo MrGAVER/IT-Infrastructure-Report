@@ -4,9 +4,12 @@ Revision ID: e8c2f1a9b430
 Revises: d1f5a7d4e900
 """
 from __future__ import annotations
+import logging
 from alembic import op
 import sqlalchemy as sa
 import uuid
+
+logger = logging.getLogger(__name__)
 
 revision = "e8c2f1a9b430"
 down_revision = "d1f5a7d4e900"
@@ -92,21 +95,29 @@ def upgrade():
                     if not exists:
                         bind.execute(sa.text(f"INSERT INTO interface_ips(id,interface_id,ip_address,prefix_length,purpose,is_management,created_at,updated_at) VALUES (:id,:i,:ip,NULL,'Управление',1,{now_sql},{now_sql})"), {"id":uid(),"i":iid,"ip":mip})
     except Exception:
-        pass
+        # Best-effort: перенос старых полей management_port/management_ip в интерфейсы не должен
+        # блокировать миграцию, если данные в старых колонках оказались в неожиданном формате —
+        # но раньше ошибка проглатывалась совсем бесследно, что затрудняло диагностику, если
+        # перенос данных для части устройств действительно не сработал.
+        logger.warning(
+            "Migration e8c2f1a9b430: не удалось перенести management_port/management_ip "
+            "в device_interfaces — блок пропущен, затронутые устройства нужно проверить вручную.",
+            exc_info=True,
+        )
 
     # Remove obsolete fields. SQLite uses batch_alter_table internally.
     with op.batch_alter_table("device_interfaces") as batch:
         for col in ["interface_type", "port_number", "speed", "admin_status", "oper_status"]:
             try: batch.drop_column(col)
-            except Exception: pass
+            except Exception: logger.debug("Migration e8c2f1a9b430: device_interfaces.%s уже отсутствует, пропущено", col, exc_info=True)
     with op.batch_alter_table("connections") as batch:
         for col in ["connection_type", "cable_type"]:
             try: batch.drop_column(col)
-            except Exception: pass
+            except Exception: logger.debug("Migration e8c2f1a9b430: connections.%s уже отсутствует, пропущено", col, exc_info=True)
     with op.batch_alter_table("physical_devices") as batch:
         for col in ["management_port", "management_ip", "physical_port_count"]:
             try: batch.drop_column(col)
-            except Exception: pass
+            except Exception: logger.debug("Migration e8c2f1a9b430: physical_devices.%s уже отсутствует, пропущено", col, exc_info=True)
 
     # All IPs on a management interface are management IPs.
     bind.execute(sa.text("UPDATE interface_ips SET is_management=1 WHERE interface_id IN (SELECT id FROM device_interfaces WHERE is_management=1)"))

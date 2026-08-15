@@ -56,7 +56,6 @@ def upgrade() -> None:
     # Migrate the free-text values that already exist into the new catalog.
     import uuid
     existing = bind.execute(sa.text("SELECT DISTINCT support_method FROM information_systems WHERE support_method IS NOT NULL AND TRIM(support_method) != ''")).fetchall()
-    now = sa.func.now()
     for (value,) in existing:
         new_id = str(uuid.uuid4())
         bind.execute(

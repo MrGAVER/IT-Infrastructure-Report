@@ -33,11 +33,8 @@ jobs:
         run: npm ci
         working-directory: frontend/tests
 
-      - name: ruff (только реальные ошибки — pyflakes F + синтаксис E9)
-        # Полный дефолтный набор ruff (стиль импортов, длина строк, пробелы) конфликтует с
-        # сознательным плотным стилем автора (несколько операторов в строке через ';'/':').
-        # F+E9 ловит настоящие баги (неиспользуемые/неопределённые имена, синтаксис), не стиль.
-        run: ruff check backend/app --select F,E9 --line-length 400
+      - name: ruff (только реальные ошибки — pyflakes F + синтаксис E9, см. pyproject.toml)
+        run: ruff check backend
 
       - name: Тесты backend (unittest + pytest, включая интеграционные)
         run: pytest -v

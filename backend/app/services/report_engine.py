@@ -189,6 +189,9 @@ def substitute_params(text: str | None, params: dict[str, Any]) -> str:
 
     def repl(match: re.Match) -> str:
         key = match.group(1).strip()
+        # datetime.now() здесь намеренно без timezone: это плейсхолдер даты для человека,
+        # читающего готовый отчёт ({{report_date}}/{{now}}), а не хранимая метка времени — должен
+        # показывать локальное время сервера, а не UTC.
         if key == "report_date":
             return datetime.now().strftime("%d.%m.%Y")
         if key in ("now", "datetime"):

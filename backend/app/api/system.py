@@ -146,6 +146,9 @@ def seed_test_data(session: Session = Depends(get_db)):
     from datetime import datetime
     from uuid import uuid4
 
+    # Локальное время сервера намеренно: это человекочитаемый тег тестового набора для
+    # администратора, который его сгенерировал (см. computed.local_timestamp_suffix для той же
+    # логики в именах файлов отчётов), а не хранимая/сравниваемая метка времени.
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     tag = f"TEST-{stamp}-{uuid4().hex[:4]}"
 

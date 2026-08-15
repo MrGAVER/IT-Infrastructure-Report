@@ -8,7 +8,19 @@
 два отдельных исправления одной и той же логики). Теперь это одна функция.
 """
 from __future__ import annotations
+from datetime import datetime
 from typing import Any
+
+
+def local_timestamp_suffix() -> str:
+    """Метка времени для имён файлов сгенерированных отчётов (`Отчёт_2026-08-15_14-30-00.xlsx`).
+
+    Намеренно локальное время сервера (datetime.now(), без timezone), а не UTC: это не хранимая
+    и не сравниваемая метка времени вроде created_at/updated_at (те уже используют
+    datetime.now(timezone.utc) — см. TimestampMixin в models.py), а разовое форматирование
+    момента генерации файла для человека — в имени файла должно быть то время, которое человек
+    увидит на часах в момент скачивания, а не смещённое на часовой пояс UTC значение."""
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def ip_label(ip: Any) -> str:

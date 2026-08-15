@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +10,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
+from .computed import local_timestamp_suffix
 from .report_engine import ReportBuilderError, ReportContext, column_value, iter_report_rows, substitute_params
 
 _FILENAME_UNSAFE = re.compile(r'[\\/:*?"<>|]+')
@@ -88,7 +88,7 @@ def build_xlsx(session: Session, config: dict[str, Any], report_dir: Path, *, te
         _finalize_sheet(ws)
 
     report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / f"{_safe_filename(template_name)}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.xlsx"
+    path = report_dir / f"{_safe_filename(template_name)}_{local_timestamp_suffix()}.xlsx"
     wb.save(path)
     return path
 
@@ -136,7 +136,7 @@ def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, te
             raise ReportBuilderError(f"Неизвестный тип блока: {btype}")
 
     report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / f"{_safe_filename(template_name)}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.docx"
+    path = report_dir / f"{_safe_filename(template_name)}_{local_timestamp_suffix()}.docx"
     doc.save(path)
     return path
 

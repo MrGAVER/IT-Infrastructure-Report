@@ -43,7 +43,6 @@ def upgrade():
         sa.UniqueConstraint("category_id", "name", "version", name="uq_operating_system_category_name_version"),
     )
 
-    now = sa.func.current_timestamp()
     categories = [
         ("Гипервизор", "Гипервизоры и платформы виртуализации"),
         ("Серверная ОС", "Операционные системы серверов"),
