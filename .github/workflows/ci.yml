@@ -36,6 +36,9 @@ jobs:
       - name: ruff (только реальные ошибки — pyflakes F + синтаксис E9, см. pyproject.toml)
         run: ruff check backend
 
+      - name: pip-audit (известные уязвимости в зависимостях runtime, см. requirements.txt) — gate
+        run: pip-audit -r backend/requirements.txt
+
       - name: Тесты backend (unittest + pytest, включая интеграционные)
         run: pytest -v
 
@@ -43,7 +46,7 @@ jobs:
         run: npm test
         working-directory: frontend/tests
 
-      - name: Проверка синтаксиса core.js/vm-editors.js/device-interfaces.js/csv-import.js/connections.js/app.js/report_builder.js
+      - name: Проверка синтаксиса core.js/vm-editors.js/device-interfaces.js/information-systems.js/csv-import.js/connections.js/app.js/report_builder.js
         run: |
           node --check frontend/static/core.js
           node --check frontend/static/vm-editors.js
