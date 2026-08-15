@@ -20,6 +20,7 @@ const DEVICE_INTERFACES_JS_PATH = path.join(__dirname, '..', 'static', 'device-i
 const INFORMATION_SYSTEMS_JS_PATH = path.join(__dirname, '..', 'static', 'information-systems.js');
 const VLAN_JS_PATH = path.join(__dirname, '..', 'static', 'vlan.js');
 const AUDIT_LOG_JS_PATH = path.join(__dirname, '..', 'static', 'audit-log.js');
+const SEARCH_JS_PATH = path.join(__dirname, '..', 'static', 'search.js');
 const CSV_IMPORT_JS_PATH = path.join(__dirname, '..', 'static', 'csv-import.js');
 const CONNECTIONS_JS_PATH = path.join(__dirname, '..', 'static', 'connections.js');
 const REPORT_BUILDER_JS_PATH = path.join(__dirname, '..', 'static', 'report_builder.js');
@@ -54,6 +55,7 @@ function loadAppWindow({ fetchImpl, withReportBuilder = false } = {}) {
   vm.runInContext(fs.readFileSync(INFORMATION_SYSTEMS_JS_PATH, 'utf-8'), context, { filename: INFORMATION_SYSTEMS_JS_PATH });
   vm.runInContext(fs.readFileSync(VLAN_JS_PATH, 'utf-8'), context, { filename: VLAN_JS_PATH });
   vm.runInContext(fs.readFileSync(AUDIT_LOG_JS_PATH, 'utf-8'), context, { filename: AUDIT_LOG_JS_PATH });
+  vm.runInContext(fs.readFileSync(SEARCH_JS_PATH, 'utf-8'), context, { filename: SEARCH_JS_PATH });
   vm.runInContext(fs.readFileSync(CSV_IMPORT_JS_PATH, 'utf-8'), context, { filename: CSV_IMPORT_JS_PATH });
   vm.runInContext(fs.readFileSync(CONNECTIONS_JS_PATH, 'utf-8'), context, { filename: CONNECTIONS_JS_PATH });
   vm.runInContext(fs.readFileSync(APP_JS_PATH, 'utf-8'), context, { filename: APP_JS_PATH });
