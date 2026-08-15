@@ -124,7 +124,11 @@ async function get(url,opt){
   _invalidateCacheForUrl(url);
   return r.status===204?null:r.json();
 }
-function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;')}
+// Экранирует HTML-спецсимволы, включая одинарную кавычку — во frontend'е она используется как
+// разделитель строковых аргументов в inline onclick="fn('${id}')" (двойные кавычки заняты самим
+// HTML-атрибутом). Сейчас в такие места попадают только server-generated UUID, но экранирование
+// ' — защита на будущее (defense in depth), а не реакция на существующую уязвимость.
+function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')}
 function formatValue(v){if(typeof v==='boolean')return v?'Да':'Нет';return v??''}
 function lookupLabel(res,o){
  if(res==='device-models')return [o.model,o.name].filter(Boolean).join(' — ');

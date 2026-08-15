@@ -9,9 +9,9 @@ const { loadAppWindow } = require('./load-app.js');
 // realm'ов там, где сравниваются простые данные (массивы строк и т.п.).
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
-test('esc() экранирует HTML-спецсимволы', () => {
+test('esc() экранирует HTML-спецсимволы, включая одинарную кавычку', () => {
   const win = loadAppWindow();
-  assert.equal(win.esc('<b>&"x"</b>'), '&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;');
+  assert.equal(win.esc(`<b>&"x"</b>'`), '&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;&#39;');
 });
 
 test('esc() не падает на null/undefined — превращает их в пустую строку', () => {
