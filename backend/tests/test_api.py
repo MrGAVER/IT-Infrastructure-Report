@@ -325,6 +325,72 @@ class TestBulkVlanAssign:
         assert any(x["entity_id"] == vlan["id"] and x["action"] == "SYNC" for x in r.json()["items"])
 
 
+class TestVlanDomainMemberAudit:
+    def test_add_member_writes_audit_entry(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для аудита членства"}).json()
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUD-SRC"}).json()
+        member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUD-M"}).json()
+        domain = client.post(
+            "/api/v1/resources/vlan-domains", json={"name": "Домен для аудита", "source_device_id": source["id"]}
+        ).json()
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
+        assert r.status_code == 200, r.text
+        membership_id = r.json()["id"]
+
+        r = client.get("/api/v1/resources/audit-log?entity_type=vlan-domain-devices&limit=300")
+        assert r.status_code == 200
+        assert any(x["entity_id"] == membership_id and x["action"] == "CREATE" for x in r.json()["items"])
+
+    def test_add_member_twice_is_idempotent_and_audits_once(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип идемпотентности членства"}).json()
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "IDM-SRC"}).json()
+        member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "IDM-M"}).json()
+        domain = client.post(
+            "/api/v1/resources/vlan-domains", json={"name": "Домен идемпотентности", "source_device_id": source["id"]}
+        ).json()
+
+        r1 = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
+        r2 = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
+        assert r1.status_code == 200 and r2.status_code == 200
+        assert r1.json()["id"] == r2.json()["id"]
+
+        r = client.get("/api/v1/resources/audit-log?entity_type=vlan-domain-devices&limit=300")
+        entries = [x for x in r.json()["items"] if x["entity_id"] == r1.json()["id"]]
+        assert len(entries) == 1  # повторное добавление — no-op, второй audit-записи быть не должно
+
+
+class TestCopyDeviceVlans:
+    def test_copies_vlans_from_source_and_writes_audit_entry(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для копирования VLAN"}).json()
+        source = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": dt["id"], "serial_number": "CP-SRC", "system_name": "src-sw"},
+        ).json()
+        target = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "CP-DST"}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 55, "name": "Копия"}).json()
+        r = client.post("/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan["id"]})
+        assert r.status_code == 201, r.text
+
+        r = client.post(f"/api/v1/devices/{target['id']}/vlan-copy", json={"source_device_id": source["id"]})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"status": "ok", "created_definitions": 1, "assigned": 1}
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={target['id']}")
+        assert r.status_code == 200
+        assert len(r.json()["items"]) == 1
+
+        r = client.get("/api/v1/resources/audit-log?entity_type=devices&limit=300")
+        assert r.status_code == 200
+        assert any(x["entity_id"] == target["id"] and x["action"] == "SYNC" for x in r.json()["items"])
+
+    def test_rejects_missing_source_or_target(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для проверки ошибок копирования"}).json()
+        target = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "CP-ERR"}).json()
+        r = client.post(f"/api/v1/devices/{target['id']}/vlan-copy", json={"source_device_id": "не-существует"})
+        assert r.status_code == 404
+
+
 class TestVlanDomainSync:
     def test_sync_creates_definitions_and_assigns_to_members(self, client):
         """POST /vlan-domains/{id}/sync must propagate every source-device VLAN to every other

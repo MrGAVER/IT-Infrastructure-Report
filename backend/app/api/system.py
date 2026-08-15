@@ -76,7 +76,9 @@ def add_vlan_domain_member(domain_id: str, payload: dict, session: Session = Dep
     existing=session.scalar(select(VLANDomainDevice).where(VLANDomainDevice.domain_id==domain_id,VLANDomainDevice.physical_device_id==device.id))
     if existing: return serialize(existing)
     obj=VLANDomainDevice(domain_id=domain_id,physical_device_id=device.id)
-    session.add(obj); session.commit(); session.refresh(obj); return serialize(obj)
+    session.add(obj); session.flush()
+    audit(session, 'vlan-domain-devices', obj.id, AuditAction.CREATE, f'Устройство добавлено в VLAN-домен «{domain.name}»')
+    session.commit(); session.refresh(obj); return serialize(obj)
 
 @router.post('/api/v1/vlan-domains/{domain_id}/sync')
 def sync_vlan_domain(domain_id: str, session: Session = Depends(get_db)):
@@ -131,6 +133,7 @@ def copy_device_vlans(device_id: str, payload: dict, session: Session = Depends(
         v=VLAN(vlan_id=sv.vlan_id,name=sv.name,description=sv.description,domain_id=None)
         session.add(v); session.flush(); created+=1
         session.add(PhysicalDeviceVLAN(physical_device_id=target.id,vlan_id=v.id,ip_address=None,prefix_length=None,is_management=False,description=sv.description)); assigned+=1
+    audit(session, 'devices', target.id, AuditAction.SYNC, f'Скопированы VLAN с устройства «{source.system_name or source.serial_number}»: определений {created}, назначено {assigned}')
     session.commit()
     return {'status':'ok','created_definitions':created,'assigned':assigned}
 
