@@ -11,13 +11,17 @@ async function globalSearch(q){
  if(!q)return;
  const enc=encodeURIComponent(q);
  const safeList=async(url)=>{try{return (await get(url)).items;}catch(_){return [];}};
- const [devices,isys,vms,interfaces,ifaceIps,vmIps]=await Promise.all([
+ const [devices,isys,vms,interfaces,ifaceIps,vmIps,isIps,isSources,deviceVlanIps,openPorts]=await Promise.all([
    safeList(api+`/resources/devices?q=${enc}&limit=15`),
    safeList(api+`/resources/information-systems?q=${enc}&limit=15`),
    safeList(api+`/resources/vms?q=${enc}&limit=15`),
    safeList(api+`/resources/interfaces?q=${enc}&limit=15`),
    safeList(api+`/resources/interface-ips?q=${enc}&limit=15`),
    safeList(api+`/resources/vm-ips?q=${enc}&limit=15`),
+   safeList(api+`/resources/is-ips?q=${enc}&limit=15`),
+   safeList(api+`/resources/is-sources?q=${enc}&limit=15`),
+   safeList(api+`/resources/device-vlans?q=${enc}&limit=15`),
+   safeList(api+`/resources/open-ports?q=${enc}&limit=15`),
  ]);
  const results=[];
  for(const d of devices)results.push({section:'Физические устройства',title:lookupLabel('devices',d),open:async()=>{await openResource('devices');await openForm(d.id);}});
@@ -35,6 +39,38 @@ async function globalSearch(q){
    try{
      const vm=await get(api+`/resources/vms/${ip.virtual_machine_id}`);
      results.push({section:'IP виртуальных машин',title:`${ip.ip_address} — ${vm.name}`,open:async()=>{await openResource('vms');await openForm(vm.id);}});
+   }catch(_){}
+ }
+ // Ниже — IP-адреса, хранящиеся не на самом интерфейсе/ВМ, а в связанных таблицах (внешнее
+ // взаимодействие ИС, IP на VLAN устройства, IP открытого порта устройства/ВМ). Раньше сквозной
+ // поиск их не находил вовсе — искать IP приходилось вручную по разделам.
+ for(const ip of isIps){
+   try{
+     const is_=await get(api+`/resources/information-systems/${ip.information_system_id}`);
+     results.push({section:'IP информационных систем',title:`${ip.ip_address} — ИС «${is_.name}»`,open:async()=>{await openResource('information-systems');await openForm(is_.id);}});
+   }catch(_){}
+ }
+ for(const src of isSources){
+   if(!src.ip_address)continue;
+   try{
+     const is_=await get(api+`/resources/information-systems/${src.information_system_id}`);
+     results.push({section:'IP внешних источников ИС',title:`${src.ip_address} — источник ИС «${is_.name}»`,open:async()=>{await openResource('information-systems');await openForm(is_.id);}});
+   }catch(_){}
+ }
+ for(const vlanIp of deviceVlanIps){
+   if(!vlanIp.ip_address)continue;
+   try{
+     const dev=await get(api+`/resources/devices/${vlanIp.physical_device_id}`);
+     results.push({section:'IP на VLAN устройства',title:`${vlanIp.ip_address} — ${lookupLabel('devices',dev)}`,open:async()=>{await openResource('devices');await openForm(dev.id);}});
+   }catch(_){}
+ }
+ for(const port of openPorts){
+   if(!port.ip_address)continue;
+   try{
+     const isDevice=port.owner_type==='physical_device';
+     const owner=await get(api+`/resources/${isDevice?'devices':'vms'}/${port.owner_id}`);
+     const ownerLabel=isDevice?lookupLabel('devices',owner):(owner.name||owner.id);
+     results.push({section:'IP открытых портов',title:`${port.ip_address}:${port.port} — ${ownerLabel}`,open:async()=>{await openResource(isDevice?'devices':'vms');await openForm(owner.id);}});
    }catch(_){}
  }
  globalSearchResults=results;

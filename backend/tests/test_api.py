@@ -242,6 +242,59 @@ class TestVlanDomainSync:
         assert r2.json() == {"status": "ok", "created_definitions": 0, "assigned": 0}
 
 
+class TestGlobalSearchTextIndex:
+    """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 4 таблицах
+    (is-ips/is-sources/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
+    IP из этих таблиц приходилось искать вручную по разделам."""
+
+    def test_is_ip_searchable_by_address(self, client):
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС для поиска IP"}).json()
+        r = client.post(
+            "/api/v1/resources/is-ips",
+            json={"information_system_id": is_["id"], "ip_address": "10.20.30.40"},
+        )
+        assert r.status_code == 201, r.text
+        r = client.get("/api/v1/resources/is-ips?q=10.20.30.40")
+        assert r.status_code == 200
+        assert any(x["ip_address"] == "10.20.30.40" for x in r.json()["items"])
+
+    def test_is_source_searchable_by_address(self, client):
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС-источник для поиска"}).json()
+        r = client.post(
+            "/api/v1/resources/is-sources",
+            json={"information_system_id": is_["id"], "source_type": "manual", "ip_address": "10.20.30.41"},
+        )
+        assert r.status_code == 201, r.text
+        r = client.get("/api/v1/resources/is-sources?q=10.20.30.41")
+        assert r.status_code == 200
+        assert any(x["ip_address"] == "10.20.30.41" for x in r.json()["items"])
+
+    def test_device_vlan_ip_searchable_by_address(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для поиска VLAN-IP"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRCH-1"}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 77, "name": "Поиск"}).json()
+        r = client.post(
+            "/api/v1/resources/device-vlans",
+            json={"physical_device_id": dev["id"], "vlan_id": vlan["id"], "ip_address": "10.20.30.42"},
+        )
+        assert r.status_code == 201, r.text
+        r = client.get("/api/v1/resources/device-vlans?q=10.20.30.42")
+        assert r.status_code == 200
+        assert any(x["ip_address"] == "10.20.30.42" for x in r.json()["items"])
+
+    def test_open_port_ip_searchable_by_address(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для поиска порта"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRCH-2"}).json()
+        r = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "physical_device", "owner_id": dev["id"], "port": 443, "ip_address": "10.20.30.43"},
+        )
+        assert r.status_code == 201, r.text
+        r = client.get("/api/v1/resources/open-ports?q=10.20.30.43")
+        assert r.status_code == 200
+        assert any(x["ip_address"] == "10.20.30.43" for x in r.json()["items"])
+
+
 class TestAuditLog:
     def test_audit_log_lists_most_recent_action_first(self, client):
         """GET /resources/audit-log?limit=N must return the N most recent entries (newest
