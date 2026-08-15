@@ -67,6 +67,25 @@ def db_session():
 
 
 @pytest.fixture()
+def sql_log(db_session):
+    """Список текстов всех SQL-запросов, выполненных через db_session.engine, пока фикстура
+    активна — используется регрессионными тестами на N+1 (TestNPlusOneRegressions в test_api.py),
+    которые проверяют, что запросы к конкретным таблицам не растут пропорционально размеру
+    входных данных (число портов устройства, число участников VLAN-домена и т.п.)."""
+    statements: list[str] = []
+    engine = db_session.get_bind()
+
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _before_cursor_execute)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", _before_cursor_execute)
+
+
+@pytest.fixture()
 def client(db_session, monkeypatch):
     """TestClient с app.db.get_db, подменённым на фикстурную сессию/движок выше, чтобы
     тесты не трогали настоящий infra_registry.db и не зависели друг от друга по данным.

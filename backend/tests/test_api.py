@@ -198,6 +198,58 @@ class TestInformationSystemDetails:
         assert r.json()["departments"][0]["department_id"] == dept["id"]
 
 
+class TestNPlusOneRegressions:
+    """Закрепляет количество SQL-запросов к конкретным таблицам там, где раньше был N+1 (см.
+    историю коммита e068add) — если кто-то случайно вернёт запрос внутрь цикла, эти тесты упадут
+    сразу на маленьком наборе данных, а не когда это станет заметно на реальном объёме."""
+
+    def test_sync_interfaces_allowed_vlan_lookup_does_not_scale_with_port_count(self, client, sql_log):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для подсчёта запросов"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-1"}).json()
+
+        sql_log.clear()
+        payload = {"interfaces": [{"name": f"eth{i}"} for i in range(10)]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 200, r.text
+
+        vlan_lookup_queries = [s for s in sql_log if "device_type_vlans" in s or "physical_device_vlans" in s]
+        # Раньше — 2 запроса НА КАЖДЫЙ интерфейс (было бы 20 для 10 портов); теперь — 2 на весь вызов.
+        assert len(vlan_lookup_queries) <= 2, f"Ожидалось <=2 запроса к allowed-VLAN, получено {len(vlan_lookup_queries)}"
+
+    def test_sync_vlan_domain_does_not_query_per_device_per_vlan_pair(self, client, sql_log):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для домена подсчёта"}).json()
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-SRC"}).json()
+        members = [
+            client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"QC-M{i}"}).json()
+            for i in range(5)
+        ]
+        domain = client.post(
+            "/api/v1/resources/vlan-domains", json={"name": "Домен подсчёта", "source_device_id": source["id"]}
+        ).json()
+        for dev in [source, *members]:
+            r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": dev["id"]})
+            assert r.status_code == 200, r.text
+        vlans = [
+            client.post("/api/v1/resources/vlans", json={"vlan_id": 900 + i, "name": f"Домен-{i}"}).json()
+            for i in range(3)
+        ]
+        for vlan in vlans:
+            r = client.post(
+                "/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan["id"]}
+            )
+            assert r.status_code == 201, r.text
+
+        sql_log.clear()
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync")
+        assert r.status_code == 200, r.text
+
+        vlan_select_queries = [s for s in sql_log if s.strip().upper().startswith("SELECT") and "vlans" in s.lower()]
+        # 5 участников x 3 VLAN = 15 пар устройство/VLAN; раньше на каждую пару был отдельный
+        # SELECT (было бы >=15). Теперь домен-локальные VLAN и назначения участников загружаются
+        # пакетно один раз каждое — независимо от числа пар.
+        assert len(vlan_select_queries) < 15, f"Ожидалось < 15 SELECT к VLAN-таблицам, получено {len(vlan_select_queries)}"
+
+
 class TestBulkVlanAssign:
     def _setup(self, client, n_devices=3):
         dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для bulk-VLAN"}).json()
