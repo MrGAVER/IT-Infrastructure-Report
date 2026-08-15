@@ -48,7 +48,7 @@ function renderGlobalSearchResults(q,results){
 async function showDashboard(){
  const d=await get(api+'/dashboard');
  const cards=[['information_systems','ИС','information-systems'],['physical_devices','Физические устройства','devices'],['virtual_machines','VM','vms'],['containers','Контейнеры','containers'],['connections','Подключения','connections'],['vlan','VLAN','vlans'],['software','ПО','software-assets']];
- content.innerHTML=`<div class="top"><h2>Dashboard</h2><div class="actions"><button class="btn gray" onclick="generateTestData()">Заполнить тестовыми данными</button><button class="btn gray" onclick="openResource('audit-log')">Аудит</button><button class="btn" onclick="generateReport()">Сформировать Excel</button></div></div><div class="cards">${cards.map(x=>`<button class="card" style="text-align:left;cursor:pointer" onclick="openResource('${x[2]}')"><span>${x[1]}</span><b>${d[x[0]]||0}</b><span class="muted">Открыть →</span></button>`).join('')}</div>`;
+ content.innerHTML=`<div class="top"><h2>Dashboard</h2><div class="actions"><button class="btn gray" onclick="generateTestData(this)">Заполнить тестовыми данными</button><button class="btn gray" onclick="openResource('audit-log')">Аудит</button><button class="btn" onclick="generateReport(this)">Сформировать Excel</button></div></div><div class="cards">${cards.map(x=>`<button class="card" style="text-align:left;cursor:pointer" onclick="openResource('${x[2]}')"><span>${x[1]}</span><b>${d[x[0]]||0}</b><span class="muted">Открыть →</span></button>`).join('')}</div>`;
 }
 async function openResource(r){resource=r;if(r==='vlans'){await renderVlanDashboard();return;}if(r==='audit-log'){await renderAuditLog();return;}schema=await get(api+`/resources/${r}/schema`);await renderList()}
 async function renderAuditLog(){
@@ -78,7 +78,7 @@ async function renderAuditLog(){
    return `<tr><td>${esc(when)}</td><td>${esc(resourceNames[r.entity_type]||r.entity_type)}</td><td>${entityCell}</td><td>${esc(actionLabels[r.action]||r.action)}</td><td>${esc(r.details||'')}</td></tr>`;
  }).join('')||'<tr><td colspan="5" class="muted">Записей нет</td></tr>'}</tbody></table></div></div>`;
 }
-async function generateTestData(){if(!confirm('Добавить демонстрационные тестовые данные? Существующие данные не будут удалены.'))return;try{const r=await get(api+'/seed/test',{method:'POST'});notify(r.message+`\nИдентификатор набора: ${r.tag}`,'success');await showDashboard();}catch(e){notifyError(e)}}
+async function generateTestData(btn){if(!confirm('Добавить демонстрационные тестовые данные? Существующие данные не будут удалены.'))return;await withBusyButton(btn,async()=>{try{const r=await get(api+'/seed/test',{method:'POST'});notify(r.message+`\nИдентификатор набора: ${r.tag}`,'success');await showDashboard();}catch(e){notifyError(e)}});}
 async function renderVlanDashboard(){
  const data=await get(api+'/vlan-dashboard');
  document.getElementById('content').innerHTML=`<div class="top"><div><h2>VLAN</h2><div class="muted">Одинаковый VLAN ID может иметь разные названия и описания на разных устройствах</div></div><div><button class="btn" onclick="openForm()">+ VLAN</button><button class="btn gray" onclick="openResource('vlan-domains')">Домены VLAN</button><button class="btn gray" onclick="showDashboard()">Dashboard</button></div></div><div class="panel"><div class="tablewrap"><table><thead><tr><th>VLAN ID</th><th>Название / описание</th><th>Домен</th><th>Устройства</th><th>IP / управление</th><th>Действия</th></tr></thead><tbody>${data.items.map(g=>g.definitions.map((v,j)=>`<tr>${j===0?`<td rowspan="${g.definitions.length}"><b>${esc(g.vlan_id)}</b></td>`:''}<td><b>${esc(v.name)}</b><br><span class="muted">${esc(v.description||'')}</span></td><td>${esc(v.domain_name)}</td><td>${esc(v.devices.map(d=>d.device_name).join(', ')||'—')}</td><td>${esc(v.devices.map(d=>d.ip_address?d.ip_address+(d.is_management?' (управление)':''):'не назначен').join(', ')||'—')}</td><td><button class="btn gray" onclick="openForm('${v.id}')">Изменить</button> <button class="btn red" onclick="removeItem('${v.id}')">Удалить</button></td></tr>`).join('')).join('')}</tbody></table></div></div>`;
@@ -108,7 +108,7 @@ function renderTable(){
    const arrow=active?(listSortDirection===1?' ▲':' ▼'):'';
    return `<th class="sortable-th" onclick="sortListBy('${c.name}')">${esc(labels[c.name]||c.name)}${arrow}</th>`;
  }).join('')+'<th>Действия</th>';
- body.innerHTML=rows.map(x=>`<tr>${listCols.map(c=>`<td>${esc(listCell(x,c))}</td>`).join('')}<td><button class="btn gray" onclick="openForm('${x.id}')">Изменить</button> <button class="btn red" onclick="removeItem('${x.id}')">Удалить</button></td></tr>`).join('');
+ body.innerHTML=rows.map(x=>`<tr>${listCols.map(c=>`<td>${esc(listCell(x,c))}</td>`).join('')}<td><button class="btn gray" onclick="openForm('${x.id}')">Изменить</button> ${resource==='vlan-domains'&&x.source_device_id?`<button class="btn gray" onclick="syncVlanDomain('${x.id}',this)">Синхронизировать</button> `:''}<button class="btn red" onclick="removeItem('${x.id}')">Удалить</button></td></tr>`).join('');
 }
 function sortListBy(colName){
  if(listSortColumn===colName)listSortDirection=-listSortDirection;
@@ -475,5 +475,17 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 async function removeItem(id){if(!confirm('Удалить запись?'))return;try{await get(api+`/resources/${resource}/${id}`,{method:'DELETE'});if(resource==='vlans')await renderVlanDashboard();else await renderList()}catch(err){notifyError(err)}}
-async function generateReport(){try{const x=await get(api+'/reports/inventory',{method:'POST'});window.location=x.download_url;}catch(e){notifyError(e)}}
+async function generateReport(btn){await withBusyButton(btn,async()=>{try{const x=await get(api+'/reports/inventory',{method:'POST'});window.location=x.download_url;}catch(e){notifyError(e)}});}
+
+// Синхронизирует VLAN-домен: копирует VLAN исходного устройства на все остальные устройства
+// домена (см. POST /api/v1/vlan-domains/{id}/sync на бэкенде). До этой кнопки эндпоинт был
+// реализован и покрыт тестами, но не вызывался из интерфейса ни в одном месте.
+async function syncVlanDomain(id,btn){
+  await withBusyButton(btn,async()=>{
+    try{
+      const r=await get(api+`/vlan-domains/${id}/sync`,{method:'POST'});
+      notify(`VLAN-домен синхронизирован: новых определений — ${r.created_definitions}, назначений — ${r.assigned}`,'success');
+    }catch(e){notifyError(e)}
+  });
+}
 showDashboard();

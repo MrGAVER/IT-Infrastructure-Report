@@ -98,6 +98,18 @@ function notify(message,type='info'){
 }
 function notifyError(err){notify(errorMessage(err),'error');}
 
+// Переводит кнопку в состояние "выполняется" (disabled, текст с многоточием) на время async-
+// действия и восстанавливает исходное состояние в finally — для операций без собственного
+// индикатора загрузки (генерация отчёта, синхронизация VLAN-домена и т.п.), чтобы пользователь
+// не решил, что клик не сработал, и не отправил запрос повторно, пока предыдущий ещё выполняется.
+async function withBusyButton(btn,fn){
+  if(!btn) return fn();
+  const original=btn.textContent,wasDisabled=btn.disabled;
+  btn.disabled=true;btn.textContent=original+'…';
+  try{ return await fn(); }
+  finally{ btn.disabled=wasDisabled;btn.textContent=original; }
+}
+
 async function get(url,opt){
   const method=(opt&&opt.method)||'GET';
   if(method==='GET'){

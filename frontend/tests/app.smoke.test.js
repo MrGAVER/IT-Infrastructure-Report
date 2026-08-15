@@ -114,6 +114,31 @@ test('notifyError(): извлекает сообщение из ошибки API
   assert.match(toast.textContent, /Ресурс не найден/);
 });
 
+test('withBusyButton(): отключает кнопку на время действия и восстанавливает исходный текст', async () => {
+  const win = loadAppWindow();
+  const btn = win.document.createElement('button');
+  btn.textContent = 'Сформировать Excel';
+  let resolveFn;
+  const pending = new Promise((resolve) => { resolveFn = resolve; });
+  const call = win.withBusyButton(btn, () => pending);
+  await Promise.resolve();
+  assert.equal(btn.disabled, true);
+  assert.equal(btn.textContent, 'Сформировать Excel…');
+  resolveFn('done');
+  assert.equal(await call, 'done');
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.textContent, 'Сформировать Excel');
+});
+
+test('withBusyButton(): восстанавливает кнопку даже если действие выбросило исключение', async () => {
+  const win = loadAppWindow();
+  const btn = win.document.createElement('button');
+  btn.textContent = 'Синхронизировать';
+  await assert.rejects(() => win.withBusyButton(btn, () => Promise.reject(new Error('boom'))), /boom/);
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.textContent, 'Синхронизировать');
+});
+
 test('showDashboard() при загрузке рендерит контент без явного вызова (см. bootstrap внизу app.js)', async () => {
   const win = loadAppWindow();
   // showDashboard() запускается асинхронно самим фактом загрузки файла — дождёмся её завершения.
