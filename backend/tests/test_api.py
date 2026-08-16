@@ -557,8 +557,13 @@ class TestAuditLog:
 
 class TestReportTemplateVersions:
     VALID_CONFIG = {"sheets": [{
-        "title": "Лист1", "root_entity": "information-systems",
-        "columns": [{"header": "Наименование", "source": "field", "path": "name"}],
+        "title": "Лист1",
+        "columns": [{"width": 25}],
+        "rows": [{
+            "height": 18, "repeat": True,
+            "data_source": {"root_entity": "information-systems"},
+            "cells": [{"col": 0, "kind": "field", "path": "name"}],
+        }],
     }]}
 
     def _create(self, client, name="Шаблон версий"):

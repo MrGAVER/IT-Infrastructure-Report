@@ -1,29 +1,12 @@
 """
-Движок конструктора произвольных отчётов.
+Движок конструктора произвольных отчётов — общие примитивы (пути полей, фильтры, циклический
+вывод по связям, подстановка параметров), используемые обоими форматами отчётов.
 
-Формат конфигурации шаблона (ReportTemplate.config, JSON):
+format == "docx": конфигурация — плоский список блоков документа:
 
 {
   "params": [{"key": "report_date", "label": "Дата отчёта", "default": ""}],
-  "sheets": [                                   # только для format == "xlsx"
-    {
-      "title": "Лист 1",
-      "root_entity": "information-systems",     # ключ из /report-builder/entities
-      "expand": "information_system_departments_or_vms_etc",  # опц.: связь "многие", по которой
-                                                                # строка исходной сущности размножается
-                                                                # на несколько строк отчёта (цикл. вывод)
-      "include_empty_expand": true,             # выводить ли строку, когда expand-связь пуста
-      "filters": [{"path": "status", "op": "eq", "value": "active"}],
-      "sort_by": "name",
-      "columns": [
-        {"header": "№", "source": "index"},
-        {"header": "Наименование", "source": "field", "path": "name"},
-        {"header": "Подразделения", "source": "field", "path": "information_system_departments[].department.name", "separator": "; "},
-        {"header": "Дата", "source": "static", "value": "{{report_date}}"}
-      ]
-    }
-  ],
-  "blocks": [                                   # только для format == "docx"
+  "blocks": [
     {"type": "heading", "level": 1, "text": "Отчёт по ИС {{org_name}}"},
     {"type": "paragraph", "text": "Дата формирования: {{report_date}}"},
     {"type": "table", "root_entity": "...", "expand": null, "filters": [], "sort_by": null, "columns": [...]},
@@ -31,7 +14,12 @@
   ]
 }
 
-Путь поля ("path") — точечная нотация по графу связей entity_metadata:
+format == "xlsx": начиная с grid-редактора конфигурация описывает лист как сетку ячеек (заголовок
+"sheets", но структура внутри принципиально другая) — см. services/report_grid.py, там же
+validate_grid_config()/build_xlsx_grid(), использующие функции этого модуля (ReportContext,
+iter_report_rows, resolve_value, validate_path, substitute_params) как общий фундамент.
+
+Путь поля ("path") — точечная нотация по графу связей entity_metadata, общая для обоих форматов:
   "field"                      — обычное поле корневой сущности
   "relation.field"              — поле связанной сущности через "многие-к-одному" (можно цепочкой)
   "relation[].field"            — поле через связь "один/многие-ко-многим"; значения собираются
@@ -55,6 +43,13 @@ from sqlalchemy.orm import Session
 from .report_meta import build_entity_metadata
 
 _PARAM_TOKEN_RE = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
+_FILENAME_UNSAFE = re.compile(r'[\\/:*?"<>|]+')
+
+
+def safe_report_filename(name: str) -> str:
+    """Общая для report_render.py/report_grid.py очистка имени шаблона под имя файла."""
+    cleaned = _FILENAME_UNSAFE.sub("_", name).strip() or "Отчёт"
+    return cleaned[:120]
 
 
 class ReportBuilderError(ValueError):
@@ -181,6 +176,16 @@ def render_field(ctx: ReportContext, entity_key: str, obj: Any, path: str, *, se
     segments = _split_path(path)
     raw = _resolve(ctx, entity_key, obj, segments, expand_relation, expand_obj)
     return _to_text(raw, separator)
+
+
+def resolve_value(ctx: ReportContext, entity_key: str, obj: Any, path: str, *,
+                   expand_relation: str | None = None, expand_obj: Any = None) -> Any:
+    """Как render_field(), но возвращает "сырое" значение (число/дата/bool/None/список), а не
+    готовую строку. Используется grid-движком (report_grid.py, только формат xlsx): числовые и
+    датовые поля должны попадать в ячейку как настоящие Excel-значения — иначе в файле нельзя ни
+    просуммировать колонку формулой, ни применить числовой формат/сортировку по значению."""
+    segments = _split_path(path)
+    return _resolve(ctx, entity_key, obj, segments, expand_relation, expand_obj)
 
 
 def substitute_params(text: str | None, params: dict[str, Any]) -> str:
@@ -323,14 +328,13 @@ def _validate_table_like(meta: dict[str, dict[str, Any]], block: dict[str, Any],
 
 
 def validate_config(meta: dict[str, dict[str, Any]], fmt: str, config: dict[str, Any]) -> None:
-    """Полная структурная проверка шаблона. Бросает ReportBuilderError с понятным сообщением."""
-    if fmt == "xlsx":
-        sheets = config.get("sheets") or []
-        if not sheets:
-            raise ReportBuilderError("В шаблоне не задано ни одного листа")
-        for sheet in sheets:
-            _validate_table_like(meta, sheet, f"Лист '{sheet.get('title', '?')}'")
-    elif fmt == "docx":
+    """Полная структурная проверка шаблона формата docx. Бросает ReportBuilderError с понятным
+    сообщением.
+
+    Формат xlsx с версии grid-редактора имеет другую структуру (см. services/report_grid.py:
+    validate_grid_config) — эта функция для него не вызывается, см. диспетчеризацию по формату в
+    api/report_builder.py."""
+    if fmt == "docx":
         blocks = config.get("blocks") or []
         if not blocks:
             raise ReportBuilderError("В шаблоне не задано ни одного блока")

@@ -12,8 +12,22 @@ from ..db import get_db
 from ..models import ReportTemplate, ReportTemplateVersion
 from ..services.crud import audit
 from ..services.report_engine import ReportBuilderError, validate_config
+from ..services.report_grid import preview_grid, validate_grid_config
 from ..services.report_meta import build_entity_metadata, entity_metadata_public
 from ..services.report_render import build_report_from_template, preview_rows
+
+
+def _validate_by_format(meta: dict, fmt: str, config: dict) -> None:
+    """Диспетчеризация по формату: xlsx проверяется grid-валидатором (report_grid.py), docx —
+    старым блочным (report_engine.py). Оба формата хранятся в одной колонке config как JSON —
+    единственный признак различия структуры "sheets"/"blocks" это template.format, а не форма
+    самого JSON, поэтому диспетчеризация не может опираться на содержимое config."""
+    if fmt == "xlsx":
+        validate_grid_config(meta, config)
+    elif fmt == "docx":
+        validate_config(meta, fmt, config)
+    else:
+        raise ReportBuilderError(f"Неизвестный формат отчёта: '{fmt}' (ожидается xlsx или docx)")
 
 router = APIRouter(prefix="/api/v1", tags=["Report builder"])
 
@@ -39,7 +53,7 @@ def _load_and_validate(payload: dict) -> tuple[str, dict, str, str | None]:
     if not isinstance(config, dict):
         raise HTTPException(422, "Поле config должно быть объектом с описанием листов/блоков")
     try:
-        validate_config(build_entity_metadata(), fmt, config)
+        _validate_by_format(build_entity_metadata(), fmt, config)
     except ReportBuilderError as e:
         raise HTTPException(422, str(e)) from e
     return name, config, fmt, payload.get("description")
@@ -66,12 +80,16 @@ def list_entities():
 
 @router.post("/report-builder/preview")
 def preview(payload: dict, session: Session = Depends(get_db)):
-    """Быстрый предпросмотр (первые строки каждого листа/таблицы) без сохранения шаблона и файла."""
+    """Быстрый предпросмотр (первые строки/ячейки каждого листа-блока) без сохранения шаблона и
+    файла. xlsx — материализованная сетка (report_grid.preview_grid), docx — таблицы блоков."""
     fmt = payload.get("format", "xlsx")
     config = payload.get("config") or {}
+    limit = int(payload.get("limit", 15))
     try:
-        validate_config(build_entity_metadata(), fmt, config)
-        return preview_rows(session, config, limit=int(payload.get("limit", 20)))
+        _validate_by_format(build_entity_metadata(), fmt, config)
+        if fmt == "xlsx":
+            return preview_grid(session, config, limit=limit)
+        return preview_rows(session, config, limit=limit)
     except ReportBuilderError as e:
         raise HTTPException(422, str(e)) from e
 

@@ -1,6 +1,7 @@
 """
 Тесты на backend/app/services/report_meta.py, report_engine.py, report_render.py — движок
-конструктора произвольных отчётов.
+конструктора произвольных отчётов (общие примитивы + формат docx). Формат xlsx (grid-редактор)
+тестируется отдельно в test_report_grid.py.
 
 Запуск: python3 -m unittest discover -s backend/tests -v
 Требует установленных sqlalchemy/openpyxl/python-docx (как test_referential_integrity.py — здесь
@@ -30,7 +31,7 @@ try:
         validate_config,
     )
     from app.services.report_meta import build_entity_metadata, entity_metadata_public
-    from app.services.report_render import build_docx, build_xlsx, preview_rows
+    from app.services.report_render import build_docx, preview_rows
 
     DEPS_AVAILABLE = True
 except ImportError:
@@ -148,30 +149,33 @@ class ReportEngineTestCase(unittest.TestCase):
     def test_substitute_params_missing_key_becomes_empty(self):
         self.assertEqual(substitute_params("[{{missing}}]", {}), "[]")
 
-    def test_validate_config_rejects_unknown_relation(self):
-        meta = build_entity_metadata()
-        bad = {"sheets": [{"title": "x", "root_entity": "devices", "columns": [
-            {"header": "a", "source": "field", "path": "no_such_relation[].name"}
-        ]}]}
-        with self.assertRaises(ReportBuilderError):
-            validate_config(meta, "xlsx", bad)
-
-    def test_validate_config_rejects_empty_sheets(self):
+    def test_validate_config_rejects_unknown_block_type(self):
         meta = build_entity_metadata()
         with self.assertRaises(ReportBuilderError):
-            validate_config(meta, "xlsx", {"sheets": []})
+            validate_config(meta, "docx", {"blocks": [{"type": "no_such_block"}]})
 
-    def test_validate_config_accepts_well_formed_template(self):
+    def test_validate_config_rejects_empty_blocks(self):
         meta = build_entity_metadata()
-        good = {"sheets": [{"title": "x", "root_entity": "information-systems", "columns": [
-            {"header": "Наименование", "source": "field", "path": "name"},
-            {"header": "Подразделения", "source": "field", "path": "is_departments[].department.name"},
-        ]}]}
-        validate_config(meta, "xlsx", good)  # не должно бросать исключение
+        with self.assertRaises(ReportBuilderError):
+            validate_config(meta, "docx", {"blocks": []})
+
+    def test_validate_config_accepts_well_formed_docx_template(self):
+        meta = build_entity_metadata()
+        good = {"blocks": [
+            {"type": "heading", "level": 1, "text": "Заголовок"},
+            {"type": "table", "root_entity": "information-systems", "columns": [
+                {"header": "Наименование", "source": "field", "path": "name"},
+                {"header": "Подразделения", "source": "field", "path": "is_departments[].department.name"},
+            ]},
+        ]}
+        validate_config(meta, "docx", good)  # не должно бросать исключение
 
 
 @unittest.skipUnless(DEPS_AVAILABLE, "sqlalchemy/openpyxl/python-docx не установлены в этом окружении")
 class ReportRenderTestCase(unittest.TestCase):
+    """build_docx() и preview_rows() — общая часть движка (используется только форматом docx с
+    версии grid-редактора). Рендеринг xlsx тестируется в test_report_grid.py."""
+
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
@@ -180,38 +184,19 @@ class ReportRenderTestCase(unittest.TestCase):
         self.isys = InformationSystem(name="ИС А", status="active")
         self.session.add(self.isys)
         self.session.commit()
-        self.config = {"sheets": [{
-            "title": "Лист1", "root_entity": "information-systems",
-            "columns": [
-                {"header": "№", "source": "index"},
-                {"header": "Наименование", "source": "field", "path": "name"},
-                {"header": "Дата", "source": "static", "value": "{{report_date}}"},
-            ],
-        }]}
-
-    def tearDown(self):
-        self.session.close()
-
-    def test_build_xlsx_contains_header_and_data_row(self):
-        import openpyxl
-        path = build_xlsx(self.session, self.config, Path("/tmp/rb_render_test"), template_name="Т1")
-        try:
-            wb = openpyxl.load_workbook(path)
-            rows = list(wb["Лист1"].iter_rows(values_only=True))
-            self.assertEqual(rows[0], ("№", "Наименование", "Дата"))
-            self.assertEqual(rows[1][:2], (1, "ИС А"))
-        finally:
-            path.unlink(missing_ok=True)
-
-    def test_build_docx_table_contains_row(self):
-        from docx import Document
-        docx_config = {"blocks": [
+        self.docx_config = {"blocks": [
             {"type": "heading", "level": 1, "text": "Заголовок"},
             {"type": "table", "root_entity": "information-systems", "columns": [
                 {"header": "Наименование", "source": "field", "path": "name"},
             ]},
         ]}
-        path = build_docx(self.session, docx_config, Path("/tmp/rb_render_test"), template_name="Т2")
+
+    def tearDown(self):
+        self.session.close()
+
+    def test_build_docx_table_contains_row(self):
+        from docx import Document
+        path = build_docx(self.session, self.docx_config, Path("/tmp/rb_render_test"), template_name="Т2")
         try:
             doc = Document(str(path))
             table = doc.tables[0]
@@ -221,7 +206,7 @@ class ReportRenderTestCase(unittest.TestCase):
             path.unlink(missing_ok=True)
 
     def test_preview_rows_does_not_write_any_file(self):
-        result = preview_rows(self.session, self.config)
+        result = preview_rows(self.session, self.docx_config)
         self.assertEqual(result["sections"][0]["total"], 1)
         self.assertFalse(list(Path("/tmp/rb_render_test").glob("*preview*")))
 
