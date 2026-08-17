@@ -4,7 +4,16 @@ from PyInstaller.utils.hooks import collect_submodules
 
 ROOT = Path(SPECPATH)
 
-hiddenimports = collect_submodules('app')
+# collect_submodules('app') находит модули обходом файловой системы пакета и должен ловить всё
+# автоматически — но alembic/versions/*.py грузятся как ДАННЫЕ (см. datas ниже) и импортируются
+# динамически самим alembic в рантайме (alembic/util/pyfiles.py: load_python_file), уже ПОСЛЕ
+# старта приложения — это в принципе невидимо для статического анализа PyInstaller (Analysis
+# видит только то, что импортируется по обычной цепочке из launcher.py). Модули, на которые
+# ссылаются ТОЛЬКО такие миграции (а не обычный код приложения), явно перечисляем здесь —
+# отдельная строчка на каждую такую миграцию, если/когда появится следующая.
+hiddenimports = collect_submodules('app') + [
+    'app.services.report_seed_templates',  # используется только из alembic/versions/b1f0a2265711_*.py
+]
 
 a = Analysis(
     ['launcher.py'],
