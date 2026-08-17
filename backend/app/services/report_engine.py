@@ -78,8 +78,9 @@ class ReportContext:
 
     def all_rows(self, entity_key: str) -> dict[str, Any]:
         if entity_key not in self._tables:
-            model = self.entity(entity_key)["model"]
-            rows = self.session.scalars(select(model)).all()
+            info = self.entity(entity_key)
+            loader = info.get("virtual_loader")
+            rows = loader(self.session) if loader else self.session.scalars(select(info["model"])).all()
             self._tables[entity_key] = {r.id: r for r in rows}
         return self._tables[entity_key]
 

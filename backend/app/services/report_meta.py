@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy.inspection import inspect
 
 from ..registry import DISPLAY_NAMES, MODEL_MAP
+from .report_registry_rows import VIRTUAL_ENTITIES
 
 # Поля, которые не имеет смысла показывать в конструкторе отчётов (служебные/технические).
 _HIDDEN_FIELDS = {"created_at", "updated_at"}
@@ -105,6 +106,21 @@ def build_entity_metadata() -> dict[str, dict[str, Any]]:
             meta[target]["to_many"][reverse_name] = {
                 "source": key, "fk_column": rel["fk_column"], "via_relation": rel_name,
             }
+
+    # "Виртуальные" сущности report_registry_rows.py — плоские, уже полностью посчитанные строки
+    # (побитово повторяющие вывод регламентированного отчёта), без модели БД и без связей: строки
+    # поставляет функция-загрузчик (см. ReportContext.all_rows() в report_engine.py), а не SELECT
+    # по таблице. Добавляются после вычисления обратных связей выше — у них нет ни своих to_one
+    # (не участвуют в подсчёте target_counts), ни входящих to_many от MODEL_MAP-сущностей.
+    for ve in VIRTUAL_ENTITIES.values():
+        meta[ve.key] = {
+            "label": ve.label,
+            "model": None,
+            "virtual_loader": ve.loader,
+            "fields": [{"name": f.name, "label": f.label, "type": "String", "is_foreign_key": False} for f in ve.fields],
+            "to_one": {},
+            "to_many": {},
+        }
 
     return meta
 

@@ -1,8 +1,13 @@
 """
 Тесты на backend/app/services/report_seed_templates.py — конфигурацию шаблона конструктора
-отчётов, построенную по структуре регламентированного 4-листового отчёта, и на data-миграцию
-alembic/versions/b1f0a2265711_seed_report_builder_template.py, которая добавляет этот шаблон в
-report_templates при обновлении.
+отчётов, построенную на "виртуальных" сущностях report_registry_rows.py (точное воспроизведение
+регламентированного 4-листового отчёта — см. подробности в report_seed_templates.py), и на
+data-миграцию alembic/versions/b1f0a2265711_seed_report_builder_template.py, которая добавляет
+этот шаблон в report_templates при обновлении.
+
+Этот файл — структурная валидация конфигурации и поведение самой миграции (идемпотентность,
+безопасный откат). Точная эквивалентность содержимого с оригинальным отчётом на реальных данных —
+отдельный, более сильный тест: test_report_registry_rows.py::ExactParityTestCase.
 
 Запуск: python3 -m unittest discover -s backend/tests -v
 Требует sqlalchemy/openpyxl/alembic (как test_report_grid.py) — при их отсутствии тесты пропускаются.
@@ -20,16 +25,10 @@ ALEMBIC_VERSIONS_DIR = Path(__file__).resolve().parent.parent / "alembic" / "ver
 
 try:
     sys.path.insert(0, str(APP_DIR.parent))
-    import openpyxl
     from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
 
-    from app.models import (
-        Base, Connection, ConnectionType, Department, DeviceInterface, DeviceType, EmbeddedOperatingSystem,
-        InformationSystem, ISDepartment, Manufacturer, PhysicalDevice, VirtualMachine,
-    )
+    from app.models import Base
     from app.services.report_engine import ReportBuilderError
-    from app.services.report_grid import build_xlsx_grid
     from app.services.report_meta import build_entity_metadata
     from app.services.report_seed_templates import (
         TEMPLATE_DESCRIPTION, TEMPLATE_NAME, default_registry_template_config,
@@ -86,98 +85,6 @@ class DefaultRegistryTemplateConfigTestCase(unittest.TestCase):
         # регламентированный отчёт (кнопка "Отчёт Excel" на дашборде) — см. описание задачи.
         self.assertIn("Отчёт Excel", TEMPLATE_DESCRIPTION)
         self.assertTrue(TEMPLATE_NAME)
-
-
-@unittest.skipUnless(DEPS_AVAILABLE, "sqlalchemy/openpyxl не установлены в этом окружении")
-class BuildRegistryTemplateTestCase(unittest.TestCase):
-    """Рендер шаблона на реальных (пусть и минимальных) данных реестра — проверяет, что все пути
-    полей действительно резолвятся на настоящих ORM-объектах, а не только проходят структурную
-    валидацию путей по именам."""
-
-    def setUp(self):
-        self.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
-
-        dep = Department(name="ИТ-отдел")
-        dtype = DeviceType(name="Сервер")
-        manufacturer = Manufacturer(name="Dell")
-        embedded_os = EmbeddedOperatingSystem(name="Ubuntu Server", version="22.04")
-        self.session.add_all([dep, dtype, manufacturer, embedded_os])
-        self.session.flush()
-
-        self.dev1 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id,
-                                    serial_number="SN-001", system_name="srv-01", embedded_os_id=embedded_os.id)
-        self.dev2 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id,
-                                    serial_number="SN-002", system_name="sw-01", embedded_os_id=embedded_os.id)
-        self.session.add_all([self.dev1, self.dev2])
-        self.session.flush()
-
-        iface1 = DeviceInterface(physical_device_id=self.dev1.id, name="eth0", is_management=True)
-        iface2 = DeviceInterface(physical_device_id=self.dev2.id, name="Gi0/1", is_management=False)
-        self.session.add_all([iface1, iface2])
-        self.session.flush()
-
-        ctype = ConnectionType(name="Витая пара")
-        self.session.add(ctype)
-        self.session.flush()
-        self.session.add(Connection(source_interface_id=iface1.id, destination_interface_id=iface2.id,
-                                     connection_type_id=ctype.id, purpose="Передача данных"))
-
-        isys = InformationSystem(name="ИС Бухгалтерия", description="Учётная система",
-                                  purpose="Учёт", localization="ЦОД-1")
-        self.session.add(isys)
-        self.session.flush()
-        self.session.add(ISDepartment(information_system_id=isys.id, department_id=dep.id))
-
-        self.session.add(VirtualMachine(name="vm-buh-01", physical_device_id=self.dev1.id, purpose="1С сервер"))
-        self.session.commit()
-
-    def tearDown(self):
-        self.session.close()
-
-    def test_builds_real_xlsx_with_expected_content(self):
-        cfg = default_registry_template_config()
-        out_dir = Path(__file__).resolve().parent / "_tmp_report_seed_templates"
-        out_dir.mkdir(exist_ok=True)
-        try:
-            path = build_xlsx_grid(self.session, cfg, out_dir, template_name=TEMPLATE_NAME, params={})
-            wb = openpyxl.load_workbook(path)
-            self.assertEqual(wb.sheetnames, [
-                "Перечень ИС", "Инвентаризац. физ. устройств ИС",
-                "Организация подключений", "Организация управления ВМ",
-            ])
-
-            ws1 = wb["Перечень ИС"]
-            # Строка 1 — заголовок листа (объединённая), строка 2 — примечание об упрощениях,
-            # строка 3 — заголовки колонок, строка 4 — первая (единственная) запись.
-            self.assertEqual(ws1.cell(row=3, column=2).value, "Наименование ИС")
-            data_row = [ws1.cell(row=4, column=c).value for c in range(1, ws1.max_column + 1)]
-            self.assertEqual(data_row[1], "ИС Бухгалтерия")
-            self.assertEqual(data_row[4], "ИТ-отдел")  # is_departments[].department.name
-            self.assertEqual(data_row[11], "Нет")  # crypto_protection_enabled -> "Да"/"Нет"
-
-            ws2 = wb["Инвентаризац. физ. устройств ИС"]
-            dev_row = [ws2.cell(row=4, column=c).value for c in range(1, ws2.max_column + 1)]
-            self.assertIn("Dell", dev_row)
-            self.assertIn("SN-001", dev_row)
-            self.assertIn("eth0", dev_row)  # interfaces[].name
-
-            ws3 = wb["Организация подключений"]
-            conn_row = [ws3.cell(row=4, column=c).value for c in range(1, ws3.max_column + 1)]
-            self.assertIn("srv-01", conn_row)
-            self.assertIn("sw-01", conn_row)
-            self.assertIn("Да", conn_row)  # is_active -> "Да"
-
-            ws4 = wb["Организация управления ВМ"]
-            vm_row = [ws4.cell(row=4, column=c).value for c in range(1, ws4.max_column + 1)]
-            self.assertIn("vm-buh-01", vm_row)
-            self.assertIn("srv-01", vm_row)  # physical_device.system_name (хост)
-        finally:
-            for f in out_dir.glob("*"):
-                f.unlink()
-            out_dir.rmdir()
 
 
 @unittest.skipUnless(DEPS_AVAILABLE, "sqlalchemy/openpyxl не установлены в этом окружении")

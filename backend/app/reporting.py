@@ -128,83 +128,100 @@ def _load_report_data(session: Session, only_is: Optional[str]) -> SimpleNamespa
     return d
 
 
+def _is_row_values(obj, d: SimpleNamespace) -> list:
+    """Значения одной строки листа 'Перечень ИС' (без №) — вынесено из _populate_sheet1, чтобы эту
+    же логику мог переиспользовать конструктор отчётов (services/report_registry_rows.py) без
+    дублирования: расхождение между регламентированным отчётом и его "точной" заготовкой в
+    конструкторе было бы куда хуже, чем общая функция."""
+    source_rows=d.source_by_is[obj.id]
+    if source_rows:
+        # InformationSystemSource is the current, authoritative representation once an IS has
+        # been saved through the information-system form at least once.
+        linked_devices=[]; linked_vms=[]; linked_containers=[]
+        for src in source_rows:
+            if src.source_type=='device' and src.physical_device_id in d.device_map:
+                dev=d.device_map[src.physical_device_id]
+                if dev not in linked_devices: linked_devices.append(dev)
+            elif src.source_type=='vm' and src.virtual_machine_id in d.vm_map:
+                v=d.vm_map[src.virtual_machine_id]
+                if v not in linked_vms: linked_vms.append(v)
+            elif src.source_type=='container' and src.container_id in d.container_map:
+                c=d.container_map[src.container_id]
+                if c not in linked_containers: linked_containers.append(c)
+    else:
+        # Historical data predating the unified source model (IS never re-saved through the
+        # current form) — fall back to the legacy link tables, same as the form itself does.
+        linked_devices=[d.device_map[x.physical_device_id] for x in d.device_by_is[obj.id] if x.physical_device_id in d.device_map]
+        linked_vms=[d.vm_map[x.virtual_machine_id] for x in d.vm_by_is[obj.id] if x.virtual_machine_id in d.vm_map]
+        linked_containers=[d.container_map[x.container_id] for x in d.container_by_is[obj.id] if x.container_id in d.container_map]
+    equipment=[]
+    for dev in linked_devices:
+        equipment.append(device_label(dev))
+        equipment += [f"ПО: {s.name}" for s in d.software_by_device.get(dev.id,[])]
+    for v in linked_vms: equipment.append(f"VM: {v.name}")
+    for c in linked_containers: equipment.append(f"Контейнер: {c.name}")
+    equipment += [d.placement_assets[x.placement_asset_id].name for x in d.placement_by_is[obj.id] if x.placement_asset_id in d.placement_assets]
+    protocols_text=[]
+    for p in d.protocol_by_is[obj.id]:
+        cat=d.protocol_catalog.get(p.protocol_catalog_id)
+        proto=cat.protocol_type if cat else p.protocol
+        port=cat.port if cat else p.port
+        desc=cat.description if cat else p.description
+        protocols_text.append(join_values([f"{proto}/{port}" if port else proto, desc]))
+    physical_names=linked_devices[:]
+    # Add hosts of linked VMs and their management IPs.
+    for v in linked_vms:
+        if v.physical_device_id in d.device_map and d.device_map[v.physical_device_id] not in physical_names: physical_names.append(d.device_map[v.physical_device_id])
+    physical_ips=[]
+    for dev in physical_names:
+        physical_ips += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id,[]) if iface.is_management for ip in d.ips_by_iface.get(iface.id,[])]
+    vm_names=[v.name for v in linked_vms] + [c.name for c in linked_containers]
+    vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])] + [c.management_ip for c in linked_containers if c.management_ip]
+    departments_text=join_values([d.dep_map[x.department_id].name for x in d.dep_by_is[obj.id] if x.department_id in d.dep_map])
+    legacy_ips=[x.ip_address for x in d.ip_by_is[obj.id]] if not source_rows else []
+    ips_text=join_values(legacy_ips + [x.ip_address for x in source_rows if x.ip_address] + vm_ips)
+    support=d.support_map.get(obj.support_organization_id)
+    support_method_name=d.support_methods[obj.support_method_id].name if obj.support_method_id in d.support_methods else ""
+    crypto_mean=d.crypto_means.get(obj.crypto_protection_description_id)
+    crypto_text=join_values(["Да" if obj.crypto_protection_enabled else "Нет", crypto_mean.name if crypto_mean else None])
+    return [obj.name,obj.description or "",obj.purpose or "",departments_text,obj.localization or "",join_values(equipment),join_values(protocols_text),ips_text,crypto_text,"Да" if obj.siem_enabled else "Нет",support.name if support else "",support_method_name,obj.process_description or "",join_values([device_label(dev) for dev in physical_names]),join_values(physical_ips),join_values(vm_names),join_values(vm_ips)]
+
+
 def _populate_sheet1(ws1, d: SimpleNamespace) -> None:
     """Лист 'Перечень ИС': все привязанные источники плюс детали протоколов/IP."""
     for n,obj in enumerate(d.systems,1):
-        source_rows=d.source_by_is[obj.id]
-        if source_rows:
-            # InformationSystemSource is the current, authoritative representation once an IS has
-            # been saved through the information-system form at least once.
-            linked_devices=[]; linked_vms=[]; linked_containers=[]
-            for src in source_rows:
-                if src.source_type=='device' and src.physical_device_id in d.device_map:
-                    dev=d.device_map[src.physical_device_id]
-                    if dev not in linked_devices: linked_devices.append(dev)
-                elif src.source_type=='vm' and src.virtual_machine_id in d.vm_map:
-                    v=d.vm_map[src.virtual_machine_id]
-                    if v not in linked_vms: linked_vms.append(v)
-                elif src.source_type=='container' and src.container_id in d.container_map:
-                    c=d.container_map[src.container_id]
-                    if c not in linked_containers: linked_containers.append(c)
-        else:
-            # Historical data predating the unified source model (IS never re-saved through the
-            # current form) — fall back to the legacy link tables, same as the form itself does.
-            linked_devices=[d.device_map[x.physical_device_id] for x in d.device_by_is[obj.id] if x.physical_device_id in d.device_map]
-            linked_vms=[d.vm_map[x.virtual_machine_id] for x in d.vm_by_is[obj.id] if x.virtual_machine_id in d.vm_map]
-            linked_containers=[d.container_map[x.container_id] for x in d.container_by_is[obj.id] if x.container_id in d.container_map]
-        equipment=[]
-        for dev in linked_devices:
-            equipment.append(device_label(dev))
-            equipment += [f"ПО: {s.name}" for s in d.software_by_device.get(dev.id,[])]
-        for v in linked_vms: equipment.append(f"VM: {v.name}")
-        for c in linked_containers: equipment.append(f"Контейнер: {c.name}")
-        equipment += [d.placement_assets[x.placement_asset_id].name for x in d.placement_by_is[obj.id] if x.placement_asset_id in d.placement_assets]
-        protocols_text=[]
-        for p in d.protocol_by_is[obj.id]:
-            cat=d.protocol_catalog.get(p.protocol_catalog_id)
-            proto=cat.protocol_type if cat else p.protocol
-            port=cat.port if cat else p.port
-            desc=cat.description if cat else p.description
-            protocols_text.append(join_values([f"{proto}/{port}" if port else proto, desc]))
-        physical_names=linked_devices[:]
-        # Add hosts of linked VMs and their management IPs.
-        for v in linked_vms:
-            if v.physical_device_id in d.device_map and d.device_map[v.physical_device_id] not in physical_names: physical_names.append(d.device_map[v.physical_device_id])
-        physical_ips=[]
-        for dev in physical_names:
-            physical_ips += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id,[]) if iface.is_management for ip in d.ips_by_iface.get(iface.id,[])]
-        vm_names=[v.name for v in linked_vms] + [c.name for c in linked_containers]
-        vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])] + [c.management_ip for c in linked_containers if c.management_ip]
-        departments_text=join_values([d.dep_map[x.department_id].name for x in d.dep_by_is[obj.id] if x.department_id in d.dep_map])
-        legacy_ips=[x.ip_address for x in d.ip_by_is[obj.id]] if not source_rows else []
-        ips_text=join_values(legacy_ips + [x.ip_address for x in source_rows if x.ip_address] + vm_ips)
-        support=d.support_map.get(obj.support_organization_id)
-        support_method_name=d.support_methods[obj.support_method_id].name if obj.support_method_id in d.support_methods else ""
-        crypto_mean=d.crypto_means.get(obj.crypto_protection_description_id)
-        crypto_text=join_values(["Да" if obj.crypto_protection_enabled else "Нет", crypto_mean.name if crypto_mean else None])
-        ws1.append([n,obj.name,obj.description or "",obj.purpose or "",departments_text,obj.localization or "",join_values(equipment),join_values(protocols_text),ips_text,crypto_text,"Да" if obj.siem_enabled else "Нет",support.name if support else "",support_method_name,obj.process_description or "",join_values([device_label(dev) for dev in physical_names]),join_values(physical_ips),join_values(vm_names),join_values(vm_ips)])
+        ws1.append([n, *_is_row_values(obj, d)])
+
+
+def _device_row_values(dev, d: SimpleNamespace) -> list:
+    """Значения одной строки листа 'Инвентаризац. физ. устройств ИС' (без №) — см. _is_row_values
+    про переиспользование в конструкторе отчётов."""
+    all_ifaces=d.ifaces_by_device.get(dev.id,[])
+    mgmt_ifaces=[i for i in all_ifaces if i.is_management]
+    mgmt_vlan=[x for x in d.device_vlan_by_device.get(dev.id,[]) if x.is_management]
+    mgmt_port_names,mgmt_ip_values=device_management_ports_and_ips(mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map,vlan_label_with_name=False)
+    mgmt_ports=join_values(mgmt_port_names)
+    mgmt_ips=join_values(mgmt_ip_values)
+    serial=dev.serial_number or ""; sysname=dev.system_name or ""
+    os_names=os_label(d.embedded_os.get(dev.embedded_os_id))
+    manufacturer_names=d.manufacturers.get(dev.manufacturer_id).name if d.manufacturers.get(dev.manufacturer_id) else ''
+    model_names=d.models.get(dev.model_id).model if d.models.get(dev.model_id) else ''
+    addresses=d.buildings.get(dev.building_id).address if d.buildings.get(dev.building_id) else ''
+    building_names=d.buildings.get(dev.building_id).name if d.buildings.get(dev.building_id) else ''
+    room_names=d.rooms.get(dev.room_id).name if d.rooms.get(dev.room_id) else ''
+    return [manufacturer_names,model_names,serial,sysname,os_names,mgmt_ports,mgmt_ips,"Да" if dev.siem_enabled else "Нет",interface_port_count_label(all_ifaces, d.interface_types),addresses,building_names,room_names]
 
 
 def _populate_sheet2(ws2, d: SimpleNamespace) -> None:
     """Лист 'Инвентаризац. физ. устройств ИС': одна строка на физическое устройство."""
     for n,dev in enumerate(d.devices,1):
-        all_ifaces=d.ifaces_by_device.get(dev.id,[])
-        mgmt_ifaces=[i for i in all_ifaces if i.is_management]
-        mgmt_vlan=[x for x in d.device_vlan_by_device.get(dev.id,[]) if x.is_management]
-        mgmt_port_names,mgmt_ip_values=device_management_ports_and_ips(mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map,vlan_label_with_name=False)
-        mgmt_ports=join_values(mgmt_port_names)
-        mgmt_ips=join_values(mgmt_ip_values)
-        serial=dev.serial_number or ""; sysname=dev.system_name or ""
-        os_names=os_label(d.embedded_os.get(dev.embedded_os_id))
-        manufacturer_names=d.manufacturers.get(dev.manufacturer_id).name if d.manufacturers.get(dev.manufacturer_id) else ''
-        model_names=d.models.get(dev.model_id).model if d.models.get(dev.model_id) else ''
-        addresses=d.buildings.get(dev.building_id).address if d.buildings.get(dev.building_id) else ''
-        building_names=d.buildings.get(dev.building_id).name if d.buildings.get(dev.building_id) else ''
-        room_names=d.rooms.get(dev.room_id).name if d.rooms.get(dev.room_id) else ''
-        ws2.append([n,manufacturer_names,model_names,serial,sysname,os_names,mgmt_ports,mgmt_ips,"Да" if dev.siem_enabled else "Нет",interface_port_count_label(all_ifaces, d.interface_types),addresses,building_names,room_names])
+        ws2.append([n, *_device_row_values(dev, d)])
 
 
-def _populate_sheet3(ws3, d: SimpleNamespace) -> None:
+def _connection_row_values_list(d: SimpleNamespace) -> list:
+    """Пронумерованные строки листа 'Организация подключений' (первый элемент каждой строки — №,
+    как ждёт _populate_sheet3) — вынесено из неё же, см. _is_row_values про переиспользование в
+    конструкторе отчётов."""
     # Every physical port must appear — connected ports show both ends of the link (own device +
     # neighbor), disconnected ports still get a row of their own, though ports on the same device
     # with no connection that share an IP signature (including "no IP") may be grouped into a
@@ -276,21 +293,35 @@ def _populate_sheet3(ws3, d: SimpleNamespace) -> None:
     device_order={dev.id:idx for idx,dev in enumerate(d.devices)}
     pending_rows.sort(key=lambda pair: device_order.get(pair[0].id, len(d.devices)))
 
+    numbered=[]
     for i,(_,row) in enumerate(pending_rows,1):
         row=[cell if cell not in (None,"") else "-" for cell in row]
         row[0]=i
+        numbered.append(row)
+    return numbered
+
+
+def _populate_sheet3(ws3, d: SimpleNamespace) -> None:
+    for row in _connection_row_values_list(d):
         ws3.append(row)
+
+
+def _vm_row_values(v, d: SimpleNamespace) -> list:
+    """Значения одной строки листа 'Организация управления ВМ' — см. _is_row_values про
+    переиспользование в конструкторе отчётов. Хост/гипервизор берётся из ОС физического хоста;
+    IP администрирования — все management-IP ВМ."""
+    host=d.device_map.get(v.physical_device_id); hyp=d.operating_systems.get(host.operating_system_id) if host and host.operating_system_id else d.operating_systems.get(v.hypervisor_os_id)
+    ips=d.vmips_by_vm.get(v.id,[]); containers_for_vm=[c for c in d.containers if c.virtual_machine_id==v.id]
+    openp=d.open_ports_by_owner.get(('virtual_machine',v.id),[])
+    admin_ips=join_values([ip_label(x) for x in ips if x.is_management])
+    return [v.name,os_label(d.operating_systems.get(v.operating_system_id)),join_values([c.name for c in containers_for_vm]),device_label(host),os_label(hyp),v.purpose or "",join_values([ip_label(x) for x in ips]),join_values([join_values([f"{p.transport_protocol}/{p.port}" if p.port else p.transport_protocol,p.protocol,p.description]) for p in openp]),admin_ips,join_values([s.name for s in d.software_by_vm.get(v.id,[])])]
 
 
 def _populate_sheet4(ws4, d: SimpleNamespace) -> None:
     """Лист 'Организация управления ВМ': хост/гипервизор берётся из ОС физического хоста;
     IP администрирования — все management-IP ВМ."""
     for v in d.vms:
-        host=d.device_map.get(v.physical_device_id); hyp=d.operating_systems.get(host.operating_system_id) if host and host.operating_system_id else d.operating_systems.get(v.hypervisor_os_id)
-        ips=d.vmips_by_vm.get(v.id,[]); containers_for_vm=[c for c in d.containers if c.virtual_machine_id==v.id]
-        openp=d.open_ports_by_owner.get(('virtual_machine',v.id),[])
-        admin_ips=join_values([ip_label(x) for x in ips if x.is_management])
-        ws4.append([v.name,os_label(d.operating_systems.get(v.operating_system_id)),join_values([c.name for c in containers_for_vm]),device_label(host),os_label(hyp),v.purpose or "",join_values([ip_label(x) for x in ips]),join_values([join_values([f"{p.transport_protocol}/{p.port}" if p.port else p.transport_protocol,p.protocol,p.description]) for p in openp]),admin_ips,join_values([s.name for s in d.software_by_vm.get(v.id,[])])])
+        ws4.append(_vm_row_values(v, d))
 
 
 def build_report(session: Session, report_dir: Path, only_is: Optional[str] = None) -> Path:
