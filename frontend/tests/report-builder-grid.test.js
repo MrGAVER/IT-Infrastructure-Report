@@ -303,27 +303,108 @@ test('openReportBuilder()/rbRenderTemplatesList(): отображает спис
   assert.deepEqual(headerLabels, ['Действия', 'Название', 'Формат', 'Описание', 'Изменён']);
 });
 
-test('rbNewTemplate("docx"): показывает уведомление вместо открытия редактора (Word пока не поддержан)', () => {
+test('rbNewTemplate("docx"): открывает docx-редактор с одним стартовым блоком-заголовком', () => {
   const win = loadAppWindow({ withReportBuilder: true });
   win.rbNewTemplate('docx');
-  assert.equal(win.RB.editor, null);
-  const toast = win.document.querySelector('#toast-container .toast');
-  assert.ok(toast, 'должно появиться уведомление');
-  assert.match(toast.textContent, /Word/);
+  assert.equal(win.RB.editor.format, 'docx');
+  assert.equal(win.RB.editor.blocks.length, 1);
+  assert.equal(win.RB.editor.blocks[0].type, 'heading');
+  const html = win.document.getElementById('content').innerHTML;
+  assert.match(html, /Новый шаблон отчёта \(Word\)/);
 });
 
-test('rbEditTemplate(): docx-шаблон открывает уведомление, а не grid-редактор', async () => {
+test('rbEditTemplate(): docx-шаблон открывает docx-редактор с блоками из конфигурации', async () => {
   const win = loadAppWindow({
     withReportBuilder: true,
     fetchImpl: () => Promise.resolve({
       ok: true, status: 200,
-      json: () => Promise.resolve({ id: '2', name: 'Акт', format: 'docx', config: {} }),
+      json: () => Promise.resolve({
+        id: '2', name: 'Акт', format: 'docx',
+        config: { blocks: [{ type: 'heading', text: 'Приложение', level: 1 }, { type: 'table', root_entity: 'information-systems', columns: [{ header: 'Имя', source: 'field', path: 'name' }] }] },
+      }),
       text: () => Promise.resolve('{}'),
     }),
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
   await win.rbEditTemplate('2');
-  assert.equal(win.RB.editor, null);
-  const toast = win.document.querySelector('#toast-container .toast');
-  assert.ok(toast);
+  assert.equal(win.RB.editor.format, 'docx');
+  assert.equal(win.RB.editor.blocks.length, 2);
+  assert.equal(win.RB.editor.blocks[1].type, 'table');
+  const html = win.document.getElementById('content').innerHTML;
+  assert.match(html, /Изменить шаблон отчёта \(Word\)/);
+});
+
+test('rbAddBlock()/rbRemoveBlock(): добавляют и удаляют блоки нужного типа', () => {
+  const win = loadAppWindow({ withReportBuilder: true });
+  win.confirm = () => true;
+  win.rbNewDocxTemplate();
+  win.rbAddBlock('table');
+  win.rbAddBlock('paragraph');
+  win.rbAddBlock('page_break');
+  assert.deepEqual(plain(win.RB.editor.blocks.map((b) => b.type)), ['heading', 'table', 'paragraph', 'page_break']);
+  win.rbRemoveBlock(1);
+  assert.deepEqual(plain(win.RB.editor.blocks.map((b) => b.type)), ['heading', 'paragraph', 'page_break']);
+});
+
+test('rbMoveBlock(): меняет местами соседние блоки, за границы массива не выходит', () => {
+  const win = loadAppWindow({ withReportBuilder: true });
+  win.rbNewDocxTemplate();
+  win.rbAddBlock('paragraph');
+  const [first, second] = win.RB.editor.blocks;
+  win.rbMoveBlock(0, 1);
+  assert.equal(win.RB.editor.blocks[0], second);
+  assert.equal(win.RB.editor.blocks[1], first);
+  win.rbMoveBlock(0, -1); // уже наверху — не должно бросать и не должно ничего менять
+  assert.equal(win.RB.editor.blocks[0], second);
+});
+
+test('rbAddTableColumn()/rbSetTableColumn(): добавляет колонку и меняет её поля', () => {
+  const win = loadAppWindow({ withReportBuilder: true });
+  win.rbNewDocxTemplate();
+  win.rbAddBlock('table');
+  const bi = win.RB.editor.blocks.length - 1;
+  win.rbAddTableColumn(bi);
+  win.rbSetTableColumn(bi, 0, 'header', 'Наименование');
+  win.rbSetTableColumn(bi, 0, 'path', 'name');
+  const col = win.RB.editor.blocks[bi].columns[0];
+  assert.equal(col.header, 'Наименование');
+  assert.equal(col.path, 'name');
+  assert.equal(col.source, 'field');
+});
+
+test('rbSetTableEntity(): при первой установке сущности ничего не спрашивает; при смене на другую — просит подтверждение и сбрасывает пути', () => {
+  const win = withEntities(loadAppWindow({ withReportBuilder: true }));
+  win.rbNewDocxTemplate();
+  win.rbAddBlock('table');
+  const bi = win.RB.editor.blocks.length - 1;
+  win.rbSetTableEntity(bi, 'information-systems');
+  assert.equal(win.RB.editor.blocks[bi].root_entity, 'information-systems');
+
+  win.rbAddTableColumn(bi);
+  win.rbSetTableColumn(bi, 0, 'path', 'name');
+  win.confirm = () => true;
+  win.rbSetTableEntity(bi, 'devices');
+  assert.equal(win.RB.editor.blocks[bi].root_entity, 'devices');
+  assert.equal(win.RB.editor.blocks[bi].columns[0].path, '', 'путь колонки должен сброситься при смене сущности');
+});
+
+test('rbCollectDocxConfig(): отбрасывает параметры без ключа, передаёт блоки как есть', () => {
+  const win = loadAppWindow({ withReportBuilder: true });
+  win.rbNewDocxTemplate();
+  win.RB.editor.params = [{ key: 'org', label: 'Организация', default: '' }, { key: '', label: '', default: '' }];
+  const cfg = win.rbCollectDocxConfig();
+  assert.equal(cfg.params.length, 1);
+  assert.equal(cfg.params[0].key, 'org');
+  assert.equal(cfg.blocks, win.RB.editor.blocks);
+});
+
+test('rbDocxPreviewHTML(): рендерит только табличные секции предпросмотра, с заголовками и строками', () => {
+  const win = loadAppWindow({ withReportBuilder: true });
+  win.rbNewDocxTemplate();
+  win.RB.preview = { sections: [{ title: 'Оборудование', headers: ['Имя', 'Серийный №'], rows: [['srv-01', 'SN-1']], total: 1 }] };
+  win.rbRenderDocxEditor();
+  const html = win.document.getElementById('content').innerHTML;
+  assert.match(html, /Оборудование/);
+  assert.match(html, /Серийный №/);
+  assert.match(html, /srv-01/);
 });

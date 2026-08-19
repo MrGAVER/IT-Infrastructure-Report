@@ -13,6 +13,7 @@ ROOT = Path(SPECPATH)
 # отдельная строчка на каждую такую миграцию, если/когда появится следующая.
 hiddenimports = collect_submodules('app') + [
     'app.services.report_seed_templates',  # используется только из alembic/versions/b1f0a2265711_*.py
+    'app.services.report_seed_word_template',  # используется только из alembic/versions/b44cd42f9fa0_*.py
 ]
 
 a = Analysis(

@@ -10,9 +10,10 @@
  * отправляет её как есть в POST/PUT /api/v1/report-templates: для API config — непрозрачный JSON,
  * вся структурная валидация выполняется на сервере при сохранении/предпросмотре.
  *
- * Редактирование Word-шаблонов (.docx) в этом визуальном редакторе не реализовано — формат xlsx
- * это единственное, что здесь можно создавать/менять; существующие docx-шаблоны по-прежнему можно
- * формировать, дублировать, смотреть историю версий и удалять из списка шаблонов.
+ * Word-шаблоны (.docx) редактируются блочным редактором (заголовок/абзац/таблица/разрыв страницы)
+ * — см. rbRenderDocxEditor() и соседние rbXxxBlock/rbXxxTable функции ниже; используют тот же
+ * backend-движок, что и раньше (report_engine.py/report_render.py: validate_config/build_docx/
+ * preview_rows), не изменённый при переходе xlsx на grid-движок.
  */
 var RB = {
   entities: [], entitiesByKey: {}, templates: [], editor: null, preview: null,
@@ -190,19 +191,13 @@ async function rbGenerateTemplate(id) {
 // ---------- Новый / открыть шаблон ----------
 
 function rbNewTemplate(format) {
-  if (format === 'docx') {
-    notify('Word-шаблоны: визуальный редактор для .docx пока не реализован — в этой версии конструктора доступен только Excel. Формирование, дублирование и история уже существующих Word-шаблонов работают как раньше.', 'info');
-    return;
-  }
+  if (format === 'docx') { rbNewDocxTemplate(); return; }
   rbNewGridTemplate();
 }
 
 async function rbEditTemplate(id) {
   const t = await get(api + `/report-templates/${id}`);
-  if (t.format !== 'xlsx') {
-    notify('Word-шаблоны: визуальный редактор для .docx пока не реализован. Формирование, дублирование, история и удаление доступны из списка шаблонов.', 'info');
-    return;
-  }
+  if (t.format === 'docx') { rbEditDocxTemplate(t); return; }
   rbEditGridTemplate(t);
 }
 
@@ -842,4 +837,251 @@ function rbRenderGridEditor() {
   </div>
   ${rbPreviewHTML()}
   <div class="actions"><button class="btn" onclick="rbSaveGridTemplate()">💾 Сохранить шаблон</button></div>`;
+}
+
+// ================================================================================================
+// Word (.docx) — блочный редактор: заголовок / абзац / таблица / разрыв страницы.
+// Использует тот же RB.editor (id/name/description/params — общие с xlsx-редактором, rbParamsHTML()
+// переиспользуется как есть) с дополнительным полем blocks вместо sheets. Backend не менялся при
+// переходе xlsx на grid-движок — validate_config/build_docx/preview_rows (report_engine.py/
+// report_render.py) работают с этой структурой блоков без изменений.
+// ================================================================================================
+
+function rbNewBlock(type) {
+  if (type === 'heading') return { type: 'heading', text: '', level: 1 };
+  if (type === 'paragraph') return { type: 'paragraph', text: '', align: 'left' };
+  if (type === 'page_break') return { type: 'page_break' };
+  return { type: 'table', title: '', root_entity: '', expand: '', include_empty_expand: true, sort_by: '', filters: [], columns: [] };
+}
+
+function rbNewDocxTemplate() {
+  RB.editor = { id: '', name: '', description: '', format: 'docx', params: [], blocks: [rbNewBlock('heading')] };
+  RB.preview = null;
+  rbRenderDocxEditor();
+}
+
+function rbEditDocxTemplate(t) {
+  const cfg = t.config || {};
+  const blocks = (cfg.blocks && cfg.blocks.length) ? cfg.blocks : [rbNewBlock('heading')];
+  RB.editor = { id: t.id, name: t.name, description: t.description || '', format: 'docx', params: cfg.params || [], blocks };
+  RB.preview = null;
+  rbRenderDocxEditor();
+}
+
+function rbCollectDocxConfig() {
+  return { params: RB.editor.params.filter(p => p.key), blocks: RB.editor.blocks };
+}
+
+// ---------- Блоки: добавление / удаление / порядок ----------
+
+function rbAddBlock(type) {
+  RB.editor.blocks.push(rbNewBlock(type));
+  rbRenderDocxEditor();
+}
+
+function rbRemoveBlock(i) {
+  if (!confirm('Удалить блок?')) return;
+  RB.editor.blocks.splice(i, 1);
+  rbRenderDocxEditor();
+}
+
+function rbMoveBlock(i, dir) {
+  const blocks = RB.editor.blocks;
+  const j = i + dir;
+  if (j < 0 || j >= blocks.length) return;
+  [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+  rbRenderDocxEditor();
+}
+
+function rbSetBlockField(i, key, value) {
+  RB.editor.blocks[i][key] = value;
+  rbRenderDocxEditor();
+}
+
+// ---------- Блок "Таблица": сущность / фильтры / сортировка ----------
+
+function rbSetTableEntity(i, entityKey) {
+  const block = RB.editor.blocks[i];
+  const hasContent = (block.columns || []).some(c => c.source === 'field' && c.path) || (block.filters || []).length || block.sort_by;
+  if (hasContent && block.root_entity && block.root_entity !== entityKey) {
+    if (!confirm('Смена сущности сбросит пути колонок, фильтры и сортировку таблицы (они относятся к прежней сущности). Продолжить?')) return;
+    block.columns = (block.columns || []).map(c => c.source === 'field' ? { ...c, path: '' } : c);
+    block.filters = [];
+    block.sort_by = '';
+  }
+  block.root_entity = entityKey;
+  block.expand = '';
+  rbRenderDocxEditor();
+}
+
+function rbAddTableFilter(i) { RB.editor.blocks[i].filters.push({ path: '', op: 'eq', value: '' }); rbRenderDocxEditor(); }
+function rbRemoveTableFilter(i, fi) { RB.editor.blocks[i].filters.splice(fi, 1); rbRenderDocxEditor(); }
+function rbSetTableFilter(i, fi, key, v) { RB.editor.blocks[i].filters[fi][key] = v; rbRenderDocxEditor(); }
+
+// ---------- Блок "Таблица": колонки ----------
+
+function rbAddTableColumn(i) { RB.editor.blocks[i].columns.push({ header: '', source: 'field', path: '', separator: '; ' }); rbRenderDocxEditor(); }
+function rbRemoveTableColumn(i, ci) { RB.editor.blocks[i].columns.splice(ci, 1); rbRenderDocxEditor(); }
+function rbSetTableColumn(i, ci, key, v) { RB.editor.blocks[i].columns[ci][key] = v; rbRenderDocxEditor(); }
+
+function rbMoveTableColumn(i, ci, dir) {
+  const cols = RB.editor.blocks[i].columns;
+  const cj = ci + dir;
+  if (cj < 0 || cj >= cols.length) return;
+  [cols[ci], cols[cj]] = [cols[cj], cols[ci]];
+  rbRenderDocxEditor();
+}
+
+// ---------- Рендеринг ----------
+
+function rbBlockMoveButtonsHTML(i) {
+  const total = RB.editor.blocks.length;
+  return `<button type="button" class="btn gray" onclick="rbMoveBlock(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Переместить вверх">↑</button>
+    <button type="button" class="btn gray" onclick="rbMoveBlock(${i},1)" ${i === total - 1 ? 'disabled' : ''} title="Переместить вниз">↓</button>
+    <button type="button" class="btn red" onclick="rbRemoveBlock(${i})" title="Удалить блок">✕</button>`;
+}
+
+function rbTableColumnRowHTML(block, i, c, ci) {
+  const pid = `rb-tcolpath-${i}-${ci}`;
+  const source = c.source || 'field';
+  const n = (block.columns || []).length;
+  let valueHTML;
+  if (source === 'field') {
+    valueHTML = `<div class="rbg-col-value"><div class="rbg-path-group"><input id="${pid}" placeholder="путь поля" value="${esc(c.path || '')}" onchange="rbSetTableColumn(${i},${ci},'path',this.value)">${rbFieldPickerHTML(block.root_entity, pid)}</div><input placeholder="разделитель" value="${esc(c.separator ?? '; ')}" onchange="rbSetTableColumn(${i},${ci},'separator',this.value)" style="max-width:80px" title="Разделитель для полей-списков"></div>`;
+  } else if (source === 'static') {
+    valueHTML = `<div class="rbg-col-value"><input placeholder="текст (можно {{параметр}})" value="${esc(c.value || '')}" onchange="rbSetTableColumn(${i},${ci},'value',this.value)"></div>`;
+  } else {
+    valueHTML = `<div class="rbg-col-value muted">— порядковый номер строки —</div>`;
+  }
+  return `<div class="nested-row rb-column-row">
+    <input placeholder="заголовок колонки" value="${esc(c.header || '')}" onchange="rbSetTableColumn(${i},${ci},'header',this.value)">
+    <select onchange="rbSetTableColumn(${i},${ci},'source',this.value)">
+      <option value="field" ${source === 'field' ? 'selected' : ''}>Поле из БД</option>
+      <option value="static" ${source === 'static' ? 'selected' : ''}>Статический текст</option>
+      <option value="index" ${source === 'index' ? 'selected' : ''}>№ по порядку</option>
+    </select>
+    ${valueHTML}
+    <div>${ci > 0 ? `<button type="button" class="btn gray" onclick="rbMoveTableColumn(${i},${ci},-1)" title="Левее">←</button>` : ''}${ci < n - 1 ? `<button type="button" class="btn gray" onclick="rbMoveTableColumn(${i},${ci},1)" title="Правее">→</button>` : ''}<button type="button" class="btn red" onclick="rbRemoveTableColumn(${i},${ci})" title="Удалить колонку">✕</button></div>
+  </div>`;
+}
+
+function rbTableBlockHTML(b, i) {
+  const filters = b.filters || [];
+  const cols = b.columns || [];
+  const sortId = `rb-tsort-${i}`;
+  return `<div class="rbg-block-card">
+    <div class="rbg-block-head"><b>📋 Таблица</b><div class="rbg-block-actions">${rbBlockMoveButtonsHTML(i)}</div></div>
+    <div class="formgrid">
+      <div class="field"><label>Заголовок таблицы (виден только в предпросмотре — для документа добавьте отдельный блок "Заголовок" перед таблицей)</label><input value="${esc(b.title || '')}" onchange="rbSetBlockField(${i},'title',this.value)"></div>
+      <div class="field"><label>Сущность</label><select onchange="rbSetTableEntity(${i},this.value)">${rbEntityOptionsHTML(b.root_entity)}</select></div>
+      <div class="field"><label>Циклический вывод по связи</label><select onchange="rbSetBlockField(${i},'expand',this.value)" ${!b.root_entity ? 'disabled' : ''}>${rbExpandOptionsHTML(b.root_entity, b.expand)}</select></div>
+      <label style="display:flex;gap:6px;align-items:center;font-weight:400;margin-top:24px"><input type="checkbox" ${b.include_empty_expand ? 'checked' : ''} onchange="rbSetBlockField(${i},'include_empty_expand',this.checked)" ${!b.expand ? 'disabled' : ''}> Выводить запись, даже если по связи нет данных</label>
+    </div>
+    <div class="field" style="max-width:360px;margin-bottom:12px"><label>Сортировка (необязательно)</label><div class="rbg-path-group"><input id="${sortId}" value="${esc(b.sort_by || '')}" onchange="rbSetBlockField(${i},'sort_by',this.value)">${rbFieldPickerHTML(b.root_entity, sortId)}</div></div>
+
+    <h4>Фильтры</h4>
+    <div class="nested-list">${filters.map((f, fi) => {
+      const pid = `rb-tfpath-${i}-${fi}`;
+      return `<div class="nested-row rb-filter-row">
+        <input id="${pid}" placeholder="путь поля" value="${esc(f.path)}" onchange="rbSetTableFilter(${i},${fi},'path',this.value)">
+        ${rbFieldPickerHTML(b.root_entity, pid)}
+        <select onchange="rbSetTableFilter(${i},${fi},'op',this.value)">${RB_FILTER_OPS.map(([v, l]) => `<option value="${v}" ${f.op === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <input placeholder="значение" value="${esc(f.value)}" onchange="rbSetTableFilter(${i},${fi},'value',this.value)" ${['not_empty', 'is_true', 'is_false'].includes(f.op) ? 'disabled' : ''}>
+        <button type="button" class="btn red" onclick="rbRemoveTableFilter(${i},${fi})">✕</button>
+      </div>`;
+    }).join('') || '<div class="muted">Фильтров нет — выводятся все записи</div>'}</div>
+    <button type="button" class="btn gray" onclick="rbAddTableFilter(${i})" ${!b.root_entity ? 'disabled' : ''}>+ Фильтр</button>
+
+    <h4 style="margin-top:14px">Колонки</h4>
+    <div class="nested-list">${cols.map((c, ci) => rbTableColumnRowHTML(b, i, c, ci)).join('') || '<div class="muted">Колонок нет — добавьте кнопкой ниже</div>'}</div>
+    <button type="button" class="btn gray" onclick="rbAddTableColumn(${i})" ${!b.root_entity ? 'disabled' : ''}>+ Колонка</button>
+  </div>`;
+}
+
+function rbBlockCardHTML(b, i) {
+  if (b.type === 'heading') {
+    return `<div class="rbg-block-card">
+      <div class="rbg-block-head"><b>🔠 Заголовок</b><div class="rbg-block-actions">${rbBlockMoveButtonsHTML(i)}</div></div>
+      <div class="formgrid">
+        <div class="field"><label>Уровень</label><select onchange="rbSetBlockField(${i},'level',Number(this.value))">${[1, 2, 3, 4, 5, 6].map(l => `<option value="${l}" ${(b.level || 1) === l ? 'selected' : ''}>Заголовок ${l}</option>`).join('')}</select></div>
+        <div class="field full"><label>Текст (можно {{параметр}} и {{report_date}})</label><input value="${esc(b.text || '')}" onchange="rbSetBlockField(${i},'text',this.value)"></div>
+      </div>
+    </div>`;
+  }
+  if (b.type === 'paragraph') {
+    return `<div class="rbg-block-card">
+      <div class="rbg-block-head"><b>📝 Абзац</b><div class="rbg-block-actions">${rbBlockMoveButtonsHTML(i)}</div></div>
+      <div class="formgrid">
+        <div class="field"><label>Выравнивание</label><select onchange="rbSetBlockField(${i},'align',this.value)"><option value="left" ${b.align !== 'center' ? 'selected' : ''}>По левому краю</option><option value="center" ${b.align === 'center' ? 'selected' : ''}>По центру</option></select></div>
+        <div class="field full"><label>Текст (можно {{параметр}} и {{report_date}})</label><textarea onchange="rbSetBlockField(${i},'text',this.value)">${esc(b.text || '')}</textarea></div>
+      </div>
+    </div>`;
+  }
+  if (b.type === 'page_break') {
+    return `<div class="rbg-block-card"><div class="rbg-block-head"><b>⤓ Разрыв страницы</b><div class="rbg-block-actions">${rbBlockMoveButtonsHTML(i)}</div></div></div>`;
+  }
+  if (b.type === 'table') return rbTableBlockHTML(b, i);
+  return '';
+}
+
+async function rbRunDocxPreview() {
+  try {
+    const r = await get(api + '/report-builder/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'docx', config: rbCollectDocxConfig(), limit: 15 }) });
+    RB.preview = { sections: r.sections };
+  } catch (e) { RB.preview = { error: errorMessage(e) }; }
+  rbRenderDocxEditor();
+}
+
+function rbDocxPreviewHTML() {
+  if (!RB.preview) return '';
+  if (RB.preview.error) return `<div class="panel"><h3>Предпросмотр</h3><div class="muted">Ошибка: ${esc(RB.preview.error)}</div></div>`;
+  const sections = RB.preview.sections || [];
+  if (!sections.length) return `<div class="panel"><h3>Предпросмотр</h3><div class="muted">В шаблоне нет ни одного блока-таблицы — предпросмотр показывает только табличные данные (заголовки и абзацы формируются из текста как есть, посмотреть их можно после формирования файла).</div></div>`;
+  return `<div class="panel"><h3>Предпросмотр</h3>${sections.map(sec => {
+    if (sec.error) return `<div class="muted">${esc(sec.title || 'Таблица')}: ошибка — ${esc(sec.error)}</div>`;
+    return `<div style="margin-bottom:16px"><div class="muted">${esc(sec.title || 'Таблица')}${sec.total > sec.rows.length ? ` — показано ${sec.rows.length} из ${sec.total}` : ''}</div>
+    <div class="tablewrap"><table class="rbg-preview-table"><thead><tr>${(sec.headers || []).map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>
+    ${sec.rows.map(row => `<tr>${row.map(v => `<td>${esc(v ?? '')}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div></div>`;
+  }).join('')}</div>`;
+}
+
+async function rbSaveDocxTemplate() {
+  const e = RB.editor;
+  if (!e.name.trim()) return notify('Укажите название шаблона.', 'error');
+  if (!e.blocks.length) return notify('Добавьте хотя бы один блок.', 'error');
+  const payload = { name: e.name.trim(), description: e.description || null, format: 'docx', config: rbCollectDocxConfig() };
+  try {
+    const saved = e.id
+      ? await get(api + `/report-templates/${e.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      : await get(api + '/report-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    RB.editor.id = saved.id;
+    notify('Шаблон сохранён.', 'success');
+    rbRenderDocxEditor();
+  } catch (e2) { notifyError(e2); }
+}
+
+function rbRenderDocxEditor() {
+  const e = RB.editor;
+  const content = document.getElementById('content');
+  content.innerHTML = `<div class="top"><div><h2>${e.id ? 'Изменить шаблон' : 'Новый шаблон'} отчёта (Word)</h2><div class="muted">Блочный редактор документа — заголовки, абзацы, таблицы данных из реестра, разрывы страниц</div></div>
+    <div class="actions"><button class="btn gray" onclick="rbRunDocxPreview()">👁 Предпросмотр</button> <button class="btn" onclick="rbSaveDocxTemplate()">💾 Сохранить</button> <button class="btn gray" onclick="openReportBuilder()">Назад к списку</button></div></div>
+  <div class="panel"><div class="formgrid">
+    <div class="field"><label>Название шаблона</label><input value="${esc(e.name)}" onchange="RB.editor.name=this.value"></div>
+    <div class="field full"><label>Описание</label><textarea onchange="RB.editor.description=this.value">${esc(e.description)}</textarea></div>
+  </div></div>
+  ${rbParamsHTML()}
+  <div class="panel">
+    <div class="top" style="margin-bottom:12px"><h3 style="margin:0">Содержимое документа</h3>
+      <div class="actions">
+        <button type="button" class="btn gray" onclick="rbAddBlock('heading')">+ Заголовок</button>
+        <button type="button" class="btn gray" onclick="rbAddBlock('paragraph')">+ Абзац</button>
+        <button type="button" class="btn gray" onclick="rbAddBlock('table')">+ Таблица</button>
+        <button type="button" class="btn gray" onclick="rbAddBlock('page_break')">+ Разрыв страницы</button>
+      </div>
+    </div>
+    ${e.blocks.length ? e.blocks.map((b, i) => rbBlockCardHTML(b, i)).join('') : '<div class="muted">Пока нет ни одного блока — добавьте кнопками выше. Порядок блоков — это и есть порядок содержимого в документе.</div>'}
+  </div>
+  ${rbDocxPreviewHTML()}
+  <div class="actions"><button class="btn" onclick="rbSaveDocxTemplate()">💾 Сохранить шаблон</button></div>`;
 }
