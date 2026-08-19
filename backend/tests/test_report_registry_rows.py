@@ -202,12 +202,12 @@ class ExactParityTestCase(unittest.TestCase):
                 ws_g = wb_grid[name]
 
                 orig_headers = [c.value for c in next(ws_o.iter_rows(min_row=1, max_row=1))]
-                grid_headers = [c.value for c in next(ws_g.iter_rows(min_row=2, max_row=2))]
+                grid_headers = [c.value for c in next(ws_g.iter_rows(min_row=1, max_row=1))]
                 self.assertEqual(orig_headers, expected_headers, f"{name}: заголовки оригинала разошлись с HEADERSn")
                 self.assertEqual(grid_headers, expected_headers, f"{name}: заголовки шаблона не совпадают с оригиналом")
 
                 orig_rows = [[c.value for c in row] for row in ws_o.iter_rows(min_row=2)]
-                grid_rows = [[c.value for c in row] for row in ws_g.iter_rows(min_row=3)]
+                grid_rows = [[c.value for c in row] for row in ws_g.iter_rows(min_row=2)]
                 self.assertEqual(orig_rows, grid_rows, f"{name}: данные шаблона разошлись с оригиналом")
                 self.assertGreater(len(orig_rows), 0, f"{name}: тестовые данные не дали ни одной строки")
         finally:
@@ -242,7 +242,7 @@ class ExactParityTestCase(unittest.TestCase):
                 wb_grid = openpyxl.load_workbook(grid_path)
                 for name in wb_orig.sheetnames:
                     orig_rows = list(wb_orig[name].iter_rows(min_row=2, values_only=True))
-                    grid_rows = list(wb_grid[name].iter_rows(min_row=3, values_only=True))
+                    grid_rows = list(wb_grid[name].iter_rows(min_row=2, values_only=True))
                     self.assertEqual(orig_rows, grid_rows, f"{name}: пустой реестр — расхождение")
         finally:
             session.close()

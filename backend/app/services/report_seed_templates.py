@@ -45,15 +45,9 @@ TEMPLATE_DESCRIPTION = (
     "собственных отчётов на основе тех же данных реестра."
 )
 
-_TITLE_STYLE = {"bold": True, "align": "center", "valign": "middle", "bg": "#DCE6FA", "wrap": True}
 _HEADER_STYLE = {"bold": True, "align": "center", "valign": "middle", "bg": "#EEF2FF", "wrap": True}
 _DATA_STYLE = {"wrap": True, "valign": "top"}
 _INDEX_STYLE = {"wrap": True, "valign": "top", "align": "center"}
-
-
-def _title_row(n_cols: int, text: str) -> dict[str, Any]:
-    return {"height": 26, "repeat": False, "data_source": None,
-            "cells": [{"col": 0, "colspan": n_cols, "kind": "static", "text": text, "style": _TITLE_STYLE}]}
 
 
 def _header_row(headers: list[str]) -> dict[str, Any]:
@@ -70,7 +64,9 @@ def _sheet(title: str, entity_key: str, headers: list[str], widths: list[int]) -
     колонки в оригинале нет — см. reporting.py); используется как есть, чтобы заголовки в файле
     совпадали с оригиналом, а не только данные. Подписи полей в самой сущности (VirtualField.label)
     — отдельные, короче, для палитры конструктора, где 200-значные официальные формулировки
-    неудобны как текст перетаскиваемого чипа."""
+    неудобны как текст перетаскиваемого чипа. Строки листа — сразу заголовок + данные, без
+    отдельной строки-титула ("Лист — по состоянию на ...") — в оригинальном отчёте такой строки
+    нет, а задача этого шаблона — совпадать с оригиналом, а не добавлять к нему своё."""
     fields = VIRTUAL_ENTITIES[entity_key].fields
     numbered = len(headers) == len(fields) + 1
     n_cols = len(headers)
@@ -95,7 +91,7 @@ def _sheet(title: str, entity_key: str, headers: list[str], widths: list[int]) -
     return {
         "title": title,
         "columns": [{"width": w} for w in widths],
-        "rows": [_title_row(n_cols, f"{title} — по состоянию на {{{{report_date}}}}"), _header_row(headers), data_row],
+        "rows": [_header_row(headers), data_row],
     }
 
 
@@ -106,19 +102,19 @@ def default_registry_template_config() -> dict[str, Any]:
 
     sheet1 = _sheet(
         "Перечень ИС", "registry-is-rows", HEADERS1,
-        widths=[5, 26, 32, 26, 20, 18, 34, 26, 24, 16, 12, 24, 20, 30, 26, 22, 22, 22],
+        widths=[5, 26, 32, 26, 24, 18, 42, 30, 30, 16, 12, 24, 20, 30, 30, 24, 26, 26],
     )
     sheet2 = _sheet(
         "Инвентаризац. физ. устройств ИС", "registry-device-rows", HEADERS2,
-        widths=[5, 20, 20, 20, 22, 20, 20, 22, 12, 20, 26, 20, 20],
+        widths=[5, 20, 20, 20, 22, 20, 24, 28, 12, 20, 26, 20, 20],
     )
     sheet3 = _sheet(
         "Организация подключений", "registry-connection-rows", HEADERS3,
-        widths=[5, 18, 20, 20, 20, 14, 18, 22, 16, 12, 16, 16, 22, 18, 20, 20, 20, 18],
+        widths=[5, 18, 20, 20, 20, 14, 22, 30, 20, 16, 20, 16, 22, 18, 20, 20, 20, 22],
     )
     sheet4 = _sheet(
         "Организация управления ВМ", "registry-vm-rows", HEADERS4,
-        widths=[22, 20, 20, 24, 20, 24, 22, 26, 20, 26],
+        widths=[22, 20, 20, 24, 20, 28, 22, 32, 20, 32],
     )
 
     return {"params": [], "sheets": [sheet1, sheet2, sheet3, sheet4]}

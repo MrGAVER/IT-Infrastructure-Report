@@ -21,7 +21,7 @@ try:
 
     from app.models import Base, Department, DeviceType, InformationSystem, ISDepartment
     from app.services.report_engine import ReportBuilderError
-    from app.services.report_grid import build_xlsx_grid, preview_grid, validate_grid_config
+    from app.services.report_grid import _estimate_row_height, build_xlsx_grid, preview_grid, validate_grid_config
     from app.services.report_meta import build_entity_metadata
 
     DEPS_AVAILABLE = True
@@ -349,6 +349,72 @@ class BuildXlsxGridTestCase(unittest.TestCase):
             self.assertEqual(set(wb.sheetnames), {"Лист1", "Лист1(2)"})
         finally:
             path.unlink(missing_ok=True)
+
+    def test_long_wrapped_text_grows_row_height_beyond_configured_value(self):
+        """Реальный отчёт пользователя: длинный текст в узкой колонке с переносом обрезался снизу,
+        потому что заданная в конфигурации высота строки применялась как есть, без учёта того,
+        сколько строк реально займёт текст при переносе (openpyxl, в отличие от интерактивного
+        Excel, не пересчитывает высоту сам)."""
+        import openpyxl
+        config = {"sheets": [{
+            "title": "Лист1",
+            "columns": [{"width": 10}],
+            "rows": [_static_row([_cell(0, text="A" * 300, style={"wrap": True})], height=18)],
+        }]}
+        path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
+        try:
+            wb = openpyxl.load_workbook(path)
+            self.assertGreater(wb["Лист1"].row_dimensions[1].height, 18)
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_short_text_keeps_configured_height_unchanged(self):
+        import openpyxl
+        config = {"sheets": [{
+            "title": "Лист1",
+            "columns": [{"width": 30}],
+            "rows": [_static_row([_cell(0, text="Коротко", style={})], height=40)],
+        }]}
+        path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
+        try:
+            wb = openpyxl.load_workbook(path)
+            self.assertEqual(wb["Лист1"].row_dimensions[1].height, 40)
+        finally:
+            path.unlink(missing_ok=True)
+
+
+@unittest.skipUnless(DEPS_AVAILABLE, "sqlalchemy/openpyxl не установлены в этом окружении")
+class EstimateRowHeightTestCase(unittest.TestCase):
+    """_estimate_row_height() как чистая функция — без БД/файлов."""
+
+    def test_empty_or_short_row_keeps_configured_height(self):
+        cells = [{"col": 0, "value": "ок", "style": {}}]
+        self.assertEqual(_estimate_row_height(cells, [{"width": 20}], 25), 25)
+
+    def test_grows_for_long_text_in_narrow_column(self):
+        cells = [{"col": 0, "value": "x" * 200, "style": {}}]
+        height = _estimate_row_height(cells, [{"width": 20}], 18)
+        self.assertGreater(height, 18)
+
+    def test_wrap_false_cell_is_ignored(self):
+        cells = [{"col": 0, "value": "x" * 200, "style": {"wrap": False}}]
+        self.assertEqual(_estimate_row_height(cells, [{"width": 20}], 18), 18)
+
+    def test_colspan_widens_effective_width_reducing_needed_height(self):
+        cells_narrow = [{"col": 0, "colspan": 1, "value": "x" * 100, "style": {}}]
+        cells_wide = [{"col": 0, "colspan": 3, "value": "x" * 100, "style": {}}]
+        columns = [{"width": 15}, {"width": 15}, {"width": 15}]
+        narrow_height = _estimate_row_height(cells_narrow, columns, 18)
+        wide_height = _estimate_row_height(cells_wide, columns, 18)
+        self.assertGreaterEqual(narrow_height, wide_height)
+
+    def test_never_exceeds_sanity_cap(self):
+        cells = [{"col": 0, "value": "x" * 100000, "style": {}}]
+        self.assertLessEqual(_estimate_row_height(cells, [{"width": 10}], 18), 400)
+
+    def test_none_or_empty_value_does_not_grow_height(self):
+        cells = [{"col": 0, "value": None, "style": {}}, {"col": 1, "value": "", "style": {}}]
+        self.assertEqual(_estimate_row_height(cells, [{"width": 5}, {"width": 5}], 20), 20)
 
 
 @unittest.skipUnless(DEPS_AVAILABLE, "sqlalchemy/openpyxl не установлены в этом окружении")

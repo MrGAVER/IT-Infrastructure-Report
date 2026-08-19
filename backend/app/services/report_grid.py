@@ -339,6 +339,43 @@ def _apply_style(xl_cell, style: dict[str, Any] | None, *, is_datetime: bool) ->
         xl_cell.number_format = "DD.MM.YYYY HH:MM"
 
 
+def _estimate_row_height(cells: list[dict[str, Any]], columns: list[dict[str, Any]], configured_height: float) -> float:
+    """Openpyxl, в отличие от самого Excel при интерактивном редактировании, не пересчитывает
+    высоту строки под перенесённый текст сам — заданная в конфигурации высота (задаётся один раз на
+    строку-шаблон, до подстановки реальных данных) может оказаться меньше, чем нужно для длинного
+    итогового значения, и текст обрежется по нижнему краю ячейки (см. отчёт пользователя). Оставить
+    высоту незаданной, как делает reporting.py для строк данных, здесь не вариант — расчётные
+    физические строки заведомо разной длины контента, и автоподбор Excel при открытии срабатывает не
+    во всех версиях/просмотрщиках предсказуемо. Поэтому берём осторожную оценку СНИЗУ: если по
+    расчёту нужно больше высоты, чем задано — используем расчётную, а не наоборот (не сжимаем то,
+    что задано намеренно). Оценка "символов на юнит ширины колонки" — тот же приём, что и в основном
+    регламентированном отчёте (reporting.py: finalize_sheet подбирает ширину колонки по факту
+    символов содержимого) — не пиксель-идеально, но заведомо лучше жёсткого значения без учёта
+    контента вовсе."""
+    max_lines = 0
+    for cell in cells:
+        style = cell.get("style") or {}
+        if style.get("wrap") is False:
+            continue
+        text = cell.get("value")
+        if text in (None, ""):
+            continue
+        col = cell.get("col", 0)
+        colspan = max(1, cell.get("colspan", 1))
+        width_chars = sum((columns[i].get("width", 15) if i < len(columns) else 15) for i in range(col, col + colspan))
+        chars_per_line = max(6, int(width_chars))
+        lines = 0
+        for segment in str(text).split("\n"):
+            lines += max(1, -(-len(segment) // chars_per_line))  # деление с округлением вверх
+        max_lines = max(max_lines, lines)
+    if max_lines <= 1:
+        # Либо контента, требующего оценки, не было вовсе, либо он и так укладывается в одну
+        # строку — ничего не пересчитываем, оставляем высоту как задано в конфигурации.
+        return configured_height
+    estimated = max_lines * 15 + 5
+    return max(configured_height, min(estimated, 400))
+
+
 def build_xlsx_grid(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str,
                      params: dict[str, Any] | None = None) -> Path:
     params = params or {}
@@ -361,10 +398,11 @@ def build_xlsx_grid(session: Session, config: dict[str, Any], report_dir: Path, 
 
         for i, col in enumerate(sheet.get("columns") or [], 1):
             ws.column_dimensions[get_column_letter(i)].width = col.get("width", 15)
+        columns = sheet.get("columns") or []
 
         physical_rows, _ = _physical_rows(ctx, sheet, params, limit=None)
         for ri, prow in enumerate(physical_rows, 1):
-            ws.row_dimensions[ri].height = prow["height"]
+            ws.row_dimensions[ri].height = _estimate_row_height(prow["cells"], columns, prow["height"])
             for cell in prow["cells"]:
                 xl_cell = ws.cell(row=ri, column=cell["col"] + 1)
                 xl_cell.value = cell["value"] if cell["value"] != "" else None
