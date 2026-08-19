@@ -110,12 +110,8 @@ async function openReportBuilder() {
 function rbRenderTemplatesList() {
   const content = document.getElementById('content');
   content.innerHTML = `<div class="top"><div><h2>🧩 Конструктор отчётов</h2><div class="muted">Произвольные отчёты на основе данных реестра — визуальный редактор листа Excel: перетаскивание полей на лист, объединение ячеек, стили, формулы</div></div><div class="actions"><button class="btn" onclick="rbNewTemplate('xlsx')">+ Новый Excel-шаблон</button> <button class="btn gray" onclick="rbNewTemplate('docx')">+ Новый Word-шаблон</button> <button class="btn gray" onclick="showDashboard()">Dashboard</button></div></div>
-  <div class="panel"><div class="tablewrap"><table><thead><tr><th>Название</th><th>Формат</th><th>Описание</th><th>Изменён</th><th>Действия</th></tr></thead><tbody>
+  <div class="panel"><div class="tablewrap"><table><thead><tr><th>Действия</th><th>Название</th><th>Формат</th><th>Описание</th><th>Изменён</th></tr></thead><tbody>
   ${RB.templates.length ? RB.templates.map(t => `<tr>
-    <td><b>${esc(t.name)}</b></td>
-    <td>${t.format === 'docx' ? 'Word (.docx)' : 'Excel (.xlsx)'}</td>
-    <td class="muted">${esc(t.description || '')}</td>
-    <td class="muted">${t.updated_at ? new Date(t.updated_at).toLocaleString('ru-RU') : ''}</td>
     <td>
       <button class="btn gray" onclick="rbEditTemplate('${t.id}')">Изменить</button>
       <button class="btn" onclick="rbGenerateTemplate('${t.id}')">Сформировать</button>
@@ -123,6 +119,10 @@ function rbRenderTemplatesList() {
       <button class="btn gray" onclick="rbShowVersionHistory('${t.id}')">История</button>
       <button class="btn red" onclick="rbDeleteTemplate('${t.id}')">Удалить</button>
     </td>
+    <td><b>${esc(t.name)}</b></td>
+    <td>${t.format === 'docx' ? 'Word (.docx)' : 'Excel (.xlsx)'}</td>
+    <td class="muted" style="white-space:normal;max-width:420px" title="${esc(t.description || '')}">${esc(t.description || '')}</td>
+    <td class="muted">${t.updated_at ? new Date(t.updated_at).toLocaleString('ru-RU') : ''}</td>
   </tr>`).join('') : `<tr><td colspan="5" class="muted">Пока нет ни одного шаблона отчёта — создайте первый кнопкой выше.</td></tr>`}
   </tbody></table></div></div>`;
 }
@@ -664,11 +664,13 @@ function rbGridHTML() {
   sheet.rows.forEach((row, ri) => {
     const rowSel = RB.selected && RB.selected.sheet === si && RB.selected.row === ri && RB.selected.col === null;
     html += `<tr><th class="rbg-rowhead${rowSel ? ' selected' : ''}">
-      <div>${ri + 1}${row.repeat ? ' 🔁' : ''}</div>
-      <button type="button" class="btn gray" onclick="rbSelectRow(${si},${ri})" title="Настройки строки">⚙</button>
-      <button type="button" class="btn gray" onclick="rbAddRowAt(${ri})" title="Вставить строку ниже">+</button>
-      <button type="button" class="btn red" onclick="rbRemoveRow(${ri})" title="Удалить строку">✕</button>
-      <input type="number" min="10" value="${row.height}" onchange="rbSetRowHeight(${ri},this.value)" title="Высота строки">
+      <div class="rbg-rowhead-tools">
+        <span title="${row.repeat ? 'Повторяющаяся строка' : 'Статическая строка'}">${ri + 1}${row.repeat ? ' 🔁' : ''}</span>
+        <button type="button" class="btn gray" onclick="rbSelectRow(${si},${ri})" title="Настройки строки">⚙</button>
+        <button type="button" class="btn gray" onclick="rbAddRowAt(${ri})" title="Вставить строку ниже">+</button>
+        <button type="button" class="btn red" onclick="rbRemoveRow(${ri})" title="Удалить строку">✕</button>
+        <input type="number" min="10" value="${row.height}" onchange="rbSetRowHeight(${ri},this.value)" title="Высота строки">
+      </div>
     </th>${rbRenderRowCells(sheet, si, ri)}</tr>`;
   });
   html += `</tbody></table></div>`;

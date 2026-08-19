@@ -296,6 +296,11 @@ test('openReportBuilder()/rbRenderTemplatesList(): отображает спис
   assert.match(html, /Акт/);
   assert.match(html, /Excel \(\.xlsx\)/);
   assert.match(html, /Word \(\.docx\)/);
+  // Действия — первая колонка таблицы (не последняя), чтобы не нужно было скролить к ним при
+  // длинном описании/множестве колонок — см. отчёт пользователя.
+  const headerRow = win.document.querySelector('table thead tr');
+  const headerLabels = Array.from(headerRow.querySelectorAll('th')).map((th) => th.textContent.trim());
+  assert.deepEqual(headerLabels, ['Действия', 'Название', 'Формат', 'Описание', 'Изменён']);
 });
 
 test('rbNewTemplate("docx"): показывает уведомление вместо открытия редактора (Word пока не поддержан)', () => {

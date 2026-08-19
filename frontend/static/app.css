@@ -19,13 +19,15 @@
 .rbg-chip:hover{background:#eef2ff;border-color:#93c5fd}
 .rbg-special-chips{display:flex;gap:6px;margin:8px 0 12px;flex-wrap:wrap}
 .rbg-grid-wrap{overflow:auto;border:1px solid #e5e7eb;border-radius:10px;max-height:70vh}
-table.rbg-grid{border-collapse:collapse;table-layout:fixed}
+table.rbg-grid{border-collapse:collapse}
 table.rbg-grid th,table.rbg-grid td{border:1px solid #e2e8f0;padding:0;font-size:12px}
-table.rbg-grid th.rbg-colhead{background:#f8fafc;padding:4px;white-space:nowrap}
+table.rbg-grid th.rbg-colhead{background:#f8fafc;padding:4px;white-space:nowrap;min-width:70px}
 table.rbg-grid th.rbg-colhead input{width:44px;padding:2px;border:1px solid #cbd5e1;border-radius:4px;font:inherit}
-table.rbg-grid th.rbg-rowhead{background:#f8fafc;white-space:nowrap;padding:4px;vertical-align:top}
-table.rbg-grid th.rbg-rowhead .btn{padding:3px 6px;font-size:11px}
-table.rbg-grid td.rbg-cell{min-width:110px;padding:7px 8px;cursor:pointer;vertical-align:top;position:relative}
+table.rbg-grid th.rbg-rowhead{background:#f8fafc;padding:4px;vertical-align:top;min-width:120px}
+table.rbg-grid th.rbg-rowhead>div.rbg-rowhead-tools{display:flex;flex-wrap:wrap;align-items:center;gap:3px}
+table.rbg-grid th.rbg-rowhead .btn{padding:3px 6px;font-size:11px;flex:none}
+table.rbg-grid th.rbg-rowhead input{width:44px;padding:2px;border:1px solid #cbd5e1;border-radius:4px;font:inherit;flex:none}
+table.rbg-grid td.rbg-cell{min-width:110px;max-width:320px;padding:7px 8px;cursor:pointer;vertical-align:top;position:relative;overflow-wrap:anywhere}
 table.rbg-grid td.rbg-cell:hover{background:#f8fafc}
 table.rbg-grid td.rbg-cell.selected{outline:2px solid #2563eb;outline-offset:-2px}
 table.rbg-grid td.rbg-cell.in-range{background:#dbeafe}
