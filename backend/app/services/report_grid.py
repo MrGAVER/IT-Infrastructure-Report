@@ -377,13 +377,14 @@ def _estimate_row_height(cells: list[dict[str, Any]], columns: list[dict[str, An
 
 
 def build_xlsx_grid(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str,
-                     params: dict[str, Any] | None = None) -> Path:
+                     params: dict[str, Any] | None = None,
+                     structural_unit_ids: list[str] | None = None) -> Path:
     params = params or {}
     sheets = config.get("sheets") or []
     if not sheets:
         raise ReportBuilderError("В шаблоне не задано ни одного листа")
 
-    ctx = ReportContext(session)
+    ctx = ReportContext(session, structural_unit_ids)
     wb = Workbook()
     wb.remove(wb.active)
     used_titles: set[str] = set()

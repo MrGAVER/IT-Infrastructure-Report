@@ -63,10 +63,19 @@ class ReportContext:
     память, поэтому вместо точечных запросов на каждое поле каждой строки (N+1) таблицы целиком
     подгружаются один раз при первом обращении и переиспользуются между листами/блоками одного
     отчёта.
-    """
 
-    def __init__(self, session: Session):
+    structural_unit_ids — необязательный runtime-фильтр по структурным единицам (см.
+    models.StructuralUnit/reporting.py), просачивается в virtual_loader "виртуальных" сущностей
+    реестра (report_registry_rows.py: registry-is-rows/registry-device-rows/registry-connection-rows/
+    registry-vm-rows), которые побитово переиспользуют reporting._load_report_data — так конструктор
+    отчётов на основе этих сущностей фильтруется по оборудованию структурной единицы точно так же,
+    как регламентированный отчёт. Для root_entity, не являющихся виртуальными (обычные MODEL_MAP-
+    сущности типа 'devices'), этот фильтр не применяется автоматически — при необходимости его можно
+    выразить статичным filter'ом в конфигурации листа (путь вида "building.structural_unit_id")."""
+
+    def __init__(self, session: Session, structural_unit_ids: list[str] | None = None):
         self.session = session
+        self.structural_unit_ids = structural_unit_ids
         self.meta = build_entity_metadata()
         self._tables: dict[str, dict[str, Any]] = {}
         self._by_fk: dict[tuple[str, str], dict[str, list[Any]]] = {}
@@ -80,7 +89,7 @@ class ReportContext:
         if entity_key not in self._tables:
             info = self.entity(entity_key)
             loader = info.get("virtual_loader")
-            rows = loader(self.session) if loader else self.session.scalars(select(info["model"])).all()
+            rows = loader(self.session, self.structural_unit_ids) if loader else self.session.scalars(select(info["model"])).all()
             self._tables[entity_key] = {r.id: r for r in rows}
         return self._tables[entity_key]
 

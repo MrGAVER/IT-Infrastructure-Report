@@ -248,8 +248,9 @@ def seed_test_data(session: Session = Depends(get_db)):
     return {'status':'ok','message':'Тестовые данные добавлены','tag':tag,'created':{'devices':2,'interfaces':2,'connections':1,'vms':1,'containers':1,'information_systems':1,'vlans':1}}
 
 @router.post('/api/v1/reports/inventory')
-def generate_report(information_system_id: str | None = None, session: Session = Depends(get_db)):
-    path = build_report(session, REPORT_DIR, information_system_id)
+def generate_report(information_system_id: str | None = None, payload: dict | None = None, session: Session = Depends(get_db)):
+    structural_unit_ids = (payload or {}).get('structural_unit_ids') or None
+    path = build_report(session, REPORT_DIR, information_system_id, structural_unit_ids)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
 @router.post('/api/v1/reports/audit-log')

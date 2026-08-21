@@ -214,8 +214,9 @@ def generate_template_report(template_id: str, payload: dict | None = None, sess
     if not t:
         raise HTTPException(404, "Шаблон отчёта не найден")
     params = (payload or {}).get("params") or {}
+    structural_unit_ids = (payload or {}).get("structural_unit_ids") or None
     try:
-        path = build_report_from_template(session, t, REPORT_DIR, params=params)
+        path = build_report_from_template(session, t, REPORT_DIR, params=params, structural_unit_ids=structural_unit_ids)
     except ReportBuilderError as e:
         raise HTTPException(422, str(e)) from e
     return {"file_name": path.name, "download_url": f"/api/v1/reports/download/{path.name}"}
