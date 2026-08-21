@@ -61,11 +61,24 @@ class Department(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(500), unique=True)
     parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("departments.id"))
 
+class StructuralUnit(TimestampMixin, Base):
+    """Организационная структурная единица (филиал/площадка/подразделение и т.п.), к которой
+    привязывается адрес размещения физического оборудования (см. Building.structural_unit_id).
+    Иерархия через parent_id — тот же паттерн, что и у Department, — позволяет выбрать при
+    генерации отчёта родительскую единицу и автоматически захватить все вложенные (см.
+    reporting.py: _expand_structural_unit_ids)."""
+    __tablename__ = "structural_units"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(500), unique=True)
+    parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("structural_units.id"), index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
 class Building(TimestampMixin, Base):
     __tablename__ = "buildings"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255))
     address: Mapped[Optional[str]] = mapped_column(String(500))
+    structural_unit_id: Mapped[Optional[str]] = mapped_column(ForeignKey("structural_units.id"), index=True)
 
 class Room(TimestampMixin, Base):
     __tablename__ = "rooms"

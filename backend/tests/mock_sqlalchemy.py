@@ -22,7 +22,7 @@ MODEL_NAMES = [
     "InformationSystem", "InformationSystemSource", "InterfaceIP", "InterfaceType",
     "InterfaceVLAN", "Manufacturer", "OpenPort", "OperatingSystem", "PhysicalDevice",
     "PhysicalDeviceVLAN", "PlacementAsset", "ProtocolPortCatalog", "Rack", "Room",
-    "SoftwareAsset", "SupportMethod", "SupportOrganization", "VLAN", "VMIP", "VMSoftware",
+    "SoftwareAsset", "StructuralUnit", "SupportMethod", "SupportOrganization", "VLAN", "VMIP", "VMSoftware",
     "VirtualMachine", "CryptoProtectionMeans",
 ]
 

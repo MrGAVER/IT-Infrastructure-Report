@@ -24,9 +24,9 @@ class ReportingTestCase(unittest.TestCase):
         self.build_report, self.C = load_reporting_module()
         self.table = empty_table()
 
-    def build(self, tmp_path: Path):
+    def build(self, tmp_path: Path, only_is=None, structural_unit_ids=None):
         session = FakeSession(self.table)
-        out = self.build_report(session, tmp_path)
+        out = self.build_report(session, tmp_path, only_is, structural_unit_ids)
         return openpyxl.load_workbook(out)
 
     def sheet_rows(self, wb, name):
@@ -310,6 +310,131 @@ class Sheet4VirtualMachines(ReportingTestCase):
         vm_row = next(r for r in rows if r[0] == "VM-1C")
         self.assertIn("1С:Предприятие", vm_row[sw_idx])
         self.assertIn("Web-сервер Nginx", vm_row[sw_idx])
+
+
+class StructuralUnitFiltering(ReportingTestCase):
+    """Фильтр по структурной единице(ам) размещения оборудования — задача 'адрес размещения
+    физического оборудования дополнительно цепляется к структурной единице' + 'генерация отчётов
+    на основании оборудования, входящего в структурную единицу'. Затрагивает все 4 листа
+    (см. reporting._allowed_device_ids_for_structural_units/_is_related_device_ids)."""
+
+    def _two_units_two_buildings_two_devices(self):
+        C = self.C
+        su1 = C["StructuralUnit"](id="su1", name="Филиал А")
+        su2 = C["StructuralUnit"](id="su2", name="Филиал Б")
+        b1 = C["Building"](id="b1", name="Здание А", structural_unit_id="su1")
+        b2 = C["Building"](id="b2", name="Здание Б", structural_unit_id="su2")
+        dev1 = C["PhysicalDevice"](id="d1", serial_number="SN-A", system_name="dev-a", building_id="b1")
+        dev2 = C["PhysicalDevice"](id="d2", serial_number="SN-B", system_name="dev-b", building_id="b2")
+        self.table.update({
+            "StructuralUnit": [su1, su2], "Building": [b1, b2], "PhysicalDevice": [dev1, dev2],
+        })
+        return dev1, dev2
+
+    def _device_serials(self, wb):
+        rows = self.sheet_rows(wb, "Инвентаризац. физ. устройств ИС")[1:]
+        header = self.sheet_rows(wb, "Инвентаризац. физ. устройств ИС")[0]
+        idx = header.index("Серийный номер устройства")
+        return [r[idx] for r in rows]
+
+    def test_no_filter_keeps_all_devices(self):
+        """structural_unit_ids не задан (None/пусто) — поведение как раньше, без ограничения."""
+        self._two_units_two_buildings_two_devices()
+        wb = self.build(Path("/tmp/test_su_nofilter"))
+        self.assertCountEqual(self._device_serials(wb), ["SN-A", "SN-B"])
+
+    def test_devices_sheet_limited_to_selected_unit(self):
+        self._two_units_two_buildings_two_devices()
+        wb = self.build(Path("/tmp/test_su_1"), structural_unit_ids=["su1"])
+        self.assertEqual(self._device_serials(wb), ["SN-A"])
+
+    def test_device_without_building_excluded_when_filter_active(self):
+        C = self.C
+        self._two_units_two_buildings_two_devices()
+        dev3 = C["PhysicalDevice"](id="d3", serial_number="SN-NOADDR", system_name="dev-c")
+        self.table["PhysicalDevice"].append(dev3)
+        wb = self.build(Path("/tmp/test_su_noaddr"), structural_unit_ids=["su1"])
+        self.assertEqual(self._device_serials(wb), ["SN-A"])
+
+    def test_multiple_units_selected_at_once(self):
+        """'генерация отчётов для нескольких... структурных единиц сразу'."""
+        self._two_units_two_buildings_two_devices()
+        wb = self.build(Path("/tmp/test_su_multi"), structural_unit_ids=["su1", "su2"])
+        self.assertCountEqual(self._device_serials(wb), ["SN-A", "SN-B"])
+
+    def test_parent_unit_selection_includes_child_unit_devices(self):
+        """Выбор родительской структурной единицы автоматически захватывает вложенные — не нужно
+        отмечать каждую дочернюю единицу по отдельности."""
+        C = self.C
+        parent = C["StructuralUnit"](id="su-parent", name="Головной офис")
+        child = C["StructuralUnit"](id="su-child", name="Филиал (вложенный)", parent_id="su-parent")
+        b = C["Building"](id="b1", name="Здание филиала", structural_unit_id="su-child")
+        dev = C["PhysicalDevice"](id="d1", serial_number="SN-CHILD", system_name="dev-child", building_id="b1")
+        self.table.update({"StructuralUnit": [parent, child], "Building": [b], "PhysicalDevice": [dev]})
+        wb = self.build(Path("/tmp/test_su_parent"), structural_unit_ids=["su-parent"])
+        self.assertEqual(self._device_serials(wb), ["SN-CHILD"])
+
+    def test_information_system_filtered_by_linked_device(self):
+        C = self.C
+        dev1, dev2 = self._two_units_two_buildings_two_devices()
+        isys = C["InformationSystem"](id="is1", name="ИС на оборудовании филиала А", crypto_protection_enabled=False)
+        link = C["ISDevice"](id="isd1", information_system_id="is1", physical_device_id="d1")
+        self.table.update({"InformationSystem": [isys], "ISDevice": [link]})
+        wb_in = self.build(Path("/tmp/test_su_is_in"), structural_unit_ids=["su1"])
+        self.assertEqual([r[1] for r in self.sheet_rows(wb_in, "Перечень ИС")[1:]], ["ИС на оборудовании филиала А"])
+        wb_out = self.build(Path("/tmp/test_su_is_out"), structural_unit_ids=["su2"])
+        self.assertEqual(self.sheet_rows(wb_out, "Перечень ИС")[1:], [])
+
+    def test_information_system_filtered_by_vm_host_unit(self):
+        """ИС, привязанная не напрямую к устройству, а к ВМ — учитывается физический хост ВМ."""
+        C = self.C
+        dev1, dev2 = self._two_units_two_buildings_two_devices()
+        vm = C["VirtualMachine"](id="v1", name="VM-1", physical_device_id="d1", purpose="")
+        isys = C["InformationSystem"](id="is1", name="ИС на ВМ филиала А", crypto_protection_enabled=False)
+        link = C["ISVM"](id="isv1", information_system_id="is1", virtual_machine_id="v1")
+        self.table.update({"VirtualMachine": [vm], "InformationSystem": [isys], "ISVM": [link]})
+        wb_in = self.build(Path("/tmp/test_su_isvm_in"), structural_unit_ids=["su1"])
+        self.assertEqual([r[1] for r in self.sheet_rows(wb_in, "Перечень ИС")[1:]], ["ИС на ВМ филиала А"])
+        wb_out = self.build(Path("/tmp/test_su_isvm_out"), structural_unit_ids=["su2"])
+        self.assertEqual(self.sheet_rows(wb_out, "Перечень ИС")[1:], [])
+
+    def test_information_system_without_equipment_excluded_when_filter_active(self):
+        C = self.C
+        self._two_units_two_buildings_two_devices()
+        isys = C["InformationSystem"](id="is1", name="ИС без оборудования", crypto_protection_enabled=False)
+        self.table.update({"InformationSystem": [isys]})
+        wb = self.build(Path("/tmp/test_su_is_noequip"), structural_unit_ids=["su1"])
+        self.assertEqual(self.sheet_rows(wb, "Перечень ИС")[1:], [])
+
+    def test_vm_sheet_filtered_by_host_unit(self):
+        C = self.C
+        dev1, dev2 = self._two_units_two_buildings_two_devices()
+        vm1 = C["VirtualMachine"](id="v1", name="VM-A", physical_device_id="d1", purpose="")
+        vm2 = C["VirtualMachine"](id="v2", name="VM-B", physical_device_id="d2", purpose="")
+        vm3 = C["VirtualMachine"](id="v3", name="VM-без-хоста", purpose="")
+        self.table.update({"VirtualMachine": [vm1, vm2, vm3]})
+        wb = self.build(Path("/tmp/test_su_vm"), structural_unit_ids=["su1"])
+        rows = self.sheet_rows(wb, "Организация управления ВМ")[1:]
+        self.assertEqual([r[0] for r in rows], ["VM-A"])
+
+    def test_connections_sheet_shows_own_side_even_if_neighbor_outside_unit(self):
+        """Соединение между устройством из выбранной единицы и устройством вне неё: строка "от лица"
+        устройства ВНУТРИ единицы должна остаться (сосед — как контекст), а строка "от лица" соседа
+        снаружи — нет."""
+        C = self.C
+        dev1, dev2 = self._two_units_two_buildings_two_devices()
+        if1 = C["DeviceInterface"](id="if1", physical_device_id="d1", name="eth0", is_management=False, is_data_transfer=True)
+        if2 = C["DeviceInterface"](id="if2", physical_device_id="d2", name="eth0", is_management=False, is_data_transfer=True)
+        ct = C["ConnectionType"](id="ct1", name="Ethernet")
+        conn = C["Connection"](id="c1", source_interface_id="if1", destination_interface_id="if2", connection_type_id="ct1")
+        self.table.update({"DeviceInterface": [if1, if2], "ConnectionType": [ct], "Connection": [conn]})
+        wb = self.build(Path("/tmp/test_su_conn"), structural_unit_ids=["su1"])
+        rows = self.sheet_rows(wb, "Организация подключений")[1:]
+        header = self.sheet_rows(wb, "Организация подключений")[0]
+        serial_idx = header.index("Серийный номер устройства")
+        neighbor_serial_idx = header.index("Серийный номер соседнего физического устройства, в том числе ПК пользователей")
+        self.assertEqual([r[serial_idx] for r in rows], ["SN-A"])
+        self.assertEqual(rows[0][neighbor_serial_idx], "SN-B")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from .models import (
     ISContainer, ISDepartment, ISDevice, ISIP, ISPlacementAsset, ISProtocol, ISVM,
     InformationSystem, InformationSystemSource, InterfaceIP, InterfaceType, InterfaceVLAN,
     Manufacturer, OpenPort, OperatingSystem, PhysicalDevice, PhysicalDeviceVLAN, PlacementAsset,
-    ProtocolPortCatalog, Room, SoftwareAsset, SupportMethod, SupportOrganization, VLAN,
+    ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, SupportMethod, SupportOrganization, VLAN,
     VMIP, VMSoftware, VirtualMachine,
 )
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix
@@ -70,10 +70,96 @@ def finalize_sheet(ws):
     ws.row_dimensions[1].height=72
     if ws.max_row > 1: ws.auto_filter.ref=ws.dimensions
 
-def _load_report_data(session: Session, only_is: Optional[str]) -> SimpleNamespace:
+def _expand_structural_unit_ids(structural_units: dict, selected_ids: list) -> set:
+    """Расширяет выбранные ID структурных единиц их потомками (по parent_id, тот же паттерн
+    иерархии, что и у Department) — выбор родительской единицы автоматически захватывает все
+    вложенные, без необходимости отмечать каждую по отдельности в UI."""
+    children_by_parent = defaultdict(list)
+    for u in structural_units.values():
+        if u.parent_id:
+            children_by_parent[u.parent_id].append(u.id)
+    selected = {x for x in selected_ids if x in structural_units}
+    stack = list(selected)
+    while stack:
+        uid = stack.pop()
+        for child_id in children_by_parent.get(uid, []):
+            if child_id not in selected:
+                selected.add(child_id)
+                stack.append(child_id)
+    return selected
+
+
+def _allowed_device_ids_for_structural_units(d: SimpleNamespace, structural_unit_ids: Optional[list]) -> Optional[set]:
+    """None — фильтр не активен, разрешены все устройства (текущее поведение без выбора структурных
+    единиц). Иначе — набор id физических устройств, чьё здание размещения (PhysicalDevice.building_id
+    -> Building.structural_unit_id) относится к одной из выбранных структурных единиц или их
+    потомков. Работает целиком на уже загруженных в d данных (без доп. запросов к БД) — d.devices
+    в момент вызова ещё полный (фильтрация списков применяется ПОСЛЕ, см. конец _load_report_data),
+    d.buildings/d.structural_units загружены полностью."""
+    if not structural_unit_ids:
+        return None
+    expanded = _expand_structural_unit_ids(d.structural_units, structural_unit_ids)
+    allowed_building_ids = {b.id for b in d.buildings.values() if b.structural_unit_id in expanded}
+    return {dev.id for dev in d.devices if dev.building_id in allowed_building_ids}
+
+
+def _is_source_links(obj, d: SimpleNamespace) -> tuple:
+    """Возвращает (linked_devices, linked_vms, linked_containers) для одной ИС — выбор между
+    унифицированными source-записями и legacy-связями. Вынесено из _is_row_values(), чтобы эту же
+    логику мог переиспользовать _is_related_device_ids() (фильтр листа 'Перечень ИС' по структурной
+    единице) без дублирования и риска разойтись."""
+    source_rows = d.source_by_is[obj.id]
+    if source_rows:
+        # InformationSystemSource is the current, authoritative representation once an IS has
+        # been saved through the information-system form at least once.
+        linked_devices=[]; linked_vms=[]; linked_containers=[]
+        for src in source_rows:
+            if src.source_type=='device' and src.physical_device_id in d.device_map:
+                dev=d.device_map[src.physical_device_id]
+                if dev not in linked_devices: linked_devices.append(dev)
+            elif src.source_type=='vm' and src.virtual_machine_id in d.vm_map:
+                v=d.vm_map[src.virtual_machine_id]
+                if v not in linked_vms: linked_vms.append(v)
+            elif src.source_type=='container' and src.container_id in d.container_map:
+                c=d.container_map[src.container_id]
+                if c not in linked_containers: linked_containers.append(c)
+    else:
+        # Historical data predating the unified source model (IS never re-saved through the
+        # current form) — fall back to the legacy link tables, same as the form itself does.
+        linked_devices=[d.device_map[x.physical_device_id] for x in d.device_by_is[obj.id] if x.physical_device_id in d.device_map]
+        linked_vms=[d.vm_map[x.virtual_machine_id] for x in d.vm_by_is[obj.id] if x.virtual_machine_id in d.vm_map]
+        linked_containers=[d.container_map[x.container_id] for x in d.container_by_is[obj.id] if x.container_id in d.container_map]
+    return linked_devices, linked_vms, linked_containers
+
+
+def _is_related_device_ids(obj, d: SimpleNamespace) -> set:
+    """Physical device ids, связанные с ИС напрямую или как хост её ВМ/контейнера — используется
+    для фильтрации листа 'Перечень ИС' по структурной единице: ИС попадает в отчёт, только если
+    хотя бы один из этих id входит в allowed_device_ids (см. _allowed_device_ids_for_structural_units)."""
+    linked_devices, linked_vms, linked_containers = _is_source_links(obj, d)
+    ids = {dev.id for dev in linked_devices}
+    for v in linked_vms:
+        if v.physical_device_id: ids.add(v.physical_device_id)
+    for c in linked_containers:
+        if c.physical_device_id:
+            ids.add(c.physical_device_id)
+        elif c.virtual_machine_id and c.virtual_machine_id in d.vm_map:
+            host_vm = d.vm_map[c.virtual_machine_id]
+            if host_vm.physical_device_id: ids.add(host_vm.physical_device_id)
+    return ids
+
+
+def _load_report_data(session: Session, only_is: Optional[str], structural_unit_ids: Optional[list] = None) -> SimpleNamespace:
     """Batch-load the whole registry needed to build all 4 sheets. Kept as one function (rather
     than one per sheet) because several lookups are shared across sheets (device_map, ifaces_by_device,
-    embedded_os, etc.) and loading them once avoids redundant queries."""
+    embedded_os, etc.) and loading them once avoids redundant queries.
+
+    structural_unit_ids — необязательный фильтр по структурным единицам (см.
+    _allowed_device_ids_for_structural_units): если задан, d.devices/d.vms/d.systems в конце функции
+    сужаются до записей, относящихся к выбранным единицам, а d.allowed_device_ids хранит набор
+    допустимых id устройств (или None, если фильтр не активен) для листа 'Организация подключений'
+    (см. _connection_row_values_list). d.device_map/d.vm_map/d.container_map остаются ПОЛНЫМИ
+    (не сужаются) — они нужны для корректного поиска соседних устройств/хостов независимо от фильтра."""
     d = SimpleNamespace()
     d.systems=session.scalars((select(InformationSystem).where(InformationSystem.id==only_is) if only_is else select(InformationSystem)).order_by(InformationSystem.name)).all()
     d.departments=session.scalars(select(Department)).all(); d.dep_map={x.id:x for x in d.departments}
@@ -84,6 +170,7 @@ def _load_report_data(session: Session, only_is: Optional[str]) -> SimpleNamespa
     d.models={x.id:x for x in session.scalars(select(DeviceModel)).all()}
     d.buildings={x.id:x for x in session.scalars(select(Building)).all()}
     d.rooms={x.id:x for x in session.scalars(select(Room)).all()}
+    d.structural_units={x.id:x for x in session.scalars(select(StructuralUnit)).all()}
     d.operating_systems={x.id:x for x in session.scalars(select(OperatingSystem)).all()}
     d.embedded_os={x.id:x for x in session.scalars(select(EmbeddedOperatingSystem)).all()}
     d.support_methods={x.id:x for x in session.scalars(select(SupportMethod)).all()}
@@ -125,6 +212,16 @@ def _load_report_data(session: Session, only_is: Optional[str]) -> SimpleNamespa
     for x in d.is_vms: d.vm_by_is[x.information_system_id].append(x)
     for x in d.is_containers: d.container_by_is[x.information_system_id].append(x)
     for x in d.is_sources: d.source_by_is[x.information_system_id].append(x)
+
+    # Фильтр по структурным единицам применяется В КОНЦЕ, когда все lookup-словари (device_map/
+    # vm_map/container_map/source_by_is/...) уже полностью загружены: _is_related_device_ids() и
+    # поиск соседних устройств на листе 3 должны видеть ПОЛНЫЙ реестр независимо от фильтра, сужаются
+    # только сами списки-перечисления (d.devices/d.vms/d.systems) и флаг d.allowed_device_ids.
+    d.allowed_device_ids = _allowed_device_ids_for_structural_units(d, structural_unit_ids)
+    if d.allowed_device_ids is not None:
+        d.devices = [x for x in d.devices if x.id in d.allowed_device_ids]
+        d.vms = [x for x in d.vms if x.physical_device_id in d.allowed_device_ids]
+        d.systems = [x for x in d.systems if _is_related_device_ids(x, d) & d.allowed_device_ids]
     return d
 
 
@@ -134,26 +231,7 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
     дублирования: расхождение между регламентированным отчётом и его "точной" заготовкой в
     конструкторе было бы куда хуже, чем общая функция."""
     source_rows=d.source_by_is[obj.id]
-    if source_rows:
-        # InformationSystemSource is the current, authoritative representation once an IS has
-        # been saved through the information-system form at least once.
-        linked_devices=[]; linked_vms=[]; linked_containers=[]
-        for src in source_rows:
-            if src.source_type=='device' and src.physical_device_id in d.device_map:
-                dev=d.device_map[src.physical_device_id]
-                if dev not in linked_devices: linked_devices.append(dev)
-            elif src.source_type=='vm' and src.virtual_machine_id in d.vm_map:
-                v=d.vm_map[src.virtual_machine_id]
-                if v not in linked_vms: linked_vms.append(v)
-            elif src.source_type=='container' and src.container_id in d.container_map:
-                c=d.container_map[src.container_id]
-                if c not in linked_containers: linked_containers.append(c)
-    else:
-        # Historical data predating the unified source model (IS never re-saved through the
-        # current form) — fall back to the legacy link tables, same as the form itself does.
-        linked_devices=[d.device_map[x.physical_device_id] for x in d.device_by_is[obj.id] if x.physical_device_id in d.device_map]
-        linked_vms=[d.vm_map[x.virtual_machine_id] for x in d.vm_by_is[obj.id] if x.virtual_machine_id in d.vm_map]
-        linked_containers=[d.container_map[x.container_id] for x in d.container_by_is[obj.id] if x.container_id in d.container_map]
+    linked_devices, linked_vms, linked_containers = _is_source_links(obj, d)
     equipment=[]
     for dev in linked_devices:
         equipment.append(device_label(dev))
@@ -275,8 +353,14 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
         if not sd or not dd: continue
         ct=d.connection_types.get(c.connection_type_id)
         connected_iface_ids.add(src.id); connected_iface_ids.add(dst.id)
-        pending_rows.append((sd, _conn_row(src, sd, dst, dd, c, ct)))
-        pending_rows.append((dd, _conn_row(dst, dd, src, sd, c, ct)))
+        # Каждая сторона связи попадает в отчёт независимо от другой: при активном фильтре по
+        # структурным единицам сосед вне выбранных единиц по-прежнему показывается как контекст
+        # порта устройства ИЗ единицы (см. d.allowed_device_ids), но не получает собственную строку.
+        allowed=d.allowed_device_ids
+        if allowed is None or sd.id in allowed:
+            pending_rows.append((sd, _conn_row(src, sd, dst, dd, c, ct)))
+        if allowed is None or dd.id in allowed:
+            pending_rows.append((dd, _conn_row(dst, dd, src, sd, c, ct)))
 
     for dev in d.devices:
         own_ifaces=[i for i in d.ifaces_by_device.get(dev.id,[]) if i.id not in connected_iface_ids]
@@ -324,7 +408,15 @@ def _populate_sheet4(ws4, d: SimpleNamespace) -> None:
         ws4.append(_vm_row_values(v, d))
 
 
-def build_report(session: Session, report_dir: Path, only_is: Optional[str] = None) -> Path:
+def build_report(session: Session, report_dir: Path, only_is: Optional[str] = None,
+                  structural_unit_ids: Optional[list] = None) -> Path:
+    """structural_unit_ids — необязательный список id структурных единиц (см. models.StructuralUnit):
+    если задан, все 4 листа ограничиваются оборудованием, размещённым в этих единицах (и их
+    вложенных, см. _expand_structural_unit_ids) — устройствами (лист 2), их портами/связями (лист 3,
+    сосед показывается как контекст, даже если сам вне выбранных единиц), размещёнными на них ВМ
+    (лист 4) и информационными системами, у которых есть хотя бы один такой физический источник
+    (лист 1, см. _is_related_device_ids). None или пустой список — без ограничения (все устройства),
+    как и раньше."""
     wb=Workbook()
     ws1=wb.active; ws1.title="Перечень ИС"; setup_sheet(ws1,HEADERS1)
     ws2=wb.create_sheet("Инвентаризац. физ. устройств ИС"); setup_sheet(ws2,HEADERS2)
@@ -333,7 +425,7 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
 
     # Load the registry in batches. This avoids the old N+1 pattern and guarantees that
     # information entered in the UI is represented in the report.
-    data = _load_report_data(session, only_is)
+    data = _load_report_data(session, only_is, structural_unit_ids)
 
     _populate_sheet1(ws1, data)
     _populate_sheet2(ws2, data)
