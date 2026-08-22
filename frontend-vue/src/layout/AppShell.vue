@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
+import ToastHost from '../components/ToastHost.vue'
 
 const sidebarOpen = ref(false)
 const route = useRoute()
@@ -30,6 +31,7 @@ const heading = computed(
         <router-view />
       </div>
     </div>
+    <ToastHost />
   </div>
 </template>
 

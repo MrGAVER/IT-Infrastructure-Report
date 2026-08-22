@@ -22,6 +22,7 @@ const CATALOGS = [
   'embedded-os',
   'buildings',
   'rooms',
+  'racks',
   'structural-units',
 ] as const
 type CatalogKey = (typeof CATALOGS)[number]

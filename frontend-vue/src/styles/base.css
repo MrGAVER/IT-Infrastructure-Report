@@ -87,6 +87,21 @@ svg.icon {
   cursor: not-allowed;
 }
 
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 7px;
+  color: var(--ink-muted);
+}
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
 .status {
   display: inline-flex;
   align-items: center;

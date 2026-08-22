@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
+import { deleteResource } from '../api/client'
+import { useToast } from '../composables/useToast'
+import type { Device } from '../api/types'
 import StatCard from '../components/StatCard.vue'
 import StructuralUnitTree from '../components/StructuralUnitTree.vue'
+import DeviceFormModal from '../components/DeviceFormModal.vue'
 
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
+const { notify, notifyError } = useToast()
+
+const modalDevice = ref<Device | null>(null)
+const modalOpen = ref(false)
+const deletingId = ref<string | null>(null)
 
 onMounted(async () => {
   await Promise.all([devices.ensureLoaded(), catalogs.ensureLoaded()])
@@ -39,6 +48,43 @@ function roomLabel(id: string | null) {
 
 const siemCount = () => devices.all.filter((d) => d.siem_enabled).length
 const serverTypeName = 'Сервер'
+
+function openCreate() {
+  modalDevice.value = null
+  modalOpen.value = true
+}
+function openEdit(d: Device) {
+  modalDevice.value = d
+  modalOpen.value = true
+}
+function closeModal() {
+  modalOpen.value = false
+  modalDevice.value = null
+}
+async function onSaved(_saved: Device) {
+  const wasEdit = modalDevice.value !== null
+  closeModal()
+  await devices.reload()
+  notify(wasEdit ? 'Устройство обновлено' : 'Устройство добавлено', 'success')
+}
+
+async function removeDevice(d: Device) {
+  const label = d.system_name || d.serial_number
+  if (!confirm(`Удалить устройство «${label}»?`)) return
+  deletingId.value = d.id
+  try {
+    await deleteResource('devices', d.id)
+    await devices.reload()
+    notify('Устройство удалено', 'success')
+  } catch (err) {
+    // REFERENCED_BY_OTHER_RECORDS и любые другие ошибки удаления одинаково
+    // приходят с читаемым message с бэкенда (см. delete_resource) — достаточно
+    // показать как есть, без ветвления по коду.
+    notifyError(err)
+  } finally {
+    deletingId.value = null
+  }
+}
 </script>
 
 <template>
@@ -95,6 +141,10 @@ const serverTypeName = 'Сервер'
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
+      <button class="btn btn-primary" @click="openCreate">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Добавить устройство
+      </button>
     </div>
 
     <div class="table-card card">
@@ -115,6 +165,7 @@ const serverTypeName = 'Сервер'
               <th>IP управления</th>
               <th>Здание · помещение</th>
               <th>SIEM</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -134,9 +185,19 @@ const serverTypeName = 'Сервер'
                   <span class="status-dot"></span>{{ siemLabel(d.siem_enabled) }}
                 </span>
               </td>
+              <td>
+                <div class="row-actions">
+                  <button type="button" aria-label="Редактировать" @click="openEdit(d)">
+                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  </button>
+                  <button type="button" aria-label="Удалить" :disabled="deletingId === d.id" @click="removeDevice(d)">
+                    <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                  </button>
+                </div>
+              </td>
             </tr>
             <tr v-if="!devices.filtered.length">
-              <td colspan="8" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
+              <td colspan="9" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
             </tr>
           </tbody>
         </table>
@@ -150,6 +211,8 @@ const serverTypeName = 'Сервер'
         </div>
       </div>
     </div>
+
+    <DeviceFormModal v-if="modalOpen" :device="modalDevice" @close="closeModal" @saved="onSaved" />
   </div>
 </template>
 
@@ -310,6 +373,30 @@ tbody tr:hover td {
 .type-tag {
   color: var(--ink-muted);
   font-size: 12px;
+}
+.row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.row-actions button {
+  background: none;
+  border: none;
+  padding: 5px;
+  color: var(--ink-muted);
+  border-radius: var(--r-s);
+}
+.row-actions button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.row-actions button:disabled {
+  opacity: 0.4;
+}
+.row-actions .icon {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 .empty-row {
   text-align: center;

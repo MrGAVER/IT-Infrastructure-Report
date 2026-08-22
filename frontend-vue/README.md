@@ -18,7 +18,17 @@
 - резолв FK id → отображаемое имя через общий стор справочников;
 - пагинация на клиенте (бэкенд `/api/v1/devices` отдаёт все записи разом —
   тот же подход, что и в текущем vanilla-фронтенде, см. `CACHEABLE_LIST_RESOURCES`
-  в `frontend/static/core.js`).
+  в `frontend/static/core.js`);
+- **CRUD**: добавление, редактирование и удаление устройства через модальную
+  форму (`DeviceFormModal.vue`) с каскадными списками (модель → тип
+  устройства, помещение → здание, стойка → помещение) и обработкой
+  структурированных 409-конфликтов бэкенда (`DUPLICATE_SYSTEM_NAME`,
+  `RACK_POSITION_OCCUPIED`, `REFERENCED_BY_OTHER_RECORDS`) — тот же
+  retry-with-confirm UX, что в `frontend/static/app.js:saveForm`, включая
+  `window.confirm()` вместо кастомного диалога, для консистентности с
+  остальным приложением;
+- toast-уведомления об успехе/ошибке (`useToast`/`ToastHost.vue`) — аналог
+  `notify()`/`notifyError()` из vanilla-фронтенда.
 
 Дашборд (`/dashboard`) подключён к `/api/v1/dashboard` и показывает реальные
 счётчики. Остальные разделы меню — заглушки (`PlaceholderView.vue`),
@@ -75,8 +85,10 @@ same-origin принцип, что и в проде, где собранный `
 - Остальные разделы меню (Информационные системы, Подключения, ВМ, VLAN,
   Здания и помещения, Структурные подразделения, Отчёты, Журнал аудита) —
   заглушки.
-- CRUD-операции (создание/редактирование/удаление) на экране устройств —
-  сейчас только чтение и фильтрация.
-- Интеграция сборки в `docker-compose.yml` / `infra_registry.spec` (PyInstaller)
-  и в `.github/workflows/ci.yml` — эта ветка пока не подключена к общему CI,
-  тесты гоняются локально командой `npm test` в `frontend-vue/`.
+- На экране устройств: привязка VLAN/интерфейсов/открытых портов к устройству
+  (в vanilla-версии это `saveDeviceVlans`/`saveDeviceInterfaces`/
+  `saveDeviceOpenPorts` в `app.js:saveForm`) — форма сейчас покрывает только
+  собственные поля `PhysicalDevice`.
+- Интеграция сборки в `docker-compose.yml` / `infra_registry.spec` (PyInstaller) —
+  CI (`build` + `vitest`) уже подключён (см. `.github/workflows/ci.yml`), но
+  собранный `dist/` пока никуда не разворачивается.

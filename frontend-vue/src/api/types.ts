@@ -26,6 +26,17 @@ export interface Room extends CatalogItem {
   building_id: string
 }
 
+export interface Rack extends CatalogItem {
+  room_id: string
+  height_u?: number | null
+}
+
+export interface DeviceModel extends CatalogItem {
+  manufacturer_id: string
+  device_type_id: string
+  model: string
+}
+
 export interface DeviceType extends CatalogItem {}
 export interface Manufacturer extends CatalogItem {}
 export interface OperatingSystem extends CatalogItem {
