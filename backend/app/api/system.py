@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from ..config import APP_VERSION, ENABLE_TEST_DATA_ENDPOINT, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
-from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Organization, Department, Building, Room, Rack, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN)
+from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Organization, Department, Building, Room, Rack, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN, SupportMethod)
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
@@ -211,12 +211,23 @@ def seed_test_data(session: Session = Depends(get_db)):
     switch_model = add(DeviceModel, manufacturer_id=manufacturer.id, device_type_id=switch_type.id, model="TEST-SWITCH-01")
     os_cat = add(OperatingSystemCategory, name=f"{tag} Серверная ОС")
     server_os = add(OperatingSystem, category_id=os_cat.id, name="Windows Server", version="2022", vendor="Microsoft")
-    embedded = add(EmbeddedOperatingSystem, name="TEST-NetworkOS", version="1.0", vendor=tag)
+    embedded = add(EmbeddedOperatingSystem, name=f"{tag}-NetworkOS", version="1.0", vendor=tag)
     eth = add(InterfaceType, name=f"{tag} Ethernet")
     speed = add(InterfaceSpeed, name=f"{tag} 1 Gbps")
     conn_type = add(ConnectionType, name=f"{tag} Витая пара")
-    proto = add(ProtocolPortCatalog, port=443, protocol_type="TCP/HTTPS", description="Web")
+    # 443/TCP-HTTPS — реальная запись справочника портов, а не тестовые данные конкретного
+    # прогона (в отличие от остальных сущностей здесь), поэтому не тегируем её именем/номером,
+    # а переиспользуем, если уже создана предыдущим вызовом (иначе второй вызов /seed/test
+    # падал на UNIQUE(port, protocol_type) — см. регрессионный тест test_seed_test_is_additive_and_repeatable).
+    proto = session.execute(
+        select(ProtocolPortCatalog).where(
+            ProtocolPortCatalog.port == 443, ProtocolPortCatalog.protocol_type == "TCP/HTTPS"
+        )
+    ).scalar_one_or_none()
+    if proto is None:
+        proto = add(ProtocolPortCatalog, port=443, protocol_type="TCP/HTTPS", description="Web")
     vlan = add(VLAN, vlan_id=900, name=f"{tag} TEST-MGMT", description="Тестовый VLAN")
+    support_method = add(SupportMethod, name=f"{tag} Внутренняя поддержка")
 
     # Devices and interfaces
     server = add(PhysicalDevice, device_type_id=server_type.id, manufacturer_id=manufacturer.id, model_id=server_model.id, serial_number=f"{tag}-SRV-SN", system_name=f"{tag}-SRV", operating_system_id=server_os.id, embedded_os_id=None, siem_enabled=True, building_id=building.id, room_id=room.id, rack_id=rack.id, rack_position="10U", description="Тестовый сервер")
@@ -236,7 +247,7 @@ def seed_test_data(session: Session = Depends(get_db)):
     add(SoftwareAsset, name=f"{tag} Web Server", category="Web-server", vendor="Test", version="1.0")
 
     # Information system
-    info = add(InformationSystem, number=None, name=f"{tag} Информационная система", description="Тестовая ИС для проверки интерфейса и Excel", purpose="Демонстрация связей реестра", localization="ЦОД-1", support_method="Внутренняя поддержка", process_description="Тестовый процесс функционирования", crypto_protection_enabled=False, siem_enabled=True, status="active")
+    info = add(InformationSystem, number=None, name=f"{tag} Информационная система", description="Тестовая ИС для проверки интерфейса и Excel", purpose="Демонстрация связей реестра", localization="ЦОД-1", support_method_id=support_method.id, process_description="Тестовый процесс функционирования", crypto_protection_enabled=False, siem_enabled=True, status="active")
     add(ISDepartment, information_system_id=info.id, department_id=dept.id)
     add(ISIP, information_system_id=info.id, ip_address="10.255.90.20", purpose="Взаимодействие с приложением", protocol="HTTPS", external_interaction=False, virtual_machine_id=vm.id)
     add(ISProtocol, information_system_id=info.id, protocol="TCP/HTTPS", port=443, protocol_catalog_id=proto.id, description="Web-доступ")
