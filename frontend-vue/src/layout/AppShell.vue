@@ -14,6 +14,7 @@ const titles: Record<string, { title: string; crumb: string }> = {
   devices: { title: 'Инвентаризация физических устройств', crumb: 'Инвентаризация › Физические устройства' },
   connections: { title: 'Подключения', crumb: 'Лист 3 · Подключения' },
   vms: { title: 'Виртуальные машины', crumb: 'Лист 4 · Виртуальные машины' },
+  reports: { title: 'Отчёты', crumb: 'Система · Отчёты' },
   settings: { title: 'Настройки', crumb: 'Система › Настройки' },
 }
 const heading = computed(

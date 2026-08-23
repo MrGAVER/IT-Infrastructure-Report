@@ -48,8 +48,7 @@ const routes = [
   {
     path: '/reports',
     name: 'reports',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'Отчёты' },
+    component: () => import('../views/ReportsView.vue'),
   },
   {
     path: '/audit-log',
