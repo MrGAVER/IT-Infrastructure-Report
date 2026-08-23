@@ -71,6 +71,39 @@ def test_resources_list_excludes_audit_log(client):
     assert "information-systems" in keys
 
 
+class TestInformationSystemNameUniqueness:
+    """Регрессия: information_systems.name объявлено unique=True в модели, но миграция
+    d3f9a1c6b750 (batch_alter_table на SQLite, добавление support_method_id) молча
+    потеряла безымянный UniqueConstraint при пересборке таблицы — тот же класс
+    проблемы, что уже был пойман и исправлен для physical_devices.system_name в
+    c4e8a7d91b20, но не был замечен здесь, т.к. ни один тест этого не проверял.
+    См. alembic/versions/f4a29c7e1d60_restore_information_system_name_uniqueness.py.
+
+    ВАЖНО: этот тест проверяет только бизнес-правило через ORM-модель (см.
+    tests/conftest.py: Base.metadata.create_all(), который строит схему из текущих
+    определений моделей, а не через реальную цепочку alembic-миграций) — он не мог
+    бы поймать саму историческую поломку миграции, только её отсутствие в модели.
+    Проверка того, что реальная цепочка миграций восстанавливает constraint (включая
+    сценарий с уже существующими дубликатами на старой БД), сделана вручную отдельно
+    от pytest-набора."""
+
+    def test_duplicate_name_rejected(self, client):
+        first = client.post("/api/v1/resources/information-systems", json={"name": "ИС Уникальная"})
+        assert first.status_code == 201
+
+        second = client.post("/api/v1/resources/information-systems", json={"name": "ИС Уникальная"})
+        assert second.status_code == 409
+
+    def test_editing_to_a_taken_name_is_also_rejected(self, client):
+        a = client.post("/api/v1/resources/information-systems", json={"name": "ИС А"}).json()
+        client.post("/api/v1/resources/information-systems", json={"name": "ИС Б"})
+
+        r = client.put(f"/api/v1/resources/information-systems/{a['id']}", json={"name": "ИС Б"})
+        assert r.status_code == 409
+
+
+
+
 class TestCrudBasics:
     def test_create_get_update_delete_manufacturer(self, client):
         r = client.post("/api/v1/resources/manufacturers", json={"name": "Тест-Производитель"})
