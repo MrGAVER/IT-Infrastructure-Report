@@ -88,3 +88,24 @@ export interface DashboardCounts {
   vlan: number
   software: number
 }
+
+/** GET /api/v1/information-systems — плоский массив (в отличие от /devices, у которого
+ * {items,total}, и /resources/{r}, у которого {items,total,offset,limit} — см. README). */
+export interface InformationSystem {
+  id: string
+  number: number | null
+  name: string
+  type: string
+  description: string | null
+  purpose: string | null
+  localization: string | null
+  support_organization_id: string | null
+  support_method_id: string | null
+  process_description: string | null
+  siem_enabled: boolean
+  crypto_protection_enabled: boolean
+  crypto_protection_description_id: string | null
+  status: string
+  created_at?: string
+  updated_at?: string
+}

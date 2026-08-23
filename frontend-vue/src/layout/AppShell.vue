@@ -10,6 +10,7 @@ const route = useRoute()
 
 const titles: Record<string, { title: string; crumb: string }> = {
   dashboard: { title: 'Дашборд', crumb: 'Обзор' },
+  'information-systems': { title: 'Информационные системы', crumb: 'Лист 1 · Информационные системы' },
   devices: { title: 'Инвентаризация физических устройств', crumb: 'Инвентаризация › Физические устройства' },
   settings: { title: 'Настройки', crumb: 'Система › Настройки' },
 }

@@ -10,8 +10,7 @@ const routes = [
   {
     path: '/information-systems',
     name: 'information-systems',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'Информационные системы', sheet: 'Лист 1' },
+    component: () => import('../views/InformationSystemsView.vue'),
   },
   {
     path: '/devices',

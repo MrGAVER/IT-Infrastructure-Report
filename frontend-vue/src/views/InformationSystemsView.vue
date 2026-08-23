@@ -1,0 +1,351 @@
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue'
+import { useInformationSystemsStore } from '../stores/informationSystems'
+import { useCatalogsStore } from '../stores/catalogs'
+import { deleteResource } from '../api/client'
+import { useToast } from '../composables/useToast'
+import type { InformationSystem } from '../api/types'
+import StatCard from '../components/StatCard.vue'
+import InformationSystemFormModal from '../components/InformationSystemFormModal.vue'
+
+const systems = useInformationSystemsStore()
+const catalogs = useCatalogsStore()
+const { notify, notifyError } = useToast()
+
+const modalSystem = ref<InformationSystem | null>(null)
+const modalOpen = ref(false)
+const deletingId = ref<string | null>(null)
+
+onMounted(async () => {
+  await Promise.all([systems.ensureLoaded(), catalogs.ensureLoaded()])
+})
+
+watch(
+  () => [systems.search, systems.siemFilter],
+  () => systems.resetPageOnFilterChange(),
+)
+
+function openCreate() {
+  modalSystem.value = null
+  modalOpen.value = true
+}
+function openEdit(s: InformationSystem) {
+  modalSystem.value = s
+  modalOpen.value = true
+}
+function closeModal() {
+  modalOpen.value = false
+  modalSystem.value = null
+}
+async function onSaved() {
+  const wasEdit = modalSystem.value !== null
+  closeModal()
+  await systems.reload()
+  notify(wasEdit ? 'Информационная система обновлена' : 'Информационная система добавлена', 'success')
+}
+
+async function removeSystem(s: InformationSystem) {
+  if (!confirm(`Удалить информационную систему «${s.name}»?`)) return
+  deletingId.value = s.id
+  try {
+    await deleteResource('information-systems', s.id)
+    await systems.reload()
+    notify('Информационная система удалена', 'success')
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    deletingId.value = null
+  }
+}
+
+const siemCount = () => systems.all.filter((s) => s.siem_enabled).length
+const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled).length
+</script>
+
+<template>
+  <div class="is-view">
+    <div class="stat-row">
+      <StatCard :value="systems.all.length" label="Всего информационных систем" />
+      <StatCard :value="siemCount()" label="С покрытием SIEM" />
+      <StatCard :value="cryptoCount()" label="С применением СКЗИ" />
+      <StatCard :value="systems.all.length - siemCount()" label="Без покрытия SIEM" tone="warn" />
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-box">
+        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+        <input v-model="systems.search" type="text" placeholder="Поиск по наименованию, описанию, назначению…" />
+      </div>
+      <div class="chip-group">
+        <button :class="{ on: systems.siemFilter === 'all' }" @click="systems.siemFilter = 'all'">SIEM: все</button>
+        <button :class="{ on: systems.siemFilter === 'yes' }" @click="systems.siemFilter = 'yes'">Да</button>
+        <button :class="{ on: systems.siemFilter === 'no' }" @click="systems.siemFilter = 'no'">Нет</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-secondary" :disabled="systems.loading" @click="systems.reload()">
+        <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
+        Обновить
+      </button>
+      <button class="btn btn-primary" @click="openCreate">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Добавить ИС
+      </button>
+    </div>
+
+    <div class="table-card card">
+      <div v-if="systems.error" class="error-banner">
+        <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+        {{ systems.error }}
+      </div>
+      <div v-else-if="systems.loading && !systems.loaded" class="loading-banner">Загрузка реестра информационных систем…</div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Наименование</th>
+              <th>Назначение</th>
+              <th>Организация техподдержки</th>
+              <th>SIEM</th>
+              <th>СКЗИ</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in systems.pageItems" :key="s.id">
+              <td>
+                <span class="isname">{{ s.name }}</span>
+                <span v-if="s.description" class="isdesc">{{ s.description }}</span>
+              </td>
+              <td class="purpose-cell">{{ s.purpose || '—' }}</td>
+              <td>{{ catalogs.label('support-organizations', s.support_organization_id) }}</td>
+              <td>
+                <span class="status" :class="s.siem_enabled ? 'on' : 'off'">
+                  <span class="status-dot"></span>{{ s.siem_enabled ? 'Да' : 'Нет' }}
+                </span>
+              </td>
+              <td>
+                <span class="status" :class="s.crypto_protection_enabled ? 'on' : 'off'">
+                  <span class="status-dot"></span>{{ s.crypto_protection_enabled ? 'Да' : 'Нет' }}
+                </span>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button type="button" aria-label="Редактировать" @click="openEdit(s)">
+                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  </button>
+                  <button type="button" aria-label="Удалить" :disabled="deletingId === s.id" @click="removeSystem(s)">
+                    <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="!systems.filtered.length">
+              <td colspan="6" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-foot">
+        <span>Показано {{ systems.pageItems.length ? (systems.page - 1) * 8 + 1 : 0 }}–{{ (systems.page - 1) * 8 + systems.pageItems.length }} из {{ systems.filtered.length }}</span>
+        <div class="pager">
+          <button :disabled="systems.page <= 1" @click="systems.setPage(systems.page - 1)">‹</button>
+          <button v-for="p in systems.pageCount" :key="p" :class="{ on: p === systems.page }" @click="systems.setPage(p)">{{ p }}</button>
+          <button :disabled="systems.page >= systems.pageCount" @click="systems.setPage(systems.page + 1)">›</button>
+        </div>
+      </div>
+    </div>
+
+    <InformationSystemFormModal v-if="modalOpen" :system="modalSystem" @close="closeModal" @saved="onSaved" />
+  </div>
+</template>
+
+<style scoped>
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 7px 10px;
+  min-width: 260px;
+  flex: 1;
+  max-width: 420px;
+}
+.search-box .icon {
+  color: var(--ink-muted);
+}
+.search-box input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--ink);
+  font-size: 12.5px;
+  width: 100%;
+}
+.chip-group {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  overflow: hidden;
+}
+.chip-group button {
+  border: none;
+  background: var(--surface);
+  padding: 7px 11px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+  border-right: 1px solid var(--border);
+}
+.chip-group button:last-child {
+  border-right: none;
+}
+.chip-group button.on {
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 700;
+}
+.spacer {
+  flex: 1;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 820px;
+}
+thead th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  vertical-align: top;
+}
+tbody tr:last-child td {
+  border-bottom: none;
+}
+tbody tr:hover td {
+  background: var(--surface-2);
+}
+.isname {
+  font-weight: 600;
+  display: block;
+}
+.isdesc {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 11.3px;
+  margin-top: 2px;
+  max-width: 320px;
+}
+.purpose-cell {
+  color: var(--ink-muted);
+  max-width: 260px;
+}
+.empty-row {
+  text-align: center;
+  color: var(--ink-muted);
+  padding: 26px 14px;
+}
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+  color: var(--status-crit);
+  font-size: 13px;
+}
+.loading-banner {
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.row-actions button {
+  background: none;
+  border: none;
+  padding: 5px;
+  color: var(--ink-muted);
+  border-radius: var(--r-s);
+}
+.row-actions button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.row-actions button:disabled {
+  opacity: 0.4;
+}
+.row-actions .icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pager {
+  display: flex;
+  gap: 4px;
+}
+.pager button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--r-s);
+  width: 26px;
+  height: 26px;
+  color: var(--ink-muted);
+}
+.pager button.on {
+  background: var(--brand);
+  color: #05161c;
+  border-color: var(--brand);
+}
+.pager button:disabled {
+  opacity: 0.4;
+}
+
+@media (max-width: 980px) {
+  .stat-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>

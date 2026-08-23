@@ -94,3 +94,30 @@ export const devicesFixture: DevicesResponse = {
     }),
   ],
 }
+
+function informationSystem(overrides: Partial<import('../../api/types').InformationSystem>) {
+  return {
+    id: 'id-' + Math.random().toString(36).slice(2),
+    number: null,
+    name: 'ИС',
+    type: 'ИС',
+    description: null,
+    purpose: null,
+    localization: null,
+    support_organization_id: null,
+    support_method_id: null,
+    process_description: null,
+    siem_enabled: false,
+    crypto_protection_enabled: false,
+    crypto_protection_description_id: null,
+    status: 'active',
+    ...overrides,
+  }
+}
+
+export const informationSystemsFixture: import('../../api/types').InformationSystem[] = [
+  informationSystem({ id: 'is-1', name: 'Бухгалтерская система', purpose: 'Учёт', siem_enabled: true }),
+  informationSystem({ id: 'is-2', name: 'CRM продаж', purpose: 'Работа с клиентами', siem_enabled: false }),
+  informationSystem({ id: 'is-3', name: 'Портал СКЗИ', description: 'Криптозащита', crypto_protection_enabled: true, siem_enabled: true }),
+]
+
