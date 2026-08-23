@@ -27,6 +27,8 @@ const CATALOGS = [
   'support-organizations',
   'support-methods',
   'crypto-protection-means',
+  'interfaces',
+  'connection-types',
 ] as const
 type CatalogKey = (typeof CATALOGS)[number]
 

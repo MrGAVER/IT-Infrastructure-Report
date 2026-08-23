@@ -12,6 +12,7 @@ const titles: Record<string, { title: string; crumb: string }> = {
   dashboard: { title: 'Дашборд', crumb: 'Обзор' },
   'information-systems': { title: 'Информационные системы', crumb: 'Лист 1 · Информационные системы' },
   devices: { title: 'Инвентаризация физических устройств', crumb: 'Инвентаризация › Физические устройства' },
+  connections: { title: 'Подключения', crumb: 'Лист 3 · Подключения' },
   vms: { title: 'Виртуальные машины', crumb: 'Лист 4 · Виртуальные машины' },
   settings: { title: 'Настройки', crumb: 'Система › Настройки' },
 }

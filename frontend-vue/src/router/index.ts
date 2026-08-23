@@ -20,8 +20,7 @@ const routes = [
   {
     path: '/connections',
     name: 'connections',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'Подключения', sheet: 'Лист 3' },
+    component: () => import('../views/ConnectionsView.vue'),
   },
   {
     path: '/vms',

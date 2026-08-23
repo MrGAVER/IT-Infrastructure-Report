@@ -37,6 +37,34 @@ export interface DeviceModel extends CatalogItem {
   model: string
 }
 
+export interface DeviceInterface extends CatalogItem {
+  physical_device_id: string
+  interface_type_id: string | null
+  mac_address: string | null
+  speed_id: string | null
+  is_management: boolean
+  is_data_transfer: boolean
+  description: string | null
+}
+
+/** GET /resources/connections — идёт через общий {items,total,offset,limit}, но
+ * enrich_connections() (см. backend/app/services/serialization.py) добавляет уже
+ * резолвленные поля *_name — для таблицы их достаточно, без клиентских джойнов. */
+export interface Connection {
+  id: string
+  source_interface_id: string
+  destination_interface_id: string
+  connection_type_id: string
+  purpose: string | null
+  is_active: boolean
+  description: string | null
+  source_device_name: string
+  source_interface_name: string
+  destination_device_name: string
+  destination_interface_name: string
+  connection_type_name: string
+}
+
 export interface DeviceType extends CatalogItem {}
 export interface Manufacturer extends CatalogItem {}
 export interface OperatingSystem extends CatalogItem {
