@@ -26,8 +26,7 @@ const routes = [
   {
     path: '/vms',
     name: 'vms',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'Виртуальные машины', sheet: 'Лист 4' },
+    component: () => import('../views/VMsView.vue'),
   },
   {
     path: '/vlans',

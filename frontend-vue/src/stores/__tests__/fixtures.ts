@@ -121,3 +121,17 @@ export const informationSystemsFixture: import('../../api/types').InformationSys
   informationSystem({ id: 'is-3', name: 'Портал СКЗИ', description: 'Криптозащита', crypto_protection_enabled: true, siem_enabled: true }),
 ]
 
+export const vmsFixture: import('../../api/types').VMsResponse = {
+  total: 2,
+  items: [
+    {
+      id: 'vm-1', name: 'VM-DB-01', operating_system_id: null, physical_device_id: 'dev-1',
+      hypervisor_os_id: null, purpose: 'База данных', status: 'active', description: null,
+    },
+    {
+      id: 'vm-2', name: 'VM-APP-02', operating_system_id: null, physical_device_id: null,
+      hypervisor_os_id: null, purpose: 'Приложение', status: 'active', description: null,
+    },
+  ],
+}
+

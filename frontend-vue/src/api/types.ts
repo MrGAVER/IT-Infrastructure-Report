@@ -89,6 +89,26 @@ export interface DashboardCounts {
   software: number
 }
 
+/** GET /api/v1/vms — {items,total}, как /devices (не {items,total,offset,limit} и не
+ * плоский массив как /information-systems) — третий вариант формы ответа в этом API. */
+export interface VirtualMachine {
+  id: string
+  name: string
+  operating_system_id: string | null
+  physical_device_id: string | null
+  hypervisor_os_id: string | null
+  purpose: string | null
+  status: string
+  description: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface VMsResponse {
+  items: VirtualMachine[]
+  total: number
+}
+
 /** GET /api/v1/information-systems — плоский массив (в отличие от /devices, у которого
  * {items,total}, и /resources/{r}, у которого {items,total,offset,limit} — см. README). */
 export interface InformationSystem {
