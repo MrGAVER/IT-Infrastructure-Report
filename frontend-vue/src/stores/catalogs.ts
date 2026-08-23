@@ -4,8 +4,8 @@
 // lookupLabel() в текущем vanilla-фронтенде (frontend/static/core.js), но с типами
 // и явным состоянием загрузки вместо ad-hoc Map-кеша поверх fetch().
 import { defineStore } from 'pinia'
-import { listResource } from '../api/client'
-import type { CatalogItem, StructuralUnit } from '../api/types'
+import { listResource, api } from '../api/client'
+import type { CatalogItem, StructuralUnit, ResourceDescriptor } from '../api/types'
 
 /** Узел дерева структурных единиц — рекурсивно типизированный (см. StructuralUnitTree.vue). */
 export interface StructuralUnitNode extends StructuralUnit {
@@ -35,11 +35,16 @@ type CatalogKey = (typeof CATALOGS)[number]
 export const useCatalogsStore = defineStore('catalogs', {
   state: () => ({
     items: {} as Record<CatalogKey, CatalogItem[]>,
+    resourceNames: {} as Record<string, string>,
     loaded: false,
     loading: false,
     error: null as string | null,
   }),
   getters: {
+    /** Человекочитаемое имя ресурса (DISPLAY_NAMES на бэкенде) — для entity_type в
+     * журнале аудита. Не хардкодим словарь во фронтенде — грузим с /api/v1/resources,
+     * чтобы не расходиться с бэкендом при добавлении новых ресурсов. */
+    resourceLabel: (state) => (key: string): string => state.resourceNames[key] ?? key,
     /** Быстрый лукап id → запись для конкретного каталога. */
     indexOf: (state) => {
       const cache = new Map<CatalogKey, Map<string, CatalogItem>>()
@@ -78,12 +83,14 @@ export const useCatalogsStore = defineStore('catalogs', {
         // limit=1000: справочники (типы устройств, здания и т.п.) обычно небольшие
         // и должны загружаться целиком за один запрос — тот же лимит, что кеш
         // CACHEABLE_LIST_RESOURCES в текущем vanilla-фронтенде (core.js).
-        const results = await Promise.all(
-          CATALOGS.map((key) => listResource<CatalogItem>(key, { limit: 1000 })),
-        )
+        const [results, resources] = await Promise.all([
+          Promise.all(CATALOGS.map((key) => listResource<CatalogItem>(key, { limit: 1000 }))),
+          api.get<ResourceDescriptor[]>('/resources'),
+        ])
         CATALOGS.forEach((key, i) => {
           this.items[key] = results[i].items
         })
+        this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
         this.loaded = true
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить справочники'

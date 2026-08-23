@@ -9,6 +9,7 @@ function stubApi() {
     'fetch',
     vi.fn(async (url: string) => {
       if (url.includes('/devices')) return new Response(JSON.stringify(devicesFixture))
+      if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
       if (url.includes('/resources/structural-units')) return new Response(JSON.stringify(structuralUnitsFixture))
       if (url.includes('/resources/buildings')) return new Response(JSON.stringify(buildingsFixture))
       if (url.includes('/resources/device-types')) return new Response(JSON.stringify(deviceTypesFixture))

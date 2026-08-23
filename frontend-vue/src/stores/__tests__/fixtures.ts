@@ -166,3 +166,14 @@ export const connectionsFixture: import('../../api/client').PagedResponse<import
   limit: 1000,
 }
 
+export const auditLogFixture: import('../../api/client').PagedResponse<import('../../api/types').AuditLogEntry> = {
+  items: [
+    { id: 'a-1', entity_type: 'devices', entity_id: 'dev-1', action: 'CREATE', details: 'Создание записи', created_at: '2026-08-20T10:00:00Z' },
+    { id: 'a-2', entity_type: 'devices', entity_id: 'dev-1', action: 'UPDATE', details: 'Изменено описание', created_at: '2026-08-21T11:00:00Z' },
+    { id: 'a-3', entity_type: 'information-systems', entity_id: 'is-1', action: 'DELETE', details: null, created_at: '2026-08-22T12:00:00Z' },
+  ],
+  total: 3,
+  offset: 0,
+  limit: 1000,
+}
+

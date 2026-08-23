@@ -10,6 +10,7 @@ function stubCatalogsFetch() {
     'fetch',
     vi.fn(async (url: string) => {
       if (url.includes('/resources/device-types')) return new Response(JSON.stringify(deviceTypesFixture))
+      if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
       return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
     }),
   )

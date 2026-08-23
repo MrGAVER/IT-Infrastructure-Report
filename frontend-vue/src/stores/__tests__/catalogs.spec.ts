@@ -10,6 +10,13 @@ function mockFetchFor() {
     'device-types': deviceTypesFixture,
   }
   return vi.fn(async (url: string) => {
+    // /api/v1/resources (без ключа ресурса после) — отдельный эндпоинт, список
+    // ВСЕХ ресурсов с человекочитаемым именем (см. stores/catalogs.ts:
+    // resourceNames), форма ответа — голый массив, а не {items,total,...}.
+    // Не должен попадать под /resources/{key} ниже.
+    if (/\/resources$/.test(url)) {
+      return new Response(JSON.stringify([{ key: 'devices', name: 'Физические устройства' }]))
+    }
     const match = url.match(/\/resources\/([a-z-]+)/)
     const key = match?.[1] ?? ''
     const body = byResource[key] ?? { items: [], total: 0, offset: 0, limit: 1000 }
@@ -67,5 +74,15 @@ describe('useCatalogsStore', () => {
     const callsAfterFirst = fetchMock.mock.calls.length
     await store.ensureLoaded()
     expect(fetchMock.mock.calls.length).toBe(callsAfterFirst)
+  })
+
+  it('резолвит человекочитаемое имя ресурса для журнала аудита через /api/v1/resources', async () => {
+    vi.stubGlobal('fetch', mockFetchFor())
+    const store = useCatalogsStore()
+    await store.ensureLoaded()
+
+    expect(store.resourceLabel('devices')).toBe('Физические устройства')
+    // Неизвестный ключ — просто возвращаем сам ключ как fallback, не падаем.
+    expect(store.resourceLabel('unknown-resource')).toBe('unknown-resource')
   })
 })

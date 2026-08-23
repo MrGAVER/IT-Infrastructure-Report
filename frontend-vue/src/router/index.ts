@@ -53,8 +53,7 @@ const routes = [
   {
     path: '/audit-log',
     name: 'audit-log',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'Журнал аудита' },
+    component: () => import('../views/AuditLogView.vue'),
   },
   {
     path: '/settings',

@@ -137,6 +137,26 @@ export interface VMsResponse {
   total: number
 }
 
+/** GET /resources/audit-log — общий {items,total,offset,limit}, как большинство
+ * ресурсов. Приложение пока без auth (см. README проекта), поэтому "кто сделал" в
+ * записи нет — только что/когда/как. */
+export interface AuditLogEntry {
+  id: string
+  entity_type: string
+  entity_id: string
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SYNC' | string
+  details: string | null
+  created_at: string
+}
+
+/** GET /api/v1/resources — список всех CRUD-ресурсов с человекочитаемым именем
+ * (DISPLAY_NAMES на бэкенде) — используется для резолва entity_type в аудите вместо
+ * дублирования того же словаря вручную во фронтенде (см. backend/app/api/resources.py). */
+export interface ResourceDescriptor {
+  key: string
+  name: string
+}
+
 /** GET /api/v1/information-systems — плоский массив (в отличие от /devices, у которого
  * {items,total}, и /resources/{r}, у которого {items,total,offset,limit} — см. README). */
 export interface InformationSystem {
