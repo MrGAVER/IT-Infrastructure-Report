@@ -177,3 +177,24 @@ export const auditLogFixture: import('../../api/client').PagedResponse<import('.
   limit: 1000,
 }
 
+export const vlanDashboardFixture: import('../../api/types').VLANDashboardResponse = {
+  items: [
+    {
+      vlan_id: 10,
+      definitions: [
+        {
+          id: 'vlan-1', vlan_id: 10, name: 'Данные', description: '', domain_id: null, domain_name: 'Локальный VLAN',
+          devices: [{ device_id: 'dev-1', device_name: 'sw-core-01', ip_address: '10.10.10.1', is_management: true }],
+        },
+      ],
+    },
+    {
+      vlan_id: 20,
+      definitions: [
+        { id: 'vlan-2', vlan_id: 20, name: 'Гости', description: '', domain_id: 'dom-1', domain_name: 'Домен А', devices: [] },
+        { id: 'vlan-3', vlan_id: 20, name: 'Гостевой сегмент', description: '', domain_id: 'dom-2', domain_name: 'Домен Б', devices: [] },
+      ],
+    },
+  ],
+}
+

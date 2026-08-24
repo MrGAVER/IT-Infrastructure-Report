@@ -137,6 +137,32 @@ export interface VMsResponse {
   total: number
 }
 
+/** GET /api/v1/vlan-dashboard — сгруппировано по vlan_id, т.к. один и тот же VLAN ID
+ * может иметь разные определения в разных доменах (см. backend/app/api/system.py:
+ * vlan_dashboard). Формат ответа специфичный, четвёртый вариант в этом API. */
+export interface VLANDeviceAssignment {
+  device_id: string
+  device_name: string
+  ip_address: string | null
+  is_management: boolean
+}
+export interface VLANDefinition {
+  id: string
+  vlan_id: number
+  name: string
+  description: string
+  domain_id: string | null
+  domain_name: string
+  devices: VLANDeviceAssignment[]
+}
+export interface VLANDashboardGroup {
+  vlan_id: number
+  definitions: VLANDefinition[]
+}
+export interface VLANDashboardResponse {
+  items: VLANDashboardGroup[]
+}
+
 /** GET /resources/audit-log — общий {items,total,offset,limit}, как большинство
  * ресурсов. Приложение пока без auth (см. README проекта), поэтому "кто сделал" в
  * записи нет — только что/когда/как. */

@@ -13,6 +13,7 @@ const titles: Record<string, { title: string; crumb: string }> = {
   'information-systems': { title: 'Информационные системы', crumb: 'Лист 1 · Информационные системы' },
   devices: { title: 'Инвентаризация физических устройств', crumb: 'Инвентаризация › Физические устройства' },
   connections: { title: 'Подключения', crumb: 'Лист 3 · Подключения' },
+  vlans: { title: 'VLAN', crumb: 'Справочники · VLAN' },
   vms: { title: 'Виртуальные машины', crumb: 'Лист 4 · Виртуальные машины' },
   reports: { title: 'Отчёты', crumb: 'Система · Отчёты' },
   'audit-log': { title: 'Журнал аудита', crumb: 'Система · Журнал аудита' },

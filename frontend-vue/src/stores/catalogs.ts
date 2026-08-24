@@ -29,6 +29,7 @@ const CATALOGS = [
   'crypto-protection-means',
   'interfaces',
   'connection-types',
+  'vlan-domains',
 ] as const
 type CatalogKey = (typeof CATALOGS)[number]
 

@@ -30,8 +30,7 @@ const routes = [
   {
     path: '/vlans',
     name: 'vlans',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'VLAN' },
+    component: () => import('../views/VLANsView.vue'),
   },
   {
     path: '/buildings',
