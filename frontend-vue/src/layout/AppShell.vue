@@ -14,6 +14,8 @@ const titles: Record<string, { title: string; crumb: string }> = {
   devices: { title: 'Инвентаризация физических устройств', crumb: 'Инвентаризация › Физические устройства' },
   connections: { title: 'Подключения', crumb: 'Лист 3 · Подключения' },
   vlans: { title: 'VLAN', crumb: 'Справочники · VLAN' },
+  buildings: { title: 'Здания и помещения', crumb: 'Справочники · Здания и помещения' },
+  'structural-units': { title: 'Структурные подразделения', crumb: 'Справочники · Структурные подразделения' },
   vms: { title: 'Виртуальные машины', crumb: 'Лист 4 · Виртуальные машины' },
   reports: { title: 'Отчёты', crumb: 'Система · Отчёты' },
   'audit-log': { title: 'Журнал аудита', crumb: 'Система · Журнал аудита' },

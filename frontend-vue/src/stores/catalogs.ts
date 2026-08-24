@@ -78,6 +78,9 @@ export const useCatalogsStore = defineStore('catalogs', {
   actions: {
     async ensureLoaded() {
       if (this.loaded || this.loading) return
+      await this.reload()
+    },
+    async reload() {
       this.loading = true
       this.error = null
       try {

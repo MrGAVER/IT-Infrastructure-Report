@@ -35,14 +35,12 @@ const routes = [
   {
     path: '/buildings',
     name: 'buildings',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'Здания и помещения' },
+    component: () => import('../views/BuildingsView.vue'),
   },
   {
     path: '/structural-units',
     name: 'structural-units',
-    component: () => import('../views/PlaceholderView.vue'),
-    props: { title: 'Структурные подразделения' },
+    component: () => import('../views/StructuralUnitsView.vue'),
   },
   {
     path: '/reports',
