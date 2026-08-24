@@ -8,10 +8,12 @@
 // типы с 422) — фильтрация здесь не замена серверной проверке, а просто не даёт
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch } from 'vue'
-import { createResource, updateResource } from '../api/client'
-import type { VirtualMachine, Device } from '../api/types'
+import { createResource, deleteResource, listResource, updateResource } from '../api/client'
+import type { VirtualMachine, Device, VMIP, OpenPort, VmIpDraftRow, OpenPortDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
+import VmIpListEditor from './VmIpListEditor.vue'
+import OpenPortListEditor from './OpenPortListEditor.vue'
 
 const props = defineProps<{ vm: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
@@ -33,16 +35,60 @@ function emptyForm() {
 }
 const form = reactive(emptyForm())
 
+// Staged локально до сохранения самой ВМ — так же, как vmIpRows/vmOpenPortRows
+// в vanilla-версии (frontend/static/vm-editors.js): для НОВОЙ ВМ строки можно
+// заполнить сразу в той же форме, ещё до того, как у записи появится id, а
+// реально отправить на сервер только после того, как известен id (см. submit()).
+const vmIps = ref<VmIpDraftRow[]>([])
+const openPorts = ref<OpenPortDraftRow[]>([])
+const loadingNested = ref(false)
+
+function toIpDraftRow(x: VMIP): VmIpDraftRow {
+  return {
+    id: x.id,
+    ip_address: x.ip_address,
+    prefix_length: x.prefix_length == null ? '' : String(x.prefix_length),
+    purpose: x.purpose ?? '',
+    is_management: x.is_management,
+  }
+}
+
+function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
+  return {
+    id: x.id,
+    protocol_catalog_id: x.protocol_catalog_id ?? '',
+    port: String(x.port),
+    protocol: x.protocol ?? '',
+    transport_protocol: x.transport_protocol,
+    description: x.description ?? '',
+  }
+}
+
 watch(
   () => props.vm,
-  (vm) => {
+  async (vm) => {
     Object.assign(form, emptyForm())
-    if (vm) {
-      form.name = vm.name
-      form.operating_system_id = vm.operating_system_id ?? ''
-      form.physical_device_id = vm.physical_device_id ?? ''
-      form.purpose = vm.purpose ?? ''
-      form.description = vm.description ?? ''
+    vmIps.value = []
+    openPorts.value = []
+    if (!vm) return
+    form.name = vm.name
+    form.operating_system_id = vm.operating_system_id ?? ''
+    form.physical_device_id = vm.physical_device_id ?? ''
+    form.purpose = vm.purpose ?? ''
+    form.description = vm.description ?? ''
+
+    loadingNested.value = true
+    try {
+      const [ips, ports] = await Promise.all([
+        listResource<VMIP>('vm-ips', { virtual_machine_id: vm.id, limit: 1000 }),
+        listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: vm.id, limit: 1000 }),
+      ])
+      vmIps.value = ips.items.map(toIpDraftRow)
+      openPorts.value = ports.items.map(toOpenPortDraftRow)
+    } catch (err) {
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить IP-адреса и открытые порты ВМ'
+    } finally {
+      loadingNested.value = false
     }
   },
   { immediate: true },
@@ -71,6 +117,50 @@ function toPayload() {
   return payload
 }
 
+// Delete-затем-recreate, а не диффинг по id — ровно тот же подход, что
+// saveVMIPs()/saveVMOpenPorts() в vanilla-версии (frontend/static/vm-editors.js).
+// Списки маленькие (единицы-десятки строк на ВМ), поэтому цена лишних
+// запросов пренебрежимо мала по сравнению с простотой кода без diff-логики.
+async function persistVmIps(vmId: string) {
+  const existing = await listResource<VMIP>('vm-ips', { virtual_machine_id: vmId, limit: 1000 })
+  for (const old of existing.items) {
+    await deleteResource('vm-ips', old.id)
+  }
+  for (const row of vmIps.value) {
+    if (!row.ip_address.trim()) continue
+    await createResource<VMIP>('vm-ips', {
+      virtual_machine_id: vmId,
+      ip_address: row.ip_address.trim(),
+      prefix_length: row.prefix_length === '' ? null : Number(row.prefix_length),
+      purpose: row.purpose || null,
+      is_management: row.is_management,
+    })
+  }
+}
+
+async function persistOpenPorts(vmId: string) {
+  const existing = await listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: vmId, limit: 1000 })
+  for (const old of existing.items) {
+    await deleteResource('open-ports', old.id)
+  }
+  for (const row of openPorts.value) {
+    // port — NOT NULL на бэкенде (backend/app/models.py:OpenPort), в отличие от
+    // vanilla-версии здесь не отправляем строку без порта, даже если выбрана
+    // запись справочника: иначе сервер ответит 409 (нарушение целостности)
+    // вместо понятной валидационной ошибки.
+    if (!row.port.trim()) continue
+    await createResource<OpenPort>('open-ports', {
+      owner_type: 'virtual_machine',
+      owner_id: vmId,
+      protocol_catalog_id: row.protocol_catalog_id || null,
+      port: Number(row.port),
+      protocol: row.protocol || null,
+      transport_protocol: row.transport_protocol || 'TCP',
+      description: row.description || null,
+    })
+  }
+}
+
 async function submit() {
   errorMessage.value = null
   if (!form.name.trim()) {
@@ -83,6 +173,8 @@ async function submit() {
     const saved = isEdit.value
       ? await updateResource<VirtualMachine>('vms', props.vm!.id, payload)
       : await createResource<VirtualMachine>('vms', payload)
+    await persistVmIps(saved.id)
+    await persistOpenPorts(saved.id)
     emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить виртуальную машину'
@@ -106,10 +198,6 @@ async function submit() {
         <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
         {{ errorMessage }}
       </div>
-
-      <p class="scope-hint">
-        IP-адреса и открытые порты ВМ пока редактируются только в текущем vanilla-интерфейсе.
-      </p>
 
       <form class="form-grid" @submit.prevent="submit">
         <label class="field field-wide">
@@ -150,6 +238,10 @@ async function submit() {
           <span>Описание</span>
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
+
+        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов и открытых портов…</p>
+        <VmIpListEditor v-else v-model="vmIps" />
+        <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
       </form>
 
       <div class="modal-foot">
@@ -190,11 +282,10 @@ async function submit() {
   font-size: 16px;
   margin: 0;
 }
-.scope-hint {
+.loading-hint {
   font-size: 11.5px;
   color: var(--ink-muted);
-  line-height: 1.5;
-  margin: 0 0 14px;
+  margin: 0;
 }
 .form-error {
   display: flex;

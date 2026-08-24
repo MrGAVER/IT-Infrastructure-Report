@@ -5,7 +5,7 @@
 // и явным состоянием загрузки вместо ad-hoc Map-кеша поверх fetch().
 import { defineStore } from 'pinia'
 import { listResource, api } from '../api/client'
-import type { CatalogItem, StructuralUnit, ResourceDescriptor } from '../api/types'
+import type { CatalogItem, StructuralUnit, ResourceDescriptor, ProtocolPortCatalogEntry } from '../api/types'
 
 /** Узел дерева структурных единиц — рекурсивно типизированный (см. StructuralUnitTree.vue). */
 export interface StructuralUnitNode extends StructuralUnit {
@@ -37,6 +37,10 @@ export const useCatalogsStore = defineStore('catalogs', {
   state: () => ({
     items: {} as Record<CatalogKey, CatalogItem[]>,
     resourceNames: {} as Record<string, string>,
+    // Отдельно от items/CATALOGS: у ProtocolPortCatalogEntry нет поля name, поэтому
+    // он не подходит под общий Record<CatalogKey, CatalogItem[]> (см. комментарий
+    // к типу в api/types.ts). Используется в OpenPortListEditor.vue.
+    protocolPortCatalog: [] as ProtocolPortCatalogEntry[],
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -87,14 +91,16 @@ export const useCatalogsStore = defineStore('catalogs', {
         // limit=1000: справочники (типы устройств, здания и т.п.) обычно небольшие
         // и должны загружаться целиком за один запрос — тот же лимит, что кеш
         // CACHEABLE_LIST_RESOURCES в текущем vanilla-фронтенде (core.js).
-        const [results, resources] = await Promise.all([
+        const [results, resources, protocolPorts] = await Promise.all([
           Promise.all(CATALOGS.map((key) => listResource<CatalogItem>(key, { limit: 1000 }))),
           api.get<ResourceDescriptor[]>('/resources'),
+          listResource<ProtocolPortCatalogEntry>('protocol-port-catalog', { limit: 1000 }),
         ])
         CATALOGS.forEach((key, i) => {
           this.items[key] = results[i].items
         })
         this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
+        this.protocolPortCatalog = protocolPorts.items
         this.loaded = true
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить справочники'

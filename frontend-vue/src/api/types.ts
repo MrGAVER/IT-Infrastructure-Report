@@ -137,6 +137,69 @@ export interface VMsResponse {
   total: number
 }
 
+/** GET /api/v1/resources/vm-ips?virtual_machine_id=... — генерический ресурс, {items,total,offset,limit}
+ * (см. PagedResponse в api/client.ts). Лист 4 требует "IP-адрес виртуальной машины/контейнера" —
+ * у одной ВМ их может быть несколько, поэтому отдельная таблица, а не колонка на VirtualMachine. */
+export interface VMIP {
+  id: string
+  virtual_machine_id: string
+  ip_address: string
+  prefix_length: number | null
+  purpose: string | null
+  is_management: boolean
+}
+
+/** GET /api/v1/resources/open-ports?owner_type=...&owner_id=... — полиморфная таблица (owner_type
+ * сейчас 'virtual_machine' или 'physical_device', см. backend/app/models.py:OpenPort), поэтому один
+ * и тот же тип и один и тот же компонент-редактор (OpenPortListEditor.vue) годятся для обоих
+ * владельцев — отличается только owner_type/owner_id, которые подставляет вызывающий код. */
+export interface OpenPort {
+  id: string
+  owner_type: string
+  owner_id: string
+  transport_protocol: string
+  port: number
+  protocol: string | null
+  protocol_catalog_id: string | null
+  ip_address: string | null
+  description: string | null
+}
+
+/** GET /api/v1/resources/protocol-port-catalog — справочник "порт + протокол" для быстрого выбора
+ * в OpenPortListEditor.vue. Не входит в общий CatalogItem/CATALOGS в stores/catalogs.ts, т.к. у
+ * записи нет поля name (см. backend/app/models.py:ProtocolPortCatalog) — это сломало бы
+ * catalogs.label(), который читает item.name. */
+export interface ProtocolPortCatalogEntry {
+  id: string
+  port: number
+  protocol_type: string
+  description: string | null
+}
+
+/** Черновая строка редактора IP-адресов ВМ (VmIpListEditor.vue). Поля — строки для прямого
+ * v-model на input'ах (в т.ч. числовое prefix_length: пустая строка — валидное "не задано",
+ * что не выразить через number). Конвертируется в payload VMIP при сохранении, см.
+ * VMFormModal.vue:persistVmIps. `id` присутствует только у строк, загруженных с бэкенда. */
+export interface VmIpDraftRow {
+  id?: string
+  ip_address: string
+  prefix_length: string
+  purpose: string
+  is_management: boolean
+}
+
+/** Черновая строка редактора открытых портов (OpenPortListEditor.vue) — переиспользуется и для
+ * ВМ (сейчас), и для физических устройств (см. "Ещё не сделано" в frontend-vue/README.md), т.к.
+ * OpenPort — полиморфная таблица с одинаковым набором полей независимо от owner_type. */
+export interface OpenPortDraftRow {
+  id?: string
+  protocol_catalog_id: string
+  port: string
+  protocol: string
+  transport_protocol: string
+  description: string
+}
+
 /** GET /api/v1/vlan-dashboard — сгруппировано по vlan_id, т.к. один и тот же VLAN ID
  * может иметь разные определения в разных доменах (см. backend/app/api/system.py:
  * vlan_dashboard). Формат ответа специфичный, четвёртый вариант в этом API. */
