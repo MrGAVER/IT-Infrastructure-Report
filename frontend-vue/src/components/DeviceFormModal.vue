@@ -7,11 +7,12 @@
 // подтверждение через window.confirm() и повторную отправку с флагом, вместо
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { computed, reactive, ref, watch } from 'vue'
-import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
-import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow } from '../api/types'
+import { ApiError, api, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
+import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
+import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 
 const props = defineProps<{ device: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -46,6 +47,7 @@ const form = reactive(emptyForm())
 // OpenPortListEditor.vue переиспользован как есть (не знает про owner_type/owner_id).
 const openPorts = ref<OpenPortDraftRow[]>([])
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
+const interfaces = ref<InterfaceDraftRow[]>([])
 const loadingNested = ref(false)
 
 function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
@@ -69,6 +71,7 @@ watch(
     Object.assign(form, emptyForm())
     openPorts.value = []
     softwareAssets.value = []
+    interfaces.value = []
     if (d) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = d[key as keyof Device]
@@ -82,14 +85,35 @@ watch(
     if (!d) return
     loadingNested.value = true
     try {
-      const [ports, software] = await Promise.all([
+      const [ports, software, ifaces, allIfaceIps, allIfaceVlans] = await Promise.all([
         listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: d.id, limit: 1000 }),
         listResource<DeviceSoftware>('device-software', { physical_device_id: d.id, limit: 1000 }),
+        listResource<DeviceInterface>('interfaces', { physical_device_id: d.id, limit: 1000 }),
+        // Загружаются целиком (по всем устройствам), а не по interface_id каждого интерфейса
+        // отдельно — та же схема, что и в vanilla-версии (loadInterfaceEditor в
+        // frontend/static/device-interfaces.js): интерфейсов на устройство обычно немного
+        // десятков, и один широкий запрос дешевле N дополнительных round-trip'ов.
+        listResource<InterfaceIP>('interface-ips', { limit: 1000 }),
+        listResource<InterfaceVLAN>('interface-vlans', { limit: 1000 }),
       ])
       openPorts.value = ports.items.map(toOpenPortDraftRow)
       softwareAssets.value = software.items.map(toSoftwareDraftRow)
+      interfaces.value = ifaces.items.map((x): InterfaceDraftRow => ({
+        id: x.id,
+        name: x.name,
+        interface_type_id: x.interface_type_id ?? '',
+        mac_address: x.mac_address ?? '',
+        speed_id: x.speed_id ?? '',
+        is_management: x.is_management,
+        is_data_transfer: x.is_data_transfer,
+        description: x.description ?? '',
+        vlan_ids: allIfaceVlans.items.filter((v) => v.interface_id === x.id).map((v) => v.vlan_id),
+        ips: allIfaceIps.items
+          .filter((ip) => ip.interface_id === x.id)
+          .map((ip) => ({ id: ip.id, ip_address: ip.ip_address, prefix_length: ip.prefix_length == null ? '' : String(ip.prefix_length), purpose: ip.purpose ?? '' })),
+      }))
     } catch (err) {
-      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты и ПО устройства'
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты, ПО и интерфейсы устройства'
     } finally {
       loadingNested.value = false
     }
@@ -180,6 +204,30 @@ async function persistSoftwareAssets(deviceId: string) {
   }
 }
 
+// Атомарный PUT (не через generic createResource/deleteResource, как выше) — тот же ресурс, что
+// PUT /api/v1/devices/{device_id}/interfaces на бэкенде (backend/app/services/crud.py:
+// sync_interfaces): одним запросом diff'ит текущий набор интерфейсов и их IP с переданным, сам
+// решает, что создать/обновить/удалить. Формат payload и обоснование vlan_ids — см. комментарий
+// к InterfaceDraftRow в api/types.ts и к DeviceInterfacesEditor.vue.
+async function persistInterfaces(deviceId: string) {
+  await api.put(`/devices/${deviceId}/interfaces`, {
+    interfaces: interfaces.value.map((row) => ({
+      id: row.id,
+      name: row.name.trim(),
+      interface_type_id: row.interface_type_id || null,
+      mac_address: row.mac_address || null,
+      speed_id: row.speed_id || null,
+      is_management: row.is_management,
+      is_data_transfer: row.is_data_transfer,
+      description: row.description || null,
+      vlan_ids: row.vlan_ids,
+      ips: row.ips
+        .filter((ip) => ip.ip_address.trim())
+        .map((ip) => ({ id: ip.id, ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length === '' ? null : Number(ip.prefix_length), purpose: ip.purpose || null })),
+    })),
+  })
+}
+
 async function submit() {
   errorMessage.value = null
   if (!form.device_type_id) {
@@ -188,6 +236,10 @@ async function submit() {
   }
   if (!form.serial_number.trim()) {
     errorMessage.value = 'Укажите серийный номер.'
+    return
+  }
+  if (interfaces.value.some((row) => !row.name.trim())) {
+    errorMessage.value = 'У каждого интерфейса должно быть имя.'
     return
   }
 
@@ -204,6 +256,7 @@ async function submit() {
           : await createResource<Device>('devices', payload)
         await persistOpenPorts(saved.id)
         await persistSoftwareAssets(saved.id)
+        await persistInterfaces(saved.id)
         emit('saved', saved)
         return
       } catch (err) {
@@ -335,9 +388,15 @@ async function submit() {
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
 
-        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка открытых портов…</p>
+        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО и интерфейсов…</p>
         <OpenPortListEditor v-else v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
+        <DeviceInterfacesEditor
+          v-if="!loadingNested"
+          v-model="interfaces"
+          :type-options="catalogs.items['interface-types'] ?? []"
+          :speed-options="catalogs.items['interface-speeds'] ?? []"
+        />
       </form>
 
       <div class="modal-foot">

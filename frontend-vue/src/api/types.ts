@@ -227,6 +227,70 @@ export interface SoftwareAssetDraftRow {
   version: string
 }
 
+/** GET /api/v1/resources/interfaces?physical_device_id=... — физический/логический порт
+ * устройства (Лист 3 отчёта). Persist идёт НЕ через обычный CRUD /resources/interfaces, а через
+ * атомарный PUT /api/v1/devices/{device_id}/interfaces (см. backend/app/services/crud.py:
+ * sync_interfaces) — он одним запросом создаёт/обновляет/удаляет интерфейсы и их IP по diff'у с
+ * тем, что уже есть в БД, и заодно валидирует vlan_ids. См. DeviceInterfacesEditor.vue. */
+export interface DeviceInterface {
+  id: string
+  physical_device_id: string
+  name: string
+  interface_type_id: string | null
+  mac_address: string | null
+  speed_id: string | null
+  is_management: boolean
+  is_data_transfer: boolean
+  description: string | null
+}
+
+/** GET /api/v1/resources/interface-ips?interface_id=... — см. комментарий к DeviceInterface. */
+export interface InterfaceIP {
+  id: string
+  interface_id: string
+  ip_address: string
+  prefix_length: number | null
+  purpose: string | null
+  is_management: boolean
+}
+
+/** GET /api/v1/resources/interface-vlans?interface_id=... — только читается и передаётся
+ * обратно неизменным, см. комментарий к InterfaceDraftRow.vlan_ids. */
+export interface InterfaceVLAN {
+  id: string
+  interface_id: string
+  vlan_id: string
+  mode: string | null
+}
+
+/** Черновая строка IP-адреса интерфейса внутри DeviceInterfacesEditor.vue. */
+export interface InterfaceIpDraftRow {
+  id?: string
+  ip_address: string
+  prefix_length: string
+  purpose: string
+}
+
+/** Черновая строка интерфейса внутри DeviceInterfacesEditor.vue. Управление назначением VLAN
+ * на порту (чекбоксы в vanilla-версии) в v1 редактора не поддержано — см. "Ещё не сделано" во
+ * frontend-vue/README.md. КРИТИЧНО: backend/app/services/crud.py:_sync_single_interface при
+ * каждом сохранении полностью пересоздаёт InterfaceVLAN из payload['vlan_ids'] (delete всех +
+ * insert заново) — отправка пустого массива стёрла бы VLAN, назначенные через /legacy. Поэтому
+ * vlan_ids всё равно загружается при открытии формы и отправляется обратно НЕИЗМЕНЁННЫМ (что
+ * пришло, то и ушло) — редактор просто не даёт его посмотреть или потрогать в этой версии. */
+export interface InterfaceDraftRow {
+  id?: string
+  name: string
+  interface_type_id: string
+  mac_address: string
+  speed_id: string
+  is_management: boolean
+  is_data_transfer: boolean
+  description: string
+  vlan_ids: string[]
+  ips: InterfaceIpDraftRow[]
+}
+
 /** GET /api/v1/vlan-dashboard — сгруппировано по vlan_id, т.к. один и тот же VLAN ID
  * может иметь разные определения в разных доменах (см. backend/app/api/system.py:
  * vlan_dashboard). Формат ответа специфичный, четвёртый вариант в этом API. */
