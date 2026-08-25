@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import VMFormModal from '../VMFormModal.vue'
+import { useCatalogsStore } from '../../stores/catalogs'
 import type { VirtualMachine } from '../../api/types'
 
 const EMPTY_PAGE = { items: [], total: 0, offset: 0, limit: 1000 }
@@ -157,5 +158,40 @@ describe('VMFormModal.vue', () => {
     await flushPromises()
 
     expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/resources/vm-ips/ip-old'))).toBe(true)
+  })
+
+  it('сохраняет добавленный программный актив под id новой ВМ', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['software-assets'] = [{ id: 'sa-1c', name: '1С:Предприятие' }]
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+
+    const addButtons = wrapper.findAll('button.add-btn')
+    await addButtons[2].trigger('click') // + Программный актив
+    await wrapper.find('select.col-asset').setValue('sa-1c')
+    await wrapper.find('input.col-version').setValue('8.3.20')
+
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.endsWith('/resources/vms')) {
+          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }, 201)
+        }
+        if (method === 'POST' && url.includes('/resources/vm-software')) {
+          return jsonResponse({ id: 'sw-new' }, 201)
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    await wrapper.find('input[required]').setValue('new-vm')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/vm-software'))
+    expect(softwareCreate?.body).toMatchObject({ virtual_machine_id: 'vm-new', software_asset_id: 'sa-1c', version: '8.3.20' })
+    expect(wrapper.emitted('saved')).toBeTruthy()
   })
 })

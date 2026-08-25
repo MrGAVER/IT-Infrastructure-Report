@@ -200,6 +200,33 @@ export interface OpenPortDraftRow {
   description: string
 }
 
+/** GET /api/v1/resources/vm-software?virtual_machine_id=... — в отличие от OpenPort НЕ
+ * полиморфная: у ВМ и устройства отдельные таблицы (vm_software/device_software) с разным
+ * именем FK-колонки владельца, но одинаковым набором остальных полей — поэтому общий
+ * SoftwareAssetListEditor.vue не завязан ни на одну из них (как и OpenPortListEditor.vue). */
+export interface VMSoftware {
+  id: string
+  virtual_machine_id: string
+  software_asset_id: string
+  version: string | null
+}
+
+/** GET /api/v1/resources/device-software?physical_device_id=... — см. комментарий к VMSoftware. */
+export interface DeviceSoftware {
+  id: string
+  physical_device_id: string
+  software_asset_id: string
+  version: string | null
+}
+
+/** Черновая строка SoftwareAssetListEditor.vue — переиспользуется VMFormModal.vue и
+ * DeviceFormModal.vue (маппится в VMSoftware или DeviceSoftware вызывающим кодом). */
+export interface SoftwareAssetDraftRow {
+  id?: string
+  software_asset_id: string
+  version: string
+}
+
 /** GET /api/v1/vlan-dashboard — сгруппировано по vlan_id, т.к. один и тот же VLAN ID
  * может иметь разные определения в разных доменах (см. backend/app/api/system.py:
  * vlan_dashboard). Формат ответа специфичный, четвёртый вариант в этом API. */

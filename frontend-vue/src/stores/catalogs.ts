@@ -30,6 +30,7 @@ const CATALOGS = [
   'interfaces',
   'connection-types',
   'vlan-domains',
+  'software-assets',
 ] as const
 type CatalogKey = (typeof CATALOGS)[number]
 

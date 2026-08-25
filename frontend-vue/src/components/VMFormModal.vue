@@ -9,11 +9,12 @@
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, deleteResource, listResource, updateResource } from '../api/client'
-import type { VirtualMachine, Device, VMIP, OpenPort, VmIpDraftRow, OpenPortDraftRow } from '../api/types'
+import type { VirtualMachine, Device, VMIP, OpenPort, VMSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
+import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 
 const props = defineProps<{ vm: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
@@ -41,6 +42,7 @@ const form = reactive(emptyForm())
 // реально отправить на сервер только после того, как известен id (см. submit()).
 const vmIps = ref<VmIpDraftRow[]>([])
 const openPorts = ref<OpenPortDraftRow[]>([])
+const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const loadingNested = ref(false)
 
 function toIpDraftRow(x: VMIP): VmIpDraftRow {
@@ -64,12 +66,17 @@ function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
   }
 }
 
+function toSoftwareDraftRow(x: VMSoftware): SoftwareAssetDraftRow {
+  return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
+}
+
 watch(
   () => props.vm,
   async (vm) => {
     Object.assign(form, emptyForm())
     vmIps.value = []
     openPorts.value = []
+    softwareAssets.value = []
     if (!vm) return
     form.name = vm.name
     form.operating_system_id = vm.operating_system_id ?? ''
@@ -79,14 +86,16 @@ watch(
 
     loadingNested.value = true
     try {
-      const [ips, ports] = await Promise.all([
+      const [ips, ports, software] = await Promise.all([
         listResource<VMIP>('vm-ips', { virtual_machine_id: vm.id, limit: 1000 }),
         listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: vm.id, limit: 1000 }),
+        listResource<VMSoftware>('vm-software', { virtual_machine_id: vm.id, limit: 1000 }),
       ])
       vmIps.value = ips.items.map(toIpDraftRow)
       openPorts.value = ports.items.map(toOpenPortDraftRow)
+      softwareAssets.value = software.items.map(toSoftwareDraftRow)
     } catch (err) {
-      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить IP-адреса и открытые порты ВМ'
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить IP-адреса, открытые порты и ПО ВМ'
     } finally {
       loadingNested.value = false
     }
@@ -161,6 +170,21 @@ async function persistOpenPorts(vmId: string) {
   }
 }
 
+async function persistSoftwareAssets(vmId: string) {
+  const existing = await listResource<VMSoftware>('vm-software', { virtual_machine_id: vmId, limit: 1000 })
+  for (const old of existing.items) {
+    await deleteResource('vm-software', old.id)
+  }
+  for (const row of softwareAssets.value) {
+    if (!row.software_asset_id) continue
+    await createResource<VMSoftware>('vm-software', {
+      virtual_machine_id: vmId,
+      software_asset_id: row.software_asset_id,
+      version: row.version || null,
+    })
+  }
+}
+
 async function submit() {
   errorMessage.value = null
   if (!form.name.trim()) {
@@ -175,6 +199,7 @@ async function submit() {
       : await createResource<VirtualMachine>('vms', payload)
     await persistVmIps(saved.id)
     await persistOpenPorts(saved.id)
+    await persistSoftwareAssets(saved.id)
     emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить виртуальную машину'
@@ -242,6 +267,7 @@ async function submit() {
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов и открытых портов…</p>
         <VmIpListEditor v-else v-model="vmIps" />
         <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
+        <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
       </form>
 
       <div class="modal-foot">

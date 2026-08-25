@@ -37,11 +37,12 @@
   `RACK_POSITION_OCCUPIED`, `REFERENCED_BY_OTHER_RECORDS`) — тот же
   retry-with-confirm UX, что в `frontend/static/app.js:saveForm`, включая
   `window.confirm()` вместо кастомного диалога, для консистентности с
-  остальным приложением. Форма также редактирует открытые порты устройства
-  (`OpenPortListEditor.vue`, `/resources/open-ports?owner_type=physical_device`)
-  — тот же компонент и та же схема сохранения (delete-затем-recreate после
-  сохранения самого устройства), что уже описаны у ВМ ниже; VLAN и
-  интерфейсы устройства пока не редактируются — см. «Ещё не сделано»;
+  остальным приложением. Форма также редактирует открытые порты и
+  программные активы устройства (`OpenPortListEditor.vue`/
+  `SoftwareAssetListEditor.vue`) — те же компоненты и та же схема сохранения
+  (delete-затем-recreate после сохранения самого устройства), что уже
+  описаны у ВМ ниже; VLAN и интерфейсы устройства пока не редактируются —
+  см. «Ещё не сделано»;
 - toast-уведомления об успехе/ошибке (`useToast`/`ToastHost.vue`) — аналог
   `notify()`/`notifyError()` из vanilla-фронтенда.
 
@@ -59,14 +60,17 @@
 отклонит остальные типы с 422 — фильтр только для UX), а `hypervisor_os_id`
 не редактируется — бэкенд всегда пересчитывает его сам из ОС выбранного хоста,
 форма показывает это как read-only предпросмотр. Форма также редактирует
-IP-адреса ВМ (`VmIpListEditor.vue`, ресурс `/resources/vm-ips`) и её открытые
+IP-адреса ВМ (`VmIpListEditor.vue`, ресурс `/resources/vm-ips`), её открытые
 порты (`OpenPortListEditor.vue`, `/resources/open-ports?owner_type=virtual_machine`)
-— строки staged локально (можно заполнить ещё до сохранения новой ВМ, когда
-её id ещё не существует) и персистятся после сохранения самой ВМ по схеме
-delete-затем-recreate, аналогично `saveVMIPs()`/`saveVMOpenPorts()` в
-vanilla-версии (`frontend/static/vm-editors.js`). `OpenPortListEditor.vue`
-не завязан на владельца (принимает готовые строки и справочник портов через
-props) — переиспользован без изменений на экране устройств ниже.
+и развёрнутые программные активы (`SoftwareAssetListEditor.vue`,
+`/resources/vm-software`) — строки staged локально (можно заполнить ещё до
+сохранения новой ВМ, когда её id ещё не существует) и персистятся после
+сохранения самой ВМ по схеме delete-затем-recreate, аналогично
+`saveVMIPs()`/`saveVMOpenPorts()`/`saveVMSoftware()` в vanilla-версии
+(`frontend/static/vm-editors.js`). `OpenPortListEditor.vue` и
+`SoftwareAssetListEditor.vue` не завязаны на владельца (принимают готовые
+строки и справочник через props) — переиспользованы без изменений на экране
+устройств ниже.
 
 Четвёртый — **«Подключения»** (`/connections`, Лист 3), самый структурно
 сложный: каскадный выбор устройство→порт для источника и назначения, список
@@ -175,9 +179,9 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
   фиксированного регламентного отчёта и выгрузки журнала аудита.
 - На экране устройств: привязка VLAN и интерфейсов к устройству (в
   vanilla-версии это `saveDeviceVlans`/`saveDeviceInterfaces` в
-  `app.js:saveForm`) — открытые порты уже редактируются
-  (`OpenPortListEditor.vue`, тот же компонент, что у ВМ), но интерфейсы и
-  VLAN устройства всё ещё нет.
+  `app.js:saveForm`) — открытые порты и программные активы уже редактируются
+  (`OpenPortListEditor.vue`/`SoftwareAssetListEditor.vue`, те же компоненты,
+  что у ВМ), но интерфейсы и VLAN устройства всё ещё нет.
 - На экране информационных систем: вложенные связи (подразделения, IP-адреса,
   протоколы, источники размещения — `/resources/information-systems/{id}/details`)
   не редактируются, только основные поля самой ИС.

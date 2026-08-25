@@ -8,9 +8,10 @@
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
-import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow } from '../api/types'
+import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import OpenPortListEditor from './OpenPortListEditor.vue'
+import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 
 const props = defineProps<{ device: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -44,6 +45,7 @@ const form = reactive(emptyForm())
 // (нужен его id), по той же схеме delete-затем-recreate, что и для ВМ, см. VMFormModal.vue.
 // OpenPortListEditor.vue переиспользован как есть (не знает про owner_type/owner_id).
 const openPorts = ref<OpenPortDraftRow[]>([])
+const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const loadingNested = ref(false)
 
 function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
@@ -57,11 +59,16 @@ function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
   }
 }
 
+function toSoftwareDraftRow(x: DeviceSoftware): SoftwareAssetDraftRow {
+  return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
+}
+
 watch(
   () => props.device,
   async (d) => {
     Object.assign(form, emptyForm())
     openPorts.value = []
+    softwareAssets.value = []
     if (d) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = d[key as keyof Device]
@@ -75,10 +82,14 @@ watch(
     if (!d) return
     loadingNested.value = true
     try {
-      const ports = await listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: d.id, limit: 1000 })
+      const [ports, software] = await Promise.all([
+        listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: d.id, limit: 1000 }),
+        listResource<DeviceSoftware>('device-software', { physical_device_id: d.id, limit: 1000 }),
+      ])
       openPorts.value = ports.items.map(toOpenPortDraftRow)
+      softwareAssets.value = software.items.map(toSoftwareDraftRow)
     } catch (err) {
-      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты устройства'
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты и ПО устройства'
     } finally {
       loadingNested.value = false
     }
@@ -154,6 +165,21 @@ async function persistOpenPorts(deviceId: string) {
   }
 }
 
+async function persistSoftwareAssets(deviceId: string) {
+  const existing = await listResource<DeviceSoftware>('device-software', { physical_device_id: deviceId, limit: 1000 })
+  for (const old of existing.items) {
+    await deleteResource('device-software', old.id)
+  }
+  for (const row of softwareAssets.value) {
+    if (!row.software_asset_id) continue
+    await createResource<DeviceSoftware>('device-software', {
+      physical_device_id: deviceId,
+      software_asset_id: row.software_asset_id,
+      version: row.version || null,
+    })
+  }
+}
+
 async function submit() {
   errorMessage.value = null
   if (!form.device_type_id) {
@@ -177,6 +203,7 @@ async function submit() {
           ? await updateResource<Device>('devices', props.device!.id, payload)
           : await createResource<Device>('devices', payload)
         await persistOpenPorts(saved.id)
+        await persistSoftwareAssets(saved.id)
         emit('saved', saved)
         return
       } catch (err) {
@@ -310,6 +337,7 @@ async function submit() {
 
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка открытых портов…</p>
         <OpenPortListEditor v-else v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
+        <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
       </form>
 
       <div class="modal-foot">

@@ -177,4 +177,38 @@ describe('DeviceFormModal.vue', () => {
     expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/open-ports'))).toBe(false)
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
+
+  it('сохраняет добавленный программный актив под id нового устройства', async () => {
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+    catalogs.items['software-assets'] = [{ id: 'sa-ad', name: 'Active Directory' }]
+    const wrapper = mount(DeviceFormModal, { props: { device: null } })
+
+    const addButtons = wrapper.findAll('button.add-btn')
+    await addButtons[1].trigger('click') // + Программный актив (открытые порты — первая кнопка)
+    await wrapper.find('select.col-asset').setValue('sa-ad')
+
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.includes('/resources/devices')) {
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-5' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-5')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/device-software'))
+    expect(softwareCreate?.body).toMatchObject({ physical_device_id: 'dev-new', software_asset_id: 'sa-ad' })
+    expect(wrapper.emitted('saved')).toBeTruthy()
+  })
 })
