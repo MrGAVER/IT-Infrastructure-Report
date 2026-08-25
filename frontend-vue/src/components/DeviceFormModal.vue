@@ -7,9 +7,10 @@
 // подтверждение через window.confirm() и повторную отправку с флагом, вместо
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { computed, reactive, ref, watch } from 'vue'
-import { ApiError, createResource, updateResource, ErrorCode } from '../api/client'
-import type { Device, DeviceModel, Rack, Room } from '../api/types'
+import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
+import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
+import OpenPortListEditor from './OpenPortListEditor.vue'
 
 const props = defineProps<{ device: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -39,10 +40,28 @@ function emptyForm() {
 
 const form = reactive(emptyForm())
 
+// Открытые порты устройства — staged локально, персистятся после сохранения самого устройства
+// (нужен его id), по той же схеме delete-затем-recreate, что и для ВМ, см. VMFormModal.vue.
+// OpenPortListEditor.vue переиспользован как есть (не знает про owner_type/owner_id).
+const openPorts = ref<OpenPortDraftRow[]>([])
+const loadingNested = ref(false)
+
+function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
+  return {
+    id: x.id,
+    protocol_catalog_id: x.protocol_catalog_id ?? '',
+    port: String(x.port),
+    protocol: x.protocol ?? '',
+    transport_protocol: x.transport_protocol,
+    description: x.description ?? '',
+  }
+}
+
 watch(
   () => props.device,
-  (d) => {
+  async (d) => {
     Object.assign(form, emptyForm())
+    openPorts.value = []
     if (d) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = d[key as keyof Device]
@@ -52,6 +71,16 @@ watch(
           ;(form[key] as string) = (value as string) ?? ''
         }
       }
+    }
+    if (!d) return
+    loadingNested.value = true
+    try {
+      const ports = await listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: d.id, limit: 1000 })
+      openPorts.value = ports.items.map(toOpenPortDraftRow)
+    } catch (err) {
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты устройства'
+    } finally {
+      loadingNested.value = false
     }
   },
   { immediate: true },
@@ -104,6 +133,27 @@ function toPayload(extra?: Record<string, unknown>) {
   return { ...payload, ...extra }
 }
 
+// Delete-затем-recreate — тот же приём и то же обоснование (маленькие списки, простота важнее
+// diff-логики), что persistVmIps()/persistOpenPorts() в VMFormModal.vue.
+async function persistOpenPorts(deviceId: string) {
+  const existing = await listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: deviceId, limit: 1000 })
+  for (const old of existing.items) {
+    await deleteResource('open-ports', old.id)
+  }
+  for (const row of openPorts.value) {
+    if (!row.port.trim()) continue // port NOT NULL на бэкенде, см. VMFormModal.vue
+    await createResource<OpenPort>('open-ports', {
+      owner_type: 'physical_device',
+      owner_id: deviceId,
+      protocol_catalog_id: row.protocol_catalog_id || null,
+      port: Number(row.port),
+      protocol: row.protocol || null,
+      transport_protocol: row.transport_protocol || 'TCP',
+      description: row.description || null,
+    })
+  }
+}
+
 async function submit() {
   errorMessage.value = null
   if (!form.device_type_id) {
@@ -126,6 +176,7 @@ async function submit() {
         const saved = isEdit.value
           ? await updateResource<Device>('devices', props.device!.id, payload)
           : await createResource<Device>('devices', payload)
+        await persistOpenPorts(saved.id)
         emit('saved', saved)
         return
       } catch (err) {
@@ -256,6 +307,9 @@ async function submit() {
           <span>Описание</span>
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
+
+        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка открытых портов…</p>
+        <OpenPortListEditor v-else v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
       </form>
 
       <div class="modal-foot">
@@ -350,6 +404,11 @@ async function submit() {
 .checkbox-field span {
   color: var(--ink);
   font-size: 12.5px;
+}
+.loading-hint {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  margin: 0;
 }
 .modal-foot {
   display: flex;

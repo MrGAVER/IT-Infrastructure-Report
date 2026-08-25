@@ -43,7 +43,12 @@ describe('DeviceFormModal.vue', () => {
   it('успешно создаёт устройство и эмитит saved', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    const postMock = vi.fn(async () => new Response(JSON.stringify({ id: 'new-1', serial_number: 'SN-1' }), { status: 201 }))
+    const postMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST' && url.includes('/resources/devices')) {
+        return new Response(JSON.stringify({ id: 'new-1', serial_number: 'SN-1' }), { status: 201 })
+      }
+      return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+    })
     vi.stubGlobal('fetch', postMock)
 
     await wrapper.find('select').setValue('dt-server')
@@ -58,10 +63,15 @@ describe('DeviceFormModal.vue', () => {
   it('при 409 DUPLICATE_SYSTEM_NAME спрашивает подтверждение и повторяет запрос с флагом', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    let call = 0
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      call += 1
-      if (call === 1) {
+    // Отдельный счётчик именно для POST /resources/devices — GET-запросы
+    // persistOpenPorts() (см. DeviceFormModal.vue) на других URL не должны на него влиять.
+    let devicePostCalls = 0
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'POST' || !url.includes('/resources/devices')) {
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }
+      devicePostCalls += 1
+      if (devicePostCalls === 1) {
         return new Response(
           JSON.stringify({ detail: { code: 'DUPLICATE_SYSTEM_NAME', message: 'Уже используется. Сохранить дубликат?' } }),
           { status: 409 },
@@ -80,7 +90,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     expect(confirm).toHaveBeenCalled()
-    expect(call).toBe(2)
+    expect(devicePostCalls).toBe(2)
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
@@ -111,5 +121,60 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = await mountWithLoadedCatalogs()
     await wrapper.find('.modal-foot button.btn-secondary').trigger('click')
     expect(wrapper.emitted('close')).toBeTruthy()
+  })
+
+  it('при редактировании подгружает существующие открытые порты устройства', async () => {
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+
+    const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-9' } as never
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/resources/open-ports')) {
+          return new Response(
+            JSON.stringify({
+              items: [{ id: 'op-1', owner_type: 'physical_device', owner_id: 'dev-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
+          )
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
+  })
+
+  it('сохраняет добавленный открытый порт под id нового устройства и не отправляет пустые строки', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+
+    await wrapper.find('button.add-btn').trigger('click') // + Открытый порт, оставляем пустым
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.includes('/resources/devices')) {
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-4' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-4')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/open-ports'))).toBe(false)
+    expect(wrapper.emitted('saved')).toBeTruthy()
   })
 })

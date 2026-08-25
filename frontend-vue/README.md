@@ -37,7 +37,11 @@
   `RACK_POSITION_OCCUPIED`, `REFERENCED_BY_OTHER_RECORDS`) — тот же
   retry-with-confirm UX, что в `frontend/static/app.js:saveForm`, включая
   `window.confirm()` вместо кастомного диалога, для консистентности с
-  остальным приложением;
+  остальным приложением. Форма также редактирует открытые порты устройства
+  (`OpenPortListEditor.vue`, `/resources/open-ports?owner_type=physical_device`)
+  — тот же компонент и та же схема сохранения (delete-затем-recreate после
+  сохранения самого устройства), что уже описаны у ВМ ниже; VLAN и
+  интерфейсы устройства пока не редактируются — см. «Ещё не сделано»;
 - toast-уведомления об успехе/ошибке (`useToast`/`ToastHost.vue`) — аналог
   `notify()`/`notifyError()` из vanilla-фронтенда.
 
@@ -62,8 +66,7 @@ IP-адреса ВМ (`VmIpListEditor.vue`, ресурс `/resources/vm-ips`) и
 delete-затем-recreate, аналогично `saveVMIPs()`/`saveVMOpenPorts()` в
 vanilla-версии (`frontend/static/vm-editors.js`). `OpenPortListEditor.vue`
 не завязан на владельца (принимает готовые строки и справочник портов через
-props) и переиспользуется как есть для будущего редактора открытых портов
-устройства — см. «Ещё не сделано».
+props) — переиспользован без изменений на экране устройств ниже.
 
 Четвёртый — **«Подключения»** (`/connections`, Лист 3), самый структурно
 сложный: каскадный выбор устройство→порт для источника и назначения, список
@@ -170,10 +173,11 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
   drag-and-drop grid-редактор, Word-блочный редактор шаблонов) — большая
   отдельная задача, не перенесена. Реализована только генерация
   фиксированного регламентного отчёта и выгрузки журнала аудита.
-- На экране устройств: привязка VLAN/интерфейсов/открытых портов к устройству
-  (в vanilla-версии это `saveDeviceVlans`/`saveDeviceInterfaces`/
-  `saveDeviceOpenPorts` в `app.js:saveForm`) — форма сейчас покрывает только
-  собственные поля `PhysicalDevice`.
+- На экране устройств: привязка VLAN и интерфейсов к устройству (в
+  vanilla-версии это `saveDeviceVlans`/`saveDeviceInterfaces` в
+  `app.js:saveForm`) — открытые порты уже редактируются
+  (`OpenPortListEditor.vue`, тот же компонент, что у ВМ), но интерфейсы и
+  VLAN устройства всё ещё нет.
 - На экране информационных систем: вложенные связи (подразделения, IP-адреса,
   протоколы, источники размещения — `/resources/information-systems/{id}/details`)
   не редактируются, только основные поля самой ИС.
