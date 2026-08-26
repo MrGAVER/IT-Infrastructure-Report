@@ -4,7 +4,7 @@
 // через общий /resources/vlans, как везде.
 import { defineStore } from 'pinia'
 import { api } from '../api/client'
-import type { VLANDashboardGroup, VLANDashboardResponse } from '../api/types'
+import type { VLANDashboardGroup, VLANDashboardResponse, VLANDefinition } from '../api/types'
 
 export const useVLANsStore = defineStore('vlans', {
   state: () => ({
@@ -38,6 +38,12 @@ export const useVLANsStore = defineStore('vlans', {
       // Один и тот же vlan_id с разными именами в разных доменах — не ошибка сама по
       // себе (для этого и есть домены), но стоит показать как "требует внимания".
       return state.groups.filter((g) => new Set(g.definitions.map((d) => d.name)).size > 1).map((g) => g.vlan_id)
+    },
+    // Плоский список всех определений VLAN, без группировки по vlan_id — нужен для
+    // выпадающих списков (DeviceVlanListEditor.vue, панель массового назначения на
+    // VLANsView.vue), где группировка неважна, а нужен просто "любой VLAN".
+    allDefinitions(state): VLANDefinition[] {
+      return state.groups.flatMap((g) => g.definitions)
     },
   },
   actions: {

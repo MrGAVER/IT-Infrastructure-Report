@@ -8,16 +8,19 @@
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, api, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
-import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow } from '../api/types'
+import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useVLANsStore } from '../stores/vlans'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
+import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
 
 const props = defineProps<{ device: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
 
 const catalogs = useCatalogsStore()
+const vlansStore = useVLANsStore()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.device !== null)
@@ -48,7 +51,13 @@ const form = reactive(emptyForm())
 const openPorts = ref<OpenPortDraftRow[]>([])
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
+const deviceVlans = ref<DeviceVlanDraftRow[]>([])
+const memberDomainIds = ref<Set<string>>(new Set())
 const loadingNested = ref(false)
+
+// VLAN без домена доступны всем устройствам; доменные — только участникам домена (то же
+// правило, что loadDeviceVlanEditor() в frontend/static/device-interfaces.js).
+const availableVlans = computed(() => vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id)))
 
 function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
   return {
@@ -65,6 +74,17 @@ function toSoftwareDraftRow(x: DeviceSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
 }
 
+function toDeviceVlanDraftRow(x: DeviceVLAN): DeviceVlanDraftRow {
+  return {
+    id: x.id,
+    vlan_id: x.vlan_id,
+    ip_address: x.ip_address ?? '',
+    prefix_length: x.prefix_length == null ? '' : String(x.prefix_length),
+    is_management: x.is_management,
+    description: x.description ?? '',
+  }
+}
+
 watch(
   () => props.device,
   async (d) => {
@@ -72,6 +92,8 @@ watch(
     openPorts.value = []
     softwareAssets.value = []
     interfaces.value = []
+    deviceVlans.value = []
+    memberDomainIds.value = new Set()
     if (d) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = d[key as keyof Device]
@@ -85,7 +107,7 @@ watch(
     if (!d) return
     loadingNested.value = true
     try {
-      const [ports, software, ifaces, allIfaceIps, allIfaceVlans] = await Promise.all([
+      const [ports, software, ifaces, allIfaceIps, allIfaceVlans, vlans, domainLinks] = await Promise.all([
         listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: d.id, limit: 1000 }),
         listResource<DeviceSoftware>('device-software', { physical_device_id: d.id, limit: 1000 }),
         listResource<DeviceInterface>('interfaces', { physical_device_id: d.id, limit: 1000 }),
@@ -95,6 +117,8 @@ watch(
         // десятков, и один широкий запрос дешевле N дополнительных round-trip'ов.
         listResource<InterfaceIP>('interface-ips', { limit: 1000 }),
         listResource<InterfaceVLAN>('interface-vlans', { limit: 1000 }),
+        listResource<DeviceVLAN>('device-vlans', { physical_device_id: d.id, limit: 1000 }),
+        listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: d.id, limit: 1000 }),
       ])
       openPorts.value = ports.items.map(toOpenPortDraftRow)
       softwareAssets.value = software.items.map(toSoftwareDraftRow)
@@ -112,8 +136,10 @@ watch(
           .filter((ip) => ip.interface_id === x.id)
           .map((ip) => ({ id: ip.id, ip_address: ip.ip_address, prefix_length: ip.prefix_length == null ? '' : String(ip.prefix_length), purpose: ip.purpose ?? '' })),
       }))
+      deviceVlans.value = vlans.items.map(toDeviceVlanDraftRow)
+      memberDomainIds.value = new Set(domainLinks.items.map((l) => l.domain_id))
     } catch (err) {
-      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты, ПО и интерфейсы устройства'
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты, ПО, интерфейсы и VLAN устройства'
     } finally {
       loadingNested.value = false
     }
@@ -204,6 +230,26 @@ async function persistSoftwareAssets(deviceId: string) {
   }
 }
 
+// Delete-затем-recreate (НЕ через атомарный PUT, в отличие от persistInterfaces ниже) — тем же
+// приёмом, что и в vanilla-версии (saveDeviceVlans в frontend/static/device-interfaces.js).
+async function persistDeviceVlans(deviceId: string) {
+  const existing = await listResource<DeviceVLAN>('device-vlans', { physical_device_id: deviceId, limit: 1000 })
+  for (const old of existing.items) {
+    await deleteResource('device-vlans', old.id)
+  }
+  for (const row of deviceVlans.value) {
+    if (!row.vlan_id) continue
+    await createResource<DeviceVLAN>('device-vlans', {
+      physical_device_id: deviceId,
+      vlan_id: row.vlan_id,
+      ip_address: row.ip_address || null,
+      prefix_length: row.prefix_length === '' ? null : Number(row.prefix_length),
+      is_management: row.is_management,
+      description: row.description || null,
+    })
+  }
+}
+
 // Атомарный PUT (не через generic createResource/deleteResource, как выше) — тот же ресурс, что
 // PUT /api/v1/devices/{device_id}/interfaces на бэкенде (backend/app/services/crud.py:
 // sync_interfaces): одним запросом diff'ит текущий набор интерфейсов и их IP с переданным, сам
@@ -257,6 +303,7 @@ async function submit() {
         await persistOpenPorts(saved.id)
         await persistSoftwareAssets(saved.id)
         await persistInterfaces(saved.id)
+        await persistDeviceVlans(saved.id)
         emit('saved', saved)
         return
       } catch (err) {
@@ -388,8 +435,8 @@ async function submit() {
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
 
-        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО и интерфейсов…</p>
-        <OpenPortListEditor v-else v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
+        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
+        <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
         <DeviceInterfacesEditor
           v-if="!loadingNested"
@@ -397,6 +444,7 @@ async function submit() {
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
         />
+        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" />
       </form>
 
       <div class="modal-foot">

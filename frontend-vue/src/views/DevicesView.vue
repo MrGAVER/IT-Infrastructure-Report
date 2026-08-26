@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useVLANsStore } from '../stores/vlans'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Device } from '../api/types'
@@ -11,6 +12,7 @@ import DeviceFormModal from '../components/DeviceFormModal.vue'
 
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
+const vlans = useVLANsStore()
 const { notify, notifyError } = useToast()
 
 const modalDevice = ref<Device | null>(null)
@@ -18,7 +20,10 @@ const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
 
 onMounted(async () => {
-  await Promise.all([devices.ensureLoaded(), catalogs.ensureLoaded()])
+  // vlans — не для собственной таблицы этого экрана, а для выпадающего списка VLAN в
+  // DeviceVlanListEditor.vue внутри DeviceFormModal.vue (тот же приём, что в
+  // InformationSystemsView.vue: форма читает уже загруженный стор, а не грузит сама).
+  await Promise.all([devices.ensureLoaded(), catalogs.ensureLoaded(), vlans.ensureLoaded()])
 })
 
 watch(

@@ -375,6 +375,39 @@ export interface VLANDeviceAssignment {
   ip_address: string | null
   is_management: boolean
 }
+/** GET /api/v1/resources/device-vlans?physical_device_id=... — назначение VLAN устройству
+ * (в отличие от interface_vlans — не привязано к конкретному порту, а к устройству в целом).
+ * persist — обычный delete-затем-recreate через createResource/deleteResource (НЕ атомарный
+ * PUT, в отличие от интерфейсов устройства и деталей ИС) — так же, как в vanilla-версии
+ * (saveDeviceVlans в frontend/static/device-interfaces.js). */
+export interface DeviceVLAN {
+  id: string
+  physical_device_id: string
+  vlan_id: string
+  ip_address: string | null
+  prefix_length: number | null
+  is_management: boolean
+  description: string | null
+}
+
+/** GET /api/v1/resources/vlan-domain-devices?physical_device_id=... — членство устройства в
+ * VLAN-домене; определяет, какие доменные VLAN доступны для выбора в DeviceVlanListEditor.vue
+ * (домен-независимые VLAN доступны всем устройствам, доменные — только участникам домена). */
+export interface VLANDomainDeviceLink {
+  id: string
+  domain_id: string
+  physical_device_id: string
+}
+
+/** Черновая строка DeviceVlanListEditor.vue. */
+export interface DeviceVlanDraftRow {
+  id?: string
+  vlan_id: string
+  ip_address: string
+  prefix_length: string
+  is_management: boolean
+  description: string
+}
 export interface VLANDefinition {
   id: string
   vlan_id: number

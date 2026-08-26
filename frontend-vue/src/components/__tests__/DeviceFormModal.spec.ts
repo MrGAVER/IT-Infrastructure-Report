@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
+import { useVLANsStore } from '../../stores/vlans'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
 
 function stubCatalogsFetch() {
@@ -319,5 +320,67 @@ describe('DeviceFormModal.vue', () => {
 
     const ifaceCall = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-3/interfaces'))
     expect(ifaceCall?.body).toMatchObject({ interfaces: [{ id: 'if-1', vlan_ids: ['vlan-legacy'] }] })
+  })
+
+  it('доменный VLAN доступен для выбора только если устройство состоит в этом домене', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = [
+      { vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] },
+      { vlan_id: 20, definitions: [{ id: 'v-20', vlan_id: 20, name: 'Управление', description: '', domain_id: 'dom-1', domain_name: 'Ядро сети', devices: [] }] },
+    ]
+    vlans.loaded = true
+
+    const device = { id: 'dev-4', device_type_id: 'dt-server', serial_number: 'SN-12' } as never
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        // Устройство НЕ состоит в домене dom-1 — vlan-domain-devices пуст.
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+    await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
+
+    const options = wrapper.find('select.col-vlan').findAll('option')
+    const texts = options.map((o) => o.text())
+    expect(texts.some((t) => t.includes('Мониторинг'))).toBe(true) // без домена — доступен всем
+    expect(texts.some((t) => t.includes('Управление'))).toBe(false) // доменный, не участник — скрыт
+  })
+
+  it('сохраняет добавленный VLAN устройства под id нового устройства', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+    vlans.loaded = true
+
+    const wrapper = await mountWithLoadedCatalogs()
+    await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
+    await wrapper.find('select.col-vlan').setValue('v-10')
+
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.includes('/resources/devices')) {
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-13' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-13')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const vlanCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/device-vlans'))
+    expect(vlanCreate?.body).toMatchObject({ physical_device_id: 'dev-new', vlan_id: 'v-10' })
+    expect(wrapper.emitted('saved')).toBeTruthy()
   })
 })

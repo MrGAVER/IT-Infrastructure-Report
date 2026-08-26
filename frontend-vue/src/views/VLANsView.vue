@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useVLANsStore } from '../stores/vlans'
 import { useCatalogsStore } from '../stores/catalogs'
-import { deleteResource } from '../api/client'
+import { useDevicesStore } from '../stores/devices'
+import { api, deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { VLANDefinition } from '../api/types'
 import StatCard from '../components/StatCard.vue'
@@ -10,15 +11,79 @@ import VLANFormModal from '../components/VLANFormModal.vue'
 
 const vlans = useVLANsStore()
 const catalogs = useCatalogsStore()
+const devices = useDevicesStore()
 const { notify, notifyError } = useToast()
 
 const modalDefinition = ref<VLANDefinition | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
 
+// Разовое назначение одного VLAN сразу нескольким устройствам — в отличие от доменов VLAN
+// (которые синхронизируют весь набор VLAN с "устройства-источника" и рассчитаны на повторное
+// использование), это одноразовое действие без создания домена. Портировано с
+// vlanBulkAssignPanelHtml()/applyVlanBulkAssign() в frontend/static/vlan.js. IP-адрес
+// намеренно не запрашивается — см. docstring bulk_assign_vlan() на бэкенде
+// (backend/app/api/system.py): один и тот же IP на нескольких устройствах в одном VLAN был бы
+// некорректен, а разные IP для каждого устройства — уже не массовое действие.
+const bulkAssignOpen = ref(false)
+const bulkVlanId = ref('')
+const bulkDescription = ref('')
+const bulkSelectedDeviceIds = ref<Set<string>>(new Set())
+const bulkAssigning = ref(false)
+
+const allVlanDefinitions = computed(() => vlans.allDefinitions)
+const allDeviceIds = computed(() => devices.all.map((d) => d.id))
+const allDevicesSelected = computed(() => allDeviceIds.value.length > 0 && allDeviceIds.value.every((id) => bulkSelectedDeviceIds.value.has(id)))
+
 onMounted(async () => {
-  await Promise.all([vlans.ensureLoaded(), catalogs.ensureLoaded()])
+  await Promise.all([vlans.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
 })
+
+function toggleBulkAssign() {
+  bulkAssignOpen.value = !bulkAssignOpen.value
+  if (!bulkAssignOpen.value) {
+    bulkVlanId.value = ''
+    bulkDescription.value = ''
+    bulkSelectedDeviceIds.value = new Set()
+  }
+}
+
+function toggleDevice(id: string, checked: boolean) {
+  const next = new Set(bulkSelectedDeviceIds.value)
+  if (checked) next.add(id)
+  else next.delete(id)
+  bulkSelectedDeviceIds.value = next
+}
+
+function toggleAllDevices(checked: boolean) {
+  bulkSelectedDeviceIds.value = checked ? new Set(allDeviceIds.value) : new Set()
+}
+
+async function applyBulkAssign() {
+  if (!bulkVlanId.value) {
+    notify('Выберите VLAN', 'error')
+    return
+  }
+  if (!bulkSelectedDeviceIds.value.size) {
+    notify('Выберите хотя бы одно устройство', 'error')
+    return
+  }
+  bulkAssigning.value = true
+  try {
+    const r = await api.post<{ assigned: number; skipped_existing: number }>('/device-vlans/bulk-assign', {
+      physical_device_ids: [...bulkSelectedDeviceIds.value],
+      vlan_id: bulkVlanId.value,
+      description: bulkDescription.value || null,
+    })
+    notify(`Назначено: ${r.assigned}${r.skipped_existing ? `, уже было назначено ранее: ${r.skipped_existing}` : ''}`, 'success')
+    toggleBulkAssign()
+    await vlans.reload()
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    bulkAssigning.value = false
+  }
+}
 
 function openCreate() {
   modalDefinition.value = null
@@ -72,10 +137,45 @@ async function removeDefinition(d: VLANDefinition) {
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
+      <button class="btn btn-secondary" @click="toggleBulkAssign">
+        {{ bulkAssignOpen ? 'Скрыть массовое назначение' : 'Массовое назначение VLAN' }}
+      </button>
       <button class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить VLAN
       </button>
+    </div>
+
+    <div v-if="bulkAssignOpen" class="bulk-panel card">
+      <div class="bulk-fields">
+        <label class="field">
+          <span>VLAN</span>
+          <select v-model="bulkVlanId">
+            <option value="">— выберите VLAN —</option>
+            <option v-for="v in allVlanDefinitions" :key="v.id" :value="v.id">{{ v.vlan_id }} — {{ v.name }}{{ v.domain_name ? ` (${v.domain_name})` : '' }}</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Описание (опционально)</span>
+          <input v-model="bulkDescription" type="text" placeholder="Например: доступ для мониторинга" />
+        </label>
+      </div>
+      <div class="bulk-devices">
+        <label class="bulk-device-all">
+          <input type="checkbox" :checked="allDevicesSelected" @change="toggleAllDevices(($event.target as HTMLInputElement).checked)" />
+          Выбрать все ({{ devices.all.length }})
+        </label>
+        <div v-if="!devices.all.length" class="no-devices">Устройств нет</div>
+        <label v-for="d in devices.all" :key="d.id" class="bulk-device">
+          <input
+            type="checkbox"
+            :checked="bulkSelectedDeviceIds.has(d.id)"
+            @change="toggleDevice(d.id, ($event.target as HTMLInputElement).checked)"
+          />
+          {{ catalogs.label('device-types', d.device_type_id, '') ? `${d.system_name || d.serial_number} (${catalogs.label('device-types', d.device_type_id, '')})` : d.system_name || d.serial_number }}
+        </label>
+      </div>
+      <button class="btn btn-primary" :disabled="bulkAssigning" @click="applyBulkAssign">Назначить выбранным</button>
     </div>
 
     <div v-if="vlans.error" class="error-banner card">
@@ -162,6 +262,60 @@ async function removeDefinition(d: VLANDefinition) {
 }
 .spacer {
   flex: 1;
+}
+.bulk-panel {
+  padding: 16px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bulk-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+}
+.bulk-fields .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  min-width: 220px;
+}
+.bulk-fields .field input,
+.bulk-fields .field select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 7px 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.bulk-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 10px;
+}
+.bulk-device-all {
+  font-weight: 600;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-device,
+.bulk-device-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink);
 }
 .error-banner,
 .empty-banner {
