@@ -33,6 +33,8 @@ const CATALOGS = [
   'software-assets',
   'interface-types',
   'interface-speeds',
+  'departments',
+  'placement-assets',
 ] as const
 type CatalogKey = (typeof CATALOGS)[number]
 

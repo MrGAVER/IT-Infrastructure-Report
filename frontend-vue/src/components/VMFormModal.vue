@@ -12,6 +12,7 @@ import { createResource, deleteResource, listResource, updateResource } from '..
 import type { VirtualMachine, Device, VMIP, OpenPort, VMSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
+import { filterHostDevices } from '../utils/deviceFilters'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
@@ -103,13 +104,7 @@ watch(
   { immediate: true },
 )
 
-const HOST_TYPE_KEYWORDS = ['сервер', 'система хранения', 'storage']
-const hostCandidates = computed<Device[]>(() =>
-  devicesStore.all.filter((d) => {
-    const typeName = catalogs.label('device-types', d.device_type_id, '').toLowerCase()
-    return HOST_TYPE_KEYWORDS.some((kw) => typeName.includes(kw))
-  }),
-)
+const hostCandidates = computed<Device[]>(() => filterHostDevices(devicesStore.all, catalogs))
 
 const derivedHypervisor = computed(() => {
   if (!form.physical_device_id) return null

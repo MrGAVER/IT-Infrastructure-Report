@@ -1,22 +1,42 @@
 <script setup lang="ts">
-// Форма покрывает только собственные поля InformationSystem — те же, что
-// сохраняет базовое сохранение в vanilla-фронтенде (frontend/static/information-systems.js:
-// saveInformationSystemForm, первый PUT/POST до синхронизации /details). Вложенные
-// связи (подразделения, IP, протоколы, источники размещения) требуют отдельного
-// редактора над /resources/information-systems/{id}/details — не реализовано в этой
-// итерации, см. README "Ещё не сделано".
+// Форма покрывает собственные поля InformationSystem, а также вложенные связи — подразделения,
+// протоколы, источники размещения/IP, места размещения — через отдельный атомарный ресурс
+// /resources/information-systems/{id}/details (см. InformationSystemDetails в api/types.ts).
+// Портировано с openInformationSystemForm/saveInformationSystemForm в
+// frontend/static/information-systems.js, включая одноразовую миграцию устаревших связанных
+// таблиц (ips/devices/vms/containers) в унифицированный sources при первом открытии формы для
+// ИС, у которой sources ещё пуст, — иначе такая ИС выглядела бы в новом UI так, будто у неё
+// вообще нет источников, хотя данные есть, просто в старых таблицах.
 import { computed, reactive, ref, watch } from 'vue'
-import { createResource, updateResource } from '../api/client'
-import type { InformationSystem } from '../api/types'
+import { api, createResource, updateResource, listResource } from '../api/client'
+import type {
+  InformationSystem,
+  InformationSystemDetails,
+  ISSource,
+  ISSourceDraftRow,
+  ISProtocolDraftRow,
+  CatalogPickerDraftRow,
+  Container,
+} from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useDevicesStore } from '../stores/devices'
+import { useVMsStore } from '../stores/vms'
+import { filterHostDevices } from '../utils/deviceFilters'
+import CatalogPickerListEditor from './CatalogPickerListEditor.vue'
+import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
+import ISSourcesListEditor from './ISSourcesListEditor.vue'
 
 const props = defineProps<{ system: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
 
 const catalogs = useCatalogsStore()
+const devicesStore = useDevicesStore()
+const vmsStore = useVMsStore()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.system !== null)
+
+const deviceOptions = computed(() => filterHostDevices(devicesStore.all, catalogs))
 
 function emptyForm() {
   return {
@@ -35,10 +55,67 @@ function emptyForm() {
 
 const form = reactive(emptyForm())
 
+const departments = ref<CatalogPickerDraftRow[]>([])
+const protocols = ref<ISProtocolDraftRow[]>([])
+const sources = ref<ISSourceDraftRow[]>([])
+const placementAssets = ref<CatalogPickerDraftRow[]>([])
+const containers = ref<Container[]>([])
+const loadingNested = ref(false)
+
+function toSourceDraftRow(x: ISSource): ISSourceDraftRow {
+  return {
+    id: x.id || undefined,
+    source_type: (x.source_type as ISSourceDraftRow['source_type']) || 'manual',
+    physical_device_id: x.physical_device_id ?? '',
+    virtual_machine_id: x.virtual_machine_id ?? '',
+    container_id: x.container_id ?? '',
+    ip_address: x.ip_address ?? '',
+    purpose: x.purpose ?? '',
+    role: x.role ?? '',
+    external_interaction: x.external_interaction,
+  }
+}
+
+// Одноразовая миграция устаревших связанных таблиц в sources — портировано дословно с
+// openInformationSystemForm() в frontend/static/information-systems.js. Срабатывает только
+// когда details.sources пуст: для ИС, уже сохранённых через новый UI (или через vanilla после
+// того, как он тоже перешёл на sources), sources уже заполнен и эта функция не трогается.
+function migrateLegacyToSources(details: InformationSystemDetails): ISSource[] {
+  if (details.sources.length) return details.sources
+  const migrated: ISSource[] = []
+  for (const x of details.devices) {
+    migrated.push({ id: '', source_type: 'device', physical_device_id: x.physical_device_id, virtual_machine_id: null, container_id: null, ip_address: '', purpose: '', role: x.role ?? '', external_interaction: false })
+  }
+  for (const x of details.vms) {
+    migrated.push({ id: '', source_type: 'vm', physical_device_id: null, virtual_machine_id: x.virtual_machine_id, container_id: null, ip_address: '', purpose: '', role: x.role ?? '', external_interaction: false })
+  }
+  for (const x of details.containers) {
+    migrated.push({ id: '', source_type: 'container', physical_device_id: null, virtual_machine_id: null, container_id: x.container_id, ip_address: '', purpose: '', role: x.role ?? '', external_interaction: false })
+  }
+  const keyOf = (x: Pick<ISSource, 'source_type' | 'physical_device_id' | 'virtual_machine_id' | 'container_id'>) =>
+    `${x.source_type}:${x.physical_device_id || x.virtual_machine_id || x.container_id || ''}`
+  for (const ip of details.ips) {
+    const key = ip.virtual_machine_id ? `vm:${ip.virtual_machine_id}` : ip.physical_device_id ? `device:${ip.physical_device_id}` : `manual:${ip.ip_address}`
+    const existing = migrated.find((x) => keyOf(x) === key)
+    if (existing) {
+      existing.ip_address = existing.ip_address ? `${existing.ip_address}, ${ip.ip_address}` : ip.ip_address
+      existing.purpose = ip.purpose || existing.purpose
+      existing.external_interaction = Boolean(ip.external_interaction)
+    } else {
+      migrated.push({ id: '', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ip_address: ip.ip_address || '', purpose: ip.purpose ?? '', role: '', external_interaction: Boolean(ip.external_interaction) })
+    }
+  }
+  return migrated
+}
+
 watch(
   () => props.system,
-  (s) => {
+  async (s) => {
     Object.assign(form, emptyForm())
+    departments.value = []
+    protocols.value = []
+    sources.value = []
+    placementAssets.value = []
     if (s) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = s[key as keyof InformationSystem]
@@ -48,6 +125,25 @@ watch(
           ;(form[key] as string) = (value as string) ?? ''
         }
       }
+    }
+
+    loadingNested.value = true
+    try {
+      const [containersRes, details] = await Promise.all([
+        containers.value.length ? Promise.resolve(null) : listResource<Container>('containers', { limit: 1000 }),
+        s ? api.get<InformationSystemDetails>(`/resources/information-systems/${s.id}/details`) : Promise.resolve(null),
+      ])
+      if (containersRes) containers.value = containersRes.items
+      if (details) {
+        departments.value = details.departments.map((x) => ({ id: x.id, catalogId: x.department_id }))
+        protocols.value = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id ?? '', protocol: x.protocol, port: x.port, description: x.description ?? '' }))
+        sources.value = migrateLegacyToSources(details).map(toSourceDraftRow)
+        placementAssets.value = details.placement_assets.map((x) => ({ id: x.id, catalogId: x.placement_asset_id }))
+      }
+    } catch (err) {
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить связанные данные информационной системы'
+    } finally {
+      loadingNested.value = false
     }
   },
   { immediate: true },
@@ -59,6 +155,38 @@ function toPayload() {
     payload[key] = value === '' ? null : value
   }
   return payload
+}
+
+// Собирает payload для PUT .../details — та же фильтрация "что не отправлять", что в
+// saveInformationSystemForm() в vanilla-версии: legacy-таблицы всегда пустые (вся актуальная
+// информация идёт через sources), пустые строки справочников/протоколов отбрасываются, а
+// source-строки отбрасываются только если тип "вручную" и IP не заполнен — для остальных типов
+// строка сохраняется, даже если сам источник (сервер/ВМ/контейнер) ещё не выбран.
+function buildDetailsPayload() {
+  return {
+    departments: departments.value.filter((x) => x.catalogId).map((x) => ({ id: x.id, department_id: x.catalogId })),
+    ips: [],
+    protocols: protocols.value
+      .filter((x) => x.protocol_catalog_id || x.protocol.trim())
+      .map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id || null, protocol: x.protocol, port: x.port, description: x.description || null })),
+    devices: [],
+    vms: [],
+    containers: [],
+    sources: sources.value
+      .filter((x) => (x.source_type === 'manual' ? x.ip_address.trim() : true))
+      .map((x) => ({
+        id: x.id,
+        source_type: x.source_type,
+        physical_device_id: x.physical_device_id || null,
+        virtual_machine_id: x.virtual_machine_id || null,
+        container_id: x.container_id || null,
+        ip_address: x.ip_address || null,
+        purpose: x.purpose || null,
+        role: x.role || null,
+        external_interaction: x.external_interaction,
+      })),
+    placement_assets: placementAssets.value.filter((x) => x.catalogId).map((x) => ({ id: x.id, placement_asset_id: x.catalogId })),
+  }
 }
 
 async function submit() {
@@ -73,6 +201,7 @@ async function submit() {
     const saved = isEdit.value
       ? await updateResource<InformationSystem>('information-systems', props.system!.id, payload)
       : await createResource<InformationSystem>('information-systems', payload)
+    await api.put(`/resources/information-systems/${saved.id}/details`, buildDetailsPayload())
     emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить информационную систему'
@@ -96,11 +225,6 @@ async function submit() {
         <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
         {{ errorMessage }}
       </div>
-
-      <p class="scope-hint">
-        Форма охватывает основные поля ИС. Связанные подразделения, IP-адреса, протоколы и
-        источники размещения пока редактируются только в текущем vanilla-интерфейсе.
-      </p>
 
       <form class="form-grid" @submit.prevent="submit">
         <label class="field field-wide">
@@ -161,6 +285,26 @@ async function submit() {
             <option v-for="c in catalogs.items['crypto-protection-means'] ?? []" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </label>
+
+        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка связанных данных…</p>
+        <template v-else>
+          <CatalogPickerListEditor
+            v-model="departments"
+            title="Работники, группы работников или подразделения, использующие ИС"
+            placeholder="— выберите подразделение —"
+            add-label="Подразделение"
+            :catalog-entries="catalogs.items['departments'] ?? []"
+          />
+          <ISProtocolsListEditor v-model="protocols" :catalog-entries="catalogs.protocolPortCatalog" />
+          <ISSourcesListEditor v-model="sources" :device-options="deviceOptions" :vm-options="vmsStore.all" :container-options="containers" />
+          <CatalogPickerListEditor
+            v-model="placementAssets"
+            title="Оборудование, ПО, интерфейс, на которых размещается ИС"
+            placeholder="— выберите —"
+            add-label="Оборудование / ПО / интерфейс"
+            :catalog-entries="catalogs.items['placement-assets'] ?? []"
+          />
+        </template>
       </form>
 
       <div class="modal-foot">
@@ -201,11 +345,10 @@ async function submit() {
   font-size: 16px;
   margin: 0;
 }
-.scope-hint {
+.loading-hint {
   font-size: 11.5px;
   color: var(--ink-muted);
-  line-height: 1.5;
-  margin: 0 0 14px;
+  margin: 0;
 }
 .form-error {
   display: flex;

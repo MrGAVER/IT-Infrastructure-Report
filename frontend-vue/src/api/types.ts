@@ -227,6 +227,81 @@ export interface SoftwareAssetDraftRow {
   version: string
 }
 
+/** GET /api/v1/resources/containers — сейчас читается только для одного выпадающего списка
+ * (ISSourcesListEditor.vue). Собственного экрана/стора у контейнеров пока нет, см.
+ * "Ещё не сделано" во frontend-vue/README.md. */
+export interface Container {
+  id: string
+  name: string
+  virtual_machine_id: string | null
+  physical_device_id: string | null
+}
+
+/** GET /api/v1/resources/information-systems/{id}/details — атомарно синхронизируется через
+ * PUT на тот же путь (backend/app/services/crud.py:sync_information_system_details), так же
+ * как интерфейсы устройства (см. DeviceInterfacesEditor.vue), только эндпоинт лежит под
+ * /resources/, а не /devices/. `ips`/`devices`/`vms`/`containers` — устаревшие таблицы,
+ * сохраняемые только ради обратной совместимости отчёта; читаются лишь один раз при первом
+ * открытии формы для миграции в единый `sources`, если он ещё пуст (см.
+ * InformationSystemFormModal.vue) — при сохранении всегда отправляются пустыми, как и в
+ * vanilla-версии (frontend/static/information-systems.js:saveInformationSystemForm). */
+export interface InformationSystemDetails {
+  departments: Array<{ id: string; department_id: string }>
+  ips: Array<{ id: string; ip_address: string; purpose: string | null; virtual_machine_id: string | null; physical_device_id: string | null; external_interaction: boolean }>
+  protocols: Array<{ id: string; protocol_catalog_id: string | null; protocol: string; port: number | null; description: string | null }>
+  devices: Array<{ id: string; physical_device_id: string; role: string | null }>
+  vms: Array<{ id: string; virtual_machine_id: string; role: string | null }>
+  containers: Array<{ id: string; container_id: string; role: string | null }>
+  sources: ISSource[]
+  placement_assets: Array<{ id: string; placement_asset_id: string }>
+}
+
+export interface ISSource {
+  id: string
+  source_type: string
+  physical_device_id: string | null
+  virtual_machine_id: string | null
+  container_id: string | null
+  ip_address: string | null
+  purpose: string | null
+  role: string | null
+  external_interaction: boolean
+}
+
+/** Черновая строка CatalogPickerListEditor.vue — компонент не знает, какой каталог и какое
+ * бэкенд-поле за ним стоит (передаётся через props), поэтому и строка максимально общая.
+ * Переиспользуется для подразделений ИС (department_id) и мест размещения ИС
+ * (placement_asset_id) — обе связи имеют одинаковую форму "выбери одну запись справочника". */
+export interface CatalogPickerDraftRow {
+  id?: string
+  catalogId: string
+}
+
+/** Черновая строка ISProtocolsListEditor.vue. protocol/port не редактируются напрямую —
+ * подставляются при выборе protocol_catalog_id (см. компонент), но обязаны уйти в payload:
+ * ISProtocol.protocol — обязательное поле на бэкенде (backend/app/models.py). */
+export interface ISProtocolDraftRow {
+  id?: string
+  protocol_catalog_id: string
+  protocol: string
+  port: number | null
+  description: string
+}
+
+/** Черновая строка ISSourcesListEditor.vue — см. комментарий к InformationSystemDetails.sources
+ * и ISSourcesListEditor.vue про порядок полей source_type/physical_device_id/virtual_machine_id. */
+export interface ISSourceDraftRow {
+  id?: string
+  source_type: 'manual' | 'device' | 'vm' | 'container'
+  physical_device_id: string
+  virtual_machine_id: string
+  container_id: string
+  ip_address: string
+  purpose: string
+  role: string
+  external_interaction: boolean
+}
+
 /** GET /api/v1/resources/interfaces?physical_device_id=... — физический/логический порт
  * устройства (Лист 3 отчёта). Persist идёт НЕ через обычный CRUD /resources/interfaces, а через
  * атомарный PUT /api/v1/devices/{device_id}/interfaces (см. backend/app/services/crud.py:
