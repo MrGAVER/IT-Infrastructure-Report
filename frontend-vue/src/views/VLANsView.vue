@@ -8,6 +8,7 @@ import { useToast } from '../composables/useToast'
 import type { VLANDefinition } from '../api/types'
 import StatCard from '../components/StatCard.vue'
 import VLANFormModal from '../components/VLANFormModal.vue'
+import VLANDomainsPanel from '../components/VLANDomainsPanel.vue'
 
 const vlans = useVLANsStore()
 const catalogs = useCatalogsStore()
@@ -30,6 +31,7 @@ const bulkVlanId = ref('')
 const bulkDescription = ref('')
 const bulkSelectedDeviceIds = ref<Set<string>>(new Set())
 const bulkAssigning = ref(false)
+const domainsPanelOpen = ref(false)
 
 const allVlanDefinitions = computed(() => vlans.allDefinitions)
 const allDeviceIds = computed(() => devices.all.map((d) => d.id))
@@ -140,11 +142,16 @@ async function removeDefinition(d: VLANDefinition) {
       <button class="btn btn-secondary" @click="toggleBulkAssign">
         {{ bulkAssignOpen ? 'Скрыть массовое назначение' : 'Массовое назначение VLAN' }}
       </button>
+      <button class="btn btn-secondary" @click="domainsPanelOpen = !domainsPanelOpen">
+        {{ domainsPanelOpen ? 'Скрыть домены VLAN' : 'Домены VLAN' }}
+      </button>
       <button class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить VLAN
       </button>
     </div>
+
+    <VLANDomainsPanel v-if="domainsPanelOpen" />
 
     <div v-if="bulkAssignOpen" class="bulk-panel card">
       <div class="bulk-fields">

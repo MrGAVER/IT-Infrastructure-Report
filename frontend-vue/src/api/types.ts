@@ -375,6 +375,19 @@ export interface VLANDeviceAssignment {
   ip_address: string | null
   is_management: boolean
 }
+/** GET /api/v1/resources/vlan-domains — CRUD через generic /resources/vlan-domains, участники —
+ * VLANDomainDeviceLink (см. ниже), синхронизация — POST /api/v1/vlan-domains/{id}/sync
+ * (backend/app/api/system.py:sync_vlan_domain), копирует VLAN устройства source_device_id на
+ * всех остальных участников домена. source_device_id опционален: без него синхронизация
+ * недоступна (кнопка скрыта в VLANDomainsPanel.vue, как и в vanilla-версии — см. app.js, рендер
+ * списка ресурсов: кнопка «Синхронизировать» показывается только при x.source_device_id). */
+export interface VLANDomain {
+  id: string
+  name: string
+  description: string | null
+  source_device_id: string | null
+  auto_sync: boolean
+}
 /** GET /api/v1/resources/device-vlans?physical_device_id=... — назначение VLAN устройству
  * (в отличие от interface_vlans — не привязано к конкретному порту, а к устройству в целом).
  * persist — обычный delete-затем-recreate через createResource/deleteResource (НЕ атомарный
