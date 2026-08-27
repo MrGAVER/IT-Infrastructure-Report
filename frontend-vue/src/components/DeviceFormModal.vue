@@ -15,6 +15,8 @@ import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
+import QuickAddButton from './QuickAddButton.vue'
+import type { CatalogItem } from '../api/types'
 
 const props = defineProps<{ device: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -194,6 +196,15 @@ function toPayload(extra?: Record<string, unknown>) {
   return { ...payload, ...extra }
 }
 
+// Квик-добавление модели устройства подставляет её id, а также синхронизирует device_type_id
+// формы, если он отличается — иначе только что созданная модель могла бы не попасть в
+// filteredModels (фильтр по device_type_id, см. выше) и пропасть из виду в своём же select'е.
+function onModelCreated(record: CatalogItem) {
+  const model = record as unknown as DeviceModel
+  if (model.device_type_id && model.device_type_id !== form.device_type_id) form.device_type_id = model.device_type_id
+  form.model_id = model.id
+}
+
 // Delete-затем-recreate — тот же приём и то же обоснование (маленькие списки, простота важнее
 // diff-логики), что persistVmIps()/persistOpenPorts() в VMFormModal.vue.
 async function persistOpenPorts(deviceId: string) {
@@ -344,10 +355,13 @@ async function submit() {
       <form class="form-grid" @submit.prevent="submit">
         <label class="field">
           <span>Тип устройства *</span>
-          <select v-model="form.device_type_id" required>
-            <option value="">— выберите —</option>
-            <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.device_type_id" required>
+              <option value="">— выберите —</option>
+              <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+            <QuickAddButton resource="device-types" title="Тип устройства" @created="(r) => (form.device_type_id = r.id)" />
+          </div>
         </label>
 
         <label class="field">
@@ -362,38 +376,50 @@ async function submit() {
 
         <label class="field">
           <span>Производитель</span>
-          <select v-model="form.manufacturer_id">
-            <option value="">— не указан —</option>
-            <option v-for="m in catalogs.items['manufacturers'] ?? []" :key="m.id" :value="m.id">{{ m.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.manufacturer_id">
+              <option value="">— не указан —</option>
+              <option v-for="m in catalogs.items['manufacturers'] ?? []" :key="m.id" :value="m.id">{{ m.name }}</option>
+            </select>
+            <QuickAddButton resource="manufacturers" title="Производитель" @created="(r) => (form.manufacturer_id = r.id)" />
+          </div>
         </label>
 
         <label class="field">
           <span>Модель</span>
-          <select v-model="form.model_id">
-            <option value="">— не указана —</option>
-            <option v-for="m in filteredModels" :key="m.id" :value="m.id">{{ m.model }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.model_id">
+              <option value="">— не указана —</option>
+              <option v-for="m in filteredModels" :key="m.id" :value="m.id">{{ m.model }}</option>
+            </select>
+            <QuickAddButton resource="device-models" title="Модель устройства" @created="onModelCreated" />
+          </div>
         </label>
 
         <label class="field">
           <span>Операционная система</span>
-          <select v-model="form.operating_system_id">
-            <option value="">— не указана —</option>
-            <option v-for="os in catalogs.items['operating-systems'] ?? []" :key="os.id" :value="os.id">
-              {{ catalogs.label('operating-systems', os.id) }}
-            </option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.operating_system_id">
+              <option value="">— не указана —</option>
+              <option v-for="os in catalogs.items['operating-systems'] ?? []" :key="os.id" :value="os.id">
+                {{ catalogs.label('operating-systems', os.id) }}
+              </option>
+            </select>
+            <QuickAddButton resource="operating-systems" title="Операционная система" @created="(r) => (form.operating_system_id = r.id)" />
+          </div>
         </label>
 
         <label class="field">
           <span>Встроенная ОС (для сетевого оборудования)</span>
-          <select v-model="form.embedded_os_id">
-            <option value="">— не указана —</option>
-            <option v-for="os in catalogs.items['embedded-os'] ?? []" :key="os.id" :value="os.id">
-              {{ catalogs.label('embedded-os', os.id) }}
-            </option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.embedded_os_id">
+              <option value="">— не указана —</option>
+              <option v-for="os in catalogs.items['embedded-os'] ?? []" :key="os.id" :value="os.id">
+                {{ catalogs.label('embedded-os', os.id) }}
+              </option>
+            </select>
+            <QuickAddButton resource="embedded-os" title="Встроенная ОС" @created="(r) => (form.embedded_os_id = r.id)" />
+          </div>
         </label>
 
         <label class="field checkbox-field">
@@ -510,6 +536,15 @@ async function submit() {
 }
 .field-wide {
   grid-column: 1 / -1;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .field input[type='text'],
 .field select,

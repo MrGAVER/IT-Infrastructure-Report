@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
@@ -382,5 +382,59 @@ describe('DeviceFormModal.vue', () => {
     const vlanCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/device-vlans'))
     expect(vlanCreate?.body).toMatchObject({ physical_device_id: 'dev-new', vlan_id: 'v-10' })
     expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  it('быстрое добавление типа устройства подставляет его в форму', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-types')) {
+          return new Response(JSON.stringify({ id: 'dt-new', name: 'Маршрутизатор' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('.lookup-row button').trigger('click') // "+" рядом с типом устройства — первое поле формы
+    // QuickAddModal.vue телепортируется в document.body (иначе <form> внутри <form> — HTML не
+    // допускает вложенные формы), поэтому wrapper.find() его не видит — ищем через DOMWrapper.
+    const body = new DOMWrapper(document.body)
+    await body.find('.overlay input[type="text"]').setValue('Маршрутизатор')
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('dt-new')
+  })
+
+  it('быстрое добавление модели устройства синхронизирует тип устройства формы', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['manufacturers'] = [{ id: 'mf-1', name: 'Dell' }]
+
+    const lookupRows = wrapper.findAll('.lookup-row')
+    await lookupRows[2].find('button').trigger('click') // 0=тип, 1=производитель, 2=модель
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-models')) {
+          return new Response(JSON.stringify({ id: 'dm-new', device_type_id: 'dt-net', manufacturer_id: 'mf-1', model: 'PowerVault' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const body = new DOMWrapper(document.body)
+    const overlaySelects = body.findAll('.overlay select')
+    await overlaySelects[0].setValue('dt-net') // Тип устройства в квик-модалке — отличается от dt-server, уже выбранного в основной форме
+    await overlaySelects[1].setValue('mf-1') // Производитель
+    await body.find('.overlay input[type="text"]').setValue('PowerVault')
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    const selects = wrapper.findAll('select')
+    expect((selects[0].element as HTMLSelectElement).value).toBe('dt-net') // Тип устройства формы синхронизирован
   })
 })

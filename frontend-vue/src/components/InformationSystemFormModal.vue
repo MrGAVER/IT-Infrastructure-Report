@@ -25,6 +25,7 @@ import { filterHostDevices } from '../utils/deviceFilters'
 import CatalogPickerListEditor from './CatalogPickerListEditor.vue'
 import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
 import ISSourcesListEditor from './ISSourcesListEditor.vue'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ system: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
@@ -249,18 +250,24 @@ async function submit() {
 
         <label class="field">
           <span>Организация технической поддержки</span>
-          <select v-model="form.support_organization_id">
-            <option value="">— не указана —</option>
-            <option v-for="o in catalogs.items['support-organizations'] ?? []" :key="o.id" :value="o.id">{{ o.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.support_organization_id">
+              <option value="">— не указана —</option>
+              <option v-for="o in catalogs.items['support-organizations'] ?? []" :key="o.id" :value="o.id">{{ o.name }}</option>
+            </select>
+            <QuickAddButton resource="support-organizations" title="Организация технической поддержки" @created="(r) => (form.support_organization_id = r.id)" />
+          </div>
         </label>
 
         <label class="field">
           <span>Способ оказания техподдержки</span>
-          <select v-model="form.support_method_id">
-            <option value="">— не указан —</option>
-            <option v-for="m in catalogs.items['support-methods'] ?? []" :key="m.id" :value="m.id">{{ m.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.support_method_id">
+              <option value="">— не указан —</option>
+              <option v-for="m in catalogs.items['support-methods'] ?? []" :key="m.id" :value="m.id">{{ m.name }}</option>
+            </select>
+            <QuickAddButton resource="support-methods" title="Способ оказания техподдержки" @created="(r) => (form.support_method_id = r.id)" />
+          </div>
         </label>
 
         <label class="field field-wide">
@@ -280,10 +287,17 @@ async function submit() {
 
         <label class="field field-wide">
           <span>Средство криптографической защиты</span>
-          <select v-model="form.crypto_protection_description_id" :disabled="!form.crypto_protection_enabled">
-            <option value="">— не указано —</option>
-            <option v-for="c in catalogs.items['crypto-protection-means'] ?? []" :key="c.id" :value="c.id">{{ c.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.crypto_protection_description_id" :disabled="!form.crypto_protection_enabled">
+              <option value="">— не указано —</option>
+              <option v-for="c in catalogs.items['crypto-protection-means'] ?? []" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+            <QuickAddButton
+              resource="crypto-protection-means"
+              title="Средство криптографической защиты"
+              @created="(r) => (form.crypto_protection_description_id = r.id)"
+            />
+          </div>
         </label>
 
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка связанных данных…</p>
@@ -375,6 +389,15 @@ async function submit() {
 }
 .field-wide {
   grid-column: 1 / -1;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .field input[type='text'],
 .field select,

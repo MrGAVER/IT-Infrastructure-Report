@@ -16,6 +16,7 @@ import { filterHostDevices } from '../utils/deviceFilters'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ vm: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
@@ -227,12 +228,15 @@ async function submit() {
 
         <label class="field">
           <span>Операционная система</span>
-          <select v-model="form.operating_system_id">
-            <option value="">— не указана —</option>
-            <option v-for="os in catalogs.items['operating-systems'] ?? []" :key="os.id" :value="os.id">
-              {{ catalogs.label('operating-systems', os.id) }}
-            </option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.operating_system_id">
+              <option value="">— не указана —</option>
+              <option v-for="os in catalogs.items['operating-systems'] ?? []" :key="os.id" :value="os.id">
+                {{ catalogs.label('operating-systems', os.id) }}
+              </option>
+            </select>
+            <QuickAddButton resource="operating-systems" title="Операционная система" @created="(r) => (form.operating_system_id = r.id)" />
+          </div>
         </label>
 
         <label class="field">
@@ -333,6 +337,15 @@ async function submit() {
 }
 .field-wide {
   grid-column: 1 / -1;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .field input[type='text'],
 .field select,

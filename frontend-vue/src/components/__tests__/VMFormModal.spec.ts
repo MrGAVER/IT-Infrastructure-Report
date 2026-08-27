@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import VMFormModal from '../VMFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
@@ -11,8 +11,14 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
 }
 
+// QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
+function body(): DOMWrapper<HTMLElement> {
+  return new DOMWrapper(document.body)
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
+  document.body.innerHTML = ''
 })
 
 describe('VMFormModal.vue', () => {
@@ -193,5 +199,30 @@ describe('VMFormModal.vue', () => {
     const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/vm-software'))
     expect(softwareCreate?.body).toMatchObject({ virtual_machine_id: 'vm-new', software_asset_id: 'sa-1c', version: '8.3.20' })
     expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  it('быстрое добавление операционной системы подставляет её в форму', async () => {
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    const catalogs = useCatalogsStore()
+    catalogs.items['os-categories'] = [{ id: 'cat-1', name: 'Серверные ОС' }]
+    catalogs.items['operating-systems'] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/operating-systems')) {
+          return jsonResponse({ id: 'os-new', name: 'Astra Linux 1.7' }, 201)
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    await wrapper.find('.lookup-row button').trigger('click')
+    await body().find('select').setValue('cat-1') // Категория ОС — обязательное fk-поле схемы
+    await body().find('input[type="text"]').setValue('Astra Linux 1.7')
+    await body().find('form').trigger('submit')
+    await flushPromises()
+
+    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('os-new')
   })
 })

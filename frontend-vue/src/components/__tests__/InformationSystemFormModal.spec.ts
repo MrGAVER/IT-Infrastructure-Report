@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import InformationSystemFormModal from '../InformationSystemFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
@@ -12,6 +12,13 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
 }
 
+// QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts. Названо не
+// просто "body", чтобы не конфликтовать с локальными переменными body = ...response.body
+// внутри некоторых тестов ниже.
+function teleportedContent(): DOMWrapper<HTMLElement> {
+  return new DOMWrapper(document.body)
+}
+
 function findEditors(wrapper: ReturnType<typeof mount>) {
   // Порядок в шаблоне (InformationSystemFormModal.vue): подразделения, протоколы, источники,
   // места размещения — все 4 переиспользуют класс .nested-editor.
@@ -21,6 +28,7 @@ function findEditors(wrapper: ReturnType<typeof mount>) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  document.body.innerHTML = ''
 })
 
 describe('InformationSystemFormModal.vue — миграция и сохранение вложенных связей', () => {
@@ -203,5 +211,27 @@ describe('InformationSystemFormModal.vue — миграция и сохране�
     expect(body.departments).toEqual([])
     expect(body.protocols).toEqual([])
     expect(body.sources).toEqual([])
+  })
+
+  it('быстрое добавление организации техподдержки подставляет её в форму', async () => {
+    const wrapper = mount(InformationSystemFormModal, { props: { system: null } })
+    await flushPromises()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/support-organizations')) {
+          return jsonResponse({ id: 'so-new', name: 'ООО "Технический партнёр"' }, 201)
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    await wrapper.find('.lookup-row button').trigger('click') // организация техподдержки — первое lookup-поле формы
+    await teleportedContent().find('input[type="text"]').setValue('ООО "Технический партнёр"')
+    await teleportedContent().find('form').trigger('submit')
+    await flushPromises()
+
+    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('so-new')
   })
 })
