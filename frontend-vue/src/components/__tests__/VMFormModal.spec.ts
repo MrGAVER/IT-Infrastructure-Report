@@ -173,7 +173,7 @@ describe('VMFormModal.vue', () => {
 
     const addButtons = wrapper.findAll('button.add-btn')
     await addButtons[2].trigger('click') // + Программный актив
-    await wrapper.find('select.col-asset').setValue('sa-1c')
+    await wrapper.find('.col-asset select').setValue('sa-1c')
     await wrapper.find('input.col-version').setValue('8.3.20')
 
     const calls: Array<{ url: string; method: string; body: unknown }> = []

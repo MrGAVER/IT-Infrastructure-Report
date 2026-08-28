@@ -4,8 +4,18 @@
 // же компонент используется для подразделений ИС (department_id) и мест размещения ИС
 // (placement_asset_id) в InformationSystemFormModal.vue — обе связи имеют одинаковую форму.
 import type { CatalogItem, CatalogPickerDraftRow } from '../api/types'
+import QuickAddButton from './QuickAddButton.vue'
 
-const props = defineProps<{ modelValue: CatalogPickerDraftRow[]; catalogEntries: CatalogItem[]; title: string; placeholder: string; addLabel: string }>()
+const props = defineProps<{
+  modelValue: CatalogPickerDraftRow[]
+  catalogEntries: CatalogItem[]
+  title: string
+  placeholder: string
+  addLabel: string
+  /** Ключ ресурса для кнопки "+" быстрого добавления (quickAdd/schema.ts). Если не передан,
+   * кнопка не показывается — не каждый вызывающий код обязан поддерживать быстрое добавление. */
+  quickAddResource?: string
+}>()
 const emit = defineEmits<{ 'update:modelValue': [rows: CatalogPickerDraftRow[]] }>()
 
 function addRow() {
@@ -40,6 +50,7 @@ function updateRow(index: number, catalogId: string) {
         <option value="">{{ placeholder }}</option>
         <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
       </select>
+      <QuickAddButton v-if="quickAddResource" :resource="quickAddResource" :title="addLabel" @created="(r) => updateRow(i, r.id)" />
       <button type="button" class="icon-btn danger" aria-label="Удалить" @click="removeRow(i)">
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
       </button>
@@ -72,7 +83,7 @@ function updateRow(index: number, catalogId: string) {
 }
 .nested-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 8px;
 }

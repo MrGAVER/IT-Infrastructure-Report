@@ -52,8 +52,15 @@ async function submit() {
     // бывает, если форма открылась раньше catalogs.ensureLoaded()), просто ничего не
     // добавится, а выбор в вызывающем select'е молча не сработает — value без
     // соответствующего <option> браузер/jsdom игнорирует.
-    const key = props.resource as keyof typeof catalogs.items
-    catalogs.items[key] = [...(catalogs.items[key] ?? []), created]
+    if (props.resource === 'protocol-port-catalog') {
+      // Особый случай: у ProtocolPortCatalogEntry нет поля name, поэтому он живёт не в
+      // общем catalogs.items, а в отдельном catalogs.protocolPortCatalog — см. комментарий
+      // к типу в api/types.ts.
+      catalogs.protocolPortCatalog = [...catalogs.protocolPortCatalog, created as never]
+    } else {
+      const key = props.resource as keyof typeof catalogs.items
+      catalogs.items[key] = [...(catalogs.items[key] ?? []), created]
+    }
     emit('created', created)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить запись'

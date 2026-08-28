@@ -188,7 +188,7 @@ describe('DeviceFormModal.vue', () => {
 
     const addButtons = wrapper.findAll('button.add-btn')
     await addButtons[1].trigger('click') // + Программный актив (открытые порты — первая кнопка)
-    await wrapper.find('select.col-asset').setValue('sa-ad')
+    await wrapper.find('.col-asset select').setValue('sa-ad')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -436,5 +436,31 @@ describe('DeviceFormModal.vue', () => {
 
     const selects = wrapper.findAll('select')
     expect((selects[0].element as HTMLSelectElement).value).toBe('dt-net') // Тип устройства формы синхронизирован
+  })
+
+  it('быстрое добавление записи протокола/порта автозаполняет строку открытого порта', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+
+    await wrapper.find('button.add-btn').trigger('click') // + Открытый порт — первый add-btn в форме
+    await wrapper.find('.col-catalog button').trigger('click') // "+" рядом со справочником в самой строке
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/protocol-port-catalog')) {
+          return new Response(JSON.stringify({ id: 'cat-new', port: 3389, protocol_type: 'RDP', description: null }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const body = new DOMWrapper(document.body)
+    await body.find('input[type="number"]').setValue('3389')
+    await body.find('input[type="text"]').setValue('RDP')
+    await body.find('form').trigger('submit')
+    await flushPromises()
+
+    expect((wrapper.find('input.col-port').element as HTMLInputElement).value).toBe('3389')
+    expect((wrapper.find('input.col-protocol').element as HTMLInputElement).value).toBe('RDP')
   })
 })

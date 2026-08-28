@@ -3,7 +3,8 @@
 // из выбранной записи справочника (тот же protocol-port-catalog, что в OpenPortListEditor.vue),
 // но обязаны уйти в payload при сохранении: ISProtocol.protocol — обязательное поле на бэкенде
 // (см. комментарий к ISProtocolDraftRow в api/types.ts).
-import type { ISProtocolDraftRow, ProtocolPortCatalogEntry } from '../api/types'
+import type { ISProtocolDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ modelValue: ISProtocolDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: ISProtocolDraftRow[]] }>()
@@ -33,6 +34,14 @@ function onCatalogChange(index: number, catalogId: string) {
     ...(entry ? { protocol: entry.protocol_type, port: entry.port } : {}),
   })
 }
+
+// Запись напрямую, без обхода через onCatalogChange/props.catalogEntries.find() — на момент
+// эмита 'created' обновлённый снизу проп catalogEntries ещё не обязательно успел
+// синхронизироваться (см. подробное обоснование в OpenPortListEditor.vue:onQuickAdded).
+function onQuickAdded(index: number, record: CatalogItem) {
+  const entry = record as unknown as ProtocolPortCatalogEntry
+  updateField(index, { protocol_catalog_id: entry.id, protocol: entry.protocol_type, port: entry.port })
+}
 </script>
 
 <template>
@@ -44,10 +53,13 @@ function onCatalogChange(index: number, catalogId: string) {
     <div v-if="!modelValue.length" class="empty">Не добавлено</div>
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
-      <select class="col-catalog" :value="row.protocol_catalog_id" @change="onCatalogChange(i, ($event.target as HTMLSelectElement).value)">
-        <option value="">— протокол / порт —</option>
-        <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ `${entry.port} / ${entry.protocol_type}` }}</option>
-      </select>
+      <div class="col-catalog lookup-row">
+        <select :value="row.protocol_catalog_id" @change="onCatalogChange(i, ($event.target as HTMLSelectElement).value)">
+          <option value="">— протокол / порт —</option>
+          <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ `${entry.port} / ${entry.protocol_type}` }}</option>
+        </select>
+        <QuickAddButton resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
+      </div>
       <input
         class="col-desc"
         type="text"
@@ -87,9 +99,18 @@ function onCatalogChange(index: number, catalogId: string) {
 }
 .nested-row {
   display: grid;
-  grid-template-columns: 1fr 1.6fr auto;
+  grid-template-columns: 1.1fr 1.6fr auto;
   align-items: center;
   gap: 8px;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .nested-row input,
 .nested-row select {

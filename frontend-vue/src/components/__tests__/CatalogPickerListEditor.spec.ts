@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import CatalogPickerListEditor from '../CatalogPickerListEditor.vue'
 import type { CatalogItem, CatalogPickerDraftRow } from '../../api/types'
 
@@ -9,6 +10,20 @@ const catalog: CatalogItem[] = [
 ]
 
 const props = { title: 'Подразделения', placeholder: '— выберите —', addLabel: 'Подразделение', catalogEntries: catalog }
+
+// QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
+function teleportedContent(): DOMWrapper<HTMLElement> {
+  return new DOMWrapper(document.body)
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status })
+}
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  document.body.innerHTML = ''
+})
 
 describe('CatalogPickerListEditor.vue', () => {
   it('показывает подсказку, если ничего не добавлено', () => {
@@ -46,5 +61,35 @@ describe('CatalogPickerListEditor.vue', () => {
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([rows[1]])
+  })
+
+  it('без quickAddResource кнопка быстрого добавления не показывается', () => {
+    const wrapper = mount(CatalogPickerListEditor, { props: { ...props, modelValue: [{ catalogId: '' }] } })
+    expect(wrapper.find('.nested-row button:not(.icon-btn)').exists()).toBe(false)
+  })
+
+  it('быстрое добавление записи справочника подставляет её id в строку', async () => {
+    const wrapper = mount(CatalogPickerListEditor, {
+      props: { ...props, modelValue: [{ catalogId: '' }], quickAddResource: 'departments' },
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/departments')) {
+          return jsonResponse({ id: 'dep-new', name: 'Отдел разработки' }, 201)
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    await wrapper.find('.nested-row button:not(.icon-btn)').trigger('click')
+    await teleportedContent().find('input[type="text"]').setValue('Отдел разработки')
+    await teleportedContent().find('form').trigger('submit')
+    await flushPromises()
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    const lastRows = emitted[emitted.length - 1][0] as CatalogPickerDraftRow[]
+    expect(lastRows[0].catalogId).toBe('dep-new')
   })
 })

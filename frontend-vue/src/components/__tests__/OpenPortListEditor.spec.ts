@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import OpenPortListEditor from '../OpenPortListEditor.vue'
 import type { OpenPortDraftRow, ProtocolPortCatalogEntry } from '../../api/types'
 
@@ -7,6 +8,20 @@ const catalog: ProtocolPortCatalogEntry[] = [
   { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
   { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
 ]
+
+// QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
+function teleportedContent(): DOMWrapper<HTMLElement> {
+  return new DOMWrapper(document.body)
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status })
+}
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  document.body.innerHTML = ''
+})
 
 describe('OpenPortListEditor.vue', () => {
   it('показывает подсказку, если открытые порты не добавлены', () => {
@@ -18,7 +33,7 @@ describe('OpenPortListEditor.vue', () => {
     const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }]
     const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
 
-    await wrapper.find('select.col-catalog').setValue('cat-https')
+    await wrapper.find('.col-catalog select').setValue('cat-https')
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([
@@ -56,5 +71,35 @@ describe('OpenPortListEditor.vue', () => {
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([])
+  })
+
+  it('быстрое добавление записи справочника подставляет id в protocol_catalog_id строки', async () => {
+    // Порт/протокол автозаполняются только если catalogEntries уже отражает созданную запись —
+    // в реальном приложении так и есть (VMFormModal.vue/DeviceFormModal.vue передают проп как
+    // catalogs.protocolPortCatalog напрямую из стора, реактивно), но в изолированном юнит-тесте
+    // с статичным массивом это не воспроизвести — см. интеграционный тест в
+    // DeviceFormModal.spec.ts на полное автозаполнение после квик-добавления.
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/protocol-port-catalog')) {
+          return jsonResponse({ id: 'cat-new', port: 3389, protocol_type: 'RDP', description: null }, 201)
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    await wrapper.find('.col-catalog button').trigger('click')
+    await teleportedContent().find('input[type="number"]').setValue('3389')
+    await teleportedContent().find('input[type="text"]').setValue('RDP')
+    await teleportedContent().find('form').trigger('submit')
+    await flushPromises()
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    const lastRows = emitted[emitted.length - 1][0] as OpenPortDraftRow[]
+    expect(lastRows[0].protocol_catalog_id).toBe('cat-new')
   })
 })

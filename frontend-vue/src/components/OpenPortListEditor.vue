@@ -7,7 +7,8 @@
 // "Ещё не сделано" в frontend-vue/README.md: "привязка ... открытых портов к
 // устройству" — в vanilla-фронтенде это saveDeviceOpenPorts в vm-editors.js,
 // почти дословно совпадающий с saveVMOpenPorts).
-import type { OpenPortDraftRow, ProtocolPortCatalogEntry } from '../api/types'
+import type { OpenPortDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: OpenPortDraftRow[]] }>()
@@ -48,6 +49,17 @@ function onCatalogChange(index: number, catalogId: string) {
     ...(entry ? { port: String(entry.port), protocol: entry.protocol_type } : {}),
   })
 }
+
+// Быстро добавленная запись используется НАПРЯМУЮ (не через onCatalogChange, который ищет
+// её в props.catalogEntries) — на момент этого вызова прокинутый вниз проп catalogEntries ещё
+// не обязательно успел обновиться: обновление стора в QuickAddModal.vue и эмит 'created'
+// происходят синхронно, до следующего цикла реактивности/рендера родителя, так что при поиске
+// по props.catalogEntries новая запись иногда ещё не была бы найдена. У record уже есть все
+// нужные поля — используем их напрямую, без обхода через поиск.
+function onQuickAdded(index: number, record: CatalogItem) {
+  const entry = record as unknown as ProtocolPortCatalogEntry
+  updateField(index, { protocol_catalog_id: entry.id, port: String(entry.port), protocol: entry.protocol_type })
+}
 </script>
 
 <template>
@@ -60,14 +72,16 @@ function onCatalogChange(index: number, catalogId: string) {
     <div v-if="!modelValue.length" class="empty">Открытые порты не добавлены</div>
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
-      <select
-        class="col-catalog"
-        :value="row.protocol_catalog_id"
-        @change="onCatalogChange(i, ($event.target as HTMLSelectElement).value)"
-      >
-        <option value="">— справочник —</option>
-        <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ catalogLabel(entry) }}</option>
-      </select>
+      <div class="col-catalog lookup-row">
+        <select
+          :value="row.protocol_catalog_id"
+          @change="onCatalogChange(i, ($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">— справочник —</option>
+          <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ catalogLabel(entry) }}</option>
+        </select>
+        <QuickAddButton resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
+      </div>
       <input
         class="col-port"
         type="number"
@@ -140,9 +154,18 @@ function onCatalogChange(index: number, catalogId: string) {
 }
 .nested-row {
   display: grid;
-  grid-template-columns: 1.3fr 0.7fr 1fr 0.9fr 1.3fr auto;
+  grid-template-columns: 1.5fr 0.7fr 1fr 0.9fr 1.3fr auto;
   align-items: center;
   gap: 8px;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .nested-row input,
 .nested-row select {

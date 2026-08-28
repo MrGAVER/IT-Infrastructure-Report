@@ -150,7 +150,7 @@ describe('InformationSystemFormModal.vue — миграция и сохране�
     await editors.sources.find('button.add-btn').trigger('click')
 
     await editors.departments.find('select').setValue('dep-1')
-    await editors.protocols.find('select.col-catalog').setValue('cat-https')
+    await editors.protocols.find('.col-catalog select').setValue('cat-https')
     await editors.sources.find('.source-grid input').setValue('192.168.1.1') // IP при типе "вручную" по умолчанию
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []

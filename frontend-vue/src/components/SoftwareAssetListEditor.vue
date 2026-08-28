@@ -5,6 +5,7 @@
 // VmIpListEditor/OpenPortListEditor — контролируемый компонент, не знает о владельце
 // (переиспользуется VMFormModal.vue и DeviceFormModal.vue без изменений).
 import type { CatalogItem, SoftwareAssetDraftRow } from '../api/types'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ modelValue: SoftwareAssetDraftRow[]; catalogEntries: CatalogItem[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: SoftwareAssetDraftRow[]] }>()
@@ -28,6 +29,12 @@ function updateField(index: number, patch: Partial<SoftwareAssetDraftRow>) {
   const next = props.modelValue.map((row, i) => (i === index ? { ...row, ...patch } : row))
   emit('update:modelValue', next)
 }
+
+// Id записи напрямую из уже полученного record — тот же приём и то же обоснование про тайминг
+// реактивности пропа, что в OpenPortListEditor.vue:onQuickAdded.
+function onQuickAdded(index: number, record: CatalogItem) {
+  updateField(index, { software_asset_id: record.id })
+}
 </script>
 
 <template>
@@ -40,14 +47,16 @@ function updateField(index: number, patch: Partial<SoftwareAssetDraftRow>) {
     <div v-if="!modelValue.length" class="empty">Программные активы не добавлены</div>
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
-      <select
-        class="col-asset"
-        :value="row.software_asset_id"
-        @change="updateField(i, { software_asset_id: ($event.target as HTMLSelectElement).value })"
-      >
-        <option value="">— выберите ПО —</option>
-        <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-      </select>
+      <div class="col-asset lookup-row">
+        <select
+          :value="row.software_asset_id"
+          @change="updateField(i, { software_asset_id: ($event.target as HTMLSelectElement).value })"
+        >
+          <option value="">— выберите ПО —</option>
+          <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
+        </select>
+        <QuickAddButton resource="software-assets" title="Программный актив" @created="(r) => onQuickAdded(i, r)" />
+      </div>
       <input
         class="col-version"
         type="text"
@@ -100,6 +109,15 @@ function updateField(index: number, patch: Partial<SoftwareAssetDraftRow>) {
   grid-template-columns: 2fr 1fr auto;
   align-items: center;
   gap: 8px;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .nested-row input,
 .nested-row select {

@@ -307,6 +307,7 @@ async function submit() {
             title="Работники, группы работников или подразделения, использующие ИС"
             placeholder="— выберите подразделение —"
             add-label="Подразделение"
+            quick-add-resource="departments"
             :catalog-entries="catalogs.items['departments'] ?? []"
           />
           <ISProtocolsListEditor v-model="protocols" :catalog-entries="catalogs.protocolPortCatalog" />
@@ -316,6 +317,7 @@ async function submit() {
             title="Оборудование, ПО, интерфейс, на которых размещается ИС"
             placeholder="— выберите —"
             add-label="Оборудование / ПО / интерфейс"
+            quick-add-resource="placement-assets"
             :catalog-entries="catalogs.items['placement-assets'] ?? []"
           />
         </template>
