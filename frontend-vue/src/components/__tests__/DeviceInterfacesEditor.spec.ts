@@ -1,14 +1,29 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import DeviceInterfacesEditor from '../DeviceInterfacesEditor.vue'
 import type { CatalogItem, InterfaceDraftRow } from '../../api/types'
 
 const typeOptions: CatalogItem[] = [{ id: 't-eth', name: 'Ethernet' }]
 const speedOptions: CatalogItem[] = [{ id: 's-1g', name: '1 Гбит/с' }]
 
+// QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
+function teleportedContent(): DOMWrapper<HTMLElement> {
+  return new DOMWrapper(document.body)
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status })
+}
+
 function emptyRow(): InterfaceDraftRow {
   return { name: '', interface_type_id: '', mac_address: '', speed_id: '', is_management: false, is_data_transfer: false, description: '', vlan_ids: [], ips: [] }
 }
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  document.body.innerHTML = ''
+})
 
 describe('DeviceInterfacesEditor.vue', () => {
   it('показывает подсказку, если интерфейсы не добавлены', () => {
@@ -77,5 +92,34 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([rows[1]])
+  })
+
+  it('быстрое добавление типа интерфейса подставляет его в тип по умолчанию генератора', async () => {
+    // Проверяем не .value самого <select> (в изолированном юнит-тесте у него нет пары <option>
+    // для новой записи — typeOptions статичный проп, а не реактивная привязка к стору, как в
+    // реальном приложении, см. OpenPortListEditor.spec.ts), а реальный эффект — что
+    // сгенерированные интерфейсы получают именно новый тип.
+    const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions } })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/interface-types')) {
+          return jsonResponse({ id: 't-new', name: 'InfiniBand' }, 201)
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    await wrapper.find('.generator .lookup-row button').trigger('click') // "+" рядом с "Тип по умолчанию"
+    await teleportedContent().find('input[type="text"]').setValue('InfiniBand')
+    await teleportedContent().find('form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.find('.generator input[type="number"]').setValue('1') // genCount по умолчанию — 0 для пустого modelValue
+    await wrapper.find('.generator button.btn-secondary').trigger('click') // Сгенерировать
+    const emitted = wrapper.emitted('update:modelValue')!
+    const rows = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+    expect(rows[0].interface_type_id).toBe('t-new')
   })
 })

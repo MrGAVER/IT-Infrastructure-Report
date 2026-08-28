@@ -16,6 +16,7 @@
 // InterfaceVLAN из payload при каждом PUT .../interfaces).
 import { ref } from 'vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow } from '../api/types'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ modelValue: InterfaceDraftRow[]; typeOptions: CatalogItem[]; speedOptions: CatalogItem[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
@@ -107,17 +108,23 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
       </label>
       <label>
         <span>Тип по умолчанию</span>
-        <select v-model="genTypeId">
-          <option value="">— не выбрано —</option>
-          <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-        </select>
+        <div class="lookup-row">
+          <select v-model="genTypeId">
+            <option value="">— не выбрано —</option>
+            <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+          <QuickAddButton resource="interface-types" title="Тип интерфейса" @created="(r) => (genTypeId = r.id)" />
+        </div>
       </label>
       <label>
         <span>Скорость по умолчанию</span>
-        <select v-model="genSpeedId">
-          <option value="">— не выбрано —</option>
-          <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
+        <div class="lookup-row">
+          <select v-model="genSpeedId">
+            <option value="">— не выбрано —</option>
+            <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+          <QuickAddButton resource="interface-speeds" title="Скорость интерфейса" @created="(r) => (genSpeedId = r.id)" />
+        </div>
       </label>
       <button type="button" class="btn btn-secondary" @click="generate">Сгенерировать</button>
       <button type="button" class="btn btn-secondary" @click="addRow">
@@ -252,6 +259,14 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
   font-size: 12.5px;
   color: var(--ink);
   font-family: inherit;
+  width: 130px;
+}
+.generator .lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.generator .lookup-row select {
   width: 130px;
 }
 .iface-card {

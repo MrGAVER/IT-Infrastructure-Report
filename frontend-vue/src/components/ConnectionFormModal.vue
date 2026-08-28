@@ -14,6 +14,7 @@ import type { Connection, Device, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ connection: Connection | null }>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
@@ -201,10 +202,13 @@ async function submit() {
         <div class="form-grid">
           <label class="field">
             <span>Тип физической линии связи *</span>
-            <select v-model="form.connection_type_id">
-              <option value="">— выберите —</option>
-              <option v-for="t in catalogs.items['connection-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
+            <div class="lookup-row">
+              <select v-model="form.connection_type_id">
+                <option value="">— выберите —</option>
+                <option v-for="t in catalogs.items['connection-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
+              </select>
+              <QuickAddButton resource="connection-types" title="Тип подключения" @created="(r) => (form.connection_type_id = r.id)" />
+            </div>
           </label>
 
           <label class="field">
@@ -326,6 +330,15 @@ async function submit() {
 }
 .field-wide {
   grid-column: 1 / -1;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .field input[type='text'],
 .field select,
