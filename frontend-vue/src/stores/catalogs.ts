@@ -126,6 +126,19 @@ export const useCatalogsStore = defineStore('catalogs', {
       }
       return (item.name as string) ?? fallback
     },
+    /** Точечно заменяет интерфейсы одного устройства в уже загруженном каталоге 'interfaces' —
+     * тот же приём, что точечное добавление в QuickAddModal.vue (createResource + merge вместо
+     * полного catalogs.reload()). Нужно после PUT /devices/{id}/interfaces из DevicePortsModal.vue
+     * (управление портами с экрана «Подключения»): без этого экран продолжал бы показывать в
+     * селектах порта устаревший список портов устройства до следующей полной перезагрузки
+     * справочников. items — как есть из ответа sync_interfaces, без ?? [] у самого items (не
+     * бывает undefined, PUT всегда возвращает массив), но items['interfaces'] может быть ещё не
+     * загружен (форма открылась раньше catalogs.ensureLoaded()) — тогда просто ничего не покажется
+     * в селекте до следующего reload(), как и в остальных точечных обновлениях каталога. */
+    replaceDeviceInterfaces(deviceId: string, items: CatalogItem[]) {
+      const current = this.items['interfaces'] ?? []
+      this.items['interfaces'] = [...current.filter((i) => i.physical_device_id !== deviceId), ...items]
+    },
     /** id единицы + все id её потомков — нужно для фильтра "включая дочерние" (см. reporting.py backend). */
     unitAndDescendantIds(rootId: string): Set<string> {
       const result = new Set<string>([rootId])

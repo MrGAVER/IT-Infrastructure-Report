@@ -85,4 +85,26 @@ describe('useCatalogsStore', () => {
     // Неизвестный ключ — просто возвращаем сам ключ как fallback, не падаем.
     expect(store.resourceLabel('unknown-resource')).toBe('unknown-resource')
   })
+
+  it('replaceDeviceInterfaces точечно заменяет порты одного устройства, не трогая чужие', () => {
+    const store = useCatalogsStore()
+    store.items['interfaces'] = [
+      { id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' },
+      { id: 'if-2', name: 'eth1', physical_device_id: 'dev-1' },
+      { id: 'if-3', name: 'eth0', physical_device_id: 'dev-2' },
+    ]
+
+    store.replaceDeviceInterfaces('dev-1', [{ id: 'if-1', name: 'eth0-renamed', physical_device_id: 'dev-1' }])
+
+    expect(store.items['interfaces']).toEqual([
+      { id: 'if-3', name: 'eth0', physical_device_id: 'dev-2' },
+      { id: 'if-1', name: 'eth0-renamed', physical_device_id: 'dev-1' },
+    ])
+  })
+
+  it('replaceDeviceInterfaces на ещё не загруженный каталог просто ничего не показывает (без падения)', () => {
+    const store = useCatalogsStore()
+    expect(() => store.replaceDeviceInterfaces('dev-1', [{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }])).not.toThrow()
+    expect(store.items['interfaces']).toEqual([{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }])
+  })
 })
