@@ -8,6 +8,7 @@ import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
+import DevicePortsModal from '../components/DevicePortsModal.vue'
 
 const connections = useConnectionsStore()
 const catalogs = useCatalogsStore()
@@ -17,6 +18,27 @@ const { notify, notifyError } = useToast()
 const modalConnection = ref<Connection | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
+
+// Прямое управление портами устройства из строки таблицы — без захода в форму подключения
+// (см. DevicePortsModal.vue). Connection отдаёт только *_interface_id и уже резолвленные
+// *_name (enrich_connections() на бэкенде), без physical_device_id напрямую — id устройства
+// находим через уже загруженный каталог 'interfaces' (ConnectionsView грузит его в onMounted).
+const portsTarget = ref<{ deviceId: string; deviceLabel: string } | null>(null)
+function openPortsForInterface(interfaceId: string, deviceLabel: string) {
+  const deviceId = catalogs.indexOf('interfaces').get(interfaceId)?.physical_device_id as string | undefined
+  if (!deviceId) return
+  portsTarget.value = { deviceId, deviceLabel }
+}
+function closePorts() {
+  portsTarget.value = null
+}
+async function onPortsSaved() {
+  closePorts()
+  // Переименование/добавление порта могло изменить то, что показывает таблица
+  // (source_interface_name/destination_interface_name резолвятся один раз при загрузке
+  // подключений), поэтому перечитываем список — тот же принцип, что onSaved() ниже.
+  await connections.reload()
+}
 
 onMounted(async () => {
   await Promise.all([connections.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
@@ -108,12 +130,22 @@ async function removeConnection(c: Connection) {
             <tr v-for="c in connections.pageItems" :key="c.id">
               <td>
                 <span class="devname">{{ c.source_device_name }}</span>
-                <span class="portname mono">{{ c.source_interface_name }}</span>
+                <span class="portname mono">
+                  {{ c.source_interface_name }}
+                  <button type="button" class="port-manage-btn" aria-label="Управлять портами исходного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.source_interface_id, c.source_device_name)">
+                    <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
+                  </button>
+                </span>
               </td>
               <td class="link-cell"><svg class="icon"><use href="/icons.svg#i-network" /></svg></td>
               <td>
                 <span class="devname">{{ c.destination_device_name }}</span>
-                <span class="portname mono">{{ c.destination_interface_name }}</span>
+                <span class="portname mono">
+                  {{ c.destination_interface_name }}
+                  <button type="button" class="port-manage-btn" aria-label="Управлять портами конечного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.destination_interface_id, c.destination_device_name)">
+                    <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
+                  </button>
+                </span>
               </td>
               <td>{{ c.connection_type_name }}</td>
               <td class="purpose-cell">{{ c.purpose || '—' }}</td>
@@ -150,6 +182,13 @@ async function removeConnection(c: Connection) {
     </div>
 
     <ConnectionFormModal v-if="modalOpen" :connection="modalConnection" @close="closeModal" @saved="onSaved" />
+    <DevicePortsModal
+      v-if="portsTarget"
+      :device-id="portsTarget.deviceId"
+      :device-label="portsTarget.deviceLabel"
+      @close="closePorts"
+      @saved="onPortsSaved"
+    />
   </div>
 </template>
 
@@ -252,10 +291,36 @@ tbody tr:hover td {
   display: block;
 }
 .portname {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   color: var(--ink-muted);
   font-size: 11.3px;
   margin-top: 2px;
+}
+.port-manage-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: var(--ink-muted);
+  border-radius: var(--r-s);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+tr:hover .port-manage-btn {
+  opacity: 1;
+}
+.port-manage-btn:hover {
+  color: var(--brand);
+  background: var(--surface-2);
+}
+.port-manage-btn .icon {
+  width: 11px;
+  height: 11px;
 }
 .link-cell {
   text-align: center;

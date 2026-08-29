@@ -15,6 +15,7 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import QuickAddButton from './QuickAddButton.vue'
+import DevicePortsModal from './DevicePortsModal.vue'
 
 const props = defineProps<{ connection: Connection | null }>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
@@ -94,6 +95,37 @@ watch(
   },
 )
 
+// Управление портами выбранного устройства прямо отсюда, без ухода в форму устройства (см.
+// DevicePortsModal.vue) — какое из двух устройств редактируется, определяет portsEndpoint.
+// Кнопка "Порты" в каждом fieldset доступна только когда устройство уже выбрано (иначе неясно,
+// чьи порты открывать).
+const portsEndpoint = ref<'source' | 'destination' | null>(null)
+function openPorts(endpoint: 'source' | 'destination') {
+  portsEndpoint.value = endpoint
+}
+function closePorts() {
+  portsEndpoint.value = null
+}
+const portsDeviceId = computed(() => (portsEndpoint.value === 'source' ? form.sourceDeviceId : form.destinationDeviceId))
+const portsDeviceLabel = computed(() => {
+  const device = devicesStore.all.find((d) => d.id === portsDeviceId.value)
+  return device ? deviceLabel(device) : ''
+})
+// После сохранения портов список интерфейсов устройства в catalogs.items['interfaces'] уже
+// обновлён самой модалкой (см. DevicePortsModal.vue:submit → catalogs.replaceDeviceInterfaces),
+// поэтому sourceInterfaces/destinationInterfaces пересчитаются реактивно сами. Остаётся только
+// сбросить выбор порта, если он был удалён в модалке, — иначе <select> остался бы указывать на
+// id, для которого больше нет <option>.
+function onPortsSaved() {
+  if (portsEndpoint.value === 'source' && !sourceInterfaces.value.some((i) => i.id === form.source_interface_id)) {
+    form.source_interface_id = ''
+  }
+  if (portsEndpoint.value === 'destination' && !destinationInterfaces.value.some((i) => i.id === form.destination_interface_id)) {
+    form.destination_interface_id = ''
+  }
+  closePorts()
+}
+
 async function submit() {
   errorMessage.value = null
   if (!form.source_interface_id) {
@@ -163,12 +195,24 @@ async function submit() {
             </label>
             <label class="field">
               <span>Порт *</span>
-              <select v-model="form.source_interface_id" :disabled="!form.sourceDeviceId">
-                <option value="">— выберите —</option>
-                <option v-for="i in sourceInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
-              </select>
+              <div class="lookup-row">
+                <select v-model="form.source_interface_id" :disabled="!form.sourceDeviceId">
+                  <option value="">— выберите —</option>
+                  <option v-for="i in sourceInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
+                </select>
+                <button
+                  type="button"
+                  class="quick-add-btn"
+                  aria-label="Управлять портами исходного устройства"
+                  title="Управлять портами устройства"
+                  :disabled="!form.sourceDeviceId"
+                  @click="openPorts('source')"
+                >
+                  <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
+                </button>
+              </div>
               <small v-if="form.sourceDeviceId && !sourceInterfaces.length" class="hint-small">
-                Нет свободных портов — все заняты активными подключениями.
+                Нет свободных портов — все заняты активными подключениями. Можно добавить новый через «Управлять портами устройства».
               </small>
             </label>
           </fieldset>
@@ -188,12 +232,24 @@ async function submit() {
             </label>
             <label class="field">
               <span>Порт *</span>
-              <select v-model="form.destination_interface_id" :disabled="!form.destinationDeviceId">
-                <option value="">— выберите —</option>
-                <option v-for="i in destinationInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
-              </select>
+              <div class="lookup-row">
+                <select v-model="form.destination_interface_id" :disabled="!form.destinationDeviceId">
+                  <option value="">— выберите —</option>
+                  <option v-for="i in destinationInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
+                </select>
+                <button
+                  type="button"
+                  class="quick-add-btn"
+                  aria-label="Управлять портами конечного устройства"
+                  title="Управлять портами устройства"
+                  :disabled="!form.destinationDeviceId"
+                  @click="openPorts('destination')"
+                >
+                  <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
+                </button>
+              </div>
               <small v-if="form.destinationDeviceId && !destinationInterfaces.length" class="hint-small">
-                Нет свободных портов — все заняты активными подключениями.
+                Нет свободных портов — все заняты активными подключениями. Можно добавить новый через «Управлять портами устройства».
               </small>
             </label>
           </fieldset>
@@ -238,6 +294,14 @@ async function submit() {
         </button>
       </div>
     </div>
+
+    <DevicePortsModal
+      v-if="portsEndpoint"
+      :device-id="portsDeviceId"
+      :device-label="portsDeviceLabel"
+      @close="closePorts"
+      @saved="onPortsSaved"
+    />
   </div>
 </template>
 
@@ -339,6 +403,31 @@ async function submit() {
 .lookup-row select {
   flex: 1;
   min-width: 0;
+}
+.quick-add-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-s);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.quick-add-btn:hover:not(:disabled) {
+  color: var(--brand);
+  border-color: var(--brand);
+}
+.quick-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.quick-add-btn .icon {
+  width: 14px;
+  height: 14px;
 }
 .field input[type='text'],
 .field select,
