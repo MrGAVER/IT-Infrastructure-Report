@@ -8,7 +8,7 @@
 // ИС, у которой sources ещё пуст, — иначе такая ИС выглядела бы в новом UI так, будто у неё
 // вообще нет источников, хотя данные есть, просто в старых таблицах.
 import { computed, reactive, ref, watch } from 'vue'
-import { api, createResource, updateResource, listResource } from '../api/client'
+import { api, createResource, updateResource } from '../api/client'
 import type {
   InformationSystem,
   InformationSystemDetails,
@@ -16,11 +16,11 @@ import type {
   ISSourceDraftRow,
   ISProtocolDraftRow,
   CatalogPickerDraftRow,
-  Container,
 } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
+import { useContainersStore } from '../stores/containers'
 import { filterHostDevices } from '../utils/deviceFilters'
 import CatalogPickerListEditor from './CatalogPickerListEditor.vue'
 import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
@@ -33,6 +33,11 @@ const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
 const vmsStore = useVMsStore()
+// Контейнеры теперь читаются из общего стора (см. ContainersView.vue), а не грузятся заново
+// здесь при каждом открытии формы — тот же приём, что уже используется для devicesStore/
+// vmsStore: форма читает уже загруженный родительским view стор, а не грузит сама
+// (InformationSystemsView.vue вызывает containersStore.ensureLoaded() в onMounted).
+const containersStore = useContainersStore()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.system !== null)
@@ -60,7 +65,6 @@ const departments = ref<CatalogPickerDraftRow[]>([])
 const protocols = ref<ISProtocolDraftRow[]>([])
 const sources = ref<ISSourceDraftRow[]>([])
 const placementAssets = ref<CatalogPickerDraftRow[]>([])
-const containers = ref<Container[]>([])
 const loadingNested = ref(false)
 
 function toSourceDraftRow(x: ISSource): ISSourceDraftRow {
@@ -130,11 +134,10 @@ watch(
 
     loadingNested.value = true
     try {
-      const [containersRes, details] = await Promise.all([
-        containers.value.length ? Promise.resolve(null) : listResource<Container>('containers', { limit: 1000 }),
+      const [, details] = await Promise.all([
+        containersStore.ensureLoaded(),
         s ? api.get<InformationSystemDetails>(`/resources/information-systems/${s.id}/details`) : Promise.resolve(null),
       ])
-      if (containersRes) containers.value = containersRes.items
       if (details) {
         departments.value = details.departments.map((x) => ({ id: x.id, catalogId: x.department_id }))
         protocols.value = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id ?? '', protocol: x.protocol, port: x.port, description: x.description ?? '' }))
@@ -311,7 +314,7 @@ async function submit() {
             :catalog-entries="catalogs.items['departments'] ?? []"
           />
           <ISProtocolsListEditor v-model="protocols" :catalog-entries="catalogs.protocolPortCatalog" />
-          <ISSourcesListEditor v-model="sources" :device-options="deviceOptions" :vm-options="vmsStore.all" :container-options="containers" />
+          <ISSourcesListEditor v-model="sources" :device-options="deviceOptions" :vm-options="vmsStore.all" :container-options="containersStore.all" />
           <CatalogPickerListEditor
             v-model="placementAssets"
             title="Оборудование, ПО, интерфейс, на которых размещается ИС"

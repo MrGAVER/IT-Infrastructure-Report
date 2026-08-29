@@ -11,7 +11,7 @@ const vms: VirtualMachine[] = [
   { id: 'vm-1', name: 'app-vm-1', physical_device_id: 'dev-1' } as VirtualMachine,
   { id: 'vm-2', name: 'app-vm-2', physical_device_id: 'dev-2' } as VirtualMachine,
 ]
-const containers: Container[] = [{ id: 'ct-1', name: 'nginx-container', virtual_machine_id: null, physical_device_id: null }]
+const containers: Container[] = [{ id: 'ct-1', name: 'nginx-container', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null }]
 
 function emptyRow(): ISSourceDraftRow {
   return { source_type: 'manual', physical_device_id: '', virtual_machine_id: '', container_id: '', ip_address: '', purpose: '', role: '', external_interaction: false }

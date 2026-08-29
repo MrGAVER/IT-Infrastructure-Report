@@ -8,6 +8,7 @@ const primaryNav = [
   { to: '/devices', icon: 'i-server', label: 'Инвентаризация устройств' },
   { to: '/connections', icon: 'i-network', label: 'Подключения' },
   { to: '/vms', icon: 'i-box', label: 'Виртуальные машины' },
+  { to: '/containers', icon: 'i-box', label: 'Контейнеры' },
 ]
 const catalogNav = [
   { to: '/vlans', icon: 'i-grid', label: 'VLAN' },

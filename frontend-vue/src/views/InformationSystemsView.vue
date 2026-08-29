@@ -4,6 +4,7 @@ import { useInformationSystemsStore } from '../stores/informationSystems'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
+import { useContainersStore } from '../stores/containers'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { InformationSystem } from '../api/types'
@@ -14,6 +15,7 @@ const systems = useInformationSystemsStore()
 const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
 const vms = useVMsStore()
+const containers = useContainersStore()
 const { notify, notifyError } = useToast()
 
 const modalSystem = ref<InformationSystem | null>(null)
@@ -21,10 +23,10 @@ const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
 
 onMounted(async () => {
-  // devices/vms — не для собственной таблицы этого экрана, а для выпадающих списков
+  // devices/vms/containers — не для собственной таблицы этого экрана, а для выпадающих списков
   // источников в ISSourcesListEditor.vue внутри InformationSystemFormModal.vue (тот же приём,
   // что в VMsView.vue: форма читает уже загруженный стор, а не грузит сама).
-  await Promise.all([systems.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded(), vms.ensureLoaded()])
+  await Promise.all([systems.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded(), vms.ensureLoaded(), containers.ensureLoaded()])
 })
 
 watch(

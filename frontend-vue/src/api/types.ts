@@ -230,11 +230,16 @@ export interface SoftwareAssetDraftRow {
 /** GET /api/v1/resources/containers — сейчас читается только для одного выпадающего списка
  * (ISSourcesListEditor.vue). Собственного экрана/стора у контейнеров пока нет, см.
  * "Ещё не сделано" во frontend-vue/README.md. */
+/** GET /api/v1/resources/containers — простой generic-ресурс, свой экран см.
+ * views/ContainersView.vue. */
 export interface Container {
   id: string
   name: string
   virtual_machine_id: string | null
   physical_device_id: string | null
+  runtime: string | null
+  runtime_version: string | null
+  purpose: string | null
 }
 
 /** GET /api/v1/resources/information-systems/{id}/details — атомарно синхронизируется через
