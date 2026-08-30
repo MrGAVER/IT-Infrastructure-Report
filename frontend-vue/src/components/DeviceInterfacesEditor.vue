@@ -1,24 +1,26 @@
 <script setup lang="ts">
 // Редактор физических/логических интерфейсов устройства — карточки портов, генерация по
-// шаблону имени, вложенные IP-адреса интерфейса. Портирован с наибольшего оставшегося блока
-// vanilla-фронтенда (frontend/static/device-interfaces.js: renderInterfaceEditor +
-// interfaceCardHtml + generateInterfaces), т.к. именно интерфейсы устройства нужны для
-// организации подключений (Лист 3 отчёта) — без них новое устройство, заведённое через этот
-// UI, нельзя было подключить ни к чему без /legacy.
+// шаблону имени, вложенные IP-адреса интерфейса и назначение VLAN на порту. Портирован с
+// наибольшего оставшегося блока vanilla-фронтенда (frontend/static/device-interfaces.js:
+// renderInterfaceEditor + interfaceCardHtml + generateInterfaces), т.к. именно интерфейсы
+// устройства нужны для организации подключений (Лист 3 отчёта) — без них новое устройство,
+// заведённое через этот UI, нельзя было подключить ни к чему без /legacy.
+//
+// VLAN на порту: список допустимых VLAN приходит готовым в vlanOptions (вычисляется вызывающей
+// стороной через api/portVlans.ts:computePortVlanOptions — DeviceFormModal.vue и
+// DevicePortsModal.vue делают это по-разному, см. комментарии там) и просто отображается
+// чекбоксами; сам компонент ничего не запрашивает и не решает, какие VLAN разрешены.
 //
 // СОЗНАТЕЛЬНО НЕ ПЕРЕНЕСЕНО в этой версии (см. "Ещё не сделано" во frontend-vue/README.md):
-// назначение VLAN на порту (чекбоксы в vanilla) и массовое редактирование выбранных карточек.
-// Оба научили бы этот и без того большой компонент про VLAN устройства (deviceVlanEditor,
-// domain-каталог) — отдельная связанная, но самостоятельная область. Существующие vlan_ids
-// каждого интерфейса тем не менее загружаются и передаются обратно НЕИЗМЕНЁННЫМИ при
-// сохранении (см. InterfaceDraftRow в api/types.ts) — иначе сохранение через этот редактор
-// молча стёрло бы VLAN, назначенные через /legacy (backend полностью пересоздаёт
-// InterfaceVLAN из payload при каждом PUT .../interfaces).
+// массовое редактирование выбранных карточек (чекбокс "Выбрать" + общая панель VLAN "будет
+// добавлен к выбранным" в vanilla) — самостоятельная область, отдельная от самого назначения
+// VLAN на порту.
 import { ref } from 'vue'
-import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow } from '../api/types'
+import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, VLANDefinition } from '../api/types'
+import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 
-const props = defineProps<{ modelValue: InterfaceDraftRow[]; typeOptions: CatalogItem[]; speedOptions: CatalogItem[] }>()
+const props = defineProps<{ modelValue: InterfaceDraftRow[]; typeOptions: CatalogItem[]; speedOptions: CatalogItem[]; vlanOptions: VLANDefinition[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
 
 // Поля генератора — черновой ввод формы, не часть modelValue (как if-count/if-name-template в
@@ -87,6 +89,13 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
   const row = props.modelValue[index]
   if (!row) return
   updateRow(index, { ips: row.ips.map((ip, j) => (j === ipIndex ? { ...ip, ...patch } : ip)) })
+}
+
+function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
+  const row = props.modelValue[index]
+  if (!row) return
+  const vlan_ids = checked ? [...row.vlan_ids, vlanDefId] : row.vlan_ids.filter((id) => id !== vlanDefId)
+  updateRow(index, { vlan_ids })
 }
 </script>
 
@@ -177,6 +186,21 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
           <span>Описание</span>
           <textarea :value="row.description" rows="2" @input="updateRow(i, { description: ($event.target as HTMLTextAreaElement).value })"></textarea>
         </label>
+      </div>
+
+      <div class="vlan-block">
+        <b>VLAN на порту</b>
+        <div v-if="vlanOptions.length" class="vlan-checks">
+          <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+            <input
+              type="checkbox"
+              :checked="row.vlan_ids.includes(v.id)"
+              @change="toggleVlan(i, v.id, ($event.target as HTMLInputElement).checked)"
+            />
+            {{ vlanLabel(v) }}
+          </label>
+        </div>
+        <span v-else class="empty">Для типа устройства VLAN не назначены</span>
       </div>
 
       <div class="ip-block">
@@ -325,6 +349,33 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
 .checkbox-field span {
   color: var(--ink);
   font-size: 12px;
+}
+.vlan-block {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vlan-block b {
+  font-size: 11.5px;
+}
+.vlan-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.vlan-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.vlan-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
 }
 .ip-block {
   border-top: 1px solid var(--border);
