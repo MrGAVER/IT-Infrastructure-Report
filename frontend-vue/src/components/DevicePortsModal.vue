@@ -4,22 +4,31 @@
 // откуда открывается эта модалка, и frontend-vue/README.md: было в «Ещё не сделано»).
 //
 // Переиспользует DeviceInterfacesEditor.vue как есть (та же карточная разметка портов, генератор
-// по шаблону, вложенные IP) — здесь только загрузка/сохранение конкретного устройства вокруг
-// него, вынесенные в api/deviceInterfaces.ts и используемые так же DeviceFormModal.vue. Порты,
-// занятые активным подключением, при удалении отклоняются бэкендом 409-ошибкой (FK-констрейнт
-// Connection → DeviceInterface, см. delete_resource/sync_interfaces в
-// backend/app/services/crud.py) — то же сообщение об ошибке, что и у остальных форм.
+// по шаблону, вложенные IP, чекбоксы VLAN на порту) — здесь только загрузка/сохранение
+// конкретного устройства вокруг него, вынесенные в api/deviceInterfaces.ts и api/portVlans.ts
+// (используются так же DeviceFormModal.vue). Порты, занятые активным подключением, при удалении
+// отклоняются бэкендом 409-ошибкой (FK-констрейнт Connection → DeviceInterface, см.
+// delete_resource/sync_interfaces в backend/app/services/crud.py) — то же сообщение об ошибке,
+// что и у остальных форм.
 import { onMounted, ref } from 'vue'
+import { api } from '../api/client'
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
-import type { DeviceInterface, InterfaceDraftRow } from '../api/types'
+import { computePortVlanOptions, loadAssignedDeviceVlanIds, loadDeviceTypeVlanIds } from '../api/portVlans'
+import type { Device, DeviceInterface, InterfaceDraftRow, VLANDefinition } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useVLANsStore } from '../stores/vlans'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 
 const props = defineProps<{ deviceId: string; deviceLabel: string }>()
 const emit = defineEmits<{ close: []; saved: [deviceId: string, items: DeviceInterface[]] }>()
 
 const catalogs = useCatalogsStore()
+const vlansStore = useVLANsStore()
 const interfaces = ref<InterfaceDraftRow[]>([])
+// Статический список (в отличие от DeviceFormModal.vue:portVlanOptions) — эта модалка не
+// редактирует "VLAN устройства", поэтому источник "уже назначенных" VLAN — то, что реально в
+// БД на момент открытия, без реактивного пересчёта. См. api/portVlans.ts.
+const portVlanOptions = ref<VLANDefinition[]>([])
 const loading = ref(true)
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -28,9 +37,12 @@ onMounted(async () => {
   // Каталоги (типы/скорости интерфейсов) почти наверняка уже загружены родительским экраном
   // (ConnectionsView.vue вызывает ensureLoaded() при монтировании), но модалка не должна на это
   // полагаться — ensureLoaded() сама не делает лишний запрос, если уже загружено или грузится.
-  await catalogs.ensureLoaded()
+  await Promise.all([catalogs.ensureLoaded(), vlansStore.ensureLoaded()])
   try {
-    interfaces.value = await loadDeviceInterfaceDraftRows(props.deviceId)
+    const [rows, device] = await Promise.all([loadDeviceInterfaceDraftRows(props.deviceId), api.get<Device>(`/resources/devices/${props.deviceId}`)])
+    interfaces.value = rows
+    const [typeVlanIds, assignedVlanIds] = await Promise.all([loadDeviceTypeVlanIds(device.device_type_id), loadAssignedDeviceVlanIds(props.deviceId)])
+    portVlanOptions.value = computePortVlanOptions(vlansStore.allDefinitions, typeVlanIds, assignedVlanIds)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить порты устройства'
   } finally {
@@ -84,6 +96,7 @@ async function submit() {
           v-model="interfaces"
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
+          :vlan-options="portVlanOptions"
         />
 
         <div class="modal-foot">
