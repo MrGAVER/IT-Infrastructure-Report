@@ -9,6 +9,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
 import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
@@ -56,11 +57,48 @@ const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
 const memberDomainIds = ref<Set<string>>(new Set())
+const deviceTypeVlanIds = ref<Set<string>>(new Set())
 const loadingNested = ref(false)
 
 // VLAN без домена доступны всем устройствам; доменные — только участникам домена (то же
 // правило, что loadDeviceVlanEditor() в frontend/static/device-interfaces.js).
 const availableVlans = computed(() => vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id)))
+
+// Опции для чекбоксов "VLAN на порту" (DeviceInterfacesEditor.vue) — НЕ то же самое, что
+// availableVlans выше: тот отвечает "что можно НАЗНАЧИТЬ устройству" (фильтр по домену), этот —
+// "что уже разрешено/назначено устройству, поэтому можно поставить на порт" (тип устройства ∪
+// текущий черновик deviceVlans.value, ещё не обязательно сохранённый — так пользователь может
+// одновременно добавить VLAN устройству и в этом же сохранении назначить его порту). См.
+// api/portVlans.ts.
+const portVlanOptions = computed(() =>
+  computePortVlanOptions(
+    vlansStore.allDefinitions,
+    deviceTypeVlanIds.value,
+    new Set(deviceVlans.value.map((r) => r.vlan_id).filter(Boolean)),
+  ),
+)
+
+// Если VLAN устройства перестал быть опцией порта (пользователь снял его в блоке "VLAN
+// устройства" или сменил тип устройства), убираем его и из vlan_ids уже заведённых портов —
+// иначе сохранение упадёт 422 "VLAN не разрешён для типа данного устройства", а пользователь не
+// поймёт, откуда ошибка. То же поведение, что syncDeviceVlanOptionsFromRows() в vanilla-версии.
+//
+// КРИТИЧНО: сравниваем НОВЫЙ список опций со СТАРЫМ (аргумент oldOptions от Vue) и трогаем
+// только vlan_ids, которые были разрешены раньше и перестали быть разрешены сейчас — а не
+// просто "не входят в текущий portVlanOptions". Первое срабатывание случится сразу после
+// начальной загрузки устройства (oldOptions на этот момент — пустой массив от самого первого
+// вычисления computed, ещё до загрузки), и разница будет пустой — начальная загрузка порт не
+// тронет. Если бы вместо диффа проверялось только текущее значение, при первой же загрузке
+// стёрлись бы vlan_ids, назначенные через /legacy, но не входящие в этот более узкий каталог
+// (тип устройства ∪ уже назначенные) — ровно такой баг поймал регрессионный тест в
+// DeviceFormModal.spec.ts ("не стирает VLAN интерфейса, назначенные через /legacy...").
+watch(portVlanOptions, (options, oldOptions) => {
+  const removedIds = new Set((oldOptions ?? []).filter((v) => !options.some((o) => o.id === v.id)).map((v) => v.id))
+  if (!removedIds.size) return
+  interfaces.value = interfaces.value.map((row) =>
+    row.vlan_ids.some((id) => removedIds.has(id)) ? { ...row, vlan_ids: row.vlan_ids.filter((id) => !removedIds.has(id)) } : row,
+  )
+})
 
 function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
   return {
@@ -97,6 +135,7 @@ watch(
     interfaces.value = []
     deviceVlans.value = []
     memberDomainIds.value = new Set()
+    deviceTypeVlanIds.value = new Set()
     if (d) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = d[key as keyof Device]
@@ -110,7 +149,7 @@ watch(
     if (!d) return
     loadingNested.value = true
     try {
-      const [ports, software, ifaceRows, vlans, domainLinks] = await Promise.all([
+      const [ports, software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
         listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: d.id, limit: 1000 }),
         listResource<DeviceSoftware>('device-software', { physical_device_id: d.id, limit: 1000 }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
@@ -118,12 +157,18 @@ watch(
         loadDeviceInterfaceDraftRows(d.id),
         listResource<DeviceVLAN>('device-vlans', { physical_device_id: d.id, limit: 1000 }),
         listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: d.id, limit: 1000 }),
+        // Загружается атомарно вместе с interfaces/deviceVlans (не через отдельный watch на
+        // form.device_type_id — см. ниже) именно для того, чтобы portVlanOptions выше не
+        // пересчитался с неполными данными между двумя разными по времени загрузками.
+        loadDeviceTypeVlanIds(d.device_type_id),
+        vlansStore.ensureLoaded(),
       ])
       openPorts.value = ports.items.map(toOpenPortDraftRow)
       softwareAssets.value = software.items.map(toSoftwareDraftRow)
       interfaces.value = ifaceRows
       deviceVlans.value = vlans.items.map(toDeviceVlanDraftRow)
       memberDomainIds.value = new Set(domainLinks.items.map((l) => l.domain_id))
+      deviceTypeVlanIds.value = typeVlanIds
     } catch (err) {
       errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты, ПО, интерфейсы и VLAN устройства'
     } finally {
@@ -155,8 +200,20 @@ const filteredRacks = computed(() =>
 // другого здания невидимым в списке, но по-прежнему отправляемым в payload.
 watch(
   () => form.device_type_id,
-  () => {
+  async (deviceTypeId) => {
     if (!filteredModels.value.some((m) => m.id === form.model_id)) form.model_id = ''
+    // loadingNested гвардит от повторной загрузки в момент самой начальной загрузки устройства
+    // (там form.device_type_id меняется синхронно вместе с loadingNested=true в том же тике, а
+    // deviceTypeVlanIds уже атомарно загружается в самом watch(props.device) выше) — этот watch
+    // нужен только для случая, когда пользователь меняет тип устройства уже после загрузки.
+    if (loadingNested.value) return
+    try {
+      deviceTypeVlanIds.value = await loadDeviceTypeVlanIds(deviceTypeId)
+    } catch (err) {
+      // Не даём упасть необработанным отклонением промиса — просто оставляем прежний список
+      // допустимых VLAN порта и показываем ошибку, как и везде в этой форме.
+      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить допустимые VLAN для типа устройства'
+    }
   },
 )
 watch(
@@ -274,10 +331,15 @@ async function submit() {
           : await createResource<Device>('devices', payload)
         await persistOpenPorts(saved.id)
         await persistSoftwareAssets(saved.id)
+        // persistDeviceVlans ДО persistDeviceInterfaces (не как раньше) — sync_interfaces на
+        // бэкенде проверяет vlan_ids порта против уже сохранённых в БД PhysicalDeviceVLAN (см.
+        // allowed_vlans в backend/app/services/crud.py). Если VLAN только что добавлен в блок
+        // "VLAN устройства" и тут же назначен порту в этом же сохранении, к моменту проверки он
+        // должен уже быть в БД — иначе 422 "VLAN не разрешён" на ровном месте для пользователя.
+        await persistDeviceVlans(saved.id)
         // Атомарный PUT (не через generic createResource/deleteResource, как выше) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
         await persistDeviceInterfaces(saved.id, interfaces.value)
-        await persistDeviceVlans(saved.id)
         emit('saved', saved)
         return
       } catch (err) {
@@ -432,6 +494,7 @@ async function submit() {
           v-model="interfaces"
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
+          :vlan-options="portVlanOptions"
         />
         <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" />
       </form>

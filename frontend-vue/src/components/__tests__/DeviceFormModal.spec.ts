@@ -98,13 +98,17 @@ describe('DeviceFormModal.vue', () => {
   it('при отказе от подтверждения дубликата запрос не повторяется', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({ detail: { code: 'DUPLICATE_SYSTEM_NAME', message: 'Уже используется.' } }),
-          { status: 409 },
-        ),
-    )
+    // Как и в соседнем тесте выше — считаем только запросы на создание устройства. GET-запросы
+    // (в т.ч. загрузка допустимых VLAN типа устройства при выборе select'а ниже, см.
+    // DeviceFormModal.vue:watch(form.device_type_id)) не должны влиять на этот счётчик.
+    let devicePostCalls = 0
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'POST' || !url.includes('/resources/devices')) {
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }
+      devicePostCalls += 1
+      return new Response(JSON.stringify({ detail: { code: 'DUPLICATE_SYSTEM_NAME', message: 'Уже используется.' } }), { status: 409 })
+    })
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('confirm', vi.fn(() => false))
 
@@ -113,7 +117,7 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(devicePostCalls).toBe(1)
     expect(wrapper.emitted('saved')).toBeFalsy()
     expect(wrapper.text()).toContain('Уже используется')
   })
@@ -320,6 +324,141 @@ describe('DeviceFormModal.vue', () => {
 
     const ifaceCall = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-3/interfaces'))
     expect(ifaceCall?.body).toMatchObject({ interfaces: [{ id: 'if-1', vlan_ids: ['vlan-legacy'] }] })
+  })
+
+  it('чекбоксы "VLAN на порту" показывают только VLAN, разрешённые типом устройства или уже назначенные ему', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = [
+      { vlan_id: 10, definitions: [{ id: 'v-type', vlan_id: 10, name: 'Каталожный', description: '', domain_id: null, domain_name: '', devices: [] }] },
+      { vlan_id: 20, definitions: [{ id: 'v-assigned', vlan_id: 20, name: 'Назначенный', description: '', domain_id: null, domain_name: '', devices: [] }] },
+      { vlan_id: 30, definitions: [{ id: 'v-other', vlan_id: 30, name: 'Посторонний', description: '', domain_id: null, domain_name: '', devices: [] }] },
+    ]
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+
+    const device = { id: 'dev-5', device_type_id: 'dt-server', serial_number: 'SN-14' } as never
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/resources/interfaces')) {
+          return new Response(
+            JSON.stringify({
+              items: [{ id: 'if-1', physical_device_id: 'dev-5', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null }],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
+          )
+        }
+        if (url.includes('/resources/device-type-vlans')) {
+          return new Response(JSON.stringify({ items: [{ id: 'l-1', device_type_id: 'dt-server', vlan_id: 'v-type' }], total: 1, offset: 0, limit: 1000 }))
+        }
+        if (url.includes('/resources/device-vlans')) {
+          return new Response(
+            JSON.stringify({ items: [{ id: 'dv-1', physical_device_id: 'dev-5', vlan_id: 'v-assigned', ip_address: null, prefix_length: null, is_management: false, description: null }], total: 1, offset: 0, limit: 1000 }),
+          )
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    const labels = wrapper.findAll('.vlan-check').map((l) => l.text())
+    expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
+    expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
+  })
+
+  it('снятие VLAN устройства убирает его из vlan_ids уже заведённого порта при сохранении', async () => {
+    // Регрессия для watch(portVlanOptions) в DeviceFormModal.vue: важно сравнивать НОВЫЙ список
+    // опций со СТАРЫМ (а не просто фильтровать по текущему), иначе первая же загрузка стёрла бы
+    // vlan_ids из /legacy (см. предыдущий тест) — здесь же проверяем, что реальное удаление VLAN
+    // устройства ПОСЛЕ загрузки корректно убирает его и из уже заведённого порта.
+    const vlans = useVLANsStore()
+    vlans.groups = [{ vlan_id: 20, definitions: [{ id: 'v-assigned', vlan_id: 20, name: 'Назначенный', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+
+    const device = { id: 'dev-6', device_type_id: 'dt-server', serial_number: 'SN-15' } as never
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/resources/interfaces') && method === 'GET') {
+          return new Response(
+            JSON.stringify({
+              items: [{ id: 'if-1', physical_device_id: 'dev-6', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null }],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
+          )
+        }
+        if (url.includes('/resources/interface-vlans')) {
+          return new Response(JSON.stringify({ items: [{ id: 'iv-1', interface_id: 'if-1', vlan_id: 'v-assigned', mode: null }], total: 1, offset: 0, limit: 1000 }))
+        }
+        if (url.includes('/resources/device-vlans') && method === 'GET') {
+          return new Response(
+            JSON.stringify({ items: [{ id: 'dv-1', physical_device_id: 'dev-6', vlan_id: 'v-assigned', ip_address: null, prefix_length: null, is_management: false, description: null }], total: 1, offset: 0, limit: 1000 }),
+          )
+        }
+        if (method === 'PUT' && url.includes('/resources/devices/dev-6')) {
+          return new Response(JSON.stringify(device))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+    expect((wrapper.find('.vlan-check input').element as HTMLInputElement).checked).toBe(true)
+
+    await wrapper.find('.nested-row .icon-btn.danger').trigger('click') // убрать единственный VLAN устройства
+    await flushPromises()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const ifaceCall = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-6/interfaces'))
+    expect(ifaceCall?.body).toMatchObject({ interfaces: [{ id: 'if-1', vlan_ids: [] }] })
+  })
+
+  it('сохраняет "VLAN устройства" раньше интерфейсов — вновь добавленный VLAN уже в БД к моменту проверки vlan_ids порта', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-new', vlan_id: 10, name: 'Новый', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+    vlans.loaded = true
+    const wrapper = await mountWithLoadedCatalogs()
+    await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN устройства
+    await wrapper.find('select.col-vlan').setValue('v-new')
+
+    const calls: Array<{ url: string; method: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method })
+        if (method === 'POST' && url.includes('/resources/devices')) {
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-16' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-16')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const vlanCreateIndex = calls.findIndex((c) => c.method === 'POST' && c.url.includes('/resources/device-vlans'))
+    const interfacesSyncIndex = calls.findIndex((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
+    expect(vlanCreateIndex).toBeGreaterThanOrEqual(0)
+    expect(interfacesSyncIndex).toBeGreaterThan(vlanCreateIndex)
   })
 
   it('доменный VLAN доступен для выбора только если устройство состоит в этом домене', async () => {
