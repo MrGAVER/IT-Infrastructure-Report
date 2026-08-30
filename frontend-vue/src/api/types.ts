@@ -334,8 +334,19 @@ export interface InterfaceIP {
   is_management: boolean
 }
 
-/** GET /api/v1/resources/interface-vlans?interface_id=... — только читается и передаётся
- * обратно неизменным, см. комментарий к InterfaceDraftRow.vlan_ids. */
+/** GET /api/v1/resources/device-type-vlans?device_type_id=... — какие определения VLAN
+ * разрешены для типа устройства. Бэкенд использует то же самое множество (объединённое с уже
+ * назначенными устройству VLAN, PhysicalDeviceVLAN) как allowed_vlans при валидации vlan_ids
+ * интерфейса — см. sync_interfaces в backend/app/services/crud.py и api/portVlans.ts. */
+export interface DeviceTypeVLAN {
+  id: string
+  device_type_id: string
+  vlan_id: string
+}
+
+/** GET /api/v1/resources/interface-vlans?interface_id=... — назначение VLAN конкретному порту
+ * (в отличие от DeviceVLAN — тот на устройство целиком). Редактируется через чекбоксы "VLAN на
+ * порту" в DeviceInterfacesEditor.vue, см. InterfaceDraftRow.vlan_ids ниже. */
 export interface InterfaceVLAN {
   id: string
   interface_id: string
@@ -351,13 +362,13 @@ export interface InterfaceIpDraftRow {
   purpose: string
 }
 
-/** Черновая строка интерфейса внутри DeviceInterfacesEditor.vue. Управление назначением VLAN
- * на порту (чекбоксы в vanilla-версии) в v1 редактора не поддержано — см. "Ещё не сделано" во
- * frontend-vue/README.md. КРИТИЧНО: backend/app/services/crud.py:_sync_single_interface при
- * каждом сохранении полностью пересоздаёт InterfaceVLAN из payload['vlan_ids'] (delete всех +
- * insert заново) — отправка пустого массива стёрла бы VLAN, назначенные через /legacy. Поэтому
- * vlan_ids всё равно загружается при открытии формы и отправляется обратно НЕИЗМЕНЁННЫМ (что
- * пришло, то и ушло) — редактор просто не даёт его посмотреть или потрогать в этой версии. */
+/** Черновая строка интерфейса внутри DeviceInterfacesEditor.vue. vlan_ids — id записей vlans
+ * (VLANDefinition.id), назначенных этому порту через чекбоксы "VLAN на порту"; допустимый набор
+ * опций вычисляется в api/portVlans.ts:computePortVlanOptions (тип устройства ∪ уже назначенные
+ * устройству VLAN — то же множество, которое backend/app/services/crud.py:sync_interfaces
+ * фактически разрешит при сохранении). InterfaceVLAN.mode (access/trunk) в этом редакторе не
+ * редактируется — как и в vanilla-версии (frontend/static/device-interfaces.js), там тоже нет
+ * UI для него; отправляется backend'ом как null при пересоздании (см. _sync_single_interface). */
 export interface InterfaceDraftRow {
   id?: string
   name: string

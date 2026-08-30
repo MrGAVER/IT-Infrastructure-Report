@@ -10,13 +10,10 @@
 // сделать их прилично здесь — уже отдельная задача, не часть базового CRUD. Домены VLAN
 // по-прежнему управляются только через /legacy, см. "Ещё не сделано" во frontend-vue/README.md.
 import type { DeviceVlanDraftRow, VLANDefinition } from '../api/types'
+import { vlanLabel } from '../utils/vlan'
 
 const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLANDefinition[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]] }>()
-
-function vlanLabel(v: VLANDefinition): string {
-  return v.domain_name ? `${v.vlan_id} — ${v.name} [${v.domain_name}]` : `${v.vlan_id} — ${v.name}`
-}
 
 function emptyRow(): DeviceVlanDraftRow {
   return { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }
