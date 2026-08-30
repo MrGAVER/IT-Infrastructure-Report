@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // Управление жизненным циклом шаблонов конструктора отчётов (список, создание, переименование,
 // дублирование, удаление, генерация файла, история версий) — визуальный редактор содержимого
-// (раскладка листов/блоков) остаётся пока только в /legacy, см. api/reportTemplates.ts и
+// (раскладка листов/блоков) доступен из этого экрана только для xlsx (кнопка "Конструктор" →
+// ReportGridEditorView.vue); для docx редактор пока не перенесён, см. api/reportTemplates.ts и
 // frontend-vue/README.md.
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useReportTemplatesStore } from '../stores/reportTemplates'
 import { deleteReportTemplate, duplicateReportTemplate, generateReportFromTemplate } from '../api/reportTemplates'
 import { downloadReport } from '../api/reports'
@@ -13,11 +15,16 @@ import ReportTemplateFormModal from '../components/ReportTemplateFormModal.vue'
 import ReportTemplateVersionsModal from '../components/ReportTemplateVersionsModal.vue'
 
 const templates = useReportTemplatesStore()
+const router = useRouter()
 const { notify, notifyError } = useToast()
 
 onMounted(async () => {
   await templates.ensureLoaded()
 })
+
+function openEditor(t: ReportTemplate) {
+  router.push(`/report-templates/${t.id}/editor`)
+}
 
 const modalTemplate = ref<ReportTemplate | null>(null)
 const modalOpen = ref(false)
@@ -145,6 +152,15 @@ async function generate(t: ReportTemplate) {
               <td>{{ t.updated_at ? new Date(t.updated_at).toLocaleDateString('ru-RU') : '—' }}</td>
               <td>
                 <div class="row-actions">
+                  <button
+                    type="button"
+                    aria-label="Открыть в конструкторе"
+                    :title="t.format === 'xlsx' ? 'Открыть в конструкторе' : 'Редактор Word-шаблонов ещё не перенесён — используйте /legacy'"
+                    :disabled="t.format !== 'xlsx'"
+                    @click="openEditor(t)"
+                  >
+                    <svg class="icon"><use href="/icons.svg#i-grid" /></svg>
+                  </button>
                   <button type="button" aria-label="Сформировать" :disabled="busyId === t.id" @click="generate(t)">
                     <svg class="icon"><use href="/icons.svg#i-download" /></svg>
                   </button>

@@ -5,6 +5,9 @@ import ReportTemplatesView from '../ReportTemplatesView.vue'
 import { useReportTemplatesStore } from '../../stores/reportTemplates'
 import type { ReportTemplate } from '../../api/types'
 
+const pushMock = vi.fn()
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: pushMock }) }))
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
 }
@@ -18,6 +21,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   document.body.innerHTML = ''
   vi.stubGlobal('confirm', vi.fn(() => true))
+  pushMock.mockClear()
 })
 
 describe('ReportTemplatesView.vue', () => {
@@ -167,5 +171,23 @@ describe('ReportTemplatesView.vue', () => {
     const rows = wrapper.findAll('tbody tr')
     expect(rows).toHaveLength(1)
     expect(rows[0].text()).toContain('Акт передачи')
+  })
+
+  it('"Открыть в конструкторе" для xlsx-шаблона переходит в редактор по id', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    const wrapper = mount(ReportTemplatesView)
+    await flushPromises()
+
+    await wrapper.findAll('[aria-label="Открыть в конструкторе"]')[0].trigger('click') // t-1, xlsx
+    expect(pushMock).toHaveBeenCalledWith('/report-templates/t-1/editor')
+  })
+
+  it('"Открыть в конструкторе" недоступна для docx-шаблона', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    const wrapper = mount(ReportTemplatesView)
+    await flushPromises()
+
+    const docxButton = wrapper.findAll('[aria-label="Открыть в конструкторе"]')[1] // t-2, docx
+    expect((docxButton.element as HTMLButtonElement).disabled).toBe(true)
   })
 })
