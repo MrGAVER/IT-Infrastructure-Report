@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // Регламентный отчёт (Листы 1-4) — ключевая функция приложения (см. Общее описание
 // приложения). Здесь только вызов уже существующей серверной генерации с фильтрами;
-// визуальный конструктор произвольных отчётов (report_builder.py, drag-and-drop
-// grid-редактор) не переносится на новый стек в этой итерации — слишком большая
-// отдельная задача, см. README.
+// шаблоны конструктора произвольных отчётов управляются на отдельном экране
+// (см. ReportTemplatesView.vue) — визуальный grid/блочный редактор их содержимого
+// не перенесён на новый стек в этой итерации, см. README.
 import { onMounted, ref } from 'vue'
 import { useInformationSystemsStore } from '../stores/informationSystems'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -123,8 +123,10 @@ async function runAuditLogReport() {
     </section>
 
     <p class="builder-note">
-      Визуальный конструктор произвольных отчётов и Word-шаблонов пока доступен только в
-      текущем vanilla-интерфейсе.
+      Шаблоны конструктора произвольных отчётов теперь можно создавать, переименовывать,
+      дублировать и удалять на отдельном экране —
+      <router-link to="/report-templates">Шаблоны отчётов</router-link>. Визуальная раскладка
+      листов и полей внутри шаблона пока доступна только в текущем интерфейсе (<code>/legacy</code>).
     </p>
   </div>
 </template>
@@ -233,5 +235,12 @@ async function runAuditLogReport() {
   color: var(--ink-muted);
   text-align: center;
   margin-top: 4px;
+}
+.builder-note code {
+  font-family: var(--font-mono);
+}
+.builder-note a {
+  color: var(--brand);
+  font-weight: 600;
 }
 </style>

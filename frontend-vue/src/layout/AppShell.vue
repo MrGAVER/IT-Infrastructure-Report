@@ -18,6 +18,7 @@ const titles: Record<string, { title: string; crumb: string }> = {
   'structural-units': { title: 'Структурные подразделения', crumb: 'Справочники · Структурные подразделения' },
   vms: { title: 'Виртуальные машины', crumb: 'Лист 4 · Виртуальные машины' },
   reports: { title: 'Отчёты', crumb: 'Система · Отчёты' },
+  'report-templates': { title: 'Шаблоны отчётов', crumb: 'Система · Отчёты · Шаблоны' },
   'audit-log': { title: 'Журнал аудита', crumb: 'Система · Журнал аудита' },
   settings: { title: 'Настройки', crumb: 'Система › Настройки' },
 }

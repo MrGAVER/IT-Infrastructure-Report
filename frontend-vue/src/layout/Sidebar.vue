@@ -17,6 +17,7 @@ const catalogNav = [
 ]
 const systemNav = [
   { to: '/reports', icon: 'i-file', label: 'Отчёты' },
+  { to: '/report-templates', icon: 'i-layers', label: 'Шаблоны отчётов' },
   { to: '/audit-log', icon: 'i-activity', label: 'Журнал аудита' },
 ]
 </script>
