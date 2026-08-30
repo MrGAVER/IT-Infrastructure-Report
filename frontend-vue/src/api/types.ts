@@ -477,6 +477,93 @@ export interface ReportTemplateVersion {
   format: 'xlsx' | 'docx'
   created_at: string | null
 }
+
+/** GET /api/v1/report-builder/entities — метаданные сущностей для конструктора отчётов: поля +
+ * связи "один-к-одному" (to_one) / обратные "один-ко-многим" (to_many), см.
+ * backend/app/services/report_meta.py:entity_metadata_public. Используется и палитрой полей
+ * (построение путей вида relation[].field, см. utils/reportEntityPaths.ts), и панелью источника
+ * данных повторяющейся строки грид-редактора (root_entity/expand). */
+export interface ReportEntityField {
+  name: string
+  label: string
+  type: string
+  is_foreign_key: boolean
+}
+export interface ReportEntityRelation {
+  name: string
+  target: string
+}
+export interface ReportEntityMeta {
+  key: string
+  label: string
+  fields: ReportEntityField[]
+  to_one: ReportEntityRelation[]
+  to_many: ReportEntityRelation[]
+}
+
+/** Формат конфигурации грид-листа (config.sheets[i]) — подробно описан в
+ * backend/app/services/report_grid.py; здесь только TS-проекция того же формата один в один,
+ * структурная валидация полностью на сервере (см. validate_grid_config). */
+export interface GridCellStyle {
+  bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  align?: 'left' | 'center' | 'right'
+  valign?: 'top' | 'middle' | 'bottom'
+  wrap?: boolean
+  bg?: string
+  color?: string
+  border?: boolean
+  number_format?: string
+}
+
+export type GridCellKind = 'static' | 'field' | 'index' | 'formula'
+
+export interface GridCell {
+  col: number
+  colspan?: number
+  rowspan?: number
+  kind: GridCellKind
+  text?: string
+  path?: string
+  separator?: string
+  style?: GridCellStyle
+}
+
+export type GridFilterOp = 'eq' | 'ne' | 'contains' | 'not_contains' | 'not_empty' | 'is_true' | 'is_false'
+export interface GridDataSourceFilter {
+  path: string
+  op: GridFilterOp
+  value: string
+}
+export interface GridDataSource {
+  root_entity: string
+  expand: string
+  include_empty_expand: boolean
+  filters: GridDataSourceFilter[]
+  sort_by: string
+}
+
+export interface GridRow {
+  height: number
+  repeat: boolean
+  data_source: GridDataSource | null
+  cells: GridCell[]
+}
+
+export interface GridColumn {
+  width: number
+}
+
+export interface GridSheet {
+  title: string
+  columns: GridColumn[]
+  rows: GridRow[]
+}
+
+export interface GridConfig {
+  sheets: GridSheet[]
+}
 export interface VLANDashboardResponse {
   items: VLANDashboardGroup[]
 }

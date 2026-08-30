@@ -9,6 +9,7 @@ import {
   listReportTemplates,
   renameReportTemplate,
   restoreReportTemplateVersion,
+  saveReportTemplate,
 } from '../reportTemplates'
 import type { ReportTemplate } from '../types'
 
@@ -135,5 +136,31 @@ describe('прочие операции жизненного цикла', () => 
     const result = await generateReportFromTemplate('t-1')
     expect(result.file_name).toBe('x.xlsx')
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/report-templates/t-1/generate')
+  })
+})
+
+describe('saveReportTemplate', () => {
+  it('id === null -> POST /report-templates (создание)', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse(templateFixture, 201))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await saveReportTemplate(null, { name: 'Новый', description: null, format: 'xlsx', config: { sheets: [] } })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/report-templates')
+    expect(init?.method).toBe('POST')
+  })
+
+  it('id задан -> PUT /report-templates/{id} (сохранение отредактированного содержимого)', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse(templateFixture))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const config = { sheets: [{ title: 'Лист 1', columns: [{ width: 20 }], rows: [] }] }
+    await saveReportTemplate('t-1', { name: 'Реестр устройств', description: null, format: 'xlsx', config })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/report-templates/t-1')
+    expect(init?.method).toBe('PUT')
+    expect(JSON.parse(init!.body as string).config).toEqual(config)
   })
 })

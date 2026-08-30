@@ -50,6 +50,13 @@ export function duplicateReportTemplate(id: string) {
   return api.post<ReportTemplate>(`/report-templates/${id}/duplicate`, null)
 }
 
+/** Сохраняет ПОЛНЫЙ шаблон, включая отредактированное содержимое (config) — в отличие от
+ * renameReportTemplate() выше, которая намеренно НЕ трогает config. Используется грид-редактором
+ * (ReportGridEditorView.vue): id === null создаёт новый шаблон (POST), иначе — PUT по id. */
+export function saveReportTemplate(id: string | null, payload: { name: string; description: string | null; format: 'xlsx' | 'docx'; config: Record<string, unknown> }) {
+  return id ? api.put<ReportTemplate>(`/report-templates/${id}`, payload) : api.post<ReportTemplate>('/report-templates', payload)
+}
+
 export function listReportTemplateVersions(templateId: string) {
   return api.get<ReportTemplateVersion[]>(`/report-templates/${templateId}/versions`)
 }
