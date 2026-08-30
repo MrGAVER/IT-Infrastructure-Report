@@ -450,6 +450,33 @@ export interface VLANDashboardGroup {
   vlan_id: number
   definitions: VLANDefinition[]
 }
+
+/** GET/POST/PUT /api/v1/report-templates — шаблоны конструктора произвольных отчётов. Свой
+ * роутер (backend/app/api/report_builder.py), НЕ /resources/{resource} — у него нестандартные
+ * операции (versions/restore, duplicate, generate), см. api/reportTemplates.ts. config —
+ * непрозрачный для этого API JSON (структура описана в backend/app/services/report_grid.py для
+ * xlsx и report_engine.py для docx); вся структурная валидация выполняется на сервере. */
+export interface ReportTemplate {
+  id: string
+  name: string
+  description: string | null
+  format: 'xlsx' | 'docx'
+  config: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+/** Запись истории версий шаблона — только метаданные, сам config версии наружу не отдаётся
+ * (см. list_template_versions в backend/app/api/report_builder.py); восстановление выполняется
+ * целиком на сервере через отдельный POST .../restore. */
+export interface ReportTemplateVersion {
+  id: string
+  version_number: number
+  name: string
+  description: string | null
+  format: 'xlsx' | 'docx'
+  created_at: string | null
+}
 export interface VLANDashboardResponse {
   items: VLANDashboardGroup[]
 }
