@@ -157,8 +157,9 @@ describe('DevicePortsModal.vue', () => {
 
     // Каталог типа устройства (v-type) и уже назначенный VLAN (v-assigned) — оба доступны для
     // чекбокса "VLAN на порту"; посторонний VLAN (ни в каталоге, ни назначен) — недоступен.
+    // .iface-card — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование".
     const labels = body()
-      .findAll('.vlan-check')
+      .findAll('.iface-card .vlan-check')
       .map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)

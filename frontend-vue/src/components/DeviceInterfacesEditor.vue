@@ -11,17 +11,21 @@
 // DevicePortsModal.vue делают это по-разному, см. комментарии там) и просто отображается
 // чекбоксами; сам компонент ничего не запрашивает и не решает, какие VLAN разрешены.
 //
-// СОЗНАТЕЛЬНО НЕ ПЕРЕНЕСЕНО в этой версии (см. "Ещё не сделано" во frontend-vue/README.md):
-// массовое редактирование выбранных карточек (чекбокс "Выбрать" + общая панель VLAN "будет
-// добавлен к выбранным" в vanilla) — самостоятельная область, отдельная от самого назначения
-// VLAN на порту.
+// Массовое редактирование выбранных карточек ("Выбрать" на каждой + панель "Массовое
+// редактирование" сверху) — портировано из bulkInterfaceEditHtml()/applyBulkInterfaceEdit() в
+// vanilla-версии. selectedIndices — чисто UI-состояние этого компонента (не часть modelValue,
+// как if-count/if-name-template генератора выше): индексы сбрасываются при любом структурном
+// изменении списка (добавление/удаление/генерация), чтобы после сдвига индексов старый выбор не
+// указывал на другую карточку.
 import { ref } from 'vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, VLANDefinition } from '../api/types'
+import { useToast } from '../composables/useToast'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ modelValue: InterfaceDraftRow[]; typeOptions: CatalogItem[]; speedOptions: CatalogItem[]; vlanOptions: VLANDefinition[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
+const { notify } = useToast()
 
 // Поля генератора — черновой ввод формы, не часть modelValue (как if-count/if-name-template в
 // vanilla). Начальное количество подставляется от уже загруженных интерфейсов один раз при
@@ -52,14 +56,17 @@ function generate() {
     interface_type_id: genTypeId.value,
     speed_id: genSpeedId.value,
   }))
+  selectedIndices.value = new Set()
   emit('update:modelValue', rows)
 }
 
 function addRow() {
+  selectedIndices.value = new Set()
   emit('update:modelValue', [...props.modelValue, emptyRow()])
 }
 
 function removeRow(index: number) {
+  selectedIndices.value = new Set()
   emit(
     'update:modelValue',
     props.modelValue.filter((_, i) => i !== index),
@@ -96,6 +103,63 @@ function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
   if (!row) return
   const vlan_ids = checked ? [...row.vlan_ids, vlanDefId] : row.vlan_ids.filter((id) => id !== vlanDefId)
   updateRow(index, { vlan_ids })
+}
+
+const selectedIndices = ref<Set<number>>(new Set())
+const bulkTypeId = ref('')
+const bulkSpeedId = ref('')
+const bulkManagement = ref('') // '' — не менять, 'true'/'false' — включить/выключить
+const bulkDataTransfer = ref('')
+const bulkVlanIds = ref<Set<string>>(new Set())
+
+function toggleSelect(index: number, checked: boolean) {
+  if (checked) selectedIndices.value.add(index)
+  else selectedIndices.value.delete(index)
+}
+
+function toggleSelectAll(checked: boolean) {
+  selectedIndices.value = checked ? new Set(props.modelValue.map((_, i) => i)) : new Set()
+}
+
+function toggleBulkVlan(vlanDefId: string, checked: boolean) {
+  if (checked) bulkVlanIds.value.add(vlanDefId)
+  else bulkVlanIds.value.delete(vlanDefId)
+}
+
+// Применяет накопленные в панели правки ко всем отмеченным карточкам разом — портировано из
+// applyBulkInterfaceEdit() в vanilla-версии. Поля со значением "— не менять —" (пустая строка)
+// не трогают соответствующее поле выбранных строк; VLAN добавляется К уже стоящим на порту
+// (объединение множеств, не замена) — так же, как в vanilla, где легко случайно снять чужой VLAN
+// массовым действием было бы хуже, чем просто ничего не убрать.
+function applyBulkEdit() {
+  if (!selectedIndices.value.size) {
+    notify('Отметьте хотя бы один интерфейс галочкой "Выбрать".', 'error')
+    return
+  }
+  const vlanIds = [...bulkVlanIds.value]
+  emit(
+    'update:modelValue',
+    props.modelValue.map((row, i) => {
+      if (!selectedIndices.value.has(i)) return row
+      return {
+        ...row,
+        interface_type_id: bulkTypeId.value || row.interface_type_id,
+        speed_id: bulkSpeedId.value || row.speed_id,
+        is_management: bulkManagement.value === '' ? row.is_management : bulkManagement.value === 'true',
+        is_data_transfer: bulkDataTransfer.value === '' ? row.is_data_transfer : bulkDataTransfer.value === 'true',
+        vlan_ids: vlanIds.length ? Array.from(new Set([...row.vlan_ids, ...vlanIds])) : row.vlan_ids,
+      }
+    }),
+  )
+  // Полный сброс панели после применения — та же логика, что и полная перерисовка после
+  // applyBulkInterfaceEdit() в vanilla-версии: без сброса "не менять" select бы продолжал
+  // показывать уже применённое значение, будто его можно применить ещё раз.
+  selectedIndices.value = new Set()
+  bulkTypeId.value = ''
+  bulkSpeedId.value = ''
+  bulkManagement.value = ''
+  bulkDataTransfer.value = ''
+  bulkVlanIds.value = new Set()
 }
 </script>
 
@@ -142,10 +206,63 @@ function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
       </button>
     </div>
 
+    <div v-if="modelValue.length" class="bulk-edit-bar">
+      <b>Массовое редактирование</b>
+      <label class="if-select-label">
+        <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
+        <span>Выбрать все</span>
+      </label>
+      <label class="bulk-field">
+        <span>Тип интерфейса</span>
+        <select v-model="bulkTypeId">
+          <option value="">— не менять —</option>
+          <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+      </label>
+      <label class="bulk-field">
+        <span>Скорость</span>
+        <select v-model="bulkSpeedId">
+          <option value="">— не менять —</option>
+          <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+        </select>
+      </label>
+      <label class="bulk-field">
+        <span>Управление</span>
+        <select v-model="bulkManagement">
+          <option value="">— не менять —</option>
+          <option value="true">Включить</option>
+          <option value="false">Выключить</option>
+        </select>
+      </label>
+      <label class="bulk-field">
+        <span>Передача данных</span>
+        <select v-model="bulkDataTransfer">
+          <option value="">— не менять —</option>
+          <option value="true">Включить</option>
+          <option value="false">Выключить</option>
+        </select>
+      </label>
+      <div class="bulk-field bulk-field-wide">
+        <span>VLAN на порту (будет добавлен к выбранным)</span>
+        <div v-if="vlanOptions.length" class="vlan-checks">
+          <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+            <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+            {{ vlanLabel(v) }}
+          </label>
+        </div>
+        <span v-else class="empty">VLAN не назначены</span>
+      </div>
+      <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
+    </div>
+
     <div v-if="!modelValue.length" class="empty">Интерфейсы не добавлены</div>
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="iface-card">
       <div class="iface-card-head">
+        <label class="if-select-label">
+          <input type="checkbox" :checked="selectedIndices.has(i)" @change="toggleSelect(i, ($event.target as HTMLInputElement).checked)" />
+          <span>Выбрать</span>
+        </label>
         <b>Интерфейс {{ i + 1 }}</b>
         <button type="button" class="icon-btn danger" aria-label="Удалить интерфейс" @click="removeRow(i)">
           <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
@@ -292,6 +409,51 @@ function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
 }
 .generator .lookup-row select {
   width: 130px;
+}
+.bulk-edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-s);
+}
+.bulk-edit-bar > b {
+  flex-basis: 100%;
+  font-size: 11.5px;
+}
+.bulk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.bulk-field select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 7px 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  font-family: inherit;
+  width: 150px;
+}
+.bulk-field-wide {
+  flex: 1 1 100%;
+}
+.if-select-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.if-select-label input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
 }
 .iface-card {
   border: 1px solid var(--border);

@@ -367,7 +367,9 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
 
-    const labels = wrapper.findAll('.vlan-check').map((l) => l.text())
+    // .iface-card — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование"
+    // (тот же vlanOptions используется и там, см. DeviceInterfacesEditor.vue).
+    const labels = wrapper.findAll('.iface-card .vlan-check').map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
   })
@@ -418,7 +420,7 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
-    expect((wrapper.find('.vlan-check input').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.find('.iface-card .vlan-check input').element as HTMLInputElement).checked).toBe(true)
 
     await wrapper.find('.nested-row .icon-btn.danger').trigger('click') // убрать единственный VLAN устройства
     await flushPromises()

@@ -140,14 +140,16 @@ describe('DeviceInterfacesEditor.vue', () => {
     it('рендерит чекбокс на каждый допустимый VLAN с подписью "номер — имя [домен]"', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
-      const labels = wrapper.findAll('.vlan-check').map((l) => l.text())
+      // .iface-card — иначе findAll('.vlan-check') подхватил бы ещё и чекбоксы из панели
+      // "Массовое редактирование" (тот же vlanOptions используется и там).
+      const labels = wrapper.findAll('.iface-card .vlan-check').map((l) => l.text())
       expect(labels).toEqual(['10 — Управление', '20 — Гостевой [Филиал-1]'])
     })
 
     it('уже назначенный VLAN отображается отмеченным чекбоксом', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_ids: ['v-guest'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
-      const checkboxes = wrapper.findAll('.vlan-check input[type="checkbox"]')
+      const checkboxes = wrapper.findAll('.iface-card .vlan-check input[type="checkbox"]')
       expect((checkboxes[0].element as HTMLInputElement).checked).toBe(false) // v-mgmt
       expect((checkboxes[1].element as HTMLInputElement).checked).toBe(true) // v-guest
     })
@@ -156,15 +158,91 @@ describe('DeviceInterfacesEditor.vue', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_ids: ['v-mgmt'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
-      const checkboxes = wrapper.findAll('.vlan-check input[type="checkbox"]')
+      const checkboxes = wrapper.findAll('.iface-card .vlan-check input[type="checkbox"]')
       await checkboxes[1].setValue(true) // отмечаем v-guest в дополнение к уже стоящему v-mgmt
       let emitted = wrapper.emitted('update:modelValue')!
       expect((emitted[0][0] as InterfaceDraftRow[])[0].vlan_ids).toEqual(['v-mgmt', 'v-guest'])
 
       await wrapper.setProps({ modelValue: emitted[0][0] as InterfaceDraftRow[] })
-      await wrapper.findAll('.vlan-check input[type="checkbox"]')[0].setValue(false) // снимаем v-mgmt
+      await wrapper.findAll('.iface-card .vlan-check input[type="checkbox"]')[0].setValue(false) // снимаем v-mgmt
       emitted = wrapper.emitted('update:modelValue')!
       expect((emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0].vlan_ids).toEqual(['v-guest'])
+    })
+  })
+
+  describe('Массовое редактирование выбранных карточек', () => {
+    const vOptions: VLANDefinition[] = [
+      { id: 'v-mgmt', vlan_id: 10, name: 'Управление', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v-guest', vlan_id: 20, name: 'Гостевой', description: '', domain_id: null, domain_name: '', devices: [] },
+    ]
+
+    function threeRows(): InterfaceDraftRow[] {
+      return [
+        { ...emptyRow(), name: 'eth0' },
+        { ...emptyRow(), name: 'eth1' },
+        { ...emptyRow(), name: 'eth2', vlan_ids: ['v-mgmt'] },
+      ]
+    }
+
+    it('без интерфейсов панель не показывается', () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      expect(wrapper.find('.bulk-edit-bar').exists()).toBe(false)
+    })
+
+    it('без отмеченных карточек по клику "Применить" показывает ошибку и ничего не эмитит', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+      await wrapper.find('.bulk-edit-bar button').trigger('click')
+      expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+    })
+
+    it('"Выбрать все" отмечает чекбоксы "Выбрать" на всех карточках', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+      await wrapper.find('.bulk-edit-bar .if-select-label input').setValue(true)
+      const cardChecks = wrapper.findAll('.iface-card .if-select-label input')
+      expect(cardChecks.every((c) => (c.element as HTMLInputElement).checked)).toBe(true)
+    })
+
+    it('применяет тип/скорость только к отмеченным карточкам, остальные поля карточек не трогает', async () => {
+      const rows = threeRows()
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+
+      const cardChecks = wrapper.findAll('.iface-card .if-select-label input')
+      await cardChecks[0].setValue(true) // отмечаем только eth0
+      await wrapper.find('.bulk-field select').setValue('t-eth') // "Тип интерфейса"
+      await wrapper.find('.bulk-edit-bar button').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+      expect(result[0].interface_type_id).toBe('t-eth') // отмеченная — изменена
+      expect(result[1].interface_type_id).toBe('') // не отмеченная — без изменений
+      expect(result[2].vlan_ids).toEqual(['v-mgmt']) // не отмеченная — VLAN не тронут
+    })
+
+    it('VLAN из панели добавляется к уже стоящим на порту (объединение, не замена)', async () => {
+      const rows = threeRows()
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+
+      const cardChecks = wrapper.findAll('.iface-card .if-select-label input')
+      await cardChecks[2].setValue(true) // отмечаем eth2 (уже с v-mgmt)
+      await wrapper.find('.bulk-edit-bar .vlan-check input').setValue(true) // добавляем v-mgmt ещё раз через панель
+      await wrapper.find('.bulk-edit-bar button').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+      expect(result[2].vlan_ids).toEqual(['v-mgmt']) // без дублей
+    })
+
+    it('после применения панель сбрасывается — выбор и поля возвращаются к значениям по умолчанию', async () => {
+      const rows = threeRows()
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+
+      await wrapper.findAll('.iface-card .if-select-label input')[0].setValue(true)
+      await wrapper.find('.bulk-field select').setValue('t-eth')
+      await wrapper.find('.bulk-edit-bar button').trigger('click')
+      await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[] })
+
+      expect((wrapper.find('.bulk-field select').element as HTMLSelectElement).value).toBe('')
+      expect((wrapper.findAll('.iface-card .if-select-label input')[0].element as HTMLInputElement).checked).toBe(false)
     })
   })
 })
