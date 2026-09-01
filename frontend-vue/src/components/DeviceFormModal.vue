@@ -13,6 +13,7 @@ import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
 import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
@@ -22,6 +23,7 @@ import type { CatalogItem } from '../api/types'
 
 const props = defineProps<{ device: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
@@ -178,17 +180,13 @@ watch(
   { immediate: true },
 )
 
-// Каскадные списки: модель — по выбранному типу устройства, помещение — по
-// зданию, стойка — по помещению. Тот же принцип, что связка building_id/room_id
-// в фильтре DevicesView, только здесь ещё и сама форма подсказывает валидные
+// Каскадные списки: помещение — по зданию, стойка — по помещению. Тот же принцип, что связка
+// building_id/room_id в фильтре DevicesView, только здесь ещё и сама форма подсказывает валидные
 // сочетания вместо того, чтобы полагаться только на серверную валидацию.
 const deviceModels = computed(() => catalogs.items['device-models'] as unknown as DeviceModel[])
 const rooms = computed(() => catalogs.items['rooms'] as unknown as Room[])
 const racks = computed(() => catalogs.items['racks'] as unknown as Rack[])
 
-const filteredModels = computed(() =>
-  (deviceModels.value ?? []).filter((m) => !form.device_type_id || m.device_type_id === form.device_type_id),
-)
 const filteredRooms = computed(() =>
   (rooms.value ?? []).filter((r) => !form.building_id || r.building_id === form.building_id),
 )
@@ -196,12 +194,75 @@ const filteredRacks = computed(() =>
   (racks.value ?? []).filter((r) => !form.room_id || r.room_id === form.room_id),
 )
 
+// п.3.6: поля "Тип устройства"/"Производитель"/"Модель" объединены в одно — это ОДИН select с
+// двумя видами опций (группа "без модели" — просто тип, и группы моделей по производителю), а не
+// три отдельных lookup'а. Значения опций закодированы как "type:<id>" / "model:<id>", т.к. один и
+// тот же id мог бы иначе совпасть между разными сущностями.
+//
+// Компромисс этого объединения: раньше можно было явно указать производителя БЕЗ конкретной
+// модели (три независимых поля) — при объединении в одно поле это больше не выразимо, т.к.
+// единственный оставшийся способ задать производителя — выбрать модель, которая его несёт с
+// собой. Это соответствует буквальной формулировке задачи ("одним полем"); если понадобится
+// вернуть возможность "тип + производитель без модели", это отдельное решение, не совместимое с
+// одним select'ом.
+const modelGroups = computed(() => {
+  const manufacturerName = (id: string | null) => (id ? catalogs.label('manufacturers', id, 'Без производителя') : 'Без производителя')
+  const groups = new Map<string, { manufacturerId: string; manufacturerName: string; models: DeviceModel[] }>()
+  for (const m of deviceModels.value ?? []) {
+    const key = m.manufacturer_id ?? ''
+    if (!groups.has(key)) groups.set(key, { manufacturerId: key, manufacturerName: manufacturerName(m.manufacturer_id), models: [] })
+    groups.get(key)!.models.push(m)
+  }
+  return [...groups.values()]
+    .map((g) => ({ ...g, models: [...g.models].sort((a, b) => a.model.localeCompare(b.model, 'ru')) }))
+    .sort((a, b) => a.manufacturerName.localeCompare(b.manufacturerName, 'ru'))
+})
+
+const typeModelSelection = computed<string, string | undefined>({
+  get() {
+    if (form.model_id) return `model:${form.model_id}`
+    if (form.device_type_id) return `type:${form.device_type_id}`
+    return ''
+  },
+  set(value: string | undefined) {
+    // value может прийти undefined: рантайм-директива vModelSelect у Vue берёт value ПЕРВОЙ
+    // выбранной option (el.options, отфильтрованные по .selected) — если ни одна не выбрана
+    // (например, тест или программный код выставил select.value на строку без совпадающей
+    // option), массив выбранных пуст и selectedVal[0] оказывается undefined.
+    const [kind, id] = (value ?? '').split(':')
+    if (kind === 'model') {
+      const model = deviceModels.value.find((m) => m.id === id)
+      form.model_id = id
+      form.device_type_id = model?.device_type_id ?? form.device_type_id
+      form.manufacturer_id = model?.manufacturer_id ?? ''
+    } else if (kind === 'type') {
+      form.model_id = ''
+      form.device_type_id = id
+      form.manufacturer_id = ''
+    } else {
+      form.model_id = ''
+      form.device_type_id = ''
+      form.manufacturer_id = ''
+    }
+  },
+})
+
+// Квик-добавление модели устройства подставляет её id и синхронизирует device_type_id и
+// manufacturer_id формы с моделью — то же самое, что делает setter typeModelSelection выше при
+// выборе уже существующей модели, продублировано здесь явно, т.к. QuickAddButton отдаёт "сырой"
+// CatalogItem напрямую в обход этого computed setter'а.
+function onModelCreated(record: CatalogItem) {
+  const model = record as unknown as DeviceModel
+  form.model_id = model.id
+  form.device_type_id = model.device_type_id ?? form.device_type_id
+  form.manufacturer_id = model.manufacturer_id ?? ''
+}
+
 // Сброс зависимых полей при смене родителя — иначе можно оставить room_id от
 // другого здания невидимым в списке, но по-прежнему отправляемым в payload.
 watch(
   () => form.device_type_id,
   async (deviceTypeId) => {
-    if (!filteredModels.value.some((m) => m.id === form.model_id)) form.model_id = ''
     // loadingNested гвардит от повторной загрузки в момент самой начальной загрузки устройства
     // (там form.device_type_id меняется синхронно вместе с loadingNested=true в том же тике, а
     // deviceTypeVlanIds уже атомарно загружается в самом watch(props.device) выше) — этот watch
@@ -237,13 +298,20 @@ function toPayload(extra?: Record<string, unknown>) {
   return { ...payload, ...extra }
 }
 
-// Квик-добавление модели устройства подставляет её id, а также синхронизирует device_type_id
-// формы, если он отличается — иначе только что созданная модель могла бы не попасть в
-// filteredModels (фильтр по device_type_id, см. выше) и пропасть из виду в своём же select'е.
-function onModelCreated(record: CatalogItem) {
-  const model = record as unknown as DeviceModel
-  if (model.device_type_id && model.device_type_id !== form.device_type_id) form.device_type_id = model.device_type_id
-  form.model_id = model.id
+// п.3.1: квик-добавление помещения/стойки синхронизирует и родительские поля формы — иначе
+// созданная запись могла бы не попасть в filteredRooms/filteredRacks (фильтр по
+// building_id/room_id, см. выше) и пропасть из виду в своём же select'е сразу после создания.
+function onRoomCreated(record: CatalogItem) {
+  const room = record as unknown as Room
+  form.building_id = room.building_id
+  form.room_id = room.id
+}
+function onRackCreated(record: CatalogItem) {
+  const rack = record as unknown as Rack
+  const room = catalogs.indexOf('rooms').get(rack.room_id) as unknown as Room | undefined
+  if (room) form.building_id = room.building_id
+  form.room_id = rack.room_id
+  form.rack_id = rack.id
 }
 
 // Delete-затем-recreate — тот же приём и то же обоснование (маленькие списки, простота важнее
@@ -363,7 +431,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать устройство' : 'Добавить устройство' }}</h2>
@@ -378,14 +446,22 @@ async function submit() {
       </div>
 
       <form class="form-grid" @submit.prevent="submit">
-        <label class="field">
-          <span>Тип устройства *</span>
+        <!-- п.3.6: три поля (Тип устройства/Производитель/Модель) объединены в одно — единственный
+             select с опциями "голых" типов (без модели) и моделей, сгруппированных по
+             производителю. См. typeModelSelection/modelGroups в <script setup>. -->
+        <label class="field field-wide">
+          <span>Тип / производитель / модель *</span>
           <div class="lookup-row">
-            <select v-model="form.device_type_id" required>
+            <select v-model="typeModelSelection" required>
               <option value="">— выберите —</option>
-              <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
+              <optgroup label="Тип устройства (без конкретной модели)">
+                <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="`type:${t.id}`">{{ t.name }}</option>
+              </optgroup>
+              <optgroup v-for="g in modelGroups" :key="g.manufacturerId" :label="g.manufacturerName">
+                <option v-for="m in g.models" :key="m.id" :value="`model:${m.id}`">{{ m.model }}</option>
+              </optgroup>
             </select>
-            <QuickAddButton resource="device-types" title="Тип устройства" @created="(r) => (form.device_type_id = r.id)" />
+            <QuickAddButton resource="device-models" title="Модель устройства" @created="onModelCreated" />
           </div>
         </label>
 
@@ -397,28 +473,6 @@ async function submit() {
         <label class="field">
           <span>Системное имя</span>
           <input v-model.trim="form.system_name" type="text" maxlength="255" />
-        </label>
-
-        <label class="field">
-          <span>Производитель</span>
-          <div class="lookup-row">
-            <select v-model="form.manufacturer_id">
-              <option value="">— не указан —</option>
-              <option v-for="m in catalogs.items['manufacturers'] ?? []" :key="m.id" :value="m.id">{{ m.name }}</option>
-            </select>
-            <QuickAddButton resource="manufacturers" title="Производитель" @created="(r) => (form.manufacturer_id = r.id)" />
-          </div>
-        </label>
-
-        <label class="field">
-          <span>Модель</span>
-          <div class="lookup-row">
-            <select v-model="form.model_id">
-              <option value="">— не указана —</option>
-              <option v-for="m in filteredModels" :key="m.id" :value="m.id">{{ m.model }}</option>
-            </select>
-            <QuickAddButton resource="device-models" title="Модель устройства" @created="onModelCreated" />
-          </div>
         </label>
 
         <label class="field">
@@ -454,26 +508,35 @@ async function submit() {
 
         <label class="field">
           <span>Здание</span>
-          <select v-model="form.building_id">
-            <option value="">— не указано —</option>
-            <option v-for="b in catalogs.items['buildings'] ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.building_id">
+              <option value="">— не указано —</option>
+              <option v-for="b in catalogs.items['buildings'] ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
+            </select>
+            <QuickAddButton resource="buildings" title="Здание" @created="(r) => (form.building_id = r.id)" />
+          </div>
         </label>
 
         <label class="field">
           <span>Помещение</span>
-          <select v-model="form.room_id" :disabled="!form.building_id">
-            <option value="">— не указано —</option>
-            <option v-for="r in filteredRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.room_id" :disabled="!form.building_id">
+              <option value="">— не указано —</option>
+              <option v-for="r in filteredRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
+            </select>
+            <QuickAddButton resource="rooms" title="Помещение" @created="onRoomCreated" />
+          </div>
         </label>
 
         <label class="field">
           <span>Стойка</span>
-          <select v-model="form.rack_id" :disabled="!form.room_id">
-            <option value="">— не указана —</option>
-            <option v-for="r in filteredRacks" :key="r.id" :value="r.id">{{ r.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.rack_id" :disabled="!form.room_id">
+              <option value="">— не указана —</option>
+              <option v-for="r in filteredRacks" :key="r.id" :value="r.id">{{ r.name }}</option>
+            </select>
+            <QuickAddButton resource="racks" title="Стойка" @created="onRackCreated" />
+          </div>
         </label>
 
         <label class="field">
@@ -559,6 +622,10 @@ async function submit() {
   gap: 5px;
   font-size: 11.5px;
   color: var(--ink-muted);
+  /* п.3.2: без min-width:0 ячейка CSS-грида не сжимается ниже intrinsic-ширины своего
+     содержимого — длинный текст в select/input (например, длинное имя помещения) распирал
+     ячейку шире её грид-трека и вылезал за пределы скруглённой подложки модалки (.modal). */
+  min-width: 0;
 }
 .field-wide {
   grid-column: 1 / -1;
@@ -567,6 +634,7 @@ async function submit() {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 .lookup-row select {
   flex: 1;
@@ -582,6 +650,9 @@ async function submit() {
   font-size: 13px;
   color: var(--ink);
   font-family: inherit;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .field select:disabled {
   opacity: 0.5;
