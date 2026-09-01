@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import { useOrganizationStore } from '../stores/organization'
+
 defineProps<{ open: boolean }>()
 defineEmits<{ close: [] }>()
+
+const organization = useOrganizationStore()
 
 const primaryNav = [
   { to: '/dashboard', icon: 'i-home', label: 'Дашборд' },
@@ -28,7 +32,7 @@ const systemNav = [
       <div class="brand-mark">ITR</div>
       <div class="brand-text">
         Реестр ИТ-инфраструктуры
-        <span>ООО «Организация»</span>
+        <span>{{ organization.name }}</span>
       </div>
     </div>
 
