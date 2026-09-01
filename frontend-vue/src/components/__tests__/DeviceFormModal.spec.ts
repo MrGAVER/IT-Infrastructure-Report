@@ -437,7 +437,7 @@ describe('DeviceFormModal.vue', () => {
     vlans.loaded = true
     const wrapper = await mountWithLoadedCatalogs()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN устройства
-    await wrapper.find('select.col-vlan').setValue('v-new')
+    await wrapper.find('.col-vlan select').setValue('v-new')
 
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
@@ -487,7 +487,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
 
-    const options = wrapper.find('select.col-vlan').findAll('option')
+    const options = wrapper.find('.col-vlan select').findAll('option')
     const texts = options.map((o) => o.text())
     expect(texts.some((t) => t.includes('Мониторинг'))).toBe(true) // без домена — доступен всем
     expect(texts.some((t) => t.includes('Управление'))).toBe(false) // доменный, не участник — скрыт
@@ -500,7 +500,7 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = await mountWithLoadedCatalogs()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
-    await wrapper.find('select.col-vlan').setValue('v-10')
+    await wrapper.find('.col-vlan select').setValue('v-10')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(

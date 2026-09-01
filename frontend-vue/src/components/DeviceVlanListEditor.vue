@@ -9,11 +9,17 @@
 // интерфейса (все остальные формы — модалки/инлайн-поля, не браузерные prompt-диалоги), а
 // сделать их прилично здесь — уже отдельная задача, не часть базового CRUD. Домены VLAN
 // по-прежнему управляются только через /legacy, см. "Ещё не сделано" во frontend-vue/README.md.
-import type { DeviceVlanDraftRow, VLANDefinition } from '../api/types'
+import type { CatalogItem, DeviceVlanDraftRow, VLANDefinition } from '../api/types'
 import { vlanLabel } from '../utils/vlan'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLANDefinition[] }>()
-const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]] }>()
+// vlan-created: полный список VLAN (vlanOptions) собирается родителем из useVLANsStore(), а не
+// из catalogs — generic QuickAddModal.vue пишет созданную запись только в catalogs.items['vlans'],
+// поэтому родителю нужно узнать о создании и перезагрузить vlansStore (см. DeviceFormModal.vue),
+// иначе только что заведённый VLAN пропадёт из этого же select'а сразу после выбора: у него не
+// будет совпадающего <option> в vlanOptions, пока vlansStore не подтянет его самостоятельно.
+const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]]; 'vlan-created': [] }>()
 
 function emptyRow(): DeviceVlanDraftRow {
   return { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }
@@ -36,6 +42,11 @@ function updateField(index: number, patch: Partial<DeviceVlanDraftRow>) {
     props.modelValue.map((row, i) => (i === index ? { ...row, ...patch } : row)),
   )
 }
+
+function onVlanCreated(index: number, created: CatalogItem) {
+  updateField(index, { vlan_id: created.id })
+  emit('vlan-created')
+}
 </script>
 
 <template>
@@ -48,10 +59,13 @@ function updateField(index: number, patch: Partial<DeviceVlanDraftRow>) {
     <div v-if="!modelValue.length" class="empty">VLAN не назначены</div>
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
-      <select class="col-vlan" :value="row.vlan_id" @change="updateField(i, { vlan_id: ($event.target as HTMLSelectElement).value })">
-        <option value="">— VLAN —</option>
-        <option v-for="v in vlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
-      </select>
+      <div class="col-vlan lookup-row">
+        <select :value="row.vlan_id" @change="updateField(i, { vlan_id: ($event.target as HTMLSelectElement).value })">
+          <option value="">— VLAN —</option>
+          <option v-for="v in vlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
+        </select>
+        <QuickAddButton resource="vlans" title="VLAN" @created="(r: CatalogItem) => onVlanCreated(i, r)" />
+      </div>
       <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />
       <input
         class="col-prefix"
@@ -121,6 +135,17 @@ function updateField(index: number, patch: Partial<DeviceVlanDraftRow>) {
   color: var(--ink);
   font-family: inherit;
   width: 100%;
+  min-width: 0;
+}
+.col-vlan.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.col-vlan.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .col-mgmt {
   display: flex;
