@@ -57,7 +57,7 @@ describe('DevicePortsModal.vue', () => {
     await flushPromises()
 
     expect(body().text()).toContain('srv-01')
-    expect(body().find('.iface-card input[type="text"]').element).toHaveProperty('value', 'eth0')
+    expect(body().find('.iface-table input.cell-input').element).toHaveProperty('value', 'eth0')
   })
 
   it('сохраняет через PUT /devices/{id}/interfaces, точечно обновляет каталог и эмитит saved', async () => {
@@ -154,12 +154,13 @@ describe('DevicePortsModal.vue', () => {
 
     mount(DevicePortsModal, { props: { deviceId: 'dev-1', deviceLabel: 'srv-01' } })
     await flushPromises()
+    await body().find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
 
     // Каталог типа устройства (v-type) и уже назначенный VLAN (v-assigned) — оба доступны для
     // чекбокса "VLAN на порту"; посторонний VLAN (ни в каталоге, ни назначен) — недоступен.
-    // .iface-card — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование".
+    // .iface-detail — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование".
     const labels = body()
-      .findAll('.iface-card .vlan-check')
+      .findAll('.iface-detail .vlan-check')
       .map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)

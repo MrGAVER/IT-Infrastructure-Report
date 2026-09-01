@@ -248,15 +248,16 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
 
-    expect(wrapper.find('.iface-card input[type="text"]').element).toHaveProperty('value', 'eth0')
+    expect(wrapper.find('.iface-table input.cell-input').element).toHaveProperty('value', 'eth0')
+    await wrapper.find('.expand-toggle').trigger('click') // IP-адреса скрыты под toggle (п.3.4)
     expect(wrapper.find('.ip-row input').element).toHaveProperty('value', '192.168.1.1')
   })
 
   it('сохраняет добавленный интерфейс через PUT /devices/{id}/interfaces', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    await wrapper.find('.generator').findAll('button.btn-secondary')[1].trigger('click') // + Интерфейс
-    await wrapper.find('.iface-card input[type="text"]').setValue('eth0')
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.iface-table input.cell-input').setValue('eth0')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -366,10 +367,11 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
+    await wrapper.find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
 
-    // .iface-card — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование"
+    // .iface-detail — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование"
     // (тот же vlanOptions используется и там, см. DeviceInterfacesEditor.vue).
-    const labels = wrapper.findAll('.iface-card .vlan-check').map((l) => l.text())
+    const labels = wrapper.findAll('.iface-detail .vlan-check').map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
   })
@@ -420,7 +422,8 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
-    expect((wrapper.find('.iface-card .vlan-check input').element as HTMLInputElement).checked).toBe(true)
+    await wrapper.find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
+    expect((wrapper.find('.iface-detail .vlan-check input').element as HTMLInputElement).checked).toBe(true)
 
     await wrapper.find('.nested-row .icon-btn.danger').trigger('click') // убрать единственный VLAN устройства
     await flushPromises()

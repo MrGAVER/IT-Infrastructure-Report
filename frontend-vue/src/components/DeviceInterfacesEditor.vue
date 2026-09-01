@@ -46,27 +46,54 @@ function applyTemplate(template: string, n: number): string {
 
 // Сохраняет существующие строки по индексу (вместе с их id/ips/vlan_ids) — повторное нажатие
 // "Сгенерировать" с другим количеством не должно рвать связь с уже сохранёнными интерфейсами и
-// их IP, если индекс совпал; лишь имя/тип/скорость перезаписываются шаблоном/значением по
-// умолчанию. Совпадает по смыслу с generateInterfaces() в vanilla-версии.
+// их IP, если индекс совпал. Совпадает по смыслу с generateInterfaces() в vanilla-версии.
+//
+// п.3.3, два фикса:
+// 1) Если хотя бы одна строка уже содержит реальные данные (не просто пустая карточка,
+//    добавленная кнопкой "+ Интерфейс"), генерация без предупреждения перезаписывала бы их
+//    шаблонными значениями — теперь сначала спрашиваем подтверждение (тот же паттерн confirm(),
+//    что и в DeviceFormModal.vue для конфликтов сохранения).
+// 2) genTypeId/genSpeedId, оставленные "— не выбрано —", раньше ВСЕГДА принудительно затирали
+//    interface_type_id/speed_id уже существующих строк пустым значением — даже если
+//    пользователь нажал "Сгенерировать" только чтобы поменять количество или шаблон имени, а тип
+//    со скоростью на строках были выставлены вручную ранее. applyBulkEdit() ниже для того же
+//    случая уже трактует пустое значение поля как "не менять" (bulkTypeId.value || row.type) —
+//    generate() приведён к тому же принципу.
 function generate() {
+  const hasExistingData = props.modelValue.some(
+    (row) => row.name.trim() || row.mac_address.trim() || row.description.trim() || row.ips.length || row.vlan_ids.length,
+  )
+  if (hasExistingData) {
+    const count = props.modelValue.length
+    const ok = confirm(`Уже заполнено ${count} интерфейс${count === 1 ? '' : 'а(ов)'}. Сгенерировать заново и заменить их шаблонными значениями?`)
+    if (!ok) return
+  }
   const count = Math.max(0, Number(genCount.value) || 0)
-  const rows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => ({
-    ...(props.modelValue[i] ?? emptyRow()),
-    name: applyTemplate(genNameTemplate.value || 'eth{n}', i + 1),
-    interface_type_id: genTypeId.value,
-    speed_id: genSpeedId.value,
-  }))
+  const rows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => {
+    const existing = props.modelValue[i] ?? emptyRow()
+    return {
+      ...existing,
+      name: applyTemplate(genNameTemplate.value || 'eth{n}', i + 1),
+      interface_type_id: genTypeId.value || existing.interface_type_id,
+      speed_id: genSpeedId.value || existing.speed_id,
+    }
+  })
   selectedIndices.value = new Set()
+  expandedIndices.value = new Set()
   emit('update:modelValue', rows)
 }
 
 function addRow() {
   selectedIndices.value = new Set()
+  // Новая строка сразу развёрнута — пользователь, скорее всего, тут же захочет назначить ей
+  // VLAN/IP, а не искать, куда делись эти поля после перехода на компактную таблицу (п.3.4).
+  expandedIndices.value.add(props.modelValue.length)
   emit('update:modelValue', [...props.modelValue, emptyRow()])
 }
 
 function removeRow(index: number) {
   selectedIndices.value = new Set()
+  expandedIndices.value = new Set()
   emit(
     'update:modelValue',
     props.modelValue.filter((_, i) => i !== index),
@@ -106,6 +133,10 @@ function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
 }
 
 const selectedIndices = ref<Set<number>>(new Set())
+// п.3.4: какие строки таблицы сейчас показывают развёрнутую панель (VLAN на порту, IP-адреса,
+// описание) — вынесены из компактной таблицы под toggle, иначе редко нужные на каждый день поля
+// съедали бы всю выгоду от перехода с карточек на таблицу.
+const expandedIndices = ref<Set<number>>(new Set())
 const bulkTypeId = ref('')
 const bulkSpeedId = ref('')
 const bulkManagement = ref('') // '' — не менять, 'true'/'false' — включить/выключить
@@ -119,6 +150,11 @@ function toggleSelect(index: number, checked: boolean) {
 
 function toggleSelectAll(checked: boolean) {
   selectedIndices.value = checked ? new Set(props.modelValue.map((_, i) => i)) : new Set()
+}
+
+function toggleExpand(index: number) {
+  if (expandedIndices.value.has(index)) expandedIndices.value.delete(index)
+  else expandedIndices.value.add(index)
 }
 
 function toggleBulkVlan(vlanDefId: string, checked: boolean) {
@@ -200,10 +236,6 @@ function applyBulkEdit() {
         </div>
       </label>
       <button type="button" class="btn btn-secondary" @click="generate">Сгенерировать</button>
-      <button type="button" class="btn btn-secondary" @click="addRow">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Интерфейс
-      </button>
     </div>
 
     <div v-if="modelValue.length" class="bulk-edit-bar">
@@ -255,96 +287,151 @@ function applyBulkEdit() {
       <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
     </div>
 
-    <div v-if="!modelValue.length" class="empty">Интерфейсы не добавлены</div>
+    <div v-if="modelValue.length" class="iface-list-head">
+      <b>Список интерфейсов</b>
+      <button type="button" class="btn btn-secondary" @click="addRow">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Интерфейс
+      </button>
+    </div>
 
-    <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="iface-card">
-      <div class="iface-card-head">
-        <label class="if-select-label">
-          <input type="checkbox" :checked="selectedIndices.has(i)" @change="toggleSelect(i, ($event.target as HTMLInputElement).checked)" />
-          <span>Выбрать</span>
-        </label>
-        <b>Интерфейс {{ i + 1 }}</b>
-        <button type="button" class="icon-btn danger" aria-label="Удалить интерфейс" @click="removeRow(i)">
-          <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-        </button>
-      </div>
-      <div class="iface-card-grid">
-        <label class="field">
-          <span>Имя</span>
-          <input type="text" :value="row.name" @input="updateRow(i, { name: ($event.target as HTMLInputElement).value })" />
-        </label>
-        <label class="field">
-          <span>Тип</span>
-          <select :value="row.interface_type_id" @change="updateRow(i, { interface_type_id: ($event.target as HTMLSelectElement).value })">
-            <option value="">— не выбрано —</option>
-            <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>MAC</span>
-          <input type="text" :value="row.mac_address" @input="updateRow(i, { mac_address: ($event.target as HTMLInputElement).value })" />
-        </label>
-        <label class="field">
-          <span>Скорость</span>
-          <select :value="row.speed_id" @change="updateRow(i, { speed_id: ($event.target as HTMLSelectElement).value })">
-            <option value="">— не выбрано —</option>
-            <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
-        </label>
-        <label class="field checkbox-field">
-          <input type="checkbox" :checked="row.is_management" @change="updateRow(i, { is_management: ($event.target as HTMLInputElement).checked })" />
-          <span>Управление</span>
-        </label>
-        <label class="field checkbox-field">
-          <input type="checkbox" :checked="row.is_data_transfer" @change="updateRow(i, { is_data_transfer: ($event.target as HTMLInputElement).checked })" />
-          <span>Передача данных</span>
-        </label>
-        <label class="field field-wide">
-          <span>Описание</span>
-          <textarea :value="row.description" rows="2" @input="updateRow(i, { description: ($event.target as HTMLTextAreaElement).value })"></textarea>
-        </label>
-      </div>
+    <div v-if="!modelValue.length" class="empty">
+      Интерфейсы не добавлены
+      <button type="button" class="btn btn-secondary" @click="addRow">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Интерфейс
+      </button>
+    </div>
 
-      <div class="vlan-block">
-        <b>VLAN на порту</b>
-        <div v-if="vlanOptions.length" class="vlan-checks">
-          <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-            <input
-              type="checkbox"
-              :checked="row.vlan_ids.includes(v.id)"
-              @change="toggleVlan(i, v.id, ($event.target as HTMLInputElement).checked)"
-            />
-            {{ vlanLabel(v) }}
-          </label>
-        </div>
-        <span v-else class="empty">Для типа устройства VLAN не назначены</span>
-      </div>
+    <!-- п.3.4: список интерфейсов — компактная таблица вместо карточек на каждый интерфейс;
+         редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
+         toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
+         десятке портов. -->
+    <div v-else class="iface-table-wrap">
+      <table class="iface-table">
+        <thead>
+          <tr>
+            <th class="col-select">
+              <input
+                type="checkbox"
+                :checked="selectedIndices.size === modelValue.length"
+                aria-label="Выбрать все интерфейсы"
+                @change="toggleSelectAll(($event.target as HTMLInputElement).checked)"
+              />
+            </th>
+            <th class="col-index">#</th>
+            <th>Имя</th>
+            <th>Тип</th>
+            <th>MAC</th>
+            <th>Скорость</th>
+            <th class="col-check">Упр.</th>
+            <th class="col-check">Данные</th>
+            <th>VLAN / IP</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="(row, i) in modelValue" :key="row.id ?? i">
+            <tr class="iface-row">
+              <td class="col-select">
+                <input
+                  type="checkbox"
+                  :checked="selectedIndices.has(i)"
+                  aria-label="Выбрать интерфейс"
+                  @change="toggleSelect(i, ($event.target as HTMLInputElement).checked)"
+                />
+              </td>
+              <td class="col-index">{{ i + 1 }}</td>
+              <td>
+                <input type="text" class="cell-input" :value="row.name" @input="updateRow(i, { name: ($event.target as HTMLInputElement).value })" />
+              </td>
+              <td>
+                <select class="cell-input" :value="row.interface_type_id" @change="updateRow(i, { interface_type_id: ($event.target as HTMLSelectElement).value })">
+                  <option value="">— не выбрано —</option>
+                  <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+                </select>
+              </td>
+              <td>
+                <input type="text" class="cell-input" :value="row.mac_address" @input="updateRow(i, { mac_address: ($event.target as HTMLInputElement).value })" />
+              </td>
+              <td>
+                <select class="cell-input" :value="row.speed_id" @change="updateRow(i, { speed_id: ($event.target as HTMLSelectElement).value })">
+                  <option value="">— не выбрано —</option>
+                  <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+                </select>
+              </td>
+              <td class="col-check">
+                <input type="checkbox" :checked="row.is_management" @change="updateRow(i, { is_management: ($event.target as HTMLInputElement).checked })" />
+              </td>
+              <td class="col-check">
+                <input type="checkbox" :checked="row.is_data_transfer" @change="updateRow(i, { is_data_transfer: ($event.target as HTMLInputElement).checked })" />
+              </td>
+              <td>
+                <button type="button" class="expand-toggle" @click="toggleExpand(i)">
+                  <span>{{ row.vlan_ids.length }} VLAN · {{ row.ips.length }} IP</span>
+                  <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
+                </button>
+              </td>
+              <td class="col-actions">
+                <button type="button" class="icon-btn danger" aria-label="Удалить интерфейс" @click="removeRow(i)">
+                  <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                </button>
+              </td>
+            </tr>
+            <tr v-if="expandedIndices.has(i)" class="iface-detail-row">
+              <td colspan="10">
+                <div class="iface-detail">
+                  <label class="field field-wide">
+                    <span>Описание</span>
+                    <textarea :value="row.description" rows="2" @input="updateRow(i, { description: ($event.target as HTMLTextAreaElement).value })"></textarea>
+                  </label>
 
-      <div class="ip-block">
-        <div class="ip-head">
-          <b>IP-адреса интерфейса</b>
-          <button type="button" class="btn btn-secondary" @click="addIp(i)">
-            <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-            IP-адрес
-          </button>
-        </div>
-        <div v-if="!row.ips.length" class="empty">IP-адреса не добавлены</div>
-        <div v-for="(ip, j) in row.ips" :key="ip.id ?? j" class="ip-row">
-          <input type="text" placeholder="IP-адрес" :value="ip.ip_address" @input="updateIp(i, j, { ip_address: ($event.target as HTMLInputElement).value })" />
-          <input
-            type="number"
-            min="0"
-            max="128"
-            placeholder="Префикс"
-            :value="ip.prefix_length"
-            @input="updateIp(i, j, { prefix_length: ($event.target as HTMLInputElement).value })"
-          />
-          <input type="text" placeholder="Назначение" :value="ip.purpose" @input="updateIp(i, j, { purpose: ($event.target as HTMLInputElement).value })" />
-          <button type="button" class="icon-btn danger" aria-label="Удалить IP интерфейса" @click="removeIp(i, j)">
-            <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-          </button>
-        </div>
-      </div>
+                  <div class="vlan-block">
+                    <b>VLAN на порту</b>
+                    <div v-if="vlanOptions.length" class="vlan-checks">
+                      <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+                        <input
+                          type="checkbox"
+                          :checked="row.vlan_ids.includes(v.id)"
+                          @change="toggleVlan(i, v.id, ($event.target as HTMLInputElement).checked)"
+                        />
+                        {{ vlanLabel(v) }}
+                      </label>
+                    </div>
+                    <span v-else class="empty">Для типа устройства VLAN не назначены</span>
+                  </div>
+
+                  <div class="ip-block">
+                    <div class="ip-head">
+                      <b>IP-адреса интерфейса</b>
+                      <button type="button" class="btn btn-secondary" @click="addIp(i)">
+                        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+                        IP-адрес
+                      </button>
+                    </div>
+                    <div v-if="!row.ips.length" class="empty">IP-адреса не добавлены</div>
+                    <div v-for="(ip, j) in row.ips" :key="ip.id ?? j" class="ip-row">
+                      <input type="text" placeholder="IP-адрес" :value="ip.ip_address" @input="updateIp(i, j, { ip_address: ($event.target as HTMLInputElement).value })" />
+                      <input
+                        type="number"
+                        min="0"
+                        max="128"
+                        placeholder="Префикс"
+                        :value="ip.prefix_length"
+                        @input="updateIp(i, j, { prefix_length: ($event.target as HTMLInputElement).value })"
+                      />
+                      <input type="text" placeholder="Назначение" :value="ip.purpose" @input="updateIp(i, j, { purpose: ($event.target as HTMLInputElement).value })" />
+                      <button type="button" class="icon-btn danger" aria-label="Удалить IP интерфейса" @click="removeIp(i, j)">
+                        <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>
@@ -455,26 +542,111 @@ function applyBulkEdit() {
   width: 14px;
   height: 14px;
 }
-.iface-card {
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.iface-card-head {
+.iface-list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
 }
-.iface-card-head b {
+.iface-list-head b {
   font-size: 12px;
 }
-.iface-card-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 12px;
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* п.3.4/3.5: компактная таблица интерфейсов вместо карточки на каждый порт; кнопка
+   "+ Интерфейс" (п.3.5) теперь стоит в шапке этого же блока, а не среди полей генератора
+   выше — она относится к списку, а не к настройкам массовой генерации. */
+.iface-table-wrap {
+  overflow-x: auto;
+}
+.iface-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.iface-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0 6px 6px;
+  white-space: nowrap;
+}
+.iface-table td {
+  padding: 4px 6px;
+  vertical-align: middle;
+  border-top: 1px solid var(--border);
+}
+.iface-table .col-select,
+.iface-table .col-index,
+.iface-table .col-check,
+.iface-table .col-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+.iface-table .col-select input,
+.iface-table .col-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
+}
+.iface-table .col-index {
+  color: var(--ink-muted);
+}
+.cell-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 6px 7px;
+  font-size: 12px;
+  color: var(--ink);
+  font-family: inherit;
+  width: 100%;
+  min-width: 90px;
+  box-sizing: border-box;
+}
+.expand-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.expand-toggle:hover {
+  color: var(--ink);
+}
+.chev {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.chev.open {
+  transform: rotate(180deg);
+}
+.iface-detail-row td {
+  border-top: none;
+  padding: 0 6px 10px;
+}
+.iface-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background: var(--surface-2);
+  border-radius: var(--r-s);
 }
 .field {
   display: flex;
@@ -489,7 +661,7 @@ function applyBulkEdit() {
 .field input[type='text'],
 .field select,
 .field textarea {
-  background: var(--surface-2);
+  background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 7px 8px;
@@ -497,24 +669,7 @@ function applyBulkEdit() {
   color: var(--ink);
   font-family: inherit;
 }
-.checkbox-field {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  margin-top: 14px;
-}
-.checkbox-field input {
-  accent-color: var(--brand);
-  width: 14px;
-  height: 14px;
-}
-.checkbox-field span {
-  color: var(--ink);
-  font-size: 12px;
-}
 .vlan-block {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -540,8 +695,6 @@ function applyBulkEdit() {
   height: 14px;
 }
 .ip-block {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -561,7 +714,7 @@ function applyBulkEdit() {
   gap: 8px;
 }
 .ip-row input {
-  background: var(--surface-2);
+  background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 6px 8px;
@@ -579,9 +732,6 @@ function applyBulkEdit() {
 }
 
 @media (max-width: 640px) {
-  .iface-card-grid {
-    grid-template-columns: 1fr;
-  }
   .ip-row {
     grid-template-columns: 1fr;
   }
