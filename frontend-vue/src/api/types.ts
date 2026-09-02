@@ -564,6 +564,45 @@ export interface GridSheet {
 export interface GridConfig {
   sheets: GridSheet[]
 }
+
+/** Формат конфигурации docx-блоков (config.blocks) — см. backend/app/services/report_engine.py:
+ * validate_config/build_docx. filters использует тот же формат {path, op, value}, что и
+ * GridDataSourceFilter у повторяющейся строки xlsx — общая структура на обоих форматах. */
+export interface DocxTableColumn {
+  header: string
+  source: 'field' | 'index' | 'static'
+  path?: string
+  separator?: string
+  value?: string
+}
+export interface DocxHeadingBlock {
+  type: 'heading'
+  text: string
+  level?: number
+}
+export interface DocxParagraphBlock {
+  type: 'paragraph'
+  text: string
+  align?: 'left' | 'center'
+}
+export interface DocxPageBreakBlock {
+  type: 'page_break'
+}
+export interface DocxTableBlock {
+  type: 'table'
+  title?: string
+  root_entity: string
+  expand?: string
+  include_empty_expand?: boolean
+  sort_by?: string
+  filters: GridDataSourceFilter[]
+  columns: DocxTableColumn[]
+}
+export type DocxBlock = DocxHeadingBlock | DocxParagraphBlock | DocxPageBreakBlock | DocxTableBlock
+
+export interface DocxConfig {
+  blocks: DocxBlock[]
+}
 export interface VLANDashboardResponse {
   items: VLANDashboardGroup[]
 }

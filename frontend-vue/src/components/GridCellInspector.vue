@@ -8,6 +8,7 @@
 import { computed } from 'vue'
 import type { GridCell, GridDataSource, GridDataSourceFilter, GridFilterOp, GridRow, ReportEntityMeta } from '../api/types'
 import { entityLabel, flattenEntityPaths, indexEntitiesByKey } from '../utils/reportEntityPaths'
+import { FILTER_OPS, FILTER_OPS_WITHOUT_VALUE } from '../utils/reportFilterOps'
 
 const props = defineProps<{
   mode: 'cell' | 'row'
@@ -27,16 +28,6 @@ const expandOptions = computed(() => {
   const rootEntity = props.row.data_source?.root_entity
   return rootEntity ? (entitiesByKey.value[rootEntity]?.to_many ?? []) : []
 })
-
-const FILTER_OPS: Array<[GridFilterOp, string]> = [
-  ['eq', 'равно'],
-  ['ne', 'не равно'],
-  ['contains', 'содержит'],
-  ['not_contains', 'не содержит'],
-  ['not_empty', 'не пусто'],
-  ['is_true', 'да/включено'],
-  ['is_false', 'нет/выключено'],
-]
 
 function patchDataSource(patch: Partial<GridDataSource>) {
   if (!props.row.data_source) return
@@ -118,7 +109,7 @@ const staticTextHint = 'Текст (можно использовать {{report
               <option v-for="[op, label] in FILTER_OPS" :key="op" :value="op">{{ label }}</option>
             </select>
             <input
-              v-if="!['not_empty', 'is_true', 'is_false'].includes(f.op)"
+              v-if="!FILTER_OPS_WITHOUT_VALUE.includes(f.op)"
               type="text"
               placeholder="значение"
               :value="f.value"
