@@ -82,6 +82,26 @@ describe('useDevicesStore', () => {
     expect(store.filtered.map((d) => d.id)).toEqual(['dev-3'])
   })
 
+  // Регресс на баг: DevicesView.vue грузит devices/catalogs/vlans параллельно
+  // (Promise.all), и filtered — реактивный getter, к которому Vue может обратиться в рендере
+  // раньше, чем ОБА промиса резолвнутся. Раньше это навсегда "запирало" пустой индекс зданий
+  // внутри catalogs.indexOf('buildings') (см. catalogs.spec.ts) — и фильтр по структурной
+  // единице после этого не находил вообще ничего, даже когда здания благополучно догружались.
+  it('фильтр по структурной единице переживает раннее (до catalogs.ensureLoaded()) обращение к filtered', async () => {
+    const catalogs = useCatalogsStore()
+    const store = useDevicesStore()
+    await store.ensureLoaded()
+
+    // Здания ещё не загружены (catalogs.items['buildings'] пуст) — но фильтр уже применён, как
+    // если бы Vue успел отрисовать таблицу до резолва catalogs.ensureLoaded() из другого Promise.all.
+    store.structuralUnitIds = ['root-1']
+    expect(store.filtered).toEqual([]) // ожидаемо пусто — buildings ещё не пришли
+
+    // Справочники догрузились уже ПОСЛЕ первого обращения к filtered выше.
+    await catalogs.ensureLoaded()
+    expect(store.filtered.map((d) => d.id).sort()).toEqual(['dev-1', 'dev-2'])
+  })
+
   it('пагинирует по 6 записей на страницу и сбрасывает страницу', async () => {
     const store = useDevicesStore()
     await store.ensureLoaded()

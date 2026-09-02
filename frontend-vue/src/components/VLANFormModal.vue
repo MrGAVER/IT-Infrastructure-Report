@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
-import type { VLANDefinition } from '../api/types'
+import type { CatalogItem, VLANDefinition } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ definition: VLANDefinition | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -12,7 +13,16 @@ const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.definition !== null)
 
-function emptyForm() {
+// vlan_id хранится как string | number, не просто string: на <input type="number"> Vue
+// автоматически приводит значение из v-model к числу при вводе (looseToNumber в runtime-directive
+// vModelText — встроенное поведение специально для type="number"/"range", срабатывает вне
+// зависимости от модификатора .number на самом v-model), а при программном заполнении формы
+// (watch ниже, emptyForm()) в это же поле кладётся строка. Раньше здесь стоял .trim() без учёта
+// этого: form.vlan_id.trim() падал TypeError'ом, как только form.vlan_id успевал побывать числом
+// (т.е. после первого же ввода пользователем) — необработанное исключение вылетало ДО
+// errorMessage.value = ... и ДО try/catch вокруг saving, так что клик "Добавить" внешне выглядел
+// как "ничего не происходит". Валидация ниже поэтому работает через Number(...), не .trim().
+function emptyForm(): { vlan_id: string | number; name: string; description: string; domain_id: string } {
   return { vlan_id: '', name: '', description: '', domain_id: '' }
 }
 const form = reactive(emptyForm())
@@ -33,8 +43,9 @@ watch(
 
 async function submit() {
   errorMessage.value = null
+  const vlanIdEmpty = typeof form.vlan_id === 'string' && form.vlan_id.trim() === ''
   const vlanIdNum = Number(form.vlan_id)
-  if (!form.vlan_id.trim() || !Number.isInteger(vlanIdNum) || vlanIdNum < 1 || vlanIdNum > 4094) {
+  if (vlanIdEmpty || !Number.isInteger(vlanIdNum) || vlanIdNum < 1 || vlanIdNum > 4094) {
     errorMessage.value = 'Укажите корректный VLAN ID (целое число от 1 до 4094).'
     return
   }
@@ -80,7 +91,7 @@ async function submit() {
       <form class="form-grid" @submit.prevent="submit">
         <label class="field">
           <span>VLAN ID *</span>
-          <input v-model.trim="form.vlan_id" type="number" min="1" max="4094" required />
+          <input v-model="form.vlan_id" type="number" min="1" max="4094" required />
         </label>
 
         <label class="field">
@@ -90,10 +101,13 @@ async function submit() {
 
         <label class="field">
           <span>Домен VLAN</span>
-          <select v-model="form.domain_id">
-            <option value="">— локальный (без домена) —</option>
-            <option v-for="d in catalogs.items['vlan-domains'] ?? []" :key="d.id" :value="d.id">{{ d.name }}</option>
-          </select>
+          <div class="lookup-row">
+            <select v-model="form.domain_id">
+              <option value="">— локальный (без домена) —</option>
+              <option v-for="d in catalogs.items['vlan-domains'] ?? []" :key="d.id" :value="d.id">{{ d.name }}</option>
+            </select>
+            <QuickAddButton resource="vlan-domains" title="Домен VLAN" @created="(r: CatalogItem) => (form.domain_id = r.id)" />
+          </div>
         </label>
 
         <label class="field field-wide">
@@ -162,6 +176,7 @@ async function submit() {
   gap: 5px;
   font-size: 11.5px;
   color: var(--ink-muted);
+  min-width: 0;
 }
 .field-wide {
   grid-column: 1 / -1;
@@ -177,6 +192,19 @@ async function submit() {
   color: var(--ink);
   font-family: inherit;
   resize: vertical;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.lookup-row select {
+  flex: 1;
+  min-width: 0;
 }
 .modal-foot {
   display: flex;

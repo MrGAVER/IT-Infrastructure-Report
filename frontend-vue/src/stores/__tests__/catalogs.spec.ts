@@ -107,4 +107,41 @@ describe('useCatalogsStore', () => {
     expect(() => store.replaceDeviceInterfaces('dev-1', [{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }])).not.toThrow()
     expect(store.items['interfaces']).toEqual([{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }])
   })
+
+  // Регресс на баг: indexOf()/label() кешировали Map по ИМЕНИ каталога, а не по массиву — если
+  // компонент успевал спросить лукап раньше, чем catalogs.reload() резолвился (обычная гонка при
+  // параллельной загрузке нескольких сторов на одном экране), пустой результат навсегда "запирал"
+  // этот ключ, и вновь добавленная через QuickAddModal запись показывалась как "—" до полной
+  // перезагрузки страницы (см. п.3.7 фикса).
+  it('label() видит запись, добавленную в каталог ПОСЛЕ первого (ещё до загрузки) обращения к indexOf', () => {
+    const store = useCatalogsStore()
+    // Обращение до заполнения items['embedded-os'] — имитирует раннюю отрисовку select'а.
+    expect(store.indexOf('embedded-os').get('os-new')).toBeUndefined()
+    expect(store.label('embedded-os', 'os-new')).toBe('—')
+
+    // Каталог "догрузился" — новая запись появилась (или её только что создали через QuickAdd).
+    store.items = { ...store.items, 'embedded-os': [{ id: 'os-new', name: 'RouterOS', version: '7.1' }] }
+
+    expect(store.label('embedded-os', 'os-new')).toBe('RouterOS 7.1')
+  })
+
+  it('reload(): сбой одного каталога не мешает загрузиться остальным', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
+        if (url.includes('/resources/buildings')) throw new Error('network error')
+        const match = url.match(/\/resources\/([a-z-]+)/)
+        const key = match?.[1] ?? ''
+        const byResource: Record<string, unknown> = { 'device-types': deviceTypesFixture }
+        return new Response(JSON.stringify(byResource[key] ?? { items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+    const store = useCatalogsStore()
+    await store.ensureLoaded()
+
+    expect(store.loaded).toBe(true) // не должно "зависать" в незагруженном состоянии целиком
+    expect(store.label('device-types', 'dt-server')).toBe('Сервер') // другие каталоги пришли нормально
+    expect(store.error).toContain('buildings') // но о частичном сбое сообщаем
+  })
 })

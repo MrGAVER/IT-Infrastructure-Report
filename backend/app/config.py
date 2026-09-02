@@ -19,7 +19,7 @@ FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'fro
 # frontend-vue/README.md). В отличие от FRONTEND_DIR ничего собирать не нужно — эти файлы
 # как были обычным HTML/JS/CSS без сборки, так и остаются.
 LEGACY_FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_LEGACY_FRONTEND_DIR', str(BASE_DIR / 'frontend'))).expanduser().resolve()
-APP_VERSION = '2.52.0'
+APP_VERSION = '2.53.1'
 
 # Frontend is served from the same origin (StaticFiles mount below), and the app currently
 # does not use cookies/auth headers, so CORS is only relevant when a separate frontend origin

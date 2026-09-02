@@ -17,8 +17,8 @@ defineEmits<{ 'toggle-sidebar': [] }>()
       <slot name="right" />
       <ThemeSwitcher compact />
       <div class="user-chip">
-        <div class="avatar">АЛ</div>
-        <div class="who"><b>Андрей Л.</b><span>Администратор</span></div>
+        <div class="avatar">А</div>
+        <div class="who"><b>Администратор</b><span>Администратор</span></div>
       </div>
     </div>
   </div>

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import DeviceVlanListEditor from '../DeviceVlanListEditor.vue'
 import type { DeviceVlanDraftRow, VLANDefinition } from '../../api/types'
 
@@ -7,6 +8,20 @@ const vlanOptions: VLANDefinition[] = [
   { id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] },
   { id: 'v-20', vlan_id: 20, name: 'Управление', description: '', domain_id: 'dom-1', domain_name: 'Ядро сети', devices: [] },
 ]
+
+// QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
+function teleportedContent(): DOMWrapper<HTMLElement> {
+  return new DOMWrapper(document.body)
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status })
+}
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  document.body.innerHTML = ''
+})
 
 describe('DeviceVlanListEditor.vue', () => {
   it('показывает подсказку, если VLAN не назначены', () => {
@@ -24,7 +39,7 @@ describe('DeviceVlanListEditor.vue', () => {
 
   it('показывает домен в подписи опции VLAN', () => {
     const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }], vlanOptions } })
-    expect(wrapper.find('select.col-vlan').text()).toContain('20 — Управление [Ядро сети]')
+    expect(wrapper.find('.col-vlan select').text()).toContain('20 — Управление [Ядро сети]')
   })
 
   it('обновляет IP-адрес, не мутируя исходный проп', async () => {
@@ -59,5 +74,37 @@ describe('DeviceVlanListEditor.vue', () => {
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([rows[1]])
+  })
+
+  describe('быстрое добавление VLAN (п.3.9)', () => {
+    it('рядом с полем VLAN есть кнопка быстрого добавления', () => {
+      const rows: DeviceVlanDraftRow[] = [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions } })
+      expect(wrapper.find('.col-vlan button').exists()).toBe(true)
+    })
+
+    it('созданный VLAN подставляется в строку и наружу эмитится vlan-created', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/vlans')) {
+            return jsonResponse({ id: 'v-new', vlan_id: 42, name: 'Гостевой' }, 201)
+          }
+          return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+        }),
+      )
+      const rows: DeviceVlanDraftRow[] = [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions } })
+
+      await wrapper.find('.col-vlan button').trigger('click')
+      await teleportedContent().find('input[type="number"]').setValue('42') // VLAN ID
+      await teleportedContent().findAll('input[type="text"]')[0].setValue('Гостевой') // Имя
+      await teleportedContent().find('form').trigger('submit')
+      await flushPromises()
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      expect((emitted[0][0] as DeviceVlanDraftRow[])[0].vlan_id).toBe('v-new')
+      expect(wrapper.emitted('vlan-created')).toBeTruthy()
+    })
   })
 })

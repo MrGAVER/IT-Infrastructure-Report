@@ -65,7 +65,11 @@ async function submit() {
         </label>
         <label class="field">
           <span>Высота, U</span>
-          <input v-model.trim="form.height_u" type="number" min="1" max="60" />
+          <!-- Без .trim: на type="number" Vue и так приводит значение к числу при вводе
+               (см. подробный комментарий в VLANFormModal.vue) — .trim здесь ничего не давал,
+               кроме риска того же TypeError'а, если бы форма когда-нибудь начала звать
+               .trim() на form.height_u, как раньше было с form.vlan_id в VLANFormModal.vue. -->
+          <input v-model="form.height_u" type="number" min="1" max="60" />
         </label>
       </form>
       <div class="modal-foot">

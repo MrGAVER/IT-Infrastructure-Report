@@ -52,7 +52,7 @@ describe('DeviceFormModal.vue', () => {
     })
     vi.stubGlobal('fetch', postMock)
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-1')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -85,7 +85,7 @@ describe('DeviceFormModal.vue', () => {
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('confirm', vi.fn(() => true))
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-2')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -112,7 +112,7 @@ describe('DeviceFormModal.vue', () => {
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('confirm', vi.fn(() => false))
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-3')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -174,7 +174,7 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-4')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -207,7 +207,7 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-5')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -248,15 +248,16 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
 
-    expect(wrapper.find('.iface-card input[type="text"]').element).toHaveProperty('value', 'eth0')
+    expect(wrapper.find('.iface-table input.cell-input').element).toHaveProperty('value', 'eth0')
+    await wrapper.find('.expand-toggle').trigger('click') // IP-адреса скрыты под toggle (п.3.4)
     expect(wrapper.find('.ip-row input').element).toHaveProperty('value', '192.168.1.1')
   })
 
   it('сохраняет добавленный интерфейс через PUT /devices/{id}/interfaces', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    await wrapper.find('.generator').findAll('button.btn-secondary')[1].trigger('click') // + Интерфейс
-    await wrapper.find('.iface-card input[type="text"]').setValue('eth0')
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.iface-table input.cell-input').setValue('eth0')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -271,7 +272,7 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-6')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -366,10 +367,11 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
+    await wrapper.find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
 
-    // .iface-card — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование"
+    // .iface-detail — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование"
     // (тот же vlanOptions используется и там, см. DeviceInterfacesEditor.vue).
-    const labels = wrapper.findAll('.iface-card .vlan-check').map((l) => l.text())
+    const labels = wrapper.findAll('.iface-detail .vlan-check').map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
   })
@@ -420,7 +422,8 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
-    expect((wrapper.find('.iface-card .vlan-check input').element as HTMLInputElement).checked).toBe(true)
+    await wrapper.find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
+    expect((wrapper.find('.iface-detail .vlan-check input').element as HTMLInputElement).checked).toBe(true)
 
     await wrapper.find('.nested-row .icon-btn.danger').trigger('click') // убрать единственный VLAN устройства
     await flushPromises()
@@ -437,7 +440,7 @@ describe('DeviceFormModal.vue', () => {
     vlans.loaded = true
     const wrapper = await mountWithLoadedCatalogs()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN устройства
-    await wrapper.find('select.col-vlan').setValue('v-new')
+    await wrapper.find('.col-vlan select').setValue('v-new')
 
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
@@ -452,7 +455,7 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-16')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -487,7 +490,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
 
-    const options = wrapper.find('select.col-vlan').findAll('option')
+    const options = wrapper.find('.col-vlan select').findAll('option')
     const texts = options.map((o) => o.text())
     expect(texts.some((t) => t.includes('Мониторинг'))).toBe(true) // без домена — доступен всем
     expect(texts.some((t) => t.includes('Управление'))).toBe(false) // доменный, не участник — скрыт
@@ -500,7 +503,7 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = await mountWithLoadedCatalogs()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
-    await wrapper.find('select.col-vlan').setValue('v-10')
+    await wrapper.find('.col-vlan select').setValue('v-10')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -515,7 +518,7 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('dt-server')
+    await wrapper.find('select').setValue('type:dt-server')
     await wrapper.find('input[type="text"]').setValue('SN-13')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -525,43 +528,33 @@ describe('DeviceFormModal.vue', () => {
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
-  it('быстрое добавление типа устройства подставляет его в форму', async () => {
+  it('объединённое поле типа/производителя/модели: группа "без модели" не завязана на конкретную модель', async () => {
     const wrapper = await mountWithLoadedCatalogs()
+    const select = wrapper.find('.form-grid .lookup-row select')
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-types')) {
-          return new Response(JSON.stringify({ id: 'dt-new', name: 'Маршрутизатор' }), { status: 201 })
-        }
-        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
-      }),
-    )
+    const optgroups = select.findAll('optgroup')
+    expect(optgroups[0].attributes('label')).toBe('Тип устройства (без конкретной модели)')
 
-    await wrapper.find('.lookup-row button').trigger('click') // "+" рядом с типом устройства — первое поле формы
-    // QuickAddModal.vue телепортируется в document.body (иначе <form> внутри <form> — HTML не
-    // допускает вложенные формы), поэтому wrapper.find() его не видит — ищем через DOMWrapper.
-    const body = new DOMWrapper(document.body)
-    await body.find('.overlay input[type="text"]').setValue('Маршрутизатор')
-    await body.find('.overlay form').trigger('submit')
-    await flushPromises()
-
-    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('dt-new')
+    await select.setValue('type:dt-server')
+    expect((select.element as HTMLSelectElement).value).toBe('type:dt-server')
   })
 
-  it('быстрое добавление модели устройства синхронизирует тип устройства формы', async () => {
+  it('быстрое добавление модели устройства синхронизирует тип и производителя формы', async () => {
     const wrapper = await mountWithLoadedCatalogs()
     const catalogs = useCatalogsStore()
     catalogs.items['manufacturers'] = [{ id: 'mf-1', name: 'Dell' }]
 
-    const lookupRows = wrapper.findAll('.lookup-row')
-    await lookupRows[2].find('button').trigger('click') // 0=тип, 1=производитель, 2=модель
+    await wrapper.find('.form-grid .lookup-row button').trigger('click') // единственная "+" объединённого поля
 
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
-        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-models')) {
+        const method = init?.method ?? 'GET'
+        if (method === 'POST' && url.endsWith('/resources/device-models')) {
           return new Response(JSON.stringify({ id: 'dm-new', device_type_id: 'dt-net', manufacturer_id: 'mf-1', model: 'PowerVault' }), { status: 201 })
+        }
+        if (method === 'POST' && url.includes('/resources/devices')) {
+          return new Response(JSON.stringify({ id: 'new-dev', serial_number: 'SN-77' }), { status: 201 })
         }
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       }),
@@ -569,14 +562,130 @@ describe('DeviceFormModal.vue', () => {
 
     const body = new DOMWrapper(document.body)
     const overlaySelects = body.findAll('.overlay select')
-    await overlaySelects[0].setValue('dt-net') // Тип устройства в квик-модалке — отличается от dt-server, уже выбранного в основной форме
-    await overlaySelects[1].setValue('mf-1') // Производитель
+    await overlaySelects[0].setValue('dt-net') // Тип устройства в квик-модалке
+    await overlaySelects[1].setValue('mf-1') // Производитель в квик-модалке
     await body.find('.overlay input[type="text"]').setValue('PowerVault')
     await body.find('.overlay form').trigger('submit')
     await flushPromises()
 
-    const selects = wrapper.findAll('select')
-    expect((selects[0].element as HTMLSelectElement).value).toBe('dt-net') // Тип устройства формы синхронизирован
+    // Объединённое поле отражает выбранную модель, а не "сырой" device_type_id.
+    expect((wrapper.find('.form-grid .lookup-row select').element as HTMLSelectElement).value).toBe('model:dm-new')
+
+    // А device_type_id/manufacturer_id формы реально синхронизированы — проверяем по факту
+    // отправленного payload'а, а не по DOM-значению другого select'а (которого больше нет).
+    const postMock = fetch as unknown as ReturnType<typeof vi.fn>
+    await wrapper.find('input[type="text"]').setValue('SN-77')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const deviceCall = postMock.mock.calls.find(([url, init]) => (init?.method ?? 'GET') === 'POST' && String(url).includes('/resources/devices'))
+    const sentBody = JSON.parse(String(deviceCall![1].body))
+    expect(sentBody.device_type_id).toBe('dt-net')
+    expect(sentBody.manufacturer_id).toBe('mf-1')
+    expect(sentBody.model_id).toBe('dm-new')
+  })
+
+  it('быстрое добавление здания подставляет его в форму', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/buildings')) {
+          return new Response(JSON.stringify({ id: 'b-new', name: 'Корпус Б' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
+    await buildingRow.find('button').trigger('click')
+    const body = new DOMWrapper(document.body)
+    await body.find('.overlay input[type="text"]').setValue('Корпус Б')
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-new')
+  })
+
+  it('быстрое добавление помещения синхронизирует здание формы (п.3.1)', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/rooms')) {
+          return new Response(JSON.stringify({ id: 'room-new', building_id: 'b-1', name: '204' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
+    await roomRow.find('button').trigger('click')
+    const body = new DOMWrapper(document.body)
+    await body.find('.overlay select').setValue('b-1') // Здание в квик-модалке (обязательное fk-поле)
+    await body.find('.overlay input[type="text"]').setValue('204')
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
+    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-1')
+    expect((roomRow.find('select').element as HTMLSelectElement).value).toBe('room-new')
+  })
+
+  it('быстрое добавление стойки синхронизирует помещение и здание формы (п.3.1)', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }]
+    catalogs.items['rooms'] = [{ id: 'room-1', building_id: 'b-1', name: '204' }]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/racks')) {
+          return new Response(JSON.stringify({ id: 'rack-new', room_id: 'room-1', name: 'R-1', height_u: 42 }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const rackRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Стойка')!
+    await rackRow.find('button').trigger('click')
+    const body = new DOMWrapper(document.body)
+    await body.find('.overlay select').setValue('room-1') // Помещение в квик-модалке (обязательное fk-поле)
+    await body.find('.overlay input[type="text"]').setValue('R-1')
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
+    const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
+    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-1')
+    expect((roomRow.find('select').element as HTMLSelectElement).value).toBe('room-1')
+    expect((rackRow.find('select').element as HTMLSelectElement).value).toBe('rack-new')
+  })
+
+  // п.3.8: наивный @click.self на подложке закрывал форму при попытке выделить текст внутри
+  // карточки, если mouseup (а значит и click) заканчивался за пределами карточки.
+  describe('закрытие по клику на подложку (п.3.8)', () => {
+    it('закрывает форму по обычному клику на подложку', async () => {
+      const wrapper = await mountWithLoadedCatalogs()
+      await wrapper.find('.overlay').trigger('mousedown')
+      await wrapper.find('.overlay').trigger('click')
+      expect(wrapper.emitted('close')).toBeTruthy()
+    })
+
+    it('НЕ закрывает форму, если mousedown начался внутри карточки (типичная попытка выделить текст)', async () => {
+      const wrapper = await mountWithLoadedCatalogs()
+      await wrapper.find('.modal-head h2').trigger('mousedown') // mousedown на заголовке ВНУТРИ карточки
+      await wrapper.find('.overlay').trigger('click') // click "долетел" до подложки (mouseup был за пределами карточки)
+      expect(wrapper.emitted('close')).toBeFalsy()
+    })
+
+    it('НЕ закрывает форму по клику внутри самой карточки', async () => {
+      const wrapper = await mountWithLoadedCatalogs()
+      await wrapper.find('.modal').trigger('mousedown')
+      await wrapper.find('.modal').trigger('click')
+      expect(wrapper.emitted('close')).toBeFalsy()
+    })
   })
 
   it('быстрое добавление записи протокола/порта автозаполняет строку открытого порта', async () => {

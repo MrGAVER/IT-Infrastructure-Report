@@ -39,6 +39,12 @@ export const QUICK_ADD_LABELS: Record<string, string> = {
   'software-assets': 'Программный актив',
   departments: 'Подразделение',
   'placement-assets': 'Оборудование / ПО / интерфейс размещения',
+  'structural-units': 'Структурная единица',
+  buildings: 'Здание',
+  rooms: 'Помещение',
+  racks: 'Стойка',
+  vlans: 'VLAN',
+  'vlan-domains': 'Домен VLAN',
 }
 
 export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
@@ -105,6 +111,45 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
   ],
   departments: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   'placement-assets': [
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+    { name: 'description', label: 'Описание', type: 'textarea', required: false },
+  ],
+  // parent_id сюда намеренно не добавлен — та же причина, что для departments выше
+  // (см. комментарий в шапке файла): второй уровень вложенных модалок ради быстрого
+  // добавления родителя не оправдан, к тому же при редактировании существующей единицы
+  // потребовалось бы ещё и исключать саму себя из списка (см. availableParents в
+  // StructuralUnitFormModal.vue) — эта логика не переносится на generic-форму.
+  'structural-units': [
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+    { name: 'description', label: 'Описание', type: 'textarea', required: false },
+  ],
+  buildings: [
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+    { name: 'address', label: 'Адрес', type: 'text', required: false },
+    { name: 'structural_unit_id', label: 'Структурная единица', type: 'fk', required: false, fkResource: 'structural-units' },
+  ],
+  // building_id обязателен на бэкенде (Room.building_id NOT NULL) — без fk-поля здесь
+  // сохранение немедленно падало бы 422 у любого, кто добавит помещение через "+".
+  rooms: [
+    { name: 'building_id', label: 'Здание', type: 'fk', required: true, fkResource: 'buildings' },
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+  ],
+  racks: [
+    { name: 'room_id', label: 'Помещение', type: 'fk', required: true, fkResource: 'rooms' },
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+    { name: 'height_u', label: 'Высота, U', type: 'number', required: false },
+  ],
+  vlans: [
+    { name: 'vlan_id', label: 'VLAN ID', type: 'number', required: true },
+    { name: 'name', label: 'Имя', type: 'text', required: true },
+    { name: 'domain_id', label: 'Домен VLAN', type: 'fk', required: false, fkResource: 'vlan-domains' },
+    { name: 'description', label: 'Описание', type: 'textarea', required: false },
+  ],
+  // source_device_id/auto_sync/состав участников сюда намеренно не перенесены — то же
+  // решение, что и в шапке VLANDomainFormModal.vue: участников можно добавить только у уже
+  // существующего домена, а автосинхронизация — второстепенная настройка полной формы, не
+  // нужная для быстрого "завести домен, чтобы привязать к нему VLAN".
+  'vlan-domains': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],

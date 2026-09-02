@@ -56,14 +56,28 @@ export const useCatalogsStore = defineStore('catalogs', {
      * журнале аудита. Не хардкодим словарь во фронтенде — грузим с /api/v1/resources,
      * чтобы не расходиться с бэкендом при добавлении новых ресурсов. */
     resourceLabel: (state) => (key: string): string => state.resourceNames[key] ?? key,
-    /** Быстрый лукап id → запись для конкретного каталога. */
+    /** Быстрый лукап id → запись для конкретного каталога.
+     *
+     * Кеш индекса намеренно ключуется по САМОМУ МАССИВУ (WeakMap), а не по имени каталога, как
+     * было раньше (баг): reload()/QuickAddModal всегда присваивают items[key] НОВЫЙ массив,
+     * никогда не мутируют старый. Если бы кеш жил по имени каталога, первый же вызов indexOf(key)
+     * до того, как items[key] заполнился (обычная гонка — компонент уже отрендерился, а
+     * catalogs.reload() ещё не резолвнулся), навсегда запирал бы пустой Map на этот ключ:
+     * state.items[key] к моменту повторных вызовов давно новый и
+     * заполненный, но cache.get(key) находил бы старую пустую запись и просто возвращал её, не
+     * заглядывая в state заново. Внешне это выглядело как "новая запись каталога висит '—' до
+     * перезагрузки страницы" (см. QUICK_ADD созданные записи в DeviceFormModal.vue) — заводили её
+     * не через reload() тем же тиком, а раньше он уже успел закешировать пустоту. WeakMap же
+     * ключуется по ссылке на массив: старый (пустой) массив просто перестаёт быть кем-либо
+     * востребован и вымывается GC, а новый массив — новый ключ, новый (корректный) индекс. */
     indexOf: (state) => {
-      const cache = new Map<CatalogKey, Map<string, CatalogItem>>()
+      const cache = new WeakMap<CatalogItem[], Map<string, CatalogItem>>()
       return (key: CatalogKey): Map<string, CatalogItem> => {
-        let idx = cache.get(key)
+        const list = state.items[key] ?? []
+        let idx = cache.get(list)
         if (!idx) {
-          idx = new Map((state.items[key] ?? []).map((it) => [it.id, it]))
-          cache.set(key, idx)
+          idx = new Map(list.map((it) => [it.id, it]))
+          cache.set(list, idx)
         }
         return idx
       }
@@ -97,17 +111,32 @@ export const useCatalogsStore = defineStore('catalogs', {
         // limit=1000: справочники (типы устройств, здания и т.п.) обычно небольшие
         // и должны загружаться целиком за один запрос — тот же лимит, что кеш
         // CACHEABLE_LIST_RESOURCES в текущем vanilla-фронтенде (core.js).
-        const [results, resources, protocolPorts] = await Promise.all([
-          Promise.all(CATALOGS.map((key) => listResource<CatalogItem>(key, { limit: 1000 }))),
+        //
+        // Promise.allSettled, а не Promise.all: 21 каталог грузится одним пакетом, и раньше
+        // сбой (сетевой сбой/таймаут) ХОТЯ БЫ ОДНОГО ресурса ронял весь Promise.all — ни один из
+        // 21 каталогов не записывался в items, loaded оставался false, и приложение выглядело
+        // так, будто сломались вообще все лукапы (Тип/Производитель/Модель, Здание/Помещение,
+        // Домен VLAN и т.д. сразу), хотя реально не смог загрузиться, например, только один
+        // редко нужный каталог. allSettled записывает то, что реально пришло, а не проваленные
+        // ключи перечисляет в this.error.
+        const [catalogResults, resources, protocolPorts] = await Promise.all([
+          Promise.allSettled(CATALOGS.map((key) => listResource<CatalogItem>(key, { limit: 1000 }))),
           api.get<ResourceDescriptor[]>('/resources'),
           listResource<ProtocolPortCatalogEntry>('protocol-port-catalog', { limit: 1000 }),
         ])
+        const failedKeys: string[] = []
         CATALOGS.forEach((key, i) => {
-          this.items[key] = results[i].items
+          const result = catalogResults[i]
+          if (result.status === 'fulfilled') {
+            this.items[key] = result.value.items
+          } else {
+            failedKeys.push(key)
+          }
         })
         this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
         this.protocolPortCatalog = protocolPorts.items
         this.loaded = true
+        this.error = failedKeys.length ? `Не удалось загрузить справочники: ${failedKeys.join(', ')}` : null
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить справочники'
       } finally {
