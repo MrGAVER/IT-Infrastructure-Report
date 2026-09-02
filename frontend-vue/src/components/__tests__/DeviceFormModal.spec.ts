@@ -370,8 +370,9 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
 
     // .iface-detail — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование"
-    // (тот же vlanOptions используется и там, см. DeviceInterfacesEditor.vue).
-    const labels = wrapper.findAll('.iface-detail .vlan-check').map((l) => l.text())
+    // (тот же vlanOptions используется и там, см. DeviceInterfacesEditor.vue); :not(.vlan-check-all) —
+    // исключает сводный чекбокс "Все VLAN" (п.1.4.3.2), это не отдельная опция каталога.
+    const labels = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all)').map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
   })

@@ -345,8 +345,9 @@ export interface DeviceTypeVLAN {
 }
 
 /** GET /api/v1/resources/interface-vlans?interface_id=... — назначение VLAN конкретному порту
- * (в отличие от DeviceVLAN — тот на устройство целиком). Редактируется через чекбоксы "VLAN на
- * порту" в DeviceInterfacesEditor.vue, см. InterfaceDraftRow.vlan_ids ниже. */
+ * (в отличие от DeviceVLAN — тот на устройство целиком). Список VLAN редактируется через
+ * чекбоксы "VLAN на порту" в DeviceInterfacesEditor.vue (см. InterfaceDraftRow.vlan_ids), режим
+ * mode — через переключатель Access/Trunk там же (см. InterfaceDraftRow.vlan_mode, п.1.4.3.2). */
 export interface InterfaceVLAN {
   id: string
   interface_id: string
@@ -366,9 +367,18 @@ export interface InterfaceIpDraftRow {
  * (VLANDefinition.id), назначенных этому порту через чекбоксы "VLAN на порту"; допустимый набор
  * опций вычисляется в api/portVlans.ts:computePortVlanOptions (тип устройства ∪ уже назначенные
  * устройству VLAN — то же множество, которое backend/app/services/crud.py:sync_interfaces
- * фактически разрешит при сохранении). InterfaceVLAN.mode (access/trunk) в этом редакторе не
- * редактируется — как и в vanilla-версии (frontend/static/device-interfaces.js), там тоже нет
- * UI для него; отправляется backend'ом как null при пересоздании (см. _sync_single_interface). */
+ * фактически разрешит при сохранении).
+ *
+ * vlan_mode (п.1.4.3.2) — режим порта: 'access' (ровно один VLAN) или 'trunk' (несколько VLAN,
+ * в т.ч. "все" — это просто состояние, когда vlan_ids покрывает весь vlanOptions, отдельного
+ * флага под это не заводили). Раньше в этом редакторе не редактировалось (см. комментарий к
+ * InterfaceVLAN.mode ниже) — backend уже принимал и хранил item.vlan_mode на PUT
+ * /devices/{id}/interfaces (см. _sync_single_interface в crud.py), просто UI его не показывал и
+ * не отправлял. mode хранится в БД на каждой связи InterfaceVLAN, а не на самом интерфейсе —
+ * при сохранении одно и то же значение vlan_mode проставляется на ВСЕ связи интерфейса разом
+ * (см. persistDeviceInterfaces), поэтому при загрузке достаточно взять mode первой связи (см.
+ * loadDeviceInterfaceDraftRows) — расхождений между связями одного интерфейса в норме не бывает,
+ * т.к. другого пути их создать, кроме как через эту же форму, нет. */
 export interface InterfaceDraftRow {
   id?: string
   name: string
@@ -379,6 +389,7 @@ export interface InterfaceDraftRow {
   is_data_transfer: boolean
   description: string
   vlan_ids: string[]
+  vlan_mode: 'access' | 'trunk'
   ips: InterfaceIpDraftRow[]
 }
 
