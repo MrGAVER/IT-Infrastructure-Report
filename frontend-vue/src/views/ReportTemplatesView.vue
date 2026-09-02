@@ -1,9 +1,8 @@
 <script setup lang="ts">
 // Управление жизненным циклом шаблонов конструктора отчётов (список, создание, переименование,
 // дублирование, удаление, генерация файла, история версий) — визуальный редактор содержимого
-// (раскладка листов/блоков) доступен из этого экрана только для xlsx (кнопка "Конструктор" →
-// ReportGridEditorView.vue); для docx редактор пока не перенесён, см. api/reportTemplates.ts и
-// frontend-vue/README.md.
+// открывается кнопкой "Конструктор" и ведёт на один из двух экранов в зависимости от формата:
+// ReportGridEditorView.vue (xlsx) или ReportDocxEditorView.vue (docx), см. api/reportTemplates.ts.
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useReportTemplatesStore } from '../stores/reportTemplates'
@@ -23,7 +22,7 @@ onMounted(async () => {
 })
 
 function openEditor(t: ReportTemplate) {
-  router.push(`/report-templates/${t.id}/editor`)
+  router.push(t.format === 'xlsx' ? `/report-templates/${t.id}/editor` : `/report-templates/${t.id}/editor-docx`)
 }
 
 const modalTemplate = ref<ReportTemplate | null>(null)
@@ -155,8 +154,7 @@ async function generate(t: ReportTemplate) {
                   <button
                     type="button"
                     aria-label="Открыть в конструкторе"
-                    :title="t.format === 'xlsx' ? 'Открыть в конструкторе' : 'Редактор Word-шаблонов ещё не перенесён — используйте /legacy'"
-                    :disabled="t.format !== 'xlsx'"
+                    title="Открыть в конструкторе"
                     @click="openEditor(t)"
                   >
                     <svg class="icon"><use href="/icons.svg#i-grid" /></svg>

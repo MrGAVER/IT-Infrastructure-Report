@@ -20,6 +20,7 @@ const titles: Record<string, { title: string; crumb: string }> = {
   reports: { title: 'Отчёты', crumb: 'Система · Отчёты' },
   'report-templates': { title: 'Шаблоны отчётов', crumb: 'Система · Отчёты · Шаблоны' },
   'report-template-editor': { title: 'Редактор шаблона', crumb: 'Система · Отчёты · Шаблоны · Редактор' },
+  'report-template-editor-docx': { title: 'Редактор шаблона', crumb: 'Система · Отчёты · Шаблоны · Редактор' },
   'audit-log': { title: 'Журнал аудита', crumb: 'Система · Журнал аудита' },
   settings: { title: 'Настройки', crumb: 'Система › Настройки' },
 }

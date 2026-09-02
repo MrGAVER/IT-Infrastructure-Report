@@ -182,12 +182,12 @@ describe('ReportTemplatesView.vue', () => {
     expect(pushMock).toHaveBeenCalledWith('/report-templates/t-1/editor')
   })
 
-  it('"Открыть в конструкторе" недоступна для docx-шаблона', async () => {
+  it('"Открыть в конструкторе" для docx-шаблона переходит в docx-редактор по id', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
 
-    const docxButton = wrapper.findAll('[aria-label="Открыть в конструкторе"]')[1] // t-2, docx
-    expect((docxButton.element as HTMLButtonElement).disabled).toBe(true)
+    await wrapper.findAll('[aria-label="Открыть в конструкторе"]')[1].trigger('click') // t-2, docx
+    expect(pushMock).toHaveBeenCalledWith('/report-templates/t-2/editor-docx')
   })
 })

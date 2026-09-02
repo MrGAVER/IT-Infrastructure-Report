@@ -63,6 +63,11 @@ const routes = [
     component: () => import('../views/ReportGridEditorView.vue'),
   },
   {
+    path: '/report-templates/:id/editor-docx',
+    name: 'report-template-editor-docx',
+    component: () => import('../views/ReportDocxEditorView.vue'),
+  },
+  {
     path: '/audit-log',
     name: 'audit-log',
     component: () => import('../views/AuditLogView.vue'),
