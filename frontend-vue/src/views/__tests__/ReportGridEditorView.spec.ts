@@ -266,6 +266,68 @@ describe('ReportGridEditorView.vue — повторение строки', () =>
   })
 })
 
+describe('ReportGridEditorView.vue — предпросмотр', () => {
+  it('кнопка "Предпросмотр" запрашивает POST /report-builder/preview с текущим содержимым и показывает секции', async () => {
+    const calls: Array<{ url: string; body: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/report-builder/preview')) {
+          calls.push({ url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          return jsonResponse({
+            sections: [{ title: 'Лист 1', n_cols: 1, rows: [{ height: 20, cells: [{ col: 0, colspan: 1, rowspan: 1, value: 'Заголовок', is_datetime: false, style: {} }] }] }],
+          })
+        }
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportGridEditorView)
+    await flushPromises()
+
+    await wrapper.findAll('.sheet-toolbar button.btn-mini')[4].trigger('click') // "Предпросмотр"
+    await flushPromises()
+
+    expect(calls[0].body).toMatchObject({ format: 'xlsx' })
+    expect(wrapper.text()).toContain('Заголовок')
+  })
+
+  it('ошибка предпросмотра показывается, панель не падает', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/report-builder/preview')) return jsonResponse({ detail: 'В шаблоне не задано ни одного листа' }, 422)
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportGridEditorView)
+    await flushPromises()
+
+    await wrapper.findAll('.sheet-toolbar button.btn-mini')[4].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('не задано ни одного листа')
+  })
+
+  it('закрытие панели предпросмотра скрывает её', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/report-builder/preview')) return jsonResponse({ sections: [] })
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportGridEditorView)
+    await flushPromises()
+
+    await wrapper.findAll('.sheet-toolbar button.btn-mini')[4].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.preview-panel').exists()).toBe(true)
+
+    await wrapper.find('.preview-panel-head .icon-btn').trigger('click')
+    expect(wrapper.find('.preview-panel').exists()).toBe(false)
+  })
+})
+
 describe('ReportGridEditorView.vue — сохранение', () => {
   it('без названия показывает ошибку и не отправляет PUT', async () => {
     vi.stubGlobal('fetch', stubFetch())

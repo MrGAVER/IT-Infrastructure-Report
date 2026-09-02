@@ -5,17 +5,19 @@
 // backend/app/services/report_grid.py), та же модель выделения/объединения, тот же набор типов
 // ячеек. Главное отличие от vanilla — вставка полей БД по клику (select "Вставить поле" в
 // GridCellInspector.vue), а не drag-and-drop: тот же результат, но надёжнее тестируется и
-// доступнее с клавиатуры/скринридера. Word-шаблоны (.docx) редактируются отдельным блочным
-// редактором, которого в этой версии ещё нет (см. frontend-vue/README.md) — этот экран
-// открывается только для format === 'xlsx', для docx показывает пояснение вместо сетки.
+// доступнее с клавиатуры/скринридера. Word-шаблоны (.docx) редактируются отдельным экраном
+// (ReportDocxEditorView.vue) — этот открывается только для format === 'xlsx', для docx
+// показывает пояснение вместо сетки.
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getReportEntities } from '../api/reportEntities'
+import { previewGridConfig } from '../api/reportPreview'
 import { getReportTemplate, saveReportTemplate } from '../api/reportTemplates'
-import type { GridCell, GridConfig, GridRow, GridSheet, ReportEntityMeta, ReportTemplate } from '../api/types'
+import type { GridCell, GridConfig, GridPreviewResponse, GridRow, GridSheet, ReportEntityMeta, ReportTemplate } from '../api/types'
 import { useToast } from '../composables/useToast'
-import { coverageForRows, selectionRect } from '../utils/gridCoverage'
+import { coverageForRows, selectionRect, visibleCellsForRow as visibleCellsForRowShared } from '../utils/gridCoverage'
 import GridCellInspector from '../components/GridCellInspector.vue'
+import GridPreviewTable from '../components/GridPreviewTable.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -181,26 +183,12 @@ function isInRange(ri: number, ci: number): boolean {
   return !!r && ri >= r.r1 && ri <= r.r2 && ci >= r.c1 && ci <= r.c2
 }
 
-/** Для каждой видимой (не покрытой вертикальным объединением сверху) позиции в строке — либо
- * реальная ячейка (если начинается здесь), либо null (пустая позиция). Пропускает и колонки,
- * "проглоченные" colspan идущей раньше в той же строке ячейки — иначе один и тот же физический
- * столбец отрисовался бы дважды. */
+/** Обёртка над общей utils/gridCoverage.ts:visibleCellsForRow — здесь просто фиксирует
+ * "текущий лист" как источник строк/числа колонок, чтобы вызывать из шаблона без лишних
+ * аргументов. Общая функция также используется GridPreviewTable.vue (предпросмотр) — тот же
+ * алгоритм обхода поверх другого типа ячеек (GridPreviewCell вместо GridCell). */
 function visibleCellsForRow(ri: number): Array<{ col: number; cell: GridCell | null }> {
-  const sheet = curSheet.value
-  const row = sheet.rows[ri]
-  const coveredAbove = coverageForRows(sheet.rows, ri)
-  const result: Array<{ col: number; cell: GridCell | null }> = []
-  let ci = 0
-  while (ci < sheet.columns.length) {
-    if (coveredAbove.has(ci)) {
-      ci += 1
-      continue
-    }
-    const cell = cellAt(row, ci) ?? null
-    result.push({ col: ci, cell })
-    ci += cell ? cell.colspan || 1 : 1
-  }
-  return result
+  return visibleCellsForRowShared(curSheet.value.rows, ri, curSheet.value.columns.length)
 }
 
 function cellPreview(cell: GridCell | null): string {
@@ -378,6 +366,29 @@ async function save() {
 function backToList() {
   router.push('/report-templates')
 }
+
+// ---------- Предпросмотр ----------
+
+const previewOpen = ref(false)
+const previewLoading = ref(false)
+const previewError = ref<string | null>(null)
+const previewResult = ref<GridPreviewResponse | null>(null)
+
+async function runPreview() {
+  previewOpen.value = true
+  previewError.value = null
+  previewLoading.value = true
+  try {
+    previewResult.value = await previewGridConfig({ sheets: sheets.value } as unknown as Record<string, unknown>)
+  } catch (err) {
+    previewError.value = err instanceof Error ? err.message : 'Не удалось построить предпросмотр'
+  } finally {
+    previewLoading.value = false
+  }
+}
+function closePreview() {
+  previewOpen.value = false
+}
 </script>
 
 <template>
@@ -445,6 +456,7 @@ function backToList() {
         <button type="button" class="btn-mini" @click="addColumn">+ колонка</button>
         <button type="button" class="btn-mini" @click="mergeSelection">Объединить</button>
         <button type="button" class="btn-mini" @click="unmergeSelected">Разъединить</button>
+        <button type="button" class="btn-mini" @click="runPreview">Предпросмотр</button>
       </div>
 
       <div class="editor-body">
@@ -494,6 +506,20 @@ function backToList() {
           @delete-cell="onDeleteCell"
         />
         <div v-else class="inspector-placeholder">Выберите ячейку или строку, чтобы увидеть свойства.</div>
+      </div>
+
+      <div v-if="previewOpen" class="preview-panel">
+        <div class="preview-panel-head">
+          <b>Предпросмотр (первые записи каждой повторяющейся строки)</b>
+          <button type="button" class="icon-btn" aria-label="Закрыть предпросмотр" @click="closePreview">
+            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+          </button>
+        </div>
+        <p v-if="previewLoading" class="loading-hint">Строим предпросмотр…</p>
+        <p v-else-if="previewError" class="form-error">{{ previewError }}</p>
+        <div v-else-if="previewResult" class="preview-sections">
+          <GridPreviewTable v-for="(section, si) in previewResult.sections" :key="si" :section="section" />
+        </div>
       </div>
     </template>
   </div>
@@ -662,5 +688,26 @@ function backToList() {
   background: var(--surface-2);
   border-radius: var(--r-m);
   border: 1px dashed var(--border);
+}
+.preview-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.preview-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.preview-panel-head b {
+  font-size: 12.5px;
+}
+.preview-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 </style>
