@@ -7,9 +7,11 @@
 import { onMounted, ref } from 'vue'
 import { listReportTemplateVersions, restoreReportTemplateVersion } from '../api/reportTemplates'
 import type { ReportTemplate, ReportTemplateVersion } from '../api/types'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ template: ReportTemplate }>()
 const emit = defineEmits<{ close: []; restored: [template: ReportTemplate] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const versions = ref<ReportTemplateVersion[]>([])
 const loading = ref(true)
@@ -47,7 +49,7 @@ function formatDate(iso: string | null): string {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>История версий «{{ template.name }}»</h2>

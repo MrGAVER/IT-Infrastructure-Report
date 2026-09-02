@@ -26,9 +26,11 @@ import CatalogPickerListEditor from './CatalogPickerListEditor.vue'
 import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
 import ISSourcesListEditor from './ISSourcesListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ system: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -216,7 +218,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать информационную систему' : 'Добавить информационную систему' }}</h2>

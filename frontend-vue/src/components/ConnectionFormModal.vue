@@ -16,9 +16,11 @@ import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import QuickAddButton from './QuickAddButton.vue'
 import DevicePortsModal from './DevicePortsModal.vue'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ connection: Connection | null }>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -168,7 +170,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать подключение' : 'Добавить подключение' }}</h2>

@@ -14,9 +14,11 @@ import { computed, reactive, ref, watch } from 'vue'
 import { api, createResource, deleteResource, listResource, updateResource } from '../api/client'
 import type { Device, VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ domain: VLANDomain | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const devicesStore = useDevicesStore()
 const saving = ref(false)
@@ -118,7 +120,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать VLAN-домен' : 'Добавить VLAN-домен' }}</h2>

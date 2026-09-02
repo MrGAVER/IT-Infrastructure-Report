@@ -97,6 +97,88 @@ describe('QuickAddModal.vue', () => {
     expect(catalogs.items['device-types']).toEqual([{ id: 'dt-new', name: 'Маршрутизатор' }])
   })
 
+  it('вложенная кнопка "+" у fk-поля создаёт запись в её каталоге и сразу подставляет её в текущую форму', async () => {
+    // п.1.1.2: у "Добавить: Модель устройства" должна быть возможность завести отсутствующий
+    // "Тип устройства"/"Производителя", не закрывая форму модели.
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-types'] = [{ id: 'dt-1', name: 'Сервер' }]
+    catalogs.items['manufacturers'] = [{ id: 'mf-1', name: 'Dell' }]
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-types')) {
+          return jsonResponse({ id: 'dt-new', name: 'Коммутатор' }, 201)
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    mount(QuickAddModal, { props: { resource: 'device-models' } })
+
+    const addButtons = body().findAll('button[aria-label^="Добавить:"]')
+    const typeAddButton = addButtons.find((b) => b.attributes('aria-label') === 'Добавить: Тип устройства')
+    expect(typeAddButton).toBeTruthy()
+    await typeAddButton!.trigger('click')
+
+    // Вложенная QuickAddModal телепортируется в тот же document.body — второй .overlay поверх первого.
+    expect(body().findAll('.overlay')).toHaveLength(2)
+    const nested = body().findAll('.overlay')[1]
+    await nested.find('input[type="text"]').setValue('Коммутатор')
+    await nested.find('form').trigger('submit')
+    await flushPromises()
+
+    // Вложенная форма закрылась сама, а её результат сразу выбран в select'е основной формы.
+    expect(body().findAll('.overlay')).toHaveLength(1)
+    const deviceTypeSelect = body().findAll('select')[0].element as HTMLSelectElement
+    expect(deviceTypeSelect.value).toBe('dt-new')
+    expect(catalogs.items['device-types']).toEqual([
+      { id: 'dt-1', name: 'Сервер' },
+      { id: 'dt-new', name: 'Коммутатор' },
+    ])
+  })
+
+  it('поле без nestedQuickAdd (например, "Модель") не получает кнопку "+"', () => {
+    mount(QuickAddModal, { props: { resource: 'device-models' } })
+    expect(body().findAll('button[aria-label^="Добавить:"]')).toHaveLength(2) // только тип + производитель
+  })
+
+  it('вложенная кнопка "+" у "Добавить: VLAN" позволяет завести Домен VLAN, не закрывая форму', async () => {
+    // п.1.5: та же вложенная кнопка "+", что у device-models, но необязательное fk-поле —
+    // отдельно проверяем, что схема не требует domain_id для сохранения самого VLAN.
+    const catalogs = useCatalogsStore()
+    catalogs.items['vlan-domains'] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/vlan-domains')) {
+          return jsonResponse({ id: 'dom-new', name: 'Филиал-2' }, 201)
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    mount(QuickAddModal, { props: { resource: 'vlans' } })
+
+    const domainAddButton = body()
+      .findAll('button[aria-label^="Добавить:"]')
+      .find((b) => b.attributes('aria-label') === 'Добавить: Домен VLAN')
+    expect(domainAddButton).toBeTruthy()
+    await domainAddButton!.trigger('click')
+
+    const nested = body().findAll('.overlay')[1]
+    await nested.find('input[type="text"]').setValue('Филиал-2')
+    await nested.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(body().findAll('.overlay')).toHaveLength(1)
+    const domainSelect = body()
+      .findAll('select')
+      .find((s) => s.find('option[value="dom-new"]').exists())
+    expect((domainSelect!.element as HTMLSelectElement).value).toBe('dom-new')
+  })
+
   it('показывает сообщение, если для ресурса схема не настроена', () => {
     mount(QuickAddModal, { props: { resource: 'unknown-resource' } })
     expect(body().text()).toContain('быстрое добавление не настроено')

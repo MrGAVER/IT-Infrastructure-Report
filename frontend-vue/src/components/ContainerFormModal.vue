@@ -12,9 +12,11 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
 import { filterHostDevices } from '../utils/deviceFilters'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ container: Container | null }>()
 const emit = defineEmits<{ close: []; saved: [container: Container] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -100,7 +102,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать контейнер' : 'Добавить контейнер' }}</h2>

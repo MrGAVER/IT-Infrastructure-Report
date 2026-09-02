@@ -4,9 +4,11 @@ import { createResource, updateResource } from '../api/client'
 import type { CatalogItem, StructuralUnit } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import QuickAddButton from './QuickAddButton.vue'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ unit: StructuralUnit | null; defaultParentId: string | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const saving = ref(false)
@@ -62,7 +64,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать структурную единицу' : 'Добавить структурную единицу' }}</h2>

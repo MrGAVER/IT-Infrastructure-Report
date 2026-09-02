@@ -8,9 +8,18 @@ import { createResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { CatalogItem } from '../api/types'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+// Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
+// Циклический импорт (QuickAddButton.vue сам рендерит QuickAddModal.vue) безопасен: обе стороны
+// используются только в шаблоне/во время рендера, а не в теле модуля при загрузке — к моменту
+// первого рендера оба модуля уже полностью инициализированы. Второй уровень вложенности не
+// возникает: вложенная QuickAddModal открывается для fkResource, у которого своих fk-полей с
+// nestedQuickAdd в схеме нет (см. комментарий в schema.ts).
+import QuickAddButton from './QuickAddButton.vue'
 
 const props = defineProps<{ resource: string }>()
 const emit = defineEmits<{ close: []; created: [record: CatalogItem] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const fields = QUICK_ADD_FIELDS[props.resource] ?? []
@@ -25,6 +34,12 @@ const errorMessage = ref<string | null>(null)
 function fkOptions(fkResource: string | undefined): CatalogItem[] {
   if (!fkResource) return []
   return catalogs.items[fkResource as keyof typeof catalogs.items] ?? []
+}
+
+/** Запись, созданная через вложенную QuickAddModal (кнопка "+" у fk-поля), сразу подставляется
+ * в это поле текущей формы — так же, как QuickAddButton.vue делает для полей вызывающих форм. */
+function onNestedCreated(fieldName: string, record: CatalogItem) {
+  values[fieldName] = record.id
 }
 
 async function submit() {
@@ -76,7 +91,7 @@ async function submit() {
        HTML не допускает вложенные формы, браузер обработал бы это непредсказуемо (вложенный
        submit мог бы всплыть и отправить ВНЕШНЮЮ форму вместо этой). -->
   <Teleport to="body">
-    <div class="overlay" @click.self="$emit('close')">
+    <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
       <div class="modal card" role="dialog" aria-modal="true">
         <div class="modal-head">
           <h2>Добавить: {{ title }}</h2>
@@ -94,10 +109,18 @@ async function submit() {
         <form v-else class="form-grid" @submit.prevent="submit">
           <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' }">
             <span>{{ f.label }}{{ f.required ? ' *' : '' }}</span>
-            <select v-if="f.type === 'fk'" v-model="values[f.name] as string" :required="f.required">
-              <option value="">— не выбрано —</option>
-              <option v-for="opt in fkOptions(f.fkResource)" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-            </select>
+            <div v-if="f.type === 'fk'" class="fk-row">
+              <select v-model="values[f.name] as string" :required="f.required">
+                <option value="">— не выбрано —</option>
+                <option v-for="opt in fkOptions(f.fkResource)" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+              </select>
+              <QuickAddButton
+                v-if="f.nestedQuickAdd && f.fkResource"
+                :resource="f.fkResource"
+                :title="QUICK_ADD_LABELS[f.fkResource]"
+                @created="(record) => onNestedCreated(f.name, record)"
+              />
+            </div>
             <textarea v-else-if="f.type === 'textarea'" v-model="values[f.name] as string" rows="2"></textarea>
             <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
               <input
@@ -166,11 +189,16 @@ async function submit() {
   gap: 12px 14px;
 }
 .field {
+  /* min-width: 0 переопределяет дефолтный min-width: auto грид-элемента — без этого поле
+     не может сжаться ниже intrinsic-ширины своего содержимого (см. ниже про select/input), и
+     вся колонка, а с ней и .modal, распирает за пределы max-width. Тот же баг и тот же фикс,
+     что в DeviceFormModal.vue (см. тамошний комментарий "без min-width:0..."). */
   display: flex;
   flex-direction: column;
   gap: 5px;
   font-size: 11.5px;
   color: var(--ink-muted);
+  min-width: 0;
 }
 .field-wide {
   grid-column: 1 / -1;
@@ -178,6 +206,13 @@ async function submit() {
 .field input,
 .field select,
 .field textarea {
+  /* width: 100% — без него input/select/textarea сами по себе не растягиваются на всю ширину
+     ячейки грида, а берут intrinsic-ширину по содержимому: у select это самый длинный <option>
+     (например, длинное название модели устройства или помещения), из-за чего поле физически
+     вылезало за подложку модалки вбок вместо переноса текста/сжатия. */
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-s);
@@ -186,6 +221,16 @@ async function submit() {
   color: var(--ink);
   font-family: inherit;
   resize: vertical;
+}
+.fk-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+.fk-row select {
+  flex: 1;
+  min-width: 0;
 }
 .checkbox-inline input {
   width: 15px;

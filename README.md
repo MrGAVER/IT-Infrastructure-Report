@@ -1419,6 +1419,44 @@ backend без изменений, 191 pytest по-прежнему зелёны
 `DeviceVlanListEditor.spec.ts`, `catalogs.spec.ts`, `devices.spec.ts`). 307 → 353
 vitest, все зелёные; `vue-tsc -b` без ошибок; backend не затронут.
 
+### 2.54.0 — Vue: закрытие модалок при выделении текста, переполнение полей квик-добавления, вложенный «+»
+
+Только `frontend-vue`, без изменений в бэкенде. Первая часть большой пачки фиксов
+по обратной связи пользователя (пп. 1.1.1, 1.1.2, 1.2, 1.5, 2 из списка задач;
+остальные пункты — в следующих записях).
+
+- **Закрытие модалки при выделении текста мышью (п.2).** Композабл
+  `composables/useOverlayDismiss.ts` (закрывать оверлей, только если ОБА события —
+  и `mousedown`, и `click` — целиком пришлись на подложку, а не только `click`,
+  всплывший на неё после `mousedown` внутри карточки) существовал и был подключён
+  только в `DeviceFormModal.vue` (2.53.1). Теперь подключён во все остальные 14
+  модалок с паттерном `.overlay` + `@click.self="$emit('close')"`:
+  `BuildingFormModal`, `ConnectionFormModal`, `ContainerFormModal`,
+  `DevicePortsModal`, `InformationSystemFormModal`, `QuickAddModal`,
+  `RackFormModal`, `ReportTemplateFormModal`, `ReportTemplateVersionsModal`,
+  `RoomFormModal`, `StructuralUnitFormModal`, `VLANDomainFormModal`,
+  `VLANFormModal`, `VMFormModal`.
+- **Переполнение полей в `QuickAddModal.vue` (пп. 1.1.1, 1.2).** Тот же баг и тот
+  же фикс, что для `DeviceFormModal.vue` в 2.53.1 (`min-width: 0` на грид-ячейке
+  `.field`), но не был перенесён в универсальную квик-модалку — из-за этого поля
+  вылезали за подложку в «Добавить: Модель устройства» (длинные названия типа/
+  производителя в select) и «Добавить: Стойка» (длинное название помещения).
+  Добавлено `width: 100%`/`min-width: 0`/`box-sizing: border-box` на
+  input/select/textarea.
+- **Вложенный «+» в `QuickAddModal.vue` (пп. 1.1.2, 1.5).** Новый флаг
+  `nestedQuickAdd` на fk-поле в `quickAdd/schema.ts` — рядом с select'ом рисуется
+  ещё один `QuickAddButton`, открывающий вложенную квик-модалку для того же
+  каталога, без закрытия текущей формы. Подключено для «Добавить: Модель
+  устройства» (Тип устройства, Производитель) и «Добавить: VLAN» (Домен VLAN).
+  Циклический импорт `QuickAddModal.vue` ↔ `QuickAddButton.vue` безопасен — обе
+  стороны используются только в шаблоне/при рендере, не в теле модуля при
+  загрузке; `vite build` подтверждает, что бандл собирается корректно.
+
+Тесты: +3 `QuickAddModal.spec.ts` (вложенное добавление типа устройства с
+подстановкой id, отсутствие кнопки у полей без `nestedQuickAdd`, вложенное
+добавление домена VLAN для необязательного fk-поля). 402 vitest, все зелёные;
+`vue-tsc -b` и `vite build` без ошибок; backend не затронут.
+
 ## Известные ограничения и заметки
 
 - EXE-вариант — однопользовательский локальный режим; для одновременной работы нескольких

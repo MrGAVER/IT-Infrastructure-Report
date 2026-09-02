@@ -10,9 +10,11 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { createReportTemplate, renameReportTemplate } from '../api/reportTemplates'
 import type { ReportTemplate } from '../api/types'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ template: ReportTemplate | null }>()
 const emit = defineEmits<{ close: []; saved: [template: ReportTemplate] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -57,7 +59,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Переименовать шаблон' : 'Новый шаблон отчёта' }}</h2>
