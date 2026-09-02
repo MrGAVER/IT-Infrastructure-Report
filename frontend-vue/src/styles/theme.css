@@ -1,0 +1,54 @@
+/*
+ * Тема "Диспетчерская" — тёмная NOC-консоль.
+ *
+ * Принцип: семантические статусные цвета (--status-ok/--status-warn/--status-crit)
+ * ОДИНАКОВЫ во всех цветовых схемах — иначе выбор "любимого акцента" мог бы
+ * сделать активный пункт меню неотличимым от предупреждения в таблице устройств.
+ * Варьируется только фирменный акцент (--brand/--brand-soft) и лёгкий оттенок
+ * фона (--bg). Значения ниже должны совпадать с COLOR_SCHEMES в stores/theme.ts
+ * (тот файл используется для отрисовки образцов цвета в пикере схем).
+ */
+:root {
+  --surface: #16212E;
+  --surface-2: #1E2C3B;
+  --border: #2A3B4D;
+  --ink: #E7EDF3;
+  --ink-muted: #8FA0B3;
+
+  --status-ok: #33C9A7;
+  --status-ok-soft: #13342D;
+  --status-warn: #E8A33D;
+  --status-warn-soft: #3A2E17;
+  --status-crit: #E5484D;
+  --status-crit-soft: #3A1B1D;
+
+  --r-s: 6px;
+  --r-m: 10px;
+  --r-l: 14px;
+
+  --font-display: 'Golos Text', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Бирюза — схема по умолчанию */
+:root,
+[data-scheme='teal'] {
+  --bg: #0E1620;
+  --brand: #33C9A7;
+  --brand-soft: #13342D;
+}
+
+/* Индиго */
+[data-scheme='indigo'] {
+  --bg: #101527;
+  --brand: #6C7BFF;
+  --brand-soft: #1E2142;
+}
+
+/* Медь */
+[data-scheme='copper'] {
+  --bg: #1A1410;
+  --brand: #D97B3F;
+  --brand-soft: #3A2416;
+}

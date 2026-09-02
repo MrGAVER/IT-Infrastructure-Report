@@ -4,11 +4,11 @@ from .models import (
     DeviceModel, DeviceSoftware, DeviceType, InterfaceIP, InterfaceSpeed, InterfaceType,
     ISContainer, ISDepartment, ISDevice, ISIP, ISProtocol, ISVM, InformationSystem, InformationSystemSource, InterfaceVLAN, OpenPort, ProtocolPortCatalog,
     Manufacturer, OperatingSystem, OperatingSystemCategory, EmbeddedOperatingSystem, DeviceTypeVLAN, PhysicalDeviceVLAN, Organization, SupportOrganization, SupportMethod, CryptoProtectionMeans, PlacementAsset, ISPlacementAsset, PhysicalDevice,
-    Rack, Room, SoftwareAsset, VLAN, VLANDomain, VLANDomainDevice, VMIP, VMSoftware, VirtualMachine,
+    Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VMIP, VMSoftware, VirtualMachine,
 )
 
 MODEL_MAP = {
-    'organizations': Organization, 'support-organizations': SupportOrganization, 'support-methods': SupportMethod, 'crypto-protection-means': CryptoProtectionMeans, 'departments': Department, 'buildings': Building, 'rooms': Room, 'racks': Rack,
+    'organizations': Organization, 'support-organizations': SupportOrganization, 'support-methods': SupportMethod, 'crypto-protection-means': CryptoProtectionMeans, 'departments': Department, 'structural-units': StructuralUnit, 'buildings': Building, 'rooms': Room, 'racks': Rack,
     'device-types': DeviceType, 'manufacturers': Manufacturer, 'device-models': DeviceModel,
     'os-categories': OperatingSystemCategory, 'operating-systems': OperatingSystem, 'embedded-os': EmbeddedOperatingSystem, 'device-type-vlans': DeviceTypeVLAN, 'device-vlans': PhysicalDeviceVLAN, 'devices': PhysicalDevice,
     'information-systems': InformationSystem, 'is-departments': ISDepartment, 'is-ips': ISIP, 'is-protocols': ISProtocol, 'protocol-port-catalog': ProtocolPortCatalog,
@@ -22,7 +22,7 @@ MODEL_MAP = {
 }
 
 DISPLAY_NAMES = {
-    'organizations':'Организации', 'support-organizations':'Организации технической поддержки', 'support-methods':'Способы оказания технической поддержки', 'crypto-protection-means':'Средства криптографической защиты информации (СКЗИ)', 'departments':'Подразделения', 'buildings':'Здания', 'rooms':'Помещения', 'racks':'Стойки',
+    'organizations':'Организации', 'support-organizations':'Организации технической поддержки', 'support-methods':'Способы оказания технической поддержки', 'crypto-protection-means':'Средства криптографической защиты информации (СКЗИ)', 'departments':'Подразделения', 'structural-units':'Структурные единицы', 'buildings':'Здания', 'rooms':'Помещения', 'racks':'Стойки',
     'device-types':'Типы устройств', 'manufacturers':'Производители', 'device-models':'Каталог оборудования (Производитель → Тип → Модель)',
     'os-categories':'Категории ОС', 'operating-systems':'ОС и гипервизоры', 'embedded-os':'Встроенные ОС', 'device-type-vlans':'VLAN типов устройств', 'device-vlans':'VLAN физических устройств', 'devices':'Физические устройства',
     'information-systems':'Информационные системы', 'is-departments':'ИС ↔ подразделения', 'is-ips':'IP ИС (устарело, только чтение истории — актуальные IP считаются из источников/ВМ на лету)', 'is-protocols':'Протоколы ИС', 'protocol-port-catalog':'Справочник протоколов и портов',

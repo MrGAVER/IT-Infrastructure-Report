@@ -31,7 +31,7 @@ try:
         Base, Building, Connection, ConnectionType, Container, Department, DeviceInterface, DeviceType,
         EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, InterfaceIP, InterfaceVLAN,
         ISContainer, ISDepartment, ISDevice, ISIP, ISVM, Manufacturer, OpenPort, OperatingSystem,
-        OperatingSystemCategory, PhysicalDevice, Room, SoftwareAsset, VirtualMachine, VLAN, VMIP, VMSoftware,
+        OperatingSystemCategory, PhysicalDevice, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, VMSoftware,
     )
     from app.reporting import HEADERS1, HEADERS2, HEADERS3, HEADERS4, build_report
     from app.services.report_engine import ReportContext
@@ -85,6 +85,37 @@ class VirtualEntityRegistrationTestCase(unittest.TestCase):
             row = next(iter(rows.values()))
             self.assertEqual(row.name, "ИС для теста")
             self.assertEqual(row.departments, "Отдел")
+        finally:
+            session.close()
+
+    def test_structural_unit_ids_filter_virtual_device_rows(self):
+        """ReportContext(session, structural_unit_ids=[...]) сужает registry-device-rows тем же
+        способом, что и лист 2 регламентированного отчёта (см. test_reporting.StructuralUnitFiltering) —
+        runtime-фильтр конструктора должен работать на той же точке интеграции."""
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        try:
+            unit = StructuralUnit(name="Филиал А")
+            other_unit = StructuralUnit(name="Филиал Б")
+            dtype = DeviceType(name="Сервер")
+            session.add_all([unit, other_unit, dtype])
+            session.flush()
+            building_in = Building(name="Здание А", structural_unit_id=unit.id)
+            building_out = Building(name="Здание Б", structural_unit_id=other_unit.id)
+            session.add_all([building_in, building_out])
+            session.flush()
+            dev_in = PhysicalDevice(device_type_id=dtype.id, serial_number="SN-IN", system_name="dev-in", building_id=building_in.id)
+            dev_out = PhysicalDevice(device_type_id=dtype.id, serial_number="SN-OUT", system_name="dev-out", building_id=building_out.id)
+            session.add_all([dev_in, dev_out])
+            session.commit()
+
+            ctx_all = ReportContext(session)
+            self.assertEqual(len(ctx_all.all_rows("registry-device-rows")), 2)
+
+            ctx_filtered = ReportContext(session, structural_unit_ids=[unit.id])
+            rows = ctx_filtered.all_rows("registry-device-rows")
+            self.assertEqual([r.serial_number for r in rows.values()], ["SN-IN"])
         finally:
             session.close()
 
@@ -225,6 +256,47 @@ class ExactParityTestCase(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             self._build_both_and_compare(Path(tmp), via_legacy_links=True)
+
+    def test_exact_parity_with_structural_unit_filter(self):
+        """Тот же сценарий, но с активным structural_unit_ids на обоих движках — подтверждает, что
+        runtime-фильтр конструктора (ReportContext/report_registry_rows loaders) не расходится с
+        регламентированным отчётом и на отфильтрованном, не только на полном выводе. dev1 (dataset)
+        размещён в building без структурной единицы — привязываем её здесь, dev2 её не получает и
+        должен выпасть из отфильтрованного вывода обоих движков одинаково."""
+        import tempfile
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        try:
+            _seed_rich_dataset(session, via_legacy_links=False)
+            unit = StructuralUnit(name="Филиал А")
+            session.add(unit)
+            session.flush()
+            building = session.query(Building).one()
+            building.structural_unit_id = unit.id
+            session.commit()
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                orig_path = build_report(session, tmp_path, structural_unit_ids=[unit.id])
+                wb_orig = openpyxl.load_workbook(orig_path)
+                grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path,
+                                             template_name=TEMPLATE_NAME, params={}, structural_unit_ids=[unit.id])
+                wb_grid = openpyxl.load_workbook(grid_path)
+
+                for name in wb_orig.sheetnames:
+                    orig_rows = list(wb_orig[name].iter_rows(min_row=2, values_only=True))
+                    grid_rows = list(wb_grid[name].iter_rows(min_row=2, values_only=True))
+                    self.assertEqual(orig_rows, grid_rows, f"{name}: расхождение при активном фильтре структурной единицы")
+
+                # Устройство вне единицы (sw-01, без building_id) не должно попасть в отфильтрованный
+                # вывод ни одного из движков — иначе тест мог бы пройти даже при полностью
+                # игнорируемом фильтре (сравнение "пусто == пусто").
+                device_rows = list(wb_orig["Инвентаризац. физ. устройств ИС"].iter_rows(min_row=2, values_only=True))
+                self.assertEqual(len(device_rows), 1)
+                self.assertNotIn("sw-01", device_rows[0])
+        finally:
+            session.close()
 
     def test_empty_registry_produces_matching_empty_sheets(self):
         """Пустой реестр — граничный случай (ни одной ИС/устройства/подключения/ВМ)."""

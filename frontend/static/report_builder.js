@@ -172,6 +172,26 @@ async function rbDuplicateTemplate(id) {
   catch (e) { notifyError(e); }
 }
 
+// Показывать шаг выбора структурных единиц имеет смысл только если хотя бы одна повторяющаяся
+// строка/блок шаблона построена на "виртуальной" сущности реестра (registry-is-rows и т.п.,
+// см. backend/app/services/report_registry_rows.py) — это единственные сущности, которые сейчас
+// реально учитывают structural_unit_ids (см. ReportContext в report_engine.py). Для шаблонов на
+// других сущностях лишний диалог не имел бы эффекта и только мешал бы.
+function _templateUsesRegistryEntities(cfg) {
+  const sheets = cfg.sheets || [];
+  for (const sheet of sheets) {
+    for (const row of (sheet.rows || [])) {
+      const re = row.data_source && row.data_source.root_entity;
+      if (re && re.startsWith('registry-')) return true;
+    }
+  }
+  const blocks = cfg.blocks || [];
+  for (const block of blocks) {
+    if (block.root_entity && block.root_entity.startsWith('registry-')) return true;
+  }
+  return false;
+}
+
 async function rbGenerateTemplate(id) {
   const t = RB.templates.find(x => x.id === id) || await get(api + `/report-templates/${id}`);
   const cfg = t.config || {};
@@ -182,8 +202,13 @@ async function rbGenerateTemplate(id) {
     if (v === null) return; // отменено пользователем
     params[p.key] = v;
   }
+  let structural_unit_ids = null;
+  if (_templateUsesRegistryEntities(cfg)) {
+    structural_unit_ids = await openStructuralUnitsModal();
+    if (structural_unit_ids === undefined) return; // отменено пользователем
+  }
   try {
-    const r = await get(api + `/report-templates/${id}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params }) });
+    const r = await get(api + `/report-templates/${id}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params, structural_unit_ids }) });
     window.location = r.download_url;
   } catch (e) { notifyError(e); }
 }

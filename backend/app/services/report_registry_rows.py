@@ -14,6 +14,13 @@ to_many-связей (все значения уже "сплющены" в пл�
 сущности не являются целью связи ни от какой другой сущности, а данные строки поставляет функция-
 загрузчик вместо SELECT по таблице (см. ReportContext.all_rows() в report_engine.py).
 
+Каждый loader принимает (session, structural_unit_ids) — второй параметр (см. ReportContext) даёт
+runtime-фильтр по структурным единицам размещения оборудования (models.StructuralUnit), тот же,
+что фильтрует регламентированный отчёт (reporting.build_report): просто передаётся дальше в
+_load_report_data() без какой-либо своей логики — фильтрация выполняется там же, где и для
+регламентированного отчёта, поэтому вывод этих сущностей не может разойтись с ним и по фильтру
+структурных единиц, не только по формату строк.
+
 Порядок вывода строк каждой сущности — тот самый, что и в оригинальном отчёте (в частности, для
 "Организация подключений" — уже отсортированный/сгруппированный список из
 _connection_row_values_list), поэтому шаблон-заготовка конструктора (report_seed_templates.py)
@@ -44,7 +51,7 @@ class VirtualEntity:
     key: str
     label: str
     fields: list[VirtualField]
-    loader: Callable[[Session], list[Any]]
+    loader: Callable[[Session, "list[str] | None"], list[Any]]
 
 
 def _rows_from_values(values_lists: list[list]) -> list[SimpleNamespace]:
@@ -80,8 +87,8 @@ _IS_FIELDS = [
 ]
 
 
-def _load_is_rows(session: Session) -> list[SimpleNamespace]:
-    d = _load_report_data(session, None)
+def _load_is_rows(session: Session, structural_unit_ids: list | None = None) -> list[SimpleNamespace]:
+    d = _load_report_data(session, None, structural_unit_ids)
     names = [f.name for f in _IS_FIELDS]
     return _rows_from_values([_zip_fields(names, _is_row_values(obj, d)) for obj in d.systems])
 
@@ -104,8 +111,8 @@ _DEVICE_FIELDS = [
 ]
 
 
-def _load_device_rows(session: Session) -> list[SimpleNamespace]:
-    d = _load_report_data(session, None)
+def _load_device_rows(session: Session, structural_unit_ids: list | None = None) -> list[SimpleNamespace]:
+    d = _load_report_data(session, None, structural_unit_ids)
     names = [f.name for f in _DEVICE_FIELDS]
     return _rows_from_values([_zip_fields(names, _device_row_values(dev, d)) for dev in d.devices])
 
@@ -133,8 +140,8 @@ _CONNECTION_FIELDS = [
 ]
 
 
-def _load_connection_rows(session: Session) -> list[SimpleNamespace]:
-    d = _load_report_data(session, None)
+def _load_connection_rows(session: Session, structural_unit_ids: list | None = None) -> list[SimpleNamespace]:
+    d = _load_report_data(session, None, structural_unit_ids)
     names = [f.name for f in _CONNECTION_FIELDS]
     # _connection_row_values_list возвращает строки с номером (№) первым элементом — здесь он не
     # нужен: конструктор нумерует повторяющуюся строку сам (ячейка типа "№ по порядку"), в том же
@@ -158,8 +165,8 @@ _VM_FIELDS = [
 ]
 
 
-def _load_vm_rows(session: Session) -> list[SimpleNamespace]:
-    d = _load_report_data(session, None)
+def _load_vm_rows(session: Session, structural_unit_ids: list | None = None) -> list[SimpleNamespace]:
+    d = _load_report_data(session, None, structural_unit_ids)
     names = [f.name for f in _VM_FIELDS]
     return _rows_from_values([_zip_fields(names, _vm_row_values(v, d)) for v in d.vms])
 

@@ -1,0 +1,302 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { useVMsStore } from '../stores/vms'
+import { useCatalogsStore } from '../stores/catalogs'
+import { useDevicesStore } from '../stores/devices'
+import { deleteResource } from '../api/client'
+import { useToast } from '../composables/useToast'
+import type { VirtualMachine } from '../api/types'
+import StatCard from '../components/StatCard.vue'
+import VMFormModal from '../components/VMFormModal.vue'
+
+const vms = useVMsStore()
+const catalogs = useCatalogsStore()
+const devices = useDevicesStore()
+const { notify, notifyError } = useToast()
+
+const modalVM = ref<VirtualMachine | null>(null)
+const modalOpen = ref(false)
+const deletingId = ref<string | null>(null)
+
+onMounted(async () => {
+  await Promise.all([vms.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
+})
+
+function openCreate() {
+  modalVM.value = null
+  modalOpen.value = true
+}
+function openEdit(vm: VirtualMachine) {
+  modalVM.value = vm
+  modalOpen.value = true
+}
+function closeModal() {
+  modalOpen.value = false
+  modalVM.value = null
+}
+async function onSaved() {
+  const wasEdit = modalVM.value !== null
+  closeModal()
+  await vms.reload()
+  notify(wasEdit ? 'Виртуальная машина обновлена' : 'Виртуальная машина добавлена', 'success')
+}
+
+async function removeVM(vm: VirtualMachine) {
+  if (!confirm(`Удалить виртуальную машину «${vm.name}»?`)) return
+  deletingId.value = vm.id
+  try {
+    await deleteResource('vms', vm.id)
+    await vms.reload()
+    notify('Виртуальная машина удалена', 'success')
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    deletingId.value = null
+  }
+}
+
+function hostLabel(id: string | null) {
+  if (!id) return '—'
+  const host = devices.all.find((d) => d.id === id)
+  return host ? host.system_name || host.serial_number : '—'
+}
+</script>
+
+<template>
+  <div class="vms-view">
+    <div class="stat-row">
+      <StatCard :value="vms.total" label="Всего виртуальных машин" />
+      <StatCard :value="vms.all.filter((v) => v.physical_device_id).length" label="Размещены на хосте" />
+      <StatCard :value="vms.all.filter((v) => !v.physical_device_id).length" label="Без указанного хоста" tone="warn" />
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-box">
+        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+        <input v-model="vms.search" type="text" placeholder="Поиск по названию, назначению…" />
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-secondary" :disabled="vms.loading" @click="vms.reload()">
+        <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
+        Обновить
+      </button>
+      <button class="btn btn-primary" @click="openCreate">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Добавить ВМ
+      </button>
+    </div>
+
+    <div class="table-card card">
+      <div v-if="vms.error" class="error-banner">
+        <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+        {{ vms.error }}
+      </div>
+      <div v-else-if="vms.loading && !vms.loaded" class="loading-banner">Загрузка реестра виртуальных машин…</div>
+      <div v-else class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Операционная система</th>
+              <th>Хост (физическое устройство)</th>
+              <th>Гипервизор</th>
+              <th>Целевое назначение</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="vm in vms.pageItems" :key="vm.id">
+              <td class="vmname">{{ vm.name }}</td>
+              <td>{{ catalogs.label('operating-systems', vm.operating_system_id) }}</td>
+              <td>{{ hostLabel(vm.physical_device_id) }}</td>
+              <td>{{ catalogs.label('operating-systems', vm.hypervisor_os_id) }}</td>
+              <td class="purpose-cell">{{ vm.purpose || '—' }}</td>
+              <td>
+                <div class="row-actions">
+                  <button type="button" aria-label="Редактировать" @click="openEdit(vm)">
+                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  </button>
+                  <button type="button" aria-label="Удалить" :disabled="deletingId === vm.id" @click="removeVM(vm)">
+                    <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="!vms.filtered.length">
+              <td colspan="6" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-foot">
+        <span>Показано {{ vms.pageItems.length ? (vms.page - 1) * 8 + 1 : 0 }}–{{ (vms.page - 1) * 8 + vms.pageItems.length }} из {{ vms.filtered.length }}</span>
+        <div class="pager">
+          <button :disabled="vms.page <= 1" @click="vms.setPage(vms.page - 1)">‹</button>
+          <button v-for="p in vms.pageCount" :key="p" :class="{ on: p === vms.page }" @click="vms.setPage(p)">{{ p }}</button>
+          <button :disabled="vms.page >= vms.pageCount" @click="vms.setPage(vms.page + 1)">›</button>
+        </div>
+      </div>
+    </div>
+
+    <VMFormModal v-if="modalOpen" :vm="modalVM" @close="closeModal" @saved="onSaved" />
+  </div>
+</template>
+
+<style scoped>
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 7px 10px;
+  min-width: 260px;
+  max-width: 420px;
+}
+.search-box .icon {
+  color: var(--ink-muted);
+}
+.search-box input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--ink);
+  font-size: 12.5px;
+  width: 100%;
+}
+.spacer {
+  flex: 1;
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 820px;
+}
+thead th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  vertical-align: top;
+}
+tbody tr:last-child td {
+  border-bottom: none;
+}
+tbody tr:hover td {
+  background: var(--surface-2);
+}
+.vmname {
+  font-weight: 600;
+}
+.purpose-cell {
+  color: var(--ink-muted);
+  max-width: 260px;
+}
+.empty-row {
+  text-align: center;
+  color: var(--ink-muted);
+  padding: 26px 14px;
+}
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+  color: var(--status-crit);
+  font-size: 13px;
+}
+.loading-banner {
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.row-actions button {
+  background: none;
+  border: none;
+  padding: 5px;
+  color: var(--ink-muted);
+  border-radius: var(--r-s);
+}
+.row-actions button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.row-actions button:disabled {
+  opacity: 0.4;
+}
+.row-actions .icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pager {
+  display: flex;
+  gap: 4px;
+}
+.pager button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--r-s);
+  width: 26px;
+  height: 26px;
+  color: var(--ink-muted);
+}
+.pager button.on {
+  background: var(--brand);
+  color: #05161c;
+  border-color: var(--brand);
+}
+.pager button:disabled {
+  opacity: 0.4;
+}
+
+@media (max-width: 980px) {
+  .stat-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>

@@ -33,6 +33,10 @@ jobs:
         run: npm ci
         working-directory: frontend/tests
 
+      - name: Установить зависимости frontend-vue
+        run: npm ci
+        working-directory: frontend-vue
+
       - name: ruff (только реальные ошибки — pyflakes F + синтаксис E9, см. pyproject.toml)
         run: ruff check backend
 
@@ -45,6 +49,14 @@ jobs:
       - name: Тесты frontend (node:test + jsdom, чистые/DOM-функции app.js)
         run: npm test
         working-directory: frontend/tests
+
+      - name: Типы и сборка frontend-vue (vue-tsc + vite build) — концепция «Диспетчерская»
+        run: npm run build
+        working-directory: frontend-vue
+
+      - name: Тесты frontend-vue (vitest, сторы catalogs/devices/theme + компоненты)
+        run: npm test
+        working-directory: frontend-vue
 
       - name: Проверка синтаксиса core.js/vm-editors.js/device-interfaces.js/information-systems.js/vlan.js/audit-log.js/search.js/csv-import.js/connections.js/app.js/report_builder.js
         run: |

@@ -35,7 +35,7 @@ function renderTable(){
  head.innerHTML=listCols.map(c=>{
    const active=listSortColumn===c.name;
    const arrow=active?(listSortDirection===1?' ▲':' ▼'):'';
-   return `<th class="sortable-th" onclick="sortListBy('${c.name}')">${esc(labels[c.name]||c.name)}${arrow}</th>`;
+   return `<th class="sortable-th" onclick="sortListBy('${c.name}')">${esc(fieldLabel(c))}${arrow}</th>`;
  }).join('')+'<th>Действия</th>';
  body.innerHTML=rows.map(x=>`<tr>${listCols.map(c=>`<td>${esc(listCell(x,c))}</td>`).join('')}<td><button class="btn gray" onclick="openForm('${x.id}')">Изменить</button> ${resource==='vlan-domains'&&x.source_device_id?`<button class="btn gray" onclick="syncVlanDomain('${x.id}',this)">Синхронизировать</button> `:''}<button class="btn red" onclick="removeItem('${x.id}')">Удалить</button></td></tr>`).join('');
 }
@@ -73,8 +73,16 @@ async function openForm(id=''){
  if(resource==='vms'){await loadVMIPEditor(id);await loadVMOpenPortsEditor(id);await loadVMSoftwareEditor(id);}
  markFormOpened();
 }
+// Разрешение подписи поля по имени колонки — обычно из общего labels{}, но 'parent_id' встречается
+// у двух разных иерархических справочников (departments/structural-units) с разным смыслом
+// "родителя"; общий словарь не умеет различать по ресурсу, поэтому такие поля разрешаются здесь
+// с учётом текущего resource, а не только по имени колонки.
+function fieldLabel(c){
+ if(resource==='structural-units'&&c.name==='parent_id')return 'Родительская структурная единица';
+ return labels[c.name]||c.name;
+}
 async function fieldHtml(c,v,item={}){
- const label=labels[c.name]||c.name;
+ const label=fieldLabel(c);
  if(resource==='devices'&&c.name==='status'){
    const opts=[['','— не выбрано —'],['В эксплуатации','В эксплуатации'],['Резерв','Резерв'],['На обслуживании','На обслуживании'],['Неисправно','Неисправно'],['Выведено из эксплуатации','Выведено из эксплуатации'],['Списано','Списано']];
    return `<label class="field"><span>${label}</span><select name="status">${opts.map(([a,b])=>`<option value="${esc(a)}" ${a===(v??'')?'selected':''}>${esc(b)}</option>`).join('')}</select></label>`;
@@ -144,7 +152,7 @@ async function fieldHtml(c,v,item={}){
      if(resource==='vms'&&c.name==='physical_device_id'){opts=opts.filter(o=>{const dt=(window._deviceTypes||[]).find(t=>t.id===o.device_type_id);const n=(dt?.name||'').toLowerCase();return n.includes('сервер')||n.includes('система хранения')||n.includes('storage')});}
      let selected=v??'';
      const onchange=resource==='devices'&&c.name==='manufacturer_id'?' onchange="onDeviceCatalogChanged()"':resource==='devices'&&c.name==='device_type_id'?' onchange="onDeviceCatalogChanged()"':'';
-     const canQuick=['buildings','rooms','racks','device-types','manufacturers','device-models','os-categories','operating-systems','interface-types','interface-speeds','connection-types'].includes(rr);
+     const canQuick=['buildings','rooms','racks','device-types','manufacturers','device-models','os-categories','operating-systems','interface-types','interface-speeds','connection-types','structural-units'].includes(rr);
      const add=canQuick?`<button type="button" class="btn gray inline-add" onclick="openQuickModal('${rr}','${c.name}')">＋</button>`:'';
      return `<label class="field"><span>${label}${c.nullable?'':' *'}</span><div class="lookup-row"><select id="field-${c.name}" name="${c.name}" ${c.nullable?'':'required'}${onchange}>${c.nullable?'<option value="">— не выбрано —</option>':''}${opts.map(o=>`<option value="${esc(o.id)}" ${o.id===selected?'selected':''}>${esc(lookupLabel(rr,o))}</option>`).join('')}</select>${add}</div></label>`;
    }
@@ -206,7 +214,7 @@ async function onDeviceModelChanged(){
  if(document.getElementById('interfaceEditor')){await Promise.all([loadInterfaceEditor(editingId||''),loadDeviceVlanEditor(editingId||'',deviceTypeId)]);}
 }
 async function onDeviceCatalogChanged(){const mf=document.getElementById('field-manufacturer_id'),tf=document.getElementById('field-device_type_id'),model=document.getElementById('field-model_id');if(!model)return;const m=mf?.value||'',t=tf?.value||'',current=model.value;const opts=(await get(api+'/resources/device-models?limit=1000')).items.filter(x=>(!m||x.manufacturer_id===m)&&(!t||x.device_type_id===t));model.innerHTML='<option value="">— не выбрано —</option>'+opts.map(x=>`<option value="${esc(x.id)}">${esc(lookupLabel('device-models',x))}</option>`).join('');if(opts.some(x=>x.id===current))model.value=current;;if(document.getElementById('interfaceEditor')){await Promise.all([loadInterfaceEditor(editingId||''),loadDeviceVlanEditor(editingId||'',t)]);}}
-async function openQuickModal(target,sourceField,sourceIndex=null,parentState=null){if(!quickFields[target])return notify('Для этого справочника быстрое добавление не настроено.','error');quickTarget={resource:target,sourceField,sourceIndex};quickReturn=parentState||null;document.getElementById('quickModalTitle').textContent='Добавить: '+(quickLabels[target]||labels[sourceField]||target);let html=[];for(const [name,label,type,required] of quickFields[target]){if(type==='fk'){const map={building_id:'buildings',room_id:'rooms',device_type_id:'device-types',manufacturer_id:'manufacturers',category_id:'os-categories',parent_id:'departments'};const rr=map[name],opts=(await get(api+`/resources/${rr}?limit=1000`)).items;let selected='';if(target==='device-models'&&name==='manufacturer_id')selected=document.getElementById('field-manufacturer_id')?.value||'';if(target==='device-models'&&name==='device_type_id')selected=document.getElementById('field-device_type_id')?.value||'';if(target==='rooms'&&name==='building_id')selected=document.getElementById('field-building_id')?.value||'';if(target==='racks'&&name==='room_id')selected=document.getElementById('field-room_id')?.value||'';if(target==='departments'&&name==='parent_id')selected='';let addButton='';if(target==='device-models'&&name==='device_type_id'||target==='device-models'&&name==='manufacturer_id'){const childTarget=rr;const childSource=`device-models-${name}`;addButton=`<button type="button" class="btn gray inline-add" title="Добавить ${esc(label)}" onclick="openNestedDeviceCatalog('${childTarget}','${childSource}')">＋</button>`;}html.push(`<label class="field"><span>${label}${required?' *':''}</span><div class="lookup-row"><select name="${name}" ${required?'required':''}>${opts.map(o=>`<option value="${esc(o.id)}" ${o.id===selected?'selected':''}>${esc(lookupLabel(rr,o))}</option>`).join('')}</select>${addButton}</div></label>`);}else if(type==='textarea')html.push(`<label class="field full"><span>${label}</span><textarea name="${name}"></textarea></label>`);else html.push(`<label class="field"><span>${label}${required?' *':''}</span><input type="${type}" name="${name}" ${required?'required':''}></label>`);}document.getElementById('quickFormGrid').innerHTML=html.join('');if(parentState?.values){for(const [k,v] of Object.entries(parentState.values)){const el=document.querySelector(`#quickForm [name=\"${k}\"]`);if(el)el.value=v||'';}}document.getElementById('quickModal').classList.add('show');}
+async function openQuickModal(target,sourceField,sourceIndex=null,parentState=null){if(!quickFields[target])return notify('Для этого справочника быстрое добавление не настроено.','error');quickTarget={resource:target,sourceField,sourceIndex};quickReturn=parentState||null;document.getElementById('quickModalTitle').textContent='Добавить: '+(quickLabels[target]||labels[sourceField]||target);let html=[];for(const [name,label,type,required] of quickFields[target]){if(type==='fk'){const map={building_id:'buildings',room_id:'rooms',device_type_id:'device-types',manufacturer_id:'manufacturers',category_id:'os-categories',parent_id:target==='structural-units'?'structural-units':'departments',structural_unit_id:'structural-units'};const rr=map[name],opts=(await get(api+`/resources/${rr}?limit=1000`)).items;let selected='';if(target==='device-models'&&name==='manufacturer_id')selected=document.getElementById('field-manufacturer_id')?.value||'';if(target==='device-models'&&name==='device_type_id')selected=document.getElementById('field-device_type_id')?.value||'';if(target==='rooms'&&name==='building_id')selected=document.getElementById('field-building_id')?.value||'';if(target==='racks'&&name==='room_id')selected=document.getElementById('field-room_id')?.value||'';if(target==='departments'&&name==='parent_id')selected='';let addButton='';if(target==='device-models'&&name==='device_type_id'||target==='device-models'&&name==='manufacturer_id'){const childTarget=rr;const childSource=`device-models-${name}`;addButton=`<button type="button" class="btn gray inline-add" title="Добавить ${esc(label)}" onclick="openNestedDeviceCatalog('${childTarget}','${childSource}')">＋</button>`;}html.push(`<label class="field"><span>${label}${required?' *':''}</span><div class="lookup-row"><select name="${name}" ${required?'required':''}>${opts.map(o=>`<option value="${esc(o.id)}" ${o.id===selected?'selected':''}>${esc(lookupLabel(rr,o))}</option>`).join('')}</select>${addButton}</div></label>`);}else if(type==='textarea')html.push(`<label class="field full"><span>${label}</span><textarea name="${name}"></textarea></label>`);else html.push(`<label class="field"><span>${label}${required?' *':''}</span><input type="${type}" name="${name}" ${required?'required':''}></label>`);}document.getElementById('quickFormGrid').innerHTML=html.join('');if(parentState?.values){for(const [k,v] of Object.entries(parentState.values)){const el=document.querySelector(`#quickForm [name=\"${k}\"]`);if(el)el.value=v||'';}}document.getElementById('quickModal').classList.add('show');}
 async function openNestedDeviceCatalog(target,sourceField){const parent={resource:'device-models',sourceField:'model_id',sourceIndex:null,values:Object.fromEntries(new FormData(document.getElementById('quickForm')).entries())};await openQuickModal(target,sourceField,null,parent);}
 async function saveQuickForm(e){e.preventDefault();if(!quickTarget)return;const target={...quickTarget};let data={};for(const [k,v0] of new FormData(e.target).entries())data[k]=v0===''?null:v0;if(data.height_u!==null&&data.height_u!==undefined)data.height_u=Number(data.height_u);try{const created=await get(api+`/resources/${target.resource}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 if((target.resource==='device-types'||target.resource==='manufacturers')&&target.sourceField?.startsWith('device-models-')){const parent=quickReturn;quickReturn=null;closeQuickModal();if(parent){await openQuickModal(parent.resource,parent.sourceField,parent.sourceIndex,null);const f=document.querySelector(`#quickForm [name=\"${target.sourceField.endsWith('device_type_id')?'device_type_id':'manufacturer_id'}\"]`);if(f){const opt=document.createElement('option');opt.value=created.id;opt.textContent=lookupLabel(target.resource,created);f.appendChild(opt);f.value=created.id;}const vals=parent.values||{};for(const [k,v] of Object.entries(vals)){const el=document.querySelector(`#quickForm [name=\"${k}\"]`);if(el)el.value=v||'';}}return;}if(target.resource==='interface-speeds'||target.resource==='interface-types'){await loadInterfaceCatalogs();if(Number.isInteger(target.sourceIndex)&&interfaceRows[target.sourceIndex]){interfaceRows[target.sourceIndex][target.sourceField]=created.id;}closeQuickModal();renderInterfaceEditor();return;}
@@ -301,6 +309,68 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 async function removeItem(id){if(!confirm('Удалить запись?'))return;try{await get(api+`/resources/${resource}/${id}`,{method:'DELETE'});if(resource==='vlans')await renderVlanDashboard();else await renderList()}catch(err){notifyError(err)}}
-async function generateReport(btn){await withBusyButton(btn,async()=>{try{const x=await get(api+'/reports/inventory',{method:'POST'});window.location=x.download_url;}catch(e){notifyError(e)}});}
+
+// ---------- Выбор структурных единиц при генерации отчёта ----------
+// Используется и дашбордом (регламентированный отчёт, generateReport) и конструктором
+// (report_builder.js: rbGenerateTemplate) — единая точка, чтобы оба места вели себя одинаково.
+// Возвращает Promise, разрешающийся в:
+//   null      — без ограничения (полный отчёт, как без этой функции вообще);
+//   string[]  — id выбранных структурных единиц (генерация ограничивается их оборудованием);
+//   undefined — пользователь отменил формирование отчёта целиком.
+// Если в базе нет ни одной структурной единицы, модалка не имеет смысла — сразу возвращает null,
+// без лишнего шага для пользователей, которые эту функциональность не используют.
+let _suModalResolve=null,_suModalUnits=[];
+async function openStructuralUnitsModal(){
+ const units=(await get(api+'/resources/structural-units?limit=1000')).items;
+ if(!units.length)return null;
+ return new Promise(resolve=>{
+  _suModalResolve=resolve;_suModalUnits=units;
+  _renderStructuralUnitsModal();
+  document.getElementById('structuralUnitsModal').classList.add('show');
+ });
+}
+function _renderStructuralUnitsModal(){
+ const childrenOf={};
+ _suModalUnits.forEach(u=>{const key=u.parent_id||'';(childrenOf[key]=childrenOf[key]||[]).push(u);});
+ const ordered=[];
+ (function walk(parentKey,depth){
+  (childrenOf[parentKey]||[]).forEach(u=>{ordered.push({u,depth});walk(u.id,depth+1);});
+ })('',0);
+ document.getElementById('structuralUnitsBody').innerHTML=`
+  <p class="muted">По умолчанию отчёт включает всё оборудование. Чтобы ограничить его конкретными структурными единицами, переключитесь на выбор ниже — выбор родительской единицы автоматически включает вложенные в неё.</p>
+  <label class="su-radio-option"><input type="radio" name="su-mode" value="all" checked onchange="_suToggleMode()"> Всё оборудование (без ограничения)</label>
+  <label class="su-radio-option"><input type="radio" name="su-mode" value="select" onchange="_suToggleMode()"> Выбрать структурные единицы</label>
+  <div id="suUnitList" class="su-unit-list" style="display:none">
+   <div style="margin-bottom:8px"><button type="button" class="btn gray" onclick="_suSetAll(true)">Отметить все</button> <button type="button" class="btn gray" onclick="_suSetAll(false)">Снять все</button></div>
+   ${ordered.map(({u,depth})=>`<label style="padding-left:${depth*20}px"><input type="checkbox" class="su-checkbox" value="${esc(u.id)}"> ${esc(u.name)}</label>`).join('')}
+  </div>`;
+}
+function _suToggleMode(){
+ const mode=document.querySelector('input[name="su-mode"]:checked')?.value;
+ document.getElementById('suUnitList').style.display=mode==='select'?'':'none';
+}
+function _suSetAll(checked){document.querySelectorAll('.su-checkbox').forEach(cb=>cb.checked=checked)}
+function closeStructuralUnitsModal(){
+ document.getElementById('structuralUnitsModal').classList.remove('show');
+ const resolve=_suModalResolve;_suModalResolve=null;
+ if(resolve)resolve(undefined);
+}
+function confirmStructuralUnitsModal(){
+ const mode=document.querySelector('input[name="su-mode"]:checked')?.value;
+ let ids=null;
+ if(mode==='select'){
+  ids=[...document.querySelectorAll('.su-checkbox:checked')].map(cb=>cb.value);
+  if(!ids.length){notify('Отметьте хотя бы одну структурную единицу или выберите «Всё оборудование».','error');return;}
+ }
+ document.getElementById('structuralUnitsModal').classList.remove('show');
+ const resolve=_suModalResolve;_suModalResolve=null;
+ if(resolve)resolve(ids);
+}
+
+async function generateReport(btn){
+ const structural_unit_ids=await openStructuralUnitsModal();
+ if(structural_unit_ids===undefined)return; // отменено пользователем
+ await withBusyButton(btn,async()=>{try{const x=await get(api+'/reports/inventory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({structural_unit_ids})});window.location=x.download_url;}catch(e){notifyError(e)}});
+}
 
 showDashboard();

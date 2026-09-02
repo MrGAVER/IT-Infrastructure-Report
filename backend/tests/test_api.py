@@ -769,3 +769,56 @@ class TestReports:
         ws = wb.active
         # Только заголовок — ни одна запись не попадает в диапазон дат из будущего.
         assert ws.max_row == 1
+
+    def test_inventory_report_filters_by_structural_unit(self, client):
+        """POST /reports/inventory принимает structural_unit_ids в теле запроса и сужает отчёт
+        до оборудования, размещённого в выбранной структурной единице — см. reporting.build_report."""
+        unit = client.post("/api/v1/resources/structural-units", json={"name": "Филиал А"})
+        assert unit.status_code == 201, unit.text
+        unit = unit.json()
+        other_unit = client.post("/api/v1/resources/structural-units", json={"name": "Филиал Б"}).json()
+        building_in = client.post("/api/v1/resources/buildings", json={"name": "Здание А", "structural_unit_id": unit["id"]})
+        assert building_in.status_code == 201, building_in.text
+        building_in = building_in.json()
+        building_out = client.post("/api/v1/resources/buildings", json={"name": "Здание Б", "structural_unit_id": other_unit["id"]}).json()
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для фильтра по структурной единице"}).json()
+        client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-IN", "building_id": building_in["id"]})
+        client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-OUT", "building_id": building_out["id"]})
+
+        r = client.post("/api/v1/reports/inventory", json={"structural_unit_ids": [unit["id"]]})
+        assert r.status_code == 200, r.text
+
+        import openpyxl
+        path = REPORT_DIR / r.json()["file_name"]
+        wb = openpyxl.load_workbook(path)
+        rows = list(wb["Инвентаризац. физ. устройств ИС"].iter_rows(min_row=2, values_only=True))
+        serials = [row[3] for row in rows]
+        assert serials == ["SU-IN"]
+
+    def test_template_report_filters_by_structural_unit(self, client):
+        """То же для конструктора отчётов (виртуальная сущность registry-device-rows) — фильтр
+        должен работать одинаково на обоих движках, см. test_report_registry_rows.py:
+        ExactParityTestCase.test_exact_parity_with_structural_unit_filter."""
+        unit = client.post("/api/v1/resources/structural-units", json={"name": "Филиал А"}).json()
+        building_in = client.post("/api/v1/resources/buildings", json={"name": "Здание А", "structural_unit_id": unit["id"]}).json()
+        building_out = client.post("/api/v1/resources/buildings", json={"name": "Здание Б"}).json()
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для фильтра шаблона по единице"}).json()
+        client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-IN", "building_id": building_in["id"]})
+        client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-OUT", "building_id": building_out["id"]})
+
+        config = {"sheets": [{
+            "title": "Устройства", "columns": [{"width": 20}],
+            "rows": [{"height": 18, "repeat": True,
+                      "data_source": {"root_entity": "registry-device-rows"},
+                      "cells": [{"col": 0, "kind": "field", "path": "serial_number"}]}],
+        }]}
+        t = client.post("/api/v1/report-templates", json={"name": "Тест устройств", "format": "xlsx", "config": config}).json()
+
+        r = client.post(f"/api/v1/report-templates/{t['id']}/generate", json={"structural_unit_ids": [unit["id"]]})
+        assert r.status_code == 200, r.text
+
+        import openpyxl
+        path = REPORT_DIR / r.json()["file_name"]
+        wb = openpyxl.load_workbook(path)
+        values = [row[0] for row in wb["Устройства"].iter_rows(min_row=1, values_only=True) if row[0]]
+        assert values == ["SU-IN"]

@@ -1,0 +1,16 @@
+# Собирается заново внутри multi-stage сборки (см. backend/Dockerfile:frontend-vue-build) —
+# отправка уже установленных/собранных версий в контекст только замедляет `docker build`.
+frontend-vue/node_modules
+frontend-vue/dist
+frontend/tests/node_modules
+
+.git
+**/__pycache__
+**/*.pyc
+backend/tests
+backend/.pytest_cache
+*.db
+.venv
+venv
+build
+dist

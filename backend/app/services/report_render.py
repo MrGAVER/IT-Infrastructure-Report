@@ -40,7 +40,7 @@ def _sheet_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, Any
 
 
 def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str,
-                params: dict[str, Any] | None = None) -> Path:
+                params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None) -> Path:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
@@ -49,7 +49,7 @@ def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, te
     if not blocks:
         raise ReportBuilderError("В шаблоне не задано ни одного блока")
 
-    ctx = ReportContext(session)
+    ctx = ReportContext(session, structural_unit_ids)
     doc = Document()
 
     for block in blocks:
@@ -88,16 +88,24 @@ def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, te
 
 
 def build_report_from_template(session: Session, template, report_dir: Path,
-                                params: dict[str, Any] | None = None) -> Path:
-    """template — объект ReportTemplate (или любой с .format/.config/.name)."""
+                                params: dict[str, Any] | None = None,
+                                structural_unit_ids: list[str] | None = None) -> Path:
+    """template — объект ReportTemplate (или любой с .format/.config/.name).
+
+    structural_unit_ids — необязательный runtime-фильтр по структурным единицам размещения
+    оборудования (см. ReportContext/reporting.py), просачивается до листов/блоков, построенных на
+    "виртуальных" сущностях реестра (registry-is-rows и т.п., см. report_registry_rows.py) — так же,
+    как фильтрует регламентированный отчёт. На листы/блоки с обычным root_entity не влияет."""
     import json
 
     config = json.loads(template.config or "{}")
     if template.format == "docx":
-        return build_docx(session, config, report_dir, template_name=template.name, params=params)
+        return build_docx(session, config, report_dir, template_name=template.name, params=params,
+                           structural_unit_ids=structural_unit_ids)
     if template.format == "xlsx":
         from .report_grid import build_xlsx_grid  # локальный импорт: report_grid не зависит от этого модуля
-        return build_xlsx_grid(session, config, report_dir, template_name=template.name, params=params)
+        return build_xlsx_grid(session, config, report_dir, template_name=template.name, params=params,
+                                structural_unit_ids=structural_unit_ids)
     raise ReportBuilderError(f"Неизвестный формат отчёта: {template.format}")
 
 
