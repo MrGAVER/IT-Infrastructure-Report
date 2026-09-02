@@ -352,7 +352,10 @@ async function submit() {
 }
 .modal {
   width: 100%;
-  max-width: 640px;
+  /* п.7.2: та же правка ширины, что и в DeviceFormModal.vue (п.1.3) — форма ИС
+     тоже длиннее большинства модалок (протоколы, источники размещения, места
+     размещения). Обоснование clamp() — см. комментарий там же. */
+  max-width: clamp(640px, 50vw, 1100px);
   padding: 20px 22px 18px;
 }
 .modal-head {
@@ -393,6 +396,11 @@ async function submit() {
   gap: 5px;
   font-size: 11.5px;
   color: var(--ink-muted);
+  /* п.7.1: без min-width:0 ячейка CSS-грида не сжимается ниже intrinsic-ширины
+     содержимого — длинный текст в input/textarea распирал ячейку шире грид-трека
+     и вылезал за пределы подложки модалки. Тот же фикс, что в DeviceFormModal.vue
+     (п.3.2 из 2.53.1). */
+  min-width: 0;
 }
 .field-wide {
   grid-column: 1 / -1;
@@ -401,6 +409,7 @@ async function submit() {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 .lookup-row select {
   flex: 1;
@@ -417,6 +426,9 @@ async function submit() {
   color: var(--ink);
   font-family: inherit;
   resize: vertical;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .field select:disabled {
   opacity: 0.5;
