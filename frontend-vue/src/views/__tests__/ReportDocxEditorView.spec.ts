@@ -202,6 +202,101 @@ describe('ReportDocxEditorView.vue — сохранение', () => {
   })
 })
 
+describe('ReportDocxEditorView.vue — предпросмотр', () => {
+  it('кнопка "Предпросмотр таблиц" запрашивает POST /report-builder/preview с format=docx и показывает секции', async () => {
+    const calls: Array<{ url: string; body: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/report-builder/preview')) {
+          calls.push({ url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          return jsonResponse({ sections: [{ title: 'Устройства', headers: ['Имя'], rows: [['srv-01']], total: 1 }] })
+        }
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportDocxEditorView)
+    await flushPromises()
+
+    await wrapper.find('.preview-trigger').trigger('click')
+    await flushPromises()
+
+    expect(calls[0].body).toMatchObject({ format: 'docx' })
+    expect(wrapper.text()).toContain('srv-01')
+    expect(wrapper.text()).toContain('показано записей: 1')
+  })
+
+  it('без блоков-таблиц показывает пояснение вместо пустого списка секций', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/report-builder/preview')) return jsonResponse({ sections: [] })
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportDocxEditorView)
+    await flushPromises()
+
+    await wrapper.find('.preview-trigger').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('нет блоков-таблиц для предпросмотра')
+  })
+
+  it('ошибка секции показывается внутри неё, а не как общая ошибка запроса', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/report-builder/preview')) return jsonResponse({ sections: [{ title: 'Устройства', error: 'не задана исходная сущность' }] })
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportDocxEditorView)
+    await flushPromises()
+
+    await wrapper.find('.preview-trigger').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('не задана исходная сущность')
+  })
+
+  it('ошибка сервера при построении предпросмотра показывается', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/report-builder/preview')) return jsonResponse({ detail: 'В шаблоне не задано ни одного блока' }, 422)
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportDocxEditorView)
+    await flushPromises()
+
+    await wrapper.find('.preview-trigger').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('не задано ни одного блока')
+  })
+
+  it('закрытие панели предпросмотра скрывает её', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/report-builder/preview')) return jsonResponse({ sections: [] })
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportDocxEditorView)
+    await flushPromises()
+
+    await wrapper.find('.preview-trigger').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.preview-panel').exists()).toBe(true)
+
+    await wrapper.find('.preview-panel-head .icon-btn').trigger('click')
+    expect(wrapper.find('.preview-panel').exists()).toBe(false)
+  })
+})
+
 describe('ReportDocxEditorView.vue — навигация', () => {
   it('"К списку шаблонов" переходит на /report-templates', async () => {
     vi.stubGlobal('fetch', stubFetch())

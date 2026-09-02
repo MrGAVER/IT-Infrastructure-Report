@@ -9,8 +9,9 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getReportEntities } from '../api/reportEntities'
+import { previewDocxConfig } from '../api/reportPreview'
 import { getReportTemplate, saveReportTemplate } from '../api/reportTemplates'
-import type { DocxBlock, DocxConfig, ReportEntityMeta, ReportTemplate } from '../api/types'
+import type { DocxBlock, DocxConfig, DocxPreviewResponse, ReportEntityMeta, ReportTemplate } from '../api/types'
 import { useToast } from '../composables/useToast'
 import DocxTableBlockEditor from '../components/DocxTableBlockEditor.vue'
 
@@ -109,6 +110,36 @@ async function save() {
 function backToList() {
   router.push('/report-templates')
 }
+
+// ---------- Предпросмотр ----------
+// Только для блоков-таблиц (см. block_tables()/preview_rows() в
+// backend/app/services/report_render.py) — заголовок/абзац/разрыв страницы в предпросмотре не
+// участвуют, показывать для них нечего.
+
+const previewOpen = ref(false)
+const previewLoading = ref(false)
+const previewError = ref<string | null>(null)
+const previewResult = ref<DocxPreviewResponse | null>(null)
+
+async function runPreview() {
+  previewOpen.value = true
+  previewError.value = null
+  previewLoading.value = true
+  try {
+    previewResult.value = await previewDocxConfig({ blocks: blocks.value } as unknown as Record<string, unknown>)
+  } catch (err) {
+    previewError.value = err instanceof Error ? err.message : 'Не удалось построить предпросмотр'
+  } finally {
+    previewLoading.value = false
+  }
+}
+function closePreview() {
+  previewOpen.value = false
+}
+function previewCellText(value: unknown): string {
+  if (value === null || value === undefined || value === '') return ''
+  return String(value)
+}
 </script>
 
 <template>
@@ -158,6 +189,7 @@ function backToList() {
         <button type="button" class="btn-mini" @click="addBlock('paragraph')">+ Абзац</button>
         <button type="button" class="btn-mini" @click="addBlock('table')">+ Таблица</button>
         <button type="button" class="btn-mini" @click="addBlock('page_break')">+ Разрыв страницы</button>
+        <button type="button" class="btn-mini preview-trigger" @click="runPreview">Предпросмотр таблиц</button>
       </div>
 
       <div class="block-list">
@@ -205,6 +237,41 @@ function backToList() {
           </template>
 
           <DocxTableBlockEditor v-else-if="b.type === 'table'" :block="b" :entities="entities" @update="(patch) => updateBlock(i, patch)" />
+        </div>
+      </div>
+
+      <div v-if="previewOpen" class="preview-panel">
+        <div class="preview-panel-head">
+          <b>Предпросмотр блоков-таблиц (первые записи)</b>
+          <button type="button" class="icon-btn" aria-label="Закрыть предпросмотр" @click="closePreview">
+            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+          </button>
+        </div>
+        <p v-if="previewLoading" class="loading-hint">Строим предпросмотр…</p>
+        <p v-else-if="previewError" class="form-error">{{ previewError }}</p>
+        <div v-else-if="previewResult" class="preview-sections">
+          <p v-if="!previewResult.sections.length" class="loading-hint">В шаблоне нет блоков-таблиц для предпросмотра.</p>
+          <div v-for="(section, si) in previewResult.sections" :key="si" class="preview-section">
+            <div class="preview-section-head">
+              <b>{{ section.title || `Таблица ${si + 1}` }}</b>
+              <span v-if="section.total !== undefined" class="preview-note">показано записей: {{ section.total }}</span>
+            </div>
+            <p v-if="section.error" class="preview-error">{{ section.error }}</p>
+            <div v-else class="preview-table-wrap">
+              <table class="preview-table">
+                <thead>
+                  <tr>
+                    <th v-for="(h, hi) in section.headers" :key="hi">{{ h }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, ri) in section.rows" :key="ri">
+                    <td v-for="(value, ci) in row" :key="ci">{{ previewCellText(value) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -335,5 +402,68 @@ function backToList() {
 .block-actions button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+.preview-trigger {
+  margin-left: auto;
+}
+.preview-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.preview-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.preview-panel-head b {
+  font-size: 12.5px;
+}
+.preview-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.preview-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.preview-section-head b {
+  font-size: 12.5px;
+}
+.preview-note {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.preview-error {
+  font-size: 12px;
+  color: var(--status-crit);
+  margin: 0;
+}
+.preview-table-wrap {
+  overflow-x: auto;
+}
+.preview-table {
+  border-collapse: collapse;
+}
+.preview-table th,
+.preview-table td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.preview-table th {
+  background: var(--surface-2);
+  text-align: left;
 }
 </style>
