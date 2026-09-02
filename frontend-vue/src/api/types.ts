@@ -603,6 +603,50 @@ export type DocxBlock = DocxHeadingBlock | DocxParagraphBlock | DocxPageBreakBlo
 export interface DocxConfig {
   blocks: DocxBlock[]
 }
+
+/** Ответ POST /api/v1/report-builder/preview для format='xlsx' — материализованные физические
+ * строки/ячейки каждого листа (повторяющиеся строки уже развёрнуты в отдельные физические
+ * строки с реальными значениями, урезано до limit записей на повторение), см.
+ * backend/app/services/report_grid.py:preview_grid/_physical_rows. cells внутри одной строки —
+ * только те позиции, где реально начинается ячейка (как и в самом редакторе), colspan/rowspan
+ * нужно так же учитывать при отрисовке (см. utils/gridCoverage.ts:visibleCellsForRow). */
+export interface GridPreviewCell {
+  col: number
+  colspan: number
+  rowspan: number
+  value: unknown
+  is_datetime: boolean
+  style: GridCellStyle
+}
+export interface GridPreviewRow {
+  height: number
+  cells: GridPreviewCell[]
+}
+export interface GridPreviewSection {
+  title: string
+  error?: string
+  n_cols?: number
+  rows?: GridPreviewRow[]
+  total_records?: number
+}
+export interface GridPreviewResponse {
+  sections: GridPreviewSection[]
+}
+
+/** Ответ POST /api/v1/report-builder/preview для format='docx' — по одной секции на блок-таблицу
+ * (остальные типы блоков в предпросмотре не участвуют, см.
+ * backend/app/services/report_render.py:preview_rows/block_tables). rows — уже отрендеренные
+ * значения ячеек (не объекты), total — сколько всего записей нашлось до обрезки limit'ом. */
+export interface DocxPreviewSection {
+  title: string
+  error?: string
+  headers?: string[]
+  rows?: unknown[][]
+  total?: number
+}
+export interface DocxPreviewResponse {
+  sections: DocxPreviewSection[]
+}
 export interface VLANDashboardResponse {
   items: VLANDashboardGroup[]
 }
