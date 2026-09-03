@@ -130,3 +130,24 @@ svg.icon {
   font-family: var(--font-mono);
   font-size: 11.8px;
 }
+
+/* Всплывающая подсказка v-truncate-tooltip (п.3, directives/truncateTooltip.ts) — создаётся
+   через raw DOM (document.body.appendChild), а не как часть шаблона компонента, поэтому её
+   стили не могут быть scoped и живут здесь. z-index выше QuickAddModal (.overlay: 70) и
+   HelpTip (.help-tip-panel: 80) — подсказка должна быть видна поверх любой открытой формы. */
+.truncate-tooltip-popup {
+  position: fixed;
+  z-index: 95;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border-radius: var(--r-s);
+  border: 1px solid var(--border);
+  background: var(--surface-1, var(--surface));
+  box-shadow: var(--shadow-m, 0 4px 16px rgba(0, 0, 0, 0.3));
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-line;
+  word-break: break-word;
+  pointer-events: none;
+}

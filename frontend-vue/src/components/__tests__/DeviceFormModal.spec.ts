@@ -714,4 +714,22 @@ describe('DeviceFormModal.vue', () => {
     expect((wrapper.find('input.col-port').element as HTMLInputElement).value).toBe('3389')
     expect((wrapper.find('input.col-protocol').element as HTMLInputElement).value).toBe('RDP')
   })
+
+  it('п.3: длинное системное имя показывает подсказку через секунду наведения', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(DeviceFormModal, { props: { device: null } })
+      await flushPromises()
+      const input = wrapper.find('input[maxlength="255"]:not([required])') // "Системное имя" (в отличие от "Серийный номер", не required)
+      await input.setValue('srv-msk-dc-01-very-long-hostname-that-does-not-fit')
+      Object.defineProperty(input.element, 'scrollWidth', { value: 300, configurable: true })
+      Object.defineProperty(input.element, 'clientWidth', { value: 100, configurable: true })
+
+      await input.trigger('mouseenter')
+      vi.advanceTimersByTime(1000)
+      expect(document.querySelector('.truncate-tooltip-popup')?.textContent).toBe('srv-msk-dc-01-very-long-hostname-that-does-not-fit')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

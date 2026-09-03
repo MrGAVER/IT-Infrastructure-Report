@@ -32,6 +32,7 @@
 import { ref } from 'vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
+import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
@@ -463,7 +464,7 @@ function applyBulkEdit() {
               </td>
               <td class="col-index">{{ i + 1 }}</td>
               <td>
-                <input type="text" class="cell-input" :value="row.name" @input="updateRow(i, { name: ($event.target as HTMLInputElement).value })" />
+                <input type="text" class="cell-input" v-truncate-tooltip="row.name" :value="row.name" @input="updateRow(i, { name: ($event.target as HTMLInputElement).value })" />
               </td>
               <td>
                 <select class="cell-input" :value="row.interface_type_id" @change="updateRow(i, { interface_type_id: ($event.target as HTMLSelectElement).value })">
@@ -472,7 +473,7 @@ function applyBulkEdit() {
                 </select>
               </td>
               <td>
-                <input type="text" class="cell-input" :value="row.mac_address" @input="updateRow(i, { mac_address: ($event.target as HTMLInputElement).value })" />
+                <input type="text" class="cell-input" v-truncate-tooltip="row.mac_address" :value="row.mac_address" @input="updateRow(i, { mac_address: ($event.target as HTMLInputElement).value })" />
               </td>
               <td>
                 <select class="cell-input" :value="row.speed_id" @change="updateRow(i, { speed_id: ($event.target as HTMLSelectElement).value })">
@@ -488,7 +489,7 @@ function applyBulkEdit() {
               </td>
               <td>
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
-                  <span>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP</span>
+                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP</span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
                 </button>
               </td>

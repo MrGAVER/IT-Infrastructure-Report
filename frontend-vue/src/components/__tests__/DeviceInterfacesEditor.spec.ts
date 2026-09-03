@@ -493,4 +493,31 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect((wrapper.findAll('.iface-table tbody .col-select input')[0].element as HTMLInputElement).checked).toBe(false)
     })
   })
+
+  describe('п.3: подсказка при наведении на обрезанный текст в ячейках таблицы', () => {
+    it('длинное имя интерфейса и сводка VLAN/IP используют v-truncate-tooltip', async () => {
+      vi.useFakeTimers()
+      try {
+        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'GigabitEthernet0/0/0/1.100500', vlan_ids: ['v-1'] }]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+
+        const nameInput = wrapper.find('.cell-input')
+        Object.defineProperty(nameInput.element, 'scrollWidth', { value: 300, configurable: true })
+        Object.defineProperty(nameInput.element, 'clientWidth', { value: 100, configurable: true })
+        await nameInput.trigger('mouseenter')
+        vi.advanceTimersByTime(1000)
+        expect(document.querySelector('.truncate-tooltip-popup')?.textContent).toBe('GigabitEthernet0/0/0/1.100500')
+        await nameInput.trigger('mouseleave')
+
+        const summary = wrapper.find('.expand-toggle span')
+        Object.defineProperty(summary.element, 'scrollWidth', { value: 300, configurable: true })
+        Object.defineProperty(summary.element, 'clientWidth', { value: 100, configurable: true })
+        await summary.trigger('mouseenter')
+        vi.advanceTimersByTime(1000)
+        expect(document.querySelector('.truncate-tooltip-popup')?.textContent).toBe('Trunk · 1 VLAN · 0 IP')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })

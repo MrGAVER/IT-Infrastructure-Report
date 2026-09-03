@@ -179,6 +179,24 @@ describe('QuickAddModal.vue', () => {
     expect((domainSelect!.element as HTMLSelectElement).value).toBe('dom-new')
   })
 
+  it('п.3: длинное значение в текстовом поле показывает подсказку через секунду наведения', async () => {
+    vi.useFakeTimers()
+    try {
+      mount(QuickAddModal, { props: { resource: 'device-models' } })
+      const modelInput = body().find('input[type="text"]')
+      Object.defineProperty(modelInput.element, 'scrollWidth', { value: 300, configurable: true })
+      Object.defineProperty(modelInput.element, 'clientWidth', { value: 100, configurable: true })
+      await modelInput.setValue('Очень длинное название модели устройства, которое не влезает')
+
+      await modelInput.trigger('mouseenter')
+      vi.advanceTimersByTime(1000)
+      const tip = document.querySelector('.truncate-tooltip-popup')
+      expect(tip?.textContent).toBe('Очень длинное название модели устройства, которое не влезает')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('показывает сообщение, если для ресурса схема не настроена', () => {
     mount(QuickAddModal, { props: { resource: 'unknown-resource' } })
     expect(body().text()).toContain('быстрое добавление не настроено')

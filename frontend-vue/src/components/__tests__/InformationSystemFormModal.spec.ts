@@ -234,4 +234,23 @@ describe('InformationSystemFormModal.vue — миграция и сохране�
 
     expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('so-new')
   })
+
+  it('п.3: длинное наименование ИС показывает подсказку через секунду наведения', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mount(InformationSystemFormModal, { props: { system: null } })
+      const input = wrapper.find('input[maxlength="500"]') // "Наименование"
+      await input.setValue('Автоматизированная информационная система очень длинного наименования')
+      Object.defineProperty(input.element, 'scrollWidth', { value: 300, configurable: true })
+      Object.defineProperty(input.element, 'clientWidth', { value: 100, configurable: true })
+
+      await input.trigger('mouseenter')
+      vi.advanceTimersByTime(1000)
+      expect(document.querySelector('.truncate-tooltip-popup')?.textContent).toBe(
+        'Автоматизированная информационная система очень длинного наименования',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

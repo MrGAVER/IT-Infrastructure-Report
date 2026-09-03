@@ -27,6 +27,7 @@ import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
 import ISSourcesListEditor from './ISSourcesListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { vTruncateTooltip } from '../directives/truncateTooltip'
 
 const props = defineProps<{ system: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
@@ -235,22 +236,22 @@ async function submit() {
       <form class="form-grid" @submit.prevent="submit">
         <label class="field field-wide">
           <span>Наименование *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="500" />
+          <input v-model.trim="form.name" v-truncate-tooltip="form.name" type="text" required maxlength="500" />
         </label>
 
         <label class="field field-wide">
           <span>Общее описание</span>
-          <textarea v-model.trim="form.description" rows="2" maxlength="4000"></textarea>
+          <textarea v-model.trim="form.description" v-truncate-tooltip="form.description" rows="2" maxlength="4000"></textarea>
         </label>
 
         <label class="field field-wide">
           <span>Назначение использования</span>
-          <textarea v-model.trim="form.purpose" rows="2" maxlength="4000"></textarea>
+          <textarea v-model.trim="form.purpose" v-truncate-tooltip="form.purpose" rows="2" maxlength="4000"></textarea>
         </label>
 
         <label class="field field-wide">
           <span>Локализация</span>
-          <textarea v-model.trim="form.localization" rows="2" maxlength="4000"></textarea>
+          <textarea v-model.trim="form.localization" v-truncate-tooltip="form.localization" rows="2" maxlength="4000"></textarea>
         </label>
 
         <label class="field">
@@ -277,7 +278,7 @@ async function submit() {
 
         <label class="field field-wide">
           <span>Описание процесса функционирования</span>
-          <textarea v-model.trim="form.process_description" rows="2" maxlength="4000"></textarea>
+          <textarea v-model.trim="form.process_description" v-truncate-tooltip="form.process_description" rows="2" maxlength="4000"></textarea>
         </label>
 
         <label class="field checkbox-field">

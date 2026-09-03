@@ -9,6 +9,7 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { CatalogItem } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { vTruncateTooltip } from '../directives/truncateTooltip'
 // Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
 // Циклический импорт (QuickAddButton.vue сам рендерит QuickAddModal.vue) безопасен: обе стороны
 // используются только в шаблоне/во время рендера, а не в теле модуля при загрузке — к моменту
@@ -110,6 +111,11 @@ async function submit() {
           <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' }">
             <span>{{ f.label }}{{ f.required ? ' *' : '' }}</span>
             <div v-if="f.type === 'fk'" class="fk-row">
+              <!-- v-truncate-tooltip на select не вешаем: scrollWidth/clientWidth нативного
+                   <select> не отражают обрезку текста ВЫБРАННОЙ опции (в отличие от input) —
+                   это ограничение браузерного рендеринга control'а, а не то, что можно обойти
+                   в директиве. Опции длиннее select'а всё равно видны целиком в раскрытом
+                   списке при клике. -->
               <select v-model="values[f.name] as string" :required="f.required">
                 <option value="">— не выбрано —</option>
                 <option v-for="opt in fkOptions(f.fkResource)" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
@@ -129,7 +135,7 @@ async function submit() {
                 @change="values[f.name] = ($event.target as HTMLInputElement).checked"
               />
             </label>
-            <input v-else v-model="values[f.name] as string" :type="f.type" :required="f.required" />
+            <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
           </label>
         </form>
 
