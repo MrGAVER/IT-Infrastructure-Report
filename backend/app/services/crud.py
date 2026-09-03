@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, InterfaceIP, InformationSystem, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
-from ..registry import MODEL_MAP, DISPLAY_NAMES
+from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..constants import ErrorCode, AuditAction, SourceType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
 from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
@@ -15,6 +15,14 @@ from .validation import duplicate_system_name, validate_connection, validate_dev
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
     except KeyError as exc: raise HTTPException(404, f"Ресурс '{resource}' не найден") from exc
+
+def ensure_writable(resource: str) -> None:
+    """Запрещает запись через generic CRUD для ресурсов из READONLY_RESOURCES (сейчас — только
+    audit-log). Вызывается из create_resource/update_resource/delete_resource, а не только на
+    уровне роутера (api/resources.py), чтобы гарантия действовала для любого текущего и
+    будущего вызывающего кода, а не только для одного набора HTTP-эндпоинтов."""
+    if resource in READONLY_RESOURCES:
+        raise HTTPException(403, f"Ресурс '{resource}' доступен только для чтения")
 
 def columns_for(model):
     return [{'name': c.key, 'type': str(c.type), 'nullable': c.nullable, 'primary_key': c.primary_key, 'default': None if c.default is None else str(c.default.arg), 'foreign_key': next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None} for c in inspect(model).columns]
@@ -130,6 +138,7 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
 def create_resource(resource: str, payload: dict[str, Any], session: Session):
+    ensure_writable(resource)
     model = model_for(resource); allowed = allowed_columns(model)
     data = {k: v for k, v in payload.items() if k in allowed}
     if model is VirtualMachine and data.get('physical_device_id'):
@@ -143,6 +152,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
 def update_resource(resource: str, item_id: str, payload: dict[str, Any], session: Session):
+    ensure_writable(resource)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     allowed = allowed_columns(model); proposed = {k: getattr(obj, k) for k in allowed}; proposed.update({k: v for k, v in payload.items() if k in allowed})
@@ -180,6 +190,7 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
     return results
 
 def delete_resource(resource: str, item_id: str, session: Session):
+    ensure_writable(resource)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     refs = _find_referencing_counts(model, item_id, session)

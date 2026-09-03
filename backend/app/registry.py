@@ -7,6 +7,13 @@ from .models import (
     Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VMIP, VMSoftware, VirtualMachine,
 )
 
+# Ресурсы, доступные через generic CRUD только для чтения. audit-log должен быть неизменяемым:
+# audit() (см. services/crud.py) уже не даёт создать запись audit-log из кода приложения, а
+# generic-эндпоинты POST/PUT/DELETE /api/v1/resources/{resource} (services/crud.py:
+# create_resource/update_resource/delete_resource) обязаны проверять этот набор — иначе любой
+# клиент может подделать или стереть журнал аудита через /api/v1/resources/audit-log.
+READONLY_RESOURCES = frozenset({'audit-log'})
+
 MODEL_MAP = {
     'organizations': Organization, 'support-organizations': SupportOrganization, 'support-methods': SupportMethod, 'crypto-protection-means': CryptoProtectionMeans, 'departments': Department, 'structural-units': StructuralUnit, 'buildings': Building, 'rooms': Room, 'racks': Rack,
     'device-types': DeviceType, 'manufacturers': Manufacturer, 'device-models': DeviceModel,

@@ -623,6 +623,39 @@ class TestAuditLog:
         r = client.get("/api/v1/resources/audit-log?date_from=не-дата")
         assert r.status_code == 422
 
+    def test_audit_log_is_read_only_via_generic_crud(self, client):
+        """Регрессия (код-ревью, п.1, High): generic-эндпоинты POST/PUT/DELETE
+        /api/v1/resources/{resource} не проверяли READONLY_RESOURCES и одинаково работали с
+        любым ключом из MODEL_MAP, включая audit-log — то есть любой клиент мог подделать или
+        стереть записи журнала аудита напрямую через API, в обход audit(), которая уже
+        запрещала это из кода приложения. Проверяем все три write-операции и то, что
+        существующая запись аудита (созданная штатным путём) переживает попытку удаления."""
+        # Штатное действие создаёт настоящую запись в audit-log, на которую опираемся ниже.
+        created = client.post("/api/v1/resources/manufacturers", json={"name": "Аудит-RO-тест"})
+        assert created.status_code == 201, created.text
+        existing_entry = client.get(
+            "/api/v1/resources/audit-log", params={"entity_id": created.json()["id"], "limit": 10}
+        ).json()["items"][0]
+
+        forged = client.post(
+            "/api/v1/resources/audit-log",
+            json={"entity_type": "devices", "action": "DELETE", "details": "подделка"},
+        )
+        assert forged.status_code == 403
+
+        updated = client.put(
+            f"/api/v1/resources/audit-log/{existing_entry['id']}", json={"details": "подмена"}
+        )
+        assert updated.status_code == 403
+
+        deleted = client.delete(f"/api/v1/resources/audit-log/{existing_entry['id']}")
+        assert deleted.status_code == 403
+
+        # Запись действительно не пострадала.
+        still_there = client.get(f"/api/v1/resources/audit-log/{existing_entry['id']}")
+        assert still_there.status_code == 200
+        assert still_there.json()["details"] == existing_entry["details"]
+
 
 class TestReportTemplateVersions:
     VALID_CONFIG = {"sheets": [{
