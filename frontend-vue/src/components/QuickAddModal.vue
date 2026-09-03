@@ -17,6 +17,8 @@ import { vTruncateTooltip } from '../directives/truncateTooltip'
 // возникает: вложенная QuickAddModal открывается для fkResource, у которого своих fk-полей с
 // nestedQuickAdd в схеме нет (см. комментарий в schema.ts).
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 const props = defineProps<{ resource: string }>()
 const emit = defineEmits<{ close: []; created: [record: CatalogItem] }>()
@@ -35,6 +37,11 @@ const errorMessage = ref<string | null>(null)
 function fkOptions(fkResource: string | undefined): CatalogItem[] {
   if (!fkResource) return []
   return catalogs.items[fkResource as keyof typeof catalogs.items] ?? []
+}
+
+/** п.4: опции fk-поля в формате SearchableSelect. */
+function fkSelectOptions(fkResource: string | undefined): SearchableSelectOption[] {
+  return fkOptions(fkResource).map((opt) => ({ value: opt.id, label: opt.name }))
 }
 
 /** Запись, созданная через вложенную QuickAddModal (кнопка "+" у fk-поля), сразу подставляется
@@ -111,15 +118,11 @@ async function submit() {
           <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' }">
             <span>{{ f.label }}{{ f.required ? ' *' : '' }}</span>
             <div v-if="f.type === 'fk'" class="fk-row">
-              <!-- v-truncate-tooltip на select не вешаем: scrollWidth/clientWidth нативного
-                   <select> не отражают обрезку текста ВЫБРАННОЙ опции (в отличие от input) —
-                   это ограничение браузерного рендеринга control'а, а не то, что можно обойти
-                   в директиве. Опции длиннее select'а всё равно видны целиком в раскрытом
-                   списке при клике. -->
-              <select v-model="values[f.name] as string" :required="f.required">
-                <option value="">— не выбрано —</option>
-                <option v-for="opt in fkOptions(f.fkResource)" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-              </select>
+              <SearchableSelect
+                :model-value="(values[f.name] as string) ?? ''"
+                :options="fkSelectOptions(f.fkResource)"
+                @update:model-value="(v) => (values[f.name] = v)"
+              />
               <QuickAddButton
                 v-if="f.nestedQuickAdd && f.fkResource"
                 :resource="f.fkResource"
@@ -210,12 +213,11 @@ async function submit() {
   grid-column: 1 / -1;
 }
 .field input,
-.field select,
 .field textarea {
-  /* width: 100% — без него input/select/textarea сами по себе не растягиваются на всю ширину
-     ячейки грида, а берут intrinsic-ширину по содержимому: у select это самый длинный <option>
-     (например, длинное название модели устройства или помещения), из-за чего поле физически
-     вылезало за подложку модалки вбок вместо переноса текста/сжатия. */
+  /* width: 100% — без него input/textarea сами по себе не растягиваются на всю ширину ячейки
+     грида, а берут intrinsic-ширину по содержимому, из-за чего поле физически вылезало за
+     подложку модалки вбок вместо переноса текста/сжатия. Fk-поля стилизует сам SearchableSelect
+     (см. SearchableSelect.vue) — обычный <select> в этой форме с п.4 больше не используется. */
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -234,7 +236,7 @@ async function submit() {
   gap: 6px;
   min-width: 0;
 }
-.fk-row select {
+.fk-row .searchable-select {
   flex: 1;
   min-width: 0;
 }

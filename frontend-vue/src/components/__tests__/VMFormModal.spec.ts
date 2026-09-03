@@ -218,8 +218,13 @@ describe('VMFormModal.vue', () => {
     )
 
     await wrapper.find('.lookup-row button').trigger('click')
-    await body().find('select').setValue('cat-1') // Категория ОС — обязательное fk-поле схемы
-    await body().find('input[type="text"]').setValue('Astra Linux 1.7')
+    // operating-systems: [category_id (fk, SearchableSelect), name (text), version (text),
+    // vendor (text), description (textarea)] — после поискового поля SearchableSelect'а идёт
+    // "Наименование ОС" вторым по счёту input[type="text"] (index 1), не последним — после него
+    // ещё "Версия" и "Производитель", тоже текстовые поля.
+    await body().find('.searchable-select input').trigger('focus')
+    await body().find('.ss-option').trigger('mousedown') // единственный вариант — cat-1 "Серверные ОС"
+    await body().findAll('input[type="text"]')[1].setValue('Astra Linux 1.7')
     await body().find('form').trigger('submit')
     await flushPromises()
 

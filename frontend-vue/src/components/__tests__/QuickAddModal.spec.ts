@@ -34,16 +34,22 @@ describe('QuickAddModal.vue', () => {
     expect(body().text()).toContain('Заполните поле «Наименование»')
   })
 
-  it('fk-поле берёт опции из уже загруженного каталога стора', () => {
+  it('fk-поле берёт опции из уже загруженного каталога стора', async () => {
     const catalogs = useCatalogsStore()
     catalogs.items['device-types'] = [{ id: 'dt-1', name: 'Сервер' }]
     catalogs.items['manufacturers'] = [{ id: 'mf-1', name: 'Dell' }]
 
     mount(QuickAddModal, { props: { resource: 'device-models' } })
 
-    const selects = body().findAll('select')
-    expect(selects[0].text()).toContain('Сервер')
-    expect(selects[1].text()).toContain('Dell')
+    // п.4: fk-поле — SearchableSelect, а не нативный select; открываем список кликом по полю
+    // и проверяем показанные варианты, как их увидел бы пользователь.
+    const searchInputs = body().findAll('.searchable-select input')
+    await searchInputs[0].trigger('focus')
+    expect(body().findAll('.searchable-select')[0].text()).toContain('Сервер')
+    await searchInputs[0].trigger('blur')
+
+    await searchInputs[1].trigger('focus')
+    expect(body().findAll('.searchable-select')[1].text()).toContain('Dell')
   })
 
   it('сохраняет запись, эмитит created и точечно добавляет её в каталог стора', async () => {
@@ -128,10 +134,12 @@ describe('QuickAddModal.vue', () => {
     await nested.find('form').trigger('submit')
     await flushPromises()
 
-    // Вложенная форма закрылась сама, а её результат сразу выбран в select'е основной формы.
+    // Вложенная форма закрылась сама, а её результат сразу выбран в SearchableSelect основной
+    // формы — проверяем через показанную подпись (id -> label резолвится внутри SearchableSelect
+    // по modelValue by поиску в options), а не через несуществующий теперь HTMLSelectElement.value.
     expect(body().findAll('.overlay')).toHaveLength(1)
-    const deviceTypeSelect = body().findAll('select')[0].element as HTMLSelectElement
-    expect(deviceTypeSelect.value).toBe('dt-new')
+    const deviceTypeInput = body().findAll('.searchable-select input')[0].element as HTMLInputElement
+    expect(deviceTypeInput.value).toBe('Коммутатор')
     expect(catalogs.items['device-types']).toEqual([
       { id: 'dt-1', name: 'Сервер' },
       { id: 'dt-new', name: 'Коммутатор' },
@@ -173,17 +181,19 @@ describe('QuickAddModal.vue', () => {
     await flushPromises()
 
     expect(body().findAll('.overlay')).toHaveLength(1)
-    const domainSelect = body()
-      .findAll('select')
-      .find((s) => s.find('option[value="dom-new"]').exists())
-    expect((domainSelect!.element as HTMLSelectElement).value).toBe('dom-new')
+    const domainInput = body().find('.searchable-select input').element as HTMLInputElement
+    expect(domainInput.value).toBe('Филиал-2')
   })
 
   it('п.3: длинное значение в текстовом поле показывает подсказку через секунду наведения', async () => {
     vi.useFakeTimers()
     try {
       mount(QuickAddModal, { props: { resource: 'device-models' } })
-      const modelInput = body().find('input[type="text"]')
+      // device-models: [device_type_id (fk, SearchableSelect), manufacturer_id (fk,
+      // SearchableSelect), model (text)] — берём последний текстовый input, т.к. первые два
+      // input[type="text"] в DOM принадлежат поисковым полям SearchableSelect'ов, не полю "Модель".
+      const textInputs = body().findAll('input[type="text"]')
+      const modelInput = textInputs[textInputs.length - 1]
       Object.defineProperty(modelInput.element, 'scrollWidth', { value: 300, configurable: true })
       Object.defineProperty(modelInput.element, 'clientWidth', { value: 100, configurable: true })
       await modelInput.setValue('Очень длинное название модели устройства, которое не влезает')
@@ -195,6 +205,27 @@ describe('QuickAddModal.vue', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('п.4: fk-поле — SearchableSelect с поиском по подстроке, выбор опции работает', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-types'] = [
+      { id: 'dt-1', name: 'Сервер' },
+      { id: 'dt-2', name: 'Сетевой коммутатор' },
+      { id: 'dt-3', name: 'Межсетевой экран' },
+    ]
+    catalogs.items['manufacturers'] = []
+
+    mount(QuickAddModal, { props: { resource: 'device-models' } })
+    const typeSearch = body().findAll('.searchable-select input')[0]
+    await typeSearch.trigger('focus')
+    await typeSearch.setValue('сетев') // без учёта регистра совпадает и с "Сетевой", и с "Межсетевой"
+
+    const options = body().findAll('.searchable-select')[0].findAll('.ss-option')
+    expect(options.map((o) => o.text())).toEqual(['Сетевой коммутатор', 'Межсетевой экран'])
+
+    await options[0].trigger('mousedown')
+    expect((typeSearch.element as HTMLInputElement).value).toBe('Сетевой коммутатор')
   })
 
   it('показывает сообщение, если для ресурса схема не настроена', () => {

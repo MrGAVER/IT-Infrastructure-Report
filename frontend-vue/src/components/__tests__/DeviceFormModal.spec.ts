@@ -24,6 +24,11 @@ function stubCatalogsFetch() {
 // при живой разработке), а всегда переустанавливать явно внутри каждого it().
 beforeEach(() => {
   setActivePinia(createPinia())
+  // QuickAddButton.vue телепортирует QuickAddModal.vue в document.body — без сброса между
+  // тестами упавший на середине тест мог бы оставить в body осиротевшую модалку, которую
+  // следующий тест ошибочно найдёт первой через document.body.querySelector (см. похожий
+  // сброс в QuickAddModal.spec.ts и остальных спеках, тестирующих вложенные квик-модалки).
+  document.body.innerHTML = ''
 })
 
 async function mountWithLoadedCatalogs() {
@@ -562,10 +567,22 @@ describe('DeviceFormModal.vue', () => {
     )
 
     const body = new DOMWrapper(document.body)
-    const overlaySelects = body.findAll('.overlay select')
-    await overlaySelects[0].setValue('dt-net') // Тип устройства в квик-модалке
-    await overlaySelects[1].setValue('mf-1') // Производитель в квик-модалке
-    await body.find('.overlay input[type="text"]').setValue('PowerVault')
+    // п.4: device_type_id/manufacturer_id внутри вложенной квик-модалки — SearchableSelect, а не
+    // нативный select; открываем каждый кликом по полю и выбираем нужный вариант из списка.
+    const typeSearch = body.findAll('.overlay .searchable-select input')[0]
+    await typeSearch.trigger('focus')
+    const typeOptions = body.findAll('.overlay .searchable-select')[0].findAll('.ss-option')
+    await typeOptions.find((o) => o.text() === 'Сетевое оборудование')!.trigger('mousedown') // dt-net — из deviceTypesFixture
+
+    const mfSearch = body.findAll('.overlay .searchable-select input')[1]
+    await mfSearch.trigger('focus')
+    await body.findAll('.overlay .searchable-select')[1].find('.ss-option').trigger('mousedown') // Dell — единственный производитель в тесте
+
+    // device-models: после двух SearchableSelect (Тип/Производитель) в DOM идёт обычный input
+    // поля "Модель" — он последний среди input[type="text"], а не первый (первые два теперь
+    // принадлежат поисковым полям SearchableSelect).
+    const overlayTextInputs = body.findAll('.overlay input[type="text"]')
+    await overlayTextInputs[overlayTextInputs.length - 1].setValue('PowerVault')
     await body.find('.overlay form').trigger('submit')
     await flushPromises()
 
@@ -624,8 +641,13 @@ describe('DeviceFormModal.vue', () => {
     const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
     await roomRow.find('button').trigger('click')
     const body = new DOMWrapper(document.body)
-    await body.find('.overlay select').setValue('b-1') // Здание в квик-модалке (обязательное fk-поле)
-    await body.find('.overlay input[type="text"]').setValue('204')
+    // rooms: [building_id (fk, SearchableSelect), name (text)] — Здание в квик-модалке; после
+    // поискового поля SearchableSelect'а в DOM идёт обычный input поля "Наименование" — он
+    // последний среди input[type="text"], не первый.
+    await body.find('.overlay .searchable-select input').trigger('focus')
+    await body.find('.overlay .ss-option').trigger('mousedown') // единственный вариант — b-1 "Корпус А"
+    const roomTextInputs = body.findAll('.overlay input[type="text"]')
+    await roomTextInputs[roomTextInputs.length - 1].setValue('204')
     await body.find('.overlay form').trigger('submit')
     await flushPromises()
 
@@ -652,8 +674,12 @@ describe('DeviceFormModal.vue', () => {
     const rackRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Стойка')!
     await rackRow.find('button').trigger('click')
     const body = new DOMWrapper(document.body)
-    await body.find('.overlay select').setValue('room-1') // Помещение в квик-модалке (обязательное fk-поле)
-    await body.find('.overlay input[type="text"]').setValue('R-1')
+    // racks: [room_id (fk, SearchableSelect), name (text), height_u (number)] — Помещение;
+    // "Наименование" — последний среди input[type="text"], не первый (первый — поиск SearchableSelect).
+    await body.find('.overlay .searchable-select input').trigger('focus')
+    await body.find('.overlay .ss-option').trigger('mousedown') // единственный вариант — room-1 "204"
+    const rackTextInputs = body.findAll('.overlay input[type="text"]')
+    await rackTextInputs[rackTextInputs.length - 1].setValue('R-1')
     await body.find('.overlay form').trigger('submit')
     await flushPromises()
 
