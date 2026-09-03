@@ -339,7 +339,11 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
                 # instead of treating it as "no value". Normalize to NULL for FK columns only.
                 if value == '' and col.foreign_keys: value = None
                 setattr(obj, col.key, value)
-        session.flush(); seen.add(obj.id)
+        # obj.id is only needed below to tell which *existing* rows are still referenced — for
+        # existing rows it's already known from the query above, so a single flush() after the
+        # loop (not one per item) is enough; id generation for new rows isn't needed here.
+        if obj.id: seen.add(obj.id)
+    session.flush()
     for obj in existing:
         if obj.id not in seen: session.delete(obj)
 
@@ -363,7 +367,9 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
             # apply to the chosen source_type still submit '' rather than null.
             if value == '' and k in ('physical_device_id','virtual_machine_id','container_id'): value = None
             setattr(obj, k, value)
-        session.flush(); seen.add(obj.id)
+        # Same reasoning as _sync_linked_table(): a single flush() after the loop is enough.
+        if obj.id: seen.add(obj.id)
+    session.flush()
     for obj in existing_sources:
         if obj.id not in seen: session.delete(obj)
 

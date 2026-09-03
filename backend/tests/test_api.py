@@ -488,6 +488,30 @@ class TestNPlusOneRegressions:
         # пакетно один раз каждое — независимо от числа пар.
         assert len(vlan_select_queries) < 15, f"Ожидалось < 15 SELECT к VLAN-таблицам, получено {len(vlan_select_queries)}"
 
+    def test_sync_linked_table_flushes_once_not_per_item(self, client, sql_log):
+        """Код-ревью п.6 (Low, производительность): _sync_linked_table/
+        _sync_information_system_sources делали session.flush() на КАЖДЫЙ элемент списка — N
+        лишних round-trip'ов к БД на большом списке связанных записей. obj.id для новых строк
+        внутри этих функций не используется (нужен только у уже существующих, которые и так
+        приходят с id из первого SELECT), поэтому один flush() после цикла достаточен."""
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС для батчинга flush"}).json()
+        departments = [
+            client.post("/api/v1/resources/departments", json={"name": f"Отдел батч {i}"}).json()
+            for i in range(8)
+        ]
+
+        sql_log.clear()
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"departments": [{"department_id": d["id"]} for d in departments]},
+        )
+        assert r.status_code == 200, r.text
+
+        insert_calls = [s for s in sql_log if "INSERT INTO information_system_departments" in s]
+        # Раньше — 8 отдельных execute (flush() внутри цикла на каждый из 8 отделов). Теперь —
+        # один execute на весь список (SQLAlchemy собирает INSERT-ы одного flush() в batch).
+        assert len(insert_calls) == 1, f"Ожидался один batched INSERT, получено {len(insert_calls)}: {insert_calls}"
+
 
 class TestBulkVlanAssign:
     def _setup(self, client, n_devices=3):
