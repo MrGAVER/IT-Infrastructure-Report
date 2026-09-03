@@ -179,8 +179,10 @@ def seed(session: Session = Depends(get_db)):
 def seed_test_data(session: Session = Depends(get_db)):
     """Temporary demo-data generator. Creates a coherent test dataset without deleting user data.
 
-    Disabled by default (INFRA_REGISTRY_ENABLE_TEST_DATA=1 to enable) so it can't be
-    triggered against a real deployment by accident."""
+    Enabled by default (INFRA_REGISTRY_ENABLE_TEST_DATA=1) — it backs the visible
+    "Заполнить тестовыми данными" button on the Dashboard for the single-user local/EXE
+    deployment. For a shared multi-user server deployment where this button shouldn't be
+    exposed, set INFRA_REGISTRY_ENABLE_TEST_DATA=0 to disable the endpoint."""
     if not ENABLE_TEST_DATA_ENDPOINT:
         raise HTTPException(404, 'Эндпоинт отключен. Установите переменную окружения INFRA_REGISTRY_ENABLE_TEST_DATA=1, чтобы включить')
     from datetime import datetime
