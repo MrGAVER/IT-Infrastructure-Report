@@ -147,6 +147,107 @@ class TestCrudBasics:
         assert data["limit"] == 1 and data["offset"] == 0
 
 
+class TestHypervisorAndVmHostFlags:
+    """Код-ревью п.4 (Medium, SOLID/архитектура): validate_hypervisor()/validate_vm_host()
+    раньше сравнивали строки с именем справочной записи ('гипервизор', 'сервер'/'storage'),
+    поэтому переименование категории/типа устройства в справочнике молча ломало валидацию.
+    Теперь правило зависит только от явных булевых полей is_hypervisor/allows_vm_hosting —
+    ниже это доказывается на категории/типе устройства с намеренно НЕ канонич­ными именами:
+    если бы код всё ещё сравнивал строки, эти тесты бы падали."""
+
+    def test_hypervisor_rule_follows_flag_not_category_name(self, client):
+        category = client.post(
+            "/api/v1/resources/os-categories",
+            json={"name": "Совершенно другое имя", "is_hypervisor": True},
+        )
+        assert category.status_code == 201, category.text
+        hypervisor_os = client.post(
+            "/api/v1/resources/operating-systems",
+            json={"category_id": category.json()["id"], "name": "Custom Hypervisor", "version": "1"},
+        ).json()
+        server_type = client.post(
+            "/api/v1/resources/device-types",
+            json={"name": "Тестовый хост-сервер", "allows_vm_hosting": True},
+        ).json()
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={
+                "device_type_id": server_type["id"], "serial_number": "SN-HYP-1",
+                "operating_system_id": hypervisor_os["id"],
+            },
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-flag-test", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 201, vm.text
+        # hypervisor_os_id проставляется автоматически из ОС хоста (см. crud.create_resource).
+        assert vm.json()["hypervisor_os_id"] == hypervisor_os["id"]
+
+    def test_hypervisor_rule_rejects_category_without_flag_even_if_named_hypervisor(self, client):
+        """Обратная сторона того же правила: имя записи больше ни на что не влияет — без
+        is_hypervisor=True (значение по умолчанию — False) в поле гипервизора эту ОС выбрать
+        нельзя, даже если категория выглядит как гипервизорная."""
+        category = client.post(
+            "/api/v1/resources/os-categories", json={"name": "Гипервизор (не настоящий)"}
+        ).json()
+        assert category["is_hypervisor"] is False
+        hypervisor_os = client.post(
+            "/api/v1/resources/operating-systems",
+            json={"category_id": category["id"], "name": "Fake Hypervisor", "version": "1"},
+        ).json()
+        server_type = client.post(
+            "/api/v1/resources/device-types",
+            json={"name": "Тестовый хост-сервер 2", "allows_vm_hosting": True},
+        ).json()
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={
+                "device_type_id": server_type["id"], "serial_number": "SN-HYP-2",
+                "operating_system_id": hypervisor_os["id"],
+            },
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-flag-reject", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 422
+
+    def test_vm_host_rule_follows_flag_not_device_type_name(self, client):
+        device_type = client.post(
+            "/api/v1/resources/device-types",
+            json={"name": "Необычное имя типа", "allows_vm_hosting": True},
+        ).json()
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": device_type["id"], "serial_number": "SN-HOST-1"},
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-host-flag-test", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 201, vm.text
+
+    def test_vm_host_rule_rejects_device_type_without_flag(self, client):
+        device_type = client.post(
+            "/api/v1/resources/device-types", json={"name": "Рабочая станция без флага"}
+        ).json()
+        assert device_type["allows_vm_hosting"] is False
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": device_type["id"], "serial_number": "SN-HOST-2"},
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-host-flag-reject", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 422
+
+
 class TestReferentialIntegrity:
     def test_cannot_delete_device_type_referenced_by_device(self, client):
         dt = client.post("/api/v1/resources/device-types", json={"name": "Тестовый сервер А"}).json()
