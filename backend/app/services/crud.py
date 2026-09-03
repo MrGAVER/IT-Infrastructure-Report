@@ -2,12 +2,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, InterfaceIP, InformationSystem, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
+from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
 from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
@@ -23,6 +25,33 @@ def ensure_writable(resource: str) -> None:
     будущего вызывающего кода, а не только для одного набора HTTP-эндпоинтов."""
     if resource in READONLY_RESOURCES:
         raise HTTPException(403, f"Ресурс '{resource}' доступен только для чтения")
+
+def validate_payload_schema(resource: str, payload: dict[str, Any], *, is_update: bool) -> dict[str, Any]:
+    """Валидирует и приводит типы payload по Pydantic-схеме, если она зарегистрирована для
+    этого ресурса (см. schemas.RESOURCE_SCHEMAS: пока только devices/information-systems/vlans
+    — код-ревью п.2). Для остальных ресурсов возвращает payload без изменений — они по-прежнему
+    проходят через generic CRUD как сырой dict, это осознанное инкрементальное покрытие.
+
+    Возвращает НОВЫЙ dict — исходный payload с наложенными сверху провалидированными полями,
+    а не просто dump схемы: так ключи вне схемы (confirm_system_name_duplicate,
+    confirm_rack_position_reassign), которые читаются из payload напрямую в create_resource/
+    update_resource, не теряются."""
+    schemas = RESOURCE_SCHEMAS.get(resource)
+    if schemas is None:
+        return payload
+    schema = schemas[1] if is_update else schemas[0]
+    try:
+        validated = schema.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(422, _format_schema_validation_error(exc)) from exc
+    return {**payload, **validated.model_dump(exclude_unset=True)}
+
+def _format_schema_validation_error(exc: ValidationError) -> str:
+    """Сводит структурированный Pydantic ValidationError к одной строке — в стиле остальных
+    422-ошибок этого модуля (см. validate_resource в services/validation.py), чтобы формат
+    ошибки был единообразным независимо от того, какой слой её обнаружил."""
+    parts = [f"{'.'.join(str(p) for p in err['loc']) or '(payload)'}: {err['msg']}" for err in exc.errors()]
+    return 'Ошибка валидации: ' + '; '.join(parts)
 
 def columns_for(model):
     return [{'name': c.key, 'type': str(c.type), 'nullable': c.nullable, 'primary_key': c.primary_key, 'default': None if c.default is None else str(c.default.arg), 'foreign_key': next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None} for c in inspect(model).columns]
@@ -139,6 +168,7 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
 
 def create_resource(resource: str, payload: dict[str, Any], session: Session):
     ensure_writable(resource)
+    payload = validate_payload_schema(resource, payload, is_update=False)
     model = model_for(resource); allowed = allowed_columns(model)
     data = {k: v for k, v in payload.items() if k in allowed}
     if model is VirtualMachine and data.get('physical_device_id'):
@@ -153,6 +183,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
 
 def update_resource(resource: str, item_id: str, payload: dict[str, Any], session: Session):
     ensure_writable(resource)
+    payload = validate_payload_schema(resource, payload, is_update=True)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     allowed = allowed_columns(model); proposed = {k: getattr(obj, k) for k in allowed}; proposed.update({k: v for k, v in payload.items() if k in allowed})

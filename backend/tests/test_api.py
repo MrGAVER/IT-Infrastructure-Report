@@ -147,6 +147,61 @@ class TestCrudBasics:
         assert data["limit"] == 1 and data["offset"] == 0
 
 
+class TestSchemaValidation:
+    """Код-ревью п.2 (High, SOLID): для devices/information-systems/vlans payload теперь
+    проходит через Pydantic-схему (schemas.RESOURCE_SCHEMAS) до попадания в SQLAlchemy. Раньше
+    некорректный тип (например, список вместо строки) всплывал только на INSERT как
+    малопонятный IntegrityError/500, а не как явный 422 на входе."""
+
+    def test_wrong_type_rejected_with_clean_422_not_integrity_error(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для схемы"}).json()
+        r = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": dt["id"], "serial_number": "SCHEMA-1", "rack_position": ["10U", "11U"]},
+        )
+        assert r.status_code == 422
+        assert "rack_position" in r.json()["detail"]
+
+    def test_missing_required_field_rejected_before_hitting_db(self, client):
+        r = client.post("/api/v1/resources/devices", json={"serial_number": "SCHEMA-2"})
+        assert r.status_code == 422
+        assert "device_type_id" in r.json()["detail"]
+
+    def test_vlan_id_out_of_range_rejected(self, client):
+        r = client.post("/api/v1/resources/vlans", json={"vlan_id": 5000, "name": "Вне диапазона"})
+        assert r.status_code == 422
+
+    def test_numeric_string_is_coerced_for_vlan_id(self, client):
+        """Pydantic по умолчанию мягко приводит типы (lax mode): "77" -> 77 — это сохраняет
+        сегодняшнюю терпимость API к строковым числам с фронтенда, меняется только то, что
+        совсем некорректные типы (списки, объекты) теперь отклоняются явно."""
+        r = client.post("/api/v1/resources/vlans", json={"vlan_id": "77", "name": "Строкой"})
+        assert r.status_code == 201, r.text
+        assert r.json()["vlan_id"] == 77
+
+    def test_unschematized_resource_still_accepts_raw_dict(self, client):
+        """Ресурсы вне RESOURCE_SCHEMAS (пока большинство) не должны были затронуться —
+        generic CRUD продолжает работать как раньше."""
+        r = client.post("/api/v1/resources/manufacturers", json={"name": "Без схемы"})
+        assert r.status_code == 201, r.text
+
+    def test_update_schema_validation_keeps_partial_semantics(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для апдейта"}).json()
+        dev = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": dt["id"], "serial_number": "SCHEMA-3", "description": "Исходное"},
+        ).json()
+
+        r = client.put(f"/api/v1/resources/devices/{dev['id']}", json={"rack_position": ["oops"]})
+        assert r.status_code == 422
+
+        r = client.put(f"/api/v1/resources/devices/{dev['id']}", json={"rack_position": "12U"})
+        assert r.status_code == 200, r.text
+        assert r.json()["rack_position"] == "12U"
+        # Поля, отсутствующие в payload частичного обновления, не затронуты схемой.
+        assert r.json()["description"] == "Исходное"
+
+
 class TestHypervisorAndVmHostFlags:
     """Код-ревью п.4 (Medium, SOLID/архитектура): validate_hypervisor()/validate_vm_host()
     раньше сравнивали строки с именем справочной записи ('гипервизор', 'сервер'/'storage'),
