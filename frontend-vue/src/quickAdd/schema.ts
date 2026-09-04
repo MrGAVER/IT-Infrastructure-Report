@@ -1,12 +1,20 @@
 // Схема полей для быстрого добавления записи справочника прямо из формы (кнопка "+" рядом с
 // select'ом) — портировано с quickFields/quickLabels в frontend/static/core.js. Не 1:1 копия:
 // вложенное быстрое добавление ВНУТРИ формы быстрого добавления (у device-models в vanilla
-// можно добавить тип устройства/производителя, не закрывая модалку создания модели) не
-// перенесено — второй уровень вложенности модалок ради, по сути, редкого сценария. Также не
-// перенесены предзаполнение fk-полей текущими значениями внешней формы (device-models
-// подставлял уже выбранные в основной форме тип/производителя) и parent_id для подразделений
-// (иерархия подразделений есть в модели, но нигде в новом UI ещё не используется — добавлять
-// работающий только наполовину UI-элемент не имеет смысла).
+// можно добавить тип устройства/производителя, не закрывая модалку создания модели) теперь
+// частично перенесено — точечно, через флаг nestedQuickAdd на конкретных fk-полях (см. тип
+// QuickField выше), а не для всех fk подряд. Второй уровень вложенности (добавить fk ВНУТРИ
+// этой вложенной формы) по-прежнему не поддерживается — редкий сценарий, ради которого не
+// стоит городить рекурсивный стек модалок. Также не перенесено предзаполнение fk-полей
+// текущими значениями внешней формы (device-models подставлял уже выбранные в основной форме
+// тип/производителя).
+//
+// parent_id для departments (иерархия) — есть в этой схеме и работает в CatalogRecordFormModal.vue
+// (п.6, экран "Другие справочники"): self-referencing fk-поле там при редактировании исключает
+// саму запись из списка родителей (см. fkSelectOptions() в CatalogRecordFormModal.vue) — тот же
+// приём, что и в StructuralUnitFormModal.vue:availableParents, но реализован как общая проверка
+// для любого self-referencing fk, а не по имени поля/ресурса. Не добавлен в QuickAddModal.vue
+// (быстрое добавление из других форм) — там self-исключать нечего, записи ещё не существует.
 //
 // Единственный источник правды по полям — соответствующие SQLAlchemy-модели в
 // backend/app/models.py; при добавлении сюда новой записи стоит свериться с ними, а не
@@ -20,6 +28,14 @@ export interface QuickField {
   required: boolean
   /** Только для type='fk' — ключ каталога в CATALOGS (stores/catalogs.ts), откуда берутся опции. */
   fkResource?: string
+  /** Только для type='fk'. Показывает кнопку "+" рядом с select'ом — открывает ВЛОЖЕННУЮ
+   * QuickAddModal для fkResource, не закрывая текущую форму (см. QuickAddModal.vue: nested-*).
+   * Включено точечно для полей, где отсутствие нужного значения в справочнике реально мешает
+   * заполнить форму прямо сейчас (device-models: тип устройства/производитель; vlans: домен) —
+   * не для всех fk-полей подряд, чтобы не плодить лишние "+" там, где каталог почти наверняка
+   * уже полон на момент открытия формы. Второй уровень вложенности (добавить fk ВНУТРИ этой
+   * вложенной формы) сознательно не поддерживается — см. фильтр в QuickAddModal.vue. */
+  nestedQuickAdd?: boolean
 }
 
 export const QUICK_ADD_LABELS: Record<string, string> = {
@@ -51,8 +67,22 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
   'device-types': [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   manufacturers: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   'device-models': [
-    { name: 'device_type_id', label: 'Тип устройства', type: 'fk', required: true, fkResource: 'device-types' },
-    { name: 'manufacturer_id', label: 'Производитель', type: 'fk', required: true, fkResource: 'manufacturers' },
+    {
+      name: 'device_type_id',
+      label: 'Тип устройства',
+      type: 'fk',
+      required: true,
+      fkResource: 'device-types',
+      nestedQuickAdd: true,
+    },
+    {
+      name: 'manufacturer_id',
+      label: 'Производитель',
+      type: 'fk',
+      required: true,
+      fkResource: 'manufacturers',
+      nestedQuickAdd: true,
+    },
     { name: 'model', label: 'Модель', type: 'text', required: true },
   ],
   'os-categories': [
@@ -109,16 +139,21 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     { name: 'version', label: 'Версия', type: 'text', required: false },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
-  departments: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
+  departments: [
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+    { name: 'parent_id', label: 'Родительское подразделение', type: 'fk', required: false, fkResource: 'departments' },
+  ],
   'placement-assets': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
-  // parent_id сюда намеренно не добавлен — та же причина, что для departments выше
-  // (см. комментарий в шапке файла): второй уровень вложенных модалок ради быстрого
-  // добавления родителя не оправдан, к тому же при редактировании существующей единицы
-  // потребовалось бы ещё и исключать саму себя из списка (см. availableParents в
-  // StructuralUnitFormModal.vue) — эта логика не переносится на generic-форму.
+  // parent_id сюда намеренно не добавлен: structural-units нет в OTHER_CATALOGS
+  // (OtherCatalogsView.vue) — у них уже есть свой полноценный экран с иерархией
+  // (StructuralUnitsView.vue/StructuralUnitFormModal.vue:availableParents), эта схема для
+  // structural-units используется только QuickAddModal.vue (быстрое добавление из других форм,
+  // create-only). Добавлять туда выбор родителя ради редкого сценария "быстро завести единицу
+  // прямо во время заполнения другой формы" не оправдано — за полной формой с иерархией всё
+  // равно идти на отдельный экран.
   'structural-units': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
@@ -142,7 +177,14 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
   vlans: [
     { name: 'vlan_id', label: 'VLAN ID', type: 'number', required: true },
     { name: 'name', label: 'Имя', type: 'text', required: true },
-    { name: 'domain_id', label: 'Домен VLAN', type: 'fk', required: false, fkResource: 'vlan-domains' },
+    {
+      name: 'domain_id',
+      label: 'Домен VLAN',
+      type: 'fk',
+      required: false,
+      fkResource: 'vlan-domains',
+      nestedQuickAdd: true,
+    },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
   // source_device_id/auto_sync/состав участников сюда намеренно не перенесены — то же

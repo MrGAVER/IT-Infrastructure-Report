@@ -16,9 +16,11 @@ import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import QuickAddButton from './QuickAddButton.vue'
 import DevicePortsModal from './DevicePortsModal.vue'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ connection: Connection | null }>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -57,8 +59,22 @@ function interfacesFor(deviceId: string, currentlySelectedId: string): DeviceInt
   )
 }
 
+/** Порты устройства ДО фильтра по занятости — нужен только для текста предупреждения (п.5):
+ * "нет портов вообще" (устройство ещё не заведено в «Порты/интерфейсы») и "все порты заняты
+ * активными подключениями" — это разные причины пустого списка, и раньше показывалось одно и то
+ * же сообщение "все заняты" в обоих случаях, даже когда у устройства попросту НЕТ ни одного
+ * порта (например, только что созданное устройство) — вводило в заблуждение. */
+function deviceInterfaceCount(deviceId: string): number {
+  if (!deviceId) return 0
+  return allInterfaces.value.filter((i) => i.physical_device_id === deviceId).length
+}
+
 const sourceInterfaces = computed(() => interfacesFor(form.sourceDeviceId, form.source_interface_id))
 const destinationInterfaces = computed(() => interfacesFor(form.destinationDeviceId, form.destination_interface_id))
+const sourceHasNoInterfacesAtAll = computed(() => form.sourceDeviceId !== '' && deviceInterfaceCount(form.sourceDeviceId) === 0)
+const destinationHasNoInterfacesAtAll = computed(
+  () => form.destinationDeviceId !== '' && deviceInterfaceCount(form.destinationDeviceId) === 0,
+)
 
 watch(
   () => props.connection,
@@ -168,7 +184,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать подключение' : 'Добавить подключение' }}</h2>
@@ -211,7 +227,10 @@ async function submit() {
                   <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                 </button>
               </div>
-              <small v-if="form.sourceDeviceId && !sourceInterfaces.length" class="hint-small">
+              <small v-if="sourceHasNoInterfacesAtAll" class="hint-small">
+                У устройства пока нет ни одного порта. Добавьте через «Управлять портами устройства».
+              </small>
+              <small v-else-if="form.sourceDeviceId && !sourceInterfaces.length" class="hint-small">
                 Нет свободных портов — все заняты активными подключениями. Можно добавить новый через «Управлять портами устройства».
               </small>
             </label>
@@ -248,7 +267,10 @@ async function submit() {
                   <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                 </button>
               </div>
-              <small v-if="form.destinationDeviceId && !destinationInterfaces.length" class="hint-small">
+              <small v-if="destinationHasNoInterfacesAtAll" class="hint-small">
+                У устройства пока нет ни одного порта. Добавьте через «Управлять портами устройства».
+              </small>
+              <small v-else-if="form.destinationDeviceId && !destinationInterfaces.length" class="hint-small">
                 Нет свободных портов — все заняты активными подключениями. Можно добавить новый через «Управлять портами устройства».
               </small>
             </label>

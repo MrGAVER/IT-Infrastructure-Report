@@ -14,6 +14,7 @@ import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, Devic
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { vTruncateTooltip } from '../directives/truncateTooltip'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
@@ -467,12 +468,12 @@ async function submit() {
 
         <label class="field">
           <span>Серийный номер *</span>
-          <input v-model.trim="form.serial_number" type="text" required maxlength="255" />
+          <input v-model.trim="form.serial_number" v-truncate-tooltip="form.serial_number" type="text" required maxlength="255" />
         </label>
 
         <label class="field">
           <span>Системное имя</span>
-          <input v-model.trim="form.system_name" type="text" maxlength="255" />
+          <input v-model.trim="form.system_name" v-truncate-tooltip="form.system_name" type="text" maxlength="255" />
         </label>
 
         <label class="field">
@@ -541,7 +542,7 @@ async function submit() {
 
         <label class="field">
           <span>Позиция в стойке</span>
-          <input v-model.trim="form.rack_position" type="text" placeholder="напр. 12U" maxlength="50" />
+          <input v-model.trim="form.rack_position" v-truncate-tooltip="form.rack_position" type="text" placeholder="напр. 12U" maxlength="50" />
         </label>
 
         <label class="field field-wide">
@@ -586,7 +587,13 @@ async function submit() {
 }
 .modal {
   width: 100%;
-  max-width: 640px;
+  /* п.1.3: форма устройства заметно длиннее большинства остальных модалок (порты,
+     VLAN, программные активы и т.п.) — фиксированные 640px были тесноваты. clamp()
+     держит текущие 640px как нижнюю границу (не уже, чем сейчас, на узких десктопных
+     экранах — width: 100% и так сжимает модалку на мобильных, эта нижняя граница
+     там ни на что не влияет), масштабируется как ~50% ширины окна на типичных
+     мониторах и не раздувается сверх 1100px на сверхширoких. */
+  max-width: clamp(640px, 50vw, 1100px);
   padding: 20px 22px 18px;
 }
 .modal-head {

@@ -4,9 +4,11 @@ import { createResource, updateResource } from '../api/client'
 import type { CatalogItem, VLANDefinition } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import QuickAddButton from './QuickAddButton.vue'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ definition: VLANDefinition | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const saving = ref(false)
@@ -74,7 +76,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="$emit('close')">
+  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать VLAN' : 'Добавить VLAN' }}</h2>

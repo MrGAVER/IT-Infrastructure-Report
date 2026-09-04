@@ -28,8 +28,9 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
     listResource<InterfaceIP>('interface-ips', { limit: 1000 }),
     listResource<InterfaceVLAN>('interface-vlans', { limit: 1000 }),
   ])
-  return ifaces.items.map(
-    (x): InterfaceDraftRow => ({
+  return ifaces.items.map((x): InterfaceDraftRow => {
+    const links = allVlans.items.filter((v) => v.interface_id === x.id)
+    return {
       id: x.id,
       name: x.name,
       interface_type_id: x.interface_type_id ?? '',
@@ -38,7 +39,13 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
       is_management: x.is_management,
       is_data_transfer: x.is_data_transfer,
       description: x.description ?? '',
-      vlan_ids: allVlans.items.filter((v) => v.interface_id === x.id).map((v) => v.vlan_id),
+      vlan_ids: links.map((v) => v.vlan_id),
+      // mode хранится на каждой связи interface-vlan, но проставляется одним и тем же значением
+      // на все связи одного интерфейса при сохранении (см. persistDeviceInterfaces ниже) — берём
+      // mode первой связи. Нет связей или mode нигде не 'access' (в т.ч. весь исторический массив
+      // данных, заведённый до п.1.4.3.2, где backend всегда получал vlan_mode=null) -> 'trunk' по
+      // умолчанию, как и требует п.1.4.3.2 ("используются все vlan (по умолчанию)").
+      vlan_mode: links.length > 0 && links.every((v) => v.mode === 'access') ? 'access' : 'trunk',
       ips: allIps.items
         .filter((ip) => ip.interface_id === x.id)
         .map((ip) => ({
@@ -47,14 +54,20 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
           prefix_length: ip.prefix_length == null ? '' : String(ip.prefix_length),
           purpose: ip.purpose ?? '',
         })),
-    }),
-  )
+    }
+  })
 }
 
 /** У каждого интерфейса должно быть имя — бэкенд это тоже проверит (422), но лучше показать
- * понятную ошибку до запроса, чем ждать round-trip. Возвращает текст ошибки либо null. */
+ * понятную ошибку до запроса, чем ждать round-trip. UI (DeviceInterfacesEditor.vue) не даёт
+ * набрать больше одного VLAN в режиме access, но проверка здесь — защита на случай данных,
+ * загруженных из БД в уже несогласованном виде (см. комментарий к InterfaceDraftRow.vlan_mode).
+ * Возвращает текст ошибки либо null. */
 export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | null {
   if (rows.some((row) => !row.name.trim())) return 'У каждого интерфейса должно быть имя.'
+  if (rows.some((row) => row.vlan_mode === 'access' && row.vlan_ids.length > 1)) {
+    return 'В режиме access у порта может быть не более одного VLAN.'
+  }
   return null
 }
 
@@ -62,7 +75,8 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | 
  * Сохраняет набор интерфейсов устройства через атомарный PUT. vlan_ids каждого ряда отправляется
  * как пришло из loadDeviceInterfaceDraftRows (см. комментарий к InterfaceDraftRow в types.ts) —
  * если вызывающий компонент их не редактирует (как DevicePortsModal.vue), они просто
- * round-trip'ятся туда-обратно неизменными и НЕ стираются молча.
+ * round-trip'ятся туда-обратно неизменными и НЕ стираются молча. vlan_mode round-trip'ится по
+ * тому же принципу (п.1.4.3.2).
  *
  * @example
  * const { items } = await persistDeviceInterfaces('dev-123', rows)
@@ -79,6 +93,7 @@ export async function persistDeviceInterfaces(deviceId: string, rows: InterfaceD
       is_data_transfer: row.is_data_transfer,
       description: row.description || null,
       vlan_ids: row.vlan_ids,
+      vlan_mode: row.vlan_mode,
       ips: row.ips
         .filter((ip) => ip.ip_address.trim())
         .map((ip) => ({

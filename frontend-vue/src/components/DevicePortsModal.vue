@@ -18,9 +18,11 @@ import type { Device, DeviceInterface, InterfaceDraftRow, VLANDefinition } from 
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ deviceId: string; deviceLabel: string }>()
 const emit = defineEmits<{ close: []; saved: [deviceId: string, items: DeviceInterface[]] }>()
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
@@ -76,7 +78,7 @@ async function submit() {
        (двойное затемнение фона) вместо чистой замены поверх экрана. Тот же приём, что
        QuickAddModal.vue, хоть и по другой причине (там — во избежание вложенного <form>). -->
   <Teleport to="body">
-    <div class="overlay" @click.self="$emit('close')">
+    <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
       <div class="modal card" role="dialog" aria-modal="true">
         <div class="modal-head">
           <h2>Порты устройства «{{ deviceLabel }}»</h2>

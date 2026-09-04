@@ -48,6 +48,11 @@ const routes = [
     component: () => import('../views/StructuralUnitsView.vue'),
   },
   {
+    path: '/other-catalogs',
+    name: 'other-catalogs',
+    component: () => import('../views/OtherCatalogsView.vue'),
+  },
+  {
     path: '/reports',
     name: 'reports',
     component: () => import('../views/ReportsView.vue'),

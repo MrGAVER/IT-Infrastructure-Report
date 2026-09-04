@@ -29,4 +29,14 @@ describe('Sidebar.vue', () => {
     })
     expect(wrapper.find('.brand-text span').text()).toBe('ООО «Ромашка»')
   })
+
+  // п.6: пункт меню "Другие справочники", ведущий на новый OtherCatalogsView.vue.
+  it('содержит пункт меню "Другие справочники"', () => {
+    const wrapper = mount(Sidebar, {
+      props: { open: false },
+      global: { stubs: { 'router-link': { template: '<a :href="to"><slot /></a>', props: ['to'] } } },
+    })
+    const link = wrapper.findAll('a').find((a) => a.text().includes('Другие справочники'))
+    expect(link?.attributes('href')).toBe('/other-catalogs')
+  })
 })

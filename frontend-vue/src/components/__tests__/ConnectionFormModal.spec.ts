@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import ConnectionFormModal from '../ConnectionFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
+import { useConnectionsStore } from '../../stores/connections'
 
 // QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
 function teleportedContent(): DOMWrapper<HTMLElement> {
@@ -99,5 +100,58 @@ describe('ConnectionFormModal.vue — управление портами пря
     expect((sourcePortSelect.element as HTMLSelectElement).value).toBe('')
     // Модалка портов закрылась сама после сохранения.
     expect(new DOMWrapper(document.body).text()).not.toContain('Порты устройства')
+  })
+})
+
+describe('ConnectionFormModal.vue — предупреждение о свободных портах (п.5)', () => {
+  // Регрессия: раньше показывалось одно и то же "Нет свободных портов — все заняты активными
+  // подключениями" в двух РАЗНЫХ по сути ситуациях — когда порты реально заняты, И когда у
+  // устройства попросту ещё не заведено ни одного порта (обычное дело для только что
+  // созданного устройства) — второй случай вводил в заблуждение: порты никуда не подключены.
+
+  it('у устройства без единого порта — подсказка "нет портов", а не "все заняты"', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = []
+    const devices = useDevicesStore()
+    devices.all = [{ id: 'dev-1', system_name: 'srv-01', serial_number: 'SN-1' } as never]
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    const sourceFieldset = wrapper.findAll('.endpoint')[0]
+    await sourceFieldset.find('select').setValue('dev-1')
+
+    expect(sourceFieldset.text()).toContain('У устройства пока нет ни одного порта')
+    expect(sourceFieldset.text()).not.toContain('все заняты активными подключениями')
+  })
+
+  it('у устройства, чей единственный порт занят активным подключением — подсказка "все заняты"', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }] as never
+    const devices = useDevicesStore()
+    devices.all = [{ id: 'dev-1', system_name: 'srv-01', serial_number: 'SN-1' } as never]
+    const connections = useConnectionsStore()
+    connections.all = [
+      { id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-other', is_active: true } as never,
+    ]
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    const sourceFieldset = wrapper.findAll('.endpoint')[0]
+    await sourceFieldset.find('select').setValue('dev-1')
+
+    expect(sourceFieldset.text()).toContain('Нет свободных портов — все заняты активными подключениями')
+    expect(sourceFieldset.text()).not.toContain('нет ни одного порта')
+  })
+
+  it('у устройства со свободным портом никакая подсказка не показывается', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }] as never
+    const devices = useDevicesStore()
+    devices.all = [{ id: 'dev-1', system_name: 'srv-01', serial_number: 'SN-1' } as never]
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    const sourceFieldset = wrapper.findAll('.endpoint')[0]
+    await sourceFieldset.find('select').setValue('dev-1')
+
+    expect(sourceFieldset.text()).not.toContain('нет ни одного порта')
+    expect(sourceFieldset.text()).not.toContain('Нет свободных портов')
   })
 })
