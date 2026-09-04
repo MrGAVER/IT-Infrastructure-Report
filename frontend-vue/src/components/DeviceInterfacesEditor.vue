@@ -838,7 +838,7 @@ function applyBulkEdit() {
 .field input[type='text'],
 .field select,
 .field textarea {
-  background: var(--surface-1);
+  background: var(--surface-1, var(--surface));
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 7px 8px;
@@ -915,7 +915,7 @@ function applyBulkEdit() {
   gap: 8px;
 }
 .ip-row input {
-  background: var(--surface-1);
+  background: var(--surface-1, var(--surface));
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 6px 8px;
