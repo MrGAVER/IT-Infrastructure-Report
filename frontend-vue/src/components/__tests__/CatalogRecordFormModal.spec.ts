@@ -143,6 +143,34 @@ describe('CatalogRecordFormModal.vue', () => {
     expect(body().find('.searchable-select').text()).toContain('Серверные ОС')
   })
 
+  it('self-referencing fk (departments.parent_id): при редактировании исключает саму запись из списка родителей', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['departments'] = [
+      { id: 'dep-1', name: 'Дирекция' },
+      { id: 'dep-2', name: 'ИТ-отдел' },
+    ]
+    mount(CatalogRecordFormModal, { props: { resource: 'departments', item: { id: 'dep-2', name: 'ИТ-отдел' } } })
+
+    await body().find('.searchable-select input').trigger('focus')
+    const optionsText = body().find('.searchable-select').text()
+    expect(optionsText).toContain('Дирекция')
+    expect(optionsText).not.toContain('ИТ-отдел')
+  })
+
+  it('self-referencing fk (departments.parent_id): при создании показывает все существующие подразделения без исключений', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['departments'] = [
+      { id: 'dep-1', name: 'Дирекция' },
+      { id: 'dep-2', name: 'ИТ-отдел' },
+    ]
+    mount(CatalogRecordFormModal, { props: { resource: 'departments', item: null } })
+
+    await body().find('.searchable-select input').trigger('focus')
+    const optionsText = body().find('.searchable-select').text()
+    expect(optionsText).toContain('Дирекция')
+    expect(optionsText).toContain('ИТ-отдел')
+  })
+
   it('кнопка "Закрыть" эмитит close без сохранения', async () => {
     const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: null } })
     await body().find('button[aria-label="Закрыть"]').trigger('click')

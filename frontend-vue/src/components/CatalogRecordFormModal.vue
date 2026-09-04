@@ -45,7 +45,15 @@ const errorMessage = ref<string | null>(null)
 
 function fkSelectOptions(fkResource: string | undefined): SearchableSelectOption[] {
   if (!fkResource) return []
-  return (catalogs.items[fkResource as keyof typeof catalogs.items] ?? []).map((opt) => ({ value: opt.id, label: opt.name }))
+  const items = catalogs.items[fkResource as keyof typeof catalogs.items] ?? []
+  // Self-referencing fk (parent_id у иерархических справочников, напр. departments): при
+  // редактировании запись не может быть родителем самой себе — иначе зациклит дерево (тот же
+  // приём, что и в StructuralUnitFormModal.vue:availableParents). Проверка общая для любого
+  // fk-поля, где fkResource совпадает с редактируемым resource — не завязана на имя поля
+  // parent_id конкретно, сработает для любого будущего self-referencing справочника.
+  const selfId = isEdit.value ? String(props.item!.id) : null
+  const options = fkResource === props.resource && selfId !== null ? items.filter((opt) => opt.id !== selfId) : items
+  return options.map((opt) => ({ value: opt.id, label: opt.name }))
 }
 function onNestedCreated(fieldName: string, record: CatalogItem) {
   values[fieldName] = record.id

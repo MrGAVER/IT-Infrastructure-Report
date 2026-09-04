@@ -5,11 +5,16 @@
 // частично перенесено — точечно, через флаг nestedQuickAdd на конкретных fk-полях (см. тип
 // QuickField выше), а не для всех fk подряд. Второй уровень вложенности (добавить fk ВНУТРИ
 // этой вложенной формы) по-прежнему не поддерживается — редкий сценарий, ради которого не
-// стоит городить рекурсивный стек модалок. Также не перенесены предзаполнение fk-полей
+// стоит городить рекурсивный стек модалок. Также не перенесено предзаполнение fk-полей
 // текущими значениями внешней формы (device-models подставлял уже выбранные в основной форме
-// тип/производителя) и parent_id для подразделений (иерархия подразделений есть в модели, но
-// нигде в новом UI ещё не используется — добавлять работающий только наполовину UI-элемент не
-// имеет смысла).
+// тип/производителя).
+//
+// parent_id для departments (иерархия) — есть в этой схеме и работает в CatalogRecordFormModal.vue
+// (п.6, экран "Другие справочники"): self-referencing fk-поле там при редактировании исключает
+// саму запись из списка родителей (см. fkSelectOptions() в CatalogRecordFormModal.vue) — тот же
+// приём, что и в StructuralUnitFormModal.vue:availableParents, но реализован как общая проверка
+// для любого self-referencing fk, а не по имени поля/ресурса. Не добавлен в QuickAddModal.vue
+// (быстрое добавление из других форм) — там self-исключать нечего, записи ещё не существует.
 //
 // Единственный источник правды по полям — соответствующие SQLAlchemy-модели в
 // backend/app/models.py; при добавлении сюда новой записи стоит свериться с ними, а не
@@ -134,16 +139,21 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     { name: 'version', label: 'Версия', type: 'text', required: false },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
-  departments: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
+  departments: [
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+    { name: 'parent_id', label: 'Родительское подразделение', type: 'fk', required: false, fkResource: 'departments' },
+  ],
   'placement-assets': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
-  // parent_id сюда намеренно не добавлен — та же причина, что для departments выше
-  // (см. комментарий в шапке файла): второй уровень вложенных модалок ради быстрого
-  // добавления родителя не оправдан, к тому же при редактировании существующей единицы
-  // потребовалось бы ещё и исключать саму себя из списка (см. availableParents в
-  // StructuralUnitFormModal.vue) — эта логика не переносится на generic-форму.
+  // parent_id сюда намеренно не добавлен: structural-units нет в OTHER_CATALOGS
+  // (OtherCatalogsView.vue) — у них уже есть свой полноценный экран с иерархией
+  // (StructuralUnitsView.vue/StructuralUnitFormModal.vue:availableParents), эта схема для
+  // structural-units используется только QuickAddModal.vue (быстрое добавление из других форм,
+  // create-only). Добавлять туда выбор родителя ради редкого сценария "быстро завести единицу
+  // прямо во время заполнения другой формы" не оправдано — за полной формой с иерархией всё
+  // равно идти на отдельный экран.
   'structural-units': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
