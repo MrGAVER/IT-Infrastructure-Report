@@ -97,6 +97,11 @@ class DeviceType(TimestampMixin, Base):
     __tablename__ = "device_types"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
+    # Явный признак вместо сравнения строк ('сервер'/'storage' и т.п. в имени, см.
+    # services/validation.validate_vm_host) — переименование типа устройства в справочнике
+    # больше не ломает молча правило "на чём можно разместить VM". Проставляется при создании
+    # стандартных записей (services/catalogs.py) и редактируется как обычное поле через CRUD.
+    allows_vm_hosting: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class Manufacturer(TimestampMixin, Base):
     __tablename__ = "manufacturers"
@@ -296,6 +301,9 @@ class OperatingSystemCategory(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    # Явный признак вместо сравнения category.name.casefold() == 'гипервизор' (см.
+    # services/validation.validate_hypervisor) — та же мотивация, что у DeviceType.allows_vm_hosting.
+    is_hypervisor: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class OperatingSystem(TimestampMixin, Base):
     __tablename__ = "operating_systems"

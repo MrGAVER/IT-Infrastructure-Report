@@ -2,12 +2,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, InterfaceIP, InformationSystem, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
-from ..registry import MODEL_MAP, DISPLAY_NAMES
+from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
+from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
 from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
@@ -15,6 +17,41 @@ from .validation import duplicate_system_name, validate_connection, validate_dev
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
     except KeyError as exc: raise HTTPException(404, f"Ресурс '{resource}' не найден") from exc
+
+def ensure_writable(resource: str) -> None:
+    """Запрещает запись через generic CRUD для ресурсов из READONLY_RESOURCES (сейчас — только
+    audit-log). Вызывается из create_resource/update_resource/delete_resource, а не только на
+    уровне роутера (api/resources.py), чтобы гарантия действовала для любого текущего и
+    будущего вызывающего кода, а не только для одного набора HTTP-эндпоинтов."""
+    if resource in READONLY_RESOURCES:
+        raise HTTPException(403, f"Ресурс '{resource}' доступен только для чтения")
+
+def validate_payload_schema(resource: str, payload: dict[str, Any], *, is_update: bool) -> dict[str, Any]:
+    """Валидирует и приводит типы payload по Pydantic-схеме, если она зарегистрирована для
+    этого ресурса (см. schemas.RESOURCE_SCHEMAS: пока только devices/information-systems/vlans
+    — код-ревью п.2). Для остальных ресурсов возвращает payload без изменений — они по-прежнему
+    проходят через generic CRUD как сырой dict, это осознанное инкрементальное покрытие.
+
+    Возвращает НОВЫЙ dict — исходный payload с наложенными сверху провалидированными полями,
+    а не просто dump схемы: так ключи вне схемы (confirm_system_name_duplicate,
+    confirm_rack_position_reassign), которые читаются из payload напрямую в create_resource/
+    update_resource, не теряются."""
+    schemas = RESOURCE_SCHEMAS.get(resource)
+    if schemas is None:
+        return payload
+    schema = schemas[1] if is_update else schemas[0]
+    try:
+        validated = schema.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(422, _format_schema_validation_error(exc)) from exc
+    return {**payload, **validated.model_dump(exclude_unset=True)}
+
+def _format_schema_validation_error(exc: ValidationError) -> str:
+    """Сводит структурированный Pydantic ValidationError к одной строке — в стиле остальных
+    422-ошибок этого модуля (см. validate_resource в services/validation.py), чтобы формат
+    ошибки был единообразным независимо от того, какой слой её обнаружил."""
+    parts = [f"{'.'.join(str(p) for p in err['loc']) or '(payload)'}: {err['msg']}" for err in exc.errors()]
+    return 'Ошибка валидации: ' + '; '.join(parts)
 
 def columns_for(model):
     return [{'name': c.key, 'type': str(c.type), 'nullable': c.nullable, 'primary_key': c.primary_key, 'default': None if c.default is None else str(c.default.arg), 'foreign_key': next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None} for c in inspect(model).columns]
@@ -130,6 +167,8 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
 def create_resource(resource: str, payload: dict[str, Any], session: Session):
+    ensure_writable(resource)
+    payload = validate_payload_schema(resource, payload, is_update=False)
     model = model_for(resource); allowed = allowed_columns(model)
     data = {k: v for k, v in payload.items() if k in allowed}
     if model is VirtualMachine and data.get('physical_device_id'):
@@ -143,6 +182,8 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
 def update_resource(resource: str, item_id: str, payload: dict[str, Any], session: Session):
+    ensure_writable(resource)
+    payload = validate_payload_schema(resource, payload, is_update=True)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     allowed = allowed_columns(model); proposed = {k: getattr(obj, k) for k in allowed}; proposed.update({k: v for k, v in payload.items() if k in allowed})
@@ -180,6 +221,7 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
     return results
 
 def delete_resource(resource: str, item_id: str, session: Session):
+    ensure_writable(resource)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     refs = _find_referencing_counts(model, item_id, session)
@@ -297,7 +339,11 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
                 # instead of treating it as "no value". Normalize to NULL for FK columns only.
                 if value == '' and col.foreign_keys: value = None
                 setattr(obj, col.key, value)
-        session.flush(); seen.add(obj.id)
+        # obj.id is only needed below to tell which *existing* rows are still referenced — for
+        # existing rows it's already known from the query above, so a single flush() after the
+        # loop (not one per item) is enough; id generation for new rows isn't needed here.
+        if obj.id: seen.add(obj.id)
+    session.flush()
     for obj in existing:
         if obj.id not in seen: session.delete(obj)
 
@@ -321,7 +367,9 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
             # apply to the chosen source_type still submit '' rather than null.
             if value == '' and k in ('physical_device_id','virtual_machine_id','container_id'): value = None
             setattr(obj, k, value)
-        session.flush(); seen.add(obj.id)
+        # Same reasoning as _sync_linked_table(): a single flush() after the loop is enough.
+        if obj.id: seen.add(obj.id)
+    session.flush()
     for obj in existing_sources:
         if obj.id not in seen: session.delete(obj)
 

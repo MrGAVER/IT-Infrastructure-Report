@@ -147,6 +147,162 @@ class TestCrudBasics:
         assert data["limit"] == 1 and data["offset"] == 0
 
 
+class TestSchemaValidation:
+    """Код-ревью п.2 (High, SOLID): для devices/information-systems/vlans payload теперь
+    проходит через Pydantic-схему (schemas.RESOURCE_SCHEMAS) до попадания в SQLAlchemy. Раньше
+    некорректный тип (например, список вместо строки) всплывал только на INSERT как
+    малопонятный IntegrityError/500, а не как явный 422 на входе."""
+
+    def test_wrong_type_rejected_with_clean_422_not_integrity_error(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для схемы"}).json()
+        r = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": dt["id"], "serial_number": "SCHEMA-1", "rack_position": ["10U", "11U"]},
+        )
+        assert r.status_code == 422
+        assert "rack_position" in r.json()["detail"]
+
+    def test_missing_required_field_rejected_before_hitting_db(self, client):
+        r = client.post("/api/v1/resources/devices", json={"serial_number": "SCHEMA-2"})
+        assert r.status_code == 422
+        assert "device_type_id" in r.json()["detail"]
+
+    def test_vlan_id_out_of_range_rejected(self, client):
+        r = client.post("/api/v1/resources/vlans", json={"vlan_id": 5000, "name": "Вне диапазона"})
+        assert r.status_code == 422
+
+    def test_numeric_string_is_coerced_for_vlan_id(self, client):
+        """Pydantic по умолчанию мягко приводит типы (lax mode): "77" -> 77 — это сохраняет
+        сегодняшнюю терпимость API к строковым числам с фронтенда, меняется только то, что
+        совсем некорректные типы (списки, объекты) теперь отклоняются явно."""
+        r = client.post("/api/v1/resources/vlans", json={"vlan_id": "77", "name": "Строкой"})
+        assert r.status_code == 201, r.text
+        assert r.json()["vlan_id"] == 77
+
+    def test_unschematized_resource_still_accepts_raw_dict(self, client):
+        """Ресурсы вне RESOURCE_SCHEMAS (пока большинство) не должны были затронуться —
+        generic CRUD продолжает работать как раньше."""
+        r = client.post("/api/v1/resources/manufacturers", json={"name": "Без схемы"})
+        assert r.status_code == 201, r.text
+
+    def test_update_schema_validation_keeps_partial_semantics(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для апдейта"}).json()
+        dev = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": dt["id"], "serial_number": "SCHEMA-3", "description": "Исходное"},
+        ).json()
+
+        r = client.put(f"/api/v1/resources/devices/{dev['id']}", json={"rack_position": ["oops"]})
+        assert r.status_code == 422
+
+        r = client.put(f"/api/v1/resources/devices/{dev['id']}", json={"rack_position": "12U"})
+        assert r.status_code == 200, r.text
+        assert r.json()["rack_position"] == "12U"
+        # Поля, отсутствующие в payload частичного обновления, не затронуты схемой.
+        assert r.json()["description"] == "Исходное"
+
+
+class TestHypervisorAndVmHostFlags:
+    """Код-ревью п.4 (Medium, SOLID/архитектура): validate_hypervisor()/validate_vm_host()
+    раньше сравнивали строки с именем справочной записи ('гипервизор', 'сервер'/'storage'),
+    поэтому переименование категории/типа устройства в справочнике молча ломало валидацию.
+    Теперь правило зависит только от явных булевых полей is_hypervisor/allows_vm_hosting —
+    ниже это доказывается на категории/типе устройства с намеренно НЕ канонич­ными именами:
+    если бы код всё ещё сравнивал строки, эти тесты бы падали."""
+
+    def test_hypervisor_rule_follows_flag_not_category_name(self, client):
+        category = client.post(
+            "/api/v1/resources/os-categories",
+            json={"name": "Совершенно другое имя", "is_hypervisor": True},
+        )
+        assert category.status_code == 201, category.text
+        hypervisor_os = client.post(
+            "/api/v1/resources/operating-systems",
+            json={"category_id": category.json()["id"], "name": "Custom Hypervisor", "version": "1"},
+        ).json()
+        server_type = client.post(
+            "/api/v1/resources/device-types",
+            json={"name": "Тестовый хост-сервер", "allows_vm_hosting": True},
+        ).json()
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={
+                "device_type_id": server_type["id"], "serial_number": "SN-HYP-1",
+                "operating_system_id": hypervisor_os["id"],
+            },
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-flag-test", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 201, vm.text
+        # hypervisor_os_id проставляется автоматически из ОС хоста (см. crud.create_resource).
+        assert vm.json()["hypervisor_os_id"] == hypervisor_os["id"]
+
+    def test_hypervisor_rule_rejects_category_without_flag_even_if_named_hypervisor(self, client):
+        """Обратная сторона того же правила: имя записи больше ни на что не влияет — без
+        is_hypervisor=True (значение по умолчанию — False) в поле гипервизора эту ОС выбрать
+        нельзя, даже если категория выглядит как гипервизорная."""
+        category = client.post(
+            "/api/v1/resources/os-categories", json={"name": "Гипервизор (не настоящий)"}
+        ).json()
+        assert category["is_hypervisor"] is False
+        hypervisor_os = client.post(
+            "/api/v1/resources/operating-systems",
+            json={"category_id": category["id"], "name": "Fake Hypervisor", "version": "1"},
+        ).json()
+        server_type = client.post(
+            "/api/v1/resources/device-types",
+            json={"name": "Тестовый хост-сервер 2", "allows_vm_hosting": True},
+        ).json()
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={
+                "device_type_id": server_type["id"], "serial_number": "SN-HYP-2",
+                "operating_system_id": hypervisor_os["id"],
+            },
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-flag-reject", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 422
+
+    def test_vm_host_rule_follows_flag_not_device_type_name(self, client):
+        device_type = client.post(
+            "/api/v1/resources/device-types",
+            json={"name": "Необычное имя типа", "allows_vm_hosting": True},
+        ).json()
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": device_type["id"], "serial_number": "SN-HOST-1"},
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-host-flag-test", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 201, vm.text
+
+    def test_vm_host_rule_rejects_device_type_without_flag(self, client):
+        device_type = client.post(
+            "/api/v1/resources/device-types", json={"name": "Рабочая станция без флага"}
+        ).json()
+        assert device_type["allows_vm_hosting"] is False
+        host = client.post(
+            "/api/v1/resources/devices",
+            json={"device_type_id": device_type["id"], "serial_number": "SN-HOST-2"},
+        ).json()
+
+        vm = client.post(
+            "/api/v1/resources/vms",
+            json={"name": "vm-host-flag-reject", "physical_device_id": host["id"]},
+        )
+        assert vm.status_code == 422
+
+
 class TestReferentialIntegrity:
     def test_cannot_delete_device_type_referenced_by_device(self, client):
         dt = client.post("/api/v1/resources/device-types", json={"name": "Тестовый сервер А"}).json()
@@ -331,6 +487,30 @@ class TestNPlusOneRegressions:
         # SELECT (было бы >=15). Теперь домен-локальные VLAN и назначения участников загружаются
         # пакетно один раз каждое — независимо от числа пар.
         assert len(vlan_select_queries) < 15, f"Ожидалось < 15 SELECT к VLAN-таблицам, получено {len(vlan_select_queries)}"
+
+    def test_sync_linked_table_flushes_once_not_per_item(self, client, sql_log):
+        """Код-ревью п.6 (Low, производительность): _sync_linked_table/
+        _sync_information_system_sources делали session.flush() на КАЖДЫЙ элемент списка — N
+        лишних round-trip'ов к БД на большом списке связанных записей. obj.id для новых строк
+        внутри этих функций не используется (нужен только у уже существующих, которые и так
+        приходят с id из первого SELECT), поэтому один flush() после цикла достаточен."""
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС для батчинга flush"}).json()
+        departments = [
+            client.post("/api/v1/resources/departments", json={"name": f"Отдел батч {i}"}).json()
+            for i in range(8)
+        ]
+
+        sql_log.clear()
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"departments": [{"department_id": d["id"]} for d in departments]},
+        )
+        assert r.status_code == 200, r.text
+
+        insert_calls = [s for s in sql_log if "INSERT INTO information_system_departments" in s]
+        # Раньше — 8 отдельных execute (flush() внутри цикла на каждый из 8 отделов). Теперь —
+        # один execute на весь список (SQLAlchemy собирает INSERT-ы одного flush() в batch).
+        assert len(insert_calls) == 1, f"Ожидался один batched INSERT, получено {len(insert_calls)}: {insert_calls}"
 
 
 class TestBulkVlanAssign:
@@ -622,6 +802,39 @@ class TestAuditLog:
     def test_audit_log_rejects_invalid_date(self, client):
         r = client.get("/api/v1/resources/audit-log?date_from=не-дата")
         assert r.status_code == 422
+
+    def test_audit_log_is_read_only_via_generic_crud(self, client):
+        """Регрессия (код-ревью, п.1, High): generic-эндпоинты POST/PUT/DELETE
+        /api/v1/resources/{resource} не проверяли READONLY_RESOURCES и одинаково работали с
+        любым ключом из MODEL_MAP, включая audit-log — то есть любой клиент мог подделать или
+        стереть записи журнала аудита напрямую через API, в обход audit(), которая уже
+        запрещала это из кода приложения. Проверяем все три write-операции и то, что
+        существующая запись аудита (созданная штатным путём) переживает попытку удаления."""
+        # Штатное действие создаёт настоящую запись в audit-log, на которую опираемся ниже.
+        created = client.post("/api/v1/resources/manufacturers", json={"name": "Аудит-RO-тест"})
+        assert created.status_code == 201, created.text
+        existing_entry = client.get(
+            "/api/v1/resources/audit-log", params={"entity_id": created.json()["id"], "limit": 10}
+        ).json()["items"][0]
+
+        forged = client.post(
+            "/api/v1/resources/audit-log",
+            json={"entity_type": "devices", "action": "DELETE", "details": "подделка"},
+        )
+        assert forged.status_code == 403
+
+        updated = client.put(
+            f"/api/v1/resources/audit-log/{existing_entry['id']}", json={"details": "подмена"}
+        )
+        assert updated.status_code == 403
+
+        deleted = client.delete(f"/api/v1/resources/audit-log/{existing_entry['id']}")
+        assert deleted.status_code == 403
+
+        # Запись действительно не пострадала.
+        still_there = client.get(f"/api/v1/resources/audit-log/{existing_entry['id']}")
+        assert still_there.status_code == 200
+        assert still_there.json()["details"] == existing_entry["details"]
 
 
 class TestReportTemplateVersions:

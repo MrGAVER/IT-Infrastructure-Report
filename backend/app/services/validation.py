@@ -44,9 +44,7 @@ def validate_vm_host(data: dict[str, Any], session: Session) -> None:
     if not host:
         raise HTTPException(422, 'Выбранное физическое устройство не найдено')
     device_type = session.get(DeviceType, host.device_type_id)
-    name = (device_type.name if device_type else '').casefold()
-    allowed = ('сервер' in name) or ('система хранения' in name) or ('storage' in name)
-    if not allowed:
+    if not device_type or not device_type.allows_vm_hosting:
         raise HTTPException(422, 'Для размещения виртуальной машины можно выбрать только сервер или систему хранения')
 
 def validate_hypervisor(data: dict[str, Any], session: Session) -> None:
@@ -57,7 +55,7 @@ def validate_hypervisor(data: dict[str, Any], session: Session) -> None:
     if not hypervisor:
         raise HTTPException(422, 'Выбранный гипервизор не найден')
     category = session.get(OperatingSystemCategory, hypervisor.category_id)
-    if not category or category.name.casefold() != 'гипервизор':
+    if not category or not category.is_hypervisor:
         raise HTTPException(422, 'В поле гипервизора можно выбрать только ОС из категории «Гипервизор»')
 
 def duplicate_system_name(session: Session, value: str | None, current_id: str | None = None):

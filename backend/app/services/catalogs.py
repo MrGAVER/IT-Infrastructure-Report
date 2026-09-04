@@ -10,6 +10,12 @@ DEFAULT_NAMES = {
     ConnectionType: ['Витая пара','Оптическое волокно','Медный патч-корд','Оптический патч-корд','Прямая связь','Агрегированный канал','Другое'],
     OperatingSystemCategory: ['Гипервизор','Серверная ОС','Клиентская ОС','Сетевая ОС','ОС средства защиты','Мобильная ОС','Другое'],
 }
+# Стандартные записи, для которых при ПЕРВОМ создании (см. _seed_name_only_catalogs) нужно
+# проставить не только имя, но и явный булев признак бизнес-правила (код-ревью п.4). Не
+# применяется к уже существующим записям — эти поля дальше редактируются администратором
+# как обычные через generic CRUD, и повторный запуск seed_defaults() не должен их затирать.
+HYPERVISOR_CATEGORY_NAMES = {'Гипервизор'}
+VM_HOST_DEVICE_TYPE_NAMES = {'Сервер', 'Система хранения данных'}
 PROTOCOL_DEFAULTS = [(22,'SSH','Secure Shell'),(53,'DNS','Domain Name System'),(80,'HTTP','Web HTTP'),(123,'NTP','Network Time Protocol'),(161,'SNMP','Simple Network Management Protocol'),(389,'LDAP','Lightweight Directory Access Protocol'),(443,'HTTPS','Web HTTPS'),(445,'SMB','Server Message Block'),(636,'LDAPS','LDAP over TLS'),(1433,'MS SQL','Microsoft SQL Server'),(1521,'Oracle','Oracle Database'),(2049,'NFS','Network File System'),(3306,'MySQL','MySQL'),(3389,'RDP','Remote Desktop Protocol'),(5432,'PostgreSQL','PostgreSQL'),(5900,'VNC','Virtual Network Computing'),(8080,'HTTP-alt','Alternative HTTP'),(8443,'HTTPS-alt','Alternative HTTPS')]
 EMBEDDED_OS_DEFAULTS = [('Cisco IOS','15','Cisco'),('Cisco IOS XE','17','Cisco'),('Junos OS','21','Juniper'),('RouterOS','7','MikroTik'),('FortiOS','7','Fortinet'),('PAN-OS','11','Palo Alto Networks'),('ArubaOS-CX','10','HPE Aruba'),('Comware','7','HPE'),('Huawei VRP','8','Huawei'),('Dell OS10','10','Dell'),('SONiC','','Community')
 ]
@@ -20,11 +26,21 @@ OS_DEFAULTS = [
  ('Сетевая ОС','Cisco IOS XE','Cisco','17'),('Сетевая ОС','Cisco IOS','Cisco','15'),('Сетевая ОС','RouterOS','MikroTik','7'),('ОС средства защиты','FortiOS','Fortinet','7'),
  ('Гипервизор','VMware ESXi','VMware','7.0'),('Гипервизор','VMware ESXi','VMware','8.0'),('Гипервизор','Microsoft Hyper-V','Microsoft','2022'),('Гипервизор','Microsoft Hyper-V','Microsoft','2025'),('Гипервизор','Proxmox VE','Proxmox','8'),('Гипервизор','Proxmox VE','Proxmox','9')]
 
+def _default_catalog_flags(model, name: str) -> dict[str, bool]:
+    """Дополнительные булевы поля для стандартных записей DEFAULT_NAMES, выставляемые только
+    при создании — существующие записи (в т.ч. переименованные администратором) не трогаются."""
+    if model is OperatingSystemCategory and name in HYPERVISOR_CATEGORY_NAMES:
+        return {'is_hypervisor': True}
+    if model is DeviceType and name in VM_HOST_DEVICE_TYPE_NAMES:
+        return {'allows_vm_hosting': True}
+    return {}
+
+
 def _seed_name_only_catalogs(session: Session) -> None:
     for model, names in DEFAULT_NAMES.items():
         existing = {x.name for x in session.scalars(select(model)).all()}
         for name in names:
-            if name not in existing: session.add(model(name=name))
+            if name not in existing: session.add(model(name=name, **_default_catalog_flags(model, name)))
 
 
 def _seed_operating_systems(session: Session) -> None:
