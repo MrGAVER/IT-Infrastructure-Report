@@ -405,9 +405,8 @@ function closePreview() {
 
     <template v-else-if="template && template.format !== 'xlsx'">
       <p class="scope-note">
-        Шаблон «{{ template.name }}» — в формате Word (.docx). Визуальный блочный редактор для
-        него в этой версии ещё не перенесён на новый интерфейс — используйте текущий интерфейс
-        (<code>/legacy</code>).
+        Шаблон «{{ template.name }}» — в формате Word (.docx). У него другой редактор — вернитесь
+        к списку и откройте «Конструктор» ещё раз.
       </p>
       <button type="button" class="btn btn-secondary" @click="backToList">← К списку шаблонов</button>
     </template>
