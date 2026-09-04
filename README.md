@@ -1689,6 +1689,25 @@ unmount, реактивное обновление текста уже пока�
 компонента (`git stash` на `CatalogRecordFormModal.vue`), тест падает, как ожидалось. 477 vitest,
 все зелёные; `vue-tsc -b` и `vite build` без ошибок; backend не затронут.
 
+### 2.58.2 — Vue: organizations в «Другие справочники» (подготовка к удалению legacy)
+
+Только `frontend-vue`, без изменений в бэкенде — generic CRUD `/api/v1/resources/organizations`
+уже работал (проверено вручную: GET/POST/PUT/DELETE — все 2xx), не хватало только UI.
+
+- `organizations` — единственный ресурс из `registry.py`, на который не было ни одной ссылки по
+  FK ни у одной модели (в отличие от `support-organizations`) и который поэтому не получил даже
+  кнопки "+" в `QuickAddModal.vue` при разборе п.6. Всегда содержит минимум одну сидируемую по
+  умолчанию запись (`services/catalogs.py:_seed_singleton_records`, тот же паттерн, что у
+  `Building`/`Department`), но раньше её можно было отредактировать или удалить только через
+  `/legacy` — единственный оставшийся пробел перед удалением legacy-фронтенда.
+- Добавлен в `stores/catalogs.ts:CATALOGS`, `quickAdd/schema.ts` (label + поля
+  name/short_name/description, по образцу `support-organizations`) и `OTHER_CATALOGS` в
+  `OtherCatalogsView.vue` — обычным generic-путём, без специальной логики.
+- Практической пользы у записи по-прежнему никакой (ничего в приложении на неё не смотрит) —
+  добавлено ради паритета с legacy, а не потому что появилось применение.
+
+477 vitest, все зелёные; `vue-tsc -b` и `vite build` без ошибок; backend не затронут.
+
 ## Известные ограничения и заметки
 
 - EXE-вариант — однопользовательский локальный режим; для одновременной работы нескольких
