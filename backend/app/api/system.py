@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from ..config import APP_VERSION, ENABLE_TEST_DATA_ENDPOINT, FRONTEND_DIR, LEGACY_FRONTEND_DIR, REPORT_DIR
+from ..config import APP_VERSION, ENABLE_TEST_DATA_ENDPOINT, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
 from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Organization, Department, Building, Room, Rack, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN, SupportMethod)
 from ..services.catalogs import seed_defaults
@@ -285,22 +285,10 @@ def download_report(filename: str):
 
 @router.get('/', include_in_schema=False)
 def frontend_index():
-    """Основной UI — собранный Vue-фронтенд (frontend-vue/dist), см. config.py:FRONTEND_DIR.
-    Старый vanilla-интерфейс временно доступен на /legacy, см. legacy_index() ниже."""
+    """Единственный UI — собранный Vue-фронтенд (frontend-vue/dist), см. config.py:FRONTEND_DIR."""
     index = FRONTEND_DIR / 'index.html'
     if not index.is_file():
-        raise HTTPException(500, f'Файл интерфейса не найден: {index}. Соберите frontend-vue (npm run build) '
-                                  f'или откройте /legacy — там пока доступен старый интерфейс.')
-    return FileResponse(index, media_type='text/html; charset=utf-8')
-
-@router.get('/legacy', include_in_schema=False)
-def legacy_index():
-    """Старый vanilla-фронтенд (frontend/) — доступен на переходный период, пока новый Vue-UI
-    не закрыл оставшиеся пробелы относительно него (см. "Ещё не сделано" во frontend-vue/README.md).
-    Сам vanilla-интерфейс не использует клиентский роутинг браузера (одна страница, весь UI —
-    JS-состояние поверх неё), поэтому достаточно единственного пути без под-маршрутов."""
-    index = LEGACY_FRONTEND_DIR / 'index.html'
-    if not index.is_file(): raise HTTPException(500, f'Файл интерфейса не найден: {index}')
+        raise HTTPException(500, f'Файл интерфейса не найден: {index}. Соберите frontend-vue (npm run build).')
     return FileResponse(index, media_type='text/html; charset=utf-8')
 
 @router.get('/icons.svg', include_in_schema=False)

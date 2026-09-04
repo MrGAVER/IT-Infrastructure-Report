@@ -21,12 +21,11 @@ a = Analysis(
     pathex=[str(ROOT / 'backend'), str(ROOT)],
     binaries=[],
     datas=[
-        (str(ROOT / 'frontend'), 'frontend'),
-        # Основной UI (см. backend/app/config.py:FRONTEND_DIR) — должен быть собран ДО запуска
-        # PyInstaller: `cd frontend-vue && npm ci && npm run build` (см. installer/build_windows.bat,
-        # который делает это автоматически). Без этого шага dist/ не существует и Analysis
-        # просто не найдёт директорию — сборка EXE упадёт на строке ниже с понятной ошибкой,
-        # а не тихо соберёт EXE без UI.
+        # Единственный UI (см. backend/app/config.py:FRONTEND_DIR) — должен быть собран ДО
+        # запуска PyInstaller: `cd frontend-vue && npm ci && npm run build` (см.
+        # installer/build_windows.bat, который делает это автоматически). Без этого шага dist/
+        # не существует и Analysis просто не найдёт директорию — сборка EXE упадёт на строке
+        # ниже с понятной ошибкой, а не тихо соберёт EXE без UI.
         (str(ROOT / 'frontend-vue' / 'dist'), 'frontend-vue/dist'),
         (str(ROOT / 'backend' / 'alembic'), 'alembic'),
         (str(ROOT / 'backend' / 'alembic.ini'), '.'),

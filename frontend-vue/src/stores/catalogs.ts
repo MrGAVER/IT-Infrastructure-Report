@@ -15,6 +15,7 @@ export interface StructuralUnitNode extends StructuralUnit {
 // Ресурсы, которые реально используются на экране "Инвентаризация устройств".
 // Расширять по мере добавления новых экранов — не грузим то, что не показываем.
 const CATALOGS = [
+  'organizations',
   'device-types',
   'manufacturers',
   'device-models',

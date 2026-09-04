@@ -2,7 +2,6 @@
 # отправка уже установленных/собранных версий в контекст только замедляет `docker build`.
 frontend-vue/node_modules
 frontend-vue/dist
-frontend/tests/node_modules
 
 .git
 **/__pycache__
