@@ -37,7 +37,20 @@ def join_values(values):
     return "; ".join(result)
 
 def os_label(obj):
-    return join_values([getattr(obj,"name",None), getattr(obj,"version",None)]) if obj else ""
+    """Полное наименование версии ОС/среды: "Имя Версия" без разделителя ";" между ними.
+
+    join_values() рассчитан на список из произвольного числа элементов и разделяет их
+    через "; " — уместно для перечней (VLAN, IP и т.п.), но для пары "имя + версия"
+    даёт нечитаемое "Huawei iBMC; 6.73" вместо "Huawei iBMC 6.73". Здесь имя и версия
+    всегда ровно два компонента одного значения, поэтому склеиваются пробелом.
+    """
+    if not obj:
+        return ""
+    name = (getattr(obj, "name", None) or "").strip()
+    version = (getattr(obj, "version", None) or "").strip()
+    if name and version:
+        return f"{name} {version}"
+    return name or version
 
 def device_label(d):
     return (d.system_name or d.serial_number) if d else ""
