@@ -18,6 +18,7 @@ const catalogNav = [
   { to: '/vlans', icon: 'i-grid', label: 'VLAN' },
   { to: '/buildings', icon: 'i-building', label: 'Здания и помещения' },
   { to: '/structural-units', icon: 'i-sitemap', label: 'Структурные подразделения' },
+  { to: '/other-catalogs', icon: 'i-layers', label: 'Другие справочники' },
 ]
 const systemNav = [
   { to: '/reports', icon: 'i-file', label: 'Отчёты' },
