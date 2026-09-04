@@ -63,11 +63,9 @@ def main():
 
     root = bundle_dir()
     os.environ["INFRA_REGISTRY_BUNDLE_DIR"] = str(root)
-    # Основной UI — собранный Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR); '/legacy'
-    # раздаёт старый vanilla-интерфейс из frontend/ на переходный период. Оба каталога
-    # упакованы в EXE как данные, см. datas в infra_registry.spec.
+    # Единственный UI — собранный Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR),
+    # упакован в EXE как данные, см. datas в infra_registry.spec.
     os.environ["INFRA_REGISTRY_FRONTEND_DIR"] = str(root / 'frontend-vue' / 'dist')
-    os.environ["INFRA_REGISTRY_LEGACY_FRONTEND_DIR"] = str(root / 'frontend')
     os.environ["INFRA_REGISTRY_DATA_DIR"] = str(data_dir())
     os.environ["DATABASE_URL"] = f"sqlite:///{data_dir() / 'infra_registry.db'}"
     sys.path.insert(0, str(bundle_dir() / "backend"))

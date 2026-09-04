@@ -14,12 +14,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_regi
 # файла (см. api/system.py:frontend_index), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-# Старый vanilla-фронтенд (frontend/) — оставлен доступным на /legacy на переходный период,
-# пока не закрыты оставшиеся пробелы в новом UI относительно него (см. "Ещё не сделано" в
-# frontend-vue/README.md). В отличие от FRONTEND_DIR ничего собирать не нужно — эти файлы
-# как были обычным HTML/JS/CSS без сборки, так и остаются.
-LEGACY_FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_LEGACY_FRONTEND_DIR', str(BASE_DIR / 'frontend'))).expanduser().resolve()
-APP_VERSION = '2.58.2'
+APP_VERSION = '2.59.0'
 
 # Frontend is served from the same origin (StaticFiles mount below), and the app currently
 # does not use cookies/auth headers, so CORS is only relevant when a separate frontend origin

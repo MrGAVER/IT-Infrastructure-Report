@@ -1,14 +1,14 @@
 """
-Тесты раздачи фронтенда: Vue (frontend-vue/dist) — основной UI на '/', vanilla (frontend/) —
-на '/legacy' на переходный период (см. README.md и frontend-vue/README.md).
+Тесты раздачи фронтенда: Vue (frontend-vue/dist) — единственный UI на '/' (см. README.md и
+frontend-vue/README.md; vanilla-фронтенд и '/legacy' удалены в 2.59.0, см. запись в changelog).
 
-Каталоги фронтендов подменяются на временные через monkeypatch модульных констант
-(app.api.system.FRONTEND_DIR/LEGACY_FRONTEND_DIR, app.main.FRONTEND_DIR), а не читаются из
-реально собранного frontend-vue/dist — иначе тест зависел бы от того, был ли уже выполнен
-`npm run build` в frontend-vue, а в CI pytest сейчас запускается раньше этого шага
-(см. .github/workflows/ci.yml). StaticFiles-маунты '/assets' и '/static' не тестируются
-отдельно — они создаются один раз при импорте app.main и просто оборачивают Starlette
-StaticFiles (библиотечный код), тестируется только наша собственная логика маршрутизации.
+Каталог фронтенда подменяется на временный через monkeypatch модульных констант
+(app.api.system.FRONTEND_DIR, app.main.FRONTEND_DIR), а не читается из реально собранного
+frontend-vue/dist — иначе тест зависел бы от того, был ли уже выполнен `npm run build` в
+frontend-vue, а в CI pytest сейчас запускается раньше этого шага (см. .github/workflows/ci.yml).
+StaticFiles-маунт '/assets' не тестируется отдельно — он создаётся один раз при импорте
+app.main и просто оборачивает Starlette StaticFiles (библиотечный код), тестируется только
+наша собственная логика маршрутизации.
 """
 from __future__ import annotations
 
@@ -43,15 +43,19 @@ def test_root_without_built_dist_gives_actionable_error_not_a_crash(client, tmp_
     assert 'npm run build' in r.text
 
 
-def test_legacy_path_still_serves_vanilla_frontend(client, tmp_path, monkeypatch):
-    legacy_dir = tmp_path / 'legacy'
-    _write_index(legacy_dir, 'VANILLA-LEGACY')
-    monkeypatch.setattr(system_module, 'LEGACY_FRONTEND_DIR', legacy_dir)
+def test_legacy_path_no_longer_exists(client, tmp_path, monkeypatch):
+    """Vanilla-фронтенд и путь '/legacy' удалены в 2.59.0 (см. changelog) — теперь по этому пути
+    срабатывает тот же SPA-фоллбэк, что и для любого другого неизвестного пути (app.main:
+    spa_fallback), а не выделенный роут: отдаёт index.html Vue-приложения (200), внутри которого
+    сам vue-router покажет клиентский 'страница не найдена', а не HTTP 500/404 на уровне сервера."""
+    vue_dir = tmp_path / 'vue-dist'
+    _write_index(vue_dir, 'VUE-PRIMARY')
+    monkeypatch.setattr(app_main, 'FRONTEND_DIR', vue_dir)
 
     r = client.get('/legacy')
 
     assert r.status_code == 200
-    assert 'VANILLA-LEGACY' in r.text
+    assert 'VUE-PRIMARY' in r.text
 
 
 def test_client_side_route_falls_back_to_vue_index_html(client, tmp_path, monkeypatch):
