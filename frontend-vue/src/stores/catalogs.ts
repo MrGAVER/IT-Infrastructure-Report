@@ -10,8 +10,11 @@ import type { CatalogItem, StructuralUnit, ResourceDescriptor, ProtocolPortCatal
 // Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
 // числа, а не посимвольно ("Gi1/0/2" раньше "Gi1/0/19", а не наоборот, как было бы при обычном
 // лексикографическом сравнении — фикс п.3.5 "натуральная сортировка" портов). Тот же collator
-// годится и для обычных кириллических названий (буквы/цифры в имени организации и т.п.).
-const RU_COLLATOR = new Intl.Collator('ru', { sensitivity: 'base', numeric: true })
+// годится и для обычных кириллических названий (буквы/цифры в имени организации и т.п.). Экспортируется
+// — та же сортировка нужна и вне этого стора (напр. ConnectionFormModal.vue сортирует список
+// устройств из stores/devices.ts, который здесь не живёт), плюс Intl.Collator дороговат
+// пересоздавать на каждый вызов — единственный на всё приложение инстанс.
+export const RU_COLLATOR = new Intl.Collator('ru', { sensitivity: 'base', numeric: true })
 
 /** Узел дерева структурных единиц — рекурсивно типизированный (см. StructuralUnitTree.vue). */
 export interface StructuralUnitNode extends StructuralUnit {

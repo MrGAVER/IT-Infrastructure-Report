@@ -15,6 +15,22 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
 }
 
+// Фикс п.3.6: "Устройство"/"Порт"/"Тип подключения" — теперь SearchableSelect (см.
+// SearchableSelect.spec.ts на сам механизм поиска), а не нативный <select>, поэтому
+// .setValue() на select больше не годится — нужно открыть список и кликнуть нужную опцию по
+// подписи. select — это САМ .searchable-select конкретного поля (не общий контейнер,
+// который мог бы содержать несколько таких компонентов сразу, как fieldset .endpoint).
+async function chooseOption(select: DOMWrapper<Element>, label: string) {
+  await select.find('input').trigger('focus')
+  const option = select.findAll('.ss-option').find((o) => o.text() === label)
+  if (!option) throw new Error(`Опция "${label}" не найдена среди: ${select.findAll('.ss-option').map((o) => o.text())}`)
+  await option.trigger('mousedown')
+}
+
+function displayedValue(root: DOMWrapper<Element>): string {
+  return (root.find('.searchable-select input').element as HTMLInputElement).value
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   document.body.innerHTML = ''
@@ -45,8 +61,7 @@ describe('ConnectionFormModal.vue — быстрое добавление тип
     await teleportedContent().find('form').trigger('submit')
     await flushPromises()
 
-    const select = wrapper.find('.form-grid .lookup-row select')
-    expect((select.element as HTMLSelectElement).value).toBe('ct-new')
+    expect(displayedValue(wrapper.find('.form-grid .lookup-row'))).toBe('Оптоволокно')
   })
 })
 
@@ -80,12 +95,12 @@ describe('ConnectionFormModal.vue — управление портами пря
 
     const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
     const sourceFieldset = wrapper.findAll('.endpoint')[0]
-    const sourceDeviceSelect = sourceFieldset.find('select')
-    const sourcePortSelect = sourceFieldset.findAll('select')[1]
+    const sourceDeviceSelect = sourceFieldset.findAll('.searchable-select')[0]
+    const sourcePortSelect = sourceFieldset.findAll('.searchable-select')[1]
 
-    await sourceDeviceSelect.setValue('dev-1')
-    await sourcePortSelect.setValue('if-1')
-    expect((sourcePortSelect.element as HTMLSelectElement).value).toBe('if-1')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'srv-01')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[1], 'eth0')
+    expect(displayedValue(sourcePortSelect)).toBe('eth0')
 
     await wrapper.find('[aria-label="Управлять портами исходного устройства"]').trigger('click')
     await flushPromises()
@@ -96,8 +111,9 @@ describe('ConnectionFormModal.vue — управление портами пря
     await flushPromises()
 
     // Порт удалён в модалке -> в форме подключения выбор порта должен сброситься, а не
-    // молча указывать на несуществующий id.
-    expect((sourcePortSelect.element as HTMLSelectElement).value).toBe('')
+    // молча указывать на несуществующий id. sourceDeviceSelect не тронут — устройство осталось.
+    expect(displayedValue(sourcePortSelect)).toBe('')
+    expect(displayedValue(sourceDeviceSelect)).toBe('srv-01')
     // Модалка портов закрылась сама после сохранения.
     expect(new DOMWrapper(document.body).text()).not.toContain('Порты устройства')
   })
@@ -117,7 +133,7 @@ describe('ConnectionFormModal.vue — предупреждение о свобо
 
     const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
     const sourceFieldset = wrapper.findAll('.endpoint')[0]
-    await sourceFieldset.find('select').setValue('dev-1')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'srv-01')
 
     expect(sourceFieldset.text()).toContain('У устройства пока нет ни одного порта')
     expect(sourceFieldset.text()).not.toContain('все заняты активными подключениями')
@@ -135,7 +151,7 @@ describe('ConnectionFormModal.vue — предупреждение о свобо
 
     const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
     const sourceFieldset = wrapper.findAll('.endpoint')[0]
-    await sourceFieldset.find('select').setValue('dev-1')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'srv-01')
 
     expect(sourceFieldset.text()).toContain('Нет свободных портов — все заняты активными подключениями')
     expect(sourceFieldset.text()).not.toContain('нет ни одного порта')
@@ -149,9 +165,53 @@ describe('ConnectionFormModal.vue — предупреждение о свобо
 
     const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
     const sourceFieldset = wrapper.findAll('.endpoint')[0]
-    await sourceFieldset.find('select').setValue('dev-1')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'srv-01')
 
     expect(sourceFieldset.text()).not.toContain('нет ни одного порта')
     expect(sourceFieldset.text()).not.toContain('Нет свободных портов')
+  })
+})
+
+describe('ConnectionFormModal.vue — поиск в полях "Устройство"/"Порт" (фикс п.3.6)', () => {
+  it('поле "Устройство" фильтруется вводом текста и отсортировано по алфавиту', async () => {
+    const devices = useDevicesStore()
+    devices.all = [
+      { id: 'dev-2', system_name: 'core-sw-02', serial_number: 'SN-2' } as never,
+      { id: 'dev-1', system_name: 'access-sw-01', serial_number: 'SN-1' } as never,
+    ]
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    const sourceFieldset = wrapper.findAll('.endpoint')[0]
+    const deviceSelect = sourceFieldset.findAll('.searchable-select')[0]
+
+    await deviceSelect.find('input').trigger('focus')
+    // Отсортировано: "access-sw-01" раньше "core-sw-02" по алфавиту, а не в порядке devicesStore.all.
+    expect(deviceSelect.findAll('.ss-option').map((o) => o.text())).toEqual(['access-sw-01', 'core-sw-02'])
+
+    await deviceSelect.find('input').setValue('core')
+    const filtered = deviceSelect.findAll('.ss-option')
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].text()).toBe('core-sw-02')
+  })
+
+  it('поле "Порт" фильтруется вводом текста', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [
+      { id: 'if-1', name: 'GigabitEthernet0/1', physical_device_id: 'dev-1' },
+      { id: 'if-2', name: 'GigabitEthernet0/2', physical_device_id: 'dev-1' },
+    ] as never
+    const devices = useDevicesStore()
+    devices.all = [{ id: 'dev-1', system_name: 'srv-01', serial_number: 'SN-1' } as never]
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    const sourceFieldset = wrapper.findAll('.endpoint')[0]
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'srv-01')
+
+    const portSelect = sourceFieldset.findAll('.searchable-select')[1]
+    await portSelect.find('input').trigger('focus')
+    await portSelect.find('input').setValue('0/2')
+    const filtered = portSelect.findAll('.ss-option')
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].text()).toBe('GigabitEthernet0/2')
   })
 })

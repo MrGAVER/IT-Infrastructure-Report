@@ -621,6 +621,32 @@ describe('DeviceFormModal.vue', () => {
     expect(sentBody.model_id).toBe('dm-new')
   })
 
+  it('п.1.1: поле "Помещение" — SearchableSelect, фильтруется вводом текста', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }]
+    catalogs.items['rooms'] = [
+      { id: 'room-1', building_id: 'b-1', name: 'Серверная 101' },
+      { id: 'room-2', building_id: 'b-1', name: 'Архив 204' },
+    ]
+    await wrapper.vm.$nextTick()
+
+    // "Помещение" disabled без выбранного здания — сперва выбираем здание тем же SearchableSelect.
+    const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
+    await buildingRow.find('.searchable-select input').trigger('focus')
+    await buildingRow.find('.ss-option').trigger('mousedown')
+
+    const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
+    const roomInput = roomRow.find('.searchable-select input')
+    expect(roomInput.attributes('disabled')).toBeUndefined() // разблокировалось после выбора здания
+    await roomInput.trigger('focus')
+    await roomInput.setValue('Архив')
+
+    const options = roomRow.findAll('.ss-option')
+    expect(options).toHaveLength(1)
+    expect(options[0].text()).toBe('Архив 204')
+  })
+
   it('быстрое добавление здания подставляет его в форму', async () => {
     const wrapper = await mountWithLoadedCatalogs()
     vi.stubGlobal(
@@ -640,7 +666,9 @@ describe('DeviceFormModal.vue', () => {
     await body.find('.overlay form').trigger('submit')
     await flushPromises()
 
-    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-new')
+    // Фикс п.1.1: поле теперь SearchableSelect, не нативный <select> — читаем отображённую
+    // подпись выбранной опции через её input, как и везде в тестах SearchableSelect.
+    expect((buildingRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
   })
 
   it('быстрое добавление помещения синхронизирует здание формы (п.3.1)', async () => {
@@ -671,8 +699,8 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
-    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-1')
-    expect((roomRow.find('select').element as HTMLSelectElement).value).toBe('room-new')
+    expect((buildingRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('Корпус А')
+    expect((roomRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('204')
   })
 
   it('быстрое добавление стойки синхронизирует помещение и здание формы (п.3.1)', async () => {
@@ -704,9 +732,9 @@ describe('DeviceFormModal.vue', () => {
 
     const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
     const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
-    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-1')
-    expect((roomRow.find('select').element as HTMLSelectElement).value).toBe('room-1')
-    expect((rackRow.find('select').element as HTMLSelectElement).value).toBe('rack-new')
+    expect((buildingRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('Корпус А')
+    expect((roomRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('204')
+    expect((rackRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('R-1')
   })
 
   // п.3.8: наивный @click.self на подложке закрывал форму при попытке выделить текст внутри

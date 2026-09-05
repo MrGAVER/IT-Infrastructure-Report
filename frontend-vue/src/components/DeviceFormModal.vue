@@ -20,6 +20,7 @@ import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 
 const props = defineProps<{ device: Device | null }>()
@@ -194,6 +195,14 @@ const filteredRooms = computed(() =>
 const filteredRacks = computed(() =>
   (racks.value ?? []).filter((r) => !form.room_id || r.room_id === form.room_id),
 )
+
+// Фикс п.1.1: поиск вводом текста в "Помещение" (и заодно в соседних Здание/Стойка — те же
+// select'ы в той же карточке, оставлять их нативными при уже поисковом "Помещении" рядом выглядело
+// бы непоследовательно). catalogs.items[key] уже отсортирован (фикс п.4.2) — SearchableSelect
+// сам ничего не пересортировывает, порядок options здесь и есть порядок в выпадающем списке.
+const buildingOptions = computed(() => (catalogs.items['buildings'] ?? []).map((b) => ({ value: b.id, label: b.name })))
+const roomOptions = computed(() => filteredRooms.value.map((r) => ({ value: r.id, label: r.name })))
+const rackOptions = computed(() => filteredRacks.value.map((r) => ({ value: r.id, label: r.name })))
 
 // п.3.6: поля "Тип устройства"/"Производитель"/"Модель" объединены в одно — это ОДИН select с
 // двумя видами опций (группа "без модели" — просто тип, и группы моделей по производителю), а не
@@ -521,10 +530,7 @@ async function submit() {
         <label class="field">
           <span>Здание</span>
           <div class="lookup-row">
-            <select v-model="form.building_id">
-              <option value="">— не указано —</option>
-              <option v-for="b in catalogs.items['buildings'] ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
-            </select>
+            <SearchableSelect v-model="form.building_id" :options="buildingOptions" placeholder="— не указано —" />
             <QuickAddButton resource="buildings" title="Здание" @created="(r) => (form.building_id = r.id)" />
           </div>
         </label>
@@ -532,10 +538,7 @@ async function submit() {
         <label class="field">
           <span>Помещение</span>
           <div class="lookup-row">
-            <select v-model="form.room_id" :disabled="!form.building_id">
-              <option value="">— не указано —</option>
-              <option v-for="r in filteredRooms" :key="r.id" :value="r.id">{{ r.name }}</option>
-            </select>
+            <SearchableSelect v-model="form.room_id" :options="roomOptions" :disabled="!form.building_id" placeholder="— не указано —" />
             <QuickAddButton resource="rooms" title="Помещение" @created="onRoomCreated" />
           </div>
         </label>
@@ -543,10 +546,7 @@ async function submit() {
         <label class="field">
           <span>Стойка</span>
           <div class="lookup-row">
-            <select v-model="form.rack_id" :disabled="!form.room_id">
-              <option value="">— не указана —</option>
-              <option v-for="r in filteredRacks" :key="r.id" :value="r.id">{{ r.name }}</option>
-            </select>
+            <SearchableSelect v-model="form.rack_id" :options="rackOptions" :disabled="!form.room_id" placeholder="— не указана —" />
             <QuickAddButton resource="racks" title="Стойка" @created="onRackCreated" />
           </div>
         </label>
