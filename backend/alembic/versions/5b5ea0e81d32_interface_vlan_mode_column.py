@@ -1,7 +1,7 @@
 """Store vlan_mode on device_interfaces itself, not only inferred from links
 
 Revision ID: 5b5ea0e81d32
-Revises: 4ea6658f69bf
+Revises: 0fcebbb67ac0
 Create Date: 2026-09-05 00:00:00.000000
 
 Фикс п.1.3.9: режим порта (access/trunk) хранился только косвенно, через
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "5b5ea0e81d32"
-down_revision = "4ea6658f69bf"
+down_revision = "0fcebbb67ac0"
 branch_labels = None
 depends_on = None
 

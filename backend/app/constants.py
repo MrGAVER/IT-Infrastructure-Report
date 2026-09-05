@@ -13,6 +13,11 @@ class ErrorCode:
     DUPLICATE_SYSTEM_NAME = "DUPLICATE_SYSTEM_NAME"
     RACK_POSITION_OCCUPIED = "RACK_POSITION_OCCUPIED"
     REFERENCED_BY_OTHER_RECORDS = "REFERENCED_BY_OTHER_RECORDS"
+    DUPLICATE_USERNAME = "DUPLICATE_USERNAME"
+    WEAK_PASSWORD = "WEAK_PASSWORD"
+    LAST_ADMIN_ACCOUNT = "LAST_ADMIN_ACCOUNT"
+    ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
+    AUTH_REQUIRES_ADMIN = "AUTH_REQUIRES_ADMIN"
 
 
 class AuditAction:
@@ -21,6 +26,19 @@ class AuditAction:
     UPDATE = "UPDATE"
     DELETE = "DELETE"
     SYNC = "SYNC"
+    LOGIN = "LOGIN"
+    LOGIN_FAILED = "LOGIN_FAILED"
+    LOGOUT = "LOGOUT"
+
+
+class UserRole:
+    """Роли учётных записей (см. models.User.role). Ровно два уровня — этого достаточно для
+    разделения «может смотреть реестр» / «может его менять и администрировать учётные записи»;
+    более гранулярные права (per-resource) не запрашивались и добавили бы сложность без текущей
+    потребности."""
+    ADMIN = "admin"
+    VIEWER = "viewer"
+    ALL = {ADMIN, VIEWER}
 
 
 class SourceType:

@@ -7,6 +7,37 @@
 // Благодаря этому не нужен CORS в dev и не нужно переключать base URL между режимами.
 const API_BASE = '/api/v1'
 
+// --- Токен сессии (см. stores/auth.ts) -----------------------------------------------------
+// localStorage, а не Pinia-стейт как единственный источник истины: страница может быть
+// перезагружена (F5, прямой переход по URL — тот же SPA-фоллбэк, что и для остальных
+// маршрутов, см. backend/app/main.py:spa_fallback), и токен должен пережить перезагрузку без
+// повторного похода на /auth/login. Cookie здесь намеренно не используются (см. main.py:
+// allow_credentials=False) — токен передаётся только явным заголовком Authorization, который
+// в отличие от cookie браузер никогда не добавляет сам, а значит нет и CSRF-поверхности.
+const TOKEN_STORAGE_KEY = 'itr:auth-token'
+
+export function getStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY)
+  } catch {
+    return null // приватный режим браузера иногда бросает исключение на доступ к localStorage
+  }
+}
+
+export function setStoredToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token)
+    else localStorage.removeItem(TOKEN_STORAGE_KEY)
+  } catch {
+    /* см. getStoredToken — молча игнорируем окружения без доступа к localStorage */
+  }
+}
+
+/** Событие на 401 от бэкенда: токен истёк/отозван (logout на другой вкладке, смена пароля
+ * администратором и т.п.). authStore слушает его в main.ts, а не наоборот (stores/auth.ts не
+ * импортируется отсюда), чтобы не заводить цикл client.ts -> stores/auth.ts -> client.ts. */
+export const UNAUTHORIZED_EVENT = 'itr:unauthorized'
+
 export class ApiError extends Error {
   status: number
   /** Код ошибки из detail.code (см. backend/app/constants.py:ErrorCode) — например
@@ -22,10 +53,11 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
+  const token = getStoredToken()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(`${API_BASE}${path}`, { headers, ...init })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     let message = text || res.statusText
@@ -40,6 +72,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
     } catch {
       /* тело не JSON — оставляем текст как есть */
+    }
+    // Не для /auth/login: там 401 — это ожидаемый "неверный пароль" в форме входа, а не
+    // разлогинивание уже вошедшего пользователя, событие тут ни к чему.
+    if (res.status === 401 && path !== '/auth/login') {
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
     }
     throw new ApiError(res.status, message, code)
   }
@@ -94,4 +131,9 @@ export const ErrorCode = {
   DUPLICATE_SYSTEM_NAME: 'DUPLICATE_SYSTEM_NAME',
   RACK_POSITION_OCCUPIED: 'RACK_POSITION_OCCUPIED',
   REFERENCED_BY_OTHER_RECORDS: 'REFERENCED_BY_OTHER_RECORDS',
+  DUPLICATE_USERNAME: 'DUPLICATE_USERNAME',
+  WEAK_PASSWORD: 'WEAK_PASSWORD',
+  LAST_ADMIN_ACCOUNT: 'LAST_ADMIN_ACCOUNT',
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  AUTH_REQUIRES_ADMIN: 'AUTH_REQUIRES_ADMIN',
 } as const

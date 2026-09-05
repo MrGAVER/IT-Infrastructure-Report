@@ -1,10 +1,20 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
 
 defineProps<{ open: boolean }>()
-defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: [] }>()
 
 const organization = useOrganizationStore()
+const auth = useAuthStore()
+const router = useRouter()
+
+async function logout() {
+  await auth.logout()
+  emit('close')
+  router.replace({ name: 'login' })
+}
 
 const primaryNav = [
   { to: '/dashboard', icon: 'i-home', label: 'Дашборд' },
@@ -68,12 +78,23 @@ const systemNav = [
     </ul>
 
     <div class="sidebar-foot">
+      <div v-if="auth.enabled && auth.user" class="user-badge">
+        <svg class="icon"><use href="/icons.svg#i-user" /></svg>
+        <span class="user-name">{{ auth.user.username }}</span>
+        <span class="user-role">{{ auth.isAdmin ? 'администратор' : 'просмотр' }}</span>
+      </div>
       <ul class="nav">
         <li>
           <router-link to="/settings" @click="$emit('close')">
             <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
             Настройки
           </router-link>
+        </li>
+        <li v-if="auth.enabled && auth.user">
+          <button type="button" class="nav-button" @click="logout">
+            <svg class="icon"><use href="/icons.svg#i-log-out" /></svg>
+            Выйти
+          </button>
         </li>
       </ul>
     </div>
@@ -165,6 +186,50 @@ const systemNav = [
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+.user-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 10px;
+  font-size: 12px;
+}
+.user-badge .icon {
+  color: var(--ink-muted);
+}
+.user-name {
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-role {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.nav-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-s);
+  color: var(--ink-muted);
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  font-size: 12.8px;
+  font-weight: 500;
+  font-family: inherit;
+  text-align: left;
+}
+.nav-button:hover {
+  background: var(--surface-2);
+  color: var(--ink);
 }
 
 @media (max-width: 760px) {
