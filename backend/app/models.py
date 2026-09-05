@@ -207,6 +207,12 @@ class DeviceInterface(TimestampMixin, Base):
     is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_data_transfer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    # 'access' | 'trunk' — режим порта (п.1.4.3.2 / фикс п.1.3.9). Хранится на самом интерфейсе, а
+    # не выводится из InterfaceVLAN.mode: при 0 назначенных VLAN на интерфейсе нет ни одной связи
+    # interface_vlans, из которой можно было бы восстановить режим при следующей загрузке — без
+    # этого поля access-порт без VLAN после сохранения и перезагрузки формы молча превращался в
+    # trunk (см. миграцию 5b5ea0e81d32 для бэкфилла существующих данных).
+    vlan_mode: Mapped[str] = mapped_column(String(10), default="trunk", server_default="trunk", nullable=False)
 
 
 class InterfaceType(TimestampMixin, Base):

@@ -40,12 +40,12 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
       is_data_transfer: x.is_data_transfer,
       description: x.description ?? '',
       vlan_ids: links.map((v) => v.vlan_id),
-      // mode хранится на каждой связи interface-vlan, но проставляется одним и тем же значением
-      // на все связи одного интерфейса при сохранении (см. persistDeviceInterfaces ниже) — берём
-      // mode первой связи. Нет связей или mode нигде не 'access' (в т.ч. весь исторический массив
-      // данных, заведённый до п.1.4.3.2, где backend всегда получал vlan_mode=null) -> 'trunk' по
-      // умолчанию, как и требует п.1.4.3.2 ("используются все vlan (по умолчанию)").
-      vlan_mode: links.length > 0 && links.every((v) => v.mode === 'access') ? 'access' : 'trunk',
+      // Фикс п.1.3.9: раньше режим порта выводился из InterfaceVLAN.mode ("trunk", если связей
+      // нет или их mode не везде 'access') — при 0 VLAN на порту связей не было вовсе, и
+      // access-режим без выбранного VLAN откатывался в trunk после каждого сохранения+
+      // перезагрузки формы. Теперь режим читается напрямую с самого интерфейса
+      // (DeviceInterface.vlan_mode, backend/app/models.py) — источник истины, не вывод.
+      vlan_mode: x.vlan_mode,
       ips: allIps.items
         .filter((ip) => ip.interface_id === x.id)
         .map((ip) => ({

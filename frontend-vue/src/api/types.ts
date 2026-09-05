@@ -45,6 +45,7 @@ export interface DeviceInterface extends CatalogItem {
   is_management: boolean
   is_data_transfer: boolean
   description: string | null
+  vlan_mode: 'access' | 'trunk'
 }
 
 /** GET /resources/connections — идёт через общий {items,total,offset,limit}, но
@@ -311,7 +312,11 @@ export interface ISSourceDraftRow {
  * устройства (Лист 3 отчёта). Persist идёт НЕ через обычный CRUD /resources/interfaces, а через
  * атомарный PUT /api/v1/devices/{device_id}/interfaces (см. backend/app/services/crud.py:
  * sync_interfaces) — он одним запросом создаёт/обновляет/удаляет интерфейсы и их IP по diff'у с
- * тем, что уже есть в БД, и заодно валидирует vlan_ids. См. DeviceInterfacesEditor.vue. */
+ * тем, что уже есть в БД, и заодно валидирует vlan_ids. См. DeviceInterfacesEditor.vue.
+ *
+ * vlan_mode (фикс п.1.3.9) — хранится на самом интерфейсе (backend/app/models.py), а не выводится
+ * из InterfaceVLAN.mode: при 0 назначенных VLAN связей нет вовсе, и без своей колонки режим
+ * "access" было неоткуда восстановить при следующей загрузке (см. миграцию 5b5ea0e81d32). */
 export interface DeviceInterface {
   id: string
   physical_device_id: string
@@ -322,6 +327,7 @@ export interface DeviceInterface {
   is_management: boolean
   is_data_transfer: boolean
   description: string | null
+  vlan_mode: 'access' | 'trunk'
 }
 
 /** GET /api/v1/resources/interface-ips?interface_id=... — см. комментарий к DeviceInterface. */
@@ -346,8 +352,9 @@ export interface DeviceTypeVLAN {
 
 /** GET /api/v1/resources/interface-vlans?interface_id=... — назначение VLAN конкретному порту
  * (в отличие от DeviceVLAN — тот на устройство целиком). Список VLAN редактируется через
- * чекбоксы "VLAN на порту" в DeviceInterfacesEditor.vue (см. InterfaceDraftRow.vlan_ids), режим
- * mode — через переключатель Access/Trunk там же (см. InterfaceDraftRow.vlan_mode, п.1.4.3.2). */
+ * чекбоксы "VLAN на порту" в DeviceInterfacesEditor.vue (см. InterfaceDraftRow.vlan_ids). mode —
+ * копия DeviceInterface.vlan_mode на момент сохранения (см. её комментарий и фикс п.1.3.9);
+ * источник истины для режима порта — сам интерфейс, а не эта связь. */
 export interface InterfaceVLAN {
   id: string
   interface_id: string
@@ -371,14 +378,14 @@ export interface InterfaceIpDraftRow {
  *
  * vlan_mode (п.1.4.3.2) — режим порта: 'access' (ровно один VLAN) или 'trunk' (несколько VLAN,
  * в т.ч. "все" — это просто состояние, когда vlan_ids покрывает весь vlanOptions, отдельного
- * флага под это не заводили). Раньше в этом редакторе не редактировалось (см. комментарий к
- * InterfaceVLAN.mode ниже) — backend уже принимал и хранил item.vlan_mode на PUT
- * /devices/{id}/interfaces (см. _sync_single_interface в crud.py), просто UI его не показывал и
- * не отправлял. mode хранится в БД на каждой связи InterfaceVLAN, а не на самом интерфейсе —
- * при сохранении одно и то же значение vlan_mode проставляется на ВСЕ связи интерфейса разом
- * (см. persistDeviceInterfaces), поэтому при загрузке достаточно взять mode первой связи (см.
- * loadDeviceInterfaceDraftRows) — расхождений между связями одного интерфейса в норме не бывает,
- * т.к. другого пути их создать, кроме как через эту же форму, нет. */
+ * флага под это не заводили). Хранится на самом DeviceInterface.vlan_mode (фикс п.1.3.9,
+ * backend/app/models.py + миграция 5b5ea0e81d32) — round-trip'ится через loadDeviceInterfaceDraftRows
+ * / persistDeviceInterfaces напрямую, без вывода из связей. Раньше режим хранился только на
+ * каждой связи InterfaceVLAN.mode и выводился как "trunk, если связей нет или их mode не везде
+ * 'access'" — при 0 VLAN на порту связей не было вовсе, и access-режим без выбранного VLAN молча
+ * откатывался в trunk после каждого сохранения+перезагрузки формы. item.vlan_mode по-прежнему
+ * дублируется и на InterfaceVLAN.mode при сохранении (см. _sync_single_interface в crud.py) —
+ * это не источник истины, а просто согласованность данных для любого другого читающего кода. */
 export interface InterfaceDraftRow {
   id?: string
   name: string
