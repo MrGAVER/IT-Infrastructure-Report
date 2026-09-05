@@ -111,6 +111,39 @@ class VLANUpdate(BaseModel):
     domain_id: Optional[str] = None
 
 
+# --- Аутентификация (api/auth.py) ---------------------------------------------------------
+# Не входят в RESOURCE_SCHEMAS ниже: /api/v1/auth/* не проходит через generic CRUD
+# (services/crud.py) — учётным записям нужны хеширование пароля и своя проверка прав, а не
+# сырой dict напрямую в модель.
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    username: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=1)
+
+
+class UserCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    username: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=1)
+    role: str = "viewer"
+
+
+class UserUpdateRequest(BaseModel):
+    """Все поля опциональны — PUT применяет только присланные ключи (то же частичное обновление,
+    что и в generic CRUD, см. PhysicalDeviceUpdate выше)."""
+    model_config = ConfigDict(extra="ignore")
+    username: Optional[str] = Field(default=None, min_length=1, max_length=150)
+    password: Optional[str] = Field(default=None, min_length=1)
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class AuthSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    enabled: bool
+
+
 # Ресурс (ключ registry.MODEL_MAP) -> (схема для create, схема для update).
 # Ресурсы, не перечисленные здесь, продолжают проходить через generic CRUD как сырой dict —
 # это осознанное инкрементальное покрытие, а не временное состояние одного ресурса.
