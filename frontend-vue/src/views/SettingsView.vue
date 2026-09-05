@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import AuthSettingsPanel from '../components/AuthSettingsPanel.vue'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
 import { useThemeStore, COLOR_SCHEMES } from '../stores/theme'
 import { useOrganizationStore, DEFAULT_ORGANIZATION_NAME } from '../stores/organization'
@@ -70,6 +71,8 @@ function resetToDefault() {
         </div>
       </div>
     </section>
+
+    <AuthSettingsPanel />
   </div>
 </template>
 
