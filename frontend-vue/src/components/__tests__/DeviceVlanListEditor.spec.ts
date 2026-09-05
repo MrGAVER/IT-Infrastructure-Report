@@ -104,7 +104,9 @@ describe('DeviceVlanListEditor.vue', () => {
 
       const emitted = wrapper.emitted('update:modelValue')!
       expect((emitted[0][0] as DeviceVlanDraftRow[])[0].vlan_id).toBe('v-new')
-      expect(wrapper.emitted('vlan-created')).toBeTruthy()
+      // Полная запись, а не просто факт создания — родителю (DeviceFormModal.vue) нужен
+      // domain_id, чтобы при необходимости добавить устройство в участники домена (фикс п.1.3.8).
+      expect(wrapper.emitted('vlan-created')?.[0]).toEqual([{ id: 'v-new', vlan_id: 42, name: 'Гостевой' }])
     })
   })
 })

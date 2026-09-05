@@ -78,8 +78,16 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | 
  * round-trip'ятся туда-обратно неизменными и НЕ стираются молча. vlan_mode round-trip'ится по
  * тому же принципу (п.1.4.3.2).
  *
+ * Чистый API-вызов: НЕ обновляет catalogs.items['interfaces'] сама — этот модуль намеренно не
+ * знает про Pinia-сторы (см. комментарий в шапке файла). Вызывающая сторона обязана сама
+ * прогнать результат через catalogs.replaceDeviceInterfaces(deviceId, items) — иначе другие
+ * компоненты, читающие этот кэш (напр. поле "Порт" в ConnectionFormModal.vue), продолжат
+ * видеть старые данные до перезагрузки страницы. Забыли сделать это в DeviceFormModal.vue —
+ * фикс п.3.1; DevicePortsModal.vue делал это с самого начала, см. её submit().
+ *
  * @example
  * const { items } = await persistDeviceInterfaces('dev-123', rows)
+ * catalogs.replaceDeviceInterfaces('dev-123', items)
  */
 export async function persistDeviceInterfaces(deviceId: string, rows: InterfaceDraftRow[]): Promise<{ items: DeviceInterface[] }> {
   return api.put<{ items: DeviceInterface[] }>(`/devices/${deviceId}/interfaces`, {

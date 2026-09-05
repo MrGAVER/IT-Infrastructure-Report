@@ -287,6 +287,36 @@ describe('DeviceFormModal.vue', () => {
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
+  it('п.3.1: после сохранения устройства catalogs.items[\'interfaces\'] обновляется — без этого поле "Порт" в форме подключения оставалось пустым до перезагрузки страницы', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [] // как в реальности сразу после старта приложения — у нового устройства портов ещё не видел никто
+
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.iface-table input.cell-input').setValue('eth0')
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'POST' && url.includes('/resources/devices')) {
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-6' }), { status: 201 })
+        }
+        if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
+          return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', vlan_mode: 'access' }] }))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-6')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(catalogs.items['interfaces']).toEqual([{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', vlan_mode: 'access' }])
+  })
+
   it('не стирает VLAN интерфейса, назначенные через /legacy, при сохранении без их редактирования', async () => {
     // Регрессия: backend/app/services/crud.py:_sync_single_interface полностью пересоздаёт
     // InterfaceVLAN из payload['vlan_ids'] при каждом PUT — отправка [] стёрла бы VLAN,
@@ -380,6 +410,80 @@ describe('DeviceFormModal.vue', () => {
     const labels = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all)').map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
+  })
+
+  it('п.1.3.8: VLAN нового домена, в котором устройство не состоит, остаётся выбираемым и не ломает сохранение', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = []
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+    catalogs.items['vlan-domains'] = [{ id: 'domain-x', name: 'Домен X' }]
+
+    const device = { id: 'dev-8', device_type_id: 'dt-server', serial_number: 'SN-20' } as never
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        // Устройство пока НЕ состоит ни в одном домене VLAN — воспроизводит саму суть бага:
+        // "в справочнике vlan устройство не добавлено в этот домен".
+        if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }
+        if (method === 'POST' && url.endsWith('/resources/vlans')) {
+          return new Response(JSON.stringify({ id: 'v-new', vlan_id: 55, name: 'Гостевой-X', domain_id: 'domain-x' }), { status: 201 })
+        }
+        if (url.includes('/vlan-dashboard')) {
+          // useVLANsStore().reload() — вызывается из onVlanCreated() в DeviceFormModal.vue сразу
+          // после создания, иначе только что заведённый VLAN не попал бы в vlansStore.allDefinitions
+          // (а значит и в availableVlans) до следующей полной перезагрузки стора.
+          return new Response(
+            JSON.stringify({
+              items: [{ vlan_id: 55, definitions: [{ id: 'v-new', vlan_id: 55, name: 'Гостевой-X', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }] }],
+            }),
+          )
+        }
+        if (method === 'PUT' && url.includes('/resources/devices/dev-8')) {
+          return new Response(JSON.stringify(device))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    // .add-btn — общий класс у всех nested-editor'ов (Открытые порты/ПО/VLAN и т.п.), поэтому
+    // ищем именно блок "VLAN устройства" по его собственному заголовку, а не просто первый попавшийся.
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    await vlanEditor.find('.add-btn').trigger('click') // добавляет пустую строку VLAN устройства
+    await vlanEditor.find('.col-vlan button').trigger('click') // "+" у неё — открывает "Добавить: VLAN"
+    const body = new DOMWrapper(document.body)
+    await body.find('input[type="number"]').setValue(55)
+    await body.findAll('input[type="text"]')[0].setValue('Гостевой-X')
+    await body.find('.fk-row .searchable-select input').trigger('focus')
+    await body.find('.fk-row .ss-option').trigger('mousedown') // единственная опция — "Домен X"
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    // Фикс п.1.3.8, часть 1: VLAN не выпал из options сразу после создания — есть совпадающий
+    // <option>, а не "висящий" vlan_id без него (что визуально выглядело бы как сброс выбора).
+    expect(wrapper.find('option[value="v-new"]').exists()).toBe(true)
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Фикс п.1.3.8, часть 2: устройство реально закреплено за доменом на бэкенде — иначе
+    // backend/app/services/crud.py:_validate_physical_device_vlan откатил бы device-vlans
+    // с 422 "Устройство не включено в домен этого VLAN".
+    const membershipIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
+    const deviceVlanIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/device-vlans'))
+    expect(membershipIdx).toBeGreaterThanOrEqual(0)
+    expect(calls[membershipIdx].body).toEqual({ physical_device_id: 'dev-8', domain_id: 'domain-x' })
+    expect(deviceVlanIdx).toBeGreaterThan(membershipIdx) // порядок важен — см. комментарий в submit()
   })
 
   it('снятие VLAN устройства убирает его из vlan_ids уже заведённого порта при сохранении', async () => {

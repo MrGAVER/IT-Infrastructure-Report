@@ -61,12 +61,26 @@ const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
 const memberDomainIds = ref<Set<string>>(new Set())
+// Фикс п.1.3.8: домены VLAN на форме устройства — read-only список (галочки участников
+// редактируются только в VLANDomainsPanel.vue, см. комментарий в DeviceVlanListEditor.vue), но
+// нет способа стать участником домена, который только что создан ЗДЕСЬ ЖЕ, вложенным
+// быстрым добавлением при заведении VLAN (domain_id -> nestedQuickAdd в quickAdd/schema.ts) —
+// созданный VLAN принадлежит домену, в котором устройство не состоит, и availableVlans ниже его
+// тут же отфильтровывает: VLAN "создался", но выбрать его для устройства не получалось.
+// pendingDomainMemberships — домены, добавленные в САМ availableVlans локально (сразу же
+// возвращает VLAN в список опций), и которые ещё предстоит закрепить на бэкенде при сохранении
+// формы (см. submit() ниже) — тот же принцип staged-черновика, что у interfaces/deviceVlans и
+// остальных вложенных списков этой формы, просто без отдельного UI-редактора для него.
+const pendingDomainMemberships = ref<Set<string>>(new Set())
 const deviceTypeVlanIds = ref<Set<string>>(new Set())
 const loadingNested = ref(false)
 
 // VLAN без домена доступны всем устройствам; доменные — только участникам домена (то же
-// правило, что loadDeviceVlanEditor() в frontend/static/device-interfaces.js).
-const availableVlans = computed(() => vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id)))
+// правило, что loadDeviceVlanEditor() в frontend/static/device-interfaces.js). pendingDomainMemberships
+// объединяется с уже подтверждённым membership — см. комментарий к ней выше (фикс п.1.3.8).
+const availableVlans = computed(() =>
+  vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id) || pendingDomainMemberships.value.has(v.domain_id)),
+)
 
 // Опции для чекбоксов "VLAN на порту" (DeviceInterfacesEditor.vue) — НЕ то же самое, что
 // availableVlans выше: тот отвечает "что можно НАЗНАЧИТЬ устройству" (фильтр по домену), этот —
@@ -139,6 +153,7 @@ watch(
     interfaces.value = []
     deviceVlans.value = []
     memberDomainIds.value = new Set()
+    pendingDomainMemberships.value = new Set()
     deviceTypeVlanIds.value = new Set()
     if (d) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
@@ -335,6 +350,18 @@ function onRackCreated(record: CatalogItem) {
   form.rack_id = rack.id
 }
 
+// Фикс п.1.3.8: см. комментарий у pendingDomainMemberships/availableVlans выше. domain_id может
+// отсутствовать (VLAN без домена — общедоступен всем устройствам без каких-либо условий, тут
+// добавлять нечего) или уже быть в числе подтверждённых участников (обычный, самый частый
+// случай — тут тоже добавлять нечего, только оверхед на бэкенде при сохранении).
+function onVlanCreated(record: CatalogItem) {
+  vlansStore.reload()
+  const domainId = (record as { domain_id?: string | null }).domain_id
+  if (domainId && !memberDomainIds.value.has(domainId)) {
+    pendingDomainMemberships.value = new Set([...pendingDomainMemberships.value, domainId])
+  }
+}
+
 // Delete-затем-recreate — тот же приём и то же обоснование (маленькие списки, простота важнее
 // diff-логики), что persistVmIps()/persistOpenPorts() в VMFormModal.vue.
 async function persistOpenPorts(deviceId: string) {
@@ -373,6 +400,17 @@ async function persistSoftwareAssets(deviceId: string) {
 
 // Delete-затем-recreate (НЕ через атомарный PUT, в отличие от persistInterfaces ниже) — тем же
 // приёмом, что и в vanilla-версии (saveDeviceVlans в frontend/static/device-interfaces.js).
+// Фикс п.1.3.8: закрепляет на бэкенде членство устройства в доменах, добавленных локально через
+// onVlanCreated() выше (см. её комментарий и комментарий к pendingDomainMemberships). ДО
+// persistDeviceVlans() ниже — _validate_physical_device_vlan в backend/app/services/crud.py
+// проверяет членство устройства в домене VLAN при сохранении device-vlans и отклоняет запись
+// с 422 "Устройство не включено в домен этого VLAN", если членства ещё нет.
+async function persistPendingDomainMemberships(deviceId: string) {
+  for (const domainId of pendingDomainMemberships.value) {
+    await createResource('vlan-domain-devices', { physical_device_id: deviceId, domain_id: domainId })
+  }
+}
+
 async function persistDeviceVlans(deviceId: string) {
   const existing = await listResource<DeviceVLAN>('device-vlans', { physical_device_id: deviceId, limit: 1000 })
   for (const old of existing.items) {
@@ -420,6 +458,7 @@ async function submit() {
           : await createResource<Device>('devices', payload)
         await persistOpenPorts(saved.id)
         await persistSoftwareAssets(saved.id)
+        await persistPendingDomainMemberships(saved.id)
         // persistDeviceVlans ДО persistDeviceInterfaces (не как раньше) — sync_interfaces на
         // бэкенде проверяет vlan_ids порта против уже сохранённых в БД PhysicalDeviceVLAN (см.
         // allowed_vlans в backend/app/services/crud.py). Если VLAN только что добавлен в блок
@@ -428,7 +467,15 @@ async function submit() {
         await persistDeviceVlans(saved.id)
         // Атомарный PUT (не через generic createResource/deleteResource, как выше) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
-        await persistDeviceInterfaces(saved.id, interfaces.value)
+        const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, interfaces.value)
+        // Фикс п.3.1: без этого catalogs.items['interfaces'] не узнаёт о только что
+        // сохранённых портах устройства (persistDeviceInterfaces — чистый API-вызов, сам кэш
+        // каталогов не трогает по дизайну, см. её комментарий), и поле "Порт" в форме
+        // подключения (ConnectionFormModal.vue, читает ровно этот кэш) оставалось пустым для
+        // нового устройства до жёсткой перезагрузки страницы, обнуляющей кэш и вызывающей
+        // catalogs.reload() заново. DevicePortsModal.vue делает этот же вызов уже сейчас —
+        // здесь его просто не было для основного пути создания/редактирования устройства.
+        catalogs.replaceDeviceInterfaces(saved.id, savedInterfaces)
         emit('saved', saved)
         return
       } catch (err) {
@@ -571,7 +618,7 @@ async function submit() {
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
         />
-        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" @vlan-created="vlansStore.reload()" />
+        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" @vlan-created="onVlanCreated" />
       </form>
 
       <div class="modal-foot">
