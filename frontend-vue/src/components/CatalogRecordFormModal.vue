@@ -180,7 +180,10 @@ async function removeItem() {
 }
 .modal {
   width: 100%;
-  max-width: 460px;
+  /* Фикс п.1.3.6: тот же узкий 460px и та же причина обрезки текста в fk-полях, что и в
+     QuickAddModal.vue (см. её комментарий) — это тот же класс форм ("Другие справочники"),
+     страдающий от той же формы-грида 1fr 1fr. */
+  max-width: clamp(460px, 34vw, 640px);
   padding: 20px 22px 18px;
 }
 .modal-head {

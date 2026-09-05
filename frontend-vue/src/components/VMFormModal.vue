@@ -295,7 +295,9 @@ async function submit() {
 }
 .modal {
   width: 100%;
-  max-width: 600px;
+  /* Фикс п.4.1: было 600px фиксированных — ширина окна редактирования ВМ должна быть как у
+     "Добавления устройства" (DeviceFormModal.vue), см. её комментарий про clamp(). */
+  max-width: clamp(640px, 50vw, 1100px);
   padding: 20px 22px 18px;
 }
 .modal-head {
