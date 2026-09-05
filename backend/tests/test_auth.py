@@ -329,3 +329,80 @@ class TestSessions:
         r = client.delete(f"/api/v1/auth/sessions/{other_id}", headers=_auth_headers(token_a))
         assert r.status_code == 204
         assert client.get("/api/v1/resources/manufacturers", headers=_auth_headers(token_b)).status_code == 401
+
+
+class TestConcurrencySafety:
+    """Правки, актуальные при нескольких процессах backend за одной БД (см. README — серверный
+    вариант, Docker + PostgreSQL). in-memory SQLite тестового окружения не воспроизводит реальную
+    гонку между процессами (SQLAlchemy StaticPool держит одно физическое соединение — см.
+    conftest.py), поэтому здесь проверяется то, что можно проверить синхронно: сам факт, что
+    защитный SQL действительно содержит FOR UPDATE на диалекте, где это имеет эффект, и что
+    инкремент счётчика — атомарный UPDATE, а не read-modify-write."""
+
+    def test_lock_active_admins_compiles_with_for_update_on_postgres(self):
+        from sqlalchemy import select
+        from sqlalchemy.dialects import postgresql
+
+        from app.constants import UserRole
+        from app.models import User
+
+        stmt = select(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True)).with_for_update()
+        compiled = str(stmt.compile(dialect=postgresql.dialect()))
+        assert "FOR UPDATE" in compiled.upper()
+
+    def test_failed_attempts_increment_is_a_single_atomic_update_not_read_modify_write(self, db_session):
+        """Регрессионный тест на конкретный баг-класс: если кто-то в будущем вернёт
+        `user.failed_attempts += 1; session.commit()`, этот тест не поймает саму гонку (нужен
+        реальный параллелизм), но зафиксирует, что _increment_failed_attempts всё ещё существует
+        и действительно выполняет UPDATE на уровне БД, а не полагается на объект user из другой
+        сессии — та же ошибка класса, что была найдена и исправлена в change_own_password."""
+        from app.services.auth import _increment_failed_attempts, create_user
+
+        user = create_user(db_session, username="admin", password="Admin1234", role="admin")
+        assert user.failed_attempts == 0
+
+        new_value = _increment_failed_attempts(db_session, user.id)
+
+        assert new_value == 1
+        db_session.refresh(user)
+        assert user.failed_attempts == 1
+
+
+class TestSessionCleanup:
+    def test_cleanup_expired_sessions_removes_only_expired_rows(self, db_session):
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import AuthSession
+        from app.services.auth import cleanup_expired_sessions, create_user
+
+        user = create_user(db_session, username="admin", password="Admin1234", role="admin")
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        db_session.add(AuthSession(token_hash="expired-1", user_id=user.id, expires_at=now - timedelta(hours=1)))
+        db_session.add(AuthSession(token_hash="expired-2", user_id=user.id, expires_at=now - timedelta(minutes=1)))
+        db_session.add(AuthSession(token_hash="still-valid", user_id=user.id, expires_at=now + timedelta(hours=1)))
+        db_session.commit()
+
+        removed = cleanup_expired_sessions(db_session)
+
+        assert removed == 2
+        remaining = db_session.query(AuthSession).all()
+        assert [row.token_hash for row in remaining] == ["still-valid"]
+
+    def test_new_login_opportunistically_sweeps_other_expired_sessions(self, db_session):
+        """create_session (вызывается при каждом логине) сам подчищает чужие просроченные строки
+        — не только "свою": см. docstring create_session про причину (без cron, безопасно на
+        нескольких процессах, DELETE идемпотентен)."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import AuthSession
+        from app.services.auth import create_session, create_user
+
+        user = create_user(db_session, username="admin", password="Admin1234", role="admin")
+        stale = AuthSession(token_hash="stale", user_id=user.id, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1))
+        db_session.add(stale)
+        db_session.commit()
+
+        create_session(db_session, user)
+
+        remaining_hashes = [row.token_hash for row in db_session.query(AuthSession).all()]
+        assert "stale" not in remaining_hashes

@@ -28,7 +28,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -130,19 +130,39 @@ def find_user_by_username(session: Session, username: str) -> Optional[User]:
     return None
 
 
-def count_active_admins(session: Session, *, exclude_user_id: Optional[str] = None) -> int:
-    stmt = select(func.count()).select_from(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True))
-    if exclude_user_id is not None:
-        stmt = stmt.where(User.id != exclude_user_id)
-    return session.scalar(stmt) or 0
+def _lock_active_admins(session: Session) -> list[User]:
+    """SELECT ... FOR UPDATE по ВСЕМ активным администраторам (не исключая никого) — задел на
+    многопроцессный деплой (см. README: серверный вариант — Docker + PostgreSQL, несколько
+    процессов backend за одной БД). Без блокировки строк «проверить количество, затем изменить»
+    — это классический TOCTOU: два администратора A и B, каждый на СВОЁМ процессе одновременно
+    разжалуют/удаляют себя или друг друга — оба параллельно читают «остался ещё один админ» (видя
+    ДРУГ ДРУГА как безопасную гарантию) и оба проходят проверку, итог — ноль администраторов.
+
+    Лочить нужно ВЕСЬ набор активных админов, а не «остальных, кроме текущего» — иначе транзакция
+    над A блокирует только строку B, транзакция над B блокирует только строку A: блокировки не
+    пересекаются, гонка никуда не уходит. Блокируя одинаковый набор строк в обеих транзакциях,
+    вторая обязана дождаться коммита первой и затем увидит уже актуальное (после первого
+    изменения) состояние — что и требуется для корректной проверки.
+
+    На SQLite FOR UPDATE — безопасный no-op (проверено эмпирически, диалект просто не рендерит
+    предложение): гонка там и так невозможна — SQLite сериализует писателей на уровне файла БД
+    целиком, а не по строкам. Полноценный эффект блокировки нужен и проявляется только на
+    PostgreSQL при нескольких одновременно пишущих процессах/инстансах backend."""
+    return list(session.scalars(
+        select(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True)).with_for_update()
+    ).all())
 
 
 def ensure_not_last_admin(session: Session, user: User) -> None:
     """Запрещает удалить/деактивировать/понизить в правах единственную оставшуюся активную
     учётную запись администратора — иначе при включённой аутентификации администрировать её
     (в т.ч. снова выключить переключатель) стало бы физически некому, включая того, кто совершает
-    это действие."""
-    if user.role == UserRole.ADMIN and user.is_active and count_active_admins(session, exclude_user_id=user.id) == 0:
+    это действие. Вызывающий должен находиться в той же транзакции, что и последующая мутация
+    (см. _lock_active_admins) — только тогда блокировка строк реально что-то гарантирует."""
+    if user.role != UserRole.ADMIN or not user.is_active:
+        return
+    remaining_others = sum(1 for admin in _lock_active_admins(session) if admin.id != user.id)
+    if remaining_others == 0:
         raise HTTPException(400, {
             "message": "Нельзя удалить или лишить прав последнего активного администратора.",
             "code": ErrorCode.LAST_ADMIN_ACCOUNT,
@@ -281,7 +301,7 @@ def get_or_create_auth_settings(session: Session) -> AuthSettings:
 
 def set_auth_enabled(session: Session, enabled: bool, *, actor: Optional[User] = None) -> AuthSettings:
     settings_row = get_or_create_auth_settings(session)
-    if enabled and not settings_row.enabled and count_active_admins(session) == 0:
+    if enabled and not settings_row.enabled and len(_lock_active_admins(session)) == 0:
         raise HTTPException(400, {
             "message": "Нельзя включить аутентификацию: сначала создайте хотя бы одного активного "
                        "пользователя с ролью «Администратор» (раздел «Пользователи» в настройках).",
@@ -309,6 +329,14 @@ def _hash_token(token: str) -> str:
 
 
 def create_session(session: Session, user: User, *, request: Optional[Request] = None) -> str:
+    """Заодно подчищает чужие истёкшие сессии (см. cleanup_expired_sessions) — ленивая уборка по
+    месту, а не отдельный планировщик/cron: при нескольких процессах backend за одной БД (см.
+    README, серверный вариант) каждый процесс подчищает независимо, DELETE идемпотентен — двум
+    процессам, случайно попытавшимся убрать одну и ту же просроченную строку одновременно, ничего
+    не грозит, второй просто удалит 0 строк. Без этого auth_sessions только растёт: строка
+    сейчас удаляется явно лишь при logout или при попытке использовать именно этот истёкший
+    токен (resolve_session) — большинство сессий тихо истекают, и это неизбежно копится."""
+    cleanup_expired_sessions(session)
     token = _generate_token()
     row = AuthSession(
         token_hash=_hash_token(token),
@@ -320,6 +348,15 @@ def create_session(session: Session, user: User, *, request: Optional[Request] =
     session.add(row)
     session.commit()
     return token
+
+
+def cleanup_expired_sessions(session: Session) -> int:
+    """Удаляет ВСЕ просроченные сессии (всех пользователей), не только текущего — вызывается на
+    каждый логин (см. create_session). Возвращает количество удалённых строк (пригодится, если
+    когда-нибудь понадобится залогировать/промониторить объём)."""
+    result = session.execute(delete(AuthSession).where(AuthSession.expires_at < _now()))
+    session.commit()
+    return result.rowcount or 0
 
 
 def resolve_session(session: Session, token: str) -> Optional[User]:
@@ -388,6 +425,21 @@ def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) 
 _INVALID_CREDENTIALS = HTTPException(401, "Неверное имя пользователя или пароль.")
 
 
+def _increment_failed_attempts(session: Session, user_id: str) -> int:
+    """Атомарный `UPDATE ... SET failed_attempts = failed_attempts + 1` в самой БД — а не
+    read-modify-write в Python (было: `user.failed_attempts += 1; session.commit()`). При
+    нескольких процессах backend за общей БД (см. README — серверный вариант, Docker+PostgreSQL)
+    два параллельных неверных пароля от ОДНОГО пользователя, обработанные разными процессами
+    почти одновременно, иначе могли оба прочитать один и тот же старый счётчик и оба записать
+    n+1 вместо n+2 — теряя попытку из порога AUTH_MAX_FAILED_ATTEMPTS. Postgres выполняет такой
+    UPDATE атомарно на уровне строки независимо от уровня изоляции; на SQLite вопрос не стоит —
+    она и так сериализует писателей на уровне файла БД целиком. Возвращает значение после
+    инкремента (отдельным SELECT, не RETURNING — совместимо со старыми сборками SQLite)."""
+    session.execute(update(User).where(User.id == user_id).values(failed_attempts=User.failed_attempts + 1))
+    session.commit()
+    return session.scalar(select(User.failed_attempts).where(User.id == user_id)) or 0
+
+
 def authenticate(session: Session, username: str, password: str, *, request: Optional[Request] = None) -> tuple[User, str]:
     """Возвращает (пользователь, токен сессии) либо кидает HTTPException. Намеренно не различает
     в тексте ошибки «нет такого пользователя» и «неверный пароль» (защита от перебора логинов) —
@@ -410,12 +462,16 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         })
 
     if not verify_password(password, user.password_hash):
-        user.failed_attempts += 1
-        locked_now = user.failed_attempts >= AUTH_MAX_FAILED_ATTEMPTS
+        new_attempts = _increment_failed_attempts(session, user.id)
+        locked_now = new_attempts >= AUTH_MAX_FAILED_ATTEMPTS
         if locked_now:
-            user.locked_until = now + timedelta(minutes=AUTH_LOCKOUT_MINUTES)
-            user.failed_attempts = 0
-        session.commit()
+            # Тоже атомарный UPDATE, не user.locked_until = ...; session.commit() — user здесь
+            # уже мог устареть относительно счётчика, только что изменённого выше отдельным
+            # запросом (см. _increment_failed_attempts); пишем оба поля явным UPDATE по id.
+            session.execute(update(User).where(User.id == user.id).values(
+                locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
+            ))
+            session.commit()
         audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
               f"Неудачная попытка входа «{user.username}»" + (" — учётная запись заблокирована" if locked_now else ""))
         session.commit()
