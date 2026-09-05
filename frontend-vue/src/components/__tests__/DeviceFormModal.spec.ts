@@ -545,6 +545,25 @@ describe('DeviceFormModal.vue', () => {
     expect((select.element as HTMLSelectElement).value).toBe('type:dt-server')
   })
 
+  it('п.1.3.7: option модели показывает производителя целиком ("Cisco WS-C2960-48TD-L"), не только модель', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['manufacturers'] = [{ id: 'mf-cisco', name: 'Cisco' }]
+    catalogs.items['device-models'] = [
+      { id: 'dm-1', name: 'WS-C2960-48TD-L', manufacturer_id: 'mf-cisco', device_type_id: 'dt-net', model: 'WS-C2960-48TD-L' },
+    ]
+    await wrapper.vm.$nextTick()
+
+    const select = wrapper.find('.form-grid .lookup-row select')
+    const options = select.findAll('option')
+    const modelOption = options.find((o) => (o.element as HTMLOptionElement).value === 'model:dm-1')
+    expect(modelOption?.text()).toBe('Cisco WS-C2960-48TD-L')
+    // Закрытый select после выбора показывает ТОЛЬКО текст option (заголовок optgroup не виден) —
+    // это и есть тот сценарий, где раньше терялось "чьё это оборудование".
+    await select.setValue('model:dm-1')
+    expect(modelOption?.text()).toContain('Cisco')
+  })
+
   it('быстрое добавление модели устройства синхронизирует тип и производителя формы', async () => {
     const wrapper = await mountWithLoadedCatalogs()
     const catalogs = useCatalogsStore()

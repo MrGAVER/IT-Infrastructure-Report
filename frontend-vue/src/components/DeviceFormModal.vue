@@ -219,6 +219,17 @@ const modelGroups = computed(() => {
     .sort((a, b) => a.manufacturerName.localeCompare(b.manufacturerName, 'ru'))
 })
 
+// Фикс п.1.3.7: option внутри optgroup показывал только "голую" модель (WS-C2960-48TD-L) — это
+// нормально смотрится, ПОКА список открыт (производитель виден как заголовок группы), но после
+// выбора закрытый select показывает ТОЛЬКО текст выбранного option — заголовок optgroup при этом
+// не отображается нигде. В закрытом виде терялось "какой это производитель" (напр. WS-C2960-48TD-L
+// с равным успехом мог быть и Cisco, и OEM-реброндингом другого вендора). Префикс производителя
+// прямо в тексте option чинит именно это, optgroup-группировку при этом не убираем — она всё ещё
+// упрощает поиск глазами по алфавиту производителей, пока список открыт.
+function modelOptionLabel(group: { manufacturerId: string; manufacturerName: string }, model: DeviceModel): string {
+  return group.manufacturerId ? `${group.manufacturerName} ${model.model}` : model.model
+}
+
 const typeModelSelection = computed<string, string | undefined>({
   get() {
     if (form.model_id) return `model:${form.model_id}`
@@ -459,7 +470,7 @@ async function submit() {
                 <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="`type:${t.id}`">{{ t.name }}</option>
               </optgroup>
               <optgroup v-for="g in modelGroups" :key="g.manufacturerId" :label="g.manufacturerName">
-                <option v-for="m in g.models" :key="m.id" :value="`model:${m.id}`">{{ m.model }}</option>
+                <option v-for="m in g.models" :key="m.id" :value="`model:${m.id}`">{{ modelOptionLabel(g, m) }}</option>
               </optgroup>
             </select>
             <QuickAddButton resource="device-models" title="Модель устройства" @created="onModelCreated" />
