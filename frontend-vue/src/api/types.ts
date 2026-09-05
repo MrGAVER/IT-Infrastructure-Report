@@ -739,4 +739,8 @@ export interface AuthSessionInfo {
   expires_at: string
   user_agent: string | null
   ip_address: string | null
+  /** Сессия, которой был выполнен сам запрос GET /auth/sessions (см.
+   * backend/app/services/auth.serialize_session) — не бизнес-данные конкретной сессии, а
+   * relation to "текущий запрос". */
+  current: boolean
 }

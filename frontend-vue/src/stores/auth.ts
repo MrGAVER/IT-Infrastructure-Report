@@ -22,6 +22,8 @@ export const useAuthStore = defineStore('auth', {
     error: null as string | null,
     users: [] as AuthUser[],
     usersLoading: false,
+    sessions: [] as AuthSessionInfo[],
+    sessionsLoading: false,
   }),
   getters: {
     /** Можно показывать защищённые экраны: либо тумблер выключен (однопользовательский режим,
@@ -135,8 +137,30 @@ export const useAuthStore = defineStore('auth', {
       await api.delete(`/auth/users/${id}`)
       this.users = this.users.filter((u) => u.id !== id)
     },
-    fetchMySessions() {
-      return api.get<AuthSessionInfo[]>('/auth/sessions')
+    async fetchMySessions() {
+      this.sessionsLoading = true
+      try {
+        this.sessions = await api.get<AuthSessionInfo[]>('/auth/sessions')
+      } finally {
+        this.sessionsLoading = false
+      }
+    },
+    async revokeSession(id: string) {
+      await api.delete(`/auth/sessions/${id}`)
+      this.sessions = this.sessions.filter((s) => s.id !== id)
+    },
+    /** В отличие от updateUser (админ меняет ЧУЖОЙ пароль), эта смена — собственная, требует
+     * текущий пароль и доступна любой роли (см. backend/app/services/auth.change_own_password).
+     * Сервер сохраняет сессию, которой вызван сам запрос, и отзывает остальные — поэтому здесь
+     * не нужно перевыпускать токен, только освежить список сессий, если он уже был загружен. */
+    async changeOwnPassword(currentPassword: string, newPassword: string): Promise<AuthUser> {
+      const updated = await api.put<AuthUser>('/auth/me/password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      this.user = updated
+      if (this.sessions.length) await this.fetchMySessions()
+      return updated
     },
   },
 })

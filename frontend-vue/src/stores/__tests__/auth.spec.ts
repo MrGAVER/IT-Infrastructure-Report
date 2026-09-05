@@ -130,4 +130,50 @@ describe('useAuthStore', () => {
     auth.user = { ...adminUser, role: 'viewer' }
     expect(auth.isAdmin).toBe(false)
   })
+
+  it('fetchMySessions(): заполняет sessions из ответа сервера', async () => {
+    stubFetch({
+      '/auth/sessions': () => new Response(JSON.stringify([
+        { id: 's1', created_at: '2026-01-01T00:00:00', expires_at: '2026-01-01T12:00:00', user_agent: null, ip_address: '127.0.0.1', current: true },
+      ])),
+    })
+    const auth = useAuthStore()
+
+    await auth.fetchMySessions()
+
+    expect(auth.sessions).toHaveLength(1)
+    expect(auth.sessions[0].current).toBe(true)
+    expect(auth.sessionsLoading).toBe(false)
+  })
+
+  it('revokeSession(): убирает сессию из локального списка после успешного DELETE', async () => {
+    stubFetch({ '/auth/sessions/s2': () => new Response(null, { status: 204 }) })
+    const auth = useAuthStore()
+    auth.sessions = [
+      { id: 's1', created_at: '', expires_at: '', user_agent: null, ip_address: null, current: true },
+      { id: 's2', created_at: '', expires_at: '', user_agent: null, ip_address: null, current: false },
+    ]
+
+    await auth.revokeSession('s2')
+
+    expect(auth.sessions.map((s) => s.id)).toEqual(['s1'])
+  })
+
+  it('changeOwnPassword(): обновляет user из ответа сервера', async () => {
+    const updated = { ...adminUser, username: 'admin' }
+    stubFetch({ '/auth/me/password': () => new Response(JSON.stringify(updated)) })
+    const auth = useAuthStore()
+
+    const result = await auth.changeOwnPassword('OldPass1234', 'NewPass1234')
+
+    expect(result).toEqual(updated)
+    expect(auth.user).toEqual(updated)
+  })
+
+  it('changeOwnPassword(): пробрасывает ApiError при неверном текущем пароле', async () => {
+    stubFetch({ '/auth/me/password': () => new Response(JSON.stringify({ detail: 'Текущий пароль указан неверно.' }), { status: 401 }) })
+    const auth = useAuthStore()
+
+    await expect(auth.changeOwnPassword('wrong', 'NewPass1234')).rejects.toMatchObject({ status: 401 })
+  })
 })
