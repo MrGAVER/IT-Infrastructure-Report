@@ -147,7 +147,14 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'category', label: 'Категория', type: 'text', required: false },
     { name: 'vendor', label: 'Производитель', type: 'text', required: false },
-    { name: 'version', label: 'Версия', type: 'text', required: false },
+    // version намеренно убран отсюда (фикс п.4.4 — "поле 'Версия' дублирует аналогичное поле в
+    // блоке 'Программные активы'"): у SoftwareAsset.name UNIQUE-ограничение — одна запись
+    // каталога на продукт (напр. "1С:Предприятие"), поэтому версия ПРОДУКТА в каталоге в принципе
+    // не может отражать реальность, если этот продукт установлен на разных устройствах/ВМ в
+    // разных версиях. Версия по месту установки — это отдельное поле на самой связи
+    // (VMSoftware.version / DeviceSoftware.version), которое и редактируется в
+    // SoftwareAssetListEditor.vue построчно. Колонка SoftwareAsset.version в БД сохранена
+    // (не удалялась миграцией) — просто эта форма больше её не показывает и не пишет.
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
   departments: [
