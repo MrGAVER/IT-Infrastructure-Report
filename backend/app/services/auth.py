@@ -224,6 +224,30 @@ def delete_user(session: Session, user: User) -> None:
     session.commit()
 
 
+def change_own_password(
+    session: Session, user: User, *, current_password: str, new_password: str, keep_token: Optional[str] = None,
+) -> User:
+    """Самостоятельная смена ПОЛЬЗОВАТЕЛЕМ СВОЕГО пароля — доступна любой роли, включая viewer
+    (см. ROLE_CHECK_EXEMPT_PATHS), в отличие от update_user (смена ЧУЖОГО пароля — только admin).
+    Требует текущий пароль: иначе кратковременно угнанная сессия (расшаренный компьютер,
+    забытая открытой вкладка) позволяла бы захватить учётку насовсем, просто задав новый пароль.
+    keep_token — токен запроса, которым вызвана сама эта смена: его сессия не отзывается, иначе
+    пользователь тут же вылетел бы из только что открытой вкладки настроек; отзываются все
+    ОСТАЛЬНЫЕ его сессии — тот же принцип, что и при смене пароля администратором в update_user."""
+    if not verify_password(current_password, user.password_hash):
+        raise HTTPException(401, "Текущий пароль указан неверно.")
+    validate_password_strength(new_password, username=user.username)
+    user.password_hash = hash_password(new_password)
+    user.failed_attempts = 0
+    user.locked_until = None
+    session.commit()
+    session.refresh(user)
+    audit(session, "users", user.id, AuditAction.UPDATE, f"«{user.username}» сменил(а) собственный пароль")
+    session.commit()
+    revoke_all_sessions_except(session, user.id, keep_token)
+    return user
+
+
 def serialize_user(user: User) -> dict:
     """Публичное представление пользователя — намеренно без password_hash/failed_attempts."""
     return {
@@ -322,11 +346,40 @@ def revoke_all_sessions(session: Session, user_id: str) -> None:
     session.commit()
 
 
+def revoke_all_sessions_except(session: Session, user_id: str, keep_token: Optional[str]) -> None:
+    """Как revoke_all_sessions, но сохраняет одну сессию — ту, которой был вызван именно этот
+    запрос (см. change_own_password). Иначе смена собственного пароля тут же выкидывала бы
+    пользователя из только что открытой вкладки настроек."""
+    stmt = delete(AuthSession).where(AuthSession.user_id == user_id)
+    if keep_token:
+        stmt = stmt.where(AuthSession.token_hash != _hash_token(keep_token))
+    session.execute(stmt)
+    session.commit()
+
+
+def revoke_session_by_id(session: Session, user_id: str, session_id: str) -> bool:
+    """Отзыв ОДНОЙ сессии по id, обязательно в рамках user_id — без этого условия пользователь
+    мог бы подобрать чужой session_id и разлогинить произвольного человека. Возвращает False,
+    если такой сессии нет (не найдена или принадлежит другому пользователю) — эндпоинт превращает
+    это в 404, не различая эти два случая (чтобы не подтверждать существование чужих session_id)."""
+    result = session.execute(delete(AuthSession).where(AuthSession.id == session_id, AuthSession.user_id == user_id))
+    session.commit()
+    return result.rowcount > 0
+
+
 def list_active_sessions(session: Session, user_id: str) -> list[AuthSession]:
     return list(session.scalars(
         select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= _now())
         .order_by(AuthSession.created_at.desc())
     ).all())
+
+
+def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) -> dict:
+    return {
+        "id": row.id, "created_at": row.created_at.isoformat() if row.created_at else None,
+        "expires_at": row.expires_at.isoformat(), "user_agent": row.user_agent, "ip_address": row.ip_address,
+        "current": bool(current_token) and row.token_hash == _hash_token(current_token),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -390,9 +443,15 @@ WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # ни сама форма логина, ни виджет "включена ли аутентификация" на экране входа.
 PUBLIC_API_PATHS = frozenset({"/api/v1/health", "/api/v1/auth/status", "/api/v1/auth/login"})
 
-# Единственное исключение из проверки роли на запись: выход должен быть доступен любой
-# аутентифицированной роли, включая viewer, которому обычно запрещены методы записи.
-ROLE_CHECK_EXEMPT_PATHS = frozenset({"/api/v1/auth/logout"})
+# Исключения из проверки роли на запись — действия, которые обязаны быть доступны ЛЮБОЙ
+# аутентифицированной роли, включая viewer, которому в остальном запрещены методы записи:
+# выйти из своей же сессии, сменить свой же пароль, отозвать свою же сессию из списка.
+ROLE_CHECK_EXEMPT_PATHS = frozenset({"/api/v1/auth/logout", "/api/v1/auth/me/password"})
+ROLE_CHECK_EXEMPT_PREFIXES = ("/api/v1/auth/sessions/",)
+
+
+def _is_role_check_exempt(path: str) -> bool:
+    return path in ROLE_CHECK_EXEMPT_PATHS or path.startswith(ROLE_CHECK_EXEMPT_PREFIXES)
 
 
 def _extract_bearer_token(header_value: Optional[str]) -> Optional[str]:
@@ -451,7 +510,7 @@ async def auth_gate_middleware(request: Request, call_next):
             return _with_security_headers(JSONResponse({"detail": "Требуется аутентификация."}, status_code=401))
         request.state.user = user
 
-        if user.role != UserRole.ADMIN and request.method in WRITE_METHODS and path not in ROLE_CHECK_EXEMPT_PATHS:
+        if user.role != UserRole.ADMIN and request.method in WRITE_METHODS and not _is_role_check_exempt(path):
             return _with_security_headers(JSONResponse({"detail": "Недостаточно прав: требуется роль администратора."}, status_code=403))
     finally:
         db_session.close()

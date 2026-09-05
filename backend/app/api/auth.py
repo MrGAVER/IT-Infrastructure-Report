@@ -14,15 +14,18 @@ from sqlalchemy.orm import Session
 from ..config import AUTH_SESSION_TTL_HOURS
 from ..db import get_db
 from ..models import User
-from ..schemas import AuthSettingsUpdate, LoginRequest, UserCreateRequest, UserUpdateRequest
+from ..schemas import AuthSettingsUpdate, ChangePasswordRequest, LoginRequest, UserCreateRequest, UserUpdateRequest
 from ..services.auth import (
     authenticate,
+    change_own_password,
     create_user,
     delete_user,
     get_or_create_auth_settings,
     list_active_sessions,
     require_admin,
     revoke_session,
+    revoke_session_by_id,
+    serialize_session,
     serialize_user,
     set_auth_enabled,
     update_user,
@@ -74,15 +77,45 @@ def me(request: Request) -> dict:
 @router.get("/sessions")
 def my_sessions(request: Request, session: Session = Depends(get_db)) -> list[dict]:
     """Список активных входов ТЕКУЩЕГО пользователя (не всех пользователей) — «где я ещё
-    залогинен», без прав администратора это же не требует."""
+    залогинен», без прав администратора это же не требует. Поле current — сессия, которой
+    выполнен именно этот запрос (см. serialize_session), чтобы UI мог её пометить/не давать
+    случайно отозвать вместо обычного logout."""
     user = _current_user(request)
     if user is None:
         raise HTTPException(400, "Аутентификация выключена — сессии не отслеживаются.")
-    return [
-        {"id": row.id, "created_at": row.created_at.isoformat(), "expires_at": row.expires_at.isoformat(),
-         "user_agent": row.user_agent, "ip_address": row.ip_address}
-        for row in list_active_sessions(session, user.id)
-    ]
+    current_token = _bearer_token(request)
+    return [serialize_session(row, current_token=current_token) for row in list_active_sessions(session, user.id)]
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def revoke_my_session(session_id: str, request: Request, session: Session = Depends(get_db)) -> None:
+    """Отзыв ОДНОЙ из своих сессий (например, «выйти на телефоне» из списка на компьютере).
+    Не требует роли admin (см. ROLE_CHECK_EXEMPT_PREFIXES в services/auth.py) — но revoke_session_by_id
+    сам ограничивает действие сессиями ТЕКУЩЕГО пользователя, так что отозвать чужую нельзя."""
+    user = _current_user(request)
+    if user is None:
+        raise HTTPException(400, "Аутентификация выключена — сессии не отслеживаются.")
+    if not revoke_session_by_id(session, user.id, session_id):
+        raise HTTPException(404, "Сессия не найдена")
+
+
+@router.put("/me/password")
+def change_my_password(payload: ChangePasswordRequest, request: Request, session: Session = Depends(get_db)) -> dict:
+    """Самостоятельная смена СВОЕГО пароля — доступна любой роли, включая viewer (см.
+    ROLE_CHECK_EXEMPT_PATHS), в отличие от PUT /users/{id} (смена ЧУЖОГО пароля — только admin)."""
+    actor = _current_user(request)
+    if actor is None:
+        raise HTTPException(400, "Аутентификация выключена.")
+    # request.state.user загружен И принадлежит сессии БД, открытой и уже закрытой в middleware
+    # (см. auth_gate_middleware) — мутировать/session.refresh() его в ЭТОЙ (Depends(get_db))
+    # сессии нельзя, SQLAlchemy кинет "not persistent within this Session". Дозагружаем по id.
+    user = _get_user_or_404(session, actor.id)
+    updated = change_own_password(
+        session, user,
+        current_password=payload.current_password, new_password=payload.new_password,
+        keep_token=_bearer_token(request),
+    )
+    return serialize_user(updated)
 
 
 @router.put("/settings")

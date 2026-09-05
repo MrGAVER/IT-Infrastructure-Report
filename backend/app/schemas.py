@@ -139,6 +139,14 @@ class UserUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+class ChangePasswordRequest(BaseModel):
+    """Самостоятельная смена СВОЕГО пароля (PUT /auth/me/password) — в отличие от
+    UserUpdateRequest (смена ЧУЖОГО пароля админом), требует подтверждение текущим паролем."""
+    model_config = ConfigDict(extra="ignore")
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=1)
+
+
 class AuthSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     enabled: bool

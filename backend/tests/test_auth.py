@@ -209,3 +209,123 @@ class TestMe:
         assert body["user"]["username"] == "admin"
         assert body["user"]["role"] == "admin"
         assert "password" not in body["user"] and "password_hash" not in body["user"]
+
+
+class TestOwnPasswordChange:
+    def test_requires_correct_current_password(self, client):
+        _bootstrap_admin(client)
+        token = _login(client, "admin", "Admin1234")
+        r = client.put(
+            "/api/v1/auth/me/password",
+            json={"current_password": "wrong-one1", "new_password": "NewPass1234"},
+            headers=_auth_headers(token),
+        )
+        assert r.status_code == 401
+
+    def test_weak_new_password_is_rejected(self, client):
+        _bootstrap_admin(client)
+        token = _login(client, "admin", "Admin1234")
+        r = client.put(
+            "/api/v1/auth/me/password",
+            json={"current_password": "Admin1234", "new_password": "short"},
+            headers=_auth_headers(token),
+        )
+        assert r.status_code == 422
+        assert r.json()["detail"]["code"] == "WEAK_PASSWORD"
+
+    def test_viewer_can_change_their_own_password(self, client):
+        _bootstrap_admin(client)
+        admin_token = _login(client, "admin", "Admin1234")
+        client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=_auth_headers(admin_token))
+        viewer_token = _login(client, "viewer1", "Viewer1234")
+
+        r = client.put(
+            "/api/v1/auth/me/password",
+            json={"current_password": "Viewer1234", "new_password": "NewViewer1234"},
+            headers=_auth_headers(viewer_token),
+        )
+        assert r.status_code == 200, r.text
+        assert _login(client, "viewer1", "NewViewer1234")
+
+    def test_keeps_the_calling_session_but_revokes_the_others(self, client):
+        _bootstrap_admin(client)
+        token_a = _login(client, "admin", "Admin1234")
+        token_b = _login(client, "admin", "Admin1234")
+
+        r = client.put(
+            "/api/v1/auth/me/password",
+            json={"current_password": "Admin1234", "new_password": "NewPass1234"},
+            headers=_auth_headers(token_a),
+        )
+        assert r.status_code == 200, r.text
+
+        # token_a — им же вызвана смена пароля — продолжает работать
+        assert client.get("/api/v1/resources/manufacturers", headers=_auth_headers(token_a)).status_code == 200
+        # token_b — другая сессия того же пользователя — отозван
+        assert client.get("/api/v1/resources/manufacturers", headers=_auth_headers(token_b)).status_code == 401
+        # новый пароль подходит для входа, старый — нет
+        assert _login(client, "admin", "NewPass1234")
+
+
+class TestSessions:
+    def test_list_marks_the_calling_session_as_current(self, client):
+        _bootstrap_admin(client)
+        token = _login(client, "admin", "Admin1234")
+        r = client.get("/api/v1/auth/sessions", headers=_auth_headers(token))
+        sessions = r.json()
+        assert len(sessions) == 1
+        assert sessions[0]["current"] is True
+
+    def test_second_login_appears_as_a_separate_non_current_session(self, client):
+        _bootstrap_admin(client)
+        token_a = _login(client, "admin", "Admin1234")
+        _login(client, "admin", "Admin1234")
+
+        sessions = client.get("/api/v1/auth/sessions", headers=_auth_headers(token_a)).json()
+        assert len(sessions) == 2
+        assert sum(1 for s in sessions if s["current"]) == 1
+
+    def test_can_revoke_another_one_of_own_sessions(self, client):
+        _bootstrap_admin(client)
+        token_a = _login(client, "admin", "Admin1234")
+        token_b = _login(client, "admin", "Admin1234")
+
+        sessions = client.get("/api/v1/auth/sessions", headers=_auth_headers(token_a)).json()
+        other_session_id = next(s["id"] for s in sessions if not s["current"])
+
+        r = client.delete(f"/api/v1/auth/sessions/{other_session_id}", headers=_auth_headers(token_a))
+        assert r.status_code == 204
+
+        assert client.get("/api/v1/resources/manufacturers", headers=_auth_headers(token_a)).status_code == 200
+        assert client.get("/api/v1/resources/manufacturers", headers=_auth_headers(token_b)).status_code == 401
+
+    def test_cannot_revoke_someone_elses_session(self, client):
+        _bootstrap_admin(client)
+        admin_token = _login(client, "admin", "Admin1234")
+        client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=_auth_headers(admin_token))
+        viewer_token = _login(client, "viewer1", "Viewer1234")
+
+        admin_sessions = client.get("/api/v1/auth/sessions", headers=_auth_headers(admin_token)).json()
+        admin_session_id = admin_sessions[0]["id"]
+
+        r = client.delete(f"/api/v1/auth/sessions/{admin_session_id}", headers=_auth_headers(viewer_token))
+        assert r.status_code == 404
+        # админская сессия жива — viewer её не задел
+        assert client.get("/api/v1/resources/manufacturers", headers=_auth_headers(admin_token)).status_code == 200
+
+    def test_viewer_can_revoke_own_session_despite_write_restriction(self, client):
+        """DELETE — метод записи, но самообслуживание сессий — исключение из проверки роли
+        (см. ROLE_CHECK_EXEMPT_PREFIXES), иначе viewer не смог бы разлогинить сам себя на
+        другом устройстве."""
+        _bootstrap_admin(client)
+        admin_token = _login(client, "admin", "Admin1234")
+        client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=_auth_headers(admin_token))
+        token_a = _login(client, "viewer1", "Viewer1234")
+        token_b = _login(client, "viewer1", "Viewer1234")
+
+        sessions = client.get("/api/v1/auth/sessions", headers=_auth_headers(token_a)).json()
+        other_id = next(s["id"] for s in sessions if not s["current"])
+
+        r = client.delete(f"/api/v1/auth/sessions/{other_id}", headers=_auth_headers(token_a))
+        assert r.status_code == 204
+        assert client.get("/api/v1/resources/manufacturers", headers=_auth_headers(token_b)).status_code == 401
