@@ -14,7 +14,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_regi
 # файла (см. api/system.py:frontend_index), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-APP_VERSION = '2.60.0'
+APP_VERSION = '2.63.0'
 
 # Frontend is served from the same origin (StaticFiles mount below), and the app currently
 # does not use cookies/auth headers, so CORS is only relevant when a separate frontend origin
@@ -28,3 +28,10 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv('INFRA_REGISTRY_CORS_ORIGIN
 # single-user local/EXE deployment. For a shared multi-user server deployment where this button
 # shouldn't be exposed, set INFRA_REGISTRY_ENABLE_TEST_DATA=0 to disable the endpoint.
 ENABLE_TEST_DATA_ENDPOINT = os.getenv('INFRA_REGISTRY_ENABLE_TEST_DATA', '1').lower() in ('1', 'true', 'yes')
+
+# Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth.py) —
+# переменные ниже настраивают её поведение, когда она включена, а не сам факт включения.
+AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12'))
+AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', '5'))
+AUTH_LOCKOUT_MINUTES = float(os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', '15'))
+AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', '8'))

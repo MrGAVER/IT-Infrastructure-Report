@@ -92,14 +92,21 @@ def client(db_session, monkeypatch):
 
     app.main.lifespan() вызывает seed_defaults() через собственный SessionLocal(), а не через
     get_db (это не FastAPI-зависимость) — поэтому его тоже подменяем на фабрику, привязанную
-    к тому же engine, что и db_session, иначе стартовый seed уйдёт в другую БД."""
+    к тому же engine, что и db_session, иначе стартовый seed уйдёт в другую БД.
+
+    app.services.auth.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
+    FastAPI Depends, поэтому dependency_overrides её не касается; она открывает сессии через
+    app.db.SessionLocal() (см. комментарий в services/auth.py про `from X import Y`), которую
+    подменяем здесь же на ту же тестовую фабрику."""
     from fastapi.testclient import TestClient
 
+    from app import db as app_db
     from app import main as app_main
     from app.db import get_db
 
     test_session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, expire_on_commit=False)
     monkeypatch.setattr(app_main, "SessionLocal", test_session_factory)
+    monkeypatch.setattr(app_db, "SessionLocal", test_session_factory)
 
     def _override_get_db():
         yield db_session

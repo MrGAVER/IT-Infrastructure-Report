@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import AccountPanel from '../components/AccountPanel.vue'
+import AuthSettingsPanel from '../components/AuthSettingsPanel.vue'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
+import { useAuthStore } from '../stores/auth'
 import { useThemeStore, COLOR_SCHEMES } from '../stores/theme'
 import { useOrganizationStore, DEFAULT_ORGANIZATION_NAME } from '../stores/organization'
 
 const theme = useThemeStore()
 const organization = useOrganizationStore()
+const auth = useAuthStore()
 
 // Локальный черновик, а не прямой v-model на organization.name — иначе каждое нажатие клавиши
 // тут же переписывало бы шапку сайдбара (и localStorage) посимвольно; сохраняем осознанным
@@ -70,6 +74,9 @@ function resetToDefault() {
         </div>
       </div>
     </section>
+
+    <AuthSettingsPanel />
+    <AccountPanel v-if="auth.enabled && auth.user" />
   </div>
 </template>
 

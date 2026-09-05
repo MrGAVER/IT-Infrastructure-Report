@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import SettingsView from '../SettingsView.vue'
@@ -7,6 +7,10 @@ import { useOrganizationStore, DEFAULT_ORGANIZATION_NAME } from '../../stores/or
 beforeEach(() => {
   setActivePinia(createPinia())
   localStorage.clear()
+  // SettingsView теперь рендерит AuthSettingsPanel, который на mount дергает
+  // GET /auth/users (аутентификация выключена по умолчанию — см. auth.ts:canManage) —
+  // без стаба это настоящий fetch() с относительным URL, падающий в jsdom.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([]))))
 })
 
 describe('SettingsView.vue', () => {

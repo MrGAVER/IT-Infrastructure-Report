@@ -453,3 +453,51 @@ class AuditLog(TimestampMixin, Base):
     action: Mapped[str] = mapped_column(String(50))
     details: Mapped[Optional[str]] = mapped_column(Text)
 
+class User(TimestampMixin, Base):
+    """Учётная запись приложения. Существует независимо от AuthSettings.enabled — учётные записи
+    можно завести заранее, пока переключатель ещё выключен (см. services/auth.py), а не только
+    после включения аутентификации. password_hash — самоописывающийся формат
+    'pbkdf2_sha256$<итерации>$<соль-b64>$<хеш-b64>' (см. services/auth.hash_password), это
+    позволяет поднять число итераций в будущем, не инвалидируя уже существующие пароли (старые
+    хеши перевычисляются на следующий успешный вход — services/auth.authenticate).
+
+    failed_attempts/locked_until — защита от подбора пароля (см. services/auth.MAX_FAILED_ATTEMPTS):
+    после серии неудачных попыток учётная запись временно блокируется независимо от того, был ли
+    следующий пароль верным."""
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username: Mapped[str] = mapped_column(String(150), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(20), default="viewer")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+class AuthSession(Base):
+    """Активная сессия входа. Хранится ХЕШ токена (sha256), а не сам токен — токен виден клиенту
+    только один раз, в ответе на /api/v1/auth/login, и не восстановим из БД (в т.ч. из стухшей
+    infra_registry.db в репозитории, см. память проекта про этот файл). user_agent/ip_address —
+    только для отображения администратору списка активных входов (см. GET /auth/sessions), не
+    участвуют в проверке подлинности запроса."""
+    __tablename__ = "auth_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(255))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+
+class AuthSettings(Base):
+    """Синглтон (id зафиксирован строкой 'singleton', ровно одна строка в таблице) — глобальный
+    тумблер аутентификации. По умолчанию enabled=False: однопользовательский локальный режим,
+    все /api/* открыты без токена, поведение идентично состоянию приложения до этой фичи (см.
+    services/auth.py:auth_gate_middleware). Отдельная таблица, а не запись в каком-то общем
+    key-value справочнике настроек — на момент написания это единственная серверная настройка,
+    заводить ради неё общий механизм преждевременно."""
+    __tablename__ = "auth_settings"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True, default="singleton")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+

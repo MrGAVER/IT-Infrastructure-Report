@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
 const routes = [
+  { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
   { path: '/', redirect: '/dashboard' },
   {
     path: '/dashboard',
@@ -87,4 +89,23 @@ const routes = [
 export const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+// Единая точка контроля доступа на клиенте — не замена серверной проверке (middleware в
+// backend/app/services/auth.py по-прежнему решает, что реально можно прочитать/изменить), а
+// UX-уровень: не показывать защищённые экраны, если сессии нет, и не показывать форму входа
+// тому, кто уже вошёл (или если тумблер вообще выключен — однопользовательский режим).
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.initialized) await auth.init()
+
+  if (auth.needsLogin) {
+    if (to.name === 'login') return true
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.name === 'login') {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard'
+    return redirect
+  }
+  return true
 })
