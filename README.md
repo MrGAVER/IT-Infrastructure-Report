@@ -467,27 +467,23 @@ docker-compose.yml
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
   видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
-- **Frontend smoke-тесты** (`frontend/tests/app.smoke.test.js`, `report-builder-grid.test.js`) —
-  `node:test` (встроенный в Node.js, без Jest/Mocha) + `jsdom`. Загружают все `frontend/static/*.js`
-  (`core.js` → `vm-editors.js` → `csv-import.js` → `app.js` → опционально `report_builder.js`, см.
-  `load-app.js`) в изолированный vm-контекст поверх реального
-  `frontend/index.html` (без сети — `fetch` подменяется заглушкой), проверяют чистые утилиты
-  (`esc()`, `formatValue()`, `parseApiError()`, `csvParse()`, `interfaceTemplateValue()`) и
-  toast-уведомления (`notify()`/`notifyError()`), а также сам факт, что страница при загрузке
-  рендерит Dashboard без ошибок. Это не полноценные e2e-тесты (нет реального браузера/клика по
-  кнопкам формы) — они закрывают тот минимум, который `docs/frontend-modularization.md` называет
-  предпосылкой перед разбиением `app.js` на файлы.
+- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 69 файлов) — Vitest +
+  `@vue/test-utils` на `jsdom` (см. `vitest.config.ts`): сторы Pinia (catalogs, devices, auth,
+  connections, vlans и т. д.), утилиты (`utils/gridCoverage.ts`, `utils/reportEntityPaths.ts` и
+  др.) и компоненты, включая модалки, рендерящиеся через `Teleport`. Не e2e — без реального
+  браузера и клика по живым формам, но покрывают бизнес-логику компонентов и сторов напрямую.
   ```bash
-  cd frontend/tests
+  cd frontend-vue
   npm install
-  npm test
+  npm test   # vitest run
   ```
+  Подробности состава и статус по экранам — в [`frontend-vue/README.md`](frontend-vue/README.md).
 
 Дополнительно при каждом изменении проверяются:
 
 - `python -m py_compile` по всему backend;
-- `node --check` по каждому файлу `frontend/static/*.js` — отсутствие синтаксических ошибок и
-  дублирующихся объявлений функций;
+- `vue-tsc -b` — проверка типов TypeScript по всему `frontend-vue/` (часть `npm run build`, см.
+  `frontend-vue/package.json`), без реального запуска в браузере;
 - целостность цепочки Alembic-миграций (единственная линейная цепочка без разветвлений);
 - сквозная симуляция построения отчёта (`build_report()`) на подготовленных тестовых данных.
 
