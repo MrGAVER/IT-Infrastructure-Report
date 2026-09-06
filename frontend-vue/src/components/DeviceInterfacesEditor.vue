@@ -49,6 +49,12 @@ const genCount = ref(String(props.modelValue.length))
 const genNameTemplate = ref('eth{n}')
 const genTypeId = ref('')
 const genSpeedId = ref('')
+// Фикс п.1.3.4: были две отдельные кнопки — "Сгенерировать" (заменяет) и "Дополнить" (добавляет),
+// путавшие своими названиями, какая из них разрушительна. Теперь одна кнопка + галочка,
+// отключенная по умолчанию — безопасный режим (append) остаётся действием по умолчанию, а
+// разрушительный (replace) требует явного осознанного действия (поставить галочку) и всегда
+// показывает предупреждение, если есть что терять (см. generate() ниже).
+const replaceAllPorts = ref(false)
 
 function emptyRow(): InterfaceDraftRow {
   return {
@@ -104,14 +110,18 @@ function applyTemplate(template: string, n: number): string {
 //
 // п.1.4.1: раньше это была ЕДИНСТВЕННАЯ кнопка генератора — "заменить" было единственным
 // доступным режимом, добавить N интерфейсов К уже существующим, не трогая их, было нельзя (кроме
-// как по одному через "+ Интерфейс"). appendGenerated() ниже — вторая кнопка именно для этого.
+// как по одному через "+ Интерфейс"). appendGenerated() ниже — второй режим именно для этого,
+// доступный без галочки "Заменить все порты" (см. applyGenerator() и фикс п.1.3.4).
 function generate() {
-  const hasExistingData = props.modelValue.some(
-    (row) => row.name.trim() || row.mac_address.trim() || row.description.trim() || row.ips.length || row.vlan_ids.length,
-  )
-  if (hasExistingData) {
+  // Фикс п.1.3.4: раньше подтверждение спрашивалось только если строки содержали "осмысленные"
+  // данные (эвристика hasExistingData) — неочевидно и непредсказуемо для пользователя, когда
+  // именно спросят, а когда молча заменят. Теперь режим "заменить" явно включается галочкой
+  // "Заменить все порты" (по умолчанию выключена, см. applyGenerator()), поэтому предупреждение
+  // безусловно показывается при любом непустом списке — раз уж галочка стоит, значит замена
+  // ожидаема, но масштаб (сколько именно портов будет затронуто) всё равно стоит подтвердить.
+  if (props.modelValue.length > 0) {
     const count = props.modelValue.length
-    const ok = confirm(`Уже заполнено ${count} интерфейс${count === 1 ? '' : 'а(ов)'}. Заменить их шаблонными значениями?`)
+    const ok = confirm(`Это полностью заменит все порты устройства (${count} шт.) новыми, сгенерированными по шаблону. Продолжить?`)
     if (!ok) return
   }
   const count = Math.max(0, Number(genCount.value) || 0)
@@ -127,6 +137,7 @@ function generate() {
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
   emit('update:modelValue', rows)
+  replaceAllPorts.value = false // одноразовая осознанная галочка — не должна оставаться взведённой "на будущее" (см. её комментарий)
 }
 
 // п.1.4.1: добавляет genCount НОВЫХ интерфейсов к уже существующим, не трогая их вовсе — ни
@@ -146,6 +157,16 @@ function appendGenerated() {
   }))
   selectedIndices.value = new Set()
   emit('update:modelValue', [...props.modelValue, ...newRows])
+}
+
+// Фикс п.1.3.4: единственный обработчик кнопки "Сгенерировать" — маршрутизирует в один из двух
+// прежних режимов по состоянию галочки "Заменить все порты" вместо двух отдельных кнопок.
+function applyGenerator() {
+  if (replaceAllPorts.value) {
+    generate()
+  } else {
+    appendGenerated()
+  }
 }
 
 function addRow() {
@@ -350,11 +371,14 @@ function applyBulkEdit() {
         </div>
       </label>
       <div class="generator-actions">
-        <button type="button" class="btn btn-secondary" @click="generate">Сгенерировать</button>
-        <button type="button" class="btn btn-secondary" @click="appendGenerated">Дополнить</button>
+        <label class="replace-all-check">
+          <input type="checkbox" v-model="replaceAllPorts" />
+          <span>Заменить все порты</span>
+        </label>
+        <button type="button" class="btn btn-secondary" @click="applyGenerator">Сгенерировать</button>
       </div>
     </div>
-    <span class="hint generator-hint">«Сгенерировать» заменяет уже добавленные интерфейсы шаблонными значениями; «Дополнить» добавляет новые вдобавок к уже существующим, не изменяя их (п.1.4.1).</span>
+    <span class="hint generator-hint">Без галочки «Заменить все порты» новые интерфейсы добавляются к уже существующим, не изменяя их. С галочкой — все существующие интерфейсы заменяются шаблонными значениями (после подтверждения).</span>
 
     <!-- Фикс п.1.3.5: "Массовое редактирование" раньше было отдельной карточкой со своей рамкой
          НАД карточкой списка интерфейсов — два визуально несвязанных блока, хотя по смыслу
@@ -661,7 +685,21 @@ function applyBulkEdit() {
 }
 .generator-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+}
+.replace-all-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.replace-all-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
 }
 .generator-hint {
   display: block;

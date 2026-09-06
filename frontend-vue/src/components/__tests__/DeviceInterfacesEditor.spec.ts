@@ -62,14 +62,15 @@ describe('DeviceInterfacesEditor.vue', () => {
   })
 
   // п.3.5: кнопка "+ Интерфейс" стоит в шапке списка/таблицы, а не среди полей генератора.
-  // п.1.4.1: у генератора теперь ДВЕ кнопки — "Сгенерировать" (заменяет) и "Дополнить"
-  // (добавляет, не трогая существующие) — обе внутри .generator, это не регресс п.3.5.
+  // Фикс п.1.3.4: у генератора была ОДНА кнопка "Сгенерировать" + галочка "Заменить все порты"
+  // вместо прежних двух кнопок ("Сгенерировать"/"Дополнить") — обе внутри .generator, это не
+  // регресс п.3.5.
   it('п.3.5: "+ Интерфейс" находится в шапке списка, а не в блоке генератора', async () => {
     const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
     const generatorButtons = wrapper.findAll('.generator button.btn-secondary').map((b) => b.text())
-    expect(generatorButtons).toEqual(['Сгенерировать', 'Дополнить'])
+    expect(generatorButtons).toEqual(['Сгенерировать'])
     expect(wrapper.find('.iface-list-head button.btn-secondary').exists()).toBe(true) // "+ Интерфейс" — отдельно, в шапке
 
     await wrapper.find('.iface-list-head button.btn-secondary').trigger('click')
@@ -93,43 +94,85 @@ describe('DeviceInterfacesEditor.vue', () => {
     expect(confirm).not.toHaveBeenCalled() // список был пуст — спрашивать не о чем
   })
 
-  it('генерация сохраняет id и IP уже существующего интерфейса по индексу', async () => {
+  it('в режиме "Заменить все порты" генерация сохраняет id и IP уже существующего интерфейса по индексу', async () => {
     const existing: InterfaceDraftRow[] = [{ id: 'if-1', name: 'old-name', interface_type_id: '', mac_address: '', speed_id: '', is_management: true, is_data_transfer: false, description: '', vlan_ids: ['vlan-1'], vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
 
+    await wrapper.find('.replace-all-check input').setValue(true)
     await wrapper.find('.generator button.btn-secondary').trigger('click') // Сгенерировать с количеством по умолчанию (1)
 
-    expect(confirm).toHaveBeenCalled() // строка уже содержит реальные данные — подтверждение обязательно
+    expect(confirm).toHaveBeenCalled() // "Заменить все порты" включена и список непуст — подтверждение обязательно
     const emitted = wrapper.emitted('update:modelValue')!
     const rows = emitted[0][0] as InterfaceDraftRow[]
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ id: 'if-1', name: 'eth1', is_management: true, vlan_ids: ['vlan-1'], ips: existing[0].ips })
   })
 
-  describe('п.3.3: подтверждение перед перезаписью данных генератором', () => {
-    it('не спрашивает подтверждения, если все существующие строки пустые (просто добавлены кнопкой "+")', async () => {
+  describe('фикс п.1.3.4: галочка "Заменить все порты" и предупреждение перед заменой', () => {
+    it('без галочки (по умолчанию) кнопка добавляет новые интерфейсы, не спрашивая подтверждения — даже если список уже не пуст', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      expect((wrapper.find('.replace-all-check input').element as HTMLInputElement).checked).toBe(false)
+
+      await wrapper.find('.generator input[type="number"]').setValue('1')
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      expect(confirm).not.toHaveBeenCalled()
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result).toHaveLength(2)
+      expect(result[0]).toMatchObject({ name: 'eth0' }) // не тронуто
+    })
+
+    it('с галочкой — предупреждение показывается при ЛЮБОМ непустом списке, даже если строки пустые', async () => {
       const rows: InterfaceDraftRow[] = [emptyRow(), emptyRow()]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      // Раньше подтверждение зависело от того, есть ли в строках "осмысленные" данные — теперь
+      // галочка сама по себе явный, осознанный сигнал разрушительного действия, поэтому
+      // предупреждение безусловно, даже для пустых строк (см. комментарий в generate()).
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('заменит все порты устройства (2 шт.)'))
+    })
+
+    it('с галочкой на пустом списке — предупреждения нет (нечего терять)', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator input[type="number"]').setValue('1')
       await wrapper.find('.generator button.btn-secondary').trigger('click')
 
       expect(confirm).not.toHaveBeenCalled()
       expect(wrapper.emitted('update:modelValue')).toBeTruthy()
     })
 
-    it('отмена подтверждения — данные не перезаписываются, событие не эмитится', async () => {
+    it('отмена подтверждения — данные не перезаписываются, событие не эмитится, галочка остаётся включённой', async () => {
       vi.stubGlobal('confirm', vi.fn(() => false))
       const existing: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'GigabitEthernet0/1', mac_address: 'aa:bb:cc:dd:ee:ff' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
 
       await wrapper.find('.generator button.btn-secondary').trigger('click')
 
       expect(confirm).toHaveBeenCalled()
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+      // Не сбрасываем галочку при отмене — пользователь, скорее всего, ещё хочет повторить попытку.
+      expect((wrapper.find('.replace-all-check input').element as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('после успешной замены галочка сбрасывается — не остаётся взведённой "на будущее"', async () => {
+      const existing: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      expect(wrapper.emitted('update:modelValue')).toBeTruthy()
+      expect((wrapper.find('.replace-all-check input').element as HTMLInputElement).checked).toBe(false)
     })
 
     it('пустые "Тип по умолчанию"/"Скорость по умолчанию" не затирают уже выставленные вручную значения строк', async () => {
       const existing: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', interface_type_id: 't-eth', speed_id: 's-1g' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
 
       // genTypeId/genSpeedId остаются "— не выбрано —" — только меняем имя через шаблон.
       await wrapper.find('.generator button.btn-secondary').trigger('click')
@@ -396,16 +439,15 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
   })
 
-  describe('п.1.4.1: генератор — "Сгенерировать" (заменить) и "Дополнить" (добавить)', () => {
-    it('"Дополнить" добавляет новые интерфейсы, не трогая уже существующие', async () => {
+  describe('фикс п.1.3.4 (было п.1.4.1): без галочки "Заменить все порты" кнопка добавляет, не заменяя', () => {
+    it('добавляет новые интерфейсы, не трогая уже существующие', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'CustomName', mac_address: 'aa:bb:cc:dd:ee:ff' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
       const inputs = wrapper.findAll('.generator input')
       await inputs[0].setValue('2') // Количество
       await inputs[1].setValue('eth{n}') // Шаблон имени
-      const buttons = wrapper.findAll('.generator button.btn-secondary')
-      await buttons[1].trigger('click') // "Дополнить"
+      await wrapper.find('.generator button.btn-secondary').trigger('click') // галочка "Заменить все порты" не тронута — выключена
 
       expect(confirm).not.toHaveBeenCalled() // добавление не разрушительно — подтверждение не нужно
       const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
@@ -416,11 +458,11 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result[2].name).toBe('eth3')
     })
 
-    it('"Дополнить" с нулевым количеством ничего не делает', async () => {
+    it('с нулевым количеством ничего не делает', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await wrapper.find('.generator input[type="number"]').setValue('0')
-      await wrapper.findAll('.generator button.btn-secondary')[1].trigger('click')
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
     })
   })
