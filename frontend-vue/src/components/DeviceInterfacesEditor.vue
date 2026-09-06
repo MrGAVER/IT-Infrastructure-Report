@@ -356,85 +356,85 @@ function applyBulkEdit() {
     </div>
     <span class="hint generator-hint">«Сгенерировать» заменяет уже добавленные интерфейсы шаблонными значениями; «Дополнить» добавляет новые вдобавок к уже существующим, не изменяя их (п.1.4.1).</span>
 
-    <div v-if="modelValue.length" class="bulk-edit-bar">
-      <b>Массовое редактирование</b>
-      <label class="if-select-label">
-        <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
-        <span>Выбрать все</span>
-      </label>
-      <label class="bulk-field">
-        <span>Тип интерфейса</span>
-        <select v-model="bulkTypeId">
-          <option value="">— не менять —</option>
-          <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Скорость</span>
-        <select v-model="bulkSpeedId">
-          <option value="">— не менять —</option>
-          <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Управление</span>
-        <select v-model="bulkManagement">
-          <option value="">— не менять —</option>
-          <option value="true">Включить</option>
-          <option value="false">Выключить</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Передача данных</span>
-        <select v-model="bulkDataTransfer">
-          <option value="">— не менять —</option>
-          <option value="true">Включить</option>
-          <option value="false">Выключить</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Режим порта</span>
-        <select v-model="bulkVlanMode">
-          <option value="">— не менять —</option>
-          <option value="trunk">Trunk</option>
-          <option value="access">Access</option>
-        </select>
-      </label>
-      <div class="bulk-field bulk-field-wide">
-        <span>VLAN на порту (будет добавлен к выбранным)</span>
-        <div v-if="vlanOptions.length" class="vlan-checks">
-          <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-            <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-            {{ vlanLabel(v) }}
-          </label>
+    <!-- Фикс п.1.3.5: "Массовое редактирование" раньше было отдельной карточкой со своей рамкой
+         НАД карточкой списка интерфейсов — два визуально несвязанных блока, хотя по смыслу
+         "массовое редактирование" относится ровно к тому, что показано в этой самой таблице
+         строкой ниже. iface-panel — одна общая рамка на весь блок (шапка со счётчиком/кнопкой
+         "+ Интерфейс" -> панель массового редактирования -> сама таблица), без отдельной рамки
+         у bulk-edit-bar (только разделитель снизу, см. её CSS) — теперь читается как один
+         прикреплённый к таблице узел, а не как два независимых. -->
+    <div v-if="modelValue.length" class="iface-panel">
+      <div class="bulk-edit-bar">
+        <b>Массовое редактирование</b>
+        <label class="if-select-label">
+          <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
+          <span>Выбрать все</span>
+        </label>
+        <label class="bulk-field">
+          <span>Тип интерфейса</span>
+          <select v-model="bulkTypeId">
+            <option value="">— не менять —</option>
+            <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Скорость</span>
+          <select v-model="bulkSpeedId">
+            <option value="">— не менять —</option>
+            <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Управление</span>
+          <select v-model="bulkManagement">
+            <option value="">— не менять —</option>
+            <option value="true">Включить</option>
+            <option value="false">Выключить</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Передача данных</span>
+          <select v-model="bulkDataTransfer">
+            <option value="">— не менять —</option>
+            <option value="true">Включить</option>
+            <option value="false">Выключить</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Режим порта</span>
+          <select v-model="bulkVlanMode">
+            <option value="">— не менять —</option>
+            <option value="trunk">Trunk</option>
+            <option value="access">Access</option>
+          </select>
+        </label>
+        <div class="bulk-field bulk-field-wide">
+          <span>VLAN на порту (будет добавлен к выбранным)</span>
+          <div v-if="vlanOptions.length" class="vlan-checks">
+            <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+              <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+              {{ vlanLabel(v) }}
+            </label>
+          </div>
+          <span v-else class="empty">VLAN не назначены</span>
         </div>
-        <span v-else class="empty">VLAN не назначены</span>
+        <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
       </div>
-      <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
-    </div>
 
-    <div v-if="modelValue.length" class="iface-list-head">
-      <b>Список интерфейсов</b>
-      <button type="button" class="btn btn-secondary" @click="addRow">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Интерфейс
-      </button>
-    </div>
+      <div class="iface-list-head">
+        <b>Список интерфейсов</b>
+        <button type="button" class="btn btn-secondary" @click="addRow">
+          <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+          Интерфейс
+        </button>
+      </div>
 
-    <div v-if="!modelValue.length" class="empty">
-      Интерфейсы не добавлены
-      <button type="button" class="btn btn-secondary" @click="addRow">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Интерфейс
-      </button>
-    </div>
-
-    <!-- п.3.4: список интерфейсов — компактная таблица вместо карточек на каждый интерфейс;
-         редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
-         toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
-         десятке портов. -->
-    <div v-else class="iface-table-wrap">
-      <table class="iface-table">
+      <!-- п.3.4: список интерфейсов — компактная таблица вместо карточек на каждый интерфейс;
+           редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
+           toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
+           десятке портов. -->
+      <div class="iface-table-wrap">
+        <table class="iface-table">
         <thead>
           <tr>
             <th class="col-select">
@@ -599,6 +599,15 @@ function applyBulkEdit() {
           </template>
         </tbody>
       </table>
+      </div>
+    </div>
+
+    <div v-else class="empty">
+      Интерфейсы не добавлены
+      <button type="button" class="btn btn-secondary" @click="addRow">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Интерфейс
+      </button>
     </div>
   </div>
 </template>
@@ -679,14 +688,25 @@ function applyBulkEdit() {
 .generator .lookup-row select {
   width: 130px;
 }
+/* Фикс п.1.3.5: одна общая рамка на "Массовое редактирование" + шапку списка + саму таблицу —
+   раньше у bulk-edit-bar была своя рамка отдельно от таблицы ниже, из-за чего они читались как
+   два разных, визуально не связанных блока, хотя массовое редактирование имеет смысл только в
+   контексте этой же таблицы. */
+.iface-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 10px;
+}
 .bulk-edit-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 14px;
-  padding: 10px;
-  border: 1px dashed var(--border);
-  border-radius: var(--r-s);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border);
 }
 .bulk-edit-bar > b {
   flex-basis: 100%;

@@ -454,6 +454,15 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(wrapper.find('.bulk-edit-bar').exists()).toBe(false)
     })
 
+    it('п.1.3.5: "Массовое редактирование" и таблица "Список интерфейсов" — один визуальный блок (общий iface-panel), а не два отдельных', () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+      const panel = wrapper.find('.iface-panel')
+      expect(panel.exists()).toBe(true)
+      expect(panel.find('.bulk-edit-bar').exists()).toBe(true)
+      expect(panel.find('.iface-list-head').exists()).toBe(true)
+      expect(panel.find('.iface-table-wrap').exists()).toBe(true)
+    })
+
     it('без отмеченных строк по клику "Применить" показывает ошибку и ничего не эмитит', async () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
       await wrapper.find('.bulk-edit-bar button').trigger('click')
