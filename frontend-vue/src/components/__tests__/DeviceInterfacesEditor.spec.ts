@@ -83,7 +83,7 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     const inputs = wrapper.findAll('.generator input')
     await inputs[0].setValue('3') // Количество
-    await inputs[1].setValue('eth{n}') // Шаблон имени
+    await inputs[2].setValue('eth{n}') // Шаблон имени (inputs[1] теперь "Начать нумерацию с", фикс п.1.3.3)
     await wrapper.find('.generator select').setValue('t-eth') // Тип по умолчанию
     await wrapper.find('.generator button.btn-secondary').trigger('click') // Сгенерировать
 
@@ -106,6 +106,55 @@ describe('DeviceInterfacesEditor.vue', () => {
     const rows = emitted[0][0] as InterfaceDraftRow[]
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ id: 'if-1', name: 'eth1', is_management: true, vlan_ids: ['vlan-1'], ips: existing[0].ips })
+  })
+
+  describe('фикс п.1.3.3: нумерация с произвольного начального номера ("Начать нумерацию с")', () => {
+    it('пустое поле — прежнее поведение (замена начинает с 1)', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.generator input[type="number"]').setValue('3') // Количество
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const rows = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(rows.map((r) => r.name)).toEqual(['eth1', 'eth2', 'eth3'])
+    })
+
+    it('в режиме "Заменить все порты" явный номер задаёт первый номер диапазона — "Количество: 20" + "Начать с: 5" даёт порты 5-24', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator input[type="number"]').setValue('20') // Количество
+      await wrapper.findAll('.generator input')[1].setValue('5') // Начать нумерацию с
+      await wrapper.find('.generator input[type="text"]').setValue('GigabitEthernet0/{n}') // Шаблон имени
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const rows = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(rows).toHaveLength(20)
+      expect(rows[0].name).toBe('GigabitEthernet0/5')
+      expect(rows[19].name).toBe('GigabitEthernet0/24')
+    })
+
+    it('в режиме "Дополнить" (без галочки) явный номер переопределяет продолжение от текущего количества строк', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }, { ...emptyRow(), name: 'eth2' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      // Без "Начать с" новые строки продолжили бы с eth3 — с явным значением начинают с eth10.
+      await wrapper.find('.generator input[type="number"]').setValue('2') // Количество
+      await wrapper.findAll('.generator input')[1].setValue('10') // Начать нумерацию с
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result.map((r) => r.name)).toEqual(['eth1', 'eth2', 'eth10', 'eth11'])
+    })
+
+    it('нечисловой ввод в поле "Начать нумерацию с" не ломает генерацию (браузер сам не пускает нечисло в number-input, но проверка в resolveStartNumber() — на случай программной установки значения)', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.generator input[type="number"]').setValue('2') // Количество
+      const startInput = wrapper.findAll('.generator input')[1].element as HTMLInputElement
+      startInput.value = 'abc'
+      await startInput.dispatchEvent(new Event('input'))
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const rows = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(rows.map((r) => r.name)).toEqual(['eth1', 'eth2'])
+    })
   })
 
   describe('фикс п.1.3.4: галочка "Заменить все порты" и предупреждение перед заменой', () => {
@@ -446,7 +495,7 @@ describe('DeviceInterfacesEditor.vue', () => {
 
       const inputs = wrapper.findAll('.generator input')
       await inputs[0].setValue('2') // Количество
-      await inputs[1].setValue('eth{n}') // Шаблон имени
+      await inputs[2].setValue('eth{n}') // Шаблон имени (inputs[1] теперь "Начать нумерацию с", фикс п.1.3.3)
       await wrapper.find('.generator button.btn-secondary').trigger('click') // галочка "Заменить все порты" не тронута — выключена
 
       expect(confirm).not.toHaveBeenCalled() // добавление не разрушительно — подтверждение не нужно

@@ -49,6 +49,13 @@ const genCount = ref(String(props.modelValue.length))
 const genNameTemplate = ref('eth{n}')
 const genTypeId = ref('')
 const genSpeedId = ref('')
+// Фикс п.1.3.3: "нужно больше вариаций шаблонов — например, нумерация с определённого до
+// определённого номера". Раньше {n} всегда отсчитывался от 1 (режим "Заменить все порты") или от
+// количества уже существующих интерфейсов (режим "Дополнить", см. applyGenerator()) — не было
+// способа явно продолжить нумерацию портов с произвольного номера, например сгенерировать порты
+// 5-24, когда 1-4 уже заняты чем-то другим и не участвуют в этом списке вовсе. Пустая строка —
+// прежнее поведение без изменений (авто: 1 или продолжение от количества строк).
+const genStartAt = ref('')
 // Фикс п.1.3.4: были две отдельные кнопки — "Сгенерировать" (заменяет) и "Дополнить" (добавляет),
 // путавшие своими названиями, какая из них разрушительна. Теперь одна кнопка + галочка,
 // отключенная по умолчанию — безопасный режим (append) остаётся действием по умолчанию, а
@@ -85,11 +92,27 @@ const TEMPLATE_HELP_TEXT =
   'Примеры:\n' +
   'eth{n} → eth1, eth2, eth3…\n' +
   'GigabitEthernet0/{n0} → GigabitEthernet0/01, GigabitEthernet0/02…\n\n' +
-  'Номер отсчитывается от 1 в пределах одного нажатия "Заменить"/"Добавить" — при "Добавить" '
-  + 'продолжает нумерацию от количества уже существующих интерфейсов, а не начинает заново.'
+  'Номер отсчитывается от 1 в пределах одного нажатия (при "Заменить все порты" выключено — от '
+  + 'количества уже существующих интерфейсов), если поле "Начать нумерацию с" пустое.\n\n' +
+  'Нумерация с определённого до определённого номера: заполните "Начать нумерацию с" явным '
+  + 'числом — например, "Количество: 20" и "Начать с: 5" сгенерируют порты с номерами 5-24 '
+  + '(GigabitEthernet0/5 … GigabitEthernet0/24 для шаблона GigabitEthernet0/{n}).'
 
 function applyTemplate(template: string, n: number): string {
   return template.replaceAll('{n}', String(n)).replaceAll('{n0}', String(n).padStart(2, '0'))
+}
+
+// Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
+// от текущего количества строк при добавлении) — см. её комментарий выше. Пустое поле (юзер
+// стёр значение) трактуется как "не задано", а не как 0. genStartAt.value может быть как строкой,
+// так и числом — v-model на <input type="number"> в Vue 3 сам приводит валидное числовое значение
+// к Number, а не оставляет строкой (в отличие от обычного текстового input), поэтому явных
+// строковых методов вроде .trim() здесь быть не должно.
+function resolveStartNumber(defaultStart: number): number {
+  const raw = genStartAt.value
+  if (raw === '' || raw === null || raw === undefined) return defaultStart
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : defaultStart
 }
 
 // Сохраняет существующие строки по индексу (вместе с их id/ips/vlan_ids) — повторное нажатие
@@ -125,11 +148,12 @@ function generate() {
     if (!ok) return
   }
   const count = Math.max(0, Number(genCount.value) || 0)
+  const startNumber = resolveStartNumber(1)
   const rows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => {
     const existing = props.modelValue[i] ?? emptyRow()
     return {
       ...existing,
-      name: applyTemplate(genNameTemplate.value || 'eth{n}', i + 1),
+      name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
       interface_type_id: genTypeId.value || existing.interface_type_id,
       speed_id: genSpeedId.value || existing.speed_id,
     }
@@ -149,9 +173,10 @@ function appendGenerated() {
   const count = Math.max(0, Number(genCount.value) || 0)
   if (!count) return
   const startIndex = props.modelValue.length
+  const startNumber = resolveStartNumber(startIndex + 1)
   const newRows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => ({
     ...emptyRow(),
-    name: applyTemplate(genNameTemplate.value || 'eth{n}', startIndex + i + 1),
+    name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
     interface_type_id: genTypeId.value,
     speed_id: genSpeedId.value,
   }))
@@ -345,6 +370,10 @@ function applyBulkEdit() {
       <label>
         <span>Количество</span>
         <input type="number" min="0" v-model="genCount" />
+      </label>
+      <label>
+        <span>Начать нумерацию с</span>
+        <input type="number" v-model="genStartAt" placeholder="авто" title="Например, 'Количество: 20' и 'Начать с: 5' сгенерируют порты с номерами 5-24. Пусто — прежнее поведение: 1 при замене, продолжение от количества уже добавленных портов при дополнении." />
       </label>
       <label>
         <span>Шаблон имени <HelpTip :text="TEMPLATE_HELP_TEXT" /></span>
