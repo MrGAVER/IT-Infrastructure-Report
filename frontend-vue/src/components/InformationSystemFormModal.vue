@@ -29,7 +29,7 @@ import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 
-const props = defineProps<{ system: InformationSystem | null }>()
+const props = defineProps<{ system: InformationSystem | null; copyFrom?: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -84,6 +84,13 @@ function toSourceDraftRow(x: ISSource): ISSourceDraftRow {
   }
 }
 
+// Фикс п.2 (копирование сущностей): убирает id у скопированных из донора строк — с чужим id
+// backend принял бы их за попытку обновить запись донора, а не создать новую под новой ИС (тот
+// же приём и та же причина, что и в DeviceFormModal.vue — см. её подробный комментарий).
+function stripIds<T extends { id?: string }>(rows: T[]): T[] {
+  return rows.map((r) => ({ ...r, id: undefined }))
+}
+
 // Одноразовая миграция устаревших связанных таблиц в sources — портировано дословно с
 // openInformationSystemForm() в frontend/static/information-systems.js. Срабатывает только
 // когда details.sources пуст: для ИС, уже сохранённых через новый UI (или через vanilla после
@@ -117,35 +124,45 @@ function migrateLegacyToSources(details: InformationSystemDetails): ISSource[] {
 }
 
 watch(
-  () => props.system,
-  async (s) => {
+  () => props.system ?? props.copyFrom ?? null,
+  async (source) => {
+    const isCopy = !props.system && !!props.copyFrom
     Object.assign(form, emptyForm())
     departments.value = []
     protocols.value = []
     sources.value = []
     placementAssets.value = []
-    if (s) {
+    if (source) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
-        const value = s[key as keyof InformationSystem]
+        const value = source[key as keyof InformationSystem]
         if (typeof form[key] === 'boolean') {
           ;(form[key] as boolean) = Boolean(value)
         } else {
           ;(form[key] as string) = (value as string) ?? ''
         }
       }
+      // name уникален (UniqueConstraint в backend/app/models.py) — под тем же названием копию
+      // не сохранить, заставляем ввести новое явно.
+      if (isCopy) form.name = ''
     }
 
     loadingNested.value = true
     try {
       const [, details] = await Promise.all([
         containersStore.ensureLoaded(),
-        s ? api.get<InformationSystemDetails>(`/resources/information-systems/${s.id}/details`) : Promise.resolve(null),
+        source ? api.get<InformationSystemDetails>(`/resources/information-systems/${source.id}/details`) : Promise.resolve(null),
       ])
       if (details) {
-        departments.value = details.departments.map((x) => ({ id: x.id, catalogId: x.department_id }))
-        protocols.value = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id ?? '', protocol: x.protocol, port: x.port, description: x.description ?? '' }))
-        sources.value = migrateLegacyToSources(details).map(toSourceDraftRow)
-        placementAssets.value = details.placement_assets.map((x) => ({ id: x.id, catalogId: x.placement_asset_id }))
+        const rawDepartments = details.departments.map((x) => ({ id: x.id, catalogId: x.department_id }))
+        const rawProtocols = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id ?? '', protocol: x.protocol, port: x.port, description: x.description ?? '' }))
+        const rawSources = migrateLegacyToSources(details).map(toSourceDraftRow)
+        const rawPlacementAssets = details.placement_assets.map((x) => ({ id: x.id, catalogId: x.placement_asset_id }))
+        // При копировании каждая вложенная строка должна создаться заново под НОВОЙ ИС, а не
+        // обновить запись донора — см. подробный комментарий у stripIds() выше.
+        departments.value = isCopy ? stripIds(rawDepartments) : rawDepartments
+        protocols.value = isCopy ? stripIds(rawProtocols) : rawProtocols
+        sources.value = isCopy ? stripIds(rawSources) : rawSources
+        placementAssets.value = isCopy ? stripIds(rawPlacementAssets) : rawPlacementAssets
       }
     } catch (err) {
       errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить связанные данные информационной системы'

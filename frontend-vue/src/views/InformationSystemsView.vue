@@ -19,6 +19,8 @@ const containers = useContainersStore()
 const { notify, notifyError } = useToast()
 
 const modalSystem = ref<InformationSystem | null>(null)
+// Фикс п.2: "копировать информационную систему для создания на её основе новой".
+const copyFromSystem = ref<InformationSystem | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
 
@@ -36,15 +38,23 @@ watch(
 
 function openCreate() {
   modalSystem.value = null
+  copyFromSystem.value = null
   modalOpen.value = true
 }
 function openEdit(s: InformationSystem) {
   modalSystem.value = s
+  copyFromSystem.value = null
+  modalOpen.value = true
+}
+function openCopy(s: InformationSystem) {
+  modalSystem.value = null
+  copyFromSystem.value = s
   modalOpen.value = true
 }
 function closeModal() {
   modalOpen.value = false
   modalSystem.value = null
+  copyFromSystem.value = null
 }
 async function onSaved() {
   const wasEdit = modalSystem.value !== null
@@ -142,6 +152,9 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
                   <button type="button" aria-label="Редактировать" @click="openEdit(s)">
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
+                  <button type="button" aria-label="Копировать" @click="openCopy(s)">
+                    <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
+                  </button>
                   <button type="button" aria-label="Удалить" :disabled="deletingId === s.id" @click="removeSystem(s)">
                     <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                   </button>
@@ -164,7 +177,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
       </div>
     </div>
 
-    <InformationSystemFormModal v-if="modalOpen" :system="modalSystem" @close="closeModal" @saved="onSaved" />
+    <InformationSystemFormModal v-if="modalOpen" :system="modalSystem" :copy-from="copyFromSystem" @close="closeModal" @saved="onSaved" />
   </div>
 </template>
 

@@ -909,4 +909,105 @@ describe('DeviceFormModal.vue', () => {
       vi.useRealTimers()
     }
   })
+
+  describe('фикс п.2: копирование устройства ("copyFrom")', () => {
+    const sourceDevice = { id: 'dev-src', device_type_id: 'dt-server', serial_number: 'SN-ORIGINAL', system_name: 'srv-original' } as never
+
+    it('форма открывается в режиме СОЗДАНИЯ (не редактирования), поля донора подставлены, serial_number очищен', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+
+      const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
+      await flushPromises()
+
+      expect(wrapper.find('h2').text()).toBe('Добавить устройство') // не "Редактировать" — это создание нового
+      expect(wrapper.find('input[required][maxlength="255"]').element).toHaveProperty('value', '') // Серийный номер — уникален, копировать нельзя
+      expect(wrapper.find('input[maxlength="255"]:not([required])').element).toHaveProperty('value', 'srv-original') // Системное имя — скопировано как есть
+    })
+
+    it('вложенные строки (порты, ПО, интерфейсы, VLAN устройства) грузятся у донора, но сохраняются БЕЗ его id — иначе backend отклонит их как чужие', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.includes('/resources/open-ports') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'physical_device', owner_id: 'dev-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/interfaces') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'if-src', physical_device_id: 'dev-src', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (method === 'POST' && url.includes('/resources/devices')) {
+            return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
+      await flushPromises()
+
+      // Донор дал открытый порт 22/SSH и интерфейс eth0 — оба должны были подгрузиться в форму.
+      expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
+
+      await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const portsPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/resources/open-ports'))
+      const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
+      expect((portsPut?.body as { items: Array<{ id?: string }> })?.items?.[0]?.id).toBeUndefined()
+      expect((ifacesPut?.body as { interfaces: Array<{ id?: string }> })?.interfaces?.[0]?.id).toBeUndefined()
+    })
+
+    it('членство донора в домене VLAN переносится как "предстоит создать", а не как уже подтверждённое', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+      const vlans = useVLANsStore()
+      vlans.groups = [{ vlan_id: 77, definitions: [{ id: 'v-domain', vlan_id: 77, name: 'Гостевой', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }] }]
+      vlans.loaded = true
+
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'link-src', domain_id: 'domain-x', physical_device_id: 'dev-src' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (method === 'POST' && url.includes('/resources/devices')) {
+            return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
+      await flushPromises()
+
+      // VLAN домена, участником которого была ТОЛЬКО донор-запись, уже виден в опциях нового
+      // устройства — иначе пользователь не смог бы вообще выбрать унаследованные VLAN донора.
+      // Option рендерится на каждой СТРОКЕ "VLAN устройства" (DeviceVlanListEditor.vue) — строк
+      // изначально 0 (донор ни одного VLAN устройства не назначал в этом тесте), поэтому сперва
+      // добавляем пустую строку кнопкой "+ VLAN", как это сделал бы пользователь.
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      expect(wrapper.find('option[value="v-domain"]').exists()).toBe(true)
+
+      await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const membershipPost = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
+      expect(membershipPost?.body).toEqual({ physical_device_id: 'dev-new', domain_id: 'domain-x' })
+    })
+  })
 })

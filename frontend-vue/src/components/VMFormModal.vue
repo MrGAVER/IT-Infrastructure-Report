@@ -19,7 +19,7 @@ import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
-const props = defineProps<{ vm: VirtualMachine | null }>()
+const props = defineProps<{ vm: VirtualMachine | null; copyFrom?: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -74,30 +74,38 @@ function toSoftwareDraftRow(x: VMSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
 }
 
+// Фикс п.2 (копирование сущностей): убирает id у скопированных из донора строк — с чужим id
+// backend принял бы их за попытку обновить запись донора, а не создать новую под новой ВМ (тот
+// же приём и та же причина, что и в DeviceFormModal.vue — см. её подробный комментарий).
+function stripIds<T extends { id?: string }>(rows: T[]): T[] {
+  return rows.map((r) => ({ ...r, id: undefined }))
+}
+
 watch(
-  () => props.vm,
-  async (vm) => {
+  () => props.vm ?? props.copyFrom ?? null,
+  async (source) => {
+    const isCopy = !props.vm && !!props.copyFrom
     Object.assign(form, emptyForm())
     vmIps.value = []
     openPorts.value = []
     softwareAssets.value = []
-    if (!vm) return
-    form.name = vm.name
-    form.operating_system_id = vm.operating_system_id ?? ''
-    form.physical_device_id = vm.physical_device_id ?? ''
-    form.purpose = vm.purpose ?? ''
-    form.description = vm.description ?? ''
+    if (!source) return
+    form.name = isCopy ? '' : source.name // VirtualMachine.name уникален (backend/app/models.py) — копию с тем же именем не сохранить
+    form.operating_system_id = source.operating_system_id ?? ''
+    form.physical_device_id = source.physical_device_id ?? ''
+    form.purpose = source.purpose ?? ''
+    form.description = source.description ?? ''
 
     loadingNested.value = true
     try {
       const [ips, ports, software] = await Promise.all([
-        listResource<VMIP>('vm-ips', { virtual_machine_id: vm.id, limit: 1000 }),
-        listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: vm.id, limit: 1000 }),
-        listResource<VMSoftware>('vm-software', { virtual_machine_id: vm.id, limit: 1000 }),
+        listResource<VMIP>('vm-ips', { virtual_machine_id: source.id, limit: 1000 }),
+        listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
+        listResource<VMSoftware>('vm-software', { virtual_machine_id: source.id, limit: 1000 }),
       ])
-      vmIps.value = ips.items.map(toIpDraftRow)
-      openPorts.value = ports.items.map(toOpenPortDraftRow)
-      softwareAssets.value = software.items.map(toSoftwareDraftRow)
+      vmIps.value = isCopy ? stripIds(ips.items.map(toIpDraftRow)) : ips.items.map(toIpDraftRow)
+      openPorts.value = isCopy ? stripIds(ports.items.map(toOpenPortDraftRow)) : ports.items.map(toOpenPortDraftRow)
+      softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
     } catch (err) {
       errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить IP-адреса, открытые порты и ПО ВМ'
     } finally {

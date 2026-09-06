@@ -23,7 +23,7 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 
-const props = defineProps<{ device: Device | null }>()
+const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -144,9 +144,25 @@ function toDeviceVlanDraftRow(x: DeviceVLAN): DeviceVlanDraftRow {
   }
 }
 
+// Фикс п.2 (копирование сущностей): убирает id у скопированных из донора вложенных строк — с
+// чужим id backend принял бы их за попытку ОБНОВИТЬ запись донора, а не создать новую под новым
+// устройством (см. подробный комментарий у watch(copySourceId, ...) ниже).
+function stripIds<T extends { id?: string }>(rows: T[]): T[] {
+  return rows.map((r) => ({ ...r, id: undefined }))
+}
+
+// Фикс п.2 (копирование сущностей): источник данных для формы — либо редактируемое устройство
+// (props.device, обычный edit), либо "устройство-донор" для копирования (props.copyFrom). При
+// копировании props.device остаётся null — это по-прежнему СОЗДАНИЕ нового устройства (submit()
+// вызовет createResource, а не updateResource, см. isEdit выше), просто форма стартует не с
+// чистого листа, а с данными донора. View, открывающие форму, никогда не передают оба сразу.
+const copySourceId = computed(() => props.device?.id ?? props.copyFrom?.id ?? null)
+
 watch(
-  () => props.device,
-  async (d) => {
+  copySourceId,
+  async () => {
+    const source = props.device ?? props.copyFrom ?? null
+    const isCopy = !props.device && !!props.copyFrom
     Object.assign(form, emptyForm())
     openPorts.value = []
     softwareAssets.value = []
@@ -155,38 +171,56 @@ watch(
     memberDomainIds.value = new Set()
     pendingDomainMemberships.value = new Set()
     deviceTypeVlanIds.value = new Set()
-    if (d) {
+    if (source) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
-        const value = d[key as keyof Device]
+        const value = source[key as keyof Device]
         if (typeof form[key] === 'boolean') {
           ;(form[key] as boolean) = Boolean(value)
         } else {
           ;(form[key] as string) = (value as string) ?? ''
         }
       }
+      // serial_number уникален (UniqueConstraint в backend/app/models.py) — под тем же
+      // серийником сохранить копию не получится, заставляем ввести новый явно.
+      if (isCopy) form.serial_number = ''
     }
-    if (!d) return
+    if (!source) return
     loadingNested.value = true
     try {
       const [ports, software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
-        listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: d.id, limit: 1000 }),
-        listResource<DeviceSoftware>('device-software', { physical_device_id: d.id, limit: 1000 }),
+        listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: source.id, limit: 1000 }),
+        listResource<DeviceSoftware>('device-software', { physical_device_id: source.id, limit: 1000 }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
         // помощник использует DevicePortsModal.vue (управление портами с экрана «Подключения»).
-        loadDeviceInterfaceDraftRows(d.id),
-        listResource<DeviceVLAN>('device-vlans', { physical_device_id: d.id, limit: 1000 }),
-        listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: d.id, limit: 1000 }),
+        loadDeviceInterfaceDraftRows(source.id),
+        listResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id, limit: 1000 }),
+        listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id, limit: 1000 }),
         // Загружается атомарно вместе с interfaces/deviceVlans (не через отдельный watch на
         // form.device_type_id — см. ниже) именно для того, чтобы portVlanOptions выше не
         // пересчитался с неполными данными между двумя разными по времени загрузками.
-        loadDeviceTypeVlanIds(d.device_type_id),
+        loadDeviceTypeVlanIds(source.device_type_id),
         vlansStore.ensureLoaded(),
       ])
-      openPorts.value = ports.items.map(toOpenPortDraftRow)
-      softwareAssets.value = software.items.map(toSoftwareDraftRow)
-      interfaces.value = ifaceRows
-      deviceVlans.value = vlans.items.map(toDeviceVlanDraftRow)
-      memberDomainIds.value = new Set(domainLinks.items.map((l) => l.domain_id))
+      // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
+      // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
+      // backend/app/services/crud.py:sync_interfaces (и аналогичные функции для open-ports/
+      // device-software/device-vlans) отклонит его 422 "не принадлежит выбранному устройству",
+      // т.к. у нового устройства такого id ещё нет и появиться неоткуда. stripIds() (см. ниже)
+      // убирает id из каждой строки — тогда backend создаёт их как новые записи.
+      openPorts.value = isCopy ? stripIds(ports.items.map(toOpenPortDraftRow)) : ports.items.map(toOpenPortDraftRow)
+      softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
+      interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips) })) : ifaceRows
+      deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
+      // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
+      // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
+      // п.1.3.8), а не как уже подтверждённое: иначе availableVlans выше решит, что устройство
+      // уже участник домена, которым оно на самом деле пока не является, а связь так и не
+      // создастся, поскольку persistPendingDomainMemberships читает только pendingDomainMemberships.
+      if (isCopy) {
+        pendingDomainMemberships.value = new Set(domainLinks.items.map((l) => l.domain_id))
+      } else {
+        memberDomainIds.value = new Set(domainLinks.items.map((l) => l.domain_id))
+      }
       deviceTypeVlanIds.value = typeVlanIds
     } catch (err) {
       errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты, ПО, интерфейсы и VLAN устройства'
