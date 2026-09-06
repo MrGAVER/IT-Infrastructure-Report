@@ -33,7 +33,7 @@ async function runInventoryReport() {
   inventoryLoading.value = true
   try {
     const result = await generateInventoryReport(selectedIS.value || null, selectedUnitIds.value)
-    downloadReport(result)
+    await downloadReport(result)
     notify(`Отчёт сформирован: ${result.file_name}`, 'success')
   } catch (err) {
     notifyError(err)
@@ -50,7 +50,7 @@ async function runAuditLogReport() {
   auditLoading.value = true
   try {
     const result = await generateAuditLogReport(dateFrom.value || null, dateTo.value || null)
-    downloadReport(result)
+    await downloadReport(result)
     notify(`Выгрузка журнала аудита сформирована: ${result.file_name}`, 'success')
   } catch (err) {
     notifyError(err)
