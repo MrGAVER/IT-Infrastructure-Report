@@ -29,7 +29,12 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 const catalogs = useCatalogsStore()
 const fields = QUICK_ADD_FIELDS[props.resource] ?? []
 const isEdit = computed(() => props.item !== null)
-const title = computed(() => `${isEdit.value ? 'Редактировать' : 'Добавить'}: ${QUICK_ADD_LABELS[props.resource] ?? props.resource}`)
+// Общий human-readable ярлык ресурса — используется и в заголовке, и в сообщении "форма не
+// настроена" ниже. Раньше последнее показывало props.resource как есть (технический ключ вроде
+// device-types), а заголовок тут же рядом — уже с fallback на QUICK_ADD_LABELS; несогласованность
+// нашлась при ревизии фронтенда на предмет технических записей, показываемых пользователю.
+const resourceLabel = computed(() => QUICK_ADD_LABELS[props.resource] ?? props.resource)
+const title = computed(() => `${isEdit.value ? 'Редактировать' : 'Добавить'}: ${resourceLabel.value}`)
 
 function initialValue(name: string, type: string): string | boolean {
   if (!props.item) return type === 'checkbox' ? false : ''
@@ -121,7 +126,7 @@ async function removeItem() {
           <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
           {{ errorMessage }}
         </div>
-        <div v-if="!fields.length" class="form-error">Для «{{ resource }}» форма не настроена.</div>
+        <div v-if="!fields.length" class="form-error">Для «{{ resourceLabel }}» форма не настроена.</div>
 
         <form v-else class="form-grid" @submit.prevent="submit">
           <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' }">
