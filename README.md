@@ -432,16 +432,19 @@ backend/
     reporting.py      — генерация регламентированного Excel-отчёта (4 листа)
   alembic/            — миграции БД
   tests/              — тесты backend (unittest)
-frontend/
-  index.html          — шаблон оболочки приложения
-  static/core.js       — базовая инфраструктура без зависимостей (см. "Модуляризация фронтенда")
-  static/vm-editors.js — редакторы вложенных списков ВМ/устройства (IP, открытые порты, ПО)
-  static/csv-import.js — импорт устройств из CSV
-  static/connections.js — форма подключений между портами устройств
-  static/app.js        — маршрутизация, список/формы ресурсов, формы ИС/устройства
-  static/report_builder.js — grid-редактор конструктора произвольных отчётов (.xlsx)
-  static/app.css       — стили
-  tests/               — smoke-тесты frontend (node:test + jsdom)
+frontend-vue/         — единственный UI приложения (Vue 3 + TypeScript + Vite + Pinia)
+  src/
+    views/            — экраны-маршруты: Dashboard, Devices, InformationSystems, VMs,
+                        Connections, VLANs, Containers, Reports, ReportTemplates (+ два
+                        визуальных редактора шаблонов), Settings, Login, AuditLog,
+                        Buildings, StructuralUnits, OtherCatalogs
+    components/        — модалки форм и переиспользуемые редакторы (DeviceFormModal,
+                        DeviceInterfacesEditor, GridCellInspector, DocxTableBlockEditor и т. д.)
+    stores/            — Pinia-сторы (catalogs, devices, auth, vlans, reportTemplates и т. д.)
+    api/               — HTTP-клиент и типы (client.ts, types.ts, reportTemplates.ts и т. д.)
+    router/, layout/, composables/, directives/, utils/, styles/
+    __tests__/          — рядом с исходником каждого модуля, 69 файлов / 504 теста (Vitest)
+  dist/                — production-сборка (`npm run build`), раздаётся бэкендом на `GET /`
 installer/            — скрипты сборки Windows EXE
 launcher.py            — точка входа для EXE
 docker-compose.yml
