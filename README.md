@@ -413,10 +413,13 @@ SIEM, количество физических портов, адрес и зд
   `report_templates` — набор возможных полей/связей динамический и выводится из схемы БД, поэтому
   жёсткая реляционная схема под конструктор отчётов дублировала бы её и требовала бы отдельной
   миграции на каждый новый тип ячейки.
-- `frontend/static/report_builder.js` — визуальный grid-редактор в браузере: список шаблонов,
-  вкладки листов, палитра полей с drag-and-drop, канвас листа (реальная HTML-таблица с
-  объединением ячеек), инспектор выбранной ячейки/строки, живой предпросмотр,
-  сохранение/генерация/история версий.
+- **`frontend-vue/src/views/ReportGridEditorView.vue`** (.xlsx) и **`ReportDocxEditorView.vue`**
+  (.docx) — визуальные редакторы содержимого шаблона в браузере: листы/колонки/строки и ячейки с
+  выделением/объединением (xlsx) или блоки заголовок/абзац/разрыв/таблица (docx). Поля БД
+  вставляются кликом по select'у «Вставить поле» — не drag-and-drop, как было в удалённом
+  vanilla-варианте: тот же результат, но надёжнее тестируется и доступнее с клавиатуры. Оба
+  редактора подключены к живому предпросмотру и истории версий шаблона. Подробности — в
+  [`frontend-vue/README.md`](frontend-vue/README.md).
 
 ## Структура проекта
 
@@ -432,16 +435,19 @@ backend/
     reporting.py      — генерация регламентированного Excel-отчёта (4 листа)
   alembic/            — миграции БД
   tests/              — тесты backend (unittest)
-frontend/
-  index.html          — шаблон оболочки приложения
-  static/core.js       — базовая инфраструктура без зависимостей (см. "Модуляризация фронтенда")
-  static/vm-editors.js — редакторы вложенных списков ВМ/устройства (IP, открытые порты, ПО)
-  static/csv-import.js — импорт устройств из CSV
-  static/connections.js — форма подключений между портами устройств
-  static/app.js        — маршрутизация, список/формы ресурсов, формы ИС/устройства
-  static/report_builder.js — grid-редактор конструктора произвольных отчётов (.xlsx)
-  static/app.css       — стили
-  tests/               — smoke-тесты frontend (node:test + jsdom)
+frontend-vue/         — единственный UI приложения (Vue 3 + TypeScript + Vite + Pinia)
+  src/
+    views/            — экраны-маршруты: Dashboard, Devices, InformationSystems, VMs,
+                        Connections, VLANs, Containers, Reports, ReportTemplates (+ два
+                        визуальных редактора шаблонов), Settings, Login, AuditLog,
+                        Buildings, StructuralUnits, OtherCatalogs
+    components/        — модалки форм и переиспользуемые редакторы (DeviceFormModal,
+                        DeviceInterfacesEditor, GridCellInspector, DocxTableBlockEditor и т. д.)
+    stores/            — Pinia-сторы (catalogs, devices, auth, vlans, reportTemplates и т. д.)
+    api/               — HTTP-клиент и типы (client.ts, types.ts, reportTemplates.ts и т. д.)
+    router/, layout/, composables/, directives/, utils/, styles/
+    __tests__/          — рядом с исходником каждого модуля, 69 файлов / 504 теста (Vitest)
+  dist/                — production-сборка (`npm run build`), раздаётся бэкендом на `GET /`
 installer/            — скрипты сборки Windows EXE
 launcher.py            — точка входа для EXE
 docker-compose.yml
@@ -467,27 +473,23 @@ docker-compose.yml
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
   видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
-- **Frontend smoke-тесты** (`frontend/tests/app.smoke.test.js`, `report-builder-grid.test.js`) —
-  `node:test` (встроенный в Node.js, без Jest/Mocha) + `jsdom`. Загружают все `frontend/static/*.js`
-  (`core.js` → `vm-editors.js` → `csv-import.js` → `app.js` → опционально `report_builder.js`, см.
-  `load-app.js`) в изолированный vm-контекст поверх реального
-  `frontend/index.html` (без сети — `fetch` подменяется заглушкой), проверяют чистые утилиты
-  (`esc()`, `formatValue()`, `parseApiError()`, `csvParse()`, `interfaceTemplateValue()`) и
-  toast-уведомления (`notify()`/`notifyError()`), а также сам факт, что страница при загрузке
-  рендерит Dashboard без ошибок. Это не полноценные e2e-тесты (нет реального браузера/клика по
-  кнопкам формы) — они закрывают тот минимум, который `docs/frontend-modularization.md` называет
-  предпосылкой перед разбиением `app.js` на файлы.
+- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 69 файлов) — Vitest +
+  `@vue/test-utils` на `jsdom` (см. `vitest.config.ts`): сторы Pinia (catalogs, devices, auth,
+  connections, vlans и т. д.), утилиты (`utils/gridCoverage.ts`, `utils/reportEntityPaths.ts` и
+  др.) и компоненты, включая модалки, рендерящиеся через `Teleport`. Не e2e — без реального
+  браузера и клика по живым формам, но покрывают бизнес-логику компонентов и сторов напрямую.
   ```bash
-  cd frontend/tests
+  cd frontend-vue
   npm install
-  npm test
+  npm test   # vitest run
   ```
+  Подробности состава и статус по экранам — в [`frontend-vue/README.md`](frontend-vue/README.md).
 
 Дополнительно при каждом изменении проверяются:
 
 - `python -m py_compile` по всему backend;
-- `node --check` по каждому файлу `frontend/static/*.js` — отсутствие синтаксических ошибок и
-  дублирующихся объявлений функций;
+- `vue-tsc -b` — проверка типов TypeScript по всему `frontend-vue/` (часть `npm run build`, см.
+  `frontend-vue/package.json`), без реального запуска в браузере;
 - целостность цепочки Alembic-миграций (единственная линейная цепочка без разветвлений);
 - сквозная симуляция построения отчёта (`build_report()`) на подготовленных тестовых данных.
 
@@ -1899,6 +1901,32 @@ unmount, реактивное обновление текста уже пока�
   просроченных сессий) — сам факт гонки под нагрузкой синхронный SQLite-тест не воспроизводит
   (нужен реальный параллелизм нескольких процессов), поэтому тесты фиксируют защитный SQL и
   наблюдаемое поведение уборки, а не гонку напрямую. Полный прогон: 241 pytest — зелёные.
+
+### 2.63.1 — докс: актуализация после удаления legacy-фронтенда (2.60.0)
+
+Только документация, без изменений в коде приложения. Обнаружено при ревизии
+README.md/frontend-vue/README.md/docs/frontend-modularization.md на предмет ссылок на
+удалённый в 2.60.0 `frontend/` — четыре расхождения:
+
+- **Опечатка версии удаления** — `frontend-vue/README.md` и `docs/frontend-modularization.md`
+  указывали «удалён в 2.59.0» (фактически — 2.60.0, см. запись выше); опечатка попала в коммит
+  `d3528c9` и разошлась по двум файлам.
+- **Раздел «Тестирование»** описывал только удалённый смоук-слой `frontend/tests/*`
+  (`node:test`+`jsdom`) и ни разу не упоминал реальный тестовый слой `frontend-vue` (69 файлов,
+  504 vitest) — заменено актуальным описанием и командой запуска; `node --check` по
+  `frontend/static/*.js` заменён на `vue-tsc -b`, которая реально гоняется в CI.
+- **Раздел «Структура проекта»** показывал дерево удалённого `frontend/` и не показывал структуру
+  фактического (и единственного) UI — заменено деревом `frontend-vue/src`.
+- **«Конструктор произвольных отчётов» → «Как это устроено технически»** ссылался на
+  `frontend/static/report_builder.js` и описывал drag-and-drop палитру полей, которой в текущей
+  Vue-реализации уже нет (поля вставляются кликом по select'у «Вставить поле», см.
+  `frontend-vue/README.md`) — заменено ссылкой на `ReportGridEditorView.vue`/
+  `ReportDocxEditorView.vue` с точным описанием текущего поведения.
+
+`APP_VERSION` в `backend/app/config.py` (отдаётся `/api/v1/health`) поднят до `2.63.1` вместе с
+этой записью — тестов, завязанных на конкретное значение версии, нет. Прогон не требовался (правки
+только в `.md`/строке версии), но `pytest`/`vitest`/`ruff`/`vue-tsc -b`/`vite build` перепрогнаны
+на всякий случай — все зелёные.
 
 ## Известные ограничения и заметки
 
