@@ -64,6 +64,36 @@ def allowed_columns(model) -> set[str]:
 def audit(session: Session, entity_type: str, entity_id: str, action: str, details: str = '') -> None:
     if entity_type != 'audit-log': session.add(AuditLog(entity_type=entity_type, entity_id=entity_id, action=action, details=details))
 
+def _fmt_audit_value(value: Any) -> str:
+    """Короткое читаемое представление значения поля для diff'а в audit-log — не сериализация
+    для API (см. serialize()), только текст в одну строку. None и '' показываются одинаково
+    ('—') — иначе None → '' выглядело бы как изменение, хотя по сути и то, и то "не заполнено".
+    Длинные значения (например, текст описания ИС) обрезаются — иначе правка одного длинного
+    текстового поля раздувала бы запись журнала на весь текст целиком."""
+    if value is None or value == '':
+        return '—'
+    if isinstance(value, bool):
+        return 'да' if value else 'нет'
+    text = str(value)
+    return text if len(text) <= 60 else text[:57] + '…'
+
+def _describe_update(before: dict[str, Any], after: dict[str, Any]) -> str:
+    """Человекочитаемый diff изменённых полей для audit-log: 'поле: старое → новое', через '; '.
+    Раньше update_resource писал в audit-log одну и ту же строку 'Изменение записи' на любое
+    изменение ЛЮБОЙ из ~40 сущностей реестра — колонка "Детали" в журнале аудита дублировала
+    колонку "Действие" (там уже был бейдж "Изменено"), не добавляя ни одного факта о том, что
+    именно изменилось (найдено при ревизии фронтенда на предмет неинформативных технических
+    записей, показываемых пользователю). Сравнение по allowed_columns() модели — единый
+    механизм для всех ресурсов без хардкода полей под конкретную модель, в отличие от ручного
+    списка changes в services/auth.py:update_user (там модель всегда одна — User).
+    Сортировка по строке diff'а, а не порядок allowed_columns() (это set(), не гарантированно
+    стабильный порядок) — для детерминированного и читаемого результата."""
+    changes = sorted(
+        f'{key}: {_fmt_audit_value(before[key])} → {_fmt_audit_value(after[key])}'
+        for key in after if before.get(key) != after.get(key)
+    )
+    return '; '.join(changes) if changes else 'Изменение записи (переданные значения совпадают с текущими)'
+
 def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
     """Парсит date_from/date_to для list_resource(). Принимает как чистую дату
     (input[type=date] с фронтенда, 'YYYY-MM-DD'), так и полный ISO datetime.
@@ -186,7 +216,8 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     payload = validate_payload_schema(resource, payload, is_update=True)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
-    allowed = allowed_columns(model); proposed = {k: getattr(obj, k) for k in allowed}; proposed.update({k: v for k, v in payload.items() if k in allowed})
+    allowed = allowed_columns(model); before = {k: getattr(obj, k) for k in allowed}
+    proposed = dict(before); proposed.update({k: v for k, v in payload.items() if k in allowed})
     if model is VirtualMachine and proposed.get('physical_device_id'):
         host = session.get(PhysicalDevice, proposed['physical_device_id'])
         proposed['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
@@ -196,7 +227,7 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     if model is VirtualMachine and 'physical_device_id' in proposed:
         obj.hypervisor_os_id = proposed.get('hypervisor_os_id')
     try:
-        session.flush(); audit(session, resource, str(obj.id), AuditAction.UPDATE, 'Изменение записи'); session.commit(); return serialize(obj)
+        session.flush(); audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 

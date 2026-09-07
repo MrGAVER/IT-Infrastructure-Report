@@ -884,6 +884,64 @@ class TestAuditLog:
         assert still_there.status_code == 200
         assert still_there.json()["details"] == existing_entry["details"]
 
+    def test_update_writes_field_level_diff_not_generic_message(self, client):
+        """Регрессия: update_resource раньше писал в audit-log одну и ту же строку
+        'Изменение записи' на ЛЮБОЕ изменение любой из ~40 сущностей реестра — колонка
+        "Детали" в журнале аудита дублировала колонку "Действие" (там уже бейдж "Изменено"),
+        не показывая, что именно изменилось. Теперь details содержит конкретное
+        'поле: старое → новое' (services/crud.py:_describe_update)."""
+        created = client.post("/api/v1/resources/manufacturers", json={"name": "До правки"})
+        assert created.status_code == 201, created.text
+        item_id = created.json()["id"]
+
+        updated = client.put(f"/api/v1/resources/manufacturers/{item_id}", json={"name": "После правки"})
+        assert updated.status_code == 200, updated.text
+
+        entry = client.get(
+            "/api/v1/resources/audit-log",
+            params={"entity_id": item_id, "action": "UPDATE", "limit": 10},
+        ).json()["items"][0]
+        assert entry["details"] != "Изменение записи"
+        assert entry["details"] == "name: До правки → После правки"
+
+    def test_update_with_several_changed_fields_lists_all_of_them(self, client):
+        """Несколько изменённых полей за один PUT должны попасть в details все разом, через
+        '; ', а не только последнее/первое. Заодно проверяет форматирование None → значение
+        (поле address не заполнено при создании) как '— → ...', а не 'None → ...'."""
+        building = client.post("/api/v1/resources/buildings", json={"name": "Здание А"}).json()
+
+        updated = client.put(
+            f"/api/v1/resources/buildings/{building['id']}",
+            json={"name": "Здание Б", "address": "ул. Тестовая, 1"},
+        )
+        assert updated.status_code == 200, updated.text
+
+        entry = client.get(
+            "/api/v1/resources/audit-log",
+            params={"entity_id": building["id"], "action": "UPDATE", "limit": 10},
+        ).json()["items"][0]
+        assert "name: Здание А → Здание Б" in entry["details"]
+        assert "address: — → ул. Тестовая, 1" in entry["details"]
+        assert "; " in entry["details"]  # оба изменения в одной строке, не потеряно ни одно
+
+    def test_update_without_actual_value_change_does_not_fabricate_a_diff(self, client):
+        """PUT с тем же значением, что уже стоит в записи (типичный сценарий — форма
+        отправляет все поля целиком, даже нетронутые) не должен придумывать несуществующий
+        diff вида 'name: Х → Х'."""
+        created = client.post("/api/v1/resources/manufacturers", json={"name": "Без изменений"}).json()
+
+        updated = client.put(
+            f"/api/v1/resources/manufacturers/{created['id']}", json={"name": "Без изменений"}
+        )
+        assert updated.status_code == 200, updated.text
+
+        entry = client.get(
+            "/api/v1/resources/audit-log",
+            params={"entity_id": created["id"], "action": "UPDATE", "limit": 10},
+        ).json()["items"][0]
+        assert "→" not in entry["details"]
+        assert entry["details"] == "Изменение записи (переданные значения совпадают с текущими)"
+
 
 class TestReportTemplateVersions:
     VALID_CONFIG = {"sheets": [{
