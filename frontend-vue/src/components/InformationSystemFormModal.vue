@@ -28,6 +28,7 @@ import ISSourcesListEditor from './ISSourcesListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
+import { stripIds } from '../utils/copyEntity'
 
 const props = defineProps<{ system: InformationSystem | null; copyFrom?: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
@@ -82,13 +83,6 @@ function toSourceDraftRow(x: ISSource): ISSourceDraftRow {
     role: x.role ?? '',
     external_interaction: x.external_interaction,
   }
-}
-
-// Фикс п.2 (копирование сущностей): убирает id у скопированных из донора строк — с чужим id
-// backend принял бы их за попытку обновить запись донора, а не создать новую под новой ИС (тот
-// же приём и та же причина, что и в DeviceFormModal.vue — см. её подробный комментарий).
-function stripIds<T extends { id?: string }>(rows: T[]): T[] {
-  return rows.map((r) => ({ ...r, id: undefined }))
 }
 
 // Одноразовая миграция устаревших связанных таблиц в sources — портировано дословно с

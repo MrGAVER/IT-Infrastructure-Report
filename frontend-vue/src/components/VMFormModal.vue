@@ -18,6 +18,7 @@ import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { stripIds } from '../utils/copyEntity'
 
 const props = defineProps<{ vm: VirtualMachine | null; copyFrom?: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
@@ -72,13 +73,6 @@ function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
 
 function toSoftwareDraftRow(x: VMSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
-}
-
-// Фикс п.2 (копирование сущностей): убирает id у скопированных из донора строк — с чужим id
-// backend принял бы их за попытку обновить запись донора, а не создать новую под новой ВМ (тот
-// же приём и та же причина, что и в DeviceFormModal.vue — см. её подробный комментарий).
-function stripIds<T extends { id?: string }>(rows: T[]): T[] {
-  return rows.map((r) => ({ ...r, id: undefined }))
 }
 
 watch(

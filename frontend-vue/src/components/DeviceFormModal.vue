@@ -22,6 +22,7 @@ import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
+import { stripIds } from '../utils/copyEntity'
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -142,13 +143,6 @@ function toDeviceVlanDraftRow(x: DeviceVLAN): DeviceVlanDraftRow {
     is_management: x.is_management,
     description: x.description ?? '',
   }
-}
-
-// Фикс п.2 (копирование сущностей): убирает id у скопированных из донора вложенных строк — с
-// чужим id backend принял бы их за попытку ОБНОВИТЬ запись донора, а не создать новую под новым
-// устройством (см. подробный комментарий у watch(copySourceId, ...) ниже).
-function stripIds<T extends { id?: string }>(rows: T[]): T[] {
-  return rows.map((r) => ({ ...r, id: undefined }))
 }
 
 // Фикс п.2 (копирование сущностей): источник данных для формы — либо редактируемое устройство
