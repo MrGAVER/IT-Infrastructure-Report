@@ -913,6 +913,23 @@ describe('DeviceFormModal.vue', () => {
   describe('фикс п.2: копирование устройства ("copyFrom")', () => {
     const sourceDevice = { id: 'dev-src', device_type_id: 'dt-server', serial_number: 'SN-ORIGINAL', system_name: 'srv-original' } as never
 
+    it('аудит fix/usability-batch4 (находка №5): одновременная передача device и copyFrom — предупреждение в консоль, побеждает device (edit)', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const editedDevice = { id: 'dev-edit', device_type_id: 'dt-server', serial_number: 'SN-EDIT', system_name: 'srv-edit' } as never
+      const wrapper = mount(DeviceFormModal, { props: { device: editedDevice, copyFrom: sourceDevice } })
+      await flushPromises()
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('используется device'))
+      // device выигрывает как более безопасный исход — это по-прежнему редактирование, а не
+      // создание копии с данными донора.
+      expect(wrapper.find('h2').text()).toBe('Редактировать устройство')
+      expect(wrapper.find('input[required][maxlength="255"]').element).toHaveProperty('value', 'SN-EDIT')
+    })
+
     it('форма открывается в режиме СОЗДАНИЯ (не редактирования), поля донора подставлены, serial_number очищен', async () => {
       stubCatalogsFetch()
       const catalogs = useCatalogsStore()

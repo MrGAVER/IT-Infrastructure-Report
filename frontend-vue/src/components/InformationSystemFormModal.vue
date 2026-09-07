@@ -120,6 +120,10 @@ function migrateLegacyToSources(details: InformationSystemDetails): ISSource[] {
 watch(
   () => props.system ?? props.copyFrom ?? null,
   async (source) => {
+    // Аудит fix/usability-batch4 (находка №5): см. подробный комментарий в DeviceFormModal.vue.
+    if (props.system && props.copyFrom) {
+      console.warn('InformationSystemFormModal: одновременно переданы system и copyFrom — используется system (режим редактирования)')
+    }
     const isCopy = !props.system && !!props.copyFrom
     Object.assign(form, emptyForm())
     departments.value = []

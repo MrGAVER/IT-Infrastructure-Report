@@ -78,6 +78,10 @@ function toSoftwareDraftRow(x: VMSoftware): SoftwareAssetDraftRow {
 watch(
   () => props.vm ?? props.copyFrom ?? null,
   async (source) => {
+    // Аудит fix/usability-batch4 (находка №5): см. подробный комментарий в DeviceFormModal.vue.
+    if (props.vm && props.copyFrom) {
+      console.warn('VMFormModal: одновременно переданы vm и copyFrom — используется vm (режим редактирования)')
+    }
     const isCopy = !props.vm && !!props.copyFrom
     Object.assign(form, emptyForm())
     vmIps.value = []

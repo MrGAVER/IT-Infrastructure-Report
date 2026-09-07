@@ -53,6 +53,10 @@ const form = reactive(emptyForm())
 watch(
   () => props.container ?? props.copyFrom ?? null,
   (c) => {
+    // Аудит fix/usability-batch4 (находка №5): см. подробный комментарий в DeviceFormModal.vue.
+    if (props.container && props.copyFrom) {
+      console.warn('ContainerFormModal: одновременно переданы container и copyFrom — используется container (режим редактирования)')
+    }
     Object.assign(form, emptyForm())
     if (c) {
       form.name = c.name

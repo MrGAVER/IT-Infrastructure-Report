@@ -155,6 +155,13 @@ const copySourceId = computed(() => props.device?.id ?? props.copyFrom?.id ?? nu
 watch(
   copySourceId,
   async () => {
+    // Аудит fix/usability-batch4 (находка №5): инвариант "device и copyFrom не передаются
+    // одновременно" раньше был защищён только комментарием выше, не типами и не рантайм-
+    // проверкой. Dev-warning — минимальная защита от неверного использования; device выигрывает
+    // как более безопасный исход (обычный edit не даст случайно затереть данные копированием).
+    if (props.device && props.copyFrom) {
+      console.warn('DeviceFormModal: одновременно переданы device и copyFrom — используется device (режим редактирования)')
+    }
     const source = props.device ?? props.copyFrom ?? null
     const isCopy = !props.device && !!props.copyFrom
     Object.assign(form, emptyForm())

@@ -243,6 +243,20 @@ describe('VMFormModal.vue', () => {
       description: null,
     }
 
+    it('аудит fix/usability-batch4 (находка №5): одновременная передача vm и copyFrom — предупреждение в консоль, побеждает vm (edit)', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['operating-systems'] = [{ id: 'os-1', name: 'Astra Linux' }]
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const editedVM: VirtualMachine = { ...sourceVM, id: 'vm-edit', name: 'app-server-edit' }
+      const wrapper = mount(VMFormModal, { props: { vm: editedVM, copyFrom: sourceVM } })
+      await flushPromises()
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('используется vm'))
+      expect(wrapper.find('h2').text()).toContain('Редактировать') // vm выигрывает — это по-прежнему edit
+      expect(wrapper.find('input[required]').element).toHaveProperty('value', 'app-server-edit')
+    })
+
     it('форма открывается в режиме создания, поля донора подставлены, name (уникален) очищен', async () => {
       const catalogs = useCatalogsStore()
       catalogs.items['operating-systems'] = [{ id: 'os-1', name: 'Astra Linux' }]

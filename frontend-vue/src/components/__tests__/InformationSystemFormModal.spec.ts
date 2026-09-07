@@ -273,6 +273,18 @@ describe('фикс п.2: копирование информационной с�
     status: 'active',
   }
 
+  it('аудит fix/usability-batch4 (находка №5): одновременная передача system и copyFrom — предупреждение в консоль, побеждает system (edit)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_DETAILS)))
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const editedSystem: InformationSystem = { ...sourceSystem, id: 'is-edit', name: 'ИС Редактируемая' }
+    const wrapper = mount(InformationSystemFormModal, { props: { system: editedSystem, copyFrom: sourceSystem } })
+    await flushPromises()
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('используется system'))
+    expect(wrapper.find('h2').text()).toContain('Редактировать') // system выигрывает — это по-прежнему edit
+  })
+
   it('форма открывается в режиме создания, name (уникален) очищен, вложенные связи донора — без его id', async () => {
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
