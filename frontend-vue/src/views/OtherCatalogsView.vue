@@ -23,7 +23,6 @@ import { vTruncateTooltip } from '../directives/truncateTooltip'
 import CatalogRecordFormModal from '../components/CatalogRecordFormModal.vue'
 
 const OTHER_CATALOGS = [
-  'organizations',
   'device-types',
   'manufacturers',
   'device-models',

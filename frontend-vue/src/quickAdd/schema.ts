@@ -39,7 +39,7 @@ export interface QuickField {
 }
 
 export const QUICK_ADD_LABELS: Record<string, string> = {
-  organizations: 'Организация',
+  // Фикс п.4: 'organizations' удалён — см. комментарий в stores/catalogs.ts.
   'device-types': 'Тип устройства',
   manufacturers: 'Производитель',
   'device-models': 'Модель устройства',
@@ -65,16 +65,6 @@ export const QUICK_ADD_LABELS: Record<string, string> = {
 }
 
 export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
-  // organizations ни на что не ссылается по FK нигде в модели (в отличие от
-  // support-organizations) — сюда никогда не попадёшь через QuickAddModal.vue (там нечему
-  // показывать "+"), только через CatalogRecordFormModal.vue (OtherCatalogsView.vue). Добавлено
-  // ради паритета с legacy: там был полноценный CRUD-экран для этого ресурса, и при удалении
-  // legacy-фронтенда он не должен был бы стать недостижим ни в одном UI.
-  organizations: [
-    { name: 'name', label: 'Наименование', type: 'text', required: true },
-    { name: 'short_name', label: 'Краткое наименование', type: 'text', required: false },
-    { name: 'description', label: 'Описание', type: 'textarea', required: false },
-  ],
   'device-types': [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   manufacturers: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   'device-models': [

@@ -14,13 +14,6 @@ class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-class Organization(TimestampMixin, Base):
-    __tablename__ = "organizations"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    name: Mapped[str] = mapped_column(String(500), unique=True)
-    short_name: Mapped[Optional[str]] = mapped_column(String(200))
-    description: Mapped[Optional[str]] = mapped_column(Text)
-
 class SupportOrganization(TimestampMixin, Base):
     __tablename__ = "support_organizations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
