@@ -37,6 +37,22 @@ export interface DeviceModel extends CatalogItem {
   model: string
 }
 
+/** GET /api/v1/resources/interfaces?physical_device_id=... — физический/логический порт
+ * устройства (Лист 3 отчёта). Persist идёт НЕ через обычный CRUD /resources/interfaces, а через
+ * атомарный PUT /api/v1/devices/{device_id}/interfaces (см. backend/app/services/crud.py:
+ * sync_interfaces) — он одним запросом создаёт/обновляет/удаляет интерфейсы и их IP по diff'у с
+ * тем, что уже есть в БД, и заодно валидирует vlan_ids. См. DeviceInterfacesEditor.vue.
+ *
+ * vlan_mode (фикс п.1.3.9) — хранится на самом интерфейсе (backend/app/models.py), а не выводится
+ * из InterfaceVLAN.mode: при 0 назначенных VLAN связей нет вовсе, и без своей колонки режим
+ * "access" было неоткуда восстановить при следующей загрузке (см. миграцию 5b5ea0e81d32).
+ *
+ * Аудит fix/usability-batch4 (находка №4): раньше этот тип был объявлен дважды в файле (здесь и
+ * отдельно, самостоятельным блоком без extends CatalogItem, ближе к концу файла) — TypeScript
+ * трактовал это как declaration merging, из-за чего поля вроде vlan_mode приходилось добавлять в
+ * оба места синхронно. Объявление одно; extends CatalogItem сохранён, так как каталожный стор
+ * (stores/catalogs.ts: sortCatalogItems<T extends CatalogItem>, items: Record<CatalogKey,
+ * CatalogItem[]>) хранит интерфейсы устройства среди прочих каталожных сущностей. */
 export interface DeviceInterface extends CatalogItem {
   physical_device_id: string
   interface_type_id: string | null
@@ -306,28 +322,6 @@ export interface ISSourceDraftRow {
   purpose: string
   role: string
   external_interaction: boolean
-}
-
-/** GET /api/v1/resources/interfaces?physical_device_id=... — физический/логический порт
- * устройства (Лист 3 отчёта). Persist идёт НЕ через обычный CRUD /resources/interfaces, а через
- * атомарный PUT /api/v1/devices/{device_id}/interfaces (см. backend/app/services/crud.py:
- * sync_interfaces) — он одним запросом создаёт/обновляет/удаляет интерфейсы и их IP по diff'у с
- * тем, что уже есть в БД, и заодно валидирует vlan_ids. См. DeviceInterfacesEditor.vue.
- *
- * vlan_mode (фикс п.1.3.9) — хранится на самом интерфейсе (backend/app/models.py), а не выводится
- * из InterfaceVLAN.mode: при 0 назначенных VLAN связей нет вовсе, и без своей колонки режим
- * "access" было неоткуда восстановить при следующей загрузке (см. миграцию 5b5ea0e81d32). */
-export interface DeviceInterface {
-  id: string
-  physical_device_id: string
-  name: string
-  interface_type_id: string | null
-  mac_address: string | null
-  speed_id: string | null
-  is_management: boolean
-  is_data_transfer: boolean
-  description: string | null
-  vlan_mode: 'access' | 'trunk'
 }
 
 /** GET /api/v1/resources/interface-ips?interface_id=... — см. комментарий к DeviceInterface. */
