@@ -449,6 +449,35 @@ class TestInterfacesSync:
         r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
         assert r.status_code == 422
 
+    def test_sync_interfaces_creates_access_mode_ports_without_extra_update(self, client, sql_log):
+        """Аудит fix/usability-batch4 (находка №2): для НОВОГО интерфейса obj.vlan_mode
+        присваивался ПОСЛЕ session.flush() — колонка сначала уходила в БД со значением по
+        умолчанию ('trunk') через INSERT, а затем, если запрошенный режим отличался от дефолта
+        (например 'access'), правилось отдельным UPDATE device_interfaces. При создании
+        устройства с N access-портами это N лишних write-запросов на один PUT.
+
+        'access' выбран намеренно как значение, ОТЛИЧНОЕ от дефолта колонки ('trunk') — иначе
+        SQLAlchemy не отправит UPDATE вовсе, даже при ошибочном порядке присваивания (значение
+        не изменилось бы относительно уже вставленного дефолта), и тест не поймал бы регрессию."""
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для подсчёта UPDATE"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-UPDATE"}).json()
+
+        sql_log.clear()
+        payload = {"interfaces": [{"name": f"eth{i}", "vlan_mode": "access", "vlan_ids": []} for i in range(5)]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 200, r.text
+        assert all(item["vlan_mode"] == "access" for item in r.json()["items"])
+
+        update_queries = [
+            s for s in sql_log
+            if s.strip().upper().startswith("UPDATE") and "DEVICE_INTERFACES" in s.upper()
+        ]
+        assert not update_queries, (
+            f"Создание новых интерфейсов не должно требовать UPDATE device_interfaces "
+            f"(vlan_mode должен уходить в исходный INSERT), получено {len(update_queries)}: "
+            f"{update_queries}"
+        )
+
 
 class TestInformationSystemDetails:
     def test_get_details_for_missing_is_returns_404(self, client):

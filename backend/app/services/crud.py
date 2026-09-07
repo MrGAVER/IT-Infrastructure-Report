@@ -284,6 +284,11 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     vlan_mode = item.get('vlan_mode') or 'trunk'
     if vlan_mode not in _VLAN_MODES:
         raise HTTPException(422, "Поле vlan_mode интерфейса должно быть 'access' или 'trunk'")
+    # Аудит fix/usability-batch4 (находка №2): присваиваем ДО flush() — простые поля выше по
+    # функции попадут в тот же autoflush-UPDATE, вместо отдельного второго UPDATE на этот же
+    # интерфейс при следующем autoflush (session.execute(delete(...)) ниже). При синхронизации
+    # устройства с десятками портов это лишний десяток write-запросов на каждый PUT.
+    obj.vlan_mode = vlan_mode
     session.flush()
     vlan_ids=item.get('vlan_ids') or []
     if not isinstance(vlan_ids,list): raise HTTPException(422, 'Поле vlan_ids интерфейса должно быть массивом')
@@ -292,10 +297,10 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     unique_vlan_ids = list(dict.fromkeys(vlan_ids))
     # Защита на бэкенде того же инварианта, что и validateInterfaceDraftRows() на фронтенде —
     # там это только UI-проверка перед отправкой запроса, здесь гарантия для любого вызывающего
-    # API-код напрямую (или старого кэшированного фронтенд-бандла).
+    # API-код напрямую (или старого кэшированного фронтенд-бандла). Читает локальную переменную
+    # vlan_mode, а не obj.vlan_mode — та уже присвоена выше и не меняется дальше по функции.
     if vlan_mode == 'access' and len(unique_vlan_ids) > 1:
         raise HTTPException(422, 'В режиме access у порта может быть не более одного VLAN')
-    obj.vlan_mode = vlan_mode
     session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.interface_id==obj.id))
     for vlan_id in unique_vlan_ids: session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=vlan_mode))
     ips = item.get('ips') or []
