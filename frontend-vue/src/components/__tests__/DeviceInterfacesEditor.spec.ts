@@ -184,6 +184,20 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(confirm).toHaveBeenCalledWith(expect.stringContaining('заменит все порты устройства (2 шт.)'))
     })
 
+    it('аудит fix/usability-batch4 (находка №1): с галочкой и "Количество" = 0 на непустом списке — отдельное предупреждение про удаление без замены', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }, { ...emptyRow(), name: 'eth1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator input[type="number"]').setValue('0')
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      // Раньше текст подтверждения был одинаков независимо от того, что "Количество" = 0 и
+      // результатом будет ноль портов — пользователь мог принять это за обычную замену N на N.
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('будут удалены'))
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result).toHaveLength(0) // осознанный выбор "заменить на пусто" по-прежнему поддерживается
+    })
+
     it('с галочкой на пустом списке — предупреждения нет (нечего терять)', async () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
       await wrapper.find('.replace-all-check input').setValue(true)

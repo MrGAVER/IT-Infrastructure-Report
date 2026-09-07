@@ -142,12 +142,19 @@ function generate() {
   // "Заменить все порты" (по умолчанию выключена, см. applyGenerator()), поэтому предупреждение
   // безусловно показывается при любом непустом списке — раз уж галочка стоит, значит замена
   // ожидаема, но масштаб (сколько именно портов будет затронуто) всё равно стоит подтвердить.
+  const count = Math.max(0, Number(genCount.value) || 0)
+  // Фикс (аудит fix/usability-batch4, находка №1): count вычисляется ДО текста подтверждения,
+  // чтобы отдельно предупредить про случай "Заменить все порты" + "Количество" = 0 — раньше это
+  // молча удаляло все существующие порты устройства, а диалог говорил только про "заменит N шт.
+  // новыми", не сообщая, что новых будет ноль.
   if (props.modelValue.length > 0) {
-    const count = props.modelValue.length
-    const ok = confirm(`Это полностью заменит все порты устройства (${count} шт.) новыми, сгенерированными по шаблону. Продолжить?`)
+    const existingCount = props.modelValue.length
+    const message = count === 0
+      ? `Количество для генерации равно 0 — все ${existingCount} уже добавленных порта(ов) будут удалены, новые созданы не будут. Продолжить?`
+      : `Это полностью заменит все порты устройства (${existingCount} шт.) новыми, сгенерированными по шаблону. Продолжить?`
+    const ok = confirm(message)
     if (!ok) return
   }
-  const count = Math.max(0, Number(genCount.value) || 0)
   const startNumber = resolveStartNumber(1)
   const rows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => {
     const existing = props.modelValue[i] ?? emptyRow()
