@@ -26,6 +26,8 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 PRE_CATEGORY_REVISION = "0fcebbb67ac0"  # последняя ревизия до фичи диаграммы топологии сети
 CATEGORIES_REVISION = "d359e0bd414c"  # device_categories создана и засеяна
 DEVICE_TYPES_REVISION = "38e9b2624a53"  # деструктивная: category_id NOT NULL + очистка
+DIAGRAM_ICONS_REVISION = "aa2365249bf7"  # diagram_icons + diagram_icon_id на моделях/устройствах
+SAVED_DIAGRAMS_REVISION = "d4ba3ad6a222"  # saved_diagrams/diagram_layouts/diagram_group_states
 
 
 def _uid() -> str:
@@ -241,3 +243,69 @@ def test_categories_migration_upgrade_downgrade_upgrade_cycle(alembic_config):
     conn = _connect(db_path)
     assert conn.execute("SELECT count(*) FROM device_categories").fetchone()[0] == 8
     conn.close()
+
+
+def test_diagram_icons_migration_creates_table_and_fk_columns(alembic_config):
+    """Миграция 3 (аддитивная): каталог diagram_icons + diagram_icon_id на device_models и
+    physical_devices, с именованными FK-констрейнтами через batch_alter_table (раздел 4.3 ТЗ —
+    ручное переопределение иконки на уровне модели/конкретного устройства)."""
+    cfg, db_path = alembic_config
+    command.upgrade(cfg, DIAGRAM_ICONS_REVISION)
+    conn = _connect(db_path)
+    assert conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'"
+    ).fetchone() is not None
+    model_cols = {r["name"] for r in conn.execute("PRAGMA table_info(device_models)").fetchall()}
+    device_cols = {r["name"] for r in conn.execute("PRAGMA table_info(physical_devices)").fetchall()}
+    assert "diagram_icon_id" in model_cols
+    assert "diagram_icon_id" in device_cols
+    conn.close()
+
+    command.downgrade(cfg, DEVICE_TYPES_REVISION)
+    conn = _connect(db_path)
+    assert conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'"
+    ).fetchone() is None
+    conn.close()
+    command.upgrade(cfg, DIAGRAM_ICONS_REVISION)
+
+
+def test_saved_diagrams_migration_creates_tables_with_cascade(alembic_config):
+    """Миграция 4 (аддитивная): saved_diagrams/diagram_layouts/diagram_group_states, с
+    ON DELETE CASCADE на дочерних таблицах (раздел 7 ТЗ — DELETE /diagrams/{id} каскадно удаляет
+    layouts/group_states на уровне БД, не Python-логикой)."""
+    cfg, db_path = alembic_config
+    command.upgrade(cfg, SAVED_DIAGRAMS_REVISION)
+    conn = _connect(db_path)
+    conn.execute("PRAGMA foreign_keys=ON")
+    now = "2026-01-01 00:00:00"
+    conn.execute(
+        "INSERT INTO saved_diagrams (id, name, scope_filter, group_by, collapse_threshold, created_at, updated_at) "
+        "VALUES ('d1', 'Диаграмма 1', '{}', 'structural_unit', 20, ?, ?)",
+        (now, now),
+    )
+    conn.execute(
+        "INSERT INTO diagram_layouts (id, saved_diagram_id, node_positions, auto_layout_algorithm, created_at, updated_at) "
+        "VALUES ('l1', 'd1', '{}', 'hierarchical', ?, ?)",
+        (now, now),
+    )
+    conn.execute(
+        "INSERT INTO diagram_group_states (id, saved_diagram_id, group_key, is_collapsed, device_count, created_at, updated_at) "
+        "VALUES ('g1', 'd1', 'structural_unit:1', 1, 25, ?, ?)",
+        (now, now),
+    )
+    conn.commit()
+
+    conn.execute("DELETE FROM saved_diagrams WHERE id='d1'")
+    conn.commit()
+    assert conn.execute("SELECT count(*) FROM diagram_layouts").fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM diagram_group_states").fetchone()[0] == 0
+    conn.close()
+
+    command.downgrade(cfg, DIAGRAM_ICONS_REVISION)
+    conn = _connect(db_path)
+    assert conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='saved_diagrams'"
+    ).fetchone() is None
+    conn.close()
+    command.upgrade(cfg, SAVED_DIAGRAMS_REVISION)
