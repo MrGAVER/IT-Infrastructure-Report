@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from ..config import APP_VERSION, ENABLE_TEST_DATA_ENDPOINT, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
-from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Organization, Department, Building, Room, Rack, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN, SupportMethod)
+from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Organization, Department, Building, Room, Rack, DeviceCategory, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN, SupportMethod)
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
@@ -206,8 +206,12 @@ def seed_test_data(session: Session = Depends(get_db)):
     building = add(Building, name=f"{tag} ЦОД-1", address="Тестовый адрес")
     room = add(Room, building_id=building.id, name="Серверная")
     rack = add(Rack, room_id=room.id, name="Стойка R01", height_u=42)
-    server_type = add(DeviceType, name=f"{tag} Сервер")
-    switch_type = add(DeviceType, name=f"{tag} Коммутатор")
+    # category_id обязателен (см. app/models.py:DeviceType, ТЗ диаграммы топологии сети) — категории
+    # "Серверы и СХД"/"Коммутаторы" уже засеяны services/catalogs.seed_defaults() на старте приложения.
+    server_category = session.scalar(select(DeviceCategory).where(DeviceCategory.name == "Серверы и СХД"))
+    switch_category = session.scalar(select(DeviceCategory).where(DeviceCategory.name == "Коммутаторы"))
+    server_type = add(DeviceType, name=f"{tag} Сервер", category_id=server_category.id)
+    switch_type = add(DeviceType, name=f"{tag} Коммутатор", category_id=switch_category.id)
     manufacturer = add(Manufacturer, name=f"{tag} Manufacturer")
     server_model = add(DeviceModel, manufacturer_id=manufacturer.id, device_type_id=server_type.id, model="TEST-SERVER-01")
     switch_model = add(DeviceModel, manufacturer_id=manufacturer.id, device_type_id=switch_type.id, model="TEST-SWITCH-01")

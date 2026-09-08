@@ -19,7 +19,7 @@ try:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    from app.models import Base, Department, DeviceType, InformationSystem, ISDepartment
+    from app.models import Base, Department, DeviceCategory, DeviceType, InformationSystem, ISDepartment
     from app.services.report_engine import ReportBuilderError
     from app.services.report_grid import _estimate_row_height, build_xlsx_grid, preview_grid, validate_grid_config
     from app.services.report_meta import build_entity_metadata
@@ -189,7 +189,10 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         self.session.flush()
         self.session.add(ISDepartment(information_system_id=self.isys1.id, department_id=self.dep_it.id))
 
-        self.device_type = DeviceType(name="Сервер")
+        self.device_category = DeviceCategory(name="Серверы и СХД")
+        self.session.add(self.device_category)
+        self.session.flush()
+        self.device_type = DeviceType(name="Сервер", category_id=self.device_category.id)
         self.session.add(self.device_type)
         self.session.flush()
         self.session.commit()

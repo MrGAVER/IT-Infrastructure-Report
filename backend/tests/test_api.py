@@ -12,6 +12,15 @@ from __future__ import annotations
 from app.config import REPORT_DIR
 
 
+def _create_device_type(client, name: str, **extra):
+    """Создаёт тип устройства с первой попавшейся существующей категорией. category_id обязателен
+    с тех пор, как DeviceType обзавёлся DeviceCategory (диаграмма топологии сети, см.
+    app/models.py) — большинству тестов в этом файле конкретная категория безразлична, им нужен
+    только синтаксически валидный тип устройства для последующего создания физических устройств."""
+    category_id = client.get("/api/v1/resources/device-categories", params={"limit": 1}).json()["items"][0]["id"]
+    return client.post("/api/v1/resources/device-types", json={"name": name, "category_id": category_id, **extra}).json()
+
+
 def test_health(client):
     r = client.get("/api/v1/health")
     assert r.status_code == 200
@@ -154,7 +163,7 @@ class TestSchemaValidation:
     малопонятный IntegrityError/500, а не как явный 422 на входе."""
 
     def test_wrong_type_rejected_with_clean_422_not_integrity_error(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для схемы"}).json()
+        dt = _create_device_type(client, "Тип для схемы")
         r = client.post(
             "/api/v1/resources/devices",
             json={"device_type_id": dt["id"], "serial_number": "SCHEMA-1", "rack_position": ["10U", "11U"]},
@@ -186,7 +195,7 @@ class TestSchemaValidation:
         assert r.status_code == 201, r.text
 
     def test_update_schema_validation_keeps_partial_semantics(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для апдейта"}).json()
+        dt = _create_device_type(client, "Тип для апдейта")
         dev = client.post(
             "/api/v1/resources/devices",
             json={"device_type_id": dt["id"], "serial_number": "SCHEMA-3", "description": "Исходное"},
@@ -220,10 +229,7 @@ class TestHypervisorAndVmHostFlags:
             "/api/v1/resources/operating-systems",
             json={"category_id": category.json()["id"], "name": "Custom Hypervisor", "version": "1"},
         ).json()
-        server_type = client.post(
-            "/api/v1/resources/device-types",
-            json={"name": "Тестовый хост-сервер", "allows_vm_hosting": True},
-        ).json()
+        server_type = _create_device_type(client, "Тестовый хост-сервер", allows_vm_hosting=True)
         host = client.post(
             "/api/v1/resources/devices",
             json={
@@ -252,10 +258,7 @@ class TestHypervisorAndVmHostFlags:
             "/api/v1/resources/operating-systems",
             json={"category_id": category["id"], "name": "Fake Hypervisor", "version": "1"},
         ).json()
-        server_type = client.post(
-            "/api/v1/resources/device-types",
-            json={"name": "Тестовый хост-сервер 2", "allows_vm_hosting": True},
-        ).json()
+        server_type = _create_device_type(client, "Тестовый хост-сервер 2", allows_vm_hosting=True)
         host = client.post(
             "/api/v1/resources/devices",
             json={
@@ -271,10 +274,7 @@ class TestHypervisorAndVmHostFlags:
         assert vm.status_code == 422
 
     def test_vm_host_rule_follows_flag_not_device_type_name(self, client):
-        device_type = client.post(
-            "/api/v1/resources/device-types",
-            json={"name": "Необычное имя типа", "allows_vm_hosting": True},
-        ).json()
+        device_type = _create_device_type(client, "Необычное имя типа", allows_vm_hosting=True)
         host = client.post(
             "/api/v1/resources/devices",
             json={"device_type_id": device_type["id"], "serial_number": "SN-HOST-1"},
@@ -287,9 +287,7 @@ class TestHypervisorAndVmHostFlags:
         assert vm.status_code == 201, vm.text
 
     def test_vm_host_rule_rejects_device_type_without_flag(self, client):
-        device_type = client.post(
-            "/api/v1/resources/device-types", json={"name": "Рабочая станция без флага"}
-        ).json()
+        device_type = _create_device_type(client, "Рабочая станция без флага")
         assert device_type["allows_vm_hosting"] is False
         host = client.post(
             "/api/v1/resources/devices",
@@ -305,7 +303,7 @@ class TestHypervisorAndVmHostFlags:
 
 class TestReferentialIntegrity:
     def test_cannot_delete_device_type_referenced_by_device(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тестовый сервер А"}).json()
+        dt = _create_device_type(client, "Тестовый сервер А")
         dev = client.post(
             "/api/v1/resources/devices",
             json={"device_type_id": dt["id"], "serial_number": "SN-001"},
@@ -317,12 +315,12 @@ class TestReferentialIntegrity:
         assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
 
     def test_unreferenced_device_type_can_be_deleted(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Неиспользуемый тип"}).json()
+        dt = _create_device_type(client, "Неиспользуемый тип")
         r = client.delete(f"/api/v1/resources/device-types/{dt['id']}")
         assert r.status_code == 200
 
     def test_duplicate_system_name_requires_confirmation(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тестовый сервер А"}).json()
+        dt = _create_device_type(client, "Тестовый сервер А")
         first = client.post(
             "/api/v1/resources/devices",
             json={"device_type_id": dt["id"], "serial_number": "SN-100", "system_name": "srv-01"},
@@ -348,7 +346,7 @@ class TestReferentialIntegrity:
         assert confirmed.status_code == 201, confirmed.text
 
     def test_rack_position_conflict_requires_confirmation(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тестовый сервер А"}).json()
+        dt = _create_device_type(client, "Тестовый сервер А")
         building = client.post("/api/v1/resources/buildings", json={"name": "Тестовый ЦОД"}).json()
         room = client.post("/api/v1/resources/rooms", json={"building_id": building["id"], "name": "Серверная"}).json()
         rack = client.post("/api/v1/resources/racks", json={"room_id": room["id"], "name": "R01"}).json()
@@ -375,7 +373,7 @@ class TestReferentialIntegrity:
 
 class TestInterfacesSync:
     def test_sync_interfaces_creates_and_lists_ips(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор"}).json()
+        dt = _create_device_type(client, "Коммутатор")
         dev = client.post(
             "/api/v1/resources/devices",
             json={"device_type_id": dt["id"], "serial_number": "SW-01"},
@@ -443,7 +441,7 @@ class TestNPlusOneRegressions:
     сразу на маленьком наборе данных, а не когда это станет заметно на реальном объёме."""
 
     def test_sync_interfaces_allowed_vlan_lookup_does_not_scale_with_port_count(self, client, sql_log):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для подсчёта запросов"}).json()
+        dt = _create_device_type(client, "Тип для подсчёта запросов")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-1"}).json()
 
         sql_log.clear()
@@ -456,7 +454,7 @@ class TestNPlusOneRegressions:
         assert len(vlan_lookup_queries) <= 2, f"Ожидалось <=2 запроса к allowed-VLAN, получено {len(vlan_lookup_queries)}"
 
     def test_sync_vlan_domain_does_not_query_per_device_per_vlan_pair(self, client, sql_log):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для домена подсчёта"}).json()
+        dt = _create_device_type(client, "Тип для домена подсчёта")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-SRC"}).json()
         members = [
             client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"QC-M{i}"}).json()
@@ -515,7 +513,7 @@ class TestNPlusOneRegressions:
 
 class TestBulkVlanAssign:
     def _setup(self, client, n_devices=3):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для bulk-VLAN"}).json()
+        dt = _create_device_type(client, "Тип для bulk-VLAN")
         devices = [
             client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"BULK-{i}"}).json()
             for i in range(n_devices)
@@ -590,7 +588,7 @@ class TestBulkVlanAssign:
 
 class TestVlanDomainMemberAudit:
     def test_add_member_writes_audit_entry(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для аудита членства"}).json()
+        dt = _create_device_type(client, "Тип для аудита членства")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUD-SRC"}).json()
         member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUD-M"}).json()
         domain = client.post(
@@ -606,7 +604,7 @@ class TestVlanDomainMemberAudit:
         assert any(x["entity_id"] == membership_id and x["action"] == "CREATE" for x in r.json()["items"])
 
     def test_add_member_twice_is_idempotent_and_audits_once(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип идемпотентности членства"}).json()
+        dt = _create_device_type(client, "Тип идемпотентности членства")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "IDM-SRC"}).json()
         member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "IDM-M"}).json()
         domain = client.post(
@@ -625,7 +623,7 @@ class TestVlanDomainMemberAudit:
 
 class TestCopyDeviceVlans:
     def test_copies_vlans_from_source_and_writes_audit_entry(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для копирования VLAN"}).json()
+        dt = _create_device_type(client, "Тип для копирования VLAN")
         source = client.post(
             "/api/v1/resources/devices",
             json={"device_type_id": dt["id"], "serial_number": "CP-SRC", "system_name": "src-sw"},
@@ -648,7 +646,7 @@ class TestCopyDeviceVlans:
         assert any(x["entity_id"] == target["id"] and x["action"] == "SYNC" for x in r.json()["items"])
 
     def test_rejects_missing_source_or_target(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для проверки ошибок копирования"}).json()
+        dt = _create_device_type(client, "Тип для проверки ошибок копирования")
         target = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "CP-ERR"}).json()
         r = client.post(f"/api/v1/devices/{target['id']}/vlan-copy", json={"source_device_id": "не-существует"})
         assert r.status_code == 404
@@ -658,7 +656,7 @@ class TestVlanDomainSync:
     def test_sync_creates_definitions_and_assigns_to_members(self, client):
         """POST /vlan-domains/{id}/sync must propagate every source-device VLAN to every other
         member device exactly once — regression test for the N+1 refactor in api/system.py."""
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор VLAN-домена"}).json()
+        dt = _create_device_type(client, "Коммутатор VLAN-домена")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "VD-SRC"}).json()
         member1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "VD-M1"}).json()
         member2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "VD-M2"}).json()
@@ -730,7 +728,7 @@ class TestGlobalSearchTextIndex:
         assert any(x["ip_address"] == "10.20.30.41" for x in r.json()["items"])
 
     def test_device_vlan_ip_searchable_by_address(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для поиска VLAN-IP"}).json()
+        dt = _create_device_type(client, "Тип для поиска VLAN-IP")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRCH-1"}).json()
         vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 77, "name": "Поиск"}).json()
         r = client.post(
@@ -743,7 +741,7 @@ class TestGlobalSearchTextIndex:
         assert any(x["ip_address"] == "10.20.30.42" for x in r.json()["items"])
 
     def test_open_port_ip_searchable_by_address(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для поиска порта"}).json()
+        dt = _create_device_type(client, "Тип для поиска порта")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRCH-2"}).json()
         r = client.post(
             "/api/v1/resources/open-ports",
@@ -1052,7 +1050,7 @@ class TestReports:
         assert building_in.status_code == 201, building_in.text
         building_in = building_in.json()
         building_out = client.post("/api/v1/resources/buildings", json={"name": "Здание Б", "structural_unit_id": other_unit["id"]}).json()
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для фильтра по структурной единице"}).json()
+        dt = _create_device_type(client, "Тип для фильтра по структурной единице")
         client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-IN", "building_id": building_in["id"]})
         client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-OUT", "building_id": building_out["id"]})
 
@@ -1073,7 +1071,7 @@ class TestReports:
         unit = client.post("/api/v1/resources/structural-units", json={"name": "Филиал А"}).json()
         building_in = client.post("/api/v1/resources/buildings", json={"name": "Здание А", "structural_unit_id": unit["id"]}).json()
         building_out = client.post("/api/v1/resources/buildings", json={"name": "Здание Б"}).json()
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для фильтра шаблона по единице"}).json()
+        dt = _create_device_type(client, "Тип для фильтра шаблона по единице")
         client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-IN", "building_id": building_in["id"]})
         client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-OUT", "building_id": building_out["id"]})
 

@@ -21,7 +21,7 @@ try:
     sys.path.insert(0, str(APP_DIR.parent))
     from sqlalchemy import create_engine, event
     from sqlalchemy.orm import sessionmaker
-    from app.models import Base, DeviceType, PhysicalDevice, InformationSystem
+    from app.models import Base, DeviceCategory, DeviceType, PhysicalDevice, InformationSystem
     from app.services.crud import _find_referencing_counts, delete_resource, sync_information_system_details
     from fastapi import HTTPException
     DEPS_AVAILABLE = True
@@ -43,12 +43,17 @@ class ReferentialIntegrityTestCase(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
+        # category_id обязателен на DeviceType (диаграмма топологии сети, см. app/models.py) —
+        # категория как таковая безразлична этим тестам, им нужна только валидная ссылка.
+        category = DeviceCategory(name="Тестовая категория")
+        self.session.add(category); self.session.flush()
+        self.category_id = category.id
 
     def tearDown(self):
         self.session.close()
 
     def test_referenced_device_type_cannot_be_deleted(self):
-        dt = DeviceType(name="Сервер")
+        dt = DeviceType(name="Сервер", category_id=self.category_id)
         self.session.add(dt); self.session.flush()
         dev = PhysicalDevice(device_type_id=dt.id, serial_number="SN1")
         self.session.add(dev); self.session.commit()
@@ -66,7 +71,7 @@ class ReferentialIntegrityTestCase(unittest.TestCase):
         self.assertIsNotNone(self.session.get(DeviceType, dt.id))
 
     def test_unreferenced_device_type_can_be_deleted(self):
-        dt = DeviceType(name="Неиспользуемый тип")
+        dt = DeviceType(name="Неиспользуемый тип", category_id=self.category_id)
         self.session.add(dt); self.session.commit()
 
         refs = _find_referencing_counts(DeviceType, dt.id, self.session)
