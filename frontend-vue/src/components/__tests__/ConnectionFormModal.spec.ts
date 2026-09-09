@@ -5,6 +5,7 @@ import ConnectionFormModal from '../ConnectionFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
 import { useConnectionsStore } from '../../stores/connections'
+import type { DeviceInterface } from '../../api/types'
 
 // QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
 function teleportedContent(): DOMWrapper<HTMLElement> {
@@ -213,5 +214,110 @@ describe('ConnectionFormModal.vue — поиск в полях "Устройст
     const filtered = portSelect.findAll('.ss-option')
     expect(filtered).toHaveLength(1)
     expect(filtered[0].text()).toBe('GigabitEthernet0/2')
+  })
+})
+
+describe('ConnectionFormModal.vue — "Назначение линии связи" по данным портов (фикс п.3.3)', () => {
+  function setupInterfaces(source: Partial<DeviceInterface>, destination: Partial<DeviceInterface>) {
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [
+      { id: 'if-src', name: 'Gi0/1', physical_device_id: 'dev-src', is_management: false, is_data_transfer: false, ...source },
+      { id: 'if-dst', name: 'Gi0/2', physical_device_id: 'dev-dst', is_management: false, is_data_transfer: false, ...destination },
+    ] as never
+    const devices = useDevicesStore()
+    devices.all = [
+      { id: 'dev-src', system_name: 'src-dev', serial_number: 'SN-1' } as never,
+      { id: 'dev-dst', system_name: 'dst-dev', serial_number: 'SN-2' } as never,
+    ]
+  }
+
+  async function selectBothEndpoints(wrapper: ReturnType<typeof mount>) {
+    const [sourceFieldset, destinationFieldset] = wrapper.findAll('.endpoint')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'src-dev')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[1], 'Gi0/1')
+    await chooseOption(destinationFieldset.findAll('.searchable-select')[0], 'dst-dev')
+    await chooseOption(destinationFieldset.findAll('.searchable-select')[1], 'Gi0/2')
+  }
+
+  function purposeInput(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('input[list="purpose-presets"]')
+  }
+
+  it('оба порта отмечены "Управление" — назначение подставляется автоматически', async () => {
+    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: true, is_data_transfer: false })
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await selectBothEndpoints(wrapper)
+    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Управление активами')
+  })
+
+  it('оба порта отмечены "Передача данных" и "Управление" одновременно', async () => {
+    setupInterfaces({ is_management: true, is_data_transfer: true }, { is_management: true, is_data_transfer: true })
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await selectBothEndpoints(wrapper)
+    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Передача данных и управление активами')
+  })
+
+  it('порты расходятся — предупреждение показывается, поле не заполняется автоматически', async () => {
+    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: false, is_data_transfer: true })
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await selectBothEndpoints(wrapper)
+
+    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('')
+    const warning = wrapper.find('.purpose-mismatch')
+    expect(warning.exists()).toBe(true)
+    expect(warning.text()).toContain('Gi0/1')
+    expect(warning.text()).toContain('Gi0/2')
+  })
+
+  it('ручной нестандартный текст назначения не затирается при смене порта', async () => {
+    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: false, is_data_transfer: false })
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    const [sourceFieldset] = wrapper.findAll('.endpoint')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'src-dev')
+    await chooseOption(sourceFieldset.findAll('.searchable-select')[1], 'Gi0/1')
+
+    await purposeInput(wrapper).setValue('Резервный канал для репликации СХД')
+
+    const [, destinationFieldset] = wrapper.findAll('.endpoint')
+    await chooseOption(destinationFieldset.findAll('.searchable-select')[0], 'dst-dev')
+    await chooseOption(destinationFieldset.findAll('.searchable-select')[1], 'Gi0/2')
+
+    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Резервный канал для репликации СХД')
+  })
+
+  it('кнопка выравнивания сохраняет флаги "проигравшего" порта и обновляет назначение', async () => {
+    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: false, is_data_transfer: true })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/resources/interfaces') && method === 'GET' && url.includes('dev-dst')) {
+          return new Response(JSON.stringify({ items: [{ id: 'if-dst', physical_device_id: 'dev-dst', name: 'Gi0/2', vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
+        }
+        if (method === 'PUT' && url.includes('/devices/dev-dst/interfaces')) {
+          return new Response(JSON.stringify({ items: [{ id: 'if-dst', physical_device_id: 'dev-dst', name: 'Gi0/2', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] }))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await selectBothEndpoints(wrapper)
+
+    // "Взять как на «Gi0/1»" — источник управляет, назначение должно перейти на порт назначения.
+    await wrapper.find('.purpose-mismatch-actions button').trigger('click')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-dst/interfaces'))
+    expect((put!.body as { interfaces: Array<{ id: string; is_management: boolean; is_data_transfer: boolean }> }).interfaces[0]).toMatchObject({
+      id: 'if-dst',
+      is_management: true,
+      is_data_transfer: false,
+    })
+    expect(wrapper.find('.purpose-mismatch').exists()).toBe(false) // расхождения больше нет
+    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Управление активами')
   })
 })

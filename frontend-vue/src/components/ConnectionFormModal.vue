@@ -10,6 +10,7 @@
 // трогая порты.
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
+import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces } from '../api/deviceInterfaces'
 import type { Connection, Device, DeviceInterface } from '../api/types'
 import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -47,6 +48,76 @@ function emptyForm() {
 const form = reactive(emptyForm())
 
 const allInterfaces = computed(() => (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
+
+// Фикс п.3.3: "Назначение линии связи" — брать на основании данных на порту подключаемых
+// устройств (is_management/is_data_transfer на DeviceInterface), а не только вводить вручную.
+// Три преднастроенных значения (PURPOSE_PRESETS выше) как раз и соответствуют трём комбинациям
+// этих двух флагов — та же классификация, что и в структурной схеме приложения (см.
+// "Структурная схема - Приложение 1.docx": "управление активами" / "передача данных" /
+// "передача данных и управление активами").
+function purposeFromFlags(isManagement: boolean, isDataTransfer: boolean): string {
+  if (isManagement && isDataTransfer) return 'Передача данных и управление активами'
+  if (isManagement) return 'Управление активами'
+  if (isDataTransfer) return 'Передача данных'
+  return ''
+}
+
+const selectedSourceInterface = computed(() => allInterfaces.value.find((i) => i.id === form.source_interface_id) ?? null)
+const selectedDestinationInterface = computed(() => allInterfaces.value.find((i) => i.id === form.destination_interface_id) ?? null)
+
+// Расхождение — когда на портах указано РАЗНОЕ назначение (один "управление", другой "передача
+// данных" и т.п.). null, пока не выбраны оба порта — сравнивать пока нечего.
+const purposeMismatch = computed(() => {
+  const s = selectedSourceInterface.value
+  const d = selectedDestinationInterface.value
+  if (!s || !d) return null
+  if (s.is_management === d.is_management && s.is_data_transfer === d.is_data_transfer) return null
+  return { source: s, destination: d }
+})
+
+// Автоподстановка срабатывает только когда оба порта согласны (иначе непонятно, чьё значение
+// брать — см. purposeMismatch и предупреждение в шаблоне ниже) и только если текущее значение
+// поля не является ручным вводом пользователя, отличным от типовых пресетов: пустое поле или уже
+// один из PURPOSE_PRESETS перезаписываются, а вот что-то нестандартное, вписанное вручную (напр.
+// "резервный канал для репликации СХД"), молча не затирается при смене порта.
+watch([selectedSourceInterface, selectedDestinationInterface], ([s, d]) => {
+  if (!s || !d) return
+  if (s.is_management !== d.is_management || s.is_data_transfer !== d.is_data_transfer) return
+  if (form.purpose !== '' && !PURPOSE_PRESETS.includes(form.purpose)) return
+  form.purpose = purposeFromFlags(s.is_management, s.is_data_transfer)
+})
+
+const aligningPorts = ref(false)
+
+// Фикс п.3.3: "выполнять автоматическую проверку и корректировку несовпадающих данных с запросом
+// у пользователя, на обоих подключаемых портах" — при расхождении пользователь явно выбирает,
+// чьё значение считать верным (keepSource), после подтверждения оно копируется на ВТОРОЙ порт.
+// sync_interfaces на бэкенде атомарный на всё устройство целиком (см. api/deviceInterfaces.ts) —
+// нельзя обновить один флаг одного интерфейса точечным PATCH, поэтому перечитываем полный список
+// интерфейсов устройства-"проигравшего", меняем в нём только эту одну строку и сохраняем весь
+// список обратно.
+async function alignPortFlags(keepSource: boolean) {
+  const mismatch = purposeMismatch.value
+  if (!mismatch) return
+  const winner = keepSource ? mismatch.source : mismatch.destination
+  const loser = keepSource ? mismatch.destination : mismatch.source
+  const winnerPurpose = purposeFromFlags(winner.is_management, winner.is_data_transfer) || '— ни управление, ни передача данных не отмечены —'
+  if (!confirm(`Порт «${loser.name}» получит то же назначение, что и «${winner.name}»: ${winnerPurpose}. Продолжить?`)) return
+
+  aligningPorts.value = true
+  errorMessage.value = null
+  try {
+    const rows = await loadDeviceInterfaceDraftRows(loser.physical_device_id)
+    const updatedRows = rows.map((r) => (r.id === loser.id ? { ...r, is_management: winner.is_management, is_data_transfer: winner.is_data_transfer } : r))
+    const { items } = await persistDeviceInterfaces(loser.physical_device_id, updatedRows)
+    catalogs.replaceDeviceInterfaces(loser.physical_device_id, items)
+    form.purpose = purposeFromFlags(winner.is_management, winner.is_data_transfer)
+  } catch (err) {
+    errorMessage.value = err instanceof Error ? err.message : 'Не удалось выровнять назначение портов'
+  } finally {
+    aligningPorts.value = false
+  }
+}
 
 function deviceLabel(d: Device) {
   return d.system_name || d.serial_number
@@ -304,6 +375,25 @@ async function submit() {
             </datalist>
           </label>
 
+          <!-- Фикс п.3.3: расхождение в "Управление"/"Передача данных" между двумя портами —
+               предупреждаем и предлагаем выровнять, а не молча оставляем как есть. -->
+          <div v-if="purposeMismatch" class="field field-wide purpose-mismatch">
+            <span class="warning-text">
+              ⚠ На портах указано разное назначение: «{{ purposeMismatch.source.name }}» —
+              {{ purposeFromFlags(purposeMismatch.source.is_management, purposeMismatch.source.is_data_transfer) || 'ни управление, ни передача данных' }},
+              «{{ purposeMismatch.destination.name }}» —
+              {{ purposeFromFlags(purposeMismatch.destination.is_management, purposeMismatch.destination.is_data_transfer) || 'ни управление, ни передача данных' }}.
+            </span>
+            <div class="purpose-mismatch-actions">
+              <button type="button" class="btn btn-secondary" :disabled="aligningPorts" @click="alignPortFlags(true)">
+                Взять как на «{{ purposeMismatch.source.name }}»
+              </button>
+              <button type="button" class="btn btn-secondary" :disabled="aligningPorts" @click="alignPortFlags(false)">
+                Взять как на «{{ purposeMismatch.destination.name }}»
+              </button>
+            </div>
+          </div>
+
           <label class="field checkbox-field">
             <input v-model="form.is_active" type="checkbox" />
             <span>Подключение активно</span>
@@ -423,6 +513,25 @@ async function submit() {
 }
 .field-wide {
   grid-column: 1 / -1;
+}
+.purpose-mismatch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--status-warn);
+  border-radius: var(--r-s);
+  background: var(--status-warn-soft);
+}
+.purpose-mismatch .warning-text {
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.purpose-mismatch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .lookup-row {
   display: flex;

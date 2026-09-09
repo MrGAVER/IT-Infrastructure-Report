@@ -637,4 +637,36 @@ describe('DeviceInterfacesEditor.vue', () => {
       }
     })
   })
+
+  describe('фикс п.3.3 (вторая часть): предупреждение о расхождении с подключённым портом', () => {
+    it('строка с id, для которого есть conflictWarnings, подсвечена и показывает иконку/подсказку', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { 'if-1': 'На связанном порту другое назначение' } },
+      })
+
+      const cell = wrapper.find('td.col-check')
+      expect(cell.classes()).toContain('has-conflict')
+      expect(cell.attributes('title')).toBe('На связанном порту другое назначение')
+      expect(cell.find('.conflict-icon').exists()).toBe(true)
+    })
+
+    it('без conflictWarnings (по умолчанию) — ни подсветки, ни иконки', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+
+      const cell = wrapper.find('td.col-check')
+      expect(cell.classes()).not.toContain('has-conflict')
+      expect(cell.find('.conflict-icon').exists()).toBe(false)
+    })
+
+    it('черновая строка без id (новая/скопированная) не подсвечивается, даже если id случайно совпал бы с ключом карты', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/1' }] // без id
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { undefined: 'x' } as never },
+      })
+
+      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
+    })
+  })
 })

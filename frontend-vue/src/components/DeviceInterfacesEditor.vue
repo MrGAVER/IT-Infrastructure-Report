@@ -37,7 +37,19 @@ import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 
-const props = defineProps<{ modelValue: InterfaceDraftRow[]; typeOptions: CatalogItem[]; speedOptions: CatalogItem[]; vlanOptions: VLANDefinition[] }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: InterfaceDraftRow[]
+    typeOptions: CatalogItem[]
+    speedOptions: CatalogItem[]
+    vlanOptions: VLANDefinition[]
+    // Фикс п.3.3 (вторая часть): предупреждения по id строки — считаются родителем
+    // (DeviceFormModal.vue: interfaceConflictWarnings), т.к. только у него есть доступ к
+    // стору подключений; этот компонент их только отображает, ничего сам не вычисляет.
+    conflictWarnings?: Record<string, string>
+  }>(),
+  { conflictWarnings: () => ({}) },
+)
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
 const { notify } = useToast()
 
@@ -100,6 +112,10 @@ const TEMPLATE_HELP_TEXT =
 
 function applyTemplate(template: string, n: number): string {
   return template.replaceAll('{n}', String(n)).replaceAll('{n0}', String(n).padStart(2, '0'))
+}
+
+function rowConflict(row: InterfaceDraftRow): string | undefined {
+  return row.id ? props.conflictWarnings[row.id] : undefined
 }
 
 // Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
@@ -539,10 +555,11 @@ function applyBulkEdit() {
                   <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
                 </select>
               </td>
-              <td class="col-check">
+              <td class="col-check" :class="{ 'has-conflict': rowConflict(row) }" :title="rowConflict(row)">
                 <input type="checkbox" :checked="row.is_management" @change="updateRow(i, { is_management: ($event.target as HTMLInputElement).checked })" />
+                <svg v-if="rowConflict(row)" class="icon conflict-icon" aria-label="Расхождение с подключённым портом"><use href="/icons.svg#i-alert" /></svg>
               </td>
-              <td class="col-check">
+              <td class="col-check" :class="{ 'has-conflict': rowConflict(row) }" :title="rowConflict(row)">
                 <input type="checkbox" :checked="row.is_data_transfer" @change="updateRow(i, { is_data_transfer: ($event.target as HTMLInputElement).checked })" />
               </td>
               <td>
@@ -868,6 +885,20 @@ function applyBulkEdit() {
 }
 .iface-table .col-index {
   color: var(--ink-muted);
+}
+/* Фикс п.3.3 (вторая часть): подсвечивает ячейку "Упр."/"Данные" интерфейса, чьё назначение
+   разошлось с назначением на связанном (по активному подключению) порту другого устройства. */
+.iface-table .col-check.has-conflict {
+  background: var(--status-warn-soft);
+  position: relative;
+}
+.iface-table .conflict-icon {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 11px;
+  height: 11px;
+  color: var(--status-warn);
 }
 .cell-input {
   background: var(--surface-2);

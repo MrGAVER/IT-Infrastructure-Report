@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
+import { useConnectionsStore } from '../../stores/connections'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
 
 function stubCatalogsFetch() {
@@ -1008,6 +1009,60 @@ describe('DeviceFormModal.vue', () => {
 
       const membershipPost = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
       expect(membershipPost?.body).toEqual({ physical_device_id: 'dev-new', domain_id: 'domain-x' })
+    })
+  })
+
+  describe('фикс п.3.3 (вторая часть): предупреждение при редактировании "Управления"/"Передачи данных"', () => {
+    const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+
+    it('интерфейс с активным подключением, чьё назначение расходится со "вторым концом", подсвечивается предупреждением', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['interfaces'] = [
+        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' },
+        { id: 'if-other', physical_device_id: 'dev-2', name: 'Gi0/2', is_management: false, is_data_transfer: true, vlan_mode: 'trunk' },
+      ] as never
+      const connections = useConnectionsStore()
+      connections.all = [{ id: 'c-1', source_interface_id: 'if-this', destination_interface_id: 'if-other', is_active: true } as never]
+      connections.loaded = true
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      const cell = wrapper.find('td.col-check')
+      expect(cell.classes()).toContain('has-conflict')
+    })
+
+    it('интерфейс без активных подключений — предупреждения нет', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['interfaces'] = [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }] as never
+      const connections = useConnectionsStore()
+      connections.all = []
+      connections.loaded = true
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
     })
   })
 })

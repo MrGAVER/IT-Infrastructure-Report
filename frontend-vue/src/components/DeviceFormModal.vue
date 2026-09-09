@@ -10,9 +10,10 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink } from '../api/types'
+import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
+import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import OpenPortListEditor from './OpenPortListEditor.vue'
@@ -29,6 +30,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
+const connectionsStore = useConnectionsStore()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.device !== null)
@@ -81,6 +83,28 @@ const loadingNested = ref(false)
 const availableVlans = computed(() =>
   vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id) || pendingDomainMemberships.value.has(v.domain_id)),
 )
+
+// Фикс п.3.3 (вторая часть): предупреждает, если у интерфейса с активным подключением
+// "Управление"/"Передача данных" разошлись с тем же на "втором конце" линии — та же проверка,
+// что и при создании/редактировании самого подключения в ConnectionFormModal.vue, только со
+// стороны формы устройства. Только для УЖЕ СОХРАНЁННЫХ интерфейсов (row.id) — у черновых строк
+// без id (новая или скопированная, см. фикс п.2) подключений ещё не может быть в принципе.
+const interfaceConflictWarnings = computed<Record<string, string>>(() => {
+  const warnings: Record<string, string> = {}
+  const allInterfaces = (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[]
+  for (const row of interfaces.value) {
+    if (!row.id) continue
+    const connection = connectionsStore.all.find((c) => c.is_active && (c.source_interface_id === row.id || c.destination_interface_id === row.id))
+    if (!connection) continue
+    const otherId = connection.source_interface_id === row.id ? connection.destination_interface_id : connection.source_interface_id
+    const other = allInterfaces.find((i) => i.id === otherId)
+    if (!other) continue
+    if (other.is_management !== row.is_management || other.is_data_transfer !== row.is_data_transfer) {
+      warnings[row.id] = `На связанном порту подключения указано другое назначение (Управление/Передача данных) — проверьте соответствие на обоих концах линии.`
+    }
+  }
+  return warnings
+})
 
 // Опции для чекбоксов "VLAN на порту" (DeviceInterfacesEditor.vue) — НЕ то же самое, что
 // availableVlans выше: тот отвечает "что можно НАЗНАЧИТЬ устройству" (фильтр по домену), этот —
@@ -200,6 +224,11 @@ watch(
         // пересчитался с неполными данными между двумя разными по времени загрузками.
         loadDeviceTypeVlanIds(source.device_type_id),
         vlansStore.ensureLoaded(),
+        // Фикс п.3.3 (вторая часть — "при дальнейшем редактировании данных об 'Управлении',
+        // 'Передаче данных' через дашборд 'Инвентаризации устройств' также проводить такую
+        // проверку"): нужны текущие активные подключения, чтобы найти "второй конец" каждого
+        // порта и сравнить его is_management/is_data_transfer — см. interfaceConflictWarnings.
+        connectionsStore.ensureLoaded(),
       ])
       // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
       // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
@@ -651,6 +680,7 @@ async function submit() {
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
+          :conflict-warnings="interfaceConflictWarnings"
         />
         <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" @vlan-created="onVlanCreated" />
       </form>
