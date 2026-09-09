@@ -554,7 +554,7 @@ class DiagramLayout(TimestampMixin, Base):
     (POST /diagrams/{id}/regenerate) — раскладка переживает пересборку графа из реестра."""
     __tablename__ = "diagram_layouts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id"), unique=True, index=True)
+    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), unique=True, index=True)
     node_positions: Mapped[str] = mapped_column(Text)  # JSON: {"<device_id|'group:'+group_key>": {"x":..,"y":..}}
     viewport: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {"zoom":..,"pan_x":..,"pan_y":..}
     auto_layout_algorithm: Mapped[str] = mapped_column(String(30), default="hierarchical")
@@ -567,7 +567,7 @@ class DiagramGroupState(TimestampMixin, Base):
     __tablename__ = "diagram_group_states"
     __table_args__ = (UniqueConstraint("saved_diagram_id", "group_key", name="uq_diagram_group_state"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id"), index=True)
+    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), index=True)
     group_key: Mapped[str] = mapped_column(String(255))
     is_collapsed: Mapped[bool] = mapped_column(Boolean, default=True)
     device_count: Mapped[int] = mapped_column(Integer, default=0)
