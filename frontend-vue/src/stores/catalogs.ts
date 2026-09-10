@@ -17,8 +17,10 @@ export interface StructuralUnitNode extends StructuralUnit {
 const CATALOGS = [
   'organizations',
   'device-types',
+  'device-categories',
   'manufacturers',
   'device-models',
+  'diagram-icons',
   'operating-systems',
   'embedded-os',
   'buildings',
