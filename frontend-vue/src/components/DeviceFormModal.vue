@@ -19,6 +19,7 @@ import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
+import DeviceIconPicker from './DeviceIconPicker.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import type { CatalogItem } from '../api/types'
 
@@ -47,6 +48,9 @@ function emptyForm() {
     rack_id: '',
     rack_position: '',
     description: '',
+    // Раздел 4.3 ТЗ: ручное переопределение автогенерируемой иконки диаграммы для КОНКРЕТНОГО
+    // устройства (побеждает переопределение на уровне DeviceModel, если оно тоже задано).
+    diagram_icon_id: '',
   }
 }
 
@@ -549,6 +553,10 @@ async function submit() {
           <span>Описание</span>
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
+
+        <div class="field field-wide">
+          <DeviceIconPicker :model-value="form.diagram_icon_id || null" @update:model-value="form.diagram_icon_id = $event ?? ''" />
+        </div>
 
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
         <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />

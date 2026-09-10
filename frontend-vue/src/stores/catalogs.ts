@@ -171,6 +171,12 @@ export const useCatalogsStore = defineStore('catalogs', {
       const current = this.items['interfaces'] ?? []
       this.items['interfaces'] = [...current.filter((i) => i.physical_device_id !== deviceId), ...items]
     },
+    /** Точечно добавляет только что загруженную пользовательскую иконку диаграммы в уже
+     * загруженный каталог 'diagram-icons' — тот же приём, что replaceDeviceInterfaces() выше,
+     * без полного catalogs.reload() ради одной новой записи (см. DeviceIconPicker.vue). */
+    addDiagramIcon(icon: CatalogItem) {
+      this.items['diagram-icons'] = [...(this.items['diagram-icons'] ?? []), icon]
+    },
     /** id единицы + все id её потомков — нужно для фильтра "включая дочерние" (см. reporting.py backend). */
     unitAndDescendantIds(rootId: string): Set<string> {
       const result = new Set<string>([rootId])

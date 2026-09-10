@@ -54,6 +54,7 @@ function device(overrides: Partial<Device>): Device {
     rack_position: null,
     status: null,
     description: null,
+    diagram_icon_id: null,
     management_interface: '',
     management_ips: '',
     interface_count: 0,
