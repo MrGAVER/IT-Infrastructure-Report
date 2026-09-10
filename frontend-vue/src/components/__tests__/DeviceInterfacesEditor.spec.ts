@@ -466,6 +466,21 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result.vlan_ids).toEqual(['v-mgmt'])
     })
 
+    it('фикс п.2.1.1: переключение на Trunk сразу отмечает "Все VLAN"', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'access', vlan_ids: ['v-mgmt'] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+      await expandRow(wrapper)
+
+      await wrapper.findAll('.vlan-mode-row input[type="radio"]')[0].setValue(true) // Trunk
+
+      const result = (wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[])[0]
+      expect(result.vlan_mode).toBe('trunk')
+      expect(result.vlan_ids).toEqual(['v-mgmt', 'v-guest']) // все опции — а не пусто и не только то, что было в access
+
+      await wrapper.setProps({ modelValue: [result] })
+      expect(wrapper.find('.vlan-check-all input').element).toHaveProperty('checked', true) // "Все VLAN" отмечен
+    })
+
     it('в режиме access выбор VLAN из select задаёт единственный элемент vlan_ids', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'access', vlan_ids: [] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })

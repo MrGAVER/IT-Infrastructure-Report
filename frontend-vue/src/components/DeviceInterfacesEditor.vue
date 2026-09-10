@@ -268,7 +268,12 @@ function setVlanMode(index: number, mode: 'access' | 'trunk') {
     // несколько было бы некорректным сочетанием (см. validateInterfaceDraftRows).
     updateRow(index, { vlan_mode: 'access', vlan_ids: row.vlan_ids.slice(0, 1) })
   } else {
-    updateRow(index, { vlan_mode: 'trunk' })
+    // Фикс п.2.1.1: переключение на trunk сразу отмечает "Все VLAN" — раньше vlan_ids оставался
+    // как есть (пустым для новой строки), и пользователю приходилось ещё и сообразить, что нужно
+    // отдельно поставить галочку "Все VLAN" самому. "Все VLAN" — не флаг, а состояние, когда
+    // vlan_ids покрывает весь vlanOptions (см. isAllVlansSelected ниже), поэтому здесь просто
+    // сразу проставляем этот набор целиком.
+    updateRow(index, { vlan_mode: 'trunk', vlan_ids: props.vlanOptions.map((v) => v.id) })
   }
 }
 

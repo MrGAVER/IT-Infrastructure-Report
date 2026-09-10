@@ -84,6 +84,15 @@ const availableVlans = computed(() =>
   vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id) || pendingDomainMemberships.value.has(v.domain_id)),
 )
 
+// Фикс п.2.2: единственный домен, к которому уже привязано устройство — только если он ровно
+// один (см. комментарий к deviceDomainId в DeviceVlanListEditor.vue). Учитывает и
+// pendingDomainMemberships (домен, добавленный в этой же сессии редактирования через фикс
+// п.1.3.8, ещё не сохранённый) — устройство уже "фактически" его участник для целей этой формы.
+const singleDeviceDomainId = computed(() => {
+  const ids = new Set([...memberDomainIds.value, ...pendingDomainMemberships.value])
+  return ids.size === 1 ? [...ids][0] : null
+})
+
 // Фикс п.3.3 (вторая часть): предупреждает, если у интерфейса с активным подключением
 // "Управление"/"Передача данных" разошлись с тем же на "втором конце" линии — та же проверка,
 // что и при создании/редактировании самого подключения в ConnectionFormModal.vue, только со
@@ -125,6 +134,13 @@ const portVlanOptions = computed(() =>
 // иначе сохранение упадёт 422 "VLAN не разрешён для типа данного устройства", а пользователь не
 // поймёт, откуда ошибка. То же поведение, что syncDeviceVlanOptionsFromRows() в vanilla-версии.
 //
+// Фикс п.2.1.2: симметричный случай — если VLAN устройства ДОБАВИЛСЯ (пользователь завёл новый
+// VLAN в блоке "VLAN устройства"), порты, у которых уже были выбраны АБСОЛЮТНО ВСЕ старые опции
+// ("Все VLAN" в DeviceInterfacesEditor.vue — не отдельный флаг, а именно это состояние, см. её
+// isAllVlansSelected()), должны автоматически подхватить и новый VLAN тоже — иначе "Все VLAN"
+// тут же перестаёт быть правдой при первом же добавлении нового VLAN на устройство, и
+// пользователю пришлось бы вручную донастраивать уже отмеченный как "все" порт.
+//
 // КРИТИЧНО: сравниваем НОВЫЙ список опций со СТАРЫМ (аргумент oldOptions от Vue) и трогаем
 // только vlan_ids, которые были разрешены раньше и перестали быть разрешены сейчас — а не
 // просто "не входят в текущий portVlanOptions". Первое срабатывание случится сразу после
@@ -133,13 +149,25 @@ const portVlanOptions = computed(() =>
 // тронет. Если бы вместо диффа проверялось только текущее значение, при первой же загрузке
 // стёрлись бы vlan_ids, назначенные через /legacy, но не входящие в этот более узкий каталог
 // (тип устройства ∪ уже назначенные) — ровно такой баг поймал регрессионный тест в
-// DeviceFormModal.spec.ts ("не стирает VLAN интерфейса, назначенные через /legacy...").
+// DeviceFormModal.spec.ts ("не стирает VLAN интерфейса, назначенные через /legacy..."). По той
+// же причине пункт 2.1.2 применяется только когда oldOptions уже был непуст — на самой первой
+// загрузке "все опции уже выбраны" было бы истинно вырожденно (для пустого множества) и
+// разложило бы новые VLAN на все trunk-порты без разбора.
 watch(portVlanOptions, (options, oldOptions) => {
   const removedIds = new Set((oldOptions ?? []).filter((v) => !options.some((o) => o.id === v.id)).map((v) => v.id))
-  if (!removedIds.size) return
-  interfaces.value = interfaces.value.map((row) =>
-    row.vlan_ids.some((id) => removedIds.has(id)) ? { ...row, vlan_ids: row.vlan_ids.filter((id) => !removedIds.has(id)) } : row,
-  )
+  const addedIds = options.filter((o) => !(oldOptions ?? []).some((v) => v.id === o.id)).map((o) => o.id)
+  const hadAnyOldOptions = (oldOptions ?? []).length > 0
+  if (!removedIds.size && !(addedIds.length && hadAnyOldOptions)) return
+  interfaces.value = interfaces.value.map((row) => {
+    let vlan_ids = row.vlan_ids
+    if (removedIds.size && vlan_ids.some((id) => removedIds.has(id))) {
+      vlan_ids = vlan_ids.filter((id) => !removedIds.has(id))
+    }
+    if (addedIds.length && hadAnyOldOptions && row.vlan_mode === 'trunk' && oldOptions!.every((o) => vlan_ids.includes(o.id))) {
+      vlan_ids = [...vlan_ids, ...addedIds]
+    }
+    return vlan_ids === row.vlan_ids ? row : { ...row, vlan_ids }
+  })
 })
 
 function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
@@ -682,7 +710,7 @@ async function submit() {
           :vlan-options="portVlanOptions"
           :conflict-warnings="interfaceConflictWarnings"
         />
-        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" @vlan-created="onVlanCreated" />
+        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" :device-domain-id="singleDeviceDomainId" @vlan-created="onVlanCreated" />
       </form>
 
       <div class="modal-foot">

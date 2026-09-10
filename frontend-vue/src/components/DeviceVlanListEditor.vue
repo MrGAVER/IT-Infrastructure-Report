@@ -15,7 +15,12 @@ import type { CatalogItem, DeviceVlanDraftRow, VLANDefinition } from '../api/typ
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 
-const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLANDefinition[] }>()
+// Фикс п.2.2: "если устройство уже использует домен vlan, добавляемый vlan также автоматически
+// должен быть в этом домене" — deviceDomainId передаётся родителем (DeviceFormModal.vue) только
+// когда устройство состоит РОВНО в одном домене (Set с одним элементом): если доменов несколько
+// или ни одного, однозначно предположить, какой из них имелся в виду, нельзя — тогда поле
+// остаётся пустым, как раньше, и пользователь выбирает домен сам.
+const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLANDefinition[]; deviceDomainId?: string | null }>()
 // vlan-created: полный список VLAN (vlanOptions) собирается родителем из useVLANsStore(), а не
 // из catalogs — generic QuickAddModal.vue пишет созданную запись только в catalogs.items['vlans'],
 // поэтому родителю нужно узнать о создании и перезагрузить vlansStore (см. DeviceFormModal.vue),
@@ -68,7 +73,12 @@ function onVlanCreated(index: number, created: CatalogItem) {
           <option value="">— VLAN —</option>
           <option v-for="v in vlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
         </select>
-        <QuickAddButton resource="vlans" title="VLAN" @created="(r: CatalogItem) => onVlanCreated(i, r)" />
+        <QuickAddButton
+          resource="vlans"
+          title="VLAN"
+          :initial-values="deviceDomainId ? { domain_id: deviceDomainId } : undefined"
+          @created="(r: CatalogItem) => onVlanCreated(i, r)"
+        />
       </div>
       <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />
       <input

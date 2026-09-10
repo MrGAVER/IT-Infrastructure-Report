@@ -20,7 +20,7 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 
-const props = defineProps<{ resource: string }>()
+const props = defineProps<{ resource: string; initialValues?: Record<string, string> }>()
 const emit = defineEmits<{ close: []; created: [record: CatalogItem] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -28,8 +28,12 @@ const catalogs = useCatalogsStore()
 const fields = QUICK_ADD_FIELDS[props.resource] ?? []
 const title = computed(() => QUICK_ADD_LABELS[props.resource] ?? props.resource)
 
+// Фикс п.2.2: initialValues — предзаполнение поля значением, которое почти наверняка и так
+// нужно пользователю в текущем контексте (напр. domain_id уже известного домена устройства при
+// добавлении VLAN из формы этого устройства — см. DeviceVlanListEditor.vue). Пользователь может
+// изменить значение как обычно, это только стартовое состояние поля, а не заморозка.
 const values = reactive<Record<string, string | boolean>>(
-  Object.fromEntries(fields.map((f) => [f.name, f.type === 'checkbox' ? false : ''])),
+  Object.fromEntries(fields.map((f) => [f.name, props.initialValues?.[f.name] ?? (f.type === 'checkbox' ? false : '')])),
 )
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)

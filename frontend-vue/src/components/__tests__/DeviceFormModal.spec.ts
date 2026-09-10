@@ -1065,4 +1065,124 @@ describe('DeviceFormModal.vue', () => {
       expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
     })
   })
+
+  describe('фикс п.2.1.2: новый VLAN устройства автоматически подхватывается портами с "Все VLAN"', () => {
+    it('интерфейс в trunk-режиме, где уже выбраны все текущие опции, получает вновь добавленный VLAN устройства', async () => {
+      const vlans = useVLANsStore()
+      vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-old', vlan_id: 10, name: 'Old', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+      vlans.loaded = true
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.includes('/resources/device-types')) return new Response(JSON.stringify(deviceTypesFixture))
+          if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
+          // Тип устройства не даёт ни одного VLAN сам по себе — единственный источник portVlanOptions
+          // здесь "VLAN устройства" (deviceVlans), это и есть сценарий бага: единственный назначенный
+          // VLAN устройства (v-old) уже выбран на порту как "Все VLAN".
+          if (url.includes('/resources/device-type-vlans')) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+          if (url.includes('/resources/device-vlans') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'dv-1', physical_device_id: 'dev-1', vlan_id: 'v-old', ip_address: null, prefix_length: null, is_management: false, description: null }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/interfaces') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/interface-vlans') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'iv-1', interface_id: 'if-1', vlan_id: 'v-old', mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/vlan-dashboard')) {
+            return new Response(
+              JSON.stringify({
+                items: [
+                  { vlan_id: 10, definitions: [{ id: 'v-old', vlan_id: 10, name: 'Old', description: '', domain_id: null, domain_name: '', devices: [] }] },
+                  { vlan_id: 20, definitions: [{ id: 'v-new', vlan_id: 20, name: 'New', description: '', domain_id: null, domain_name: '', devices: [] }] },
+                ],
+              }),
+            )
+          }
+          if (method === 'POST' && url.endsWith('/resources/vlans')) {
+            return new Response(JSON.stringify({ id: 'v-new', vlan_id: 20, name: 'New', domain_id: null }), { status: 201 })
+          }
+          if (method === 'PUT' && url.endsWith('/resources/devices/dev-1')) {
+            return new Response(JSON.stringify(device))
+          }
+          if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', vlan_mode: 'trunk' }] }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      // Добавляем новый VLAN устройства через "+ VLAN" в блоке "VLAN устройства". Один VLAN
+      // (v-old) там уже есть (donor row из GET device-vlans) — .col-vlan button берём ПОСЛЕДНЮЮ
+      // (только что добавленную пустую строку), а не первую (иначе квик-адд откроется у уже
+      // существующей строки v-old и перезапишет её вместо того, чтобы добавить новую).
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      const quickAddButtons = vlanEditor.findAll('.col-vlan button')
+      await quickAddButtons[quickAddButtons.length - 1].trigger('click')
+      const body = new DOMWrapper(document.body)
+      await body.find('input[type="number"]').setValue(20)
+      await body.findAll('input[type="text"]')[0].setValue('New')
+      await body.find('.overlay form').trigger('submit')
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
+      const savedRow = (ifacesPut!.body as { interfaces: Array<{ id: string; vlan_ids: string[] }> }).interfaces.find((r) => r.id === 'if-1')
+      expect(savedRow!.vlan_ids).toEqual(expect.arrayContaining(['v-old', 'v-new']))
+    })
+  })
+
+  describe('фикс п.2.2: новый VLAN наследует единственный домен устройства', () => {
+    it('устройство состоит ровно в одном домене — поле домена в форме добавления VLAN предзаполнено им', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['vlan-domains'] = [{ id: 'domain-x', name: 'Домен X' }]
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('/resources/vlan-domain-devices') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'link-1', domain_id: 'domain-x', physical_device_id: 'dev-1' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('.col-vlan button').trigger('click')
+
+      const domainInput = new DOMWrapper(document.body).find('.fk-row .searchable-select input')
+      expect((domainInput.element as HTMLInputElement).value).toBe('Домен X')
+    })
+
+    it('устройство ни в одном домене — поле домена пустое', async () => {
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))))
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('.col-vlan button').trigger('click')
+
+      const domainInput = new DOMWrapper(document.body).find('.fk-row .searchable-select input')
+      expect((domainInput.element as HTMLInputElement).value).toBe('')
+    })
+  })
 })
