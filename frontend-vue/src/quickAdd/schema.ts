@@ -19,7 +19,7 @@
 // Единственный источник правды по полям — соответствующие SQLAlchemy-модели в
 // backend/app/models.py; при добавлении сюда новой записи стоит свериться с ними, а не
 // придумывать поля по аналогии.
-export type QuickFieldType = 'text' | 'textarea' | 'number' | 'checkbox' | 'fk'
+export type QuickFieldType = 'text' | 'textarea' | 'number' | 'checkbox' | 'fk' | 'diagram-icon'
 
 export interface QuickField {
   name: string
@@ -95,6 +95,11 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
       nestedQuickAdd: true,
     },
     { name: 'model', label: 'Модель', type: 'text', required: true },
+    // Раздел 11 ТЗ: "компонент выбора иконки устройства (в карточке узла и в форме
+    // PhysicalDevice/DeviceModel)". PhysicalDevice.diagram_icon_id уже в DeviceFormModal.vue
+    // (отдельная специализированная форма, не через эту generic-схему); здесь — вторая половина
+    // того же раздела ТЗ, переопределение иконки сразу для ВСЕХ устройств этой модели.
+    { name: 'diagram_icon_id', label: 'Иконка на диаграмме', type: 'diagram-icon', required: false },
   ],
   'os-categories': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
