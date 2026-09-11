@@ -180,6 +180,25 @@ describe('InformationSystemFormModal.vue — миграция и сохране�
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
+  it('фикс п.3: не сохраняет ИС с некорректным IP-адресом источника', async () => {
+    const wrapper = mount(InformationSystemFormModal, { props: { system: null } })
+    await flushPromises()
+
+    const editors = findEditors(wrapper)
+    await editors.sources.find('button.add-btn').trigger('click')
+    await editors.sources.find('.source-grid input.col-ip').setValue('не ip адрес')
+    await wrapper.find('input[type="text"]').setValue('new-is')
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Некорректный IP-адрес')
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
   it('не отправляет пустые строки подразделений/протоколов и источники "вручную" без IP', async () => {
     const wrapper = mount(InformationSystemFormModal, { props: { system: null } })
     await flushPromises()

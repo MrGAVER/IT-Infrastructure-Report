@@ -58,15 +58,26 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
   })
 }
 
+import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
+
 /** У каждого интерфейса должно быть имя — бэкенд это тоже проверит (422), но лучше показать
  * понятную ошибку до запроса, чем ждать round-trip. UI (DeviceInterfacesEditor.vue) не даёт
  * набрать больше одного VLAN в режиме access, но проверка здесь — защита на случай данных,
  * загруженных из БД в уже несогласованном виде (см. комментарий к InterfaceDraftRow.vlan_mode).
- * Возвращает текст ошибки либо null. */
+ * Возвращает текст ошибки либо null.
+ *
+ * Фикс п.2.1.3: IP-адреса/префиксы интерфейса (InterfaceDraftRow.ips) — та же причина, что и у
+ * остальных проверок здесь: показать понятную ошибку сразу, а не ждать 422 с бэкенда. */
 export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | null {
   if (rows.some((row) => !row.name.trim())) return 'У каждого интерфейса должно быть имя.'
   if (rows.some((row) => row.vlan_mode === 'access' && row.vlan_ids.length > 1)) {
     return 'В режиме access у порта может быть не более одного VLAN.'
+  }
+  for (const row of rows) {
+    for (const ip of row.ips) {
+      if (!isValidIPv4(ip.ip_address)) return `Некорректный IP-адрес «${ip.ip_address}» на порту «${row.name}».`
+      if (!isValidPrefixLength(ip.prefix_length)) return `Некорректный префикс «${ip.prefix_length}» на порту «${row.name}» — допустимо 0-32.`
+    }
   }
   return null
 }

@@ -142,6 +142,23 @@ describe('validateInterfaceDraftRows', () => {
     const ok = [{ ...emptyRow(), name: 'eth0', vlan_mode: 'access' as const, vlan_ids: ['v-1'] }]
     expect(validateInterfaceDraftRows(ok)).toBeNull()
   })
+
+  describe('фикс п.2.1.3: IP-адрес и префикс на портах', () => {
+    it('пропускает корректный IP и префикс', () => {
+      const rows = [{ ...emptyRow(), name: 'eth0', ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]
+      expect(validateInterfaceDraftRows(rows)).toBeNull()
+    })
+
+    it('не пропускает некорректный IP-адрес', () => {
+      const rows = [{ ...emptyRow(), name: 'eth0', ips: [{ ip_address: 'не ip адрес', prefix_length: '', purpose: '' }] }]
+      expect(validateInterfaceDraftRows(rows)).toBe('Некорректный IP-адрес «не ip адрес» на порту «eth0».')
+    })
+
+    it('не пропускает некорректный префикс', () => {
+      const rows = [{ ...emptyRow(), name: 'eth0', ips: [{ ip_address: '10.0.0.1', prefix_length: '999', purpose: '' }] }]
+      expect(validateInterfaceDraftRows(rows)).toBe('Некорректный префикс «999» на порту «eth0» — допустимо 0-32.')
+    })
+  })
 })
 
 describe('persistDeviceInterfaces', () => {

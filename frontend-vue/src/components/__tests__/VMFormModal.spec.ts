@@ -103,6 +103,38 @@ describe('VMFormModal.vue', () => {
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
+  it('фикс п.3: не сохраняет ВМ с некорректным IP-адресом', async () => {
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    await wrapper.find('button.add-btn').trigger('click') // + IP-адрес
+    await wrapper.find('input[placeholder="IP-адрес"]').setValue('не ip адрес')
+    await wrapper.find('input[required]').setValue('new-vm')
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Некорректный IP-адрес')
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
+  it('фикс п.3: не сохраняет ВМ с некорректным префиксом', async () => {
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    await wrapper.find('button.add-btn').trigger('click') // + IP-адрес
+    await wrapper.find('input[placeholder="IP-адрес"]').setValue('10.0.0.1')
+    await wrapper.find('input.col-prefix').setValue('999')
+    await wrapper.find('input[required]').setValue('new-vm')
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Некорректный префикс')
+  })
+
   it('не отправляет пустые строки IP-адресов и открытых портов на сервер', async () => {
     const wrapper = mount(VMFormModal, { props: { vm: null } })
 

@@ -1185,4 +1185,43 @@ describe('DeviceFormModal.vue', () => {
       expect((domainInput.element as HTMLInputElement).value).toBe('')
     })
   })
+
+  describe('фикс п.3: валидация IP-адреса/префикса в блоке "VLAN устройства"', () => {
+    it('не сохраняет устройство с некорректным IP-адресом на VLAN устройства', async () => {
+      const wrapper = await mountWithLoadedCatalogs()
+      await wrapper.find('select').setValue('type:dt-server')
+      await wrapper.find('input[type="text"]').setValue('SN-1')
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('input.col-ip').setValue('не ip адрес')
+
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Некорректный IP-адрес')
+    })
+
+    it('не сохраняет устройство с некорректным префиксом на VLAN устройства', async () => {
+      const wrapper = await mountWithLoadedCatalogs()
+      await wrapper.find('select').setValue('type:dt-server')
+      await wrapper.find('input[type="text"]').setValue('SN-1')
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('input.col-ip').setValue('10.0.0.1')
+      await vlanEditor.find('input[placeholder="Префикс"]').setValue('999')
+
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Некорректный префикс')
+    })
+  })
 })

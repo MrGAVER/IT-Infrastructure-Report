@@ -22,6 +22,7 @@ import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
 import { useContainersStore } from '../stores/containers'
 import { filterHostDevices } from '../utils/deviceFilters'
+import { isValidIPv4 } from '../utils/ipValidation'
 import CatalogPickerListEditor from './CatalogPickerListEditor.vue'
 import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
 import ISSourcesListEditor from './ISSourcesListEditor.vue'
@@ -218,6 +219,14 @@ async function submit() {
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите наименование информационной системы.'
     return
+  }
+  // Фикс п.3: "применить исправление [валидации IP] ко всем полям с ip" — источники ИС
+  // (ISSourcesListEditor.vue) тоже содержат IP-адрес, только без отдельного поля префикса.
+  for (const row of sources.value) {
+    if (!isValidIPv4(row.ip_address)) {
+      errorMessage.value = `Некорректный IP-адрес «${row.ip_address}» в источниках информационной системы.`
+      return
+    }
   }
   saving.value = true
   try {

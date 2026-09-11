@@ -9,6 +9,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
 import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -534,6 +535,19 @@ async function submit() {
   if (interfaceError) {
     errorMessage.value = interfaceError
     return
+  }
+  // Фикс п.3 ("применить исправление [валидации IP] ко всем полям с ip"): "VLAN устройства"
+  // (DeviceVlanListEditor.vue) — свой собственный IP/префикс на связи устройство-VLAN, отдельный
+  // от IP на портах (interfaces.value.*.ips, уже проверены выше в validateInterfaceDraftRows).
+  for (const row of deviceVlans.value) {
+    if (!isValidIPv4(row.ip_address)) {
+      errorMessage.value = `Некорректный IP-адрес «${row.ip_address}» в блоке "VLAN устройства".`
+      return
+    }
+    if (!isValidPrefixLength(row.prefix_length)) {
+      errorMessage.value = `Некорректный префикс «${row.prefix_length}» в блоке "VLAN устройства" — допустимо 0-32.`
+      return
+    }
   }
 
   saving.value = true
