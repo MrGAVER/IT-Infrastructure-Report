@@ -65,7 +65,25 @@ export const QUICK_ADD_LABELS: Record<string, string> = {
 }
 
 export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
-  'device-types': [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
+  'device-types': [
+    { name: 'name', label: 'Наименование', type: 'text', required: true },
+    // Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4):
+    // DeviceType.category_id — обязательный NOT NULL FK (models.py, миграция 38e9b2624a53,
+    // нужен для автогенерации иконки узла на диаграмме топологии сети), но эта форма запрашивала
+    // только name — POST без category_id падал сырым 409 "NOT NULL constraint failed" (см. новую
+    // проверку в backend/app/services/crud.py:validate_resource). nestedQuickAdd — по аналогии с
+    // device_type_id/manufacturer_id у device-models чуть ниже: справочник категорий короткий и
+    // фиксированный (засеян services/catalogs.py), но не создавать же тип устройства без права
+    // добавить недостающую категорию, не выходя из этой формы.
+    {
+      name: 'category_id',
+      label: 'Категория устройства',
+      type: 'fk',
+      required: true,
+      fkResource: 'device-categories',
+      nestedQuickAdd: true,
+    },
+  ],
   manufacturers: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   'device-models': [
     {

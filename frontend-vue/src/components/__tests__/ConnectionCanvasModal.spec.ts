@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { mount, DOMWrapper } from '@vue/test-utils'
+import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ConnectionCanvasModal from '../ConnectionCanvasModal.vue'
 import ConnectionFormModal from '../ConnectionFormModal.vue'

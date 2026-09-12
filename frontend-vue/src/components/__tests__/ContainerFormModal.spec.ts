@@ -101,12 +101,6 @@ describe('ContainerFormModal.vue', () => {
     expect((selects[2].element as HTMLSelectElement).value).toBe('') // Устройство сброшено
   })
 
-  // Фикс п.2: "копировать контейнер для создания на его основе нового". container.name не
-  // уникален (в отличие от serial_number/name у остальных трёх сущностей) — очищать нечего,
-  // копия сохраняется с тем же именем, что и донор, если пользователь сам не изменит.
-  // Фикс п.2: "копировать контейнер для создания на его основе нового". container.name не
-  // уникален (в отличие от serial_number/name у остальных трёх сущностей) — очищать нечего,
-  // копия сохраняется с тем же именем, что и донор, если пользователь сам не изменит.
   it('аудит fix/usability-batch4 (находка №5): одновременная передача container и copyFrom — предупреждение в консоль, побеждает container (edit)', () => {
     seedStores()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -120,6 +114,9 @@ describe('ContainerFormModal.vue', () => {
     expect(wrapper.find('input[type="text"]').element).toHaveProperty('value', 'nginx-edited')
   })
 
+  // Фикс п.2: "копировать контейнер для создания на его основе нового". container.name не
+  // уникален (в отличие от serial_number/name у остальных трёх сущностей) — очищать нечего,
+  // копия сохраняется с тем же именем, что и донор, если пользователь сам не изменит.
   it('копирование: форма открывается в режиме создания с полями донора, включая размещение', async () => {
     seedStores()
     const source: Container = { id: 'ct-src', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: 'docker', runtime_version: '24.0', purpose: 'reverse proxy' }

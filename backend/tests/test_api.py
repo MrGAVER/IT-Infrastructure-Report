@@ -301,6 +301,30 @@ class TestHypervisorAndVmHostFlags:
         assert vm.status_code == 422
 
 
+class TestDeviceTypeCategoryRequired:
+    """Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4,
+    находка №1 код-ревью): DeviceType.category_id стал обязательным NOT NULL FK в рамках фичи
+    диаграммы топологии сети, но ни validate_resource, ни quickAdd/schema.ts не были обновлены
+    под это требование — POST без category_id падал сырым 409 "NOT NULL constraint failed"
+    вместо понятной ошибки 422. См. backend/app/services/crud.py:validate_resource."""
+
+    def test_create_device_type_without_category_id_returns_422_not_raw_409(self, client):
+        r = client.post("/api/v1/resources/device-types", json={"name": "Тип без категории"})
+        assert r.status_code == 422
+        assert "category_id" in r.json()["detail"]
+
+    def test_create_device_type_with_category_id_succeeds(self, client):
+        category_id = client.get("/api/v1/resources/device-categories", params={"limit": 1}).json()["items"][0]["id"]
+        r = client.post("/api/v1/resources/device-types", json={"name": "Тип с категорией", "category_id": category_id})
+        assert r.status_code == 201, r.text
+        assert r.json()["category_id"] == category_id
+
+    def test_update_device_type_cannot_null_out_category_id(self, client):
+        dt = _create_device_type(client, "Тип для проверки обновления")
+        r = client.put(f"/api/v1/resources/device-types/{dt['id']}", json={"category_id": None})
+        assert r.status_code == 422
+
+
 class TestReferentialIntegrity:
     def test_cannot_delete_device_type_referenced_by_device(self, client):
         dt = _create_device_type(client, "Тестовый сервер А")
@@ -402,7 +426,7 @@ class TestInterfacesSync:
     def test_sync_interfaces_defaults_vlan_mode_to_trunk(self, client):
         """Ни vlan_mode, ни vlan_ids не присланы — интерфейс должен получить дефолт колонки
         ('trunk'), а не упасть на NOT NULL или молча остаться неопределённым."""
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор без режима"}).json()
+        dt = _create_device_type(client, "Коммутатор без режима")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEFAULT"}).json()
 
         r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json={"interfaces": [{"name": "Gi0/1"}]})
@@ -413,7 +437,7 @@ class TestInterfacesSync:
         """Фикс п.1.3.9: access-режим без единого VLAN на порту должен пережить сохранение и
         последующую перезагрузку — раньше, при отсутствии связей interface_vlans, режим было
         неоткуда восстановить, и порт молча становился trunk."""
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор access без vlan"}).json()
+        dt = _create_device_type(client, "Коммутатор access без vlan")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-ACCESS-EMPTY"}).json()
 
         payload = {"interfaces": [{"name": "Fa0/1", "vlan_mode": "access", "vlan_ids": []}]}
@@ -428,7 +452,7 @@ class TestInterfacesSync:
         assert r.json()["items"][0]["vlan_mode"] == "access"
 
     def test_sync_interfaces_rejects_access_mode_with_multiple_vlans(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор access-конфликт"}).json()
+        dt = _create_device_type(client, "Коммутатор access-конфликт")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-ACCESS-MULTI"}).json()
         v1 = client.post("/api/v1/resources/vlans", json={"vlan_id": 10, "name": "vlan-10"}).json()
         v2 = client.post("/api/v1/resources/vlans", json={"vlan_id": 20, "name": "vlan-20"}).json()
@@ -440,7 +464,7 @@ class TestInterfacesSync:
         assert r.status_code == 422
 
     def test_sync_interfaces_rejects_unknown_vlan_mode(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор невалидный режим"}).json()
+        dt = _create_device_type(client, "Коммутатор невалидный режим")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-BAD-MODE"}).json()
 
         payload = {"interfaces": [{"name": "Fa0/1", "vlan_mode": "half-duplex"}]}
@@ -457,7 +481,7 @@ class TestInterfacesSync:
         'access' выбран намеренно как значение, ОТЛИЧНОЕ от дефолта колонки ('trunk') — иначе
         SQLAlchemy не отправит UPDATE вовсе, даже при ошибочном порядке присваивания (значение
         не изменилось бы относительно уже вставленного дефолта), и тест не поймал бы регрессию."""
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для подсчёта UPDATE"}).json()
+        dt = _create_device_type(client, "Тип для подсчёта UPDATE")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-UPDATE"}).json()
 
         sql_log.clear()
@@ -479,7 +503,7 @@ class TestInterfacesSync:
     def test_sync_interfaces_creates_and_lists_open_ports(self, client):
         """п.1.4 (батч4): открытые порты теперь свойство интерфейса — переживают сохранение и
         возвращаются вложенными в свой интерфейс, а не общим списком на устройство."""
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор с портами"}).json()
+        dt = _create_device_type(client, "Коммутатор с портами")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-01"}).json()
 
         payload = {
@@ -507,7 +531,7 @@ class TestInterfacesSync:
         assert len(r2.json()["items"]) == 2
 
     def test_sync_interfaces_updates_and_removes_open_ports(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор обновление портов"}).json()
+        dt = _create_device_type(client, "Коммутатор обновление портов")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-02"}).json()
         first = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
@@ -541,7 +565,7 @@ class TestInterfacesSync:
         """Порт, принадлежащий ДРУГОМУ интерфейсу, нельзя переприсвоить простой передачей его id в
         payload другого интерфейса — это защита от подмены владельца, симметричная той же проверке
         для IP интерфейса чуть выше по файлу."""
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор чужой порт"}).json()
+        dt = _create_device_type(client, "Коммутатор чужой порт")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-03"}).json()
         created = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
@@ -562,7 +586,7 @@ class TestInterfacesSync:
         assert r.status_code == 422
 
     def test_sync_interfaces_rejects_non_numeric_open_port(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор невалидный порт"}).json()
+        dt = _create_device_type(client, "Коммутатор невалидный порт")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-04"}).json()
         r = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
@@ -571,7 +595,7 @@ class TestInterfacesSync:
         assert r.status_code == 422
 
     def test_sync_interfaces_deleting_interface_deletes_its_open_ports(self, client):
-        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор удаление порта"}).json()
+        dt = _create_device_type(client, "Коммутатор удаление порта")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-05"}).json()
         created = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",

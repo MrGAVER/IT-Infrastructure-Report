@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import DiagramDeviceNode from '../DiagramDeviceNode.vue'
 import type { DiagramDeviceNode as DeviceNodeData } from '../../../api/diagrams'
+import { makeNodeProps } from './nodeTestHelpers'
 
 // Handle из @vue-flow/core требует полноценный контекст родителя <VueFlow> (внутренний стор
 // размеров/позиций), а сам по себе не несёт данных, которые эти тесты проверяют (форма/цвет/
@@ -27,7 +28,7 @@ const baseDevice: DeviceNodeData = {
 
 function mountNode(data: DeviceNodeData, selected = false) {
   return mount(DiagramDeviceNode, {
-    props: { id: data.id, data, selected } as never,
+    props: makeNodeProps(data, { selected }),
     global: { stubs },
   })
 }

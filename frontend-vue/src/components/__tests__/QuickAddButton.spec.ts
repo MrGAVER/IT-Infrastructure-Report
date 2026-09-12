@@ -20,35 +20,35 @@ beforeEach(() => {
 
 describe('QuickAddButton.vue', () => {
   it('модалка не отрендерена, пока кнопка не нажата', () => {
-    mount(QuickAddButton, { props: { resource: 'device-types' } })
+    mount(QuickAddButton, { props: { resource: 'manufacturers' } })
     expect(body().find('.overlay').exists()).toBe(false)
   })
 
   it('открывает модалку по клику', async () => {
-    const wrapper = mount(QuickAddButton, { props: { resource: 'device-types' } })
+    const wrapper = mount(QuickAddButton, { props: { resource: 'manufacturers' } })
     await wrapper.find('button').trigger('click')
 
-    expect(body().text()).toContain('Добавить: Тип устройства')
+    expect(body().text()).toContain('Добавить: Производитель')
   })
 
   it('закрывает модалку и эмитит created после успешного сохранения', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
-        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-types')) {
-          return jsonResponse({ id: 'dt-new', name: 'Маршрутизатор' }, 201)
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/manufacturers')) {
+          return jsonResponse({ id: 'mfr-new', name: 'Cisco' }, 201)
         }
         return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
       }),
     )
 
-    const wrapper = mount(QuickAddButton, { props: { resource: 'device-types' } })
+    const wrapper = mount(QuickAddButton, { props: { resource: 'manufacturers' } })
     await wrapper.find('button').trigger('click')
-    await body().find('input[type="text"]').setValue('Маршрутизатор')
+    await body().find('input[type="text"]').setValue('Cisco')
     await body().find('form').trigger('submit')
     await flushPromises()
 
     expect(body().find('.overlay').exists()).toBe(false)
-    expect(wrapper.emitted('created')?.[0][0]).toEqual({ id: 'dt-new', name: 'Маршрутизатор' })
+    expect(wrapper.emitted('created')?.[0][0]).toEqual({ id: 'mfr-new', name: 'Cisco' })
   })
 })

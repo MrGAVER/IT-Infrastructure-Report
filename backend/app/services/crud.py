@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
@@ -157,6 +157,17 @@ def validate_resource(model, data: dict[str, Any], session: Session, item_id: st
     elif model is DeviceModel:
         _validate_device_model(data, session, item_id)
     elif model is Connection: validate_connection(data, session, item_id)
+    elif model is DeviceType:
+        # Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4):
+        # DeviceType.category_id стал обязательным NOT NULL FK в рамках фичи диаграммы топологии
+        # сети (models.py, миграция 38e9b2624a53), но ни generic-валидатор здесь, ни
+        # quickAdd/schema.ts не были обновлены под это требование — POST /resources/device-types
+        # без category_id падал сырым 409 "NOT NULL constraint failed" вместо понятной ошибки.
+        # Саму ссылочную целостность (существует ли такая категория) отдельно не проверяем —
+        # некорректный category_id всё равно упадёт на FK при commit() и обработается уже
+        # существующим общим обработчиком IntegrityError в create_resource/update_resource.
+        if not data.get('category_id'):
+            raise HTTPException(422, 'Поле category_id обязательно для типа устройства')
 
 def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None, date_from: str | None = None, date_to: str | None = None):
     model = model_for(resource); stmt = select(model)

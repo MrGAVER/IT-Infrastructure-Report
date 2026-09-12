@@ -40,44 +40,53 @@ describe('CatalogRecordFormModal.vue', () => {
   })
 
   it('создание: POST на ресурс, emit saved с ответом сервера', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-categories'] = [{ id: 'cat-1', name: 'Сетевая инфраструктура' }]
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         expect(init?.method).toBe('POST')
         expect(url).toContain('/resources/device-types')
-        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Коммутатор' })
-        return jsonResponse({ id: 'dt-new', name: 'Коммутатор' }, 201)
+        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Коммутатор', category_id: 'cat-1' })
+        return jsonResponse({ id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1' }, 201)
       }),
     )
     const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: null } })
     await body().find('input[type="text"]').setValue('Коммутатор')
+    // category_id — обязательное fk-поле (интеграционный фикс слияния с диаграммой топологии).
+    await body().find('.searchable-select input').trigger('focus')
+    await body().find('.ss-option').trigger('mousedown')
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-new', name: 'Коммутатор' }])
+    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1' }])
   })
 
   it('редактирование: PUT на ресурс/id, emit saved', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-categories'] = [{ id: 'cat-1', name: 'Сетевая инфраструктура' }]
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         expect(init?.method).toBe('PUT')
         expect(url).toContain('/resources/device-types/dt-1')
-        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Сервер (переименован)' })
-        return jsonResponse({ id: 'dt-1', name: 'Сервер (переименован)' })
+        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Сервер (переименован)', category_id: 'cat-1' })
+        return jsonResponse({ id: 'dt-1', name: 'Сервер (переименован)', category_id: 'cat-1' })
       }),
     )
-    const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: { id: 'dt-1', name: 'Сервер' } } })
+    const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: { id: 'dt-1', name: 'Сервер', category_id: 'cat-1' } } })
     await body().find('input[type="text"]').setValue('Сервер (переименован)')
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-1', name: 'Сервер (переименован)' }])
+    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-1', name: 'Сервер (переименован)', category_id: 'cat-1' }])
   })
 
   it('ошибка сохранения показывается в форме, а не проглатывается', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-categories'] = [{ id: 'cat-1', name: 'Сетевая инфраструктура' }]
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Запись с таким именем уже существует' }, 409)))
-    mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: null } })
+    mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: { id: 'dt-1', name: 'Сервер', category_id: 'cat-1' } } })
     await body().find('input[type="text"]').setValue('Сервер')
     await body().find('form').trigger('submit')
     await flushPromises()
