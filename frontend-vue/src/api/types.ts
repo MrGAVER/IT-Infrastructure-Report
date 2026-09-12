@@ -91,6 +91,7 @@ export interface Device {
   rack_position: string | null
   status: string | null
   description: string | null
+  diagram_icon_id: string | null
   created_at?: string
   updated_at?: string
   // enrich_devices()

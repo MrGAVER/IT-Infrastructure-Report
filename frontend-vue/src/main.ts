@@ -7,6 +7,11 @@ import { useAuthStore } from './stores/auth'
 import { useThemeStore } from './stores/theme'
 import './styles/theme.css'
 import './styles/base.css'
+// Стили @vue-flow/core: НЕ scoped по требованию самого пакета (см. README) — импортируются
+// глобально здесь же, а не внутри DiagramView.vue, чтобы применялись одинаково независимо от
+// того, какой компонент их первым использует.
+import '@vue-flow/core/dist/style.css'
+import '@vue-flow/core/dist/theme-default.css'
 
 const app = createApp(App)
 const pinia = createPinia()
