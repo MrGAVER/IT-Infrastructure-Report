@@ -105,9 +105,22 @@ export const useAuthStore = defineStore('auth', {
       setStoredToken(null)
       this.user = null
     },
+    // Фикс auth п.1.1 (батч4): включение аутентификации должно СРАЗУ потребовать вход, а не
+    // ждать, пока какой-нибудь следующий запрос вернёт 401 (см. handleUnauthorized выше) — до
+    // этого фикса включивший тумблер администратор просто продолжал работать без токена, пока
+    // не наткнулся на первую же ошибку авторизации где-то в глубине формы. При переходе
+    // false → true явно сбрасываем токен/пользователя тут же — needsLogin становится true
+    // синхронно с ответом бэкенда, а не после следующего проваленного запроса; глобальный
+    // watch(() => auth.needsLogin) в App.vue реагирует на это немедленным переходом на /login,
+    // даже если пользователь никуда не переходит сам (роутер-гард иначе сработал бы только на
+    // следующей навигации).
     async setEnabled(enabled: boolean): Promise<AuthStatus> {
       const result = await api.put<AuthStatus>('/auth/settings', { enabled })
       this.enabled = result.enabled
+      if (enabled) {
+        setStoredToken(null)
+        this.user = null
+      }
       return result
     },
     async fetchUsers() {

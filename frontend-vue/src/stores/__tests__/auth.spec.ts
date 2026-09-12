@@ -122,6 +122,37 @@ describe('useAuthStore', () => {
     expect(localStorage.getItem('itr:auth-token')).toBeNull()
   })
 
+  // Фикс auth п.1.1 (батч4): включение аутентификации должно немедленно потребовать вход,
+  // а не только на следующей проваленной попытке запроса — см. комментарий в stores/auth.ts.
+  it('setEnabled(true): сбрасывает токен и пользователя сразу, needsLogin становится true синхронно с ответом', async () => {
+    localStorage.setItem('itr:auth-token', 'tok-123')
+    stubFetch({ '/auth/settings': () => new Response(JSON.stringify({ enabled: true, session_ttl_hours: 12 })) })
+    const auth = useAuthStore()
+    auth.enabled = false
+    auth.user = adminUser // теоретически мог остаться от предыдущего включения — тоже должен сброситься
+
+    await auth.setEnabled(true)
+
+    expect(auth.enabled).toBe(true)
+    expect(auth.user).toBeNull()
+    expect(auth.needsLogin).toBe(true)
+    expect(localStorage.getItem('itr:auth-token')).toBeNull()
+  })
+
+  it('setEnabled(false): не трогает уже вошедшего пользователя (выключение — не выход)', async () => {
+    localStorage.setItem('itr:auth-token', 'tok-123')
+    stubFetch({ '/auth/settings': () => new Response(JSON.stringify({ enabled: false, session_ttl_hours: 12 })) })
+    const auth = useAuthStore()
+    auth.enabled = true
+    auth.user = adminUser
+
+    await auth.setEnabled(false)
+
+    expect(auth.enabled).toBe(false)
+    expect(auth.user).toEqual(adminUser)
+    expect(localStorage.getItem('itr:auth-token')).toBe('tok-123')
+  })
+
   it('isAdmin отражает роль текущего пользователя', () => {
     const auth = useAuthStore()
     expect(auth.isAdmin).toBe(false)
