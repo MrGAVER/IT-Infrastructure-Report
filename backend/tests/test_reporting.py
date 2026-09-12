@@ -160,6 +160,18 @@ class Sheet2PhysicalDevices(ReportingTestCase):
         os_col_idx = header.index("Версия операционной системы физического устройства")
         self.assertIn("iLO", rows[1][os_col_idx])
 
+    def test_os_name_and_version_joined_by_space_not_semicolon(self):
+        """5.1: 'Huawei iBMC 6.73', а не 'Huawei iBMC; 6.73'."""
+        C = self.C
+        emb = C["EmbeddedOperatingSystem"](id="eos1", name="Huawei iBMC", version="6.73")
+        dev = C["PhysicalDevice"](id="d1", serial_number="SN1", embedded_os_id="eos1")
+        self.table.update({"PhysicalDevice": [dev], "EmbeddedOperatingSystem": [emb]})
+        wb = self.build(Path("/tmp/test_reports_4b"))
+        rows = self.sheet_rows(wb, "Инвентаризац. физ. устройств ИС")
+        header = rows[0]
+        os_col_idx = header.index("Версия операционной системы физического устройства")
+        self.assertEqual(rows[1][os_col_idx], "Huawei iBMC 6.73")
+
     def test_management_port_shows_vlan(self):
         """Регрессия: раньше VLAN-порт управления не попадал в столбец номера порта управления."""
         C = self.C
@@ -287,6 +299,28 @@ class Sheet3Connections(ReportingTestCase):
         self.assertIn("SSH", combined_proto)
         self.assertIn("SNMP", combined_proto)
 
+    def test_os_name_and_version_joined_by_space_not_semicolon(self):
+        """5.2: для 'своего' и соседнего устройства ОС отображается как 'Cisco IOS 15.2',
+        а не 'Cisco IOS; 15.2', и в обеих одноимённых колонках сразу."""
+        C = self.C
+        dev1, dev2 = self._two_devices_two_connections()
+        emb1 = C["EmbeddedOperatingSystem"](id="eos1", name="Cisco IOS", version="15.2")
+        emb2 = C["EmbeddedOperatingSystem"](id="eos2", name="Huawei VRP", version="8.180")
+        dev1.embedded_os_id = "eos1"
+        dev2.embedded_os_id = "eos2"
+        self.table.update({"EmbeddedOperatingSystem": [emb1, emb2]})
+        wb = self.build(Path("/tmp/test_reports_16"))
+        rows = self.sheet_rows(wb, "Организация подключений")[1:]
+        header = self.sheet_rows(wb, "Организация подключений")[0]
+        own_os_idx = self.col_index(header, "Наименование и версия операционной системы физического устройства")
+        neighbor_os_idx = header.index("Наименование и версия операционной системы соседнего физического устройства")
+        own_values = {r[own_os_idx] for r in rows}
+        neighbor_values = {r[neighbor_os_idx] for r in rows}
+        self.assertIn("Cisco IOS 15.2", own_values)
+        self.assertIn("Huawei VRP 8.180", own_values | neighbor_values)
+        for value in own_values | neighbor_values:
+            self.assertNotIn(";", value or "")
+
 
 class Sheet4VirtualMachines(ReportingTestCase):
     """Лист 'Организация управления ВМ'."""
@@ -310,6 +344,20 @@ class Sheet4VirtualMachines(ReportingTestCase):
         vm_row = next(r for r in rows if r[0] == "VM-1C")
         self.assertIn("1С:Предприятие", vm_row[sw_idx])
         self.assertIn("Web-сервер Nginx", vm_row[sw_idx])
+
+    def test_virtualization_env_version_joined_by_space_not_semicolon(self):
+        """5.3: 'VMware ESXi 7.0', а не 'VMware ESXi; 7.0'."""
+        C = self.C
+        hyp_os = C["OperatingSystem"](id="os1", name="VMware ESXi", version="7.0")
+        host = C["PhysicalDevice"](id="d1", serial_number="SN1", system_name="esx-01", operating_system_id="os1")
+        vm = C["VirtualMachine"](id="v1", name="VM-1", physical_device_id="d1")
+        self.table.update({"PhysicalDevice": [host], "OperatingSystem": [hyp_os], "VirtualMachine": [vm]})
+        wb = self.build(Path("/tmp/test_reports_17"))
+        rows = self.sheet_rows(wb, "Организация управления ВМ")[1:]
+        header = self.sheet_rows(wb, "Организация управления ВМ")[0]
+        env_idx = self.col_index(header, "Наименование среды виртуализации и ее версия")
+        vm_row = next(r for r in rows if r[0] == "VM-1")
+        self.assertEqual(vm_row[env_idx], "VMware ESXi 7.0")
 
 
 class StructuralUnitFiltering(ReportingTestCase):

@@ -14,13 +14,6 @@ class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-class Organization(TimestampMixin, Base):
-    __tablename__ = "organizations"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    name: Mapped[str] = mapped_column(String(500), unique=True)
-    short_name: Mapped[Optional[str]] = mapped_column(String(200))
-    description: Mapped[Optional[str]] = mapped_column(Text)
-
 class SupportOrganization(TimestampMixin, Base):
     __tablename__ = "support_organizations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -241,6 +234,12 @@ class DeviceInterface(TimestampMixin, Base):
     is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_data_transfer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    # 'access' | 'trunk' — режим порта (п.1.4.3.2 / фикс п.1.3.9). Хранится на самом интерфейсе, а
+    # не выводится из InterfaceVLAN.mode: при 0 назначенных VLAN на интерфейсе нет ни одной связи
+    # interface_vlans, из которой можно было бы восстановить режим при следующей загрузке — без
+    # этого поля access-порт без VLAN после сохранения и перезагрузки формы молча превращался в
+    # trunk (см. миграцию 5b5ea0e81d32 для бэкфилла существующих данных).
+    vlan_mode: Mapped[str] = mapped_column(String(10), default="trunk", server_default="trunk", nullable=False)
 
 
 class InterfaceType(TimestampMixin, Base):

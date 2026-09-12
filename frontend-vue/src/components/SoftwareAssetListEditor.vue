@@ -61,6 +61,7 @@ function onQuickAdded(index: number, record: CatalogItem) {
         class="col-version"
         type="text"
         placeholder="Версия"
+        title="Версия этой конкретной установки (не версия из справочника — см. фикс п.4.4)"
         :value="row.version"
         @input="updateField(i, { version: ($event.target as HTMLInputElement).value })"
       />

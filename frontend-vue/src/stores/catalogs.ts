@@ -7,6 +7,15 @@ import { defineStore } from 'pinia'
 import { listResource, api } from '../api/client'
 import type { CatalogItem, StructuralUnit, ResourceDescriptor, ProtocolPortCatalogEntry } from '../api/types'
 
+// Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
+// числа, а не посимвольно ("Gi1/0/2" раньше "Gi1/0/19", а не наоборот, как было бы при обычном
+// лексикографическом сравнении — фикс п.3.5 "натуральная сортировка" портов). Тот же collator
+// годится и для обычных кириллических названий (буквы/цифры в имени организации и т.п.). Экспортируется
+// — та же сортировка нужна и вне этого стора (напр. ConnectionFormModal.vue сортирует список
+// устройств из stores/devices.ts, который здесь не живёт), плюс Intl.Collator дороговат
+// пересоздавать на каждый вызов — единственный на всё приложение инстанс.
+export const RU_COLLATOR = new Intl.Collator('ru', { sensitivity: 'base', numeric: true })
+
 /** Узел дерева структурных единиц — рекурсивно типизированный (см. StructuralUnitTree.vue). */
 export interface StructuralUnitNode extends StructuralUnit {
   children: StructuralUnitNode[]
@@ -14,8 +23,11 @@ export interface StructuralUnitNode extends StructuralUnit {
 
 // Ресурсы, которые реально используются на экране "Инвентаризация устройств".
 // Расширять по мере добавления новых экранов — не грузим то, что не показываем.
+// Фикс п.4: 'organizations' удалён отсюда вместе с самим справочником (backend/app/models.py,
+// миграция e519c184f3ae) — не путать с localStorage-настройкой названия организации в шапке
+// сайдбара (stores/organization.ts, единственное число) — это два не связанных друг с другом
+// "organization".
 const CATALOGS = [
-  'organizations',
   'device-types',
   'device-categories',
   'manufacturers',
@@ -41,6 +53,35 @@ const CATALOGS = [
   'os-categories',
 ] as const
 type CatalogKey = (typeof CATALOGS)[number]
+
+/** Сортирует список опций каталога так, как он выглядит для пользователя в select'е — фикс п.4.2
+ * ("во всех полях с выпадающим текстом на всех формах должна быть применена сортировка").
+ * Применяется в ЕДИНСТВЕННОМ месте, где items[key] пишется в стор (reload() и
+ * replaceDeviceInterfaces() ниже) — десяткам select'ов по всему приложению, которые просто читают
+ * catalogs.items[key] как есть, менять не нужно.
+ *
+ * Особые случаи, где видимый пользователю текст — не просто item.name (совпадает с ветками в
+ * catalogs.label() ниже):
+ * - operating-systems/embedded-os показывают "name version" (напр. "Windows Server 2019") —
+ *   сортируем по (name, version) раздельно, а не по уже склеенной строке: (name, version) с
+ *   numeric-коллатором даёт ожидаемый порядок версий ВНУТРИ одного имени ОС, чего не даст простое
+ *   сравнение склеенных строк.
+ * - interfaces (порты устройств, поле "Порт" в дашборде "Подключения") — natural sort по name
+ *   через тот же numeric-коллатор чинит п.3.5: "Gi1/0/2" перед "Gi1/0/19".
+ * - device-models сортируются по .model — сама группировка/сортировка по производителю живёт в
+ *   DeviceFormModal.vue (modelGroups), т.к. только там есть под рукой резолвленное имя
+ *   производителя; здесь достаточно не оставлять модели внутри группы в порядке ответа бэкенда. */
+function sortCatalogItems<T extends CatalogItem>(key: CatalogKey, items: T[]): T[] {
+  if (key === 'operating-systems' || key === 'embedded-os') {
+    return [...items].sort(
+      (a, b) => RU_COLLATOR.compare(a.name, b.name) || RU_COLLATOR.compare(String(a.version ?? ''), String(b.version ?? '')),
+    )
+  }
+  if (key === 'device-models') {
+    return [...items].sort((a, b) => RU_COLLATOR.compare(String(a.model ?? ''), String(b.model ?? '')))
+  }
+  return [...items].sort((a, b) => RU_COLLATOR.compare(a.name, b.name))
+}
 
 export const useCatalogsStore = defineStore('catalogs', {
   state: () => ({
@@ -131,7 +172,7 @@ export const useCatalogsStore = defineStore('catalogs', {
         CATALOGS.forEach((key, i) => {
           const result = catalogResults[i]
           if (result.status === 'fulfilled') {
-            this.items[key] = result.value.items
+            this.items[key] = sortCatalogItems(key, result.value.items)
           } else {
             failedKeys.push(key)
           }
@@ -169,7 +210,18 @@ export const useCatalogsStore = defineStore('catalogs', {
      * в селекте до следующего reload(), как и в остальных точечных обновлениях каталога. */
     replaceDeviceInterfaces(deviceId: string, items: CatalogItem[]) {
       const current = this.items['interfaces'] ?? []
-      this.items['interfaces'] = [...current.filter((i) => i.physical_device_id !== deviceId), ...items]
+      this.items['interfaces'] = sortCatalogItems('interfaces', [...current.filter((i) => i.physical_device_id !== deviceId), ...items])
+    },
+    /** Точечно добавляет только что созданную запись каталога (QuickAddModal.vue) в уже
+     * загруженный список, сохраняя сортировку — та же причина не звать полный reload(), что и в
+     * replaceDeviceInterfaces() выше, плюс фикс п.4.2: без пересортировки здесь новая запись
+     * всегда падала бы в конец списка, а не туда, где ей место по алфавиту. ?? [] у current —
+     * то же поведение, что было в QuickAddModal.vue раньше: даже если каталог ещё не был
+     * загружен (items[key] === undefined, форма открылась раньше catalogs.ensureLoaded()),
+     * созданная запись всё равно попадает в список одна, чтобы вызывающий select хотя бы мог
+     * показать её как выбранную, а не молча проигнорировать value без своего <option>. */
+    addCatalogItem(key: CatalogKey, item: CatalogItem) {
+      this.items[key] = sortCatalogItems(key, [...(this.items[key] ?? []), item])
     },
     /** Точечно добавляет только что загруженную пользовательскую иконку диаграммы в уже
      * загруженный каталог 'diagram-icons' — тот же приём, что replaceDeviceInterfaces() выше,

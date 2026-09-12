@@ -254,3 +254,74 @@ describe('InformationSystemFormModal.vue — миграция и сохране�
     }
   })
 })
+
+describe('фикс п.2: копирование информационной системы ("copyFrom")', () => {
+  const sourceSystem: InformationSystem = {
+    id: 'is-src',
+    number: null,
+    name: 'ИС Донор',
+    type: 'is',
+    description: null,
+    purpose: null,
+    localization: null,
+    support_organization_id: null,
+    support_method_id: null,
+    process_description: null,
+    siem_enabled: false,
+    crypto_protection_enabled: false,
+    crypto_protection_description_id: null,
+    status: 'active',
+  }
+
+  it('аудит fix/usability-batch4 (находка №5): одновременная передача system и copyFrom — предупреждение в консоль, побеждает system (edit)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_DETAILS)))
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const editedSystem: InformationSystem = { ...sourceSystem, id: 'is-edit', name: 'ИС Редактируемая' }
+    const wrapper = mount(InformationSystemFormModal, { props: { system: editedSystem, copyFrom: sourceSystem } })
+    await flushPromises()
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('используется system'))
+    expect(wrapper.find('h2').text()).toContain('Редактировать') // system выигрывает — это по-прежнему edit
+  })
+
+  it('форма открывается в режиме создания, name (уникален) очищен, вложенные связи донора — без его id', async () => {
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/information-systems/is-src/details') && method === 'GET') {
+          return jsonResponse({
+            ...EMPTY_DETAILS,
+            departments: [{ id: 'dep-link-src', department_id: 'dep-1' }],
+            sources: [{ id: 'src-src', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ip_address: '10.0.0.9', purpose: '', role: '', external_interaction: false }],
+          })
+        }
+        if (method === 'POST' && url.endsWith('/resources/information-systems')) {
+          return jsonResponse({ id: 'is-new', name: 'ИС Копия' }, 201)
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const wrapper = mount(InformationSystemFormModal, { props: { system: null, copyFrom: sourceSystem } })
+    await flushPromises()
+
+    expect(wrapper.find('h2').text()).not.toContain('Редактировать')
+    expect(wrapper.find('input[maxlength="500"]').element).toHaveProperty('value', '') // name уникален — очищен
+
+    await wrapper.find('input[maxlength="500"]').setValue('ИС Копия')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const detailsSave = calls.find((c) => c.method === 'PUT' && c.url.includes('/information-systems/is-new/details'))
+    const body = detailsSave!.body as { departments: Array<{ id?: string; department_id: string }>; sources: Array<{ id?: string; ip_address: string }> }
+    expect(body.departments).toEqual([{ id: undefined, department_id: 'dep-1' }]) // подгружено у донора, id обнулён
+    expect(body.sources[0].id).toBeUndefined()
+    expect(body.sources[0].ip_address).toBe('10.0.0.9')
+    // Копия создаёт НОВУЮ ИС (POST) и её собственные details (PUT .../is-new/details) — донор не трогается.
+    expect(calls.some((c) => c.url.includes('/information-systems/is-src/details') && c.method === 'PUT')).toBe(false)
+  })
+})

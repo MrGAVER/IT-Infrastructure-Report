@@ -27,7 +27,7 @@ describe('loadDeviceInterfaceDraftRows', () => {
       if (url.includes('/resources/interfaces')) {
         return jsonResponse({
           items: [
-            { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: true, is_data_transfer: false, description: null },
+            { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: true, is_data_transfer: false, description: null, vlan_mode: 'access' },
           ],
           total: 1,
           offset: 0,
@@ -72,15 +72,17 @@ describe('loadDeviceInterfaceDraftRows', () => {
     expect(rows).toEqual([])
   })
 
-  // п.1.4.3.2: vlan_mode на InterfaceDraftRow выводится из InterfaceVLAN.mode связанных записей.
-  describe('вывод vlan_mode (п.1.4.3.2)', () => {
-    async function loadWithVlanLinks(links: Array<{ vlan_id: string; mode: string | null }>): Promise<InterfaceDraftRow> {
+  // Фикс п.1.3.9: vlan_mode на InterfaceDraftRow берётся напрямую с самого интерфейса
+  // (DeviceInterface.vlan_mode), а не выводится из InterfaceVLAN.mode связанных записей — раньше
+  // при 0 VLAN-связях режим access было неоткуда восстановить, и он молча откатывался в trunk.
+  describe('vlan_mode читается с интерфейса напрямую (фикс п.1.3.9)', () => {
+    async function loadWithInterfaceVlanMode(vlan_mode: 'access' | 'trunk', links: Array<{ vlan_id: string; mode: string | null }> = []): Promise<InterfaceDraftRow> {
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string) => {
           if (url.includes('/resources/interfaces')) {
             return jsonResponse({
-              items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null }],
+              items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode }],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -101,25 +103,21 @@ describe('loadDeviceInterfaceDraftRows', () => {
       return row
     }
 
-    it('без единой VLAN-связи — trunk (пустой список — тоже валидный trunk)', async () => {
-      const row = await loadWithVlanLinks([])
-      expect(row.vlan_mode).toBe('trunk')
+    it('access без единого VLAN на порту остаётся access — сам баг 1.3.9', async () => {
+      const row = await loadWithInterfaceVlanMode('access', [])
+      expect(row.vlan_mode).toBe('access')
+      expect(row.vlan_ids).toEqual([])
     })
 
-    it('mode=null у всех связей (весь исторический массив данных до п.1.4.3.2) — trunk', async () => {
-      const row = await loadWithVlanLinks([{ vlan_id: 'v-1', mode: null }])
-      expect(row.vlan_mode).toBe('trunk')
-    })
-
-    it('mode="access" у единственной связи — access', async () => {
-      const row = await loadWithVlanLinks([{ vlan_id: 'v-1', mode: 'access' }])
+    it('access с одним VLAN — access', async () => {
+      const row = await loadWithInterfaceVlanMode('access', [{ vlan_id: 'v-1', mode: 'access' }])
       expect(row.vlan_mode).toBe('access')
     })
 
-    it('смешанные mode на разных связях одного интерфейса — trunk (не все access)', async () => {
-      const row = await loadWithVlanLinks([
-        { vlan_id: 'v-1', mode: 'access' },
-        { vlan_id: 'v-2', mode: null },
+    it('trunk остаётся trunk независимо от количества VLAN-связей', async () => {
+      const row = await loadWithInterfaceVlanMode('trunk', [
+        { vlan_id: 'v-1', mode: 'trunk' },
+        { vlan_id: 'v-2', mode: 'trunk' },
       ])
       expect(row.vlan_mode).toBe('trunk')
     })

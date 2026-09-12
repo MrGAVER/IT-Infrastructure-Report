@@ -7,7 +7,7 @@ import { computed, reactive, ref } from 'vue'
 import { createResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
-import type { CatalogItem } from '../api/types'
+import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 // Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
@@ -68,21 +68,21 @@ async function submit() {
       else payload[f.name] = v === '' ? null : v
     }
     const created = await createResource<CatalogItem>(props.resource, payload)
-    // Точечно добавляем в уже загруженный каталог вместо полного catalogs.reload() —
-    // справочник, в который только что что-то добавили, почти наверняка сейчас показан
-    // где-то в выпадающем списке на экране, и должен обновиться сразу же. Без ?? [] здесь:
-    // если каталог ещё не был загружен (items[key] === undefined, а не пустой массив — так
-    // бывает, если форма открылась раньше catalogs.ensureLoaded()), просто ничего не
-    // добавится, а выбор в вызывающем select'е молча не сработает — value без
-    // соответствующего <option> браузер/jsdom игнорирует.
     if (props.resource === 'protocol-port-catalog') {
       // Особый случай: у ProtocolPortCatalogEntry нет поля name, поэтому он живёт не в
       // общем catalogs.items, а в отдельном catalogs.protocolPortCatalog — см. комментарий
-      // к типу в api/types.ts.
-      catalogs.protocolPortCatalog = [...catalogs.protocolPortCatalog, created as never]
+      // к типу в api/types.ts. Сортировка по (port, protocol_type) — фикс п.4.2, тот же
+      // принцип, что и у catalogs.addCatalogItem() для обычных каталогов ниже.
+      const entry = created as unknown as ProtocolPortCatalogEntry
+      catalogs.protocolPortCatalog = [...catalogs.protocolPortCatalog, entry].sort(
+        (a, b) => a.port - b.port || a.protocol_type.localeCompare(b.protocol_type, 'ru'),
+      )
     } else {
-      const key = props.resource as keyof typeof catalogs.items
-      catalogs.items[key] = [...(catalogs.items[key] ?? []), created]
+      // Точечно добавляем в уже загруженный каталог вместо полного catalogs.reload() —
+      // справочник, в который только что что-то добавили, почти наверняка сейчас показан
+      // где-то в выпадающем списке на экране, и должен обновиться сразу же (см.
+      // catalogs.addCatalogItem() — она же сохраняет сортировку, фикс п.4.2).
+      catalogs.addCatalogItem(props.resource as keyof typeof catalogs.items, created)
     }
     emit('created', created)
   } catch (err) {
@@ -167,7 +167,14 @@ async function submit() {
 }
 .modal {
   width: 100%;
-  max-width: 460px;
+  /* Фикс п.1.3.6: было 460px фиксированных — при form-grid: 1fr 1fr (см. ниже) каждое fk-поле
+     получало только половину этой ширины, и длинные подписи (напр. "Тип устройства" после
+     выбора, особенно с учётом фикса п.1.3.7 — "Cisco WS-C2960-48TD-L") обрезались. Верхняя
+     граница текущего минимума не меняется (460px — тот же, что и раньше, на узких окнах), но
+     теперь растёт вместе с viewport и на обычных десктопных экранах даёт полям вдвое больше
+     места, не разрастаясь безгранично для типично короткой формы в 2-5 полей (в отличие от
+     DeviceFormModal.vue, где clamp() уместен куда шире — там форма кардинально длиннее). */
+  max-width: clamp(460px, 34vw, 640px);
   padding: 20px 22px 18px;
 }
 .modal-head {

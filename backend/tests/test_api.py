@@ -399,6 +399,83 @@ class TestInterfacesSync:
         r = client.put("/api/v1/devices/does-not-exist/interfaces", json={"interfaces": []})
         assert r.status_code == 404
 
+    def test_sync_interfaces_defaults_vlan_mode_to_trunk(self, client):
+        """Ни vlan_mode, ни vlan_ids не присланы — интерфейс должен получить дефолт колонки
+        ('trunk'), а не упасть на NOT NULL или молча остаться неопределённым."""
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор без режима"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEFAULT"}).json()
+
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json={"interfaces": [{"name": "Gi0/1"}]})
+        assert r.status_code == 200, r.text
+        assert r.json()["items"][0]["vlan_mode"] == "trunk"
+
+    def test_sync_interfaces_persists_access_mode_with_zero_vlans(self, client):
+        """Фикс п.1.3.9: access-режим без единого VLAN на порту должен пережить сохранение и
+        последующую перезагрузку — раньше, при отсутствии связей interface_vlans, режим было
+        неоткуда восстановить, и порт молча становился trunk."""
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор access без vlan"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-ACCESS-EMPTY"}).json()
+
+        payload = {"interfaces": [{"name": "Fa0/1", "vlan_mode": "access", "vlan_ids": []}]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 200, r.text
+        assert r.json()["items"][0]["vlan_mode"] == "access"
+
+        # "Следующая загрузка формы" — повторный PUT того же набора интерфейсов, полученного из GET,
+        # это и есть то, что делает DeviceInterfacesEditor.vue при повторном открытии формы.
+        r = client.get(f"/api/v1/resources/interfaces?physical_device_id={dev['id']}")
+        assert r.status_code == 200
+        assert r.json()["items"][0]["vlan_mode"] == "access"
+
+    def test_sync_interfaces_rejects_access_mode_with_multiple_vlans(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор access-конфликт"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-ACCESS-MULTI"}).json()
+        v1 = client.post("/api/v1/resources/vlans", json={"vlan_id": 10, "name": "vlan-10"}).json()
+        v2 = client.post("/api/v1/resources/vlans", json={"vlan_id": 20, "name": "vlan-20"}).json()
+        client.post("/api/v1/resources/device-type-vlans", json={"device_type_id": dt["id"], "vlan_id": v1["id"]})
+        client.post("/api/v1/resources/device-type-vlans", json={"device_type_id": dt["id"], "vlan_id": v2["id"]})
+
+        payload = {"interfaces": [{"name": "Fa0/1", "vlan_mode": "access", "vlan_ids": [v1["id"], v2["id"]]}]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 422
+
+    def test_sync_interfaces_rejects_unknown_vlan_mode(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор невалидный режим"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-BAD-MODE"}).json()
+
+        payload = {"interfaces": [{"name": "Fa0/1", "vlan_mode": "half-duplex"}]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 422
+
+    def test_sync_interfaces_creates_access_mode_ports_without_extra_update(self, client, sql_log):
+        """Аудит fix/usability-batch4 (находка №2): для НОВОГО интерфейса obj.vlan_mode
+        присваивался ПОСЛЕ session.flush() — колонка сначала уходила в БД со значением по
+        умолчанию ('trunk') через INSERT, а затем, если запрошенный режим отличался от дефолта
+        (например 'access'), правилось отдельным UPDATE device_interfaces. При создании
+        устройства с N access-портами это N лишних write-запросов на один PUT.
+
+        'access' выбран намеренно как значение, ОТЛИЧНОЕ от дефолта колонки ('trunk') — иначе
+        SQLAlchemy не отправит UPDATE вовсе, даже при ошибочном порядке присваивания (значение
+        не изменилось бы относительно уже вставленного дефолта), и тест не поймал бы регрессию."""
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Тип для подсчёта UPDATE"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-UPDATE"}).json()
+
+        sql_log.clear()
+        payload = {"interfaces": [{"name": f"eth{i}", "vlan_mode": "access", "vlan_ids": []} for i in range(5)]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 200, r.text
+        assert all(item["vlan_mode"] == "access" for item in r.json()["items"])
+
+        update_queries = [
+            s for s in sql_log
+            if s.strip().upper().startswith("UPDATE") and "DEVICE_INTERFACES" in s.upper()
+        ]
+        assert not update_queries, (
+            f"Создание новых интерфейсов не должно требовать UPDATE device_interfaces "
+            f"(vlan_mode должен уходить в исходный INSERT), получено {len(update_queries)}: "
+            f"{update_queries}"
+        )
+
 
 class TestInformationSystemDetails:
     def test_get_details_for_missing_is_returns_404(self, client):

@@ -11,11 +11,12 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
 import type { Connection, Device, DeviceInterface } from '../api/types'
-import { useCatalogsStore } from '../stores/catalogs'
+import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import QuickAddButton from './QuickAddButton.vue'
 import DevicePortsModal from './DevicePortsModal.vue'
+import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 const props = defineProps<{ connection: Connection | null }>()
@@ -71,6 +72,17 @@ function deviceInterfaceCount(deviceId: string): number {
 
 const sourceInterfaces = computed(() => interfacesFor(form.sourceDeviceId, form.source_interface_id))
 const destinationInterfaces = computed(() => interfacesFor(form.destinationDeviceId, form.destination_interface_id))
+// Фикс п.3.6: поиск вводом текста в "Устройство"/"Порт" — те же select'ы, что раньше приходилось
+// листать целиком. deviceOptions сортируется тут же (в devicesStore.all порядок — как пришло с
+// бэкенда, см. её комментарий про отсутствие серверной пагинации/сортировки); portOptions уже
+// приходят отсортированными natural sort'ом (см. фикс п.3.5 в stores/catalogs.ts) — allInterfaces
+// читает catalogs.items['interfaces'], .filter() порядок не меняет.
+const deviceOptions = computed(() =>
+  [...devicesStore.all].map((d) => ({ value: d.id, label: deviceLabel(d) })).sort((a, b) => RU_COLLATOR.compare(a.label, b.label)),
+)
+const sourcePortOptions = computed(() => sourceInterfaces.value.map((i) => ({ value: i.id, label: i.name })))
+const destinationPortOptions = computed(() => destinationInterfaces.value.map((i) => ({ value: i.id, label: i.name })))
+const connectionTypeOptions = computed(() => (catalogs.items['connection-types'] ?? []).map((t) => ({ value: t.id, label: t.name })))
 const sourceHasNoInterfacesAtAll = computed(() => form.sourceDeviceId !== '' && deviceInterfaceCount(form.sourceDeviceId) === 0)
 const destinationHasNoInterfacesAtAll = computed(
   () => form.destinationDeviceId !== '' && deviceInterfaceCount(form.destinationDeviceId) === 0,
@@ -204,18 +216,17 @@ async function submit() {
             <legend>Исходное устройство</legend>
             <label class="field">
               <span>Устройство</span>
-              <select v-model="form.sourceDeviceId">
-                <option value="">— выберите —</option>
-                <option v-for="d in devicesStore.all" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-              </select>
+              <SearchableSelect v-model="form.sourceDeviceId" :options="deviceOptions" placeholder="— выберите —" />
             </label>
             <label class="field">
               <span>Порт *</span>
               <div class="lookup-row">
-                <select v-model="form.source_interface_id" :disabled="!form.sourceDeviceId">
-                  <option value="">— выберите —</option>
-                  <option v-for="i in sourceInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
-                </select>
+                <SearchableSelect
+                  v-model="form.source_interface_id"
+                  :options="sourcePortOptions"
+                  :disabled="!form.sourceDeviceId"
+                  placeholder="— выберите —"
+                />
                 <button
                   type="button"
                   class="quick-add-btn"
@@ -244,18 +255,17 @@ async function submit() {
             <legend>Конечное устройство</legend>
             <label class="field">
               <span>Устройство</span>
-              <select v-model="form.destinationDeviceId">
-                <option value="">— выберите —</option>
-                <option v-for="d in devicesStore.all" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-              </select>
+              <SearchableSelect v-model="form.destinationDeviceId" :options="deviceOptions" placeholder="— выберите —" />
             </label>
             <label class="field">
               <span>Порт *</span>
               <div class="lookup-row">
-                <select v-model="form.destination_interface_id" :disabled="!form.destinationDeviceId">
-                  <option value="">— выберите —</option>
-                  <option v-for="i in destinationInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
-                </select>
+                <SearchableSelect
+                  v-model="form.destination_interface_id"
+                  :options="destinationPortOptions"
+                  :disabled="!form.destinationDeviceId"
+                  placeholder="— выберите —"
+                />
                 <button
                   type="button"
                   class="quick-add-btn"
@@ -281,10 +291,7 @@ async function submit() {
           <label class="field">
             <span>Тип физической линии связи *</span>
             <div class="lookup-row">
-              <select v-model="form.connection_type_id">
-                <option value="">— выберите —</option>
-                <option v-for="t in catalogs.items['connection-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
-              </select>
+              <SearchableSelect v-model="form.connection_type_id" :options="connectionTypeOptions" placeholder="— выберите —" />
               <QuickAddButton resource="connection-types" title="Тип подключения" @created="(r) => (form.connection_type_id = r.id)" />
             </div>
           </label>

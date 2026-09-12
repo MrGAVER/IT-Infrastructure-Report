@@ -49,6 +49,19 @@ const genCount = ref(String(props.modelValue.length))
 const genNameTemplate = ref('eth{n}')
 const genTypeId = ref('')
 const genSpeedId = ref('')
+// Фикс п.1.3.3: "нужно больше вариаций шаблонов — например, нумерация с определённого до
+// определённого номера". Раньше {n} всегда отсчитывался от 1 (режим "Заменить все порты") или от
+// количества уже существующих интерфейсов (режим "Дополнить", см. applyGenerator()) — не было
+// способа явно продолжить нумерацию портов с произвольного номера, например сгенерировать порты
+// 5-24, когда 1-4 уже заняты чем-то другим и не участвуют в этом списке вовсе. Пустая строка —
+// прежнее поведение без изменений (авто: 1 или продолжение от количества строк).
+const genStartAt = ref('')
+// Фикс п.1.3.4: были две отдельные кнопки — "Сгенерировать" (заменяет) и "Дополнить" (добавляет),
+// путавшие своими названиями, какая из них разрушительна. Теперь одна кнопка + галочка,
+// отключенная по умолчанию — безопасный режим (append) остаётся действием по умолчанию, а
+// разрушительный (replace) требует явного осознанного действия (поставить галочку) и всегда
+// показывает предупреждение, если есть что терять (см. generate() ниже).
+const replaceAllPorts = ref(false)
 
 function emptyRow(): InterfaceDraftRow {
   return {
@@ -60,9 +73,14 @@ function emptyRow(): InterfaceDraftRow {
     is_data_transfer: false,
     description: '',
     vlan_ids: [],
-    // trunk по умолчанию — п.1.4.3.2 ("используются все vlan (по умолчанию) или только
-    // некоторые)"); access — осознанный выбор пользователя, а не стартовое состояние.
-    vlan_mode: 'trunk',
+    // access по умолчанию — п.1.3.1 ("'Режим порта' по умолчанию должен быть 'Access'"). Ранее
+    // здесь стоял 'trunk' как "нейтральный старт, раз есть все VLAN" (см. историю), но по новой
+    // явной формулировке требования старт должен быть access — trunk теперь осознанный выбор
+    // пользователя, а не стартовое состояние. Инференс режима для СТРОК, УЖЕ ЗАГРУЖЕННЫХ из БД
+    // (в т.ч. исторических с mode=null), — отдельная, намеренно не тронутая здесь логика в
+    // api/deviceInterfaces.ts:loadDeviceInterfaceDraftRows (менять её означало бы на лету менять
+    // трактовку уже сохранённых в БД связей интерфейс-VLAN, а не старт для НОВОЙ пустой строки).
+    vlan_mode: 'access',
     ips: [],
   }
 }
@@ -74,11 +92,27 @@ const TEMPLATE_HELP_TEXT =
   'Примеры:\n' +
   'eth{n} → eth1, eth2, eth3…\n' +
   'GigabitEthernet0/{n0} → GigabitEthernet0/01, GigabitEthernet0/02…\n\n' +
-  'Номер отсчитывается от 1 в пределах одного нажатия "Заменить"/"Добавить" — при "Добавить" '
-  + 'продолжает нумерацию от количества уже существующих интерфейсов, а не начинает заново.'
+  'Номер отсчитывается от 1 в пределах одного нажатия (при "Заменить все порты" выключено — от '
+  + 'количества уже существующих интерфейсов), если поле "Начать нумерацию с" пустое.\n\n' +
+  'Нумерация с определённого до определённого номера: заполните "Начать нумерацию с" явным '
+  + 'числом — например, "Количество: 20" и "Начать с: 5" сгенерируют порты с номерами 5-24 '
+  + '(GigabitEthernet0/5 … GigabitEthernet0/24 для шаблона GigabitEthernet0/{n}).'
 
 function applyTemplate(template: string, n: number): string {
   return template.replaceAll('{n}', String(n)).replaceAll('{n0}', String(n).padStart(2, '0'))
+}
+
+// Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
+// от текущего количества строк при добавлении) — см. её комментарий выше. Пустое поле (юзер
+// стёр значение) трактуется как "не задано", а не как 0. genStartAt.value может быть как строкой,
+// так и числом — v-model на <input type="number"> в Vue 3 сам приводит валидное числовое значение
+// к Number, а не оставляет строкой (в отличие от обычного текстового input), поэтому явных
+// строковых методов вроде .trim() здесь быть не должно.
+function resolveStartNumber(defaultStart: number): number {
+  const raw = genStartAt.value
+  if (raw === '' || raw === null || raw === undefined) return defaultStart
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : defaultStart
 }
 
 // Сохраняет существующие строки по индексу (вместе с их id/ips/vlan_ids) — повторное нажатие
@@ -99,22 +133,34 @@ function applyTemplate(template: string, n: number): string {
 //
 // п.1.4.1: раньше это была ЕДИНСТВЕННАЯ кнопка генератора — "заменить" было единственным
 // доступным режимом, добавить N интерфейсов К уже существующим, не трогая их, было нельзя (кроме
-// как по одному через "+ Интерфейс"). appendGenerated() ниже — вторая кнопка именно для этого.
+// как по одному через "+ Интерфейс"). appendGenerated() ниже — второй режим именно для этого,
+// доступный без галочки "Заменить все порты" (см. applyGenerator() и фикс п.1.3.4).
 function generate() {
-  const hasExistingData = props.modelValue.some(
-    (row) => row.name.trim() || row.mac_address.trim() || row.description.trim() || row.ips.length || row.vlan_ids.length,
-  )
-  if (hasExistingData) {
-    const count = props.modelValue.length
-    const ok = confirm(`Уже заполнено ${count} интерфейс${count === 1 ? '' : 'а(ов)'}. Заменить их шаблонными значениями?`)
+  // Фикс п.1.3.4: раньше подтверждение спрашивалось только если строки содержали "осмысленные"
+  // данные (эвристика hasExistingData) — неочевидно и непредсказуемо для пользователя, когда
+  // именно спросят, а когда молча заменят. Теперь режим "заменить" явно включается галочкой
+  // "Заменить все порты" (по умолчанию выключена, см. applyGenerator()), поэтому предупреждение
+  // безусловно показывается при любом непустом списке — раз уж галочка стоит, значит замена
+  // ожидаема, но масштаб (сколько именно портов будет затронуто) всё равно стоит подтвердить.
+  const count = Math.max(0, Number(genCount.value) || 0)
+  // Фикс (аудит fix/usability-batch4, находка №1): count вычисляется ДО текста подтверждения,
+  // чтобы отдельно предупредить про случай "Заменить все порты" + "Количество" = 0 — раньше это
+  // молча удаляло все существующие порты устройства, а диалог говорил только про "заменит N шт.
+  // новыми", не сообщая, что новых будет ноль.
+  if (props.modelValue.length > 0) {
+    const existingCount = props.modelValue.length
+    const message = count === 0
+      ? `Количество для генерации равно 0 — все ${existingCount} уже добавленных порта(ов) будут удалены, новые созданы не будут. Продолжить?`
+      : `Это полностью заменит все порты устройства (${existingCount} шт.) новыми, сгенерированными по шаблону. Продолжить?`
+    const ok = confirm(message)
     if (!ok) return
   }
-  const count = Math.max(0, Number(genCount.value) || 0)
+  const startNumber = resolveStartNumber(1)
   const rows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => {
     const existing = props.modelValue[i] ?? emptyRow()
     return {
       ...existing,
-      name: applyTemplate(genNameTemplate.value || 'eth{n}', i + 1),
+      name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
       interface_type_id: genTypeId.value || existing.interface_type_id,
       speed_id: genSpeedId.value || existing.speed_id,
     }
@@ -122,6 +168,7 @@ function generate() {
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
   emit('update:modelValue', rows)
+  replaceAllPorts.value = false // одноразовая осознанная галочка — не должна оставаться взведённой "на будущее" (см. её комментарий)
 }
 
 // п.1.4.1: добавляет genCount НОВЫХ интерфейсов к уже существующим, не трогая их вовсе — ни
@@ -133,14 +180,25 @@ function appendGenerated() {
   const count = Math.max(0, Number(genCount.value) || 0)
   if (!count) return
   const startIndex = props.modelValue.length
+  const startNumber = resolveStartNumber(startIndex + 1)
   const newRows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => ({
     ...emptyRow(),
-    name: applyTemplate(genNameTemplate.value || 'eth{n}', startIndex + i + 1),
+    name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
     interface_type_id: genTypeId.value,
     speed_id: genSpeedId.value,
   }))
   selectedIndices.value = new Set()
   emit('update:modelValue', [...props.modelValue, ...newRows])
+}
+
+// Фикс п.1.3.4: единственный обработчик кнопки "Сгенерировать" — маршрутизирует в один из двух
+// прежних режимов по состоянию галочки "Заменить все порты" вместо двух отдельных кнопок.
+function applyGenerator() {
+  if (replaceAllPorts.value) {
+    generate()
+  } else {
+    appendGenerated()
+  }
 }
 
 function addRow() {
@@ -321,6 +379,10 @@ function applyBulkEdit() {
         <input type="number" min="0" v-model="genCount" />
       </label>
       <label>
+        <span>Начать нумерацию с</span>
+        <input type="number" v-model="genStartAt" placeholder="авто" title="Например, 'Количество: 20' и 'Начать с: 5' сгенерируют порты с номерами 5-24. Пусто — прежнее поведение: 1 при замене, продолжение от количества уже добавленных портов при дополнении." />
+      </label>
+      <label>
         <span>Шаблон имени <HelpTip :text="TEMPLATE_HELP_TEXT" /></span>
         <input type="text" v-model="genNameTemplate" placeholder="eth{n}" />
       </label>
@@ -345,91 +407,94 @@ function applyBulkEdit() {
         </div>
       </label>
       <div class="generator-actions">
-        <button type="button" class="btn btn-secondary" @click="generate">Сгенерировать</button>
-        <button type="button" class="btn btn-secondary" @click="appendGenerated">Дополнить</button>
+        <label class="replace-all-check">
+          <input type="checkbox" v-model="replaceAllPorts" />
+          <span>Заменить все порты</span>
+        </label>
+        <button type="button" class="btn btn-secondary" @click="applyGenerator">Сгенерировать</button>
       </div>
     </div>
-    <span class="hint generator-hint">«Сгенерировать» заменяет уже добавленные интерфейсы шаблонными значениями; «Дополнить» добавляет новые вдобавок к уже существующим, не изменяя их (п.1.4.1).</span>
+    <span class="hint generator-hint">Без галочки «Заменить все порты» новые интерфейсы добавляются к уже существующим, не изменяя их. С галочкой — все существующие интерфейсы заменяются шаблонными значениями (после подтверждения).</span>
 
-    <div v-if="modelValue.length" class="bulk-edit-bar">
-      <b>Массовое редактирование</b>
-      <label class="if-select-label">
-        <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
-        <span>Выбрать все</span>
-      </label>
-      <label class="bulk-field">
-        <span>Тип интерфейса</span>
-        <select v-model="bulkTypeId">
-          <option value="">— не менять —</option>
-          <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Скорость</span>
-        <select v-model="bulkSpeedId">
-          <option value="">— не менять —</option>
-          <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Управление</span>
-        <select v-model="bulkManagement">
-          <option value="">— не менять —</option>
-          <option value="true">Включить</option>
-          <option value="false">Выключить</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Передача данных</span>
-        <select v-model="bulkDataTransfer">
-          <option value="">— не менять —</option>
-          <option value="true">Включить</option>
-          <option value="false">Выключить</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Режим порта</span>
-        <select v-model="bulkVlanMode">
-          <option value="">— не менять —</option>
-          <option value="trunk">Trunk</option>
-          <option value="access">Access</option>
-        </select>
-      </label>
-      <div class="bulk-field bulk-field-wide">
-        <span>VLAN на порту (будет добавлен к выбранным)</span>
-        <div v-if="vlanOptions.length" class="vlan-checks">
-          <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-            <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-            {{ vlanLabel(v) }}
-          </label>
+    <!-- Фикс п.1.3.5: "Массовое редактирование" раньше было отдельной карточкой со своей рамкой
+         НАД карточкой списка интерфейсов — два визуально несвязанных блока, хотя по смыслу
+         "массовое редактирование" относится ровно к тому, что показано в этой самой таблице
+         строкой ниже. iface-panel — одна общая рамка на весь блок (шапка со счётчиком/кнопкой
+         "+ Интерфейс" -> панель массового редактирования -> сама таблица), без отдельной рамки
+         у bulk-edit-bar (только разделитель снизу, см. её CSS) — теперь читается как один
+         прикреплённый к таблице узел, а не как два независимых. -->
+    <div v-if="modelValue.length" class="iface-panel">
+      <div class="bulk-edit-bar">
+        <b>Массовое редактирование</b>
+        <label class="if-select-label">
+          <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
+          <span>Выбрать все</span>
+        </label>
+        <label class="bulk-field">
+          <span>Тип интерфейса</span>
+          <select v-model="bulkTypeId">
+            <option value="">— не менять —</option>
+            <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Скорость</span>
+          <select v-model="bulkSpeedId">
+            <option value="">— не менять —</option>
+            <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Управление</span>
+          <select v-model="bulkManagement">
+            <option value="">— не менять —</option>
+            <option value="true">Включить</option>
+            <option value="false">Выключить</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Передача данных</span>
+          <select v-model="bulkDataTransfer">
+            <option value="">— не менять —</option>
+            <option value="true">Включить</option>
+            <option value="false">Выключить</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Режим порта</span>
+          <select v-model="bulkVlanMode">
+            <option value="">— не менять —</option>
+            <option value="trunk">Trunk</option>
+            <option value="access">Access</option>
+          </select>
+        </label>
+        <div class="bulk-field bulk-field-wide">
+          <span>VLAN на порту (будет добавлен к выбранным)</span>
+          <div v-if="vlanOptions.length" class="vlan-checks">
+            <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+              <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+              {{ vlanLabel(v) }}
+            </label>
+          </div>
+          <span v-else class="empty">VLAN не назначены</span>
         </div>
-        <span v-else class="empty">VLAN не назначены</span>
+        <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
       </div>
-      <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
-    </div>
 
-    <div v-if="modelValue.length" class="iface-list-head">
-      <b>Список интерфейсов</b>
-      <button type="button" class="btn btn-secondary" @click="addRow">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Интерфейс
-      </button>
-    </div>
+      <div class="iface-list-head">
+        <b>Список интерфейсов</b>
+        <button type="button" class="btn btn-secondary" @click="addRow">
+          <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+          Интерфейс
+        </button>
+      </div>
 
-    <div v-if="!modelValue.length" class="empty">
-      Интерфейсы не добавлены
-      <button type="button" class="btn btn-secondary" @click="addRow">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Интерфейс
-      </button>
-    </div>
-
-    <!-- п.3.4: список интерфейсов — компактная таблица вместо карточек на каждый интерфейс;
-         редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
-         toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
-         десятке портов. -->
-    <div v-else class="iface-table-wrap">
-      <table class="iface-table">
+      <!-- п.3.4: список интерфейсов — компактная таблица вместо карточек на каждый интерфейс;
+           редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
+           toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
+           десятке портов. -->
+      <div class="iface-table-wrap">
+        <table class="iface-table">
         <thead>
           <tr>
             <th class="col-select">
@@ -594,6 +659,15 @@ function applyBulkEdit() {
           </template>
         </tbody>
       </table>
+      </div>
+    </div>
+
+    <div v-else class="empty">
+      Интерфейсы не добавлены
+      <button type="button" class="btn btn-secondary" @click="addRow">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Интерфейс
+      </button>
     </div>
   </div>
 </template>
@@ -647,7 +721,21 @@ function applyBulkEdit() {
 }
 .generator-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+}
+.replace-all-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.replace-all-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
 }
 .generator-hint {
   display: block;
@@ -674,14 +762,25 @@ function applyBulkEdit() {
 .generator .lookup-row select {
   width: 130px;
 }
+/* Фикс п.1.3.5: одна общая рамка на "Массовое редактирование" + шапку списка + саму таблицу —
+   раньше у bulk-edit-bar была своя рамка отдельно от таблицы ниже, из-за чего они читались как
+   два разных, визуально не связанных блока, хотя массовое редактирование имеет смысл только в
+   контексте этой же таблицы. */
+.iface-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 10px;
+}
 .bulk-edit-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 14px;
-  padding: 10px;
-  border: 1px dashed var(--border);
-  border-radius: var(--r-s);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border);
 }
 .bulk-edit-bar > b {
   flex-basis: 100%;
@@ -838,7 +937,7 @@ function applyBulkEdit() {
 .field input[type='text'],
 .field select,
 .field textarea {
-  background: var(--surface-1);
+  background: var(--surface-1, var(--surface));
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 7px 8px;
@@ -915,7 +1014,7 @@ function applyBulkEdit() {
   gap: 8px;
 }
 .ip-row input {
-  background: var(--surface-1);
+  background: var(--surface-1, var(--surface));
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 6px 8px;

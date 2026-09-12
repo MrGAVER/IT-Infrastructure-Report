@@ -1,7 +1,7 @@
 from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Building, Department, DeviceCategory, DeviceType, InterfaceSpeed, InterfaceType, ConnectionType, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, Manufacturer, Organization, SupportOrganization, ProtocolPortCatalog
+from ..models import Building, Department, DeviceCategory, DeviceType, InterfaceSpeed, InterfaceType, ConnectionType, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, Manufacturer, SupportOrganization, ProtocolPortCatalog
 
 DEFAULT_NAMES = {
     InterfaceSpeed: ['10 Mbps','100 Mbps','1 Gbps','2.5 Gbps','5 Gbps','10 Gbps','25 Gbps','40 Gbps','50 Gbps','100 Gbps','200 Gbps','400 Gbps','Auto'],
@@ -149,7 +149,6 @@ def _seed_manufacturers(session: Session) -> None:
 def _seed_singleton_records(session: Session) -> None:
     """Ровно одна запись каждого вида по умолчанию — только если справочник пуст."""
     if not session.scalar(select(Building).limit(1)): session.add(Building(name='Главный офис', address='Адрес организации'))
-    if not session.scalar(select(Organization).limit(1)): session.add(Organization(name='Организация', short_name='ООО "Организация"'))
     if not session.scalar(select(SupportOrganization).limit(1)): session.add(SupportOrganization(name='Организация технической поддержки', short_name='Техподдержка'))
     if not session.scalar(select(Department).limit(1)): session.add(Department(name='ИТ'))
 

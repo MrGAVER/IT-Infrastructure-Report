@@ -21,7 +21,9 @@ const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLAND
 // поэтому родителю нужно узнать о создании и перезагрузить vlansStore (см. DeviceFormModal.vue),
 // иначе только что заведённый VLAN пропадёт из этого же select'а сразу после выбора: у него не
 // будет совпадающего <option> в vlanOptions, пока vlansStore не подтянет его самостоятельно.
-const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]]; 'vlan-created': [] }>()
+// Полная запись (не просто факт создания) — родителю нужен её domain_id, чтобы при необходимости
+// добавить устройство в участники этого домена (фикс п.1.3.8, см. комментарий в DeviceFormModal.vue).
+const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]]; 'vlan-created': [record: CatalogItem] }>()
 
 function emptyRow(): DeviceVlanDraftRow {
   return { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }
@@ -47,7 +49,7 @@ function updateField(index: number, patch: Partial<DeviceVlanDraftRow>) {
 
 function onVlanCreated(index: number, created: CatalogItem) {
   updateField(index, { vlan_id: created.id })
-  emit('vlan-created')
+  emit('vlan-created', created)
 }
 </script>
 

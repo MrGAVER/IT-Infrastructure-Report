@@ -14,7 +14,7 @@ import { useVMsStore } from '../stores/vms'
 import { filterHostDevices } from '../utils/deviceFilters'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
-const props = defineProps<{ container: Container | null }>()
+const props = defineProps<{ container: Container | null; copyFrom?: Container | null }>()
 const emit = defineEmits<{ close: []; saved: [container: Container] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -46,9 +46,17 @@ function emptyForm() {
 }
 const form = reactive(emptyForm())
 
+// Фикс п.2 (копирование): container.name у Container не уникален (в отличие от PhysicalDevice.
+// serial_number / InformationSystem.name / VirtualMachine.name — см. их формы), поэтому копию
+// можно сохранить с тем же именем без конфликта — очищать/менять здесь нечего, в отличие от
+// остальных трёх сущностей.
 watch(
-  () => props.container,
+  () => props.container ?? props.copyFrom ?? null,
   (c) => {
+    // Аудит fix/usability-batch4 (находка №5): см. подробный комментарий в DeviceFormModal.vue.
+    if (props.container && props.copyFrom) {
+      console.warn('ContainerFormModal: одновременно переданы container и copyFrom — используется container (режим редактирования)')
+    }
     Object.assign(form, emptyForm())
     if (c) {
       form.name = c.name

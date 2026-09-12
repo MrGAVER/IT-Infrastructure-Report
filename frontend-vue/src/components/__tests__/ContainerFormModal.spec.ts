@@ -100,4 +100,52 @@ describe('ContainerFormModal.vue', () => {
     const selects = wrapper.findAll('select')
     expect((selects[2].element as HTMLSelectElement).value).toBe('') // Устройство сброшено
   })
+
+  // Фикс п.2: "копировать контейнер для создания на его основе нового". container.name не
+  // уникален (в отличие от serial_number/name у остальных трёх сущностей) — очищать нечего,
+  // копия сохраняется с тем же именем, что и донор, если пользователь сам не изменит.
+  // Фикс п.2: "копировать контейнер для создания на его основе нового". container.name не
+  // уникален (в отличие от serial_number/name у остальных трёх сущностей) — очищать нечего,
+  // копия сохраняется с тем же именем, что и донор, если пользователь сам не изменит.
+  it('аудит fix/usability-batch4 (находка №5): одновременная передача container и copyFrom — предупреждение в консоль, побеждает container (edit)', () => {
+    seedStores()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const source: Container = { id: 'ct-src', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: 'docker', runtime_version: '24.0', purpose: 'reverse proxy' }
+    const edited: Container = { id: 'ct-edit', name: 'nginx-edited', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null }
+
+    const wrapper = mount(ContainerFormModal, { props: { container: edited, copyFrom: source } })
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('используется container'))
+    expect(wrapper.find('h2').text()).toContain('Редактировать') // container выигрывает — это по-прежнему edit
+    expect(wrapper.find('input[type="text"]').element).toHaveProperty('value', 'nginx-edited')
+  })
+
+  it('копирование: форма открывается в режиме создания с полями донора, включая размещение', async () => {
+    seedStores()
+    const source: Container = { id: 'ct-src', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: 'docker', runtime_version: '24.0', purpose: 'reverse proxy' }
+    const wrapper = mount(ContainerFormModal, { props: { container: null, copyFrom: source } })
+
+    expect(wrapper.find('input[type="text"]').element).toHaveProperty('value', 'nginx-proxy')
+    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('vm')
+    expect((wrapper.findAll('select')[1].element as HTMLSelectElement).value).toBe('vm-1')
+
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method })
+        if (method === 'POST' && url.endsWith('/resources/containers')) {
+          return jsonResponse({ id: 'ct-new', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: 'docker', runtime_version: '24.0', purpose: 'reverse proxy' }, 201)
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Копия создаёт НОВУЮ запись (POST), а не обновляет донора (PUT ct-src).
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/resources/containers'))).toBe(true)
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+  })
 })

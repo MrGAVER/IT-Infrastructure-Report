@@ -15,6 +15,8 @@ const devices = useDevicesStore()
 const { notify, notifyError } = useToast()
 
 const modalVM = ref<VirtualMachine | null>(null)
+// Фикс п.2: "копировать виртуальную машину для создания на его основе новой".
+const copyFromVM = ref<VirtualMachine | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
 
@@ -24,15 +26,23 @@ onMounted(async () => {
 
 function openCreate() {
   modalVM.value = null
+  copyFromVM.value = null
   modalOpen.value = true
 }
 function openEdit(vm: VirtualMachine) {
   modalVM.value = vm
+  copyFromVM.value = null
+  modalOpen.value = true
+}
+function openCopy(vm: VirtualMachine) {
+  modalVM.value = null
+  copyFromVM.value = vm
   modalOpen.value = true
 }
 function closeModal() {
   modalOpen.value = false
   modalVM.value = null
+  copyFromVM.value = null
 }
 async function onSaved() {
   const wasEdit = modalVM.value !== null
@@ -116,6 +126,9 @@ function hostLabel(id: string | null) {
                   <button type="button" aria-label="Редактировать" @click="openEdit(vm)">
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
+                  <button type="button" aria-label="Копировать" @click="openCopy(vm)">
+                    <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
+                  </button>
                   <button type="button" aria-label="Удалить" :disabled="deletingId === vm.id" @click="removeVM(vm)">
                     <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                   </button>
@@ -138,7 +151,7 @@ function hostLabel(id: string | null) {
       </div>
     </div>
 
-    <VMFormModal v-if="modalOpen" :vm="modalVM" @close="closeModal" @saved="onSaved" />
+    <VMFormModal v-if="modalOpen" :vm="modalVM" :copy-from="copyFromVM" @close="closeModal" @saved="onSaved" />
   </div>
 </template>
 

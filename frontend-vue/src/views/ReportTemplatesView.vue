@@ -92,7 +92,7 @@ async function generate(t: ReportTemplate) {
   busyId.value = t.id
   try {
     const result = await generateReportFromTemplate(t.id)
-    downloadReport(result)
+    await downloadReport(result)
     notify(`Отчёт сформирован: ${result.file_name}`, 'success')
   } catch (err) {
     notifyError(err)

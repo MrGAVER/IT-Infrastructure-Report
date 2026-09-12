@@ -141,8 +141,8 @@ describe('QuickAddModal.vue', () => {
     const deviceTypeInput = body().findAll('.searchable-select input')[0].element as HTMLInputElement
     expect(deviceTypeInput.value).toBe('Коммутатор')
     expect(catalogs.items['device-types']).toEqual([
-      { id: 'dt-1', name: 'Сервер' },
       { id: 'dt-new', name: 'Коммутатор' },
+      { id: 'dt-1', name: 'Сервер' },
     ])
   })
 

@@ -27,7 +27,7 @@ function emptyRow(): InterfaceDraftRow {
     is_data_transfer: false,
     description: '',
     vlan_ids: [],
-    vlan_mode: 'trunk',
+    vlan_mode: 'access',
     ips: [],
   }
 }
@@ -62,14 +62,15 @@ describe('DeviceInterfacesEditor.vue', () => {
   })
 
   // п.3.5: кнопка "+ Интерфейс" стоит в шапке списка/таблицы, а не среди полей генератора.
-  // п.1.4.1: у генератора теперь ДВЕ кнопки — "Сгенерировать" (заменяет) и "Дополнить"
-  // (добавляет, не трогая существующие) — обе внутри .generator, это не регресс п.3.5.
+  // Фикс п.1.3.4: у генератора была ОДНА кнопка "Сгенерировать" + галочка "Заменить все порты"
+  // вместо прежних двух кнопок ("Сгенерировать"/"Дополнить") — обе внутри .generator, это не
+  // регресс п.3.5.
   it('п.3.5: "+ Интерфейс" находится в шапке списка, а не в блоке генератора', async () => {
     const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
     const generatorButtons = wrapper.findAll('.generator button.btn-secondary').map((b) => b.text())
-    expect(generatorButtons).toEqual(['Сгенерировать', 'Дополнить'])
+    expect(generatorButtons).toEqual(['Сгенерировать'])
     expect(wrapper.find('.iface-list-head button.btn-secondary').exists()).toBe(true) // "+ Интерфейс" — отдельно, в шапке
 
     await wrapper.find('.iface-list-head button.btn-secondary').trigger('click')
@@ -82,7 +83,7 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     const inputs = wrapper.findAll('.generator input')
     await inputs[0].setValue('3') // Количество
-    await inputs[1].setValue('eth{n}') // Шаблон имени
+    await inputs[2].setValue('eth{n}') // Шаблон имени (inputs[1] теперь "Начать нумерацию с", фикс п.1.3.3)
     await wrapper.find('.generator select').setValue('t-eth') // Тип по умолчанию
     await wrapper.find('.generator button.btn-secondary').trigger('click') // Сгенерировать
 
@@ -93,43 +94,148 @@ describe('DeviceInterfacesEditor.vue', () => {
     expect(confirm).not.toHaveBeenCalled() // список был пуст — спрашивать не о чем
   })
 
-  it('генерация сохраняет id и IP уже существующего интерфейса по индексу', async () => {
+  it('в режиме "Заменить все порты" генерация сохраняет id и IP уже существующего интерфейса по индексу', async () => {
     const existing: InterfaceDraftRow[] = [{ id: 'if-1', name: 'old-name', interface_type_id: '', mac_address: '', speed_id: '', is_management: true, is_data_transfer: false, description: '', vlan_ids: ['vlan-1'], vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
 
+    await wrapper.find('.replace-all-check input').setValue(true)
     await wrapper.find('.generator button.btn-secondary').trigger('click') // Сгенерировать с количеством по умолчанию (1)
 
-    expect(confirm).toHaveBeenCalled() // строка уже содержит реальные данные — подтверждение обязательно
+    expect(confirm).toHaveBeenCalled() // "Заменить все порты" включена и список непуст — подтверждение обязательно
     const emitted = wrapper.emitted('update:modelValue')!
     const rows = emitted[0][0] as InterfaceDraftRow[]
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ id: 'if-1', name: 'eth1', is_management: true, vlan_ids: ['vlan-1'], ips: existing[0].ips })
   })
 
-  describe('п.3.3: подтверждение перед перезаписью данных генератором', () => {
-    it('не спрашивает подтверждения, если все существующие строки пустые (просто добавлены кнопкой "+")', async () => {
+  describe('фикс п.1.3.3: нумерация с произвольного начального номера ("Начать нумерацию с")', () => {
+    it('пустое поле — прежнее поведение (замена начинает с 1)', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.generator input[type="number"]').setValue('3') // Количество
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const rows = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(rows.map((r) => r.name)).toEqual(['eth1', 'eth2', 'eth3'])
+    })
+
+    it('в режиме "Заменить все порты" явный номер задаёт первый номер диапазона — "Количество: 20" + "Начать с: 5" даёт порты 5-24', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator input[type="number"]').setValue('20') // Количество
+      await wrapper.findAll('.generator input')[1].setValue('5') // Начать нумерацию с
+      await wrapper.find('.generator input[type="text"]').setValue('GigabitEthernet0/{n}') // Шаблон имени
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const rows = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(rows).toHaveLength(20)
+      expect(rows[0].name).toBe('GigabitEthernet0/5')
+      expect(rows[19].name).toBe('GigabitEthernet0/24')
+    })
+
+    it('в режиме "Дополнить" (без галочки) явный номер переопределяет продолжение от текущего количества строк', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }, { ...emptyRow(), name: 'eth2' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      // Без "Начать с" новые строки продолжили бы с eth3 — с явным значением начинают с eth10.
+      await wrapper.find('.generator input[type="number"]').setValue('2') // Количество
+      await wrapper.findAll('.generator input')[1].setValue('10') // Начать нумерацию с
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result.map((r) => r.name)).toEqual(['eth1', 'eth2', 'eth10', 'eth11'])
+    })
+
+    it('нечисловой ввод в поле "Начать нумерацию с" не ломает генерацию (браузер сам не пускает нечисло в number-input, но проверка в resolveStartNumber() — на случай программной установки значения)', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.generator input[type="number"]').setValue('2') // Количество
+      const startInput = wrapper.findAll('.generator input')[1].element as HTMLInputElement
+      startInput.value = 'abc'
+      await startInput.dispatchEvent(new Event('input'))
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      const rows = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(rows.map((r) => r.name)).toEqual(['eth1', 'eth2'])
+    })
+  })
+
+  describe('фикс п.1.3.4: галочка "Заменить все порты" и предупреждение перед заменой', () => {
+    it('без галочки (по умолчанию) кнопка добавляет новые интерфейсы, не спрашивая подтверждения — даже если список уже не пуст', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      expect((wrapper.find('.replace-all-check input').element as HTMLInputElement).checked).toBe(false)
+
+      await wrapper.find('.generator input[type="number"]').setValue('1')
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      expect(confirm).not.toHaveBeenCalled()
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result).toHaveLength(2)
+      expect(result[0]).toMatchObject({ name: 'eth0' }) // не тронуто
+    })
+
+    it('с галочкой — предупреждение показывается при ЛЮБОМ непустом списке, даже если строки пустые', async () => {
       const rows: InterfaceDraftRow[] = [emptyRow(), emptyRow()]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      // Раньше подтверждение зависело от того, есть ли в строках "осмысленные" данные — теперь
+      // галочка сама по себе явный, осознанный сигнал разрушительного действия, поэтому
+      // предупреждение безусловно, даже для пустых строк (см. комментарий в generate()).
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('заменит все порты устройства (2 шт.)'))
+    })
+
+    it('аудит fix/usability-batch4 (находка №1): с галочкой и "Количество" = 0 на непустом списке — отдельное предупреждение про удаление без замены', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }, { ...emptyRow(), name: 'eth1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator input[type="number"]').setValue('0')
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      // Раньше текст подтверждения был одинаков независимо от того, что "Количество" = 0 и
+      // результатом будет ноль портов — пользователь мог принять это за обычную замену N на N.
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('будут удалены'))
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result).toHaveLength(0) // осознанный выбор "заменить на пусто" по-прежнему поддерживается
+    })
+
+    it('с галочкой на пустом списке — предупреждения нет (нечего терять)', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator input[type="number"]').setValue('1')
       await wrapper.find('.generator button.btn-secondary').trigger('click')
 
       expect(confirm).not.toHaveBeenCalled()
       expect(wrapper.emitted('update:modelValue')).toBeTruthy()
     })
 
-    it('отмена подтверждения — данные не перезаписываются, событие не эмитится', async () => {
+    it('отмена подтверждения — данные не перезаписываются, событие не эмитится, галочка остаётся включённой', async () => {
       vi.stubGlobal('confirm', vi.fn(() => false))
       const existing: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'GigabitEthernet0/1', mac_address: 'aa:bb:cc:dd:ee:ff' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
 
       await wrapper.find('.generator button.btn-secondary').trigger('click')
 
       expect(confirm).toHaveBeenCalled()
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+      // Не сбрасываем галочку при отмене — пользователь, скорее всего, ещё хочет повторить попытку.
+      expect((wrapper.find('.replace-all-check input').element as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('после успешной замены галочка сбрасывается — не остаётся взведённой "на будущее"', async () => {
+      const existing: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
+
+      expect(wrapper.emitted('update:modelValue')).toBeTruthy()
+      expect((wrapper.find('.replace-all-check input').element as HTMLInputElement).checked).toBe(false)
     })
 
     it('пустые "Тип по умолчанию"/"Скорость по умолчанию" не затирают уже выставленные вручную значения строк', async () => {
       const existing: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', interface_type_id: 't-eth', speed_id: 's-1g' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
+      await wrapper.find('.replace-all-check input').setValue(true)
 
       // genTypeId/genSpeedId остаются "— не выбрано —" — только меняем имя через шаблон.
       await wrapper.find('.generator button.btn-secondary').trigger('click')
@@ -213,7 +319,9 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('VLAN и IP-адреса скрыты по умолчанию и открываются по клику на toggle', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] },
+      ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
       expect(wrapper.find('.iface-detail-row').exists()).toBe(false)
@@ -260,7 +368,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('рендерит чекбокс на каждый допустимый VLAN с подписью "номер — имя [домен]"', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
       // .iface-detail — иначе findAll('.vlan-check') подхватил бы ещё и чекбоксы из панели
@@ -270,7 +378,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('уже назначенный VLAN отображается отмеченным чекбоксом', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_ids: ['v-guest'] }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-guest'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
       const checkboxes = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input[type="checkbox"]')
@@ -279,7 +387,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('установка чекбокса добавляет id VLAN в vlan_ids, снятие — убирает', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_ids: ['v-mgmt'] }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
 
@@ -295,7 +403,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('чекбокс "Все VLAN" отмечает/снимает все опции разом', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
 
@@ -318,8 +426,23 @@ describe('DeviceInterfacesEditor.vue', () => {
       { id: 'v-guest', vlan_id: 20, name: 'Гостевой', description: '', domain_id: null, domain_name: '', devices: [] },
     ]
 
-    it('по умолчанию строка в режиме trunk — отмечен переключатель Trunk, показаны чекбоксы', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
+    it('новая строка через "+ Интерфейс" создаётся в режиме access — п.1.3.1', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions: vOptions } })
+      await wrapper.find('.empty button').trigger('click')
+
+      const newRow = (wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[])[0]
+      expect(newRow.vlan_mode).toBe('access')
+
+      await wrapper.setProps({ modelValue: [newRow] })
+      await expandRow(wrapper)
+      const radios = wrapper.findAll('.vlan-mode-row input[type="radio"]')
+      expect((radios[0].element as HTMLInputElement).checked).toBe(false) // Trunk
+      expect((radios[1].element as HTMLInputElement).checked).toBe(true) // Access
+      expect(wrapper.find('.iface-detail .vlan-checks').exists()).toBe(false)
+    })
+
+    it('строка с vlan_mode trunk отображается с отмеченным Trunk и чекбоксами VLAN', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
 
@@ -330,7 +453,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('переключение на Access показывает одиночный select вместо чекбоксов', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_ids: ['v-mgmt'] }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
 
@@ -348,7 +471,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('переключение с trunk (несколько VLAN) на access оставляет только первый VLAN', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_ids: ['v-mgmt', 'v-guest'] }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt', 'v-guest'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
 
@@ -369,7 +492,7 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('свёрнутая строка таблицы показывает режим порта в сводке ("Trunk · N VLAN" / "Access: …")', () => {
       const rows: InterfaceDraftRow[] = [
-        { ...emptyRow(), name: 'eth1', vlan_ids: ['v-mgmt', 'v-guest'] },
+        { ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt', 'v-guest'] },
         { ...emptyRow(), name: 'eth2', vlan_mode: 'access', vlan_ids: ['v-mgmt'] },
       ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
@@ -379,16 +502,15 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
   })
 
-  describe('п.1.4.1: генератор — "Сгенерировать" (заменить) и "Дополнить" (добавить)', () => {
-    it('"Дополнить" добавляет новые интерфейсы, не трогая уже существующие', async () => {
+  describe('фикс п.1.3.4 (было п.1.4.1): без галочки "Заменить все порты" кнопка добавляет, не заменяя', () => {
+    it('добавляет новые интерфейсы, не трогая уже существующие', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'CustomName', mac_address: 'aa:bb:cc:dd:ee:ff' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
       const inputs = wrapper.findAll('.generator input')
       await inputs[0].setValue('2') // Количество
-      await inputs[1].setValue('eth{n}') // Шаблон имени
-      const buttons = wrapper.findAll('.generator button.btn-secondary')
-      await buttons[1].trigger('click') // "Дополнить"
+      await inputs[2].setValue('eth{n}') // Шаблон имени (inputs[1] теперь "Начать нумерацию с", фикс п.1.3.3)
+      await wrapper.find('.generator button.btn-secondary').trigger('click') // галочка "Заменить все порты" не тронута — выключена
 
       expect(confirm).not.toHaveBeenCalled() // добавление не разрушительно — подтверждение не нужно
       const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
@@ -399,11 +521,11 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result[2].name).toBe('eth3')
     })
 
-    it('"Дополнить" с нулевым количеством ничего не делает', async () => {
+    it('с нулевым количеством ничего не делает', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await wrapper.find('.generator input[type="number"]').setValue('0')
-      await wrapper.findAll('.generator button.btn-secondary')[1].trigger('click')
+      await wrapper.find('.generator button.btn-secondary').trigger('click')
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
     })
   })
@@ -435,6 +557,15 @@ describe('DeviceInterfacesEditor.vue', () => {
     it('без интерфейсов панель не показывается', () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
       expect(wrapper.find('.bulk-edit-bar').exists()).toBe(false)
+    })
+
+    it('п.1.3.5: "Массовое редактирование" и таблица "Список интерфейсов" — один визуальный блок (общий iface-panel), а не два отдельных', () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+      const panel = wrapper.find('.iface-panel')
+      expect(panel.exists()).toBe(true)
+      expect(panel.find('.bulk-edit-bar').exists()).toBe(true)
+      expect(panel.find('.iface-list-head').exists()).toBe(true)
+      expect(panel.find('.iface-table-wrap').exists()).toBe(true)
     })
 
     it('без отмеченных строк по клику "Применить" показывает ошибку и ничего не эмитит', async () => {
@@ -498,7 +629,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     it('длинное имя интерфейса и сводка VLAN/IP используют v-truncate-tooltip', async () => {
       vi.useFakeTimers()
       try {
-        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'GigabitEthernet0/0/0/1.100500', vlan_ids: ['v-1'] }]
+        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'GigabitEthernet0/0/0/1.100500', vlan_mode: 'trunk', vlan_ids: ['v-1'] }]
         const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
         const nameInput = wrapper.find('.cell-input')

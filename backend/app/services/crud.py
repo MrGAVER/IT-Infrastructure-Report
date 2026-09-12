@@ -264,6 +264,9 @@ def delete_resource(resource: str, item_id: str, session: Session):
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
+_VLAN_MODES = frozenset({"access", "trunk"})
+
+
 def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]) -> None:
     """Применяет данные одного элемента payload['interfaces'] к объекту DeviceInterface:
     простые поля, VLAN-привязки и вложенные IP. Вынесено из sync_interfaces(), чтобы снизить
@@ -274,13 +277,32 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     каждый интерфейс здесь (было N+1 при синхронизации устройства с несколькими портами)."""
     for key in ('name', 'interface_type_id', 'mac_address', 'speed_id', 'is_management', 'is_data_transfer', 'description'):
         if key in item: setattr(obj, key, item[key])
+    # vlan_mode хранится на самом интерфейсе (фикс п.1.3.9 — см. миграцию 5b5ea0e81d32), а не
+    # только выводится из InterfaceVLAN.mode: иначе access-порт без единого VLAN нечем было бы
+    # запомнить между сохранением и следующей загрузкой. 'trunk', если поле не прислано вовсе, —
+    # тот же дефолт, что и у колонки в БД (совместимо со старыми клиентами API).
+    vlan_mode = item.get('vlan_mode') or 'trunk'
+    if vlan_mode not in _VLAN_MODES:
+        raise HTTPException(422, "Поле vlan_mode интерфейса должно быть 'access' или 'trunk'")
+    # Аудит fix/usability-batch4 (находка №2): присваиваем ДО flush() — простые поля выше по
+    # функции попадут в тот же autoflush-UPDATE, вместо отдельного второго UPDATE на этот же
+    # интерфейс при следующем autoflush (session.execute(delete(...)) ниже). При синхронизации
+    # устройства с десятками портов это лишний десяток write-запросов на каждый PUT.
+    obj.vlan_mode = vlan_mode
     session.flush()
     vlan_ids=item.get('vlan_ids') or []
     if not isinstance(vlan_ids,list): raise HTTPException(422, 'Поле vlan_ids интерфейса должно быть массивом')
     bad=[v for v in vlan_ids if v not in allowed_vlans]
     if bad: raise HTTPException(422, 'Один или несколько VLAN не разрешены для типа данного устройства')
+    unique_vlan_ids = list(dict.fromkeys(vlan_ids))
+    # Защита на бэкенде того же инварианта, что и validateInterfaceDraftRows() на фронтенде —
+    # там это только UI-проверка перед отправкой запроса, здесь гарантия для любого вызывающего
+    # API-код напрямую (или старого кэшированного фронтенд-бандла). Читает локальную переменную
+    # vlan_mode, а не obj.vlan_mode — та уже присвоена выше и не меняется дальше по функции.
+    if vlan_mode == 'access' and len(unique_vlan_ids) > 1:
+        raise HTTPException(422, 'В режиме access у порта может быть не более одного VLAN')
     session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.interface_id==obj.id))
-    for vlan_id in dict.fromkeys(vlan_ids): session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=item.get('vlan_mode')))
+    for vlan_id in unique_vlan_ids: session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=vlan_mode))
     ips = item.get('ips') or []
     if not isinstance(ips, list): raise HTTPException(422, 'Поле ips интерфейса должно быть массивом')
     old_ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
