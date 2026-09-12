@@ -8,6 +8,7 @@ import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
+import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
 import DevicePortsModal from '../components/DevicePortsModal.vue'
 
 const connections = useConnectionsStore()
@@ -18,6 +19,14 @@ const { notify, notifyError } = useToast()
 const modalConnection = ref<Connection | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
+// Фикс п.3.4 (батч4): визуальный режим — ДОПОЛНЕНИЕ к стандартной форме "по одному устройству"
+// выше, а не замена; см. комментарий в ConnectionCanvasModal.vue про разделение ответственности
+// между схемой (выбор пары портов курсором) и ConnectionFormModal.vue (оформление подключения).
+const canvasOpen = ref(false)
+async function closeCanvas() {
+  canvasOpen.value = false
+  await connections.reload() // подключения, созданные на схеме, должны сразу попасть в таблицу
+}
 
 // Прямое управление портами устройства из строки таблицы — без захода в форму подключения
 // (см. DevicePortsModal.vue). Connection отдаёт только *_interface_id и уже резолвленные
@@ -105,6 +114,10 @@ async function removeConnection(c: Connection) {
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить подключение
       </button>
+      <button class="btn btn-secondary" @click="canvasOpen = true">
+        <svg class="icon"><use href="/icons.svg#i-sitemap" /></svg>
+        Визуальный режим
+      </button>
     </div>
 
     <div class="table-card card">
@@ -182,6 +195,7 @@ async function removeConnection(c: Connection) {
     </div>
 
     <ConnectionFormModal v-if="modalOpen" :connection="modalConnection" @close="closeModal" @saved="onSaved" />
+    <ConnectionCanvasModal v-if="canvasOpen" @close="closeCanvas" />
     <DevicePortsModal
       v-if="portsTarget"
       :device-id="portsTarget.deviceId"

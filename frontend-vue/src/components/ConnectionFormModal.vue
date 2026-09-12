@@ -20,7 +20,15 @@ import DevicePortsModal from './DevicePortsModal.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
-const props = defineProps<{ connection: Connection | null }>()
+const props = defineProps<{
+  connection: Connection | null
+  // Фикс п.3.4 (батч4, визуальный режим подключений): при создании подключения перетаскиванием
+  // на схеме (см. ConnectionCanvasModal.vue) источник и назначение уже выбраны курсором мыши —
+  // остаётся только тип линии связи/назначение/статус, поэтому оба порта форма подставляет сама.
+  // Игнорируется, если передан connection (редактирование существующего всегда важнее подсказки
+  // для ещё не созданного).
+  prefill?: { sourceInterfaceId: string; destinationInterfaceId: string } | null
+}>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -174,6 +182,13 @@ watch(
       form.purpose = c.purpose ?? ''
       form.is_active = c.is_active
       form.description = c.description ?? ''
+    } else if (props.prefill) {
+      const src = allInterfaces.value.find((i) => i.id === props.prefill!.sourceInterfaceId)
+      const dst = allInterfaces.value.find((i) => i.id === props.prefill!.destinationInterfaceId)
+      form.sourceDeviceId = src?.physical_device_id ?? ''
+      form.source_interface_id = props.prefill.sourceInterfaceId
+      form.destinationDeviceId = dst?.physical_device_id ?? ''
+      form.destination_interface_id = props.prefill.destinationInterfaceId
     }
   },
   { immediate: true },

@@ -321,3 +321,60 @@ describe('ConnectionFormModal.vue — "Назначение линии связ�
     expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Управление активами')
   })
 })
+
+describe('ConnectionFormModal.vue — prefill (фикс п.3.4, визуальный режим подключений)', () => {
+  // Источник и назначение уже выбраны перетаскиванием на схеме (ConnectionCanvasModal.vue) —
+  // форма должна открыться сразу с обоими портами подставленными, без ручного выбора устройств.
+  it('подставляет устройства и порты источника/назначения из prefill при создании', () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [
+      { id: 'if-src', physical_device_id: 'dev-src', name: 'Gi0/1' },
+      { id: 'if-dst', physical_device_id: 'dev-dst', name: 'Gi0/2' },
+    ]
+    const devices = useDevicesStore()
+    devices.all = [
+      { id: 'dev-src', system_name: 'srv-01', serial_number: 'SN-1' } as never,
+      { id: 'dev-dst', system_name: 'srv-02', serial_number: 'SN-2' } as never,
+    ]
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null, prefill: { sourceInterfaceId: 'if-src', destinationInterfaceId: 'if-dst' } } })
+
+    const sourceFieldset = wrapper.findAll('.endpoint')[0]
+    const destinationFieldset = wrapper.findAll('.endpoint')[1]
+    expect(displayedValue(sourceFieldset.findAll('.searchable-select')[0])).toBe('srv-01')
+    expect(displayedValue(sourceFieldset.findAll('.searchable-select')[1])).toBe('Gi0/1')
+    expect(displayedValue(destinationFieldset.findAll('.searchable-select')[0])).toBe('srv-02')
+    expect(displayedValue(destinationFieldset.findAll('.searchable-select')[1])).toBe('Gi0/2')
+  })
+
+  it('игнорируется при редактировании существующего подключения (connection важнее подсказки)', () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [
+      { id: 'if-a', physical_device_id: 'dev-a', name: 'eth0' },
+      { id: 'if-b', physical_device_id: 'dev-b', name: 'eth1' },
+      { id: 'if-c', physical_device_id: 'dev-c', name: 'eth2' },
+    ]
+    const devices = useDevicesStore()
+    devices.all = [
+      { id: 'dev-a', system_name: 'a', serial_number: 'SN-A' } as never,
+      { id: 'dev-b', system_name: 'b', serial_number: 'SN-B' } as never,
+      { id: 'dev-c', system_name: 'c', serial_number: 'SN-C' } as never,
+    ]
+    const connection = {
+      id: 'c1', source_interface_id: 'if-a', destination_interface_id: 'if-b', connection_type_id: 'ct-1',
+      purpose: null, is_active: true, description: null,
+      source_device_name: 'a', source_interface_name: 'eth0', destination_device_name: 'b', destination_interface_name: 'eth1', connection_type_name: 'Медь',
+    }
+
+    const wrapper = mount(ConnectionFormModal, { props: { connection, prefill: { sourceInterfaceId: 'if-a', destinationInterfaceId: 'if-c' } } })
+
+    const destinationFieldset = wrapper.findAll('.endpoint')[1]
+    expect(displayedValue(destinationFieldset.findAll('.searchable-select')[1])).toBe('eth1') // из connection, не из prefill
+  })
+
+  it('не подставляет ничего без prefill (обычное создание "с чистого листа")', () => {
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    const sourceFieldset = wrapper.findAll('.endpoint')[0]
+    expect(displayedValue(sourceFieldset.findAll('.searchable-select')[0])).toBe('')
+  })
+})
