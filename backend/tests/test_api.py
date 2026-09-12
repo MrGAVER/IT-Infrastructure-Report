@@ -476,6 +476,115 @@ class TestInterfacesSync:
             f"{update_queries}"
         )
 
+    def test_sync_interfaces_creates_and_lists_open_ports(self, client):
+        """п.1.4 (батч4): открытые порты теперь свойство интерфейса — переживают сохранение и
+        возвращаются вложенными в свой интерфейс, а не общим списком на устройство."""
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор с портами"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-01"}).json()
+
+        payload = {
+            "interfaces": [
+                {
+                    "name": "Gi0/1",
+                    "open_ports": [
+                        {"port": 443, "transport_protocol": "TCP", "protocol": "HTTPS", "description": "Веб-интерфейс"},
+                        {"port": 161, "transport_protocol": "UDP", "protocol": "SNMP"},
+                    ],
+                },
+                {"name": "Gi0/2", "open_ports": []},
+            ]
+        }
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 200, r.text
+        items = {item["name"]: item for item in r.json()["items"]}
+        assert [p["port"] for p in items["Gi0/1"]["open_ports"]] == [161, 443]  # order_by(OpenPort.port)
+        assert items["Gi0/1"]["open_ports"][1]["protocol"] == "HTTPS"
+        assert items["Gi0/2"]["open_ports"] == []
+
+        # Повторная загрузка (как делает форма при повторном открытии) должна вернуть то же самое.
+        r2 = client.get(f"/api/v1/resources/open-ports?owner_type=device_interface&owner_id={items['Gi0/1']['id']}")
+        assert r2.status_code == 200
+        assert len(r2.json()["items"]) == 2
+
+    def test_sync_interfaces_updates_and_removes_open_ports(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор обновление портов"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-02"}).json()
+        first = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22, "protocol": "SSH"}, {"port": 80, "protocol": "HTTP"}]}]},
+        ).json()
+        iface = first["items"][0]
+        port_to_keep = next(p for p in iface["open_ports"] if p["port"] == 22)
+
+        # Оставляем один порт (с id — обновляем), убираем второй, добавляем третий новый.
+        second = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={
+                "interfaces": [
+                    {
+                        "id": iface["id"],
+                        "name": "Gi0/1",
+                        "open_ports": [
+                            {"id": port_to_keep["id"], "port": 22, "protocol": "SSH (обновлено)"},
+                            {"port": 8443, "protocol": "HTTPS-alt"},
+                        ],
+                    }
+                ]
+            },
+        )
+        assert second.status_code == 200, second.text
+        ports = sorted(second.json()["items"][0]["open_ports"], key=lambda p: p["port"])
+        assert [p["port"] for p in ports] == [22, 8443]
+        assert ports[0]["protocol"] == "SSH (обновлено)"
+
+    def test_sync_interfaces_open_port_with_foreign_id_rejected(self, client):
+        """Порт, принадлежащий ДРУГОМУ интерфейсу, нельзя переприсвоить простой передачей его id в
+        payload другого интерфейса — это защита от подмены владельца, симметричная той же проверке
+        для IP интерфейса чуть выше по файлу."""
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор чужой порт"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-03"}).json()
+        created = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22}]}, {"name": "Gi0/2", "open_ports": []}]},
+        ).json()
+        by_name = {i["name"]: i for i in created["items"]}
+        foreign_port_id = by_name["Gi0/1"]["open_ports"][0]["id"]
+
+        r = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={
+                "interfaces": [
+                    {"id": by_name["Gi0/1"]["id"], "name": "Gi0/1", "open_ports": []},
+                    {"id": by_name["Gi0/2"]["id"], "name": "Gi0/2", "open_ports": [{"id": foreign_port_id, "port": 22}]},
+                ]
+            },
+        )
+        assert r.status_code == 422
+
+    def test_sync_interfaces_rejects_non_numeric_open_port(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор невалидный порт"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-04"}).json()
+        r = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": "не число"}]}]},
+        )
+        assert r.status_code == 422
+
+    def test_sync_interfaces_deleting_interface_deletes_its_open_ports(self, client):
+        dt = client.post("/api/v1/resources/device-types", json={"name": "Коммутатор удаление порта"}).json()
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-05"}).json()
+        created = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22}]}]},
+        ).json()
+        iface_id = created["items"][0]["id"]
+
+        # Пустой список interfaces — интерфейс удаляется; его открытые порты не должны осиротеть.
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json={"interfaces": []})
+        assert r.status_code == 200, r.text
+        remaining = client.get(f"/api/v1/resources/open-ports?owner_type=device_interface&owner_id={iface_id}")
+        assert remaining.json()["items"] == []
+
 
 class TestInformationSystemDetails:
     def test_get_details_for_missing_is_returns_404(self, client):

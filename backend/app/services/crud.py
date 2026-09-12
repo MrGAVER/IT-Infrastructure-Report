@@ -7,10 +7,10 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, InterfaceIP, InformationSystem, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
-from ..constants import ErrorCode, AuditAction, SourceType
+from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
 from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
 
@@ -317,6 +317,39 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
         ip_obj.ip_address = ip_data['ip_address']; ip_obj.prefix_length = ip_data.get('prefix_length'); ip_obj.purpose = ip_data.get('purpose'); ip_obj.is_management = bool(obj.is_management)
     for old_ip in old_ips:
         if old_ip.id not in seen: session.delete(old_ip)
+    _sync_interface_open_ports(obj, item.get('open_ports') or [], session)
+
+
+def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: Session) -> None:
+    """п.1.4 (батч4): "Открытые порты" — теперь свойство конкретного интерфейса, а не всего
+    устройства (полиморфный OpenPort.owner_type=DEVICE_INTERFACE, owner_id=интерфейс), той же
+    delete-diff-create схемой, что и IP интерфейса чуть выше (см. её комментарий). Раньше один
+    список открытых портов относился ко всему устройству разом (owner_type=PHYSICAL_DEVICE) —
+    это не позволяло корректно заполнить Лист 3 отчёта, где колонка "Перечень открытых портов"
+    относится к КОНКРЕТНОМУ физическому/логическому порту (см. reporting.py:_port_open_info)."""
+    if not isinstance(open_ports, list): raise HTTPException(422, 'Поле open_ports интерфейса должно быть массивом')
+    old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id)).all()
+    old_map = {x.id: x for x in old_ports}; seen: set[str] = set()
+    for port_data in open_ports:
+        if not isinstance(port_data, dict) or port_data.get('port') in (None, ''): continue
+        try:
+            port_number = int(port_data['port'])
+        except (TypeError, ValueError):
+            raise HTTPException(422, 'Номер открытого порта должен быть числом')
+        port_id = port_data.get('id')
+        if port_id:
+            port_obj = old_map.get(port_id)
+            if not port_obj: raise HTTPException(422, 'Открытый порт не принадлежит выбранному интерфейсу')
+            seen.add(port_id)
+        else:
+            port_obj = OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(port_obj)
+        port_obj.port = port_number
+        port_obj.transport_protocol = port_data.get('transport_protocol') or 'TCP'
+        port_obj.protocol = port_data.get('protocol') or None
+        port_obj.protocol_catalog_id = port_data.get('protocol_catalog_id') or None
+        port_obj.description = port_data.get('description') or None
+    for old_port in old_ports:
+        if old_port.id not in seen: session.delete(old_port)
 
 
 def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
@@ -341,13 +374,22 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             else: obj = DeviceInterface(physical_device_id=device_id); session.add(obj)
             _sync_single_interface(obj, item, device, session, allowed_vlans)
         for obj in existing:
-            if obj.id not in incoming_ids: session.execute(delete(InterfaceIP).where(InterfaceIP.interface_id == obj.id)); session.delete(obj)
+            if obj.id not in incoming_ids:
+                session.execute(delete(InterfaceIP).where(InterfaceIP.interface_id == obj.id))
+                # Открытые порты полиморфны (нет FK/каскада на уровне БД, см. models.OpenPort) —
+                # без явного удаления здесь они осиротели бы при удалении своего интерфейса.
+                session.execute(delete(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id))
+                session.delete(obj)
         session.flush()
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces: session.execute(update(InterfaceIP).where(InterfaceIP.interface_id == iface.id).values(is_management=bool(iface.is_management)))
         audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}'); session.commit()
         result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name)).all()
-        return {'items': [{**serialize(iface), 'ips': [serialize(ip) for ip in session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == iface.id).order_by(InterfaceIP.ip_address)).all()]} for iface in result]}
+        return {'items': [{
+            **serialize(iface),
+            'ips': [serialize(ip) for ip in session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == iface.id).order_by(InterfaceIP.ip_address)).all()],
+            'open_ports': [serialize(p) for p in session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(OpenPort.port)).all()],
+        } for iface in result]}
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:

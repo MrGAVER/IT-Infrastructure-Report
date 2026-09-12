@@ -18,6 +18,7 @@ function emptyRow(): InterfaceDraftRow {
     vlan_ids: [],
     vlan_mode: 'trunk',
     ips: [],
+    open_ports: [],
   }
 }
 
@@ -64,6 +65,45 @@ describe('loadDeviceInterfaceDraftRows', () => {
     // тот же принцип экономии трафика, что и в DeviceFormModal.vue.
     const interfacesCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/resources/interfaces?'))
     expect(interfacesCall?.[0]).toContain('physical_device_id=dev-1')
+  })
+
+  // Фикс п.1.4 (батч4): открытые порты интерфейса грузятся тем же приёмом, что IP/VLAN выше —
+  // широким запросом по owner_type='device_interface' (без owner_id), с фильтрацией по
+  // interface_id на клиенте (см. комментарий к самому запросу в loadDeviceInterfaceDraftRows).
+  it('фикс п.1.4: подгружает открытые порты интерфейса, отфильтрованные по owner_id и отсортированные по номеру порта', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/resources/interfaces')) {
+        return jsonResponse({
+          items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' }],
+          total: 1,
+          offset: 0,
+          limit: 1000,
+        })
+      }
+      if (url.includes('/resources/open-ports')) {
+        expect(url).toContain('owner_type=device_interface')
+        // Порт чужого интерфейса (if-2) не должен попасть в результат для if-1; порядок в
+        // ответе намеренно "неправильный" — 443 раньше 22 — чтобы проверить сортировку.
+        return jsonResponse({
+          items: [
+            { id: 'op-2', owner_type: 'device_interface', owner_id: 'if-1', port: 443, protocol: 'HTTPS', transport_protocol: 'TCP', protocol_catalog_id: null, description: null },
+            { id: 'op-3', owner_type: 'device_interface', owner_id: 'if-2', port: 22, protocol: 'SSH', transport_protocol: 'TCP', protocol_catalog_id: null, description: null },
+            { id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', port: 22, protocol: 'SSH', transport_protocol: 'TCP', protocol_catalog_id: null, description: null },
+          ],
+          total: 3,
+          offset: 0,
+          limit: 1000,
+        })
+      }
+      return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const [row] = await loadDeviceInterfaceDraftRows('dev-1')
+    expect(row.open_ports).toEqual([
+      { id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' },
+      { id: 'op-2', protocol_catalog_id: '', port: '443', protocol: 'HTTPS', transport_protocol: 'TCP', description: '' },
+    ])
   })
 
   it('устройство без интерфейсов — пустой массив, без падения на пустых IP/VLAN', async () => {
@@ -142,6 +182,23 @@ describe('validateInterfaceDraftRows', () => {
     const ok = [{ ...emptyRow(), name: 'eth0', vlan_mode: 'access' as const, vlan_ids: ['v-1'] }]
     expect(validateInterfaceDraftRows(ok)).toBeNull()
   })
+
+  describe('фикс п.2.1.3: IP-адрес и префикс на портах', () => {
+    it('пропускает корректный IP и префикс', () => {
+      const rows = [{ ...emptyRow(), name: 'eth0', ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]
+      expect(validateInterfaceDraftRows(rows)).toBeNull()
+    })
+
+    it('не пропускает некорректный IP-адрес', () => {
+      const rows = [{ ...emptyRow(), name: 'eth0', ips: [{ ip_address: 'не ip адрес', prefix_length: '', purpose: '' }] }]
+      expect(validateInterfaceDraftRows(rows)).toBe('Некорректный IP-адрес «не ip адрес» на порту «eth0».')
+    })
+
+    it('не пропускает некорректный префикс', () => {
+      const rows = [{ ...emptyRow(), name: 'eth0', ips: [{ ip_address: '10.0.0.1', prefix_length: '999', purpose: '' }] }]
+      expect(validateInterfaceDraftRows(rows)).toBe('Некорректный префикс «999» на порту «eth0» — допустимо 0-32.')
+    })
+  })
 })
 
 describe('persistDeviceInterfaces', () => {
@@ -182,10 +239,38 @@ describe('persistDeviceInterfaces', () => {
           vlan_ids: ['vlan-legacy'],
           vlan_mode: 'trunk',
           ips: [{ id: undefined, ip_address: '10.0.0.1', prefix_length: 24, purpose: null }],
+          open_ports: [],
         },
       ],
     })
     expect(result.items).toEqual([{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0' }])
+  })
+
+  // Фикс п.1.4 (батч4): открытые порты интерфейса персистятся атомарно вместе с ним — те же
+  // правила приведения типов/фильтрации пустых строк, что раньше жили в
+  // DeviceFormModal.vue:persistOpenPorts (удалена).
+  it('фикс п.1.4: приводит port к числу, пропускает пустые строки, сохраняет id для обновления существующих', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ items: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await persistDeviceInterfaces('dev-1', [
+      {
+        ...emptyRow(),
+        id: 'if-1',
+        name: 'eth0',
+        open_ports: [
+          { id: 'op-1', protocol_catalog_id: 'cat-1', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: 'Консоль' },
+          { protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }, // пустой port — отфильтровывается, NOT NULL на бэкенде
+          { protocol_catalog_id: '', port: '443', protocol: '', transport_protocol: '', description: '' }, // новая строка без id, пустой transport_protocol — по умолчанию TCP
+        ],
+      },
+    ])
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1]!.body as string)
+    expect(body.interfaces[0].open_ports).toEqual([
+      { id: 'op-1', protocol_catalog_id: 'cat-1', port: 22, protocol: 'SSH', transport_protocol: 'TCP', description: 'Консоль' },
+      { id: undefined, protocol_catalog_id: null, port: 443, protocol: null, transport_protocol: 'TCP', description: null },
+    ])
   })
 
   it('отправляет vlan_mode строки как есть (п.1.4.3.2)', async () => {

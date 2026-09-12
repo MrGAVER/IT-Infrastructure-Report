@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceVlanListEditor from '../DeviceVlanListEditor.vue'
+import { useCatalogsStore } from '../../stores/catalogs'
 import type { DeviceVlanDraftRow, VLANDefinition } from '../../api/types'
 
 const vlanOptions: VLANDefinition[] = [
@@ -107,6 +108,28 @@ describe('DeviceVlanListEditor.vue', () => {
       // Полная запись, а не просто факт создания — родителю (DeviceFormModal.vue) нужен
       // domain_id, чтобы при необходимости добавить устройство в участники домена (фикс п.1.3.8).
       expect(wrapper.emitted('vlan-created')?.[0]).toEqual([{ id: 'v-new', vlan_id: 42, name: 'Гостевой' }])
+    })
+
+    it('фикс п.2.2: если устройство уже состоит ровно в одном домене VLAN, поле домена в форме добавления предзаполнено им', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['vlan-domains'] = [{ id: 'domain-x', name: 'Домен X' }]
+      const rows: DeviceVlanDraftRow[] = [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions, deviceDomainId: 'domain-x' } })
+
+      await wrapper.find('.col-vlan button').trigger('click')
+
+      const domainInput = teleportedContent().find('.fk-row .searchable-select input')
+      expect((domainInput.element as HTMLInputElement).value).toBe('Домен X')
+    })
+
+    it('без единственного домена (устройство ни в одном или в нескольких) поле домена в форме добавления пустое, как раньше', async () => {
+      const rows: DeviceVlanDraftRow[] = [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions } }) // deviceDomainId не передан
+
+      await wrapper.find('.col-vlan button').trigger('click')
+
+      const domainInput = teleportedContent().find('.fk-row .searchable-select input')
+      expect((domainInput.element as HTMLInputElement).value).toBe('')
     })
   })
 })

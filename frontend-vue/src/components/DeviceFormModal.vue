@@ -9,13 +9,14 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink } from '../api/types'
+import type { Device, DeviceModel, Rack, Room, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
+import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
-import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
@@ -31,6 +32,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
+const connectionsStore = useConnectionsStore()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.device !== null)
@@ -58,10 +60,9 @@ function emptyForm() {
 
 const form = reactive(emptyForm())
 
-// Открытые порты устройства — staged локально, персистятся после сохранения самого устройства
-// (нужен его id), по той же схеме delete-затем-recreate, что и для ВМ, см. VMFormModal.vue.
-// OpenPortListEditor.vue переиспользован как есть (не знает про owner_type/owner_id).
-const openPorts = ref<OpenPortDraftRow[]>([])
+// Фикс п.1.4 (батч4): открытые порты больше не самостоятельный список уровня устройства — теперь
+// это InterfaceDraftRow.open_ports внутри каждой строки interfaces (см. её комментарий в
+// types.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
@@ -87,6 +88,37 @@ const availableVlans = computed(() =>
   vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id) || pendingDomainMemberships.value.has(v.domain_id)),
 )
 
+// Фикс п.2.2: единственный домен, к которому уже привязано устройство — только если он ровно
+// один (см. комментарий к deviceDomainId в DeviceVlanListEditor.vue). Учитывает и
+// pendingDomainMemberships (домен, добавленный в этой же сессии редактирования через фикс
+// п.1.3.8, ещё не сохранённый) — устройство уже "фактически" его участник для целей этой формы.
+const singleDeviceDomainId = computed(() => {
+  const ids = new Set([...memberDomainIds.value, ...pendingDomainMemberships.value])
+  return ids.size === 1 ? [...ids][0] : null
+})
+
+// Фикс п.3.3 (вторая часть): предупреждает, если у интерфейса с активным подключением
+// "Управление"/"Передача данных" разошлись с тем же на "втором конце" линии — та же проверка,
+// что и при создании/редактировании самого подключения в ConnectionFormModal.vue, только со
+// стороны формы устройства. Только для УЖЕ СОХРАНЁННЫХ интерфейсов (row.id) — у черновых строк
+// без id (новая или скопированная, см. фикс п.2) подключений ещё не может быть в принципе.
+const interfaceConflictWarnings = computed<Record<string, string>>(() => {
+  const warnings: Record<string, string> = {}
+  const allInterfaces = (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[]
+  for (const row of interfaces.value) {
+    if (!row.id) continue
+    const connection = connectionsStore.all.find((c) => c.is_active && (c.source_interface_id === row.id || c.destination_interface_id === row.id))
+    if (!connection) continue
+    const otherId = connection.source_interface_id === row.id ? connection.destination_interface_id : connection.source_interface_id
+    const other = allInterfaces.find((i) => i.id === otherId)
+    if (!other) continue
+    if (other.is_management !== row.is_management || other.is_data_transfer !== row.is_data_transfer) {
+      warnings[row.id] = `На связанном порту подключения указано другое назначение (Управление/Передача данных) — проверьте соответствие на обоих концах линии.`
+    }
+  }
+  return warnings
+})
+
 // Опции для чекбоксов "VLAN на порту" (DeviceInterfacesEditor.vue) — НЕ то же самое, что
 // availableVlans выше: тот отвечает "что можно НАЗНАЧИТЬ устройству" (фильтр по домену), этот —
 // "что уже разрешено/назначено устройству, поэтому можно поставить на порт" (тип устройства ∪
@@ -106,6 +138,13 @@ const portVlanOptions = computed(() =>
 // иначе сохранение упадёт 422 "VLAN не разрешён для типа данного устройства", а пользователь не
 // поймёт, откуда ошибка. То же поведение, что syncDeviceVlanOptionsFromRows() в vanilla-версии.
 //
+// Фикс п.2.1.2: симметричный случай — если VLAN устройства ДОБАВИЛСЯ (пользователь завёл новый
+// VLAN в блоке "VLAN устройства"), порты, у которых уже были выбраны АБСОЛЮТНО ВСЕ старые опции
+// ("Все VLAN" в DeviceInterfacesEditor.vue — не отдельный флаг, а именно это состояние, см. её
+// isAllVlansSelected()), должны автоматически подхватить и новый VLAN тоже — иначе "Все VLAN"
+// тут же перестаёт быть правдой при первом же добавлении нового VLAN на устройство, и
+// пользователю пришлось бы вручную донастраивать уже отмеченный как "все" порт.
+//
 // КРИТИЧНО: сравниваем НОВЫЙ список опций со СТАРЫМ (аргумент oldOptions от Vue) и трогаем
 // только vlan_ids, которые были разрешены раньше и перестали быть разрешены сейчас — а не
 // просто "не входят в текущий portVlanOptions". Первое срабатывание случится сразу после
@@ -114,25 +153,26 @@ const portVlanOptions = computed(() =>
 // тронет. Если бы вместо диффа проверялось только текущее значение, при первой же загрузке
 // стёрлись бы vlan_ids, назначенные через /legacy, но не входящие в этот более узкий каталог
 // (тип устройства ∪ уже назначенные) — ровно такой баг поймал регрессионный тест в
-// DeviceFormModal.spec.ts ("не стирает VLAN интерфейса, назначенные через /legacy...").
+// DeviceFormModal.spec.ts ("не стирает VLAN интерфейса, назначенные через /legacy..."). По той
+// же причине пункт 2.1.2 применяется только когда oldOptions уже был непуст — на самой первой
+// загрузке "все опции уже выбраны" было бы истинно вырожденно (для пустого множества) и
+// разложило бы новые VLAN на все trunk-порты без разбора.
 watch(portVlanOptions, (options, oldOptions) => {
   const removedIds = new Set((oldOptions ?? []).filter((v) => !options.some((o) => o.id === v.id)).map((v) => v.id))
-  if (!removedIds.size) return
-  interfaces.value = interfaces.value.map((row) =>
-    row.vlan_ids.some((id) => removedIds.has(id)) ? { ...row, vlan_ids: row.vlan_ids.filter((id) => !removedIds.has(id)) } : row,
-  )
+  const addedIds = options.filter((o) => !(oldOptions ?? []).some((v) => v.id === o.id)).map((o) => o.id)
+  const hadAnyOldOptions = (oldOptions ?? []).length > 0
+  if (!removedIds.size && !(addedIds.length && hadAnyOldOptions)) return
+  interfaces.value = interfaces.value.map((row) => {
+    let vlan_ids = row.vlan_ids
+    if (removedIds.size && vlan_ids.some((id) => removedIds.has(id))) {
+      vlan_ids = vlan_ids.filter((id) => !removedIds.has(id))
+    }
+    if (addedIds.length && hadAnyOldOptions && row.vlan_mode === 'trunk' && oldOptions!.every((o) => vlan_ids.includes(o.id))) {
+      vlan_ids = [...vlan_ids, ...addedIds]
+    }
+    return vlan_ids === row.vlan_ids ? row : { ...row, vlan_ids }
+  })
 })
-
-function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
-  return {
-    id: x.id,
-    protocol_catalog_id: x.protocol_catalog_id ?? '',
-    port: String(x.port),
-    protocol: x.protocol ?? '',
-    transport_protocol: x.transport_protocol,
-    description: x.description ?? '',
-  }
-}
 
 function toSoftwareDraftRow(x: DeviceSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
@@ -169,7 +209,6 @@ watch(
     const source = props.device ?? props.copyFrom ?? null
     const isCopy = !props.device && !!props.copyFrom
     Object.assign(form, emptyForm())
-    openPorts.value = []
     softwareAssets.value = []
     interfaces.value = []
     deviceVlans.value = []
@@ -192,11 +231,12 @@ watch(
     if (!source) return
     loadingNested.value = true
     try {
-      const [ports, software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
-        listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: source.id, limit: 1000 }),
+      const [software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
         listResource<DeviceSoftware>('device-software', { physical_device_id: source.id, limit: 1000 }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
         // помощник использует DevicePortsModal.vue (управление портами с экрана «Подключения»).
+        // Открытые порты каждого интерфейса (фикс п.1.4, батч4) приходят уже вложенными в
+        // ifaceRows[].open_ports — отдельно их грузить не нужно.
         loadDeviceInterfaceDraftRows(source.id),
         listResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id, limit: 1000 }),
         listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id, limit: 1000 }),
@@ -205,16 +245,22 @@ watch(
         // пересчитался с неполными данными между двумя разными по времени загрузками.
         loadDeviceTypeVlanIds(source.device_type_id),
         vlansStore.ensureLoaded(),
+        // Фикс п.3.3 (вторая часть — "при дальнейшем редактировании данных об 'Управлении',
+        // 'Передаче данных' через дашборд 'Инвентаризации устройств' также проводить такую
+        // проверку"): нужны текущие активные подключения, чтобы найти "второй конец" каждого
+        // порта и сравнить его is_management/is_data_transfer — см. interfaceConflictWarnings.
+        connectionsStore.ensureLoaded(),
       ])
       // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
       // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
-      // backend/app/services/crud.py:sync_interfaces (и аналогичные функции для open-ports/
-      // device-software/device-vlans) отклонит его 422 "не принадлежит выбранному устройству",
-      // т.к. у нового устройства такого id ещё нет и появиться неоткуда. stripIds() (см. ниже)
-      // убирает id из каждой строки — тогда backend создаёт их как новые записи.
-      openPorts.value = isCopy ? stripIds(ports.items.map(toOpenPortDraftRow)) : ports.items.map(toOpenPortDraftRow)
+      // backend/app/services/crud.py:sync_interfaces (и аналогичные функции для device-software/
+      // device-vlans) отклонит его 422 "не принадлежит выбранному устройству", т.к. у нового
+      // устройства такого id ещё нет и появиться неоткуда. stripIds() (см. ниже) убирает id из
+      // каждой строки — тогда backend создаёт их как новые записи. Открытые порты каждого
+      // интерфейса — тот же принцип на один уровень глубже (stripIds и на сам интерфейс, и на
+      // его open_ports, как уже делалось для его ips).
       softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
-      interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips) })) : ifaceRows
+      interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports) })) : ifaceRows
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
@@ -401,27 +447,6 @@ function onVlanCreated(record: CatalogItem) {
   }
 }
 
-// Delete-затем-recreate — тот же приём и то же обоснование (маленькие списки, простота важнее
-// diff-логики), что persistVmIps()/persistOpenPorts() в VMFormModal.vue.
-async function persistOpenPorts(deviceId: string) {
-  const existing = await listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: deviceId, limit: 1000 })
-  for (const old of existing.items) {
-    await deleteResource('open-ports', old.id)
-  }
-  for (const row of openPorts.value) {
-    if (!row.port.trim()) continue // port NOT NULL на бэкенде, см. VMFormModal.vue
-    await createResource<OpenPort>('open-ports', {
-      owner_type: 'physical_device',
-      owner_id: deviceId,
-      protocol_catalog_id: row.protocol_catalog_id || null,
-      port: Number(row.port),
-      protocol: row.protocol || null,
-      transport_protocol: row.transport_protocol || 'TCP',
-      description: row.description || null,
-    })
-  }
-}
-
 async function persistSoftwareAssets(deviceId: string) {
   const existing = await listResource<DeviceSoftware>('device-software', { physical_device_id: deviceId, limit: 1000 })
   for (const old of existing.items) {
@@ -483,6 +508,19 @@ async function submit() {
     errorMessage.value = interfaceError
     return
   }
+  // Фикс п.3 ("применить исправление [валидации IP] ко всем полям с ip"): "VLAN устройства"
+  // (DeviceVlanListEditor.vue) — свой собственный IP/префикс на связи устройство-VLAN, отдельный
+  // от IP на портах (interfaces.value.*.ips, уже проверены выше в validateInterfaceDraftRows).
+  for (const row of deviceVlans.value) {
+    if (!isValidIPv4(row.ip_address)) {
+      errorMessage.value = `Некорректный IP-адрес «${row.ip_address}» в блоке "VLAN устройства".`
+      return
+    }
+    if (!isValidPrefixLength(row.prefix_length)) {
+      errorMessage.value = `Некорректный префикс «${row.prefix_length}» в блоке "VLAN устройства" — допустимо 0-32.`
+      return
+    }
+  }
 
   saving.value = true
   try {
@@ -495,7 +533,6 @@ async function submit() {
         const saved = isEdit.value
           ? await updateResource<Device>('devices', props.device!.id, payload)
           : await createResource<Device>('devices', payload)
-        await persistOpenPorts(saved.id)
         await persistSoftwareAssets(saved.id)
         await persistPendingDomainMemberships(saved.id)
         // persistDeviceVlans ДО persistDeviceInterfaces (не как раньше) — sync_interfaces на
@@ -652,7 +689,6 @@ async function submit() {
         </div>
 
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
-        <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
         <DeviceInterfacesEditor
           v-if="!loadingNested"
@@ -660,8 +696,10 @@ async function submit() {
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
+          :conflict-warnings="interfaceConflictWarnings"
+          :protocol-port-catalog="catalogs.protocolPortCatalog"
         />
-        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" @vlan-created="onVlanCreated" />
+        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" :device-domain-id="singleDeviceDomainId" @vlan-created="onVlanCreated" />
       </form>
 
       <div class="modal-foot">

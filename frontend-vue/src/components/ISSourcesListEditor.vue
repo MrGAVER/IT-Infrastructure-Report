@@ -105,6 +105,7 @@ function ipPlaceholder(row: ISSourceDraftRow): string {
           <option v-for="c in containerOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
         <input
+          class="col-ip"
           :placeholder="ipPlaceholder(row)"
           :disabled="row.source_type !== 'manual'"
           :value="row.ip_address"

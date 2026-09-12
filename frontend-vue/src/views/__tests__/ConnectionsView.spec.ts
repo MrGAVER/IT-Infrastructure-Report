@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ConnectionsView from '../ConnectionsView.vue'
+import ConnectionCanvasModal from '../../components/ConnectionCanvasModal.vue'
 import { useConnectionsStore } from '../../stores/connections'
 import { useCatalogsStore } from '../../stores/catalogs'
+import { useDevicesStore } from '../../stores/devices'
 import type { Connection } from '../../api/types'
 
 // DevicePortsModal.vue телепортируется в body (см. DevicePortsModal.spec.ts) — ищем там же.
@@ -119,5 +121,43 @@ describe('ConnectionsView.vue — управление портами прямо
     await flushPromises()
 
     expect(body().text()).not.toContain('Порты устройства')
+  })
+})
+
+describe('ConnectionsView.vue — визуальный режим (фикс п.3.4, батч4)', () => {
+  it('кнопка "Визуальный режим" открывает схему подключений', async () => {
+    const connections = useConnectionsStore()
+    connections.loaded = true
+    const catalogs = useCatalogsStore()
+    catalogs.loaded = true
+    const devices = useDevicesStore()
+    devices.loaded = true
+
+    const wrapper = mount(ConnectionsView)
+    await flushPromises()
+
+    expect(wrapper.findComponent(ConnectionCanvasModal).exists()).toBe(false)
+    await wrapper.findAll('button').find((b) => b.text().includes('Визуальный режим'))!.trigger('click')
+
+    expect(wrapper.findComponent(ConnectionCanvasModal).exists()).toBe(true)
+  })
+
+  it('после закрытия схемы перечитывает список подключений (могли добавиться новые перетаскиванием)', async () => {
+    const connections = useConnectionsStore()
+    connections.loaded = true
+    const reloadSpy = vi.spyOn(connections, 'reload')
+    const catalogs = useCatalogsStore()
+    catalogs.loaded = true
+    const devices = useDevicesStore()
+    devices.loaded = true
+
+    const wrapper = mount(ConnectionsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((b) => b.text().includes('Визуальный режим'))!.trigger('click')
+    await wrapper.findComponent(ConnectionCanvasModal).vm.$emit('close')
+    await flushPromises()
+
+    expect(wrapper.findComponent(ConnectionCanvasModal).exists()).toBe(false)
+    expect(reloadSpy).toHaveBeenCalled()
   })
 })

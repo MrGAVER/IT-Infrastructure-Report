@@ -55,3 +55,9 @@ class OwnerType:
     """Допустимые значения OpenPort.owner_type (полиморфная связь без FK на уровне БД)."""
     PHYSICAL_DEVICE = "physical_device"
     VIRTUAL_MACHINE = "virtual_machine"
+    # п.1.4 (батч4): открытые порты физического устройства переехали с уровня устройства на
+    # уровень конкретного интерфейса (порта) — см. services/crud.py:_sync_single_interface и
+    # миграцию 20260911_ports_per_interface. PHYSICAL_DEVICE оставлен как есть (не удаляем и не
+    # мигрируем принудительно записи устройств с более чем одним интерфейсом — см. докстринг
+    # миграции) — новые записи через новый UI создаются уже с DEVICE_INTERFACE.
+    DEVICE_INTERFACE = "device_interface"

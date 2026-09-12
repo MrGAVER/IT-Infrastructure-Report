@@ -13,6 +13,7 @@ import type { VirtualMachine, Device, VMIP, OpenPort, VMSoftware, VmIpDraftRow, 
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { filterHostDevices } from '../utils/deviceFilters'
+import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
@@ -194,6 +195,18 @@ async function submit() {
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите название виртуальной машины.'
     return
+  }
+  // Фикс п.3: "в поле 'IP-адреса виртуальной машины' можно ввести любые данные... необходимо
+  // применить исправление ко всем полям с ip" — та же валидация, что и в DeviceFormModal.vue.
+  for (const row of vmIps.value) {
+    if (!isValidIPv4(row.ip_address)) {
+      errorMessage.value = `Некорректный IP-адрес «${row.ip_address}».`
+      return
+    }
+    if (!isValidPrefixLength(row.prefix_length)) {
+      errorMessage.value = `Некорректный префикс «${row.prefix_length}» — допустимо 0-32.`
+      return
+    }
   }
   saving.value = true
   try {

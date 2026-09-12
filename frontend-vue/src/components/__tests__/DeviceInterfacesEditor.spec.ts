@@ -29,6 +29,7 @@ function emptyRow(): InterfaceDraftRow {
     vlan_ids: [],
     vlan_mode: 'access',
     ips: [],
+    open_ports: [],
   }
 }
 
@@ -95,7 +96,7 @@ describe('DeviceInterfacesEditor.vue', () => {
   })
 
   it('в режиме "Заменить все порты" генерация сохраняет id и IP уже существующего интерфейса по индексу', async () => {
-    const existing: InterfaceDraftRow[] = [{ id: 'if-1', name: 'old-name', interface_type_id: '', mac_address: '', speed_id: '', is_management: true, is_data_transfer: false, description: '', vlan_ids: ['vlan-1'], vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]
+    const existing: InterfaceDraftRow[] = [{ id: 'if-1', name: 'old-name', interface_type_id: '', mac_address: '', speed_id: '', is_management: true, is_data_transfer: false, description: '', vlan_ids: ['vlan-1'], vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }], open_ports: [] }]
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
 
     await wrapper.find('.replace-all-check input').setValue(true)
@@ -420,6 +421,66 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
   })
 
+  describe('п.1.4 (батч4): открытые порты интерфейса и копирование на другой интерфейс', () => {
+    it('блок "Открытые порты" рендерится внутри развёрнутой строки интерфейса', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper)
+      expect(wrapper.find('.ports-block').exists()).toBe(true)
+      expect((wrapper.find('.ports-block input.col-port').element as HTMLInputElement).value).toBe('22')
+    })
+
+    it('добавление порта на одном интерфейсе не затрагивает open_ports другого', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }, { ...emptyRow(), name: 'eth1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper, 0)
+      await wrapper.find('.ports-block button.add-btn').trigger('click')
+
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result[0].open_ports).toHaveLength(1)
+      expect(result[1].open_ports).toEqual([])
+    })
+
+    it('с единственным интерфейсом кнопку "Копировать на порт…" показывать не для чего — блок выбора получателя не рендерится', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: '', transport_protocol: 'TCP', description: '' }] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper)
+      expect(wrapper.find('.copy-ports-row').exists()).toBe(false)
+    })
+
+    it('копирует набор открытых портов на выбранный интерфейс со сброшенными id (это КОПИЯ, а не перенос)', async () => {
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth1' },
+      ]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper, 0)
+
+      await wrapper.find('.copy-target-select').setValue('1') // индекс eth1 в modelValue
+      await wrapper.find('.copy-ports-row button').trigger('click')
+
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result[1].open_ports).toEqual([{ id: undefined, protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }])
+      expect(result[0].open_ports).toHaveLength(1) // у источника порты остаются как есть — это копирование, не перемещение
+    })
+
+    it('если у получателя уже есть порты — требует подтверждения и не заменяет их при отказе', async () => {
+      vi.stubGlobal('confirm', vi.fn(() => false))
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth1', open_ports: [{ id: 'op-2', protocol_catalog_id: '', port: '443', protocol: 'HTTPS', transport_protocol: 'TCP', description: '' }] },
+      ]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper, 0)
+
+      await wrapper.find('.copy-target-select').setValue('1')
+      await wrapper.find('.copy-ports-row button').trigger('click')
+
+      expect(confirm).toHaveBeenCalled()
+      expect(wrapper.emitted('update:modelValue')).toBeFalsy() // отказ — ничего не эмитим, порты eth1 не тронуты
+    })
+  })
+
   describe('п.1.4.3.2: режим порта access/trunk', () => {
     const vOptions: VLANDefinition[] = [
       { id: 'v-mgmt', vlan_id: 10, name: 'Управление', description: '', domain_id: null, domain_name: '', devices: [] },
@@ -478,6 +539,21 @@ describe('DeviceInterfacesEditor.vue', () => {
       await wrapper.findAll('.vlan-mode-row input[type="radio"]')[1].setValue(true) // Access
       const result = (wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[])[0]
       expect(result.vlan_ids).toEqual(['v-mgmt'])
+    })
+
+    it('фикс п.2.1.1: переключение на Trunk сразу отмечает "Все VLAN"', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'access', vlan_ids: ['v-mgmt'] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+      await expandRow(wrapper)
+
+      await wrapper.findAll('.vlan-mode-row input[type="radio"]')[0].setValue(true) // Trunk
+
+      const result = (wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[])[0]
+      expect(result.vlan_mode).toBe('trunk')
+      expect(result.vlan_ids).toEqual(['v-mgmt', 'v-guest']) // все опции — а не пусто и не только то, что было в access
+
+      await wrapper.setProps({ modelValue: [result] })
+      expect(wrapper.find('.vlan-check-all input').element).toHaveProperty('checked', true) // "Все VLAN" отмечен
     })
 
     it('в режиме access выбор VLAN из select задаёт единственный элемент vlan_ids', async () => {
@@ -649,6 +725,38 @@ describe('DeviceInterfacesEditor.vue', () => {
       } finally {
         vi.useRealTimers()
       }
+    })
+  })
+
+  describe('фикс п.3.3 (вторая часть): предупреждение о расхождении с подключённым портом', () => {
+    it('строка с id, для которого есть conflictWarnings, подсвечена и показывает иконку/подсказку', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { 'if-1': 'На связанном порту другое назначение' } },
+      })
+
+      const cell = wrapper.find('td.col-check')
+      expect(cell.classes()).toContain('has-conflict')
+      expect(cell.attributes('title')).toBe('На связанном порту другое назначение')
+      expect(cell.find('.conflict-icon').exists()).toBe(true)
+    })
+
+    it('без conflictWarnings (по умолчанию) — ни подсветки, ни иконки', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+
+      const cell = wrapper.find('td.col-check')
+      expect(cell.classes()).not.toContain('has-conflict')
+      expect(cell.find('.conflict-icon').exists()).toBe(false)
+    })
+
+    it('черновая строка без id (новая/скопированная) не подсвечивается, даже если id случайно совпал бы с ключом карты', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/1' }] // без id
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { undefined: 'x' } as never },
+      })
+
+      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
     })
   })
 })
