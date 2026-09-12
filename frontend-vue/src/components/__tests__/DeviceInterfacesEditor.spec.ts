@@ -29,6 +29,7 @@ function emptyRow(): InterfaceDraftRow {
     vlan_ids: [],
     vlan_mode: 'access',
     ips: [],
+    open_ports: [],
   }
 }
 
@@ -95,7 +96,7 @@ describe('DeviceInterfacesEditor.vue', () => {
   })
 
   it('в режиме "Заменить все порты" генерация сохраняет id и IP уже существующего интерфейса по индексу', async () => {
-    const existing: InterfaceDraftRow[] = [{ id: 'if-1', name: 'old-name', interface_type_id: '', mac_address: '', speed_id: '', is_management: true, is_data_transfer: false, description: '', vlan_ids: ['vlan-1'], vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]
+    const existing: InterfaceDraftRow[] = [{ id: 'if-1', name: 'old-name', interface_type_id: '', mac_address: '', speed_id: '', is_management: true, is_data_transfer: false, description: '', vlan_ids: ['vlan-1'], vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }], open_ports: [] }]
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
 
     await wrapper.find('.replace-all-check input').setValue(true)
@@ -403,6 +404,66 @@ describe('DeviceInterfacesEditor.vue', () => {
       await wrapper.find('.vlan-check-all input').setValue(false)
       emitted = wrapper.emitted('update:modelValue')!
       expect((emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0].vlan_ids).toEqual([])
+    })
+  })
+
+  describe('п.1.4 (батч4): открытые порты интерфейса и копирование на другой интерфейс', () => {
+    it('блок "Открытые порты" рендерится внутри развёрнутой строки интерфейса', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper)
+      expect(wrapper.find('.ports-block').exists()).toBe(true)
+      expect((wrapper.find('.ports-block input.col-port').element as HTMLInputElement).value).toBe('22')
+    })
+
+    it('добавление порта на одном интерфейсе не затрагивает open_ports другого', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }, { ...emptyRow(), name: 'eth1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper, 0)
+      await wrapper.find('.ports-block button.add-btn').trigger('click')
+
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result[0].open_ports).toHaveLength(1)
+      expect(result[1].open_ports).toEqual([])
+    })
+
+    it('с единственным интерфейсом кнопку "Копировать на порт…" показывать не для чего — блок выбора получателя не рендерится', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: '', transport_protocol: 'TCP', description: '' }] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper)
+      expect(wrapper.find('.copy-ports-row').exists()).toBe(false)
+    })
+
+    it('копирует набор открытых портов на выбранный интерфейс со сброшенными id (это КОПИЯ, а не перенос)', async () => {
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth1' },
+      ]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper, 0)
+
+      await wrapper.find('.copy-target-select').setValue('1') // индекс eth1 в modelValue
+      await wrapper.find('.copy-ports-row button').trigger('click')
+
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result[1].open_ports).toEqual([{ id: undefined, protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }])
+      expect(result[0].open_ports).toHaveLength(1) // у источника порты остаются как есть — это копирование, не перемещение
+    })
+
+    it('если у получателя уже есть порты — требует подтверждения и не заменяет их при отказе', async () => {
+      vi.stubGlobal('confirm', vi.fn(() => false))
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth1', open_ports: [{ id: 'op-2', protocol_catalog_id: '', port: '443', protocol: 'HTTPS', transport_protocol: 'TCP', description: '' }] },
+      ]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      await expandRow(wrapper, 0)
+
+      await wrapper.find('.copy-target-select').setValue('1')
+      await wrapper.find('.copy-ports-row button').trigger('click')
+
+      expect(confirm).toHaveBeenCalled()
+      expect(wrapper.emitted('update:modelValue')).toBeFalsy() // отказ — ничего не эмитим, порты eth1 не тронуты
     })
   })
 

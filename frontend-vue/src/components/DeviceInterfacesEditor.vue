@@ -30,12 +30,13 @@
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
 import { ref } from 'vue'
-import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, VLANDefinition } from '../api/types'
+import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, OpenPortDraftRow, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
+import OpenPortListEditor from './OpenPortListEditor.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -43,12 +44,16 @@ const props = withDefaults(
     typeOptions: CatalogItem[]
     speedOptions: CatalogItem[]
     vlanOptions: VLANDefinition[]
+    // п.1.4 (батч4): справочник "порт + протокол" для OpenPortListEditor.vue каждого интерфейса —
+    // тот же catalogs.protocolPortCatalog, что раньше прокидывался напрямую в единственный
+    // ("на всё устройство") экземпляр редактора в DeviceFormModal.vue.
+    protocolPortCatalog?: ProtocolPortCatalogEntry[]
     // Фикс п.3.3 (вторая часть): предупреждения по id строки — считаются родителем
     // (DeviceFormModal.vue: interfaceConflictWarnings), т.к. только у него есть доступ к
     // стору подключений; этот компонент их только отображает, ничего сам не вычисляет.
     conflictWarnings?: Record<string, string>
   }>(),
-  { conflictWarnings: () => ({}) },
+  { conflictWarnings: () => ({}), protocolPortCatalog: () => [] },
 )
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
 const { notify } = useToast()
@@ -94,6 +99,7 @@ function emptyRow(): InterfaceDraftRow {
     // трактовку уже сохранённых в БД связей интерфейс-VLAN, а не старт для НОВОЙ пустой строки).
     vlan_mode: 'access',
     ips: [],
+    open_ports: [],
   }
 }
 
@@ -176,6 +182,7 @@ function generate() {
   })
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
+  copyTargetIndex.value = {}
   emit('update:modelValue', rows)
   replaceAllPorts.value = false // одноразовая осознанная галочка — не должна оставаться взведённой "на будущее" (см. её комментарий)
 }
@@ -221,6 +228,7 @@ function addRow() {
 function removeRow(index: number) {
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
+  copyTargetIndex.value = {}
   emit(
     'update:modelValue',
     props.modelValue.filter((_, i) => i !== index),
@@ -250,6 +258,46 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
   const row = props.modelValue[index]
   if (!row) return
   updateRow(index, { ips: row.ips.map((ip, j) => (j === ipIndex ? { ...ip, ...patch } : ip)) })
+}
+
+// п.1.4 (батч4): выбранный в select'е индекс интерфейса-получателя для кнопки "Копировать" в
+// блоке "Открытые порты" каждой строки — ключ по индексу СТРОКИ-ИСТОЧНИКА (не по её id: у ещё не
+// сохранённой строки id нет). Чисто UI-состояние этого компонента, как selectedIndices/
+// expandedIndices выше — сбрасывается при любом структурном изменении списка (см. generate()/
+// addRow()/removeRow()), чтобы после сдвига индексов старый выбор не указывал на другую строку.
+const copyTargetIndex = ref<Record<number, string>>({})
+
+function setCopyTarget(index: number, targetIndexStr: string) {
+  copyTargetIndex.value = { ...copyTargetIndex.value, [index]: targetIndexStr }
+}
+
+/** Копирует набор открытых портов строки sourceIndex на targetIndex — именно КОПИРУЕТ (у
+ * источника порты остаются как есть), а не переносит: id каждого порта сбрасывается, чтобы при
+ * сохранении backend/app/services/crud.py:_sync_interface_open_ports создал НОВЫЕ записи для
+ * целевого интерфейса, а не попытался переприсвоить владельца уже существующих (это отдельно
+ * отклоняется как "порт не принадлежит выбранному интерфейсу" — порт физически размещён на
+ * одном порту устройства, скопировать можно только сам список технологий/протоколов). Если у
+ * получателя уже есть какие-то порты, требует подтверждения — молчаливая замена была бы
+ * неожиданной потерей уже введённых данных. */
+function copyPortsTo(sourceIndex: number, targetIndex: number) {
+  const source = props.modelValue[sourceIndex]
+  const target = props.modelValue[targetIndex]
+  if (!source || !target || sourceIndex === targetIndex || !source.open_ports.length) return
+  const sourceLabel = source.name || `#${sourceIndex + 1}`
+  const targetLabel = target.name || `#${targetIndex + 1}`
+  if (target.open_ports.length) {
+    const ok = confirm(`На порту «${targetLabel}» уже есть открытые порты (${target.open_ports.length} шт.) — заменить их копией с «${sourceLabel}» (${source.open_ports.length} шт.)?`)
+    if (!ok) return
+  }
+  updateRow(targetIndex, { open_ports: source.open_ports.map((p) => ({ ...p, id: undefined })) })
+  notify(`Открытые порты скопированы с «${sourceLabel}» на «${targetLabel}».`, 'success')
+  setCopyTarget(sourceIndex, '')
+}
+
+function applyCopyPorts(sourceIndex: number) {
+  const targetIndexStr = copyTargetIndex.value[sourceIndex]
+  if (!targetIndexStr) return
+  copyPortsTo(sourceIndex, Number(targetIndexStr))
 }
 
 function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
@@ -668,6 +716,45 @@ function applyBulkEdit() {
                       </button>
                     </div>
                   </div>
+
+                  <!-- Фикс п.1.4 (батч4): "Открытые порты" — теперь блок КОНКРЕТНОГО интерфейса
+                       (был один общий на всё устройство в DeviceFormModal.vue), плюс копирование
+                       уже введённого набора на другой интерфейс — типичный случай, когда
+                       однотипные порты (uplink-группа, стек коммутаторов) незачем набирать
+                       вручную заново на каждом. -->
+                  <div class="ports-block">
+                    <div class="ports-head">
+                      <b>Открытые порты</b>
+                      <div v-if="modelValue.length > 1" class="copy-ports-row">
+                        <select
+                          class="copy-target-select"
+                          :value="copyTargetIndex[i] ?? ''"
+                          aria-label="Скопировать открытые порты на другой интерфейс"
+                          @change="setCopyTarget(i, ($event.target as HTMLSelectElement).value)"
+                        >
+                          <option value="">Скопировать на порт…</option>
+                          <template v-for="(other, oi) in modelValue" :key="other.id ?? oi">
+                            <option v-if="oi !== i" :value="String(oi)">{{ other.name || `#${oi + 1}` }}</option>
+                          </template>
+                        </select>
+                        <button
+                          type="button"
+                          class="btn btn-secondary"
+                          :disabled="!row.open_ports.length || !copyTargetIndex[i]"
+                          title="Скопировать открытые порты этого интерфейса на выбранный"
+                          @click="applyCopyPorts(i)"
+                        >
+                          <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
+                          Копировать
+                        </button>
+                      </div>
+                    </div>
+                    <OpenPortListEditor
+                      :model-value="row.open_ports"
+                      :catalog-entries="protocolPortCatalog"
+                      @update:model-value="(v) => updateRow(i, { open_ports: v })"
+                    />
+                  </div>
                 </div>
               </td>
             </tr>
@@ -1059,10 +1146,44 @@ function applyBulkEdit() {
 .icon-btn.danger:hover {
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
 }
+.ports-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.ports-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ports-head b {
+  font-size: 11.5px;
+}
+.copy-ports-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.copy-target-select {
+  background: var(--surface-1, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ink);
+}
 
 @media (max-width: 640px) {
   .ip-row {
     grid-template-columns: 1fr;
+  }
+  .copy-ports-row {
+    flex-wrap: wrap;
+    width: 100%;
   }
 }
 </style>

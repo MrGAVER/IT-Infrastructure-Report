@@ -11,13 +11,12 @@ import { ApiError, createResource, deleteResource, listResource, updateResource,
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceModel, Rack, Room, OpenPort, OpenPortDraftRow, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
+import type { Device, DeviceModel, Rack, Room, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
-import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
@@ -56,10 +55,9 @@ function emptyForm() {
 
 const form = reactive(emptyForm())
 
-// Открытые порты устройства — staged локально, персистятся после сохранения самого устройства
-// (нужен его id), по той же схеме delete-затем-recreate, что и для ВМ, см. VMFormModal.vue.
-// OpenPortListEditor.vue переиспользован как есть (не знает про owner_type/owner_id).
-const openPorts = ref<OpenPortDraftRow[]>([])
+// Фикс п.1.4 (батч4): открытые порты больше не самостоятельный список уровня устройства — теперь
+// это InterfaceDraftRow.open_ports внутри каждой строки interfaces (см. её комментарий в
+// types.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
@@ -171,17 +169,6 @@ watch(portVlanOptions, (options, oldOptions) => {
   })
 })
 
-function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
-  return {
-    id: x.id,
-    protocol_catalog_id: x.protocol_catalog_id ?? '',
-    port: String(x.port),
-    protocol: x.protocol ?? '',
-    transport_protocol: x.transport_protocol,
-    description: x.description ?? '',
-  }
-}
-
 function toSoftwareDraftRow(x: DeviceSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
 }
@@ -217,7 +204,6 @@ watch(
     const source = props.device ?? props.copyFrom ?? null
     const isCopy = !props.device && !!props.copyFrom
     Object.assign(form, emptyForm())
-    openPorts.value = []
     softwareAssets.value = []
     interfaces.value = []
     deviceVlans.value = []
@@ -240,11 +226,12 @@ watch(
     if (!source) return
     loadingNested.value = true
     try {
-      const [ports, software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
-        listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: source.id, limit: 1000 }),
+      const [software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
         listResource<DeviceSoftware>('device-software', { physical_device_id: source.id, limit: 1000 }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
         // помощник использует DevicePortsModal.vue (управление портами с экрана «Подключения»).
+        // Открытые порты каждого интерфейса (фикс п.1.4, батч4) приходят уже вложенными в
+        // ifaceRows[].open_ports — отдельно их грузить не нужно.
         loadDeviceInterfaceDraftRows(source.id),
         listResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id, limit: 1000 }),
         listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id, limit: 1000 }),
@@ -261,13 +248,14 @@ watch(
       ])
       // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
       // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
-      // backend/app/services/crud.py:sync_interfaces (и аналогичные функции для open-ports/
-      // device-software/device-vlans) отклонит его 422 "не принадлежит выбранному устройству",
-      // т.к. у нового устройства такого id ещё нет и появиться неоткуда. stripIds() (см. ниже)
-      // убирает id из каждой строки — тогда backend создаёт их как новые записи.
-      openPorts.value = isCopy ? stripIds(ports.items.map(toOpenPortDraftRow)) : ports.items.map(toOpenPortDraftRow)
+      // backend/app/services/crud.py:sync_interfaces (и аналогичные функции для device-software/
+      // device-vlans) отклонит его 422 "не принадлежит выбранному устройству", т.к. у нового
+      // устройства такого id ещё нет и появиться неоткуда. stripIds() (см. ниже) убирает id из
+      // каждой строки — тогда backend создаёт их как новые записи. Открытые порты каждого
+      // интерфейса — тот же принцип на один уровень глубже (stripIds и на сам интерфейс, и на
+      // его open_ports, как уже делалось для его ips).
       softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
-      interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips) })) : ifaceRows
+      interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports) })) : ifaceRows
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
@@ -454,27 +442,6 @@ function onVlanCreated(record: CatalogItem) {
   }
 }
 
-// Delete-затем-recreate — тот же приём и то же обоснование (маленькие списки, простота важнее
-// diff-логики), что persistVmIps()/persistOpenPorts() в VMFormModal.vue.
-async function persistOpenPorts(deviceId: string) {
-  const existing = await listResource<OpenPort>('open-ports', { owner_type: 'physical_device', owner_id: deviceId, limit: 1000 })
-  for (const old of existing.items) {
-    await deleteResource('open-ports', old.id)
-  }
-  for (const row of openPorts.value) {
-    if (!row.port.trim()) continue // port NOT NULL на бэкенде, см. VMFormModal.vue
-    await createResource<OpenPort>('open-ports', {
-      owner_type: 'physical_device',
-      owner_id: deviceId,
-      protocol_catalog_id: row.protocol_catalog_id || null,
-      port: Number(row.port),
-      protocol: row.protocol || null,
-      transport_protocol: row.transport_protocol || 'TCP',
-      description: row.description || null,
-    })
-  }
-}
-
 async function persistSoftwareAssets(deviceId: string) {
   const existing = await listResource<DeviceSoftware>('device-software', { physical_device_id: deviceId, limit: 1000 })
   for (const old of existing.items) {
@@ -561,7 +528,6 @@ async function submit() {
         const saved = isEdit.value
           ? await updateResource<Device>('devices', props.device!.id, payload)
           : await createResource<Device>('devices', payload)
-        await persistOpenPorts(saved.id)
         await persistSoftwareAssets(saved.id)
         await persistPendingDomainMemberships(saved.id)
         // persistDeviceVlans ДО persistDeviceInterfaces (не как раньше) — sync_interfaces на
@@ -714,7 +680,6 @@ async function submit() {
         </label>
 
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
-        <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
         <DeviceInterfacesEditor
           v-if="!loadingNested"
@@ -723,6 +688,7 @@ async function submit() {
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
           :conflict-warnings="interfaceConflictWarnings"
+          :protocol-port-catalog="catalogs.protocolPortCatalog"
         />
         <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" :device-domain-id="singleDeviceDomainId" @vlan-created="onVlanCreated" />
       </form>

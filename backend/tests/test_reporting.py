@@ -276,28 +276,48 @@ class Sheet3Connections(ReportingTestCase):
         switch_rows = [r for r in rows if r[neighbor_serial_idx] == "123"]  # смотрим со стороны коммутатора на сервер
         self.assertTrue(any("10.10.10.5" in (r[neighbor_ip_idx] or "") for r in switch_rows))
 
-    def test_open_ports_of_physical_device_are_listed(self):
-        """Регрессия: у физического устройства не было способа задать список открытых портов —
-        колонки 'Перечень открытых портов...' и 'Протокол (технология)' всегда оставались пустыми."""
+    def test_open_ports_of_interface_are_listed(self):
+        """п.1.4 (батч4): открытые порты — свойство КОНКРЕТНОГО интерфейса (owner_type=
+        'device_interface', owner_id=id интерфейса), не всего устройства — колонки 'Перечень
+        открытых портов...' и 'Протокол (технология)' заполняются только на строке ЭТОГО порта."""
         C = self.C
         dev1, _ = self._two_devices_two_connections()
-        p1 = C["OpenPort"](id="op1", owner_type="physical_device", owner_id="d1", port=22, protocol="SSH", transport_protocol="TCP")
-        p2 = C["OpenPort"](id="op2", owner_type="physical_device", owner_id="d1", port=161, protocol="SNMP", transport_protocol="UDP")
+        # if1 = eth0 устройства d1 (см. _two_devices_two_connections) — порты вешаем именно на него.
+        p1 = C["OpenPort"](id="op1", owner_type="device_interface", owner_id="if1", port=22, protocol="SSH", transport_protocol="TCP")
+        p2 = C["OpenPort"](id="op2", owner_type="device_interface", owner_id="if1", port=161, protocol="SNMP", transport_protocol="UDP")
         self.table.update({"OpenPort": [p1, p2]})
         wb = self.build(Path("/tmp/test_reports_11"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
         header = self.sheet_rows(wb, "Организация подключений")[0]
-        serial_idx = self.col_index(header, "Серийный номер устройства")
+        port_idx = header.index("Номер физического или логического порта")
         ports_idx = self.col_index(header, "Перечень открытых портов")
         proto_idx = self.col_index(header, "Протокол (технология)")
-        dev1_rows = [r for r in rows if r[serial_idx] == "123"]
-        self.assertTrue(dev1_rows)
-        combined_ports = " ".join(r[ports_idx] or "" for r in dev1_rows)
-        combined_proto = " ".join(r[proto_idx] or "" for r in dev1_rows)
-        self.assertIn("22", combined_ports)
-        self.assertIn("161", combined_ports)
-        self.assertIn("SSH", combined_proto)
-        self.assertIn("SNMP", combined_proto)
+        eth0_row = next(r for r in rows if r[port_idx] == "eth0")
+        eth1_row = next(r for r in rows if r[port_idx] == "eth1")
+        self.assertIn("22", eth0_row[ports_idx] or "")
+        self.assertIn("161", eth0_row[ports_idx] or "")
+        self.assertIn("SSH", eth0_row[proto_idx] or "")
+        self.assertIn("SNMP", eth0_row[proto_idx] or "")
+        # Регрессия, которую этот фикс устраняет: раньше список открытых портов устройства
+        # подставлялся ОДИНАКОВО в каждую строку порта того же устройства — eth1 не должен
+        # унаследовать порты, заведённые на eth0.
+        self.assertEqual(eth1_row[ports_idx], "-")
+        self.assertEqual(eth1_row[proto_idx], "-")
+
+    def test_open_ports_of_legacy_physical_device_owner_are_no_longer_shown(self):
+        """Устаревшие записи с owner_type='physical_device' (до фикса п.1.4) не мигрируются
+        автоматически для устройств с несколькими интерфейсами (см. докстринг миграции
+        1475ab03debc_ports_per_interface) — отчёт больше не читает этот owner_type вовсе, поэтому
+        такие записи просто перестают быть видны, а не падают с ошибкой."""
+        C = self.C
+        self._two_devices_two_connections()
+        legacy = C["OpenPort"](id="op-legacy", owner_type="physical_device", owner_id="d1", port=22, protocol="SSH", transport_protocol="TCP")
+        self.table.update({"OpenPort": [legacy]})
+        wb = self.build(Path("/tmp/test_reports_11b"))
+        rows = self.sheet_rows(wb, "Организация подключений")[1:]
+        header = self.sheet_rows(wb, "Организация подключений")[0]
+        ports_idx = self.col_index(header, "Перечень открытых портов")
+        self.assertTrue(all((r[ports_idx] or "-") == "-" for r in rows))
 
     def test_os_name_and_version_joined_by_space_not_semicolon(self):
         """5.2: для 'своего' и соседнего устройства ОС отображается как 'Cisco IOS 15.2',

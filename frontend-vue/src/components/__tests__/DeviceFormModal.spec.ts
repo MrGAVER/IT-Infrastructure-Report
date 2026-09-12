@@ -134,7 +134,9 @@ describe('DeviceFormModal.vue', () => {
     expect(wrapper.emitted('close')).toBeTruthy()
   })
 
-  it('при редактировании подгружает существующие открытые порты устройства', async () => {
+  it('при редактировании подгружает существующие открытые порты интерфейса устройства', async () => {
+    // Фикс п.1.4 (батч4): открытые порты — свойство интерфейса, а не всего устройства (см.
+    // InterfaceDraftRow.open_ports в types.ts) — блок раскрывается вместе с VLAN/IP интерфейса.
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()
@@ -143,10 +145,20 @@ describe('DeviceFormModal.vue', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.includes('/resources/interfaces')) {
+          return new Response(
+            JSON.stringify({
+              items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
+          )
+        }
         if (url.includes('/resources/open-ports')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'op-1', owner_type: 'physical_device', owner_id: 'dev-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }],
+              items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -159,14 +171,19 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
+    await wrapper.find('.expand-toggle').trigger('click') // открытые порты скрыты до раскрытия строки интерфейса
 
     expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
   })
 
-  it('сохраняет добавленный открытый порт под id нового устройства и не отправляет пустые строки', async () => {
+  it('сохраняет добавленный открытый порт интерфейса под id нового устройства и не отправляет пустые строки', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    await wrapper.find('button.add-btn').trigger('click') // + Открытый порт, оставляем пустым
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('eth0') // имя обязательно — иначе validateInterfaceDraftRows не даст сохранить
+    await wrapper.find('.expand-toggle').trigger('click')
+    await wrapper.find('.ports-block button.add-btn').trigger('click') // + Открытый порт, оставляем пустым
+
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
       'fetch',
@@ -185,7 +202,8 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/open-ports'))).toBe(false)
+    const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
+    expect((ifacesPut?.body as { interfaces: Array<{ open_ports: unknown[] }> })?.interfaces?.[0]?.open_ports).toEqual([])
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
@@ -197,7 +215,7 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = mount(DeviceFormModal, { props: { device: null } })
 
     const addButtons = wrapper.findAll('button.add-btn')
-    await addButtons[1].trigger('click') // + Программный актив (открытые порты — первая кнопка)
+    await addButtons[0].trigger('click') // + Программный актив — единственная кнопка add-btn на пустой форме (открытые порты теперь внутри интерфейса, см. фикс п.1.4)
     await wrapper.find('.col-asset select').setValue('sa-ad')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
@@ -867,10 +885,12 @@ describe('DeviceFormModal.vue', () => {
     })
   })
 
-  it('быстрое добавление записи протокола/порта автозаполняет строку открытого порта', async () => {
+  it('быстрое добавление записи протокола/порта автозаполняет строку открытого порта интерфейса', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    await wrapper.find('button.add-btn').trigger('click') // + Открытый порт — первый add-btn в форме
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.expand-toggle').trigger('click')
+    await wrapper.find('.ports-block button.add-btn').trigger('click') // + Открытый порт
     await wrapper.find('.col-catalog button').trigger('click') // "+" рядом со справочником в самой строке
 
     vi.stubGlobal(
@@ -927,7 +947,7 @@ describe('DeviceFormModal.vue', () => {
       expect(wrapper.find('input[maxlength="255"]:not([required])').element).toHaveProperty('value', 'srv-original') // Системное имя — скопировано как есть
     })
 
-    it('вложенные строки (порты, ПО, интерфейсы, VLAN устройства) грузятся у донора, но сохраняются БЕЗ его id — иначе backend отклонит их как чужие', async () => {
+    it('вложенные строки (порты интерфейса, ПО, интерфейсы, VLAN устройства) грузятся у донора, но сохраняются БЕЗ его id — иначе backend отклонит их как чужие', async () => {
       stubCatalogsFetch()
       const catalogs = useCatalogsStore()
       await catalogs.ensureLoaded()
@@ -938,8 +958,10 @@ describe('DeviceFormModal.vue', () => {
         vi.fn(async (url: string, init?: RequestInit) => {
           const method = init?.method ?? 'GET'
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          // Фикс п.1.4 (батч4): открытый порт донора висит на его интерфейсе (owner_type=
+          // 'device_interface', owner_id интерфейса), а не на самом устройстве.
           if (url.includes('/resources/open-ports') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'physical_device', owner_id: 'dev-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
           }
           if (url.includes('/resources/interfaces') && method === 'GET') {
             return new Response(JSON.stringify({ items: [{ id: 'if-src', physical_device_id: 'dev-src', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
@@ -953,18 +975,22 @@ describe('DeviceFormModal.vue', () => {
 
       const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
       await flushPromises()
+      await wrapper.find('.expand-toggle').trigger('click') // порты скрыты до раскрытия строки интерфейса
 
-      // Донор дал открытый порт 22/SSH и интерфейс eth0 — оба должны были подгрузиться в форму.
+      // Донор дал открытый порт 22/SSH на интерфейсе eth0 — оба должны были подгрузиться в форму.
       expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
 
       await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
       await wrapper.find('form').trigger('submit')
       await flushPromises()
 
-      const portsPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/resources/open-ports'))
+      // Открытые порты больше не PUT'ятся отдельным запросом на /resources/open-ports — они
+      // едут атомарно вместе со своим интерфейсом внутри /devices/dev-new/interfaces (см.
+      // api/deviceInterfaces.ts:persistDeviceInterfaces), поэтому здесь проверяется только он.
       const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
-      expect((portsPut?.body as { items: Array<{ id?: string }> })?.items?.[0]?.id).toBeUndefined()
-      expect((ifacesPut?.body as { interfaces: Array<{ id?: string }> })?.interfaces?.[0]?.id).toBeUndefined()
+      const savedInterface = (ifacesPut?.body as { interfaces: Array<{ id?: string; open_ports: Array<{ id?: string }> }> })?.interfaces?.[0]
+      expect(savedInterface?.id).toBeUndefined()
+      expect(savedInterface?.open_ports?.[0]?.id).toBeUndefined()
     })
 
     it('членство донора в домене VLAN переносится как "предстоит создать", а не как уже подтверждённое', async () => {

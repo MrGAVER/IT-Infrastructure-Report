@@ -190,7 +190,8 @@ export interface VmIpDraftRow {
 }
 
 /** Черновая строка редактора открытых портов (OpenPortListEditor.vue) — переиспользуется и для
- * ВМ (сейчас), и для физических устройств (см. "Ещё не сделано" в frontend-vue/README.md), т.к.
+ * ВМ (VMFormModal.vue, owner_type='virtual_machine'), и для интерфейсов физических устройств
+ * (InterfaceDraftRow.open_ports ниже, фикс п.1.4 батч4, owner_type='device_interface'), т.к.
  * OpenPort — полиморфная таблица с одинаковым набором полей независимо от owner_type. */
 export interface OpenPortDraftRow {
   id?: string
@@ -398,6 +399,14 @@ export interface InterfaceDraftRow {
   vlan_ids: string[]
   vlan_mode: 'access' | 'trunk'
   ips: InterfaceIpDraftRow[]
+  /** Фикс п.1.4 (батч4): "Открытые порты" переехали с уровня всего устройства на уровень
+   * КОНКРЕТНОГО интерфейса — раньше один общий список (DeviceFormModal.vue) относился ко всему
+   * устройству разом, что не позволяло корректно заполнить Лист 3 отчёта (колонка "Перечень
+   * открытых портов" относится к конкретному физическому/логическому порту, см.
+   * backend/app/reporting.py:_port_open_info) и не давало скопировать набор портов с одного
+   * интерфейса на другой. Персистится атомарно вместе с интерфейсом, см.
+   * api/deviceInterfaces.ts:persistDeviceInterfaces. */
+  open_ports: OpenPortDraftRow[]
 }
 
 /** GET /api/v1/vlan-dashboard — сгруппировано по vlan_id, т.к. один и тот же VLAN ID

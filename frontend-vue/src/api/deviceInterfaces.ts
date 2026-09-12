@@ -8,7 +8,7 @@
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
 import { api, listResource } from './client'
-import type { DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow } from './types'
+import type { DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow, OpenPort } from './types'
 
 /**
  * Грузит интерфейсы одного устройства вместе с их IP и VLAN-привязками и приводит к формату
@@ -23,10 +23,16 @@ import type { DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow } f
  * const rows = await loadDeviceInterfaceDraftRows('dev-123')
  */
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
-  const [ifaces, allIps, allVlans] = await Promise.all([
+  const [ifaces, allIps, allVlans, allOpenPorts] = await Promise.all([
     listResource<DeviceInterface>('interfaces', { physical_device_id: deviceId, limit: 1000 }),
     listResource<InterfaceIP>('interface-ips', { limit: 1000 }),
     listResource<InterfaceVLAN>('interface-vlans', { limit: 1000 }),
+    // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
+    // 'device_interface', owner_id=id интерфейса), не всего устройства, см. комментарий к
+    // InterfaceDraftRow.open_ports в types.ts и backend/app/services/crud.py:
+    // _sync_interface_open_ports. Грузятся широким запросом по owner_type, а не по каждому
+    // interface_id отдельно — тот же приём, что и allIps/allVlans выше.
+    listResource<OpenPort>('open-ports', { owner_type: 'device_interface', limit: 1000 }),
   ])
   return ifaces.items.map((x): InterfaceDraftRow => {
     const links = allVlans.items.filter((v) => v.interface_id === x.id)
@@ -54,6 +60,17 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
           prefix_length: ip.prefix_length == null ? '' : String(ip.prefix_length),
           purpose: ip.purpose ?? '',
         })),
+      open_ports: allOpenPorts.items
+        .filter((p) => p.owner_id === x.id)
+        .sort((a, b) => a.port - b.port)
+        .map((p) => ({
+          id: p.id,
+          protocol_catalog_id: p.protocol_catalog_id ?? '',
+          port: String(p.port),
+          protocol: p.protocol ?? '',
+          transport_protocol: p.transport_protocol,
+          description: p.description ?? '',
+        })),
     }
   })
 }
@@ -77,6 +94,16 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | 
     for (const ip of row.ips) {
       if (!isValidIPv4(ip.ip_address)) return `Некорректный IP-адрес «${ip.ip_address}» на порту «${row.name}».`
       if (!isValidPrefixLength(ip.prefix_length)) return `Некорректный префикс «${ip.prefix_length}» на порту «${row.name}» — допустимо 0-32.`
+    }
+    // Фикс п.1.4 (батч4): открытые порты переехали на уровень интерфейса — та же проверка, что
+    // раньше защищала список на уровне устройства (DeviceFormModal.vue:persistOpenPorts просто
+    // молча пропускал пустые/нечисловые номера порта; здесь — явная ошибка до отправки запроса,
+    // а не тихая потеря введённых данных).
+    for (const port of row.open_ports) {
+      if (!port.port.trim()) continue
+      if (!Number.isInteger(Number(port.port)) || Number(port.port) < 0) {
+        return `Некорректный номер открытого порта «${port.port}» на порту «${row.name}».`
+      }
     }
   }
   return null
@@ -120,6 +147,20 @@ export async function persistDeviceInterfaces(deviceId: string, rows: InterfaceD
           ip_address: ip.ip_address.trim(),
           prefix_length: ip.prefix_length === '' ? null : Number(ip.prefix_length),
           purpose: ip.purpose || null,
+        })),
+      // Фикс п.1.4 (батч4): открытые порты round-trip'ятся вместе со своим интерфейсом в том же
+      // атомарном PUT — см. backend/app/services/crud.py:_sync_interface_open_ports. Пустой
+      // port (после trim) пропускается так же, как раньше в DeviceFormModal.vue:persistOpenPorts
+      // (колонка NOT NULL на бэкенде).
+      open_ports: row.open_ports
+        .filter((p) => p.port.trim())
+        .map((p) => ({
+          id: p.id,
+          protocol_catalog_id: p.protocol_catalog_id || null,
+          port: Number(p.port),
+          protocol: p.protocol || null,
+          transport_protocol: p.transport_protocol || 'TCP',
+          description: p.description || null,
         })),
     })),
   })
