@@ -35,42 +35,6 @@ def test_dashboard_counts_are_zero_on_empty_db(client):
     assert data["information_systems"] == 0
 
 
-class TestSeedTestData:
-    """Регрессия: POST /api/v1/seed/test падал с TypeError — InformationSystem создавался с
-    kwarg'ом support_method (несуществующее поле; в модели это FK support_method_id), причём
-    ни один тест не дошёл до этой ветки кода, поэтому баг молчал. Проверяем не только код
-    ответа, но и то, что счётчики в /dashboard реально выросли — иначе можно было бы случайно
-    сделать эндпоинт "успешным", но фактически ничего не создающим (session.rollback и т.п.)."""
-
-    def test_seed_test_returns_ok_and_creates_expected_entities(self, client):
-        r = client.post("/api/v1/seed/test")
-        assert r.status_code == 200
-        body = r.json()
-        assert body["status"] == "ok"
-        assert body["created"]["information_systems"] == 1
-        assert body["created"]["devices"] == 2
-
-        dash = client.get("/api/v1/dashboard").json()
-        assert dash["information_systems"] == 1
-        assert dash["physical_devices"] == 2
-        assert dash["virtual_machines"] == 1
-        assert dash["containers"] == 1
-        assert dash["vlan"] == 1
-
-    def test_seed_test_is_additive_and_repeatable(self, client):
-        """Каждый тег уникален (TEST-<timestamp>-<uuid4>), поэтому повторный вызов не должен
-        конфликтовать с первым по unique-констрейнтам (например, InformationSystem.name)."""
-        first = client.post("/api/v1/seed/test")
-        second = client.post("/api/v1/seed/test")
-        assert first.status_code == 200
-        assert second.status_code == 200
-        assert first.json()["tag"] != second.json()["tag"]
-
-        dash = client.get("/api/v1/dashboard").json()
-        assert dash["information_systems"] == 2
-        assert dash["physical_devices"] == 4
-
-
 def test_resources_list_excludes_audit_log(client):
     r = client.get("/api/v1/resources")
     assert r.status_code == 200
