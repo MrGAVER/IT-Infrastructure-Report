@@ -678,6 +678,28 @@ class TestNPlusOneRegressions:
         # Раньше — 2 запроса НА КАЖДЫЙ интерфейс (было бы 20 для 10 портов); теперь — 2 на весь вызов.
         assert len(vlan_lookup_queries) <= 2, f"Ожидалось <=2 запроса к allowed-VLAN, получено {len(vlan_lookup_queries)}"
 
+    def test_delete_reference_check_uses_a_single_query_across_all_referencing_models(self, client, sql_log):
+        """Код-ревью п.3.7: _find_referencing_counts раньше делала отдельный SELECT COUNT(*) на
+        каждую FK-колонку каждой из ~40 моделей реестра — теперь один запрос через UNION ALL,
+        независимо от того, сколько РАЗНЫХ моделей и записей реально ссылаются на удаляемую."""
+        dt = _create_device_type(client, "Тип для подсчёта ссылок")
+        manufacturer = client.post("/api/v1/resources/manufacturers", json={"name": "Производитель для подсчёта"}).json()
+        for i in range(2):
+            r = client.post(
+                "/api/v1/resources/device-models",
+                json={"manufacturer_id": manufacturer["id"], "device_type_id": dt["id"], "model": f"Модель {i}"},
+            )
+            assert r.status_code == 201, r.text
+
+        sql_log.clear()
+        r = client.delete(f"/api/v1/resources/manufacturers/{manufacturer['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+        assert "2" in r.json()["detail"]["message"]  # обе модели учтены одним запросом
+
+        count_queries = [s for s in sql_log if "count(" in s.lower()]
+        assert len(count_queries) == 1, f"Ожидался 1 запрос на подсчёт ссылок, получено {len(count_queries)}:\n" + "\n".join(count_queries)
+
     def test_sync_vlan_domain_does_not_query_per_device_per_vlan_pair(self, client, sql_log):
         dt = _create_device_type(client, "Тип для домена подсчёта")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-SRC"}).json()

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Callable
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
@@ -286,9 +286,20 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
 def _find_referencing_counts(model, item_id: str, session: Session) -> list[tuple[str, int]]:
     """Для каждого другого зарегистрированного ресурса считает, сколько его записей ссылаются
     (через FK) на удаляемую запись. Используется, чтобы дать конкретное предупреждение перед
-    удалением, а не полагаться только на то, что БД сама остановит операцию через FK-констрейнт."""
+    удалением, а не полагаться только на то, что БД сама остановит операцию через FK-констрейнт.
+
+    Код-ревью п.3.7: раньше здесь был отдельный SELECT COUNT(*) на каждую FK-колонку каждой из
+    ~40 моделей реестра (MODEL_MAP) — при удалении часто ссылаемой записи (например,
+    производителя устройства) это десятки последовательных round-trip'ов к БД на одно
+    удаление. Теперь все подзапросы объединяются в один через UNION ALL и выполняются ОДНИМ
+    запросом; каждая ветка несёт свой порядковый номер (ord) как обычную колонку данных, а не
+    полагается на порядок строк, в котором сервер БД решит вернуть результат UNION ALL (для
+    SQLite и PostgreSQL это на практике совпадает с порядком объявления веток, но опираться на
+    недокументированное поведение не стоит) — после выполнения строки сортируются по этому
+    номеру в Python, что и восстанавливает исходный, стабильный порядок вывода."""
     target_table = model.__tablename__
-    results: list[tuple[str, int]] = []
+    resource_keys: list[str] = []
+    subqueries = []
     for resource_key, other_model in MODEL_MAP.items():
         if other_model is model:
             continue
@@ -298,10 +309,19 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
             target = next(iter(c.foreign_keys)).target_fullname
             if target.split('.')[0] != target_table:
                 continue
-            count = session.scalar(select(func.count()).select_from(other_model).where(c == item_id)) or 0
-            if count:
-                results.append((DISPLAY_NAMES.get(resource_key, resource_key), count))
-    return results
+            subqueries.append(
+                select(literal(len(resource_keys)).label('ord'), func.count().label('cnt'))
+                .select_from(other_model).where(c == item_id)
+            )
+            resource_keys.append(resource_key)
+    if not subqueries:
+        return []
+    combined = union_all(*subqueries) if len(subqueries) > 1 else subqueries[0]
+    rows = sorted(session.execute(combined).all(), key=lambda row: row.ord)
+    return [
+        (DISPLAY_NAMES.get(resource_keys[row.ord], resource_keys[row.ord]), row.cnt)
+        for row in rows if row.cnt
+    ]
 
 def delete_resource(resource: str, item_id: str, session: Session):
     ensure_writable(resource)
