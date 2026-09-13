@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pytest
 
+from fastapi import HTTPException
+
 from app.models import DeviceCategory, DeviceModel, DeviceType, DiagramIcon, Manufacturer, PhysicalDevice
 from app.services.diagram_icons import (
     DEFAULT_COLOR,
@@ -23,6 +25,7 @@ from app.services.diagram_icons import (
     port_ticks_for_count,
     resolve_category_style,
     resolve_custom_icon,
+    validate_svg_markup,
 )
 
 
@@ -150,3 +153,36 @@ def test_build_device_icon_defaults_manufacturer_and_model_labels_to_empty_strin
     icon = build_device_icon(device, interface_count=1, lookups=lookups)
     assert icon["manufacturer_label"] == ""
     assert icon["model_label"] == ""
+
+
+# Код-ревью п.3.1 (критичная уязвимость): DiagramIcon.svg_markup рендерится через v-html на
+# фронтенде и вставляется дословно в экспортируемый .svg на бэкенде — без этой валидации
+# сохранённый в каталоге payload выполнялся бы в браузере каждого, кто открыл диаграмму.
+@pytest.mark.parametrize(
+    "svg_markup",
+    [
+        '<svg onload="alert(1)"></svg>',
+        '<svg><script>alert(1)</script></svg>',
+        '<svg ONLOAD="alert(1)"></svg>',  # регистронезависимость
+        '<svg><foreignObject><body onload="alert(1)"/></foreignObject></svg>',
+        '<svg><a href="javascript:alert(1)">кликни</a></svg>',
+        '<svg><image href="javascript:alert(1)"/></svg>',
+    ],
+)
+def test_validate_svg_markup_rejects_executable_content(svg_markup):
+    with pytest.raises(HTTPException) as exc_info:
+        validate_svg_markup(svg_markup)
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "svg_markup",
+    [
+        None,
+        "",
+        '<svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#4f7cff"/></svg>',
+        '<svg><circle cx="5" cy="5" r="5" class="on-hover"/></svg>',  # "on" внутри имени класса — не обработчик события
+    ],
+)
+def test_validate_svg_markup_allows_plain_shapes(svg_markup):
+    validate_svg_markup(svg_markup)  # не должно бросить исключение

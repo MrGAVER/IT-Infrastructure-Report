@@ -213,6 +213,20 @@ def test_diagram_icon_deletion_blocked_when_referenced(client, db_session):
     assert client.delete(f"/api/v1/resources/diagram-icons/{icon['id']}").status_code == 200
 
 
+def test_diagram_icon_create_rejects_executable_svg(client):
+    """Код-ревью п.3.1: проверка обязана жить на бэкенде (services/crud.py:_RESOURCE_VALIDATORS
+    -> validate_svg_markup), а не только на фронтенде — иначе прямой POST в API в обход формы
+    сохранял бы payload как есть."""
+    r = client.post("/api/v1/resources/diagram-icons", json={"name": "Вредоносная", "svg_markup": '<svg onload="alert(1)"></svg>'})
+    assert r.status_code == 422
+
+
+def test_diagram_icon_update_rejects_executable_svg(client):
+    icon = client.post("/api/v1/resources/diagram-icons", json={"name": "Безопасная", "svg_markup": "<svg/>"}).json()
+    r = client.put(f"/api/v1/resources/diagram-icons/{icon['id']}", json={"svg_markup": "<svg><script>alert(1)</script></svg>"})
+    assert r.status_code == 422
+
+
 def test_device_category_deletion_blocked_when_referenced_by_device_type(client):
     """Аналогичная защита для device-categories, через ту же generic-механику."""
     category = client.get("/api/v1/resources/device-categories", params={"limit": 1}).json()["items"][0]

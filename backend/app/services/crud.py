@@ -1,17 +1,18 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
+from .diagram_icons import validate_svg_markup
 from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
 
 def model_for(resource: str):
@@ -145,29 +146,61 @@ def _validate_device_model(data: dict[str, Any], session: Session, item_id: str 
         if session.scalar(stmt): raise HTTPException(409, 'Такая модель уже существует для выбранных производителя и типа устройства')
 
 
+def _validate_virtual_machine_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    validate_operating_system(data, session); validate_hypervisor(data, session); validate_vm_host(data, session)
+
+def _validate_physical_device_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    _validate_physical_device_vlan(data, session)
+
+def _validate_device_model_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    _validate_device_model(data, session, item_id)
+
+def _validate_connection_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    validate_connection(data, session, item_id)
+
+def _validate_device_type_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4):
+    # DeviceType.category_id стал обязательным NOT NULL FK в рамках фичи диаграммы топологии
+    # сети (models.py, миграция 38e9b2624a53), но ни generic-валидатор здесь, ни
+    # quickAdd/schema.ts не были обновлены под это требование — POST /resources/device-types
+    # без category_id падал сырым 409 "NOT NULL constraint failed" вместо понятной ошибки.
+    # Саму ссылочную целостность (существует ли такая категория) отдельно не проверяем —
+    # некорректный category_id всё равно упадёт на FK при commit() и обработается уже
+    # существующим общим обработчиком IntegrityError в create_resource/update_resource.
+    if not data.get('category_id'):
+        raise HTTPException(422, 'Поле category_id обязательно для типа устройства')
+
+def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Код-ревью п.3.1: без этой проверки svg_markup сохранялся бы в БД как есть и затем
+    # выполнялся бы в браузере через v-html (фронтенд) и при экспорте .svg (бэкенд).
+    validate_svg_markup(data.get('svg_markup'))
+
+# Реестр валидаторов по модели (код-ревью п.3.5): раньше это была цепочка if/elif внутри
+# validate_resource() — каждая новая модель, которой требуется своя проверка, была обязана
+# трогать тело диспетчера (нарушение OCP; интеграция feature/network-topology-diagram и
+# fix/usability-batch4 уже доказала риск на примере DeviceType). Теперь новая модель
+# добавляется одной строкой сюда, без изменения самой функции validate_resource(). Все
+# значения — вызываемые с единой сигнатурой (data, session, item_id, confirm_duplicate,
+# confirm_rack_reassign) — там, где исходный валидатор её не использует, параметры просто
+# игнорируются тонкой обёрткой-адаптером выше.
+_RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, bool, bool], None]] = {
+    PhysicalDevice: _validate_physical_device,
+    VirtualMachine: _validate_virtual_machine_entry,
+    PhysicalDeviceVLAN: _validate_physical_device_vlan_entry,
+    DeviceModel: _validate_device_model_entry,
+    Connection: _validate_connection_entry,
+    DeviceType: _validate_device_type_entry,
+    DiagramIcon: _validate_diagram_icon_entry,
+}
+
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
-    """Диспетчеризация по типу модели на per-модель валидаторы выше. Вынесено из одной функции
-    (была сложностью 18) — сама логика проверок не изменена."""
-    if model is PhysicalDevice:
-        _validate_physical_device(data, session, item_id, confirm_duplicate, confirm_rack_reassign)
-    elif model is VirtualMachine:
-        validate_operating_system(data, session); validate_hypervisor(data, session); validate_vm_host(data, session)
-    elif model.__name__ == 'PhysicalDeviceVLAN':
-        _validate_physical_device_vlan(data, session)
-    elif model is DeviceModel:
-        _validate_device_model(data, session, item_id)
-    elif model is Connection: validate_connection(data, session, item_id)
-    elif model is DeviceType:
-        # Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4):
-        # DeviceType.category_id стал обязательным NOT NULL FK в рамках фичи диаграммы топологии
-        # сети (models.py, миграция 38e9b2624a53), но ни generic-валидатор здесь, ни
-        # quickAdd/schema.ts не были обновлены под это требование — POST /resources/device-types
-        # без category_id падал сырым 409 "NOT NULL constraint failed" вместо понятной ошибки.
-        # Саму ссылочную целостность (существует ли такая категория) отдельно не проверяем —
-        # некорректный category_id всё равно упадёт на FK при commit() и обработается уже
-        # существующим общим обработчиком IntegrityError в create_resource/update_resource.
-        if not data.get('category_id'):
-            raise HTTPException(422, 'Поле category_id обязательно для типа устройства')
+    """Диспетчеризация по типу модели на per-модель валидаторы в _RESOURCE_VALIDATORS.
+    Модели без зарегистрированного валидатора (большинство ~40 ресурсов реестра) проходят без
+    дополнительных проверок — как и раньше, это не бага, а осознанный дизайн: не для каждого
+    ресурса нужна валидация сверх generic CRUD/FK-констрейнтов БД."""
+    validator = _RESOURCE_VALIDATORS.get(model)
+    if validator is not None:
+        validator(data, session, item_id, confirm_duplicate, confirm_rack_reassign)
 
 def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None, date_from: str | None = None, date_to: str | None = None):
     model = model_for(resource); stmt = select(model)

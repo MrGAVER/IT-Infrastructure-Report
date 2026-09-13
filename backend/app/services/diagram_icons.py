@@ -10,14 +10,49 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional
+
+from fastapi import HTTPException
 
 from ..models import DeviceCategory, DeviceModel, DeviceType, DiagramIcon, Manufacturer, PhysicalDevice
 
 MAX_PORT_TICKS = 32
 DEFAULT_SHAPE = "generic"
 DEFAULT_COLOR = "#9aa0a6"  # "default нейтральный серый" (раздел 4.3 ТЗ)
+
+# Код-ревью п.3.1 (критичная уязвимость): DiagramIcon.svg_markup попадает без изменений и в
+# экспортируемый .svg (services/diagram_export.py), и во фронтенд через v-html
+# (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
+# <foreignObject> (может содержать произвольный HTML) и обработчики событий (onload, onerror и
+# т.п.) выполняются в браузере при рендеринге. Пользователь с правом на управление каталогом
+# иконок мог бы разместить payload, который выполнится в браузере ЛЮБОГО, кто откроет диаграмму
+# — включая администратора — и похитить токен сессии из localStorage.
+#
+# Это allow-list по СИМПТОМАМ (запрещённые конструкции), а не по тегам/атрибутам — сознательный
+# компромисс: полноценный allow-list тегов SVG (path/circle/rect/g/...) потребовал бы разбора
+# XML и легко ломался бы на легитимной разметке (иконки — это готовый SVG из внешних редакторов,
+# не рукописный минимальный набор фигур). Основные вектора исполнения кода в SVG перечислены
+# явно; остаётся компромисс между удобством ввода и полнотой защиты — см. README, раздел
+# «Известные ограничения».
+_FORBIDDEN_SVG_PATTERN = re.compile(
+    r"<\s*script|<\s*foreignobject|on\w+\s*=|javascript\s*:", re.IGNORECASE
+)
+
+
+def validate_svg_markup(svg_markup: str | None) -> None:
+    """Бросает HTTPException(422), если svg_markup содержит конструкции, способные выполнить
+    код в браузере (см. комментарий у _FORBIDDEN_SVG_PATTERN). Вызывается при создании/
+    обновлении DiagramIcon через generic CRUD (services/crud.py:_RESOURCE_VALIDATORS) — до
+    сохранения в БД, а не только на фронтенде, где проверку легко обойти прямым запросом к API.
+
+    Пример вызова:
+        validate_svg_markup('<svg><rect width="10" height="10"/></svg>')  # OK, не бросает
+        validate_svg_markup('<svg onload="alert(1)"></svg>')  # HTTPException(422)
+    """
+    if svg_markup and _FORBIDDEN_SVG_PATTERN.search(svg_markup):
+        raise HTTPException(422, "Недопустимое содержимое SVG: скрипты и обработчики событий запрещены")
 
 
 @dataclass(frozen=True)
