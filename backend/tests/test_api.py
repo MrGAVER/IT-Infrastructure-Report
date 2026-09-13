@@ -383,6 +383,22 @@ class TestInterfacesSync:
         assert items[0]["name"] == "Gi0/1"
         assert items[0]["ips"][0]["ip_address"] == "10.0.0.1"
 
+    def test_sync_interfaces_rejects_malformed_ip_address(self, client):
+        """Код-ревью п.3.4: формат IP проверялся только на фронтенде (ipValidation.ts) —
+        прямой запрос к API мог записать в InterfaceIP произвольную строку."""
+        dt = _create_device_type(client, "Коммутатор с плохим IP")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-BADIP"}).json()
+        payload = {"interfaces": [{"name": "Gi0/1", "ips": [{"ip_address": "999.999.999.999"}]}]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 422
+
+    def test_sync_interfaces_rejects_out_of_range_prefix_length(self, client):
+        dt = _create_device_type(client, "Коммутатор с плохим префиксом")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-BADPREFIX"}).json()
+        payload = {"interfaces": [{"name": "Gi0/1", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 99}]}]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 422
+
     def test_sync_interfaces_unknown_device_returns_404(self, client):
         r = client.put("/api/v1/devices/does-not-exist/interfaces", json={"interfaces": []})
         assert r.status_code == 404
@@ -607,6 +623,41 @@ class TestInformationSystemDetails:
         r = client.get("/api/v1/resources/audit-log?entity_type=information-systems&limit=300")
         assert r.status_code == 200
         assert any(x["entity_id"] == info["id"] and x["action"] == "UPDATE" for x in r.json()["items"])
+
+    def test_sync_details_rejects_malformed_ip_in_ips(self, client):
+        """Код-ревью п.3.4: ISIP — единственная из связанных ("legacy") таблиц с ip_address;
+        generic-цикл _sync_linked_table пишет колонки как есть, без проверки формата."""
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС с плохим IP"}).json()
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"ips": [{"ip_address": "999.999.999.999"}]},
+        )
+        assert r.status_code == 422
+
+
+class TestVmIpValidation:
+    def test_create_vm_ip_rejects_malformed_ip_address(self, client):
+        """Код-ревью п.3.4: VMIP — единственная из моделей с ip_address, идущая через
+        полностью generic create_resource (без выделенной sync-функции)."""
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для теста IP"}).json()
+        r = client.post("/api/v1/resources/vm-ips", json={"virtual_machine_id": vm["id"], "ip_address": "не IP"})
+        assert r.status_code == 422
+
+    def test_create_vm_ip_rejects_out_of_range_prefix_length(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для теста префикса"}).json()
+        r = client.post(
+            "/api/v1/resources/vm-ips",
+            json={"virtual_machine_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": -1},
+        )
+        assert r.status_code == 422
+
+    def test_create_vm_ip_accepts_valid_ip_and_prefix(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ с корректным IP"}).json()
+        r = client.post(
+            "/api/v1/resources/vm-ips",
+            json={"virtual_machine_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": 24},
+        )
+        assert r.status_code == 201, r.text
 
 
 class TestNPlusOneRegressions:

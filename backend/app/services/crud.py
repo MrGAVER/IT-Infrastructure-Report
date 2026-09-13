@@ -7,13 +7,13 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
 from .diagram_icons import validate_svg_markup
-from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
+from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os
 
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
@@ -175,6 +175,13 @@ def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id
     # выполнялся бы в браузере через v-html (фронтенд) и при экспорте .svg (бэкенд).
     validate_svg_markup(data.get('svg_markup'))
 
+def _validate_vmip_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Код-ревью п.3.4: VMIP — единственная из моделей с ip_address/prefix_length, идущая через
+    # ПОЛНОСТЬЮ generic create_resource/update_resource (без выделенной sync-функции, в отличие
+    # от InterfaceIP/ISIP — см. их отдельные вызовы validate_ipv4_field выше по файлу).
+    validate_ipv4_field(data.get('ip_address'), 'IP-адрес виртуальной машины')
+    validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса виртуальной машины')
+
 # Реестр валидаторов по модели (код-ревью п.3.5): раньше это была цепочка if/elif внутри
 # validate_resource() — каждая новая модель, которой требуется своя проверка, была обязана
 # трогать тело диспетчера (нарушение OCP; интеграция feature/network-topology-diagram и
@@ -191,6 +198,7 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     Connection: _validate_connection_entry,
     DeviceType: _validate_device_type_entry,
     DiagramIcon: _validate_diagram_icon_entry,
+    VMIP: _validate_vmip_entry,
 }
 
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
@@ -352,6 +360,10 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     old_ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
     for ip_data in ips:
         if not isinstance(ip_data, dict) or not ip_data.get('ip_address'): continue
+        # Код-ревью п.3.4: формат проверялся только на фронтенде (ipValidation.ts) — прямой
+        # запрос к API мог записать в InterfaceIP произвольную строку вместо IPv4-адреса.
+        validate_ipv4_field(ip_data.get('ip_address'), 'IP-адрес интерфейса')
+        validate_prefix_length_field(ip_data.get('prefix_length'), 'Префикс IP-адреса интерфейса')
         ip_id = ip_data.get('id')
         if ip_id:
             ip_obj = old_map.get(ip_id)
@@ -467,6 +479,10 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
     existing_map = {x.id: x for x in existing}; seen=set()
     for item in items:
         if not isinstance(item, dict): continue
+        if model is ISIP:
+            # Код-ревью п.3.4: ISIP — единственная из связанных таблиц с полем ip_address;
+            # generic-цикл ниже пишет колонки как есть, без проверки формата.
+            validate_ipv4_field(item.get('ip_address'), 'IP-адрес ИС')
         obj = existing_map.get(item.get('id')) if item.get('id') else model(information_system_id=system_id)
         if obj is None: raise HTTPException(422, f'Запись {key} не принадлежит выбранной ИС')
         if not getattr(obj, 'id', None): session.add(obj)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import ipaddress
 from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -7,6 +8,47 @@ from ..models import (
     DeviceModel, DeviceType, OperatingSystem, OperatingSystemCategory, PhysicalDevice,
     Rack, Room, DeviceInterface, Connection, EmbeddedOperatingSystem,
 )
+
+# Код-ревью п.3.4: формат IPv4/длина префикса проверялись только на клиенте
+# (frontend-vue/src/utils/ipValidation.ts) — прямой запрос к API мимо формы (или старый
+# кэшированный фронтенд-бандл) мог записать в InterfaceIP/VMIP/ISIP.ip_address произвольную
+# строку. Семантика зеркальна ipValidation.ts: пустая строка/None считаются валидными — это не
+# проверка на обязательность поля, а на "если что-то введено, это должно быть похоже на IP/
+# префикс".
+
+def validate_ipv4_field(value: Any, field_label: str) -> None:
+    """Бросает HTTPException(422), если value непустое и не является корректным IPv4-адресом.
+    ipaddress.IPv4Address сама отклоняет ведущие нули (например, "01.0.0.1") начиная с
+    Python 3.9.5 (CVE-2021-29921) — то же правило, что и в isValidIPv4 на фронтенде.
+
+    Пример вызова:
+        validate_ipv4_field("10.0.0.1", "IP-адрес интерфейса")  # не бросает
+        validate_ipv4_field("не-ip", "IP-адрес интерфейса")     # HTTPException(422)
+        validate_ipv4_field("", "IP-адрес интерфейса")          # не бросает (пусто — валидно)
+    """
+    if value is None or value == '':
+        return
+    if not isinstance(value, str):
+        raise HTTPException(422, f'{field_label}: некорректный IPv4-адрес')
+    try:
+        ipaddress.IPv4Address(value)
+    except ValueError as exc:
+        raise HTTPException(422, f'{field_label}: некорректный IPv4-адрес') from exc
+
+
+def validate_prefix_length_field(value: Any, field_label: str) -> None:
+    """Бросает HTTPException(422), если value непустое и не является целым числом 0-32 (длина
+    префикса маски подсети IPv4). Принимает и int, и строку — prefix_length в JSON-теле запроса
+    может прийти любым из двух видов в зависимости от клиента."""
+    if value is None or value == '':
+        return
+    try:
+        n = int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(422, f'{field_label}: длина префикса должна быть целым числом от 0 до 32') from exc
+    if not (0 <= n <= 32):
+        raise HTTPException(422, f'{field_label}: длина префикса должна быть целым числом от 0 до 32')
+
 
 def validate_device_model_relation(data: dict[str, Any], session: Session, current_device_id: str | None = None) -> None:
     manufacturer_id = data.get('manufacturer_id')
