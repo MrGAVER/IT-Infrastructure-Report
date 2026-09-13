@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from ..config import APP_VERSION, ENABLE_TEST_DATA_ENDPOINT, FRONTEND_DIR, REPORT_DIR
+from ..config import APP_VERSION, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
-from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, DeviceInterface, InterfaceIP, PhysicalDeviceVLAN, Department, Building, Room, Rack, DeviceType, Manufacturer, DeviceModel, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, InterfaceType, InterfaceSpeed, ConnectionType, ProtocolPortCatalog, VLANDomain, VLANDomainDevice, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, VMIP, InterfaceVLAN, SupportMethod)
+from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, PhysicalDeviceVLAN, VLANDomain, VLANDomainDevice)
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
@@ -173,91 +173,6 @@ def bulk_assign_vlan(payload: dict, session: Session = Depends(get_db)):
 @router.post('/api/v1/seed')
 def seed(session: Session = Depends(get_db)):
     seed_defaults(session); return {'status':'seeded','message':'Стандартные значения добавлены; пользовательские записи сохранены'}
-
-
-@router.post('/api/v1/seed/test')
-def seed_test_data(session: Session = Depends(get_db)):
-    """Temporary demo-data generator. Creates a coherent test dataset without deleting user data.
-
-    Enabled by default (INFRA_REGISTRY_ENABLE_TEST_DATA=1) — it backs the visible
-    "Заполнить тестовыми данными" button on the Dashboard for the single-user local/EXE
-    deployment. For a shared multi-user server deployment where this button shouldn't be
-    exposed, set INFRA_REGISTRY_ENABLE_TEST_DATA=0 to disable the endpoint."""
-    if not ENABLE_TEST_DATA_ENDPOINT:
-        raise HTTPException(404, 'Эндпоинт отключен. Установите переменную окружения INFRA_REGISTRY_ENABLE_TEST_DATA=1, чтобы включить')
-    from datetime import datetime
-    from uuid import uuid4
-
-    # Локальное время сервера намеренно: это человекочитаемый тег тестового набора для
-    # администратора, который его сгенерировал (см. computed.local_timestamp_suffix для той же
-    # логики в именах файлов отчётов), а не хранимая/сравниваемая метка времени.
-    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    tag = f"TEST-{stamp}-{uuid4().hex[:4]}"
-
-    def add(cls, **kwargs):
-        obj = cls(**kwargs)
-        session.add(obj)
-        session.flush()
-        return obj
-
-    # Catalogs / location
-    dept = add(Department, name=f"{tag} ИТ")
-    building = add(Building, name=f"{tag} ЦОД-1", address="Тестовый адрес")
-    room = add(Room, building_id=building.id, name="Серверная")
-    rack = add(Rack, room_id=room.id, name="Стойка R01", height_u=42)
-    server_type = add(DeviceType, name=f"{tag} Сервер")
-    switch_type = add(DeviceType, name=f"{tag} Коммутатор")
-    manufacturer = add(Manufacturer, name=f"{tag} Manufacturer")
-    server_model = add(DeviceModel, manufacturer_id=manufacturer.id, device_type_id=server_type.id, model="TEST-SERVER-01")
-    switch_model = add(DeviceModel, manufacturer_id=manufacturer.id, device_type_id=switch_type.id, model="TEST-SWITCH-01")
-    os_cat = add(OperatingSystemCategory, name=f"{tag} Серверная ОС")
-    server_os = add(OperatingSystem, category_id=os_cat.id, name="Windows Server", version="2022", vendor="Microsoft")
-    embedded = add(EmbeddedOperatingSystem, name=f"{tag}-NetworkOS", version="1.0", vendor=tag)
-    eth = add(InterfaceType, name=f"{tag} Ethernet")
-    speed = add(InterfaceSpeed, name=f"{tag} 1 Gbps")
-    conn_type = add(ConnectionType, name=f"{tag} Витая пара")
-    # 443/TCP-HTTPS — реальная запись справочника портов, а не тестовые данные конкретного
-    # прогона (в отличие от остальных сущностей здесь), поэтому не тегируем её именем/номером,
-    # а переиспользуем, если уже создана предыдущим вызовом (иначе второй вызов /seed/test
-    # падал на UNIQUE(port, protocol_type) — см. регрессионный тест test_seed_test_is_additive_and_repeatable).
-    proto = session.execute(
-        select(ProtocolPortCatalog).where(
-            ProtocolPortCatalog.port == 443, ProtocolPortCatalog.protocol_type == "TCP/HTTPS"
-        )
-    ).scalar_one_or_none()
-    if proto is None:
-        proto = add(ProtocolPortCatalog, port=443, protocol_type="TCP/HTTPS", description="Web")
-    vlan = add(VLAN, vlan_id=900, name=f"{tag} TEST-MGMT", description="Тестовый VLAN")
-    support_method = add(SupportMethod, name=f"{tag} Внутренняя поддержка")
-
-    # Devices and interfaces
-    server = add(PhysicalDevice, device_type_id=server_type.id, manufacturer_id=manufacturer.id, model_id=server_model.id, serial_number=f"{tag}-SRV-SN", system_name=f"{tag}-SRV", operating_system_id=server_os.id, embedded_os_id=None, siem_enabled=True, building_id=building.id, room_id=room.id, rack_id=rack.id, rack_position="10U", description="Тестовый сервер")
-    switch = add(PhysicalDevice, device_type_id=switch_type.id, manufacturer_id=manufacturer.id, model_id=switch_model.id, serial_number=f"{tag}-SW-SN", system_name=f"{tag}-SW", embedded_os_id=embedded.id, siem_enabled=True, building_id=building.id, room_id=room.id, rack_id=rack.id, rack_position="20U", description="Тестовый коммутатор")
-    srv_if = add(DeviceInterface, physical_device_id=server.id, name="eth0", interface_type_id=eth.id, speed_id=speed.id, is_management=True)
-    sw_if = add(DeviceInterface, physical_device_id=switch.id, name="Gi1/0/1", interface_type_id=eth.id, speed_id=speed.id, is_management=False)
-    add(InterfaceIP, interface_id=srv_if.id, ip_address="10.255.90.10", prefix_length=24, purpose="Management", is_management=True)
-    add(InterfaceIP, interface_id=sw_if.id, ip_address="10.255.90.1", prefix_length=24, purpose="Test network", is_management=False)
-    add(PhysicalDeviceVLAN, physical_device_id=switch.id, vlan_id=vlan.id, ip_address="10.255.90.1", prefix_length=24, is_management=True, description="Management VLAN")
-    add(InterfaceVLAN, interface_id=sw_if.id, vlan_id=vlan.id, mode="access")
-    add(Connection, source_interface_id=srv_if.id, destination_interface_id=sw_if.id, connection_type_id=conn_type.id, purpose="Тестовое подключение", is_active=True)
-
-    # VM + container + software
-    vm = add(VirtualMachine, name=f"{tag}-APP01", operating_system_id=server_os.id, physical_device_id=server.id, purpose="Тестовое приложение", status="active")
-    add(VMIP, virtual_machine_id=vm.id, ip_address="10.255.90.20", prefix_length=24, purpose="Application", is_management=True)
-    add(Container, name=f"{tag}-WEB", virtual_machine_id=vm.id, purpose="Тестовый web-контейнер", management_ip="10.255.90.21")
-    add(SoftwareAsset, name=f"{tag} Web Server", category="Web-server", vendor="Test", version="1.0")
-
-    # Information system
-    info = add(InformationSystem, number=None, name=f"{tag} Информационная система", description="Тестовая ИС для проверки интерфейса и Excel", purpose="Демонстрация связей реестра", localization="ЦОД-1", support_method_id=support_method.id, process_description="Тестовый процесс функционирования", crypto_protection_enabled=False, siem_enabled=True, status="active")
-    add(ISDepartment, information_system_id=info.id, department_id=dept.id)
-    add(ISIP, information_system_id=info.id, ip_address="10.255.90.20", purpose="Взаимодействие с приложением", protocol="HTTPS", external_interaction=False, virtual_machine_id=vm.id)
-    add(ISProtocol, information_system_id=info.id, protocol="TCP/HTTPS", port=443, protocol_catalog_id=proto.id, description="Web-доступ")
-    add(ISDevice, information_system_id=info.id, physical_device_id=server.id, role="Физический сервер")
-    add(ISVM, information_system_id=info.id, virtual_machine_id=vm.id, role="Сервер приложения")
-    add(ISVM, information_system_id=info.id, virtual_machine_id=vm.id, role="Web")
-
-    session.commit()
-    return {'status':'ok','message':'Тестовые данные добавлены','tag':tag,'created':{'devices':2,'interfaces':2,'connections':1,'vms':1,'containers':1,'information_systems':1,'vlans':1}}
 
 @router.post('/api/v1/reports/inventory')
 def generate_report(information_system_id: str | None = None, payload: dict | None = None, session: Session = Depends(get_db)):

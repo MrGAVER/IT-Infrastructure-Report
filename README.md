@@ -168,7 +168,6 @@ docker compose up --build
 | `POSTGRES_PASSWORD` | — (обязательна) | пароль пользователя БД |
 | `POSTGRES_DB` / `POSTGRES_USER` | `infra_registry` / `infra` | имя БД и пользователя |
 | `INFRA_REGISTRY_CORS_ORIGINS` | `*` | список разрешённых origin'ов через запятую для CORS; `*` подходит для локальной сети |
-| `INFRA_REGISTRY_ENABLE_TEST_DATA` | `1` | включает/выключает кнопку и эндпоинт «Заполнить тестовыми данными» (`POST /api/v1/seed/test`) |
 
 Открыть:
 

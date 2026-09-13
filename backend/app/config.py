@@ -23,12 +23,6 @@ APP_VERSION = '2.66.0'
 # the common single-user/local-network deployment; set explicitly for anything more exposed.
 CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv('INFRA_REGISTRY_CORS_ORIGINS', '*').split(',') if o.strip()]
 
-# Guards demo/test-data seeding endpoint (POST /api/v1/seed/test). Enabled by default because
-# it's a visible, regularly used "Заполнить тестовыми данными" button on the Dashboard in the
-# single-user local/EXE deployment. For a shared multi-user server deployment where this button
-# shouldn't be exposed, set INFRA_REGISTRY_ENABLE_TEST_DATA=0 to disable the endpoint.
-ENABLE_TEST_DATA_ENDPOINT = os.getenv('INFRA_REGISTRY_ENABLE_TEST_DATA', '1').lower() in ('1', 'true', 'yes')
-
 # Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth.py) —
 # переменные ниже настраивают её поведение, когда она включена, а не сам факт включения.
 AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12'))
