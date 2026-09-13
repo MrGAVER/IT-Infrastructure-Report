@@ -30,7 +30,7 @@
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
 import { ref } from 'vue'
-import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, OpenPortDraftRow, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
+import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'

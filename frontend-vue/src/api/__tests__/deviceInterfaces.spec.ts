@@ -250,7 +250,7 @@ describe('persistDeviceInterfaces', () => {
   // правила приведения типов/фильтрации пустых строк, что раньше жили в
   // DeviceFormModal.vue:persistOpenPorts (удалена).
   it('фикс п.1.4: приводит port к числу, пропускает пустые строки, сохраняет id для обновления существующих', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ items: [] }))
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ items: [] }))
     vi.stubGlobal('fetch', fetchMock)
 
     await persistDeviceInterfaces('dev-1', [
