@@ -6,7 +6,17 @@ from app.config import DATABASE_URL
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Код-ревью (тест-изоляция): fileConfig() по умолчанию disable_existing_loggers=True —
+    # отключает НАВСЕГДА (logger.disabled=True) любой уже созданный к этому моменту логгер,
+    # не упомянутый в alembic.ini явно (там сконфигурированы только root/sqlalchemy/alembic).
+    # test_migrations_diagram.py вызывает command.upgrade()/downgrade() (а значит, и этот env.py)
+    # много раз за сессию pytest — начиная с первого вызова, logging.getLogger("app.main")
+    # (services/auth.py и т.п., создаётся при импорте app.main для фикстуры client в conftest.py)
+    # навсегда замолкал для всех ПОСЛЕДУЮЩИХ тестов сессии, включая уже упавший на этом
+    # test_startup_warnings.py. disable_existing_loggers=False — обычная и рекомендуемая правка
+    # именно для этого сценария (Alembic исполняется как часть более крупного приложения, а не
+    # как отдельный CLI-процесс).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 target_metadata = Base.metadata
 
 
