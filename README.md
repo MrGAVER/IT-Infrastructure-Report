@@ -2050,6 +2050,25 @@ README.md/frontend-vue/README.md/docs/frontend-modularization.md на предм
 `ConnectionFormModal.spec.ts` + 2 новых теста кнопки в `ConnectionsView.spec.ts`. 257 pytest,
 613 vitest, `ruff check`, `vue-tsc --noEmit`, `vite build` — все зелёные.
 
+### 2.67.0 — удалена генерация тестовых данных; фикс сборки (код-ревью после батча 4)
+
+По итогам код-ревью ветки `fix/usability-batch4` перед мержем в `main`:
+
+- **Удалён `POST /api/v1/seed/test`** (генератор демо-устройств/ИС/ВМ, ранее управлявшийся
+  флагом `INFRA_REGISTRY_ENABLE_TEST_DATA`, включённым по умолчанию) — не просто выключен, а
+  вырезан вместе с функцией `seed_test_data()`, флагом в `config.py`, регрессионными тестами и
+  упоминаниями в `.env.example`/`docker-compose.yml`/README. В production-реестре ИТ-
+  инфраструктуры такому эндпоинту не место даже как отключаемая опция. Обычный
+  `POST /api/v1/seed` (стандартные значения справочников, `seed_defaults`) не затронут.
+- **Аутентификация осталась выключенной по умолчанию** (`AuthSettings.enabled = False`) —
+  проверено отдельно, изменений не потребовалось.
+- **Фикс сборки фронтенда:** `npm run build` (`vue-tsc -b`) не проходил из-за трёх мелких
+  огрехов, оставшихся после параллельной разработки батча 4 — неиспользуемые импорты типов в
+  `DeviceInterfacesEditor.vue` и `ConnectionCanvasModal.spec.ts`, а также нетипизированный
+  `vi.fn()` в `deviceInterfaces.spec.ts`, ломавший вывод типа кортежа аргументов.
+
+255 pytest, 613 vitest, `ruff check`, `vue-tsc -b`, `vite build` — все зелёные.
+
 ## Известные ограничения и заметки
 
 - EXE-вариант — однопользовательский локальный режим; для одновременной работы нескольких
