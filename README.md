@@ -2211,6 +2211,33 @@ API» из плана пропущена как более не имеющая �
 
 255 pytest, 613 vitest, `ruff check`, `vue-tsc -b`, `vite build` — все зелёные.
 
+### 2.70.0 — обновление зависимостей
+
+Аудит `pip-audit`/`npm audit` + `npm outdated`, по итогам — точечные обновления, каждое
+проверено полным validation gate:
+
+- **`pytest` 8.4.2 → 9.1.1** (backend, dev-only) — закрывает 2 известные уязвимости
+  (PYSEC-2026-1845), ранее недостижимые из-за потолка `<9` в `requirements-dev.txt`.
+  Breaking changes 9.0/9.1 (CLI-обработка дублирующихся путей, TOML-конфиг, снятие Python 3.9)
+  проекта не касаются.
+- **`vue-router` 4.6.4 → 5.3.1** — по официальному migration guide без breaking changes для
+  проектов без file-based routing/`unplugin-vue-router` (наш случай).
+- **`vitest`/`@vitest/ui` 4.1.11 → 5.0.0** — требования (Node ≥22.12, Vite ≥6.4) уже выполнены;
+  новый дефолт `clearMocks: true` проверен полным прогоном, регрессий нет.
+- **`@types/node`, `@vue/test-utils`, `vite`, `vue`** — патч/минорные версии внутри уже заданных
+  `^`-диапазонов `package.json`.
+- **Backend runtime-зависимости** (`fastapi`, `SQLAlchemy`, `pydantic`, `alembic`, `openpyxl`,
+  `python-docx`, `psycopg`, `drawpyo`, `vsdx`, `uvicorn`) — уже на последних версиях, доступных в
+  рамках текущих ограничений; новых мажоров на PyPI нет.
+- **НЕ обновлено: `typescript` 6.0.3 → 7.0.2.** Проверено эмпирически — `vue-tsc -b` падает с
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`: TypeScript 7 (переписан на Go, Project Corsa) до версии 7.1 не
+  экспортирует `./lib/tsc`, от которого зависит `vue-tsc`. Апгрейд заблокирован до совместимой
+  версии `vue-tsc`/выхода TS 7.1 с обещанным стабильным Compiler API.
+
+334 pytest, `ruff check`, `pip-audit` (0 уязвимостей), `alembic upgrade head` (одна голова) — все
+зелёные. 667 vitest, `vue-tsc -b`, `vite build`, `npm audit --omit=dev` (0 уязвимостей) — все
+зелёные.
+
 ## Известные ограничения и заметки
 
 - EXE-вариант — однопользовательский локальный режим; для одновременной работы нескольких
