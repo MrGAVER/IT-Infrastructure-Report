@@ -6,6 +6,7 @@
 import { computed } from 'vue'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import type { DiagramDeviceNode as DiagramDeviceNodeData } from '../../api/diagrams'
+import { sanitizeSvg } from '../../utils/sanitizeSvg'
 
 // backend/app/services/diagram_icons.py:MAX_PORT_TICKS — интерфейсы за этим пределом всё ещё
 // существуют (см. port_overflow), но отдельной засечки/Handle для них не рисуется.
@@ -48,6 +49,10 @@ const subLabel = computed(() => {
   if (icon.value.mode !== 'generated') return ''
   return [icon.value.manufacturer_label, icon.value.model_label].filter(Boolean).join(' ')
 })
+
+// Код-ревью п.3.1: DiagramIcon.svg_markup — пользовательский ввод, отрисовывается через v-html.
+// Санитизация — второй, независимый от бэкенда рубеж защиты (см. utils/sanitizeSvg.ts).
+const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? sanitizeSvg(icon.value.svg_markup) : ''))
 </script>
 
 <template>
@@ -56,7 +61,7 @@ const subLabel = computed(() => {
     <Handle v-if="!isSwitch" type="source" :position="Position.Bottom" />
 
     <template v-if="isCustom && icon.mode === 'custom'">
-      <div class="custom-icon" v-html="icon.svg_markup"></div>
+      <div class="custom-icon" v-html="sanitizedCustomSvg"></div>
     </template>
     <div v-else class="generated-icon" :style="{ background: fillColor }">
       <svg class="shape-glyph" viewBox="0 0 12 11"><path :d="glyphPath" fill="rgba(255,255,255,0.85)" /></svg>

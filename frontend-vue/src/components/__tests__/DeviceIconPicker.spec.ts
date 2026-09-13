@@ -30,9 +30,19 @@ describe('DeviceIconPicker.vue', () => {
 
   it('показывает предпросмотр svg_markup выбранной иконки', () => {
     const catalogs = useCatalogsStore()
-    catalogs.items['diagram-icons'] = [{ id: 'icon-1', name: 'Cisco 2960', svg_markup: '<circle class="mark" r="4"/>' }]
+    // Полноценный <svg>-документ, а не голый фрагмент — см. комментарий в
+    // DiagramDeviceNode.spec.ts про требование SVG-контекста для sanitizeSvg (код-ревью п.3.1).
+    catalogs.items['diagram-icons'] = [{ id: 'icon-1', name: 'Cisco 2960', svg_markup: '<svg><circle class="mark" r="4"/></svg>' }]
     const wrapper = mount(DeviceIconPicker, { props: { modelValue: 'icon-1' } })
     expect(wrapper.find('.preview .mark').exists()).toBe(true)
+  })
+
+  it('вырезает исполняемое содержимое SVG в предпросмотре (код-ревью п.3.1, XSS)', () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['diagram-icons'] = [{ id: 'icon-1', name: 'Вредоносная', svg_markup: '<svg onload="alert(1)"><script>alert(1)</script></svg>' }]
+    const wrapper = mount(DeviceIconPicker, { props: { modelValue: 'icon-1' } })
+    expect(wrapper.find('.preview script').exists()).toBe(false)
+    expect(wrapper.find('.preview svg').attributes('onload')).toBeUndefined()
   })
 
   it('загрузка своей иконки создаёт запись в каталоге и выбирает её (раздел 13 ТЗ: сохраняет diagram_icon_id)', async () => {

@@ -13,6 +13,7 @@ import { computed, ref } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { createResource } from '../api/client'
 import { useToast } from '../composables/useToast'
+import { sanitizeSvg } from '../utils/sanitizeSvg'
 import type { CatalogItem } from '../api/types'
 
 const props = defineProps<{ modelValue: string | null }>()
@@ -28,6 +29,9 @@ const uploading = ref(false)
 
 const icons = computed(() => catalogs.items['diagram-icons'] ?? [])
 const selectedIcon = computed(() => icons.value.find((i) => i.id === props.modelValue))
+// Код-ревью п.3.1: предпросмотр — тот же пользовательский svg_markup, что и на канвасе
+// диаграммы (см. DiagramDeviceNode.vue), санитизация нужна здесь по той же причине.
+const sanitizedSelectedIconSvg = computed(() => sanitizeSvg((selectedIcon.value as (CatalogItem & { svg_markup: string }) | undefined)?.svg_markup))
 
 function onSelect(event: Event) {
   const value = (event.target as HTMLSelectElement).value
@@ -68,7 +72,7 @@ async function uploadCustomIcon() {
       </select>
     </label>
 
-    <div v-if="selectedIcon" class="preview" v-html="(selectedIcon as CatalogItem & { svg_markup: string }).svg_markup"></div>
+    <div v-if="selectedIcon" class="preview" v-html="sanitizedSelectedIconSvg"></div>
 
     <button type="button" class="btn btn-secondary btn-sm" @click="showUpload = !showUpload">
       {{ showUpload ? 'Отмена' : '+ Загрузить свою иконку' }}

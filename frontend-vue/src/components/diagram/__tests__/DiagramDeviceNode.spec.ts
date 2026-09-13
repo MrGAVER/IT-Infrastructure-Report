@@ -51,10 +51,24 @@ describe('DiagramDeviceNode.vue', () => {
     expect(wrapper.text()).toContain('Cisco')
   })
 
-  it('иконка mode=custom встраивает svg_markup как есть', () => {
-    const customDevice: DeviceNodeData = { ...baseDevice, icon: { mode: 'custom', svg_markup: '<circle r="4" class="mark"/>' } }
+  it('иконка mode=custom санитизирует и встраивает svg_markup (код-ревью п.3.1)', () => {
+    // Полноценный <svg>-документ — реалистичная форма DiagramIcon.svg_markup (не голый
+    // фрагмент): sanitizeSvg (utils/sanitizeSvg.ts) требует SVG-контекст, иначе DOMPurify
+    // не распознаёт дочерние элементы как принадлежащие пространству имён SVG и отбрасывает их.
+    const customDevice: DeviceNodeData = { ...baseDevice, icon: { mode: 'custom', svg_markup: '<svg><circle r="4" class="mark"/></svg>' } }
     const wrapper = mountNode(customDevice)
     expect(wrapper.find('.custom-icon .mark').exists()).toBe(true)
+  })
+
+  it('иконка mode=custom вырезает исполняемое содержимое SVG (код-ревью п.3.1, XSS)', () => {
+    const maliciousDevice: DeviceNodeData = {
+      ...baseDevice,
+      icon: { mode: 'custom', svg_markup: '<svg onload="alert(1)"><script>alert(1)</script><circle r="4" class="mark"/></svg>' },
+    }
+    const wrapper = mountNode(maliciousDevice)
+    expect(wrapper.find('.custom-icon script').exists()).toBe(false)
+    expect(wrapper.find('.custom-icon svg').attributes('onload')).toBeUndefined()
+    expect(wrapper.find('.custom-icon .mark').exists()).toBe(true) // безопасное содержимое сохраняется
   })
 
   it('порог в 32 засечки не превышается даже при большем port_ticks в данных', () => {
