@@ -67,6 +67,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from .computed import local_timestamp_suffix
+from .excel_safety import excel_safe
 from .report_engine import (
     ReportBuilderError, ReportContext, iter_report_rows, resolve_value, safe_report_filename,
     substitute_params, validate_path,
@@ -273,6 +274,12 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
             for cell in cells:
                 kind = cell.get("kind", "static")
                 value = _formula_value(cell, params) if kind == "formula" else substitute_params(cell.get("text", ""), params)
+                # Код-ревью п.3.2: формулы kind=="formula" — задуманы автором шаблона отчёта
+                # (report_grid.py) и не должны экранироваться; все остальные виды ячеек могут
+                # содержать пользовательские данные (например, статичный текст с параметром
+                # {{...}}) и обязаны пройти через excel_safe перед записью в .xlsx.
+                if kind != "formula":
+                    value = excel_safe(value)
                 resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": False, "style": cell.get("style") or {}})
             physical.append({"height": height, "cells": resolved})
             continue
@@ -305,6 +312,11 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
                     is_dt = isinstance(value, datetime)
                 else:  # static — например, постоянная подпись рядом с данными в той же строке
                     value = substitute_params(cell.get("text", ""), params)
+                # Код-ревью п.3.2: см. комментарий в ветке row.get("repeat") is falsy выше —
+                # formula исключаем из excel_safe намеренно, остальное (в первую очередь kind
+                # == "field" — данные из БД, потенциально пользовательский ввод) экранируем.
+                if kind != "formula":
+                    value = excel_safe(value)
                 resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": is_dt, "style": cell.get("style") or {}})
             physical.append({"height": height, "cells": resolved})
 

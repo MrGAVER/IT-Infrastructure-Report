@@ -283,6 +283,20 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
+    def test_field_cell_value_starting_with_formula_char_is_escaped(self):
+        """Код-ревью п.3.2 (Excel Formula Injection): в отличие от kind=="formula" (тест выше,
+        задуман автором шаблона отчёта) — kind=="field" тянет данные из БД (потенциально
+        пользовательский ввод) и обязан пройти через excel_safe."""
+        import openpyxl
+        self.isys1.name = '=HYPERLINK("http://evil.example")'
+        self.session.commit()
+        path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
+        try:
+            wb = openpyxl.load_workbook(path)
+            self.assertEqual(wb["Лист1"]["B2"].value, '\'=HYPERLINK("http://evil.example")')
+        finally:
+            path.unlink(missing_ok=True)
+
     def test_number_format_applied_from_style(self):
         import openpyxl
         config = {"sheets": [{

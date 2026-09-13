@@ -125,12 +125,18 @@ def load_reporting_module():
     services_module.__path__ = []
     fake_modules["app.services"] = services_module
 
-    # computed.py не имеет зависимостей от SQLAlchemy — подключаем настоящий модуль как есть,
-    # а не мокаем: логика "IP/порт управления устройства" там и должна тестироваться реальной.
+    # computed.py и excel_safety.py не имеют зависимостей от SQLAlchemy — подключаем настоящие
+    # модули как есть, а не мокаем: их логика ("IP/порт управления устройства",
+    # excel_safe — код-ревью п.3.2) должна тестироваться реальной, а не заглушкой.
     computed_spec = importlib.util.spec_from_file_location("app.services.computed", APP_DIR / "services" / "computed.py")
     computed_module = importlib.util.module_from_spec(computed_spec)
     computed_spec.loader.exec_module(computed_module)
     fake_modules["app.services.computed"] = computed_module
+
+    excel_safety_spec = importlib.util.spec_from_file_location("app.services.excel_safety", APP_DIR / "services" / "excel_safety.py")
+    excel_safety_module = importlib.util.module_from_spec(excel_safety_spec)
+    excel_safety_spec.loader.exec_module(excel_safety_module)
+    fake_modules["app.services.excel_safety"] = excel_safety_module
 
     saved_modules = {name: sys.modules.get(name) for name in fake_modules}
     sys.modules.update(fake_modules)
@@ -143,6 +149,10 @@ def load_reporting_module():
         src = src.replace(
             "from .services.computed import ip_label, device_management_ports_and_ips",
             "from app.services.computed import ip_label, device_management_ports_and_ips",
+        )
+        src = src.replace(
+            "from .services.excel_safety import excel_safe_row",
+            "from app.services.excel_safety import excel_safe_row",
         )
         mod = types.ModuleType("app.reporting")
         exec(compile(src, str(APP_DIR / "reporting.py"), "exec"), mod.__dict__)
