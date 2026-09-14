@@ -265,18 +265,6 @@ const dragLinePath = computed(() => {
           Добавьте на схему хотя бы два устройства, чтобы соединить их порты курсором мыши.
         </p>
         <template v-else>
-          <svg class="canvas-svg" :width="canvasSize.width" :height="canvasSize.height" :viewBox="`0 0 ${canvasSize.width} ${canvasSize.height}`">
-            <path
-              v-for="line in connectionLines"
-              :key="line.id"
-              :d="line.path"
-              class="connection-line"
-              :class="{ inactive: !line.active }"
-              @click="openConnectionLine(line.connection)"
-            />
-            <path v-if="dragLinePath" :d="dragLinePath" class="connection-line drag-preview" />
-          </svg>
-
           <div
             v-for="deviceId in canvasDeviceIds"
             :key="deviceId"
@@ -305,6 +293,24 @@ const dragLinePath = computed(() => {
               <span class="port-name" :title="iface.name">{{ iface.name }}</span>
             </div>
           </div>
+
+          <!-- SVG со связями рисуется ПОСЛЕ карточек устройств: конец линии (pinPosition()) лежит
+               внутри прямоугольника карточки (у центра, на высоте строки порта), а не на его
+               границе, поэтому если бы svg красился раньше, эта часть каждой линии пропадала бы
+               под непрозрачным фоном .device-node (баг — "линии под блоками устройств"). Клики по
+               самим карточкам/пинам это не задевает: pointer-events:none стоит на всём <svg>,
+               кроме собственно линий (pointer-events:stroke). -->
+          <svg class="canvas-svg" :width="canvasSize.width" :height="canvasSize.height" :viewBox="`0 0 ${canvasSize.width} ${canvasSize.height}`">
+            <path
+              v-for="line in connectionLines"
+              :key="line.id"
+              :d="line.path"
+              class="connection-line"
+              :class="{ inactive: !line.active }"
+              @click="openConnectionLine(line.connection)"
+            />
+            <path v-if="dragLinePath" :d="dragLinePath" class="connection-line drag-preview" />
+          </svg>
         </template>
       </div>
     </div>
@@ -386,6 +392,7 @@ const dragLinePath = computed(() => {
   position: absolute;
   top: 0;
   left: 0;
+  z-index: 2; /* поверх .device-node — см. комментарий в шаблоне про порядок в DOM */
   pointer-events: none; /* клики проваливаются на карточки узлов, кроме самих линий ниже */
 }
 .connection-line {
@@ -407,6 +414,7 @@ const dragLinePath = computed(() => {
 }
 .device-node {
   position: absolute;
+  z-index: 1;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
