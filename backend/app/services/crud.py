@@ -3,17 +3,17 @@ from datetime import datetime
 from typing import Any, Callable
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
 from .diagram_icons import validate_svg_markup
-from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
+from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os
 
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
@@ -175,6 +175,13 @@ def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id
     # выполнялся бы в браузере через v-html (фронтенд) и при экспорте .svg (бэкенд).
     validate_svg_markup(data.get('svg_markup'))
 
+def _validate_vmip_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Код-ревью п.3.4: VMIP — единственная из моделей с ip_address/prefix_length, идущая через
+    # ПОЛНОСТЬЮ generic create_resource/update_resource (без выделенной sync-функции, в отличие
+    # от InterfaceIP/ISIP — см. их отдельные вызовы validate_ipv4_field выше по файлу).
+    validate_ipv4_field(data.get('ip_address'), 'IP-адрес виртуальной машины')
+    validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса виртуальной машины')
+
 # Реестр валидаторов по модели (код-ревью п.3.5): раньше это была цепочка if/elif внутри
 # validate_resource() — каждая новая модель, которой требуется своя проверка, была обязана
 # трогать тело диспетчера (нарушение OCP; интеграция feature/network-topology-diagram и
@@ -191,6 +198,7 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     Connection: _validate_connection_entry,
     DeviceType: _validate_device_type_entry,
     DiagramIcon: _validate_diagram_icon_entry,
+    VMIP: _validate_vmip_entry,
 }
 
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
@@ -278,9 +286,20 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
 def _find_referencing_counts(model, item_id: str, session: Session) -> list[tuple[str, int]]:
     """Для каждого другого зарегистрированного ресурса считает, сколько его записей ссылаются
     (через FK) на удаляемую запись. Используется, чтобы дать конкретное предупреждение перед
-    удалением, а не полагаться только на то, что БД сама остановит операцию через FK-констрейнт."""
+    удалением, а не полагаться только на то, что БД сама остановит операцию через FK-констрейнт.
+
+    Код-ревью п.3.7: раньше здесь был отдельный SELECT COUNT(*) на каждую FK-колонку каждой из
+    ~40 моделей реестра (MODEL_MAP) — при удалении часто ссылаемой записи (например,
+    производителя устройства) это десятки последовательных round-trip'ов к БД на одно
+    удаление. Теперь все подзапросы объединяются в один через UNION ALL и выполняются ОДНИМ
+    запросом; каждая ветка несёт свой порядковый номер (ord) как обычную колонку данных, а не
+    полагается на порядок строк, в котором сервер БД решит вернуть результат UNION ALL (для
+    SQLite и PostgreSQL это на практике совпадает с порядком объявления веток, но опираться на
+    недокументированное поведение не стоит) — после выполнения строки сортируются по этому
+    номеру в Python, что и восстанавливает исходный, стабильный порядок вывода."""
     target_table = model.__tablename__
-    results: list[tuple[str, int]] = []
+    resource_keys: list[str] = []
+    subqueries = []
     for resource_key, other_model in MODEL_MAP.items():
         if other_model is model:
             continue
@@ -290,10 +309,19 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
             target = next(iter(c.foreign_keys)).target_fullname
             if target.split('.')[0] != target_table:
                 continue
-            count = session.scalar(select(func.count()).select_from(other_model).where(c == item_id)) or 0
-            if count:
-                results.append((DISPLAY_NAMES.get(resource_key, resource_key), count))
-    return results
+            subqueries.append(
+                select(literal(len(resource_keys)).label('ord'), func.count().label('cnt'))
+                .select_from(other_model).where(c == item_id)
+            )
+            resource_keys.append(resource_key)
+    if not subqueries:
+        return []
+    combined = union_all(*subqueries) if len(subqueries) > 1 else subqueries[0]
+    rows = sorted(session.execute(combined).all(), key=lambda row: row.ord)
+    return [
+        (DISPLAY_NAMES.get(resource_keys[row.ord], resource_keys[row.ord]), row.cnt)
+        for row in rows if row.cnt
+    ]
 
 def delete_resource(resource: str, item_id: str, session: Session):
     ensure_writable(resource)
@@ -352,6 +380,10 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     old_ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
     for ip_data in ips:
         if not isinstance(ip_data, dict) or not ip_data.get('ip_address'): continue
+        # Код-ревью п.3.4: формат проверялся только на фронтенде (ipValidation.ts) — прямой
+        # запрос к API мог записать в InterfaceIP произвольную строку вместо IPv4-адреса.
+        validate_ipv4_field(ip_data.get('ip_address'), 'IP-адрес интерфейса')
+        validate_prefix_length_field(ip_data.get('prefix_length'), 'Префикс IP-адреса интерфейса')
         ip_id = ip_data.get('id')
         if ip_id:
             ip_obj = old_map.get(ip_id)
@@ -467,6 +499,10 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
     existing_map = {x.id: x for x in existing}; seen=set()
     for item in items:
         if not isinstance(item, dict): continue
+        if model is ISIP:
+            # Код-ревью п.3.4: ISIP — единственная из связанных таблиц с полем ip_address;
+            # generic-цикл ниже пишет колонки как есть, без проверки формата.
+            validate_ipv4_field(item.get('ip_address'), 'IP-адрес ИС')
         obj = existing_map.get(item.get('id')) if item.get('id') else model(information_system_id=system_id)
         if obj is None: raise HTTPException(422, f'Запись {key} не принадлежит выбранной ИС')
         if not getattr(obj, 'id', None): session.add(obj)

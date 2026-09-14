@@ -383,6 +383,22 @@ class TestInterfacesSync:
         assert items[0]["name"] == "Gi0/1"
         assert items[0]["ips"][0]["ip_address"] == "10.0.0.1"
 
+    def test_sync_interfaces_rejects_malformed_ip_address(self, client):
+        """Код-ревью п.3.4: формат IP проверялся только на фронтенде (ipValidation.ts) —
+        прямой запрос к API мог записать в InterfaceIP произвольную строку."""
+        dt = _create_device_type(client, "Коммутатор с плохим IP")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-BADIP"}).json()
+        payload = {"interfaces": [{"name": "Gi0/1", "ips": [{"ip_address": "999.999.999.999"}]}]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 422
+
+    def test_sync_interfaces_rejects_out_of_range_prefix_length(self, client):
+        dt = _create_device_type(client, "Коммутатор с плохим префиксом")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-BADPREFIX"}).json()
+        payload = {"interfaces": [{"name": "Gi0/1", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 99}]}]}
+        r = client.put(f"/api/v1/devices/{dev['id']}/interfaces", json=payload)
+        assert r.status_code == 422
+
     def test_sync_interfaces_unknown_device_returns_404(self, client):
         r = client.put("/api/v1/devices/does-not-exist/interfaces", json={"interfaces": []})
         assert r.status_code == 404
@@ -608,6 +624,41 @@ class TestInformationSystemDetails:
         assert r.status_code == 200
         assert any(x["entity_id"] == info["id"] and x["action"] == "UPDATE" for x in r.json()["items"])
 
+    def test_sync_details_rejects_malformed_ip_in_ips(self, client):
+        """Код-ревью п.3.4: ISIP — единственная из связанных ("legacy") таблиц с ip_address;
+        generic-цикл _sync_linked_table пишет колонки как есть, без проверки формата."""
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС с плохим IP"}).json()
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"ips": [{"ip_address": "999.999.999.999"}]},
+        )
+        assert r.status_code == 422
+
+
+class TestVmIpValidation:
+    def test_create_vm_ip_rejects_malformed_ip_address(self, client):
+        """Код-ревью п.3.4: VMIP — единственная из моделей с ip_address, идущая через
+        полностью generic create_resource (без выделенной sync-функции)."""
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для теста IP"}).json()
+        r = client.post("/api/v1/resources/vm-ips", json={"virtual_machine_id": vm["id"], "ip_address": "не IP"})
+        assert r.status_code == 422
+
+    def test_create_vm_ip_rejects_out_of_range_prefix_length(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для теста префикса"}).json()
+        r = client.post(
+            "/api/v1/resources/vm-ips",
+            json={"virtual_machine_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": -1},
+        )
+        assert r.status_code == 422
+
+    def test_create_vm_ip_accepts_valid_ip_and_prefix(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ с корректным IP"}).json()
+        r = client.post(
+            "/api/v1/resources/vm-ips",
+            json={"virtual_machine_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": 24},
+        )
+        assert r.status_code == 201, r.text
+
 
 class TestNPlusOneRegressions:
     """Закрепляет количество SQL-запросов к конкретным таблицам там, где раньше был N+1 (см.
@@ -626,6 +677,28 @@ class TestNPlusOneRegressions:
         vlan_lookup_queries = [s for s in sql_log if "device_type_vlans" in s or "physical_device_vlans" in s]
         # Раньше — 2 запроса НА КАЖДЫЙ интерфейс (было бы 20 для 10 портов); теперь — 2 на весь вызов.
         assert len(vlan_lookup_queries) <= 2, f"Ожидалось <=2 запроса к allowed-VLAN, получено {len(vlan_lookup_queries)}"
+
+    def test_delete_reference_check_uses_a_single_query_across_all_referencing_models(self, client, sql_log):
+        """Код-ревью п.3.7: _find_referencing_counts раньше делала отдельный SELECT COUNT(*) на
+        каждую FK-колонку каждой из ~40 моделей реестра — теперь один запрос через UNION ALL,
+        независимо от того, сколько РАЗНЫХ моделей и записей реально ссылаются на удаляемую."""
+        dt = _create_device_type(client, "Тип для подсчёта ссылок")
+        manufacturer = client.post("/api/v1/resources/manufacturers", json={"name": "Производитель для подсчёта"}).json()
+        for i in range(2):
+            r = client.post(
+                "/api/v1/resources/device-models",
+                json={"manufacturer_id": manufacturer["id"], "device_type_id": dt["id"], "model": f"Модель {i}"},
+            )
+            assert r.status_code == 201, r.text
+
+        sql_log.clear()
+        r = client.delete(f"/api/v1/resources/manufacturers/{manufacturer['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+        assert "2" in r.json()["detail"]["message"]  # обе модели учтены одним запросом
+
+        count_queries = [s for s in sql_log if "count(" in s.lower()]
+        assert len(count_queries) == 1, f"Ожидался 1 запрос на подсчёт ссылок, получено {len(count_queries)}:\n" + "\n".join(count_queries)
 
     def test_sync_vlan_domain_does_not_query_per_device_per_vlan_pair(self, client, sql_log):
         dt = _create_device_type(client, "Тип для домена подсчёта")
