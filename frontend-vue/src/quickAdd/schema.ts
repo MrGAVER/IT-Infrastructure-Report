@@ -19,7 +19,7 @@
 // Единственный источник правды по полям — соответствующие SQLAlchemy-модели в
 // backend/app/models.py; при добавлении сюда новой записи стоит свериться с ними, а не
 // придумывать поля по аналогии.
-export type QuickFieldType = 'text' | 'textarea' | 'number' | 'checkbox' | 'fk'
+export type QuickFieldType = 'text' | 'textarea' | 'number' | 'checkbox' | 'fk' | 'diagram-icon'
 
 export interface QuickField {
   name: string
@@ -39,7 +39,7 @@ export interface QuickField {
 }
 
 export const QUICK_ADD_LABELS: Record<string, string> = {
-  organizations: 'Организация',
+  // Фикс п.4: 'organizations' удалён — см. комментарий в stores/catalogs.ts.
   'device-types': 'Тип устройства',
   manufacturers: 'Производитель',
   'device-models': 'Модель устройства',
@@ -65,17 +65,25 @@ export const QUICK_ADD_LABELS: Record<string, string> = {
 }
 
 export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
-  // organizations ни на что не ссылается по FK нигде в модели (в отличие от
-  // support-organizations) — сюда никогда не попадёшь через QuickAddModal.vue (там нечему
-  // показывать "+"), только через CatalogRecordFormModal.vue (OtherCatalogsView.vue). Добавлено
-  // ради паритета с legacy: там был полноценный CRUD-экран для этого ресурса, и при удалении
-  // legacy-фронтенда он не должен был бы стать недостижим ни в одном UI.
-  organizations: [
+  'device-types': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
-    { name: 'short_name', label: 'Краткое наименование', type: 'text', required: false },
-    { name: 'description', label: 'Описание', type: 'textarea', required: false },
+    // Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4):
+    // DeviceType.category_id — обязательный NOT NULL FK (models.py, миграция 38e9b2624a53,
+    // нужен для автогенерации иконки узла на диаграмме топологии сети), но эта форма запрашивала
+    // только name — POST без category_id падал сырым 409 "NOT NULL constraint failed" (см. новую
+    // проверку в backend/app/services/crud.py:validate_resource). nestedQuickAdd — по аналогии с
+    // device_type_id/manufacturer_id у device-models чуть ниже: справочник категорий короткий и
+    // фиксированный (засеян services/catalogs.py), но не создавать же тип устройства без права
+    // добавить недостающую категорию, не выходя из этой формы.
+    {
+      name: 'category_id',
+      label: 'Категория устройства',
+      type: 'fk',
+      required: true,
+      fkResource: 'device-categories',
+      nestedQuickAdd: true,
+    },
   ],
-  'device-types': [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   manufacturers: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   'device-models': [
     {
@@ -95,6 +103,11 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
       nestedQuickAdd: true,
     },
     { name: 'model', label: 'Модель', type: 'text', required: true },
+    // Раздел 11 ТЗ: "компонент выбора иконки устройства (в карточке узла и в форме
+    // PhysicalDevice/DeviceModel)". PhysicalDevice.diagram_icon_id уже в DeviceFormModal.vue
+    // (отдельная специализированная форма, не через эту generic-схему); здесь — вторая половина
+    // того же раздела ТЗ, переопределение иконки сразу для ВСЕХ устройств этой модели.
+    { name: 'diagram_icon_id', label: 'Иконка на диаграмме', type: 'diagram-icon', required: false },
   ],
   'os-categories': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
@@ -147,7 +160,14 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'category', label: 'Категория', type: 'text', required: false },
     { name: 'vendor', label: 'Производитель', type: 'text', required: false },
-    { name: 'version', label: 'Версия', type: 'text', required: false },
+    // version намеренно убран отсюда (фикс п.4.4 — "поле 'Версия' дублирует аналогичное поле в
+    // блоке 'Программные активы'"): у SoftwareAsset.name UNIQUE-ограничение — одна запись
+    // каталога на продукт (напр. "1С:Предприятие"), поэтому версия ПРОДУКТА в каталоге в принципе
+    // не может отражать реальность, если этот продукт установлен на разных устройствах/ВМ в
+    // разных версиях. Версия по месту установки — это отдельное поле на самой связи
+    // (VMSoftware.version / DeviceSoftware.version), которое и редактируется в
+    // SoftwareAssetListEditor.vue построчно. Колонка SoftwareAsset.version в БД сохранена
+    // (не удалялась миграцией) — просто эта форма больше её не показывает и не пишет.
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
   departments: [

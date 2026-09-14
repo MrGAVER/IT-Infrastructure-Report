@@ -26,7 +26,7 @@ try:
     from sqlalchemy.orm import sessionmaker
 
     from app.models import (
-        Base, Connection, ConnectionType, DeviceInterface, DeviceModel, DeviceType, EmbeddedOperatingSystem,
+        Base, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceType, EmbeddedOperatingSystem,
         Manufacturer, PhysicalDevice, PhysicalDeviceVLAN, VLAN,
     )
     from app.services.report_engine import ReportBuilderError, validate_config
@@ -107,7 +107,10 @@ class BuildStructuralAppendixTestCase(unittest.TestCase):
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-        dtype = DeviceType(name="Сетевое оборудование")
+        category = DeviceCategory(name="Коммутаторы")
+        self.session.add(category)
+        self.session.flush()
+        dtype = DeviceType(name="Сетевое оборудование", category_id=category.id)
         manufacturer = Manufacturer(name="Cisco")
         embedded_os = EmbeddedOperatingSystem(name="IOS", version="15")
         self.session.add_all([dtype, manufacturer, embedded_os])

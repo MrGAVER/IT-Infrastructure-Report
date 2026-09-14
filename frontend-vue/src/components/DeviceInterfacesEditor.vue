@@ -30,14 +30,31 @@
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
 import { ref } from 'vue'
-import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, VLANDefinition } from '../api/types'
+import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
+import OpenPortListEditor from './OpenPortListEditor.vue'
 
-const props = defineProps<{ modelValue: InterfaceDraftRow[]; typeOptions: CatalogItem[]; speedOptions: CatalogItem[]; vlanOptions: VLANDefinition[] }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: InterfaceDraftRow[]
+    typeOptions: CatalogItem[]
+    speedOptions: CatalogItem[]
+    vlanOptions: VLANDefinition[]
+    // п.1.4 (батч4): справочник "порт + протокол" для OpenPortListEditor.vue каждого интерфейса —
+    // тот же catalogs.protocolPortCatalog, что раньше прокидывался напрямую в единственный
+    // ("на всё устройство") экземпляр редактора в DeviceFormModal.vue.
+    protocolPortCatalog?: ProtocolPortCatalogEntry[]
+    // Фикс п.3.3 (вторая часть): предупреждения по id строки — считаются родителем
+    // (DeviceFormModal.vue: interfaceConflictWarnings), т.к. только у него есть доступ к
+    // стору подключений; этот компонент их только отображает, ничего сам не вычисляет.
+    conflictWarnings?: Record<string, string>
+  }>(),
+  { conflictWarnings: () => ({}), protocolPortCatalog: () => [] },
+)
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
 const { notify } = useToast()
 
@@ -49,6 +66,19 @@ const genCount = ref(String(props.modelValue.length))
 const genNameTemplate = ref('eth{n}')
 const genTypeId = ref('')
 const genSpeedId = ref('')
+// Фикс п.1.3.3: "нужно больше вариаций шаблонов — например, нумерация с определённого до
+// определённого номера". Раньше {n} всегда отсчитывался от 1 (режим "Заменить все порты") или от
+// количества уже существующих интерфейсов (режим "Дополнить", см. applyGenerator()) — не было
+// способа явно продолжить нумерацию портов с произвольного номера, например сгенерировать порты
+// 5-24, когда 1-4 уже заняты чем-то другим и не участвуют в этом списке вовсе. Пустая строка —
+// прежнее поведение без изменений (авто: 1 или продолжение от количества строк).
+const genStartAt = ref('')
+// Фикс п.1.3.4: были две отдельные кнопки — "Сгенерировать" (заменяет) и "Дополнить" (добавляет),
+// путавшие своими названиями, какая из них разрушительна. Теперь одна кнопка + галочка,
+// отключенная по умолчанию — безопасный режим (append) остаётся действием по умолчанию, а
+// разрушительный (replace) требует явного осознанного действия (поставить галочку) и всегда
+// показывает предупреждение, если есть что терять (см. generate() ниже).
+const replaceAllPorts = ref(false)
 
 function emptyRow(): InterfaceDraftRow {
   return {
@@ -60,10 +90,16 @@ function emptyRow(): InterfaceDraftRow {
     is_data_transfer: false,
     description: '',
     vlan_ids: [],
-    // trunk по умолчанию — п.1.4.3.2 ("используются все vlan (по умолчанию) или только
-    // некоторые)"); access — осознанный выбор пользователя, а не стартовое состояние.
-    vlan_mode: 'trunk',
+    // access по умолчанию — п.1.3.1 ("'Режим порта' по умолчанию должен быть 'Access'"). Ранее
+    // здесь стоял 'trunk' как "нейтральный старт, раз есть все VLAN" (см. историю), но по новой
+    // явной формулировке требования старт должен быть access — trunk теперь осознанный выбор
+    // пользователя, а не стартовое состояние. Инференс режима для СТРОК, УЖЕ ЗАГРУЖЕННЫХ из БД
+    // (в т.ч. исторических с mode=null), — отдельная, намеренно не тронутая здесь логика в
+    // api/deviceInterfaces.ts:loadDeviceInterfaceDraftRows (менять её означало бы на лету менять
+    // трактовку уже сохранённых в БД связей интерфейс-VLAN, а не старт для НОВОЙ пустой строки).
+    vlan_mode: 'access',
     ips: [],
+    open_ports: [],
   }
 }
 
@@ -74,11 +110,31 @@ const TEMPLATE_HELP_TEXT =
   'Примеры:\n' +
   'eth{n} → eth1, eth2, eth3…\n' +
   'GigabitEthernet0/{n0} → GigabitEthernet0/01, GigabitEthernet0/02…\n\n' +
-  'Номер отсчитывается от 1 в пределах одного нажатия "Заменить"/"Добавить" — при "Добавить" '
-  + 'продолжает нумерацию от количества уже существующих интерфейсов, а не начинает заново.'
+  'Номер отсчитывается от 1 в пределах одного нажатия (при "Заменить все порты" выключено — от '
+  + 'количества уже существующих интерфейсов), если поле "Начать нумерацию с" пустое.\n\n' +
+  'Нумерация с определённого до определённого номера: заполните "Начать нумерацию с" явным '
+  + 'числом — например, "Количество: 20" и "Начать с: 5" сгенерируют порты с номерами 5-24 '
+  + '(GigabitEthernet0/5 … GigabitEthernet0/24 для шаблона GigabitEthernet0/{n}).'
 
 function applyTemplate(template: string, n: number): string {
   return template.replaceAll('{n}', String(n)).replaceAll('{n0}', String(n).padStart(2, '0'))
+}
+
+function rowConflict(row: InterfaceDraftRow): string | undefined {
+  return row.id ? props.conflictWarnings[row.id] : undefined
+}
+
+// Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
+// от текущего количества строк при добавлении) — см. её комментарий выше. Пустое поле (юзер
+// стёр значение) трактуется как "не задано", а не как 0. genStartAt.value может быть как строкой,
+// так и числом — v-model на <input type="number"> в Vue 3 сам приводит валидное числовое значение
+// к Number, а не оставляет строкой (в отличие от обычного текстового input), поэтому явных
+// строковых методов вроде .trim() здесь быть не должно.
+function resolveStartNumber(defaultStart: number): number {
+  const raw = genStartAt.value
+  if (raw === '' || raw === null || raw === undefined) return defaultStart
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : defaultStart
 }
 
 // Сохраняет существующие строки по индексу (вместе с их id/ips/vlan_ids) — повторное нажатие
@@ -99,29 +155,43 @@ function applyTemplate(template: string, n: number): string {
 //
 // п.1.4.1: раньше это была ЕДИНСТВЕННАЯ кнопка генератора — "заменить" было единственным
 // доступным режимом, добавить N интерфейсов К уже существующим, не трогая их, было нельзя (кроме
-// как по одному через "+ Интерфейс"). appendGenerated() ниже — вторая кнопка именно для этого.
+// как по одному через "+ Интерфейс"). appendGenerated() ниже — второй режим именно для этого,
+// доступный без галочки "Заменить все порты" (см. applyGenerator() и фикс п.1.3.4).
 function generate() {
-  const hasExistingData = props.modelValue.some(
-    (row) => row.name.trim() || row.mac_address.trim() || row.description.trim() || row.ips.length || row.vlan_ids.length,
-  )
-  if (hasExistingData) {
-    const count = props.modelValue.length
-    const ok = confirm(`Уже заполнено ${count} интерфейс${count === 1 ? '' : 'а(ов)'}. Заменить их шаблонными значениями?`)
+  // Фикс п.1.3.4: раньше подтверждение спрашивалось только если строки содержали "осмысленные"
+  // данные (эвристика hasExistingData) — неочевидно и непредсказуемо для пользователя, когда
+  // именно спросят, а когда молча заменят. Теперь режим "заменить" явно включается галочкой
+  // "Заменить все порты" (по умолчанию выключена, см. applyGenerator()), поэтому предупреждение
+  // безусловно показывается при любом непустом списке — раз уж галочка стоит, значит замена
+  // ожидаема, но масштаб (сколько именно портов будет затронуто) всё равно стоит подтвердить.
+  const count = Math.max(0, Number(genCount.value) || 0)
+  // Фикс (аудит fix/usability-batch4, находка №1): count вычисляется ДО текста подтверждения,
+  // чтобы отдельно предупредить про случай "Заменить все порты" + "Количество" = 0 — раньше это
+  // молча удаляло все существующие порты устройства, а диалог говорил только про "заменит N шт.
+  // новыми", не сообщая, что новых будет ноль.
+  if (props.modelValue.length > 0) {
+    const existingCount = props.modelValue.length
+    const message = count === 0
+      ? `Количество для генерации равно 0 — все ${existingCount} уже добавленных порта(ов) будут удалены, новые созданы не будут. Продолжить?`
+      : `Это полностью заменит все порты устройства (${existingCount} шт.) новыми, сгенерированными по шаблону. Продолжить?`
+    const ok = confirm(message)
     if (!ok) return
   }
-  const count = Math.max(0, Number(genCount.value) || 0)
+  const startNumber = resolveStartNumber(1)
   const rows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => {
     const existing = props.modelValue[i] ?? emptyRow()
     return {
       ...existing,
-      name: applyTemplate(genNameTemplate.value || 'eth{n}', i + 1),
+      name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
       interface_type_id: genTypeId.value || existing.interface_type_id,
       speed_id: genSpeedId.value || existing.speed_id,
     }
   })
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
+  copyTargetIndex.value = {}
   emit('update:modelValue', rows)
+  replaceAllPorts.value = false // одноразовая осознанная галочка — не должна оставаться взведённой "на будущее" (см. её комментарий)
 }
 
 // п.1.4.1: добавляет genCount НОВЫХ интерфейсов к уже существующим, не трогая их вовсе — ни
@@ -133,14 +203,25 @@ function appendGenerated() {
   const count = Math.max(0, Number(genCount.value) || 0)
   if (!count) return
   const startIndex = props.modelValue.length
+  const startNumber = resolveStartNumber(startIndex + 1)
   const newRows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => ({
     ...emptyRow(),
-    name: applyTemplate(genNameTemplate.value || 'eth{n}', startIndex + i + 1),
+    name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
     interface_type_id: genTypeId.value,
     speed_id: genSpeedId.value,
   }))
   selectedIndices.value = new Set()
   emit('update:modelValue', [...props.modelValue, ...newRows])
+}
+
+// Фикс п.1.3.4: единственный обработчик кнопки "Сгенерировать" — маршрутизирует в один из двух
+// прежних режимов по состоянию галочки "Заменить все порты" вместо двух отдельных кнопок.
+function applyGenerator() {
+  if (replaceAllPorts.value) {
+    generate()
+  } else {
+    appendGenerated()
+  }
 }
 
 function addRow() {
@@ -154,6 +235,7 @@ function addRow() {
 function removeRow(index: number) {
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
+  copyTargetIndex.value = {}
   emit(
     'update:modelValue',
     props.modelValue.filter((_, i) => i !== index),
@@ -185,6 +267,46 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
   updateRow(index, { ips: row.ips.map((ip, j) => (j === ipIndex ? { ...ip, ...patch } : ip)) })
 }
 
+// п.1.4 (батч4): выбранный в select'е индекс интерфейса-получателя для кнопки "Копировать" в
+// блоке "Открытые порты" каждой строки — ключ по индексу СТРОКИ-ИСТОЧНИКА (не по её id: у ещё не
+// сохранённой строки id нет). Чисто UI-состояние этого компонента, как selectedIndices/
+// expandedIndices выше — сбрасывается при любом структурном изменении списка (см. generate()/
+// addRow()/removeRow()), чтобы после сдвига индексов старый выбор не указывал на другую строку.
+const copyTargetIndex = ref<Record<number, string>>({})
+
+function setCopyTarget(index: number, targetIndexStr: string) {
+  copyTargetIndex.value = { ...copyTargetIndex.value, [index]: targetIndexStr }
+}
+
+/** Копирует набор открытых портов строки sourceIndex на targetIndex — именно КОПИРУЕТ (у
+ * источника порты остаются как есть), а не переносит: id каждого порта сбрасывается, чтобы при
+ * сохранении backend/app/services/crud.py:_sync_interface_open_ports создал НОВЫЕ записи для
+ * целевого интерфейса, а не попытался переприсвоить владельца уже существующих (это отдельно
+ * отклоняется как "порт не принадлежит выбранному интерфейсу" — порт физически размещён на
+ * одном порту устройства, скопировать можно только сам список технологий/протоколов). Если у
+ * получателя уже есть какие-то порты, требует подтверждения — молчаливая замена была бы
+ * неожиданной потерей уже введённых данных. */
+function copyPortsTo(sourceIndex: number, targetIndex: number) {
+  const source = props.modelValue[sourceIndex]
+  const target = props.modelValue[targetIndex]
+  if (!source || !target || sourceIndex === targetIndex || !source.open_ports.length) return
+  const sourceLabel = source.name || `#${sourceIndex + 1}`
+  const targetLabel = target.name || `#${targetIndex + 1}`
+  if (target.open_ports.length) {
+    const ok = confirm(`На порту «${targetLabel}» уже есть открытые порты (${target.open_ports.length} шт.) — заменить их копией с «${sourceLabel}» (${source.open_ports.length} шт.)?`)
+    if (!ok) return
+  }
+  updateRow(targetIndex, { open_ports: source.open_ports.map((p) => ({ ...p, id: undefined })) })
+  notify(`Открытые порты скопированы с «${sourceLabel}» на «${targetLabel}».`, 'success')
+  setCopyTarget(sourceIndex, '')
+}
+
+function applyCopyPorts(sourceIndex: number) {
+  const targetIndexStr = copyTargetIndex.value[sourceIndex]
+  if (!targetIndexStr) return
+  copyPortsTo(sourceIndex, Number(targetIndexStr))
+}
+
 function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
   const row = props.modelValue[index]
   if (!row) return
@@ -201,7 +323,12 @@ function setVlanMode(index: number, mode: 'access' | 'trunk') {
     // несколько было бы некорректным сочетанием (см. validateInterfaceDraftRows).
     updateRow(index, { vlan_mode: 'access', vlan_ids: row.vlan_ids.slice(0, 1) })
   } else {
-    updateRow(index, { vlan_mode: 'trunk' })
+    // Фикс п.2.1.1: переключение на trunk сразу отмечает "Все VLAN" — раньше vlan_ids оставался
+    // как есть (пустым для новой строки), и пользователю приходилось ещё и сообразить, что нужно
+    // отдельно поставить галочку "Все VLAN" самому. "Все VLAN" — не флаг, а состояние, когда
+    // vlan_ids покрывает весь vlanOptions (см. isAllVlansSelected ниже), поэтому здесь просто
+    // сразу проставляем этот набор целиком.
+    updateRow(index, { vlan_mode: 'trunk', vlan_ids: props.vlanOptions.map((v) => v.id) })
   }
 }
 
@@ -321,6 +448,10 @@ function applyBulkEdit() {
         <input type="number" min="0" v-model="genCount" />
       </label>
       <label>
+        <span>Начать нумерацию с</span>
+        <input type="number" v-model="genStartAt" placeholder="авто" title="Например, 'Количество: 20' и 'Начать с: 5' сгенерируют порты с номерами 5-24. Пусто — прежнее поведение: 1 при замене, продолжение от количества уже добавленных портов при дополнении." />
+      </label>
+      <label>
         <span>Шаблон имени <HelpTip :text="TEMPLATE_HELP_TEXT" /></span>
         <input type="text" v-model="genNameTemplate" placeholder="eth{n}" />
       </label>
@@ -345,91 +476,94 @@ function applyBulkEdit() {
         </div>
       </label>
       <div class="generator-actions">
-        <button type="button" class="btn btn-secondary" @click="generate">Сгенерировать</button>
-        <button type="button" class="btn btn-secondary" @click="appendGenerated">Дополнить</button>
+        <label class="replace-all-check">
+          <input type="checkbox" v-model="replaceAllPorts" />
+          <span>Заменить все порты</span>
+        </label>
+        <button type="button" class="btn btn-secondary" @click="applyGenerator">Сгенерировать</button>
       </div>
     </div>
-    <span class="hint generator-hint">«Сгенерировать» заменяет уже добавленные интерфейсы шаблонными значениями; «Дополнить» добавляет новые вдобавок к уже существующим, не изменяя их (п.1.4.1).</span>
+    <span class="hint generator-hint">Без галочки «Заменить все порты» новые интерфейсы добавляются к уже существующим, не изменяя их. С галочкой — все существующие интерфейсы заменяются шаблонными значениями (после подтверждения).</span>
 
-    <div v-if="modelValue.length" class="bulk-edit-bar">
-      <b>Массовое редактирование</b>
-      <label class="if-select-label">
-        <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
-        <span>Выбрать все</span>
-      </label>
-      <label class="bulk-field">
-        <span>Тип интерфейса</span>
-        <select v-model="bulkTypeId">
-          <option value="">— не менять —</option>
-          <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Скорость</span>
-        <select v-model="bulkSpeedId">
-          <option value="">— не менять —</option>
-          <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Управление</span>
-        <select v-model="bulkManagement">
-          <option value="">— не менять —</option>
-          <option value="true">Включить</option>
-          <option value="false">Выключить</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Передача данных</span>
-        <select v-model="bulkDataTransfer">
-          <option value="">— не менять —</option>
-          <option value="true">Включить</option>
-          <option value="false">Выключить</option>
-        </select>
-      </label>
-      <label class="bulk-field">
-        <span>Режим порта</span>
-        <select v-model="bulkVlanMode">
-          <option value="">— не менять —</option>
-          <option value="trunk">Trunk</option>
-          <option value="access">Access</option>
-        </select>
-      </label>
-      <div class="bulk-field bulk-field-wide">
-        <span>VLAN на порту (будет добавлен к выбранным)</span>
-        <div v-if="vlanOptions.length" class="vlan-checks">
-          <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-            <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-            {{ vlanLabel(v) }}
-          </label>
+    <!-- Фикс п.1.3.5: "Массовое редактирование" раньше было отдельной карточкой со своей рамкой
+         НАД карточкой списка интерфейсов — два визуально несвязанных блока, хотя по смыслу
+         "массовое редактирование" относится ровно к тому, что показано в этой самой таблице
+         строкой ниже. iface-panel — одна общая рамка на весь блок (шапка со счётчиком/кнопкой
+         "+ Интерфейс" -> панель массового редактирования -> сама таблица), без отдельной рамки
+         у bulk-edit-bar (только разделитель снизу, см. её CSS) — теперь читается как один
+         прикреплённый к таблице узел, а не как два независимых. -->
+    <div v-if="modelValue.length" class="iface-panel">
+      <div class="bulk-edit-bar">
+        <b>Массовое редактирование</b>
+        <label class="if-select-label">
+          <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
+          <span>Выбрать все</span>
+        </label>
+        <label class="bulk-field">
+          <span>Тип интерфейса</span>
+          <select v-model="bulkTypeId">
+            <option value="">— не менять —</option>
+            <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Скорость</span>
+          <select v-model="bulkSpeedId">
+            <option value="">— не менять —</option>
+            <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Управление</span>
+          <select v-model="bulkManagement">
+            <option value="">— не менять —</option>
+            <option value="true">Включить</option>
+            <option value="false">Выключить</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Передача данных</span>
+          <select v-model="bulkDataTransfer">
+            <option value="">— не менять —</option>
+            <option value="true">Включить</option>
+            <option value="false">Выключить</option>
+          </select>
+        </label>
+        <label class="bulk-field">
+          <span>Режим порта</span>
+          <select v-model="bulkVlanMode">
+            <option value="">— не менять —</option>
+            <option value="trunk">Trunk</option>
+            <option value="access">Access</option>
+          </select>
+        </label>
+        <div class="bulk-field bulk-field-wide">
+          <span>VLAN на порту (будет добавлен к выбранным)</span>
+          <div v-if="vlanOptions.length" class="vlan-checks">
+            <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+              <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+              {{ vlanLabel(v) }}
+            </label>
+          </div>
+          <span v-else class="empty">VLAN не назначены</span>
         </div>
-        <span v-else class="empty">VLAN не назначены</span>
+        <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
       </div>
-      <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
-    </div>
 
-    <div v-if="modelValue.length" class="iface-list-head">
-      <b>Список интерфейсов</b>
-      <button type="button" class="btn btn-secondary" @click="addRow">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Интерфейс
-      </button>
-    </div>
+      <div class="iface-list-head">
+        <b>Список интерфейсов</b>
+        <button type="button" class="btn btn-secondary" @click="addRow">
+          <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+          Интерфейс
+        </button>
+      </div>
 
-    <div v-if="!modelValue.length" class="empty">
-      Интерфейсы не добавлены
-      <button type="button" class="btn btn-secondary" @click="addRow">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Интерфейс
-      </button>
-    </div>
-
-    <!-- п.3.4: список интерфейсов — компактная таблица вместо карточек на каждый интерфейс;
-         редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
-         toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
-         десятке портов. -->
-    <div v-else class="iface-table-wrap">
-      <table class="iface-table">
+      <!-- п.3.4: список интерфейсов — компактная таблица вместо карточек на каждый интерфейс;
+           редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
+           toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
+           десятке портов. -->
+      <div class="iface-table-wrap">
+        <table class="iface-table">
         <thead>
           <tr>
             <th class="col-select">
@@ -481,10 +615,11 @@ function applyBulkEdit() {
                   <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
                 </select>
               </td>
-              <td class="col-check">
+              <td class="col-check" :class="{ 'has-conflict': rowConflict(row) }" :title="rowConflict(row)">
                 <input type="checkbox" :checked="row.is_management" @change="updateRow(i, { is_management: ($event.target as HTMLInputElement).checked })" />
+                <svg v-if="rowConflict(row)" class="icon conflict-icon" aria-label="Расхождение с подключённым портом"><use href="/icons.svg#i-alert" /></svg>
               </td>
-              <td class="col-check">
+              <td class="col-check" :class="{ 'has-conflict': rowConflict(row) }" :title="rowConflict(row)">
                 <input type="checkbox" :checked="row.is_data_transfer" @change="updateRow(i, { is_data_transfer: ($event.target as HTMLInputElement).checked })" />
               </td>
               <td>
@@ -588,12 +723,60 @@ function applyBulkEdit() {
                       </button>
                     </div>
                   </div>
+
+                  <!-- Фикс п.1.4 (батч4): "Открытые порты" — теперь блок КОНКРЕТНОГО интерфейса
+                       (был один общий на всё устройство в DeviceFormModal.vue), плюс копирование
+                       уже введённого набора на другой интерфейс — типичный случай, когда
+                       однотипные порты (uplink-группа, стек коммутаторов) незачем набирать
+                       вручную заново на каждом. -->
+                  <div class="ports-block">
+                    <div class="ports-head">
+                      <b>Открытые порты</b>
+                      <div v-if="modelValue.length > 1" class="copy-ports-row">
+                        <select
+                          class="copy-target-select"
+                          :value="copyTargetIndex[i] ?? ''"
+                          aria-label="Скопировать открытые порты на другой интерфейс"
+                          @change="setCopyTarget(i, ($event.target as HTMLSelectElement).value)"
+                        >
+                          <option value="">Скопировать на порт…</option>
+                          <template v-for="(other, oi) in modelValue" :key="other.id ?? oi">
+                            <option v-if="oi !== i" :value="String(oi)">{{ other.name || `#${oi + 1}` }}</option>
+                          </template>
+                        </select>
+                        <button
+                          type="button"
+                          class="btn btn-secondary"
+                          :disabled="!row.open_ports.length || !copyTargetIndex[i]"
+                          title="Скопировать открытые порты этого интерфейса на выбранный"
+                          @click="applyCopyPorts(i)"
+                        >
+                          <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
+                          Копировать
+                        </button>
+                      </div>
+                    </div>
+                    <OpenPortListEditor
+                      :model-value="row.open_ports"
+                      :catalog-entries="protocolPortCatalog"
+                      @update:model-value="(v) => updateRow(i, { open_ports: v })"
+                    />
+                  </div>
                 </div>
               </td>
             </tr>
           </template>
         </tbody>
       </table>
+      </div>
+    </div>
+
+    <div v-else class="empty">
+      Интерфейсы не добавлены
+      <button type="button" class="btn btn-secondary" @click="addRow">
+        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+        Интерфейс
+      </button>
     </div>
   </div>
 </template>
@@ -647,7 +830,21 @@ function applyBulkEdit() {
 }
 .generator-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+}
+.replace-all-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.replace-all-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
 }
 .generator-hint {
   display: block;
@@ -674,14 +871,25 @@ function applyBulkEdit() {
 .generator .lookup-row select {
   width: 130px;
 }
+/* Фикс п.1.3.5: одна общая рамка на "Массовое редактирование" + шапку списка + саму таблицу —
+   раньше у bulk-edit-bar была своя рамка отдельно от таблицы ниже, из-за чего они читались как
+   два разных, визуально не связанных блока, хотя массовое редактирование имеет смысл только в
+   контексте этой же таблицы. */
+.iface-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 10px;
+}
 .bulk-edit-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 14px;
-  padding: 10px;
-  border: 1px dashed var(--border);
-  border-radius: var(--r-s);
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border);
 }
 .bulk-edit-bar > b {
   flex-basis: 100%;
@@ -777,6 +985,20 @@ function applyBulkEdit() {
 .iface-table .col-index {
   color: var(--ink-muted);
 }
+/* Фикс п.3.3 (вторая часть): подсвечивает ячейку "Упр."/"Данные" интерфейса, чьё назначение
+   разошлось с назначением на связанном (по активному подключению) порту другого устройства. */
+.iface-table .col-check.has-conflict {
+  background: var(--status-warn-soft);
+  position: relative;
+}
+.iface-table .conflict-icon {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 11px;
+  height: 11px;
+  color: var(--status-warn);
+}
 .cell-input {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -838,7 +1060,7 @@ function applyBulkEdit() {
 .field input[type='text'],
 .field select,
 .field textarea {
-  background: var(--surface-1);
+  background: var(--surface-1, var(--surface));
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 7px 8px;
@@ -915,7 +1137,7 @@ function applyBulkEdit() {
   gap: 8px;
 }
 .ip-row input {
-  background: var(--surface-1);
+  background: var(--surface-1, var(--surface));
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   padding: 6px 8px;
@@ -931,10 +1153,44 @@ function applyBulkEdit() {
 .icon-btn.danger:hover {
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
 }
+.ports-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.ports-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ports-head b {
+  font-size: 11.5px;
+}
+.copy-ports-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.copy-target-select {
+  background: var(--surface-1, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ink);
+}
 
 @media (max-width: 640px) {
   .ip-row {
     grid-template-columns: 1fr;
+  }
+  .copy-ports-row {
+    flex-wrap: wrap;
+    width: 100%;
   }
 }
 </style>

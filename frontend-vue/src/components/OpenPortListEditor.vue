@@ -13,6 +13,13 @@ import QuickAddButton from './QuickAddButton.vue'
 const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: OpenPortDraftRow[]] }>()
 
+// Фикс п.1.5/4.3 ("дублирование полей 'Протокол' и блок с выбором TCP/UDP"): поля НЕ объединены,
+// т.к. это разные атрибуты одной и той же записи открытого порта, оба нужны для отчёта Excel
+// (backend/app/reporting.py собирает ячейку как "{transport_protocol}/{port}, {protocol}, ...") —
+// protocol здесь прикладной уровень (SSH, HTTPS), transport_protocol — транспортный (TCP/UDP).
+// Реальная причина путаницы — оба поля были без подписи (голый placeholder на входе, у select
+// вообще никакой), из-за чего "TCP" в select рядом с "SSH"/"TCP/HTTPS" в текстовом поле читались
+// как одно и то же. Правка — только title/placeholder, без изменения модели данных.
 const TRANSPORT_OPTIONS = ['TCP', 'UDP', 'TCP/UDP']
 
 function emptyRow(): OpenPortDraftRow {
@@ -94,12 +101,14 @@ function onQuickAdded(index: number, record: CatalogItem) {
       <input
         class="col-protocol"
         type="text"
-        placeholder="Протокол"
+        placeholder="Протокол (напр. SSH)"
+        title="Протокол — прикладного уровня (SSH, HTTPS, SNMP и т.п.), не путать с транспортным протоколом справа"
         :value="row.protocol"
         @input="updateField(i, { protocol: ($event.target as HTMLInputElement).value })"
       />
       <select
         class="col-transport"
+        title="Транспортный протокол (TCP/UDP) — отдельно от прикладного протокола слева"
         :value="row.transport_protocol"
         @change="updateField(i, { transport_protocol: ($event.target as HTMLSelectElement).value })"
       >

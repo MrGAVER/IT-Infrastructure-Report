@@ -22,14 +22,16 @@ import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
 import { useContainersStore } from '../stores/containers'
 import { filterHostDevices } from '../utils/deviceFilters'
+import { isValidIPv4 } from '../utils/ipValidation'
 import CatalogPickerListEditor from './CatalogPickerListEditor.vue'
 import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
 import ISSourcesListEditor from './ISSourcesListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
+import { stripIds } from '../utils/copyEntity'
 
-const props = defineProps<{ system: InformationSystem | null }>()
+const props = defineProps<{ system: InformationSystem | null; copyFrom?: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -117,35 +119,49 @@ function migrateLegacyToSources(details: InformationSystemDetails): ISSource[] {
 }
 
 watch(
-  () => props.system,
-  async (s) => {
+  () => props.system ?? props.copyFrom ?? null,
+  async (source) => {
+    // Аудит fix/usability-batch4 (находка №5): см. подробный комментарий в DeviceFormModal.vue.
+    if (props.system && props.copyFrom) {
+      console.warn('InformationSystemFormModal: одновременно переданы system и copyFrom — используется system (режим редактирования)')
+    }
+    const isCopy = !props.system && !!props.copyFrom
     Object.assign(form, emptyForm())
     departments.value = []
     protocols.value = []
     sources.value = []
     placementAssets.value = []
-    if (s) {
+    if (source) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
-        const value = s[key as keyof InformationSystem]
+        const value = source[key as keyof InformationSystem]
         if (typeof form[key] === 'boolean') {
           ;(form[key] as boolean) = Boolean(value)
         } else {
           ;(form[key] as string) = (value as string) ?? ''
         }
       }
+      // name уникален (UniqueConstraint в backend/app/models.py) — под тем же названием копию
+      // не сохранить, заставляем ввести новое явно.
+      if (isCopy) form.name = ''
     }
 
     loadingNested.value = true
     try {
       const [, details] = await Promise.all([
         containersStore.ensureLoaded(),
-        s ? api.get<InformationSystemDetails>(`/resources/information-systems/${s.id}/details`) : Promise.resolve(null),
+        source ? api.get<InformationSystemDetails>(`/resources/information-systems/${source.id}/details`) : Promise.resolve(null),
       ])
       if (details) {
-        departments.value = details.departments.map((x) => ({ id: x.id, catalogId: x.department_id }))
-        protocols.value = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id ?? '', protocol: x.protocol, port: x.port, description: x.description ?? '' }))
-        sources.value = migrateLegacyToSources(details).map(toSourceDraftRow)
-        placementAssets.value = details.placement_assets.map((x) => ({ id: x.id, catalogId: x.placement_asset_id }))
+        const rawDepartments = details.departments.map((x) => ({ id: x.id, catalogId: x.department_id }))
+        const rawProtocols = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id ?? '', protocol: x.protocol, port: x.port, description: x.description ?? '' }))
+        const rawSources = migrateLegacyToSources(details).map(toSourceDraftRow)
+        const rawPlacementAssets = details.placement_assets.map((x) => ({ id: x.id, catalogId: x.placement_asset_id }))
+        // При копировании каждая вложенная строка должна создаться заново под НОВОЙ ИС, а не
+        // обновить запись донора — см. подробный комментарий у stripIds() выше.
+        departments.value = isCopy ? stripIds(rawDepartments) : rawDepartments
+        protocols.value = isCopy ? stripIds(rawProtocols) : rawProtocols
+        sources.value = isCopy ? stripIds(rawSources) : rawSources
+        placementAssets.value = isCopy ? stripIds(rawPlacementAssets) : rawPlacementAssets
       }
     } catch (err) {
       errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить связанные данные информационной системы'
@@ -201,6 +217,14 @@ async function submit() {
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите наименование информационной системы.'
     return
+  }
+  // Фикс п.3: "применить исправление [валидации IP] ко всем полям с ip" — источники ИС
+  // (ISSourcesListEditor.vue) тоже содержат IP-адрес, только без отдельного поля префикса.
+  for (const row of sources.value) {
+    if (!isValidIPv4(row.ip_address)) {
+      errorMessage.value = `Некорректный IP-адрес «${row.ip_address}» в источниках информационной системы.`
+      return
+    }
   }
   saving.value = true
   try {

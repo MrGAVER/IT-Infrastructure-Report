@@ -22,7 +22,6 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 # Must be set before importing app.config/app.db, which read these at import time.
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("INFRA_REGISTRY_ENABLE_TEST_DATA", "1")
 # Keeps generated reports (see TestReports in test_api.py) out of the real project
 # directory/reports folder — app.config.REPORT_DIR defaults to <project>/reports otherwise.
 os.environ.setdefault("INFRA_REGISTRY_DATA_DIR", tempfile.mkdtemp(prefix="infra_registry_tests_"))

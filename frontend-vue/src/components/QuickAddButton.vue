@@ -6,7 +6,7 @@ import { ref } from 'vue'
 import QuickAddModal from './QuickAddModal.vue'
 import type { CatalogItem } from '../api/types'
 
-const props = defineProps<{ resource: string; title?: string }>()
+const props = defineProps<{ resource: string; title?: string; initialValues?: Record<string, string> }>()
 const emit = defineEmits<{ created: [record: CatalogItem] }>()
 
 const open = ref(false)
@@ -21,7 +21,7 @@ function onCreated(record: CatalogItem) {
   <button type="button" class="quick-add-btn" :aria-label="`Добавить: ${title ?? resource}`" @click="open = true">
     <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
   </button>
-  <QuickAddModal v-if="open" :resource="resource" @close="open = false" @created="onCreated" />
+  <QuickAddModal v-if="open" :resource="resource" :initial-values="initialValues" @close="open = false" @created="onCreated" />
 </template>
 
 <style scoped>

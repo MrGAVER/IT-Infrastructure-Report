@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
+import { useConnectionsStore } from '../../stores/connections'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
 
 function stubCatalogsFetch() {
@@ -133,7 +134,9 @@ describe('DeviceFormModal.vue', () => {
     expect(wrapper.emitted('close')).toBeTruthy()
   })
 
-  it('при редактировании подгружает существующие открытые порты устройства', async () => {
+  it('при редактировании подгружает существующие открытые порты интерфейса устройства', async () => {
+    // Фикс п.1.4 (батч4): открытые порты — свойство интерфейса, а не всего устройства (см.
+    // InterfaceDraftRow.open_ports в types.ts) — блок раскрывается вместе с VLAN/IP интерфейса.
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()
@@ -142,10 +145,20 @@ describe('DeviceFormModal.vue', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.includes('/resources/interfaces')) {
+          return new Response(
+            JSON.stringify({
+              items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
+          )
+        }
         if (url.includes('/resources/open-ports')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'op-1', owner_type: 'physical_device', owner_id: 'dev-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }],
+              items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -158,14 +171,19 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
+    await wrapper.find('.expand-toggle').trigger('click') // открытые порты скрыты до раскрытия строки интерфейса
 
     expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
   })
 
-  it('сохраняет добавленный открытый порт под id нового устройства и не отправляет пустые строки', async () => {
+  it('сохраняет добавленный открытый порт интерфейса под id нового устройства и не отправляет пустые строки', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    await wrapper.find('button.add-btn').trigger('click') // + Открытый порт, оставляем пустым
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('eth0') // имя обязательно — иначе validateInterfaceDraftRows не даст сохранить
+    await wrapper.find('.expand-toggle').trigger('click')
+    await wrapper.find('.ports-block button.add-btn').trigger('click') // + Открытый порт, оставляем пустым
+
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
       'fetch',
@@ -184,7 +202,8 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/open-ports'))).toBe(false)
+    const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
+    expect((ifacesPut?.body as { interfaces: Array<{ open_ports: unknown[] }> })?.interfaces?.[0]?.open_ports).toEqual([])
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
@@ -196,7 +215,7 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = mount(DeviceFormModal, { props: { device: null } })
 
     const addButtons = wrapper.findAll('button.add-btn')
-    await addButtons[1].trigger('click') // + Программный актив (открытые порты — первая кнопка)
+    await addButtons[0].trigger('click') // + Программный актив — единственная кнопка add-btn на пустой форме (открытые порты теперь внутри интерфейса, см. фикс п.1.4)
     await wrapper.find('.col-asset select').setValue('sa-ad')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
@@ -285,6 +304,36 @@ describe('DeviceFormModal.vue', () => {
     const ifaceCall = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
     expect(ifaceCall?.body).toMatchObject({ interfaces: [{ name: 'eth0', vlan_ids: [], ips: [] }] })
     expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  it('п.3.1: после сохранения устройства catalogs.items[\'interfaces\'] обновляется — без этого поле "Порт" в форме подключения оставалось пустым до перезагрузки страницы', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [] // как в реальности сразу после старта приложения — у нового устройства портов ещё не видел никто
+
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.iface-table input.cell-input').setValue('eth0')
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'POST' && url.includes('/resources/devices')) {
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-6' }), { status: 201 })
+        }
+        if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
+          return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', vlan_mode: 'access' }] }))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-6')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(catalogs.items['interfaces']).toEqual([{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', vlan_mode: 'access' }])
   })
 
   it('не стирает VLAN интерфейса, назначенные через /legacy, при сохранении без их редактирования', async () => {
@@ -380,6 +429,80 @@ describe('DeviceFormModal.vue', () => {
     const labels = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all)').map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
+  })
+
+  it('п.1.3.8: VLAN нового домена, в котором устройство не состоит, остаётся выбираемым и не ломает сохранение', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = []
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+    catalogs.items['vlan-domains'] = [{ id: 'domain-x', name: 'Домен X' }]
+
+    const device = { id: 'dev-8', device_type_id: 'dt-server', serial_number: 'SN-20' } as never
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        // Устройство пока НЕ состоит ни в одном домене VLAN — воспроизводит саму суть бага:
+        // "в справочнике vlan устройство не добавлено в этот домен".
+        if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }
+        if (method === 'POST' && url.endsWith('/resources/vlans')) {
+          return new Response(JSON.stringify({ id: 'v-new', vlan_id: 55, name: 'Гостевой-X', domain_id: 'domain-x' }), { status: 201 })
+        }
+        if (url.includes('/vlan-dashboard')) {
+          // useVLANsStore().reload() — вызывается из onVlanCreated() в DeviceFormModal.vue сразу
+          // после создания, иначе только что заведённый VLAN не попал бы в vlansStore.allDefinitions
+          // (а значит и в availableVlans) до следующей полной перезагрузки стора.
+          return new Response(
+            JSON.stringify({
+              items: [{ vlan_id: 55, definitions: [{ id: 'v-new', vlan_id: 55, name: 'Гостевой-X', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }] }],
+            }),
+          )
+        }
+        if (method === 'PUT' && url.includes('/resources/devices/dev-8')) {
+          return new Response(JSON.stringify(device))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    // .add-btn — общий класс у всех nested-editor'ов (Открытые порты/ПО/VLAN и т.п.), поэтому
+    // ищем именно блок "VLAN устройства" по его собственному заголовку, а не просто первый попавшийся.
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    await vlanEditor.find('.add-btn').trigger('click') // добавляет пустую строку VLAN устройства
+    await vlanEditor.find('.col-vlan button').trigger('click') // "+" у неё — открывает "Добавить: VLAN"
+    const body = new DOMWrapper(document.body)
+    await body.find('input[type="number"]').setValue(55)
+    await body.findAll('input[type="text"]')[0].setValue('Гостевой-X')
+    await body.find('.fk-row .searchable-select input').trigger('focus')
+    await body.find('.fk-row .ss-option').trigger('mousedown') // единственная опция — "Домен X"
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    // Фикс п.1.3.8, часть 1: VLAN не выпал из options сразу после создания — есть совпадающий
+    // <option>, а не "висящий" vlan_id без него (что визуально выглядело бы как сброс выбора).
+    expect(wrapper.find('option[value="v-new"]').exists()).toBe(true)
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Фикс п.1.3.8, часть 2: устройство реально закреплено за доменом на бэкенде — иначе
+    // backend/app/services/crud.py:_validate_physical_device_vlan откатил бы device-vlans
+    // с 422 "Устройство не включено в домен этого VLAN".
+    const membershipIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
+    const deviceVlanIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/device-vlans'))
+    expect(membershipIdx).toBeGreaterThanOrEqual(0)
+    expect(calls[membershipIdx].body).toEqual({ physical_device_id: 'dev-8', domain_id: 'domain-x' })
+    expect(deviceVlanIdx).toBeGreaterThan(membershipIdx) // порядок важен — см. комментарий в submit()
   })
 
   it('снятие VLAN устройства убирает его из vlan_ids уже заведённого порта при сохранении', async () => {
@@ -545,6 +668,25 @@ describe('DeviceFormModal.vue', () => {
     expect((select.element as HTMLSelectElement).value).toBe('type:dt-server')
   })
 
+  it('п.1.3.7: option модели показывает производителя целиком ("Cisco WS-C2960-48TD-L"), не только модель', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['manufacturers'] = [{ id: 'mf-cisco', name: 'Cisco' }]
+    catalogs.items['device-models'] = [
+      { id: 'dm-1', name: 'WS-C2960-48TD-L', manufacturer_id: 'mf-cisco', device_type_id: 'dt-net', model: 'WS-C2960-48TD-L' },
+    ]
+    await wrapper.vm.$nextTick()
+
+    const select = wrapper.find('.form-grid .lookup-row select')
+    const options = select.findAll('option')
+    const modelOption = options.find((o) => (o.element as HTMLOptionElement).value === 'model:dm-1')
+    expect(modelOption?.text()).toBe('Cisco WS-C2960-48TD-L')
+    // Закрытый select после выбора показывает ТОЛЬКО текст option (заголовок optgroup не виден) —
+    // это и есть тот сценарий, где раньше терялось "чьё это оборудование".
+    await select.setValue('model:dm-1')
+    expect(modelOption?.text()).toContain('Cisco')
+  })
+
   it('быстрое добавление модели устройства синхронизирует тип и производителя формы', async () => {
     const wrapper = await mountWithLoadedCatalogs()
     const catalogs = useCatalogsStore()
@@ -602,6 +744,32 @@ describe('DeviceFormModal.vue', () => {
     expect(sentBody.model_id).toBe('dm-new')
   })
 
+  it('п.1.1: поле "Помещение" — SearchableSelect, фильтруется вводом текста', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }]
+    catalogs.items['rooms'] = [
+      { id: 'room-1', building_id: 'b-1', name: 'Серверная 101' },
+      { id: 'room-2', building_id: 'b-1', name: 'Архив 204' },
+    ]
+    await wrapper.vm.$nextTick()
+
+    // "Помещение" disabled без выбранного здания — сперва выбираем здание тем же SearchableSelect.
+    const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
+    await buildingRow.find('.searchable-select input').trigger('focus')
+    await buildingRow.find('.ss-option').trigger('mousedown')
+
+    const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
+    const roomInput = roomRow.find('.searchable-select input')
+    expect(roomInput.attributes('disabled')).toBeUndefined() // разблокировалось после выбора здания
+    await roomInput.trigger('focus')
+    await roomInput.setValue('Архив')
+
+    const options = roomRow.findAll('.ss-option')
+    expect(options).toHaveLength(1)
+    expect(options[0].text()).toBe('Архив 204')
+  })
+
   it('быстрое добавление здания подставляет его в форму', async () => {
     const wrapper = await mountWithLoadedCatalogs()
     vi.stubGlobal(
@@ -621,7 +789,9 @@ describe('DeviceFormModal.vue', () => {
     await body.find('.overlay form').trigger('submit')
     await flushPromises()
 
-    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-new')
+    // Фикс п.1.1: поле теперь SearchableSelect, не нативный <select> — читаем отображённую
+    // подпись выбранной опции через её input, как и везде в тестах SearchableSelect.
+    expect((buildingRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
   })
 
   it('быстрое добавление помещения синхронизирует здание формы (п.3.1)', async () => {
@@ -652,8 +822,8 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
-    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-1')
-    expect((roomRow.find('select').element as HTMLSelectElement).value).toBe('room-new')
+    expect((buildingRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('Корпус А')
+    expect((roomRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('204')
   })
 
   it('быстрое добавление стойки синхронизирует помещение и здание формы (п.3.1)', async () => {
@@ -685,9 +855,9 @@ describe('DeviceFormModal.vue', () => {
 
     const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
     const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
-    expect((buildingRow.find('select').element as HTMLSelectElement).value).toBe('b-1')
-    expect((roomRow.find('select').element as HTMLSelectElement).value).toBe('room-1')
-    expect((rackRow.find('select').element as HTMLSelectElement).value).toBe('rack-new')
+    expect((buildingRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('Корпус А')
+    expect((roomRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('204')
+    expect((rackRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('R-1')
   })
 
   // п.3.8: наивный @click.self на подложке закрывал форму при попытке выделить текст внутри
@@ -715,10 +885,12 @@ describe('DeviceFormModal.vue', () => {
     })
   })
 
-  it('быстрое добавление записи протокола/порта автозаполняет строку открытого порта', async () => {
+  it('быстрое добавление записи протокола/порта автозаполняет строку открытого порта интерфейса', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
-    await wrapper.find('button.add-btn').trigger('click') // + Открытый порт — первый add-btn в форме
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.expand-toggle').trigger('click')
+    await wrapper.find('.ports-block button.add-btn').trigger('click') // + Открытый порт
     await wrapper.find('.col-catalog button').trigger('click') // "+" рядом со справочником в самой строке
 
     vi.stubGlobal(
@@ -757,5 +929,342 @@ describe('DeviceFormModal.vue', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('фикс п.2: копирование устройства ("copyFrom")', () => {
+    const sourceDevice = { id: 'dev-src', device_type_id: 'dt-server', serial_number: 'SN-ORIGINAL', system_name: 'srv-original' } as never
+
+    it('аудит fix/usability-batch4 (находка №5): одновременная передача device и copyFrom — предупреждение в консоль, побеждает device (edit)', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const editedDevice = { id: 'dev-edit', device_type_id: 'dt-server', serial_number: 'SN-EDIT', system_name: 'srv-edit' } as never
+      const wrapper = mount(DeviceFormModal, { props: { device: editedDevice, copyFrom: sourceDevice } })
+      await flushPromises()
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('используется device'))
+      // device выигрывает как более безопасный исход — это по-прежнему редактирование, а не
+      // создание копии с данными донора.
+      expect(wrapper.find('h2').text()).toBe('Редактировать устройство')
+      expect(wrapper.find('input[required][maxlength="255"]').element).toHaveProperty('value', 'SN-EDIT')
+    })
+
+    it('форма открывается в режиме СОЗДАНИЯ (не редактирования), поля донора подставлены, serial_number очищен', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+
+      const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
+      await flushPromises()
+
+      expect(wrapper.find('h2').text()).toBe('Добавить устройство') // не "Редактировать" — это создание нового
+      expect(wrapper.find('input[required][maxlength="255"]').element).toHaveProperty('value', '') // Серийный номер — уникален, копировать нельзя
+      expect(wrapper.find('input[maxlength="255"]:not([required])').element).toHaveProperty('value', 'srv-original') // Системное имя — скопировано как есть
+    })
+
+    it('вложенные строки (порты интерфейса, ПО, интерфейсы, VLAN устройства) грузятся у донора, но сохраняются БЕЗ его id — иначе backend отклонит их как чужие', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          // Фикс п.1.4 (батч4): открытый порт донора висит на его интерфейсе (owner_type=
+          // 'device_interface', owner_id интерфейса), а не на самом устройстве.
+          if (url.includes('/resources/open-ports') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/interfaces') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'if-src', physical_device_id: 'dev-src', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (method === 'POST' && url.includes('/resources/devices')) {
+            return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
+      await flushPromises()
+      await wrapper.find('.expand-toggle').trigger('click') // порты скрыты до раскрытия строки интерфейса
+
+      // Донор дал открытый порт 22/SSH на интерфейсе eth0 — оба должны были подгрузиться в форму.
+      expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
+
+      await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      // Открытые порты больше не PUT'ятся отдельным запросом на /resources/open-ports — они
+      // едут атомарно вместе со своим интерфейсом внутри /devices/dev-new/interfaces (см.
+      // api/deviceInterfaces.ts:persistDeviceInterfaces), поэтому здесь проверяется только он.
+      const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
+      const savedInterface = (ifacesPut?.body as { interfaces: Array<{ id?: string; open_ports: Array<{ id?: string }> }> })?.interfaces?.[0]
+      expect(savedInterface?.id).toBeUndefined()
+      expect(savedInterface?.open_ports?.[0]?.id).toBeUndefined()
+    })
+
+    it('членство донора в домене VLAN переносится как "предстоит создать", а не как уже подтверждённое', async () => {
+      stubCatalogsFetch()
+      const catalogs = useCatalogsStore()
+      await catalogs.ensureLoaded()
+      const vlans = useVLANsStore()
+      vlans.groups = [{ vlan_id: 77, definitions: [{ id: 'v-domain', vlan_id: 77, name: 'Гостевой', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }] }]
+      vlans.loaded = true
+
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'link-src', domain_id: 'domain-x', physical_device_id: 'dev-src' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (method === 'POST' && url.includes('/resources/devices')) {
+            return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
+      await flushPromises()
+
+      // VLAN домена, участником которого была ТОЛЬКО донор-запись, уже виден в опциях нового
+      // устройства — иначе пользователь не смог бы вообще выбрать унаследованные VLAN донора.
+      // Option рендерится на каждой СТРОКЕ "VLAN устройства" (DeviceVlanListEditor.vue) — строк
+      // изначально 0 (донор ни одного VLAN устройства не назначал в этом тесте), поэтому сперва
+      // добавляем пустую строку кнопкой "+ VLAN", как это сделал бы пользователь.
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      expect(wrapper.find('option[value="v-domain"]').exists()).toBe(true)
+
+      await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const membershipPost = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
+      expect(membershipPost?.body).toEqual({ physical_device_id: 'dev-new', domain_id: 'domain-x' })
+    })
+  })
+
+  describe('фикс п.3.3 (вторая часть): предупреждение при редактировании "Управления"/"Передачи данных"', () => {
+    const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+
+    it('интерфейс с активным подключением, чьё назначение расходится со "вторым концом", подсвечивается предупреждением', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['interfaces'] = [
+        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' },
+        { id: 'if-other', physical_device_id: 'dev-2', name: 'Gi0/2', is_management: false, is_data_transfer: true, vlan_mode: 'trunk' },
+      ] as never
+      const connections = useConnectionsStore()
+      connections.all = [{ id: 'c-1', source_interface_id: 'if-this', destination_interface_id: 'if-other', is_active: true } as never]
+      connections.loaded = true
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      const cell = wrapper.find('td.col-check')
+      expect(cell.classes()).toContain('has-conflict')
+    })
+
+    it('интерфейс без активных подключений — предупреждения нет', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['interfaces'] = [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }] as never
+      const connections = useConnectionsStore()
+      connections.all = []
+      connections.loaded = true
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
+    })
+  })
+
+  describe('фикс п.2.1.2: новый VLAN устройства автоматически подхватывается портами с "Все VLAN"', () => {
+    it('интерфейс в trunk-режиме, где уже выбраны все текущие опции, получает вновь добавленный VLAN устройства', async () => {
+      const vlans = useVLANsStore()
+      vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-old', vlan_id: 10, name: 'Old', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+      vlans.loaded = true
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.includes('/resources/device-types')) return new Response(JSON.stringify(deviceTypesFixture))
+          if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
+          // Тип устройства не даёт ни одного VLAN сам по себе — единственный источник portVlanOptions
+          // здесь "VLAN устройства" (deviceVlans), это и есть сценарий бага: единственный назначенный
+          // VLAN устройства (v-old) уже выбран на порту как "Все VLAN".
+          if (url.includes('/resources/device-type-vlans')) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+          if (url.includes('/resources/device-vlans') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'dv-1', physical_device_id: 'dev-1', vlan_id: 'v-old', ip_address: null, prefix_length: null, is_management: false, description: null }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/interfaces') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/interface-vlans') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'iv-1', interface_id: 'if-1', vlan_id: 'v-old', mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/vlan-dashboard')) {
+            return new Response(
+              JSON.stringify({
+                items: [
+                  { vlan_id: 10, definitions: [{ id: 'v-old', vlan_id: 10, name: 'Old', description: '', domain_id: null, domain_name: '', devices: [] }] },
+                  { vlan_id: 20, definitions: [{ id: 'v-new', vlan_id: 20, name: 'New', description: '', domain_id: null, domain_name: '', devices: [] }] },
+                ],
+              }),
+            )
+          }
+          if (method === 'POST' && url.endsWith('/resources/vlans')) {
+            return new Response(JSON.stringify({ id: 'v-new', vlan_id: 20, name: 'New', domain_id: null }), { status: 201 })
+          }
+          if (method === 'PUT' && url.endsWith('/resources/devices/dev-1')) {
+            return new Response(JSON.stringify(device))
+          }
+          if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', vlan_mode: 'trunk' }] }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      // Добавляем новый VLAN устройства через "+ VLAN" в блоке "VLAN устройства". Один VLAN
+      // (v-old) там уже есть (donor row из GET device-vlans) — .col-vlan button берём ПОСЛЕДНЮЮ
+      // (только что добавленную пустую строку), а не первую (иначе квик-адд откроется у уже
+      // существующей строки v-old и перезапишет её вместо того, чтобы добавить новую).
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      const quickAddButtons = vlanEditor.findAll('.col-vlan button')
+      await quickAddButtons[quickAddButtons.length - 1].trigger('click')
+      const body = new DOMWrapper(document.body)
+      await body.find('input[type="number"]').setValue(20)
+      await body.findAll('input[type="text"]')[0].setValue('New')
+      await body.find('.overlay form').trigger('submit')
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
+      const savedRow = (ifacesPut!.body as { interfaces: Array<{ id: string; vlan_ids: string[] }> }).interfaces.find((r) => r.id === 'if-1')
+      expect(savedRow!.vlan_ids).toEqual(expect.arrayContaining(['v-old', 'v-new']))
+    })
+  })
+
+  describe('фикс п.2.2: новый VLAN наследует единственный домен устройства', () => {
+    it('устройство состоит ровно в одном домене — поле домена в форме добавления VLAN предзаполнено им', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['vlan-domains'] = [{ id: 'domain-x', name: 'Домен X' }]
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('/resources/vlan-domain-devices') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'link-1', domain_id: 'domain-x', physical_device_id: 'dev-1' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('.col-vlan button').trigger('click')
+
+      const domainInput = new DOMWrapper(document.body).find('.fk-row .searchable-select input')
+      expect((domainInput.element as HTMLInputElement).value).toBe('Домен X')
+    })
+
+    it('устройство ни в одном домене — поле домена пустое', async () => {
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))))
+
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('.col-vlan button').trigger('click')
+
+      const domainInput = new DOMWrapper(document.body).find('.fk-row .searchable-select input')
+      expect((domainInput.element as HTMLInputElement).value).toBe('')
+    })
+  })
+
+  describe('фикс п.3: валидация IP-адреса/префикса в блоке "VLAN устройства"', () => {
+    it('не сохраняет устройство с некорректным IP-адресом на VLAN устройства', async () => {
+      const wrapper = await mountWithLoadedCatalogs()
+      await wrapper.find('select').setValue('type:dt-server')
+      await wrapper.find('input[type="text"]').setValue('SN-1')
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('input.col-ip').setValue('не ip адрес')
+
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Некорректный IP-адрес')
+    })
+
+    it('не сохраняет устройство с некорректным префиксом на VLAN устройства', async () => {
+      const wrapper = await mountWithLoadedCatalogs()
+      await wrapper.find('select').setValue('type:dt-server')
+      await wrapper.find('input[type="text"]').setValue('SN-1')
+
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.find('.add-btn').trigger('click')
+      await vlanEditor.find('input.col-ip').setValue('10.0.0.1')
+      await vlanEditor.find('input[placeholder="Префикс"]').setValue('999')
+
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Некорректный префикс')
+    })
   })
 })

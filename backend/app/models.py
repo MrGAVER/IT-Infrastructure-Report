@@ -14,13 +14,6 @@ class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-class Organization(TimestampMixin, Base):
-    __tablename__ = "organizations"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    name: Mapped[str] = mapped_column(String(500), unique=True)
-    short_name: Mapped[Optional[str]] = mapped_column(String(200))
-    description: Mapped[Optional[str]] = mapped_column(Text)
-
 class SupportOrganization(TimestampMixin, Base):
     __tablename__ = "support_organizations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -93,6 +86,21 @@ class Rack(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255))
     height_u: Mapped[Optional[int]] = mapped_column(Integer)
 
+class DeviceCategory(TimestampMixin, Base):
+    """Иерархическая категория типов устройств (тот же паттерн, что OperatingSystemCategory/
+    StructuralUnit: parent_id, подкатегории заводятся администратором обычным CRUD, без изменения
+    схемы). diagram_shape/diagram_color — базовый визуальный стиль для автогенерации иконки узла
+    на диаграмме топологии сети; оба поля nullable и наследуются от ближайшего предка по parent_id,
+    у которого они заданы (см. services/diagram_icons.resolve_style) — так подкатегориям, которым
+    не нужен собственный визуальный стиль, не приходится его дублировать."""
+    __tablename__ = "device_categories"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("device_categories.id"), index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    diagram_shape: Mapped[Optional[str]] = mapped_column(String(30))  # server|switch|firewall|workstation|peripheral|generic
+    diagram_color: Mapped[Optional[str]] = mapped_column(String(20))  # HEX, напр. '#4f7cff'
+
 class DeviceType(TimestampMixin, Base):
     __tablename__ = "device_types"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -102,11 +110,24 @@ class DeviceType(TimestampMixin, Base):
     # больше не ломает молча правило "на чём можно разместить VM". Проставляется при создании
     # стандартных записей (services/catalogs.py) и редактируется как обычное поле через CRUD.
     allows_vm_hosting: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Обязательное поле (см. services/catalogs._seed_device_types и миграцию 2 диаграммы топологии
+    # сети) — используется для автогенерации иконки узла (форма/цвет наследуются от категории).
+    category_id: Mapped[str] = mapped_column(ForeignKey("device_categories.id"), index=True)
 
 class Manufacturer(TimestampMixin, Base):
     __tablename__ = "manufacturers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
+
+class DiagramIcon(TimestampMixin, Base):
+    """Каталог пользовательских иконок для диаграммы топологии сети — только для случаев, когда
+    автогенерации по категории (DeviceCategory.diagram_shape/diagram_color) недостаточно (напр.
+    нужен фирменный вид конкретной модели). Хранится как SVG-текст (тот же подход, что
+    ReportTemplate.config для JSON) — несколько КБ на иконку, не влияет на объём БД."""
+    __tablename__ = "diagram_icons"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    svg_markup: Mapped[str] = mapped_column(Text)
 
 class DeviceModel(TimestampMixin, Base):
     __tablename__ = "device_models"
@@ -115,6 +136,9 @@ class DeviceModel(TimestampMixin, Base):
     manufacturer_id: Mapped[str] = mapped_column(ForeignKey("manufacturers.id"), index=True)
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
     model: Mapped[str] = mapped_column(String(255))
+    # Ручное переопределение автогенерируемой иконки для ВСЕХ устройств этой модели (раздел 4.3
+    # ТЗ диаграммы топологии сети). Приоритет ниже, чем PhysicalDevice.diagram_icon_id.
+    diagram_icon_id: Mapped[Optional[str]] = mapped_column(ForeignKey("diagram_icons.id"), index=True)
 
 class EmbeddedOperatingSystem(TimestampMixin, Base):
     __tablename__ = "embedded_operating_systems"
@@ -142,6 +166,9 @@ class PhysicalDevice(TimestampMixin, Base):
     rack_position: Mapped[Optional[str]] = mapped_column(String(50))
     status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    # Ручное переопределение автогенерируемой иконки для ЭТОГО конкретного устройства (раздел 4.3
+    # ТЗ диаграммы топологии сети). Приоритет выше, чем DeviceModel.diagram_icon_id.
+    diagram_icon_id: Mapped[Optional[str]] = mapped_column(ForeignKey("diagram_icons.id"), index=True)
 
 class InformationSystem(TimestampMixin, Base):
     __tablename__ = "information_systems"
@@ -207,6 +234,12 @@ class DeviceInterface(TimestampMixin, Base):
     is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_data_transfer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    # 'access' | 'trunk' — режим порта (п.1.4.3.2 / фикс п.1.3.9). Хранится на самом интерфейсе, а
+    # не выводится из InterfaceVLAN.mode: при 0 назначенных VLAN на интерфейсе нет ни одной связи
+    # interface_vlans, из которой можно было бы восстановить режим при следующей загрузке — без
+    # этого поля access-порт без VLAN после сохранения и перезагрузки формы молча превращался в
+    # trunk (см. миграцию 5b5ea0e81d32 для бэкфилла существующих данных).
+    vlan_mode: Mapped[str] = mapped_column(String(10), default="trunk", server_default="trunk", nullable=False)
 
 
 class InterfaceType(TimestampMixin, Base):
@@ -500,4 +533,42 @@ class AuthSettings(Base):
     id: Mapped[str] = mapped_column(String(20), primary_key=True, default="singleton")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class SavedDiagram(TimestampMixin, Base):
+    """Независимая сохранённая диаграмма топологии сети (не синглтон — unique(name), может быть
+    несколько диаграмм с разными фильтрами охвата, см. ТЗ раздел 6). scope_filter хранится как
+    JSON в Text (тот же подход, что ReportTemplate.config) — портируемость SQLite/PostgreSQL."""
+    __tablename__ = "saved_diagrams"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    scope_filter: Mapped[str] = mapped_column(Text)  # JSON: фильтр охвата (структурная единица, VLAN, здание...)
+    group_by: Mapped[str] = mapped_column(String(30), default="structural_unit")  # structural_unit|vlan|building|device_category
+    collapse_threshold: Mapped[int] = mapped_column(Integer, default=20)
+    last_export_format: Mapped[Optional[str]] = mapped_column(String(10))  # drawio|vsdx|svg
+
+class DiagramLayout(TimestampMixin, Base):
+    """Раскладка узлов диаграммы — 1:1 к SavedDiagram. Хранится отдельной таблицей (не колонкой
+    SavedDiagram), т.к. это часть контракта "перегенерировать граф, сохранив раскладку"
+    (POST /diagrams/{id}/regenerate) — раскладка переживает пересборку графа из реестра."""
+    __tablename__ = "diagram_layouts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), unique=True, index=True)
+    node_positions: Mapped[str] = mapped_column(Text)  # JSON: {"<device_id|'group:'+group_key>": {"x":..,"y":..}}
+    viewport: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {"zoom":..,"pan_x":..,"pan_y":..}
+    auto_layout_algorithm: Mapped[str] = mapped_column(String(30), default="hierarchical")
+
+class DiagramGroupState(TimestampMixin, Base):
+    """Явное состояние сворачивания одной группы узлов одной диаграммы (1:N к SavedDiagram) — см.
+    ТЗ раздел 8. Отсутствие записи для group_key означает "порог ещё не достигнут"; при достижении
+    порога и отсутствии явной записи она создаётся с is_collapsed=True, а дальнейший
+    regenerate её не перезаписывает (только device_count)."""
+    __tablename__ = "diagram_group_states"
+    __table_args__ = (UniqueConstraint("saved_diagram_id", "group_key", name="uq_diagram_group_state"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), index=True)
+    group_key: Mapped[str] = mapped_column(String(255))
+    is_collapsed: Mapped[bool] = mapped_column(Boolean, default=True)
+    device_count: Mapped[int] = mapped_column(Integer, default=0)
+    custom_threshold: Mapped[Optional[int]] = mapped_column(Integer)  # NULL — наследует SavedDiagram.collapse_threshold
 

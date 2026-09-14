@@ -103,6 +103,38 @@ describe('VMFormModal.vue', () => {
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
+  it('фикс п.3: не сохраняет ВМ с некорректным IP-адресом', async () => {
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    await wrapper.find('button.add-btn').trigger('click') // + IP-адрес
+    await wrapper.find('input[placeholder="IP-адрес"]').setValue('не ip адрес')
+    await wrapper.find('input[required]').setValue('new-vm')
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Некорректный IP-адрес')
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
+  it('фикс п.3: не сохраняет ВМ с некорректным префиксом', async () => {
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    await wrapper.find('button.add-btn').trigger('click') // + IP-адрес
+    await wrapper.find('input[placeholder="IP-адрес"]').setValue('10.0.0.1')
+    await wrapper.find('input.col-prefix').setValue('999')
+    await wrapper.find('input[required]').setValue('new-vm')
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Некорректный префикс')
+  })
+
   it('не отправляет пустые строки IP-адресов и открытых портов на сервер', async () => {
     const wrapper = mount(VMFormModal, { props: { vm: null } })
 
@@ -229,5 +261,74 @@ describe('VMFormModal.vue', () => {
     await flushPromises()
 
     expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('os-new')
+  })
+
+  describe('фикс п.2: копирование ВМ ("copyFrom")', () => {
+    const sourceVM: VirtualMachine = {
+      id: 'vm-src',
+      name: 'app-server-01',
+      operating_system_id: 'os-1',
+      physical_device_id: null,
+      hypervisor_os_id: null,
+      purpose: 'веб-сервер',
+      status: 'active',
+      description: null,
+    }
+
+    it('аудит fix/usability-batch4 (находка №5): одновременная передача vm и copyFrom — предупреждение в консоль, побеждает vm (edit)', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['operating-systems'] = [{ id: 'os-1', name: 'Astra Linux' }]
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const editedVM: VirtualMachine = { ...sourceVM, id: 'vm-edit', name: 'app-server-edit' }
+      const wrapper = mount(VMFormModal, { props: { vm: editedVM, copyFrom: sourceVM } })
+      await flushPromises()
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('используется vm'))
+      expect(wrapper.find('h2').text()).toContain('Редактировать') // vm выигрывает — это по-прежнему edit
+      expect(wrapper.find('input[required]').element).toHaveProperty('value', 'app-server-edit')
+    })
+
+    it('форма открывается в режиме создания, поля донора подставлены, name (уникален) очищен', async () => {
+      const catalogs = useCatalogsStore()
+      catalogs.items['operating-systems'] = [{ id: 'os-1', name: 'Astra Linux' }]
+      const wrapper = mount(VMFormModal, { props: { vm: null, copyFrom: sourceVM } })
+      await flushPromises()
+
+      expect(wrapper.find('h2').text()).not.toContain('Редактировать')
+      expect(wrapper.find('input[required]').element).toHaveProperty('value', '') // Название — уникально, очищено
+      expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('os-1') // ОС скопирована как есть
+    })
+
+    it('IP-адреса и открытые порты донора подгружаются, но сохраняются без его id', async () => {
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (method === 'GET' && url.includes('/resources/vm-ips')) {
+            return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-src', virtual_machine_id: 'vm-src', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }] })
+          }
+          if (method === 'POST' && url.endsWith('/resources/vms')) {
+            return jsonResponse({ id: 'vm-new', name: 'app-server-02', operating_system_id: 'os-1', physical_device_id: null, hypervisor_os_id: null, purpose: 'веб-сервер', status: 'active', description: null }, 201)
+          }
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+
+      const wrapper = mount(VMFormModal, { props: { vm: null, copyFrom: sourceVM } })
+      await flushPromises()
+      expect(wrapper.find('input[placeholder="IP-адрес"]').element).toHaveProperty('value', '10.20.30.5')
+
+      await wrapper.find('input[required]').setValue('app-server-02')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const ipCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/vm-ips'))
+      expect(ipCreate?.body).toMatchObject({ virtual_machine_id: 'vm-new', ip_address: '10.20.30.5' })
+      // Копия создаёт НОВУЮ ВМ (POST), а не обновляет донора.
+      expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/resources/vms/vm-src'))).toBe(false)
+    })
   })
 })

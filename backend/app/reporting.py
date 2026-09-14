@@ -18,6 +18,7 @@ from .models import (
     VMIP, VMSoftware, VirtualMachine,
 )
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix
+from .services.excel_safety import excel_safe_row
 
 HEADERS1 = [
 "№","Наименование информационной системы (подситемы/информационного ресурса)","Общее описание информационной системы (подситемы/информационного ресурса)","Назначение использования информационной системы (подсистемы/информационного ресурса) для ИС Организация","Работники, группы работников или подразделения, которые используют в своей работе информационную систему (подсистему/информационный ресурс)","Локализация информационной системы (подсистемы/информационного ресурса)","Оборудование ООО \"Организация\", на котором размещается информационная ситема (подсистема/информационный ресурс), а также прикладное программное обеспечение или интерфейс взаимодействия с внешней информационной системой.","Протокол передачи данных, по которому осуществляется взаимодействие информационной системы (подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними информационными системами","IP адрес , по которому осуществляется взаимодействие информационной системы (подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними информационными системами","Применение сертифицированных программных и/или программно-аппаратных средств криптографической защиты информации, применяемых при осуществлении внешнего взаимодействия, в том числе с внешними информационными системами.","Признак получения событий в SIEM","Наименование организации, информационная система которой осуществляет взаимодействие и (или) обеспечивает техническую поддержку","Способ оказания технической поддержки","Описание процесса функционирования ИС, особенности организации направления потоков для обеспечения функционирования ИС","Название физического сервера (ПК, выполняющего роль сервера), на котором установлена информационная система (подсистема/информационный ресурс) или установлена виртуальная машина (контейнер), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)","IP-адрес физического сервера, на котором установлена информационная система (подсистема/информационный ресурс)","Наименование виртуальной машины или контейнера, обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)","IP-адрес виртуальной машины (контейнера), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)"]
@@ -37,7 +38,20 @@ def join_values(values):
     return "; ".join(result)
 
 def os_label(obj):
-    return join_values([getattr(obj,"name",None), getattr(obj,"version",None)]) if obj else ""
+    """Полное наименование версии ОС/среды: "Имя Версия" без разделителя ";" между ними.
+
+    join_values() рассчитан на список из произвольного числа элементов и разделяет их
+    через "; " — уместно для перечней (VLAN, IP и т.п.), но для пары "имя + версия"
+    даёт нечитаемое "Huawei iBMC; 6.73" вместо "Huawei iBMC 6.73". Здесь имя и версия
+    всегда ровно два компонента одного значения, поэтому склеиваются пробелом.
+    """
+    if not obj:
+        return ""
+    name = (getattr(obj, "name", None) or "").strip()
+    version = (getattr(obj, "version", None) or "").strip()
+    if name and version:
+        return f"{name} {version}"
+    return name or version
 
 def device_label(d):
     return (d.system_name or d.serial_number) if d else ""
@@ -268,7 +282,7 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
 def _populate_sheet1(ws1, d: SimpleNamespace) -> None:
     """Лист 'Перечень ИС': все привязанные источники плюс детали протоколов/IP."""
     for n,obj in enumerate(d.systems,1):
-        ws1.append([n, *_is_row_values(obj, d)])
+        ws1.append(excel_safe_row([n, *_is_row_values(obj, d)]))
 
 
 def _device_row_values(dev, d: SimpleNamespace) -> list:
@@ -293,7 +307,7 @@ def _device_row_values(dev, d: SimpleNamespace) -> list:
 def _populate_sheet2(ws2, d: SimpleNamespace) -> None:
     """Лист 'Инвентаризац. физ. устройств ИС': одна строка на физическое устройство."""
     for n,dev in enumerate(d.devices,1):
-        ws2.append([n, *_device_row_values(dev, d)])
+        ws2.append(excel_safe_row([n, *_device_row_values(dev, d)]))
 
 
 def _connection_row_values_list(d: SimpleNamespace) -> list:
@@ -305,12 +319,22 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
     # with no connection that share an IP signature (including "no IP") may be grouped into a
     # single row rather than one row each.
     _port_open_info_cache={}
-    def _port_open_info(device_id):
-        if device_id in _port_open_info_cache: return _port_open_info_cache[device_id]
-        ports=d.open_ports_by_owner.get(('physical_device',device_id),[])
+    def _port_open_info(iface_ids):
+        # п.1.4 (батч4): открытые порты теперь свойство КОНКРЕТНОГО интерфейса (порта), а не
+        # всего устройства — раньше один и тот же список открытых портов устройства подставлялся
+        # в КАЖДУЮ строку Листа 3 (на каждый порт), что было некорректно уже при более чем одном
+        # порте на устройстве. iface_ids — кортеж id интерфейсов, формирующих одну строку отчёта
+        # (обычно один, но для сгруппированных disconnected-строк — несколько, см.
+        # _disconnected_row). 'physical_device'-владение (см. OwnerType в constants.py) больше не
+        # читается здесь намеренно — устаревшие записи, заведённые до этого фикса на устройствах
+        # с несколькими портами, неоднозначны (неизвестно, какому порту принадлежат) и не
+        # переносятся автоматически, см. докстринг миграции 20260911_ports_per_interface.
+        key=tuple(sorted(iface_ids))
+        if key in _port_open_info_cache: return _port_open_info_cache[key]
+        ports=[p for iid in iface_ids for p in d.open_ports_by_owner.get(('device_interface',iid),[])]
         open_text=join_values([join_values([f"{p.transport_protocol}/{p.port}" if p.port else p.transport_protocol,p.protocol,p.description]) for p in ports])
         proto_text=join_values([p.protocol for p in ports])
-        _port_open_info_cache[device_id]=(open_text,proto_text)
+        _port_open_info_cache[key]=(open_text,proto_text)
         return open_text,proto_text
 
     def _device_management_ips(device):
@@ -331,7 +355,7 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
         own_ips=join_values([ip_label(x) for x in d.ips_by_iface.get(own_iface.id,[])])
         neighbor_mgmt_ips=_device_management_ips(neighbor_device)
         neighbor_ips=join_values(neighbor_mgmt_ips if neighbor_mgmt_ips else [ip_label(x) for x in d.ips_by_iface.get(neighbor_iface.id,[])])
-        open_text,proto_text=_port_open_info(own_device.id)
+        open_text,proto_text=_port_open_info((own_iface.id,))
         own_vlans=[v for v in d.vlan_by_iface.get(own_iface.id,[]) if v]
         neighbor_vlans=[v for v in d.vlan_by_iface.get(neighbor_iface.id,[]) if v]
         vlan_rows=own_vlans if own_vlans else neighbor_vlans
@@ -339,7 +363,7 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
 
     def _disconnected_row(own_device, iface_group):
         own_ips=join_values([ip_label(x) for i in iface_group for x in d.ips_by_iface.get(i.id,[])])
-        open_text,proto_text=_port_open_info(own_device.id)
+        open_text,proto_text=_port_open_info(tuple(i.id for i in iface_group))
         own_vlans=[v for i in iface_group for v in d.vlan_by_iface.get(i.id,[]) if v]
         purposes=join_values([_link_purpose_label(i) for i in iface_group if _link_purpose_label(i)!="-"]) or "-"
         return [0,d.device_types.get(own_device.device_type_id).name if d.device_types.get(own_device.device_type_id) else "",own_device.serial_number,own_device.system_name or "",os_label(d.embedded_os.get(own_device.embedded_os_id)),join_values([i.name for i in iface_group]),own_ips or "не назначен",open_text,proto_text,join_values([str(v.vlan_id) for v in own_vlans]),join_values([v.name for v in own_vlans]),"",purposes,"","","","",""]
@@ -387,7 +411,7 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
 
 def _populate_sheet3(ws3, d: SimpleNamespace) -> None:
     for row in _connection_row_values_list(d):
-        ws3.append(row)
+        ws3.append(excel_safe_row(row))
 
 
 def _vm_row_values(v, d: SimpleNamespace) -> list:
@@ -405,7 +429,7 @@ def _populate_sheet4(ws4, d: SimpleNamespace) -> None:
     """Лист 'Организация управления ВМ': хост/гипервизор берётся из ОС физического хоста;
     IP администрирования — все management-IP ВМ."""
     for v in d.vms:
-        ws4.append(_vm_row_values(v, d))
+        ws4.append(excel_safe_row(_vm_row_values(v, d)))
 
 
 def build_report(session: Session, report_dir: Path, only_is: Optional[str] = None,

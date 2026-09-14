@@ -1,7 +1,7 @@
 // Генерация отчётов — не CRUD-ресурс: POST возвращает {file_name, download_url},
 // сам файл читается отдельным GET (см. backend/app/api/system.py:
 // generate_report/generate_audit_log_report/download_report).
-import { api } from './client'
+import { api, getStoredToken } from './client'
 
 export interface ReportResult {
   file_name: string
@@ -27,12 +27,35 @@ export function generateAuditLogReport(dateFrom: string | null, dateTo: string |
 
 /** Скачивает уже сгенерированный отчёт, не уводя пользователя со страницы SPA.
  * download_url уже содержит префикс /api/v1 (см. generate_report на бэкенде) —
- * используем как есть, без повторной конкатенации. */
-export function downloadReport(result: ReportResult) {
-  const a = document.createElement('a')
-  a.href = result.download_url
-  a.download = result.file_name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+ * используем как есть, без повторной конкатенации.
+ *
+ * Фикс п.5: голая <a href="download_url"> (как было раньше) — это обычная навигация браузера,
+ * которая никогда не несёт кастомных заголовков. Токен авторизации в этом проекте — намеренно
+ * НЕ cookie (см. комментарий в client.ts про allow_credentials=False и отсутствие CSRF-
+ * поверхности), а Bearer-заголовок, который добавляет только наш fetch-клиент. При включённой
+ * аутентификации такой клик просто получал 401 без единого заголовка Authorization, и браузер
+ * показывал общее "файл недоступен на сайте" — вообще без объяснения причины. Теперь файл
+ * читается через fetch с тем же заголовком, что и остальные запросы API, и скачивается уже как
+ * blob-URL. */
+export async function downloadReport(result: ReportResult): Promise<void> {
+  const token = getStoredToken()
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(result.download_url, { headers })
+  if (!res.ok) {
+    throw new Error(res.status === 401 ? 'Сессия истекла — войдите заново и повторите скачивание' : `Не удалось скачать файл (${res.status})`)
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = result.file_name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
 }

@@ -140,6 +140,16 @@ class Sheet1InformationSystems(ReportingTestCase):
         crypto_idx = self.col_index(header, "криптографической защиты")
         self.assertEqual(rows[1][crypto_idx], "Нет")
 
+    def test_information_system_name_starting_with_equals_is_escaped(self):
+        """Код-ревью п.3.2 (Excel Formula Injection): имя ИС вида "=HYPERLINK(...)" не должно
+        попасть в .xlsx как формула — excel_safe_row должен добавить ведущий апостроф."""
+        C = self.C
+        isys = C["InformationSystem"](id="is1", name='=HYPERLINK("http://evil.example","клик")', crypto_protection_enabled=False)
+        self.table.update({"InformationSystem": [isys]})
+        wb = self.build(Path("/tmp/test_reports_15"))
+        rows = self.sheet_rows(wb, "Перечень ИС")
+        self.assertEqual(rows[1][1], '\'=HYPERLINK("http://evil.example","клик")')
+
 
 class Sheet2PhysicalDevices(ReportingTestCase):
     """Лист 'Инвентаризац. физ. устройств ИС'."""
@@ -159,6 +169,18 @@ class Sheet2PhysicalDevices(ReportingTestCase):
         header = rows[0]
         os_col_idx = header.index("Версия операционной системы физического устройства")
         self.assertIn("iLO", rows[1][os_col_idx])
+
+    def test_os_name_and_version_joined_by_space_not_semicolon(self):
+        """5.1: 'Huawei iBMC 6.73', а не 'Huawei iBMC; 6.73'."""
+        C = self.C
+        emb = C["EmbeddedOperatingSystem"](id="eos1", name="Huawei iBMC", version="6.73")
+        dev = C["PhysicalDevice"](id="d1", serial_number="SN1", embedded_os_id="eos1")
+        self.table.update({"PhysicalDevice": [dev], "EmbeddedOperatingSystem": [emb]})
+        wb = self.build(Path("/tmp/test_reports_4b"))
+        rows = self.sheet_rows(wb, "Инвентаризац. физ. устройств ИС")
+        header = rows[0]
+        os_col_idx = header.index("Версия операционной системы физического устройства")
+        self.assertEqual(rows[1][os_col_idx], "Huawei iBMC 6.73")
 
     def test_management_port_shows_vlan(self):
         """Регрессия: раньше VLAN-порт управления не попадал в столбец номера порта управления."""
@@ -264,28 +286,70 @@ class Sheet3Connections(ReportingTestCase):
         switch_rows = [r for r in rows if r[neighbor_serial_idx] == "123"]  # смотрим со стороны коммутатора на сервер
         self.assertTrue(any("10.10.10.5" in (r[neighbor_ip_idx] or "") for r in switch_rows))
 
-    def test_open_ports_of_physical_device_are_listed(self):
-        """Регрессия: у физического устройства не было способа задать список открытых портов —
-        колонки 'Перечень открытых портов...' и 'Протокол (технология)' всегда оставались пустыми."""
+    def test_open_ports_of_interface_are_listed(self):
+        """п.1.4 (батч4): открытые порты — свойство КОНКРЕТНОГО интерфейса (owner_type=
+        'device_interface', owner_id=id интерфейса), не всего устройства — колонки 'Перечень
+        открытых портов...' и 'Протокол (технология)' заполняются только на строке ЭТОГО порта."""
         C = self.C
         dev1, _ = self._two_devices_two_connections()
-        p1 = C["OpenPort"](id="op1", owner_type="physical_device", owner_id="d1", port=22, protocol="SSH", transport_protocol="TCP")
-        p2 = C["OpenPort"](id="op2", owner_type="physical_device", owner_id="d1", port=161, protocol="SNMP", transport_protocol="UDP")
+        # if1 = eth0 устройства d1 (см. _two_devices_two_connections) — порты вешаем именно на него.
+        p1 = C["OpenPort"](id="op1", owner_type="device_interface", owner_id="if1", port=22, protocol="SSH", transport_protocol="TCP")
+        p2 = C["OpenPort"](id="op2", owner_type="device_interface", owner_id="if1", port=161, protocol="SNMP", transport_protocol="UDP")
         self.table.update({"OpenPort": [p1, p2]})
         wb = self.build(Path("/tmp/test_reports_11"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
         header = self.sheet_rows(wb, "Организация подключений")[0]
-        serial_idx = self.col_index(header, "Серийный номер устройства")
+        port_idx = header.index("Номер физического или логического порта")
         ports_idx = self.col_index(header, "Перечень открытых портов")
         proto_idx = self.col_index(header, "Протокол (технология)")
-        dev1_rows = [r for r in rows if r[serial_idx] == "123"]
-        self.assertTrue(dev1_rows)
-        combined_ports = " ".join(r[ports_idx] or "" for r in dev1_rows)
-        combined_proto = " ".join(r[proto_idx] or "" for r in dev1_rows)
-        self.assertIn("22", combined_ports)
-        self.assertIn("161", combined_ports)
-        self.assertIn("SSH", combined_proto)
-        self.assertIn("SNMP", combined_proto)
+        eth0_row = next(r for r in rows if r[port_idx] == "eth0")
+        eth1_row = next(r for r in rows if r[port_idx] == "eth1")
+        self.assertIn("22", eth0_row[ports_idx] or "")
+        self.assertIn("161", eth0_row[ports_idx] or "")
+        self.assertIn("SSH", eth0_row[proto_idx] or "")
+        self.assertIn("SNMP", eth0_row[proto_idx] or "")
+        # Регрессия, которую этот фикс устраняет: раньше список открытых портов устройства
+        # подставлялся ОДИНАКОВО в каждую строку порта того же устройства — eth1 не должен
+        # унаследовать порты, заведённые на eth0.
+        self.assertEqual(eth1_row[ports_idx], "-")
+        self.assertEqual(eth1_row[proto_idx], "-")
+
+    def test_open_ports_of_legacy_physical_device_owner_are_no_longer_shown(self):
+        """Устаревшие записи с owner_type='physical_device' (до фикса п.1.4) не мигрируются
+        автоматически для устройств с несколькими интерфейсами (см. докстринг миграции
+        1475ab03debc_ports_per_interface) — отчёт больше не читает этот owner_type вовсе, поэтому
+        такие записи просто перестают быть видны, а не падают с ошибкой."""
+        C = self.C
+        self._two_devices_two_connections()
+        legacy = C["OpenPort"](id="op-legacy", owner_type="physical_device", owner_id="d1", port=22, protocol="SSH", transport_protocol="TCP")
+        self.table.update({"OpenPort": [legacy]})
+        wb = self.build(Path("/tmp/test_reports_11b"))
+        rows = self.sheet_rows(wb, "Организация подключений")[1:]
+        header = self.sheet_rows(wb, "Организация подключений")[0]
+        ports_idx = self.col_index(header, "Перечень открытых портов")
+        self.assertTrue(all((r[ports_idx] or "-") == "-" for r in rows))
+
+    def test_os_name_and_version_joined_by_space_not_semicolon(self):
+        """5.2: для 'своего' и соседнего устройства ОС отображается как 'Cisco IOS 15.2',
+        а не 'Cisco IOS; 15.2', и в обеих одноимённых колонках сразу."""
+        C = self.C
+        dev1, dev2 = self._two_devices_two_connections()
+        emb1 = C["EmbeddedOperatingSystem"](id="eos1", name="Cisco IOS", version="15.2")
+        emb2 = C["EmbeddedOperatingSystem"](id="eos2", name="Huawei VRP", version="8.180")
+        dev1.embedded_os_id = "eos1"
+        dev2.embedded_os_id = "eos2"
+        self.table.update({"EmbeddedOperatingSystem": [emb1, emb2]})
+        wb = self.build(Path("/tmp/test_reports_16"))
+        rows = self.sheet_rows(wb, "Организация подключений")[1:]
+        header = self.sheet_rows(wb, "Организация подключений")[0]
+        own_os_idx = self.col_index(header, "Наименование и версия операционной системы физического устройства")
+        neighbor_os_idx = header.index("Наименование и версия операционной системы соседнего физического устройства")
+        own_values = {r[own_os_idx] for r in rows}
+        neighbor_values = {r[neighbor_os_idx] for r in rows}
+        self.assertIn("Cisco IOS 15.2", own_values)
+        self.assertIn("Huawei VRP 8.180", own_values | neighbor_values)
+        for value in own_values | neighbor_values:
+            self.assertNotIn(";", value or "")
 
 
 class Sheet4VirtualMachines(ReportingTestCase):
@@ -310,6 +374,20 @@ class Sheet4VirtualMachines(ReportingTestCase):
         vm_row = next(r for r in rows if r[0] == "VM-1C")
         self.assertIn("1С:Предприятие", vm_row[sw_idx])
         self.assertIn("Web-сервер Nginx", vm_row[sw_idx])
+
+    def test_virtualization_env_version_joined_by_space_not_semicolon(self):
+        """5.3: 'VMware ESXi 7.0', а не 'VMware ESXi; 7.0'."""
+        C = self.C
+        hyp_os = C["OperatingSystem"](id="os1", name="VMware ESXi", version="7.0")
+        host = C["PhysicalDevice"](id="d1", serial_number="SN1", system_name="esx-01", operating_system_id="os1")
+        vm = C["VirtualMachine"](id="v1", name="VM-1", physical_device_id="d1")
+        self.table.update({"PhysicalDevice": [host], "OperatingSystem": [hyp_os], "VirtualMachine": [vm]})
+        wb = self.build(Path("/tmp/test_reports_17"))
+        rows = self.sheet_rows(wb, "Организация управления ВМ")[1:]
+        header = self.sheet_rows(wb, "Организация управления ВМ")[0]
+        env_idx = self.col_index(header, "Наименование среды виртуализации и ее версия")
+        vm_row = next(r for r in rows if r[0] == "VM-1")
+        self.assertEqual(vm_row[env_idx], "VMware ESXi 7.0")
 
 
 class StructuralUnitFiltering(ReportingTestCase):

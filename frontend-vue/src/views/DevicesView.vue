@@ -16,6 +16,10 @@ const vlans = useVLANsStore()
 const { notify, notifyError } = useToast()
 
 const modalDevice = ref<Device | null>(null)
+// Фикс п.2: "копировать физическое устройство для создания на его основе нового" — модалка
+// открывается в режиме СОЗДАНИЯ (modalDevice остаётся null), но с данными исходного устройства
+// в качестве шаблона (см. подробности в DeviceFormModal.vue: watch(copySourceId, ...)).
+const copyFromDevice = ref<Device | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
 
@@ -56,15 +60,23 @@ const serverTypeName = 'Сервер'
 
 function openCreate() {
   modalDevice.value = null
+  copyFromDevice.value = null
   modalOpen.value = true
 }
 function openEdit(d: Device) {
   modalDevice.value = d
+  copyFromDevice.value = null
+  modalOpen.value = true
+}
+function openCopy(d: Device) {
+  modalDevice.value = null
+  copyFromDevice.value = d
   modalOpen.value = true
 }
 function closeModal() {
   modalOpen.value = false
   modalDevice.value = null
+  copyFromDevice.value = null
 }
 async function onSaved(_saved: Device) {
   const wasEdit = modalDevice.value !== null
@@ -195,6 +207,9 @@ async function removeDevice(d: Device) {
                   <button type="button" aria-label="Редактировать" @click="openEdit(d)">
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
+                  <button type="button" aria-label="Копировать" @click="openCopy(d)">
+                    <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
+                  </button>
                   <button type="button" aria-label="Удалить" :disabled="deletingId === d.id" @click="removeDevice(d)">
                     <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                   </button>
@@ -217,7 +232,7 @@ async function removeDevice(d: Device) {
       </div>
     </div>
 
-    <DeviceFormModal v-if="modalOpen" :device="modalDevice" @close="closeModal" @saved="onSaved" />
+    <DeviceFormModal v-if="modalOpen" :device="modalDevice" :copy-from="copyFromDevice" @close="closeModal" @saved="onSaved" />
   </div>
 </template>
 

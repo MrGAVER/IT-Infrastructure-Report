@@ -1,18 +1,19 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, InterfaceIP, InformationSystem, PhysicalDevice, VirtualMachine, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
-from ..constants import ErrorCode, AuditAction, SourceType
+from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
-from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_operating_system, validate_vm_host, validate_embedded_os
+from .diagram_icons import validate_svg_markup
+from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os
 
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
@@ -145,18 +146,69 @@ def _validate_device_model(data: dict[str, Any], session: Session, item_id: str 
         if session.scalar(stmt): raise HTTPException(409, 'Такая модель уже существует для выбранных производителя и типа устройства')
 
 
+def _validate_virtual_machine_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    validate_operating_system(data, session); validate_hypervisor(data, session); validate_vm_host(data, session)
+
+def _validate_physical_device_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    _validate_physical_device_vlan(data, session)
+
+def _validate_device_model_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    _validate_device_model(data, session, item_id)
+
+def _validate_connection_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    validate_connection(data, session, item_id)
+
+def _validate_device_type_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4):
+    # DeviceType.category_id стал обязательным NOT NULL FK в рамках фичи диаграммы топологии
+    # сети (models.py, миграция 38e9b2624a53), но ни generic-валидатор здесь, ни
+    # quickAdd/schema.ts не были обновлены под это требование — POST /resources/device-types
+    # без category_id падал сырым 409 "NOT NULL constraint failed" вместо понятной ошибки.
+    # Саму ссылочную целостность (существует ли такая категория) отдельно не проверяем —
+    # некорректный category_id всё равно упадёт на FK при commit() и обработается уже
+    # существующим общим обработчиком IntegrityError в create_resource/update_resource.
+    if not data.get('category_id'):
+        raise HTTPException(422, 'Поле category_id обязательно для типа устройства')
+
+def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Код-ревью п.3.1: без этой проверки svg_markup сохранялся бы в БД как есть и затем
+    # выполнялся бы в браузере через v-html (фронтенд) и при экспорте .svg (бэкенд).
+    validate_svg_markup(data.get('svg_markup'))
+
+def _validate_vmip_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Код-ревью п.3.4: VMIP — единственная из моделей с ip_address/prefix_length, идущая через
+    # ПОЛНОСТЬЮ generic create_resource/update_resource (без выделенной sync-функции, в отличие
+    # от InterfaceIP/ISIP — см. их отдельные вызовы validate_ipv4_field выше по файлу).
+    validate_ipv4_field(data.get('ip_address'), 'IP-адрес виртуальной машины')
+    validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса виртуальной машины')
+
+# Реестр валидаторов по модели (код-ревью п.3.5): раньше это была цепочка if/elif внутри
+# validate_resource() — каждая новая модель, которой требуется своя проверка, была обязана
+# трогать тело диспетчера (нарушение OCP; интеграция feature/network-topology-diagram и
+# fix/usability-batch4 уже доказала риск на примере DeviceType). Теперь новая модель
+# добавляется одной строкой сюда, без изменения самой функции validate_resource(). Все
+# значения — вызываемые с единой сигнатурой (data, session, item_id, confirm_duplicate,
+# confirm_rack_reassign) — там, где исходный валидатор её не использует, параметры просто
+# игнорируются тонкой обёрткой-адаптером выше.
+_RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, bool, bool], None]] = {
+    PhysicalDevice: _validate_physical_device,
+    VirtualMachine: _validate_virtual_machine_entry,
+    PhysicalDeviceVLAN: _validate_physical_device_vlan_entry,
+    DeviceModel: _validate_device_model_entry,
+    Connection: _validate_connection_entry,
+    DeviceType: _validate_device_type_entry,
+    DiagramIcon: _validate_diagram_icon_entry,
+    VMIP: _validate_vmip_entry,
+}
+
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
-    """Диспетчеризация по типу модели на per-модель валидаторы выше. Вынесено из одной функции
-    (была сложностью 18) — сама логика проверок не изменена."""
-    if model is PhysicalDevice:
-        _validate_physical_device(data, session, item_id, confirm_duplicate, confirm_rack_reassign)
-    elif model is VirtualMachine:
-        validate_operating_system(data, session); validate_hypervisor(data, session); validate_vm_host(data, session)
-    elif model.__name__ == 'PhysicalDeviceVLAN':
-        _validate_physical_device_vlan(data, session)
-    elif model is DeviceModel:
-        _validate_device_model(data, session, item_id)
-    elif model is Connection: validate_connection(data, session, item_id)
+    """Диспетчеризация по типу модели на per-модель валидаторы в _RESOURCE_VALIDATORS.
+    Модели без зарегистрированного валидатора (большинство ~40 ресурсов реестра) проходят без
+    дополнительных проверок — как и раньше, это не бага, а осознанный дизайн: не для каждого
+    ресурса нужна валидация сверх generic CRUD/FK-констрейнтов БД."""
+    validator = _RESOURCE_VALIDATORS.get(model)
+    if validator is not None:
+        validator(data, session, item_id, confirm_duplicate, confirm_rack_reassign)
 
 def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None, date_from: str | None = None, date_to: str | None = None):
     model = model_for(resource); stmt = select(model)
@@ -234,9 +286,20 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
 def _find_referencing_counts(model, item_id: str, session: Session) -> list[tuple[str, int]]:
     """Для каждого другого зарегистрированного ресурса считает, сколько его записей ссылаются
     (через FK) на удаляемую запись. Используется, чтобы дать конкретное предупреждение перед
-    удалением, а не полагаться только на то, что БД сама остановит операцию через FK-констрейнт."""
+    удалением, а не полагаться только на то, что БД сама остановит операцию через FK-констрейнт.
+
+    Код-ревью п.3.7: раньше здесь был отдельный SELECT COUNT(*) на каждую FK-колонку каждой из
+    ~40 моделей реестра (MODEL_MAP) — при удалении часто ссылаемой записи (например,
+    производителя устройства) это десятки последовательных round-trip'ов к БД на одно
+    удаление. Теперь все подзапросы объединяются в один через UNION ALL и выполняются ОДНИМ
+    запросом; каждая ветка несёт свой порядковый номер (ord) как обычную колонку данных, а не
+    полагается на порядок строк, в котором сервер БД решит вернуть результат UNION ALL (для
+    SQLite и PostgreSQL это на практике совпадает с порядком объявления веток, но опираться на
+    недокументированное поведение не стоит) — после выполнения строки сортируются по этому
+    номеру в Python, что и восстанавливает исходный, стабильный порядок вывода."""
     target_table = model.__tablename__
-    results: list[tuple[str, int]] = []
+    resource_keys: list[str] = []
+    subqueries = []
     for resource_key, other_model in MODEL_MAP.items():
         if other_model is model:
             continue
@@ -246,10 +309,19 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
             target = next(iter(c.foreign_keys)).target_fullname
             if target.split('.')[0] != target_table:
                 continue
-            count = session.scalar(select(func.count()).select_from(other_model).where(c == item_id)) or 0
-            if count:
-                results.append((DISPLAY_NAMES.get(resource_key, resource_key), count))
-    return results
+            subqueries.append(
+                select(literal(len(resource_keys)).label('ord'), func.count().label('cnt'))
+                .select_from(other_model).where(c == item_id)
+            )
+            resource_keys.append(resource_key)
+    if not subqueries:
+        return []
+    combined = union_all(*subqueries) if len(subqueries) > 1 else subqueries[0]
+    rows = sorted(session.execute(combined).all(), key=lambda row: row.ord)
+    return [
+        (DISPLAY_NAMES.get(resource_keys[row.ord], resource_keys[row.ord]), row.cnt)
+        for row in rows if row.cnt
+    ]
 
 def delete_resource(resource: str, item_id: str, session: Session):
     ensure_writable(resource)
@@ -264,6 +336,9 @@ def delete_resource(resource: str, item_id: str, session: Session):
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
+_VLAN_MODES = frozenset({"access", "trunk"})
+
+
 def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]) -> None:
     """Применяет данные одного элемента payload['interfaces'] к объекту DeviceInterface:
     простые поля, VLAN-привязки и вложенные IP. Вынесено из sync_interfaces(), чтобы снизить
@@ -274,18 +349,41 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     каждый интерфейс здесь (было N+1 при синхронизации устройства с несколькими портами)."""
     for key in ('name', 'interface_type_id', 'mac_address', 'speed_id', 'is_management', 'is_data_transfer', 'description'):
         if key in item: setattr(obj, key, item[key])
+    # vlan_mode хранится на самом интерфейсе (фикс п.1.3.9 — см. миграцию 5b5ea0e81d32), а не
+    # только выводится из InterfaceVLAN.mode: иначе access-порт без единого VLAN нечем было бы
+    # запомнить между сохранением и следующей загрузкой. 'trunk', если поле не прислано вовсе, —
+    # тот же дефолт, что и у колонки в БД (совместимо со старыми клиентами API).
+    vlan_mode = item.get('vlan_mode') or 'trunk'
+    if vlan_mode not in _VLAN_MODES:
+        raise HTTPException(422, "Поле vlan_mode интерфейса должно быть 'access' или 'trunk'")
+    # Аудит fix/usability-batch4 (находка №2): присваиваем ДО flush() — простые поля выше по
+    # функции попадут в тот же autoflush-UPDATE, вместо отдельного второго UPDATE на этот же
+    # интерфейс при следующем autoflush (session.execute(delete(...)) ниже). При синхронизации
+    # устройства с десятками портов это лишний десяток write-запросов на каждый PUT.
+    obj.vlan_mode = vlan_mode
     session.flush()
     vlan_ids=item.get('vlan_ids') or []
     if not isinstance(vlan_ids,list): raise HTTPException(422, 'Поле vlan_ids интерфейса должно быть массивом')
     bad=[v for v in vlan_ids if v not in allowed_vlans]
     if bad: raise HTTPException(422, 'Один или несколько VLAN не разрешены для типа данного устройства')
+    unique_vlan_ids = list(dict.fromkeys(vlan_ids))
+    # Защита на бэкенде того же инварианта, что и validateInterfaceDraftRows() на фронтенде —
+    # там это только UI-проверка перед отправкой запроса, здесь гарантия для любого вызывающего
+    # API-код напрямую (или старого кэшированного фронтенд-бандла). Читает локальную переменную
+    # vlan_mode, а не obj.vlan_mode — та уже присвоена выше и не меняется дальше по функции.
+    if vlan_mode == 'access' and len(unique_vlan_ids) > 1:
+        raise HTTPException(422, 'В режиме access у порта может быть не более одного VLAN')
     session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.interface_id==obj.id))
-    for vlan_id in dict.fromkeys(vlan_ids): session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=item.get('vlan_mode')))
+    for vlan_id in unique_vlan_ids: session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=vlan_mode))
     ips = item.get('ips') or []
     if not isinstance(ips, list): raise HTTPException(422, 'Поле ips интерфейса должно быть массивом')
     old_ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
     for ip_data in ips:
         if not isinstance(ip_data, dict) or not ip_data.get('ip_address'): continue
+        # Код-ревью п.3.4: формат проверялся только на фронтенде (ipValidation.ts) — прямой
+        # запрос к API мог записать в InterfaceIP произвольную строку вместо IPv4-адреса.
+        validate_ipv4_field(ip_data.get('ip_address'), 'IP-адрес интерфейса')
+        validate_prefix_length_field(ip_data.get('prefix_length'), 'Префикс IP-адреса интерфейса')
         ip_id = ip_data.get('id')
         if ip_id:
             ip_obj = old_map.get(ip_id)
@@ -295,6 +393,39 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
         ip_obj.ip_address = ip_data['ip_address']; ip_obj.prefix_length = ip_data.get('prefix_length'); ip_obj.purpose = ip_data.get('purpose'); ip_obj.is_management = bool(obj.is_management)
     for old_ip in old_ips:
         if old_ip.id not in seen: session.delete(old_ip)
+    _sync_interface_open_ports(obj, item.get('open_ports') or [], session)
+
+
+def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: Session) -> None:
+    """п.1.4 (батч4): "Открытые порты" — теперь свойство конкретного интерфейса, а не всего
+    устройства (полиморфный OpenPort.owner_type=DEVICE_INTERFACE, owner_id=интерфейс), той же
+    delete-diff-create схемой, что и IP интерфейса чуть выше (см. её комментарий). Раньше один
+    список открытых портов относился ко всему устройству разом (owner_type=PHYSICAL_DEVICE) —
+    это не позволяло корректно заполнить Лист 3 отчёта, где колонка "Перечень открытых портов"
+    относится к КОНКРЕТНОМУ физическому/логическому порту (см. reporting.py:_port_open_info)."""
+    if not isinstance(open_ports, list): raise HTTPException(422, 'Поле open_ports интерфейса должно быть массивом')
+    old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id)).all()
+    old_map = {x.id: x for x in old_ports}; seen: set[str] = set()
+    for port_data in open_ports:
+        if not isinstance(port_data, dict) or port_data.get('port') in (None, ''): continue
+        try:
+            port_number = int(port_data['port'])
+        except (TypeError, ValueError):
+            raise HTTPException(422, 'Номер открытого порта должен быть числом')
+        port_id = port_data.get('id')
+        if port_id:
+            port_obj = old_map.get(port_id)
+            if not port_obj: raise HTTPException(422, 'Открытый порт не принадлежит выбранному интерфейсу')
+            seen.add(port_id)
+        else:
+            port_obj = OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(port_obj)
+        port_obj.port = port_number
+        port_obj.transport_protocol = port_data.get('transport_protocol') or 'TCP'
+        port_obj.protocol = port_data.get('protocol') or None
+        port_obj.protocol_catalog_id = port_data.get('protocol_catalog_id') or None
+        port_obj.description = port_data.get('description') or None
+    for old_port in old_ports:
+        if old_port.id not in seen: session.delete(old_port)
 
 
 def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
@@ -319,13 +450,22 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             else: obj = DeviceInterface(physical_device_id=device_id); session.add(obj)
             _sync_single_interface(obj, item, device, session, allowed_vlans)
         for obj in existing:
-            if obj.id not in incoming_ids: session.execute(delete(InterfaceIP).where(InterfaceIP.interface_id == obj.id)); session.delete(obj)
+            if obj.id not in incoming_ids:
+                session.execute(delete(InterfaceIP).where(InterfaceIP.interface_id == obj.id))
+                # Открытые порты полиморфны (нет FK/каскада на уровне БД, см. models.OpenPort) —
+                # без явного удаления здесь они осиротели бы при удалении своего интерфейса.
+                session.execute(delete(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id))
+                session.delete(obj)
         session.flush()
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces: session.execute(update(InterfaceIP).where(InterfaceIP.interface_id == iface.id).values(is_management=bool(iface.is_management)))
         audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}'); session.commit()
         result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name)).all()
-        return {'items': [{**serialize(iface), 'ips': [serialize(ip) for ip in session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == iface.id).order_by(InterfaceIP.ip_address)).all()]} for iface in result]}
+        return {'items': [{
+            **serialize(iface),
+            'ips': [serialize(ip) for ip in session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == iface.id).order_by(InterfaceIP.ip_address)).all()],
+            'open_ports': [serialize(p) for p in session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(OpenPort.port)).all()],
+        } for iface in result]}
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
@@ -359,6 +499,10 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
     existing_map = {x.id: x for x in existing}; seen=set()
     for item in items:
         if not isinstance(item, dict): continue
+        if model is ISIP:
+            # Код-ревью п.3.4: ISIP — единственная из связанных таблиц с полем ip_address;
+            # generic-цикл ниже пишет колонки как есть, без проверки формата.
+            validate_ipv4_field(item.get('ip_address'), 'IP-адрес ИС')
         obj = existing_map.get(item.get('id')) if item.get('id') else model(information_system_id=system_id)
         if obj is None: raise HTTPException(422, f'Запись {key} не принадлежит выбранной ИС')
         if not getattr(obj, 'id', None): session.add(obj)

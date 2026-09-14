@@ -28,7 +28,7 @@ try:
     from sqlalchemy.orm import sessionmaker
 
     from app.models import (
-        Base, Building, Connection, ConnectionType, Container, Department, DeviceInterface, DeviceType,
+        Base, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface, DeviceType,
         EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, InterfaceIP, InterfaceVLAN,
         ISContainer, ISDepartment, ISDevice, ISIP, ISVM, Manufacturer, OpenPort, OperatingSystem,
         OperatingSystemCategory, PhysicalDevice, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, VMSoftware,
@@ -98,8 +98,11 @@ class VirtualEntityRegistrationTestCase(unittest.TestCase):
         try:
             unit = StructuralUnit(name="Филиал А")
             other_unit = StructuralUnit(name="Филиал Б")
-            dtype = DeviceType(name="Сервер")
-            session.add_all([unit, other_unit, dtype])
+            category = DeviceCategory(name="Серверы и СХД")
+            session.add_all([unit, other_unit, category])
+            session.flush()
+            dtype = DeviceType(name="Сервер", category_id=category.id)
+            session.add(dtype)
             session.flush()
             building_in = Building(name="Здание А", structural_unit_id=unit.id)
             building_out = Building(name="Здание Б", structural_unit_id=other_unit.id)
@@ -127,8 +130,11 @@ def _seed_rich_dataset(session, *, via_legacy_links: bool):
     ИС к оборудованию через устаревшие таблицы is_devices/is_vms/is_containers/is_ips (fallback-
     ветка _is_row_values при отсутствии InformationSystemSource), False — через актуальную модель
     InformationSystemSource."""
+    category = DeviceCategory(name="Серверы и СХД")
+    session.add(category)
+    session.flush()
     dep = Department(name="ИТ-отдел")
-    dtype = DeviceType(name="Сервер")
+    dtype = DeviceType(name="Сервер", category_id=category.id)
     manufacturer = Manufacturer(name="Dell")
     embedded_os = EmbeddedOperatingSystem(name="Ubuntu Server", version="22.04")
     os_category = OperatingSystemCategory(name="Linux-семейство")

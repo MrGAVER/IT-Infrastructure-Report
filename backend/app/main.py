@@ -1,19 +1,23 @@
 from __future__ import annotations
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from .config import APP_VERSION, CORS_ALLOWED_ORIGINS, FRONTEND_DIR
+from .config import APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
 from .api.auth import router as auth_router
 from .api.devices import router as devices_router
+from .api.diagrams import router as diagrams_router
 from .api.report_builder import router as report_builder_router
 from .api.resources import router as resources_router
 from .api.system import router as system_router
 from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
 from .services.catalogs import seed_defaults
+
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,14 +42,42 @@ app.include_router(system_router)
 app.include_router(devices_router)
 app.include_router(resources_router)
 app.include_router(report_builder_router)
+app.include_router(diagrams_router)
 
 def seed_catalogs_on_startup():
     session = SessionLocal()
     try:
         seed_defaults(session)
-        get_or_create_auth_settings(session)
+        auth_settings = get_or_create_auth_settings(session)
+        _warn_if_insecure_server_config(auth_settings.enabled)
     finally:
         session.close()
+
+def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
+    """Код-ревью п.3.3: приложение официально поддерживает серверное развёртывание (Docker +
+    PostgreSQL, см. docker-compose.yml) для нескольких сотрудников — но дефолты
+    (AuthSettings.enabled=False, CORS_ALLOWED_ORIGINS='*') рассчитаны на однопользовательский
+    локальный/EXE-сценарий (см. .env.example). В серверном сценарии та же комбинация означает,
+    что любой, кто достаёт до порта, получает полный доступ на чтение/запись без аутентификации
+    — это прямо усиливает риски найденных в этом же ревью 3.1/3.2. Запуск НЕ блокируется (те же
+    дефолты остаются рабочими и правильными для локального сценария) — только предупреждение в
+    лог; сам DATABASE_URL в сообщение не попадает, чтобы не светить пароль БД в логах."""
+    if not DATABASE_URL.lower().startswith("postgresql"):
+        return
+    problems = []
+    if not auth_enabled:
+        problems.append("аутентификация выключена (AuthSettings.enabled=False)")
+    if CORS_ALLOWED_ORIGINS == ["*"]:
+        problems.append("CORS разрешён для любого origin (INFRA_REGISTRY_CORS_ORIGINS=*)")
+    if problems:
+        logger.warning(
+            "Небезопасная конфигурация серверного развёртывания на PostgreSQL: %s. "
+            "Эти дефолты рассчитаны на локальный однопользовательский сценарий — для сервера, "
+            "доступного нескольким сотрудникам, включите аутентификацию (см. раздел "
+            "'Аутентификация' в README) и ограничьте INFRA_REGISTRY_CORS_ORIGINS конкретными "
+            "адресами.",
+            "; ".join(problems),
+        )
 
 # Vue-фронтенд (frontend-vue/dist) — единственный UI, см. FRONTEND_DIR в config.py. Vite кладёт
 # хэшированные JS/CSS-чанки в assets/ и ссылается на них абсолютными путями '/assets/...'

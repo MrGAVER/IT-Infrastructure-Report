@@ -99,6 +99,7 @@ async function submit() {
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
+          :protocol-port-catalog="catalogs.protocolPortCatalog"
         />
 
         <div class="modal-foot">
@@ -126,7 +127,11 @@ async function submit() {
 }
 .modal {
   width: 100%;
-  max-width: 640px;
+  /* Фикс п.3.2: было 640px фиксированных — та же ширина, что DeviceFormModal.vue до её
+     собственного фикса (см. её комментарий про clamp()). "Управлять портами устройства"
+     открывается с тем же по духу содержимым (DeviceInterfacesEditor.vue), что и форма
+     устройства, — should выглядеть и вести себя так же по ширине. */
+  max-width: clamp(640px, 50vw, 1100px);
   padding: 20px 22px 18px;
 }
 .modal-head {

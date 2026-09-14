@@ -19,7 +19,7 @@ try:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    from app.models import Base, Department, DeviceType, InformationSystem, ISDepartment
+    from app.models import Base, Department, DeviceCategory, DeviceType, InformationSystem, ISDepartment
     from app.services.report_engine import ReportBuilderError
     from app.services.report_grid import _estimate_row_height, build_xlsx_grid, preview_grid, validate_grid_config
     from app.services.report_meta import build_entity_metadata
@@ -189,7 +189,10 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         self.session.flush()
         self.session.add(ISDepartment(information_system_id=self.isys1.id, department_id=self.dep_it.id))
 
-        self.device_type = DeviceType(name="Сервер")
+        self.device_category = DeviceCategory(name="Серверы и СХД")
+        self.session.add(self.device_category)
+        self.session.flush()
+        self.device_type = DeviceType(name="Сервер", category_id=self.device_category.id)
         self.session.add(self.device_type)
         self.session.flush()
         self.session.commit()
@@ -277,6 +280,20 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         try:
             wb = openpyxl.load_workbook(path)
             self.assertEqual(wb["Лист1"]["B1"].value, "=A1*2")
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_field_cell_value_starting_with_formula_char_is_escaped(self):
+        """Код-ревью п.3.2 (Excel Formula Injection): в отличие от kind=="formula" (тест выше,
+        задуман автором шаблона отчёта) — kind=="field" тянет данные из БД (потенциально
+        пользовательский ввод) и обязан пройти через excel_safe."""
+        import openpyxl
+        self.isys1.name = '=HYPERLINK("http://evil.example")'
+        self.session.commit()
+        path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
+        try:
+            wb = openpyxl.load_workbook(path)
+            self.assertEqual(wb["Лист1"]["B2"].value, '\'=HYPERLINK("http://evil.example")')
         finally:
             path.unlink(missing_ok=True)
 

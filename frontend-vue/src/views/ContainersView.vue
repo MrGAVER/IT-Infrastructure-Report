@@ -15,6 +15,8 @@ const vms = useVMsStore()
 const { notify, notifyError } = useToast()
 
 const modalContainer = ref<Container | null>(null)
+// Фикс п.2: "копировать контейнер для создания на его основе нового".
+const copyFromContainer = ref<Container | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
 
@@ -24,15 +26,23 @@ onMounted(async () => {
 
 function openCreate() {
   modalContainer.value = null
+  copyFromContainer.value = null
   modalOpen.value = true
 }
 function openEdit(c: Container) {
   modalContainer.value = c
+  copyFromContainer.value = null
+  modalOpen.value = true
+}
+function openCopy(c: Container) {
+  modalContainer.value = null
+  copyFromContainer.value = c
   modalOpen.value = true
 }
 function closeModal() {
   modalOpen.value = false
   modalContainer.value = null
+  copyFromContainer.value = null
 }
 async function onSaved() {
   const wasEdit = modalContainer.value !== null
@@ -125,6 +135,9 @@ function hostLabel(c: Container): string {
                   <button type="button" aria-label="Редактировать" @click="openEdit(c)">
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
+                  <button type="button" aria-label="Копировать" @click="openCopy(c)">
+                    <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
+                  </button>
                   <button type="button" aria-label="Удалить" :disabled="deletingId === c.id" @click="removeContainer(c)">
                     <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                   </button>
@@ -147,7 +160,7 @@ function hostLabel(c: Container): string {
       </div>
     </div>
 
-    <ContainerFormModal v-if="modalOpen" :container="modalContainer" @close="closeModal" @saved="onSaved" />
+    <ContainerFormModal v-if="modalOpen" :container="modalContainer" :copy-from="copyFromContainer" @close="closeModal" @saved="onSaved" />
   </div>
 </template>
 

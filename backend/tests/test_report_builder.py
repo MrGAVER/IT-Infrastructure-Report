@@ -23,7 +23,7 @@ try:
     from sqlalchemy.orm import sessionmaker
 
     from app.models import (
-        Base, Department, DeviceType, InformationSystem, ISDepartment, PhysicalDevice,
+        Base, Department, DeviceCategory, DeviceType, InformationSystem, ISDepartment, PhysicalDevice,
         VirtualMachine,
     )
     from app.services.report_engine import (
@@ -80,7 +80,10 @@ class ReportEngineTestCase(unittest.TestCase):
             ISDepartment(information_system_id=self.isys.id, department_id=self.dep_it.id),
         ])
 
-        self.device_type = DeviceType(name="Сервер")
+        self.device_category = DeviceCategory(name="Серверы и СХД")
+        self.session.add(self.device_category)
+        self.session.flush()
+        self.device_type = DeviceType(name="Сервер", category_id=self.device_category.id)
         self.session.add(self.device_type)
         self.session.flush()
         self.server = PhysicalDevice(device_type_id=self.device_type.id, serial_number="SN1", system_name="SRV1")

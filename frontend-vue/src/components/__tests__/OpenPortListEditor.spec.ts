@@ -73,6 +73,19 @@ describe('OpenPortListEditor.vue', () => {
     expect(emitted[0][0]).toEqual([])
   })
 
+  it('поле "Протокол" и селект транспорта подписаны по-разному — не выглядят как дублирующие (п.1.5/4.3)', () => {
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    const protocolInput = wrapper.find('input.col-protocol')
+    const transportSelect = wrapper.find('select.col-transport')
+    expect(protocolInput.attributes('title')).toMatch(/прикладного уровня/)
+    expect(transportSelect.attributes('title')).toMatch(/Транспортный протокол/)
+    // Собственно проверка "не дублируют" — тексты подсказок разные и явно называют, чем один
+    // отличается от другого (а не два одинаковых generic "Протокол").
+    expect(protocolInput.attributes('title')).not.toBe(transportSelect.attributes('title'))
+  })
+
   it('быстрое добавление записи справочника подставляет id в protocol_catalog_id строки', async () => {
     // Порт/протокол автозаполняются только если catalogEntries уже отражает созданную запись —
     // в реальном приложении так и есть (VMFormModal.vue/DeviceFormModal.vue передают проп как

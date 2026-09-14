@@ -17,6 +17,7 @@ import { vTruncateTooltip } from '../directives/truncateTooltip'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
+import DeviceIconPicker from './DeviceIconPicker.vue'
 
 const props = defineProps<{
   resource: string
@@ -129,8 +130,8 @@ async function removeItem() {
         <div v-if="!fields.length" class="form-error">Для «{{ resourceLabel }}» форма не настроена.</div>
 
         <form v-else class="form-grid" @submit.prevent="submit">
-          <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' }">
-            <span>{{ f.label }}{{ f.required ? ' *' : '' }}</span>
+          <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
+            <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
             <div v-if="f.type === 'fk'" class="fk-row">
               <SearchableSelect
                 :model-value="(values[f.name] as string) ?? ''"
@@ -152,6 +153,14 @@ async function removeItem() {
                 @change="values[f.name] = ($event.target as HTMLInputElement).checked"
               />
             </label>
+            <!-- Поле без своей <span>-подписи внутри <label>: DeviceIconPicker уже рендерит
+                 собственную подпись "Иконка на диаграмме топологии сети" в своём шаблоне,
+                 повторять её здесь через внешний <span> означало бы дублирование текста. -->
+            <DeviceIconPicker
+              v-else-if="f.type === 'diagram-icon'"
+              :model-value="(values[f.name] as string) || null"
+              @update:model-value="(v) => (values[f.name] = v ?? '')"
+            />
             <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
           </label>
         </form>
@@ -185,7 +194,10 @@ async function removeItem() {
 }
 .modal {
   width: 100%;
-  max-width: 460px;
+  /* Фикс п.1.3.6: тот же узкий 460px и та же причина обрезки текста в fk-полях, что и в
+     QuickAddModal.vue (см. её комментарий) — это тот же класс форм ("Другие справочники"),
+     страдающий от той же формы-грида 1fr 1fr. */
+  max-width: clamp(460px, 34vw, 640px);
   padding: 20px 22px 18px;
 }
 .modal-head {

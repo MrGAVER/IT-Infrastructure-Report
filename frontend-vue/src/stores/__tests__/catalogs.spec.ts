@@ -144,4 +144,130 @@ describe('useCatalogsStore', () => {
     expect(store.label('device-types', 'dt-server')).toBe('Сервер') // другие каталоги пришли нормально
     expect(store.error).toContain('buildings') // но о частичном сбое сообщаем
   })
+
+  // Фикс п.4.2: "во всех полях с выпадающим текстом на всех формах должна быть применена
+  // сортировка" — сортируется один раз в сторе, при записи в items[key], а не в каждом
+  // потребляющем select по отдельности.
+  describe('сортировка каталогов (фикс п.4.2)', () => {
+    it('reload() сортирует обычный каталог по name (регистронезависимо, кириллица)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
+          if (url.includes('/resources/manufacturers')) {
+            return new Response(
+              JSON.stringify({
+                items: [
+                  { id: 'mf-3', name: 'юником' },
+                  { id: 'mf-1', name: 'аквариус' }, // строчная — sensitivity:'base' не должна перевесить алфавитный порядок
+                  { id: 'mf-2', name: 'Крафтвэй' },
+                ],
+                total: 3,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+      const store = useCatalogsStore()
+      await store.ensureLoaded()
+
+      expect(store.items['manufacturers'].map((m) => m.id)).toEqual(['mf-1', 'mf-2', 'mf-3'])
+    })
+
+    it('reload() сортирует operating-systems/embedded-os по (name, version) — версии внутри одного имени по числовому порядку, не лексикографически', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
+          if (url.includes('/resources/operating-systems')) {
+            return new Response(
+              JSON.stringify({
+                items: [
+                  // Лексикографически "10" < "9" (сравнение посимвольно: '1' < '9'), а по смыслу
+                  // версии 9 должна идти раньше 10 — именно это и проверяем numeric:true.
+                  { id: 'os-v10', name: 'Windows Server', version: '10' },
+                  { id: 'os-v9', name: 'Windows Server', version: '9' },
+                  { id: 'os-ubuntu', name: 'Ubuntu', version: '22.04' },
+                ],
+                total: 3,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+      const store = useCatalogsStore()
+      await store.ensureLoaded()
+
+      // "Ubuntu" перед "Windows Server" (по имени), а внутри "Windows Server" — 9 перед 10.
+      expect(store.items['operating-systems'].map((o) => o.id)).toEqual(['os-ubuntu', 'os-v9', 'os-v10'])
+    })
+
+    it('reload() сортирует interfaces через natural sort — Gi1/0/2 перед Gi1/0/19 (фикс п.3.5)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
+          if (url.includes('/resources/interfaces')) {
+            return new Response(
+              JSON.stringify({
+                items: [
+                  { id: 'if-19', name: 'Gi1/0/19', physical_device_id: 'dev-1' },
+                  { id: 'if-2', name: 'Gi1/0/2', physical_device_id: 'dev-1' },
+                  { id: 'if-9', name: 'Gi1/0/9', physical_device_id: 'dev-1' },
+                ],
+                total: 3,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+      const store = useCatalogsStore()
+      await store.ensureLoaded()
+
+      expect(store.items['interfaces'].map((i) => i.id)).toEqual(['if-2', 'if-9', 'if-19'])
+    })
+
+    it('addCatalogItem() вставляет новую запись по алфавиту, а не в конец списка', () => {
+      const store = useCatalogsStore()
+      store.items['manufacturers'] = [
+        { id: 'mf-1', name: 'Cisco' },
+        { id: 'mf-2', name: 'Huawei' },
+      ]
+
+      store.addCatalogItem('manufacturers', { id: 'mf-new', name: 'Dell' })
+
+      expect(store.items['manufacturers'].map((m) => m.id)).toEqual(['mf-1', 'mf-new', 'mf-2'])
+    })
+
+    it('addCatalogItem() на ещё не загруженный каталог всё равно добавляет запись (как раньше делал прямой push в QuickAddModal.vue)', () => {
+      const store = useCatalogsStore()
+      store.addCatalogItem('manufacturers', { id: 'mf-new', name: 'Dell' })
+      expect(store.items['manufacturers']).toEqual([{ id: 'mf-new', name: 'Dell' }])
+    })
+
+    it('replaceDeviceInterfaces() сохраняет natural sort после точечной замены (фикс п.3.5 при сохранении портов из DevicePortsModal.vue)', () => {
+      const store = useCatalogsStore()
+      store.items['interfaces'] = [
+        { id: 'if-2', name: 'Gi1/0/2', physical_device_id: 'dev-1' },
+        { id: 'if-19', name: 'Gi1/0/19', physical_device_id: 'dev-1' },
+      ]
+
+      store.replaceDeviceInterfaces('dev-1', [
+        { id: 'if-2', name: 'Gi1/0/2', physical_device_id: 'dev-1' },
+        { id: 'if-19', name: 'Gi1/0/19', physical_device_id: 'dev-1' },
+        { id: 'if-9', name: 'Gi1/0/9', physical_device_id: 'dev-1' },
+      ])
+
+      expect(store.items['interfaces'].map((i) => i.id)).toEqual(['if-2', 'if-9', 'if-19'])
+    })
+  })
 })

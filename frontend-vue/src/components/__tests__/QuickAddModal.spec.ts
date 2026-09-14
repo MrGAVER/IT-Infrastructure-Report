@@ -22,8 +22,8 @@ beforeEach(() => {
 
 describe('QuickAddModal.vue', () => {
   it('строит форму по схеме простого справочника (только текстовое поле)', () => {
-    mount(QuickAddModal, { props: { resource: 'device-types' } })
-    expect(body().text()).toContain('Добавить: Тип устройства')
+    mount(QuickAddModal, { props: { resource: 'manufacturers' } })
+    expect(body().text()).toContain('Добавить: Производитель')
     expect(body().findAll('input[type="text"]')).toHaveLength(1)
   })
 
@@ -54,7 +54,7 @@ describe('QuickAddModal.vue', () => {
 
   it('сохраняет запись, эмитит created и точечно добавляет её в каталог стора', async () => {
     const catalogs = useCatalogsStore()
-    catalogs.items['device-types'] = []
+    catalogs.items['manufacturers'] = []
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -62,21 +62,21 @@ describe('QuickAddModal.vue', () => {
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
-        if (method === 'POST' && url.endsWith('/resources/device-types')) {
-          return jsonResponse({ id: 'dt-new', name: 'Маршрутизатор' }, 201)
+        if (method === 'POST' && url.endsWith('/resources/manufacturers')) {
+          return jsonResponse({ id: 'mfr-new', name: 'Cisco' }, 201)
         }
         return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
       }),
     )
 
-    const wrapper = mount(QuickAddModal, { props: { resource: 'device-types' } })
-    await body().find('input[type="text"]').setValue('Маршрутизатор')
+    const wrapper = mount(QuickAddModal, { props: { resource: 'manufacturers' } })
+    await body().find('input[type="text"]').setValue('Cisco')
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect(calls[0].body).toEqual({ name: 'Маршрутизатор' })
-    expect(wrapper.emitted('created')?.[0][0]).toEqual({ id: 'dt-new', name: 'Маршрутизатор' })
-    expect(catalogs.items['device-types']).toEqual([{ id: 'dt-new', name: 'Маршрутизатор' }])
+    expect(calls[0].body).toEqual({ name: 'Cisco' })
+    expect(wrapper.emitted('created')?.[0][0]).toEqual({ id: 'mfr-new', name: 'Cisco' })
+    expect(catalogs.items['manufacturers']).toEqual([{ id: 'mfr-new', name: 'Cisco' }])
   })
 
   it('точечно добавляет запись, даже если каталог ещё не был загружен (не пустой массив, а undefined)', async () => {
@@ -88,19 +88,19 @@ describe('QuickAddModal.vue', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
-        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-types')) {
-          return jsonResponse({ id: 'dt-new', name: 'Маршрутизатор' }, 201)
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/manufacturers')) {
+          return jsonResponse({ id: 'mfr-new', name: 'Cisco' }, 201)
         }
         return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
       }),
     )
 
-    mount(QuickAddModal, { props: { resource: 'device-types' } })
-    await body().find('input[type="text"]').setValue('Маршрутизатор')
+    mount(QuickAddModal, { props: { resource: 'manufacturers' } })
+    await body().find('input[type="text"]').setValue('Cisco')
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect(catalogs.items['device-types']).toEqual([{ id: 'dt-new', name: 'Маршрутизатор' }])
+    expect(catalogs.items['manufacturers']).toEqual([{ id: 'mfr-new', name: 'Cisco' }])
   })
 
   it('вложенная кнопка "+" у fk-поля создаёт запись в её каталоге и сразу подставляет её в текущую форму', async () => {
@@ -109,12 +109,16 @@ describe('QuickAddModal.vue', () => {
     const catalogs = useCatalogsStore()
     catalogs.items['device-types'] = [{ id: 'dt-1', name: 'Сервер' }]
     catalogs.items['manufacturers'] = [{ id: 'mf-1', name: 'Dell' }]
+    // Интеграционный фикс (слияние feature/network-topology-diagram + fix/usability-batch4):
+    // category_id стал обязательным полем самого device-types (см. схему выше) — вложенной
+    // форме нужен хотя бы один вариант категории, иначе её собственный submit не пройдёт.
+    catalogs.items['device-categories'] = [{ id: 'cat-1', name: 'Сетевая инфраструктура' }]
 
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/device-types')) {
-          return jsonResponse({ id: 'dt-new', name: 'Коммутатор' }, 201)
+          return jsonResponse({ id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1' }, 201)
         }
         return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
       }),
@@ -131,6 +135,9 @@ describe('QuickAddModal.vue', () => {
     expect(body().findAll('.overlay')).toHaveLength(2)
     const nested = body().findAll('.overlay')[1]
     await nested.find('input[type="text"]').setValue('Коммутатор')
+    // Категория — обязательное fk-поле вложенной формы; выбираем единственный доступный вариант.
+    await nested.find('.searchable-select input').trigger('focus')
+    await nested.find('.ss-option').trigger('mousedown')
     await nested.find('form').trigger('submit')
     await flushPromises()
 
@@ -141,8 +148,8 @@ describe('QuickAddModal.vue', () => {
     const deviceTypeInput = body().findAll('.searchable-select input')[0].element as HTMLInputElement
     expect(deviceTypeInput.value).toBe('Коммутатор')
     expect(catalogs.items['device-types']).toEqual([
+      { id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1' },
       { id: 'dt-1', name: 'Сервер' },
-      { id: 'dt-new', name: 'Коммутатор' },
     ])
   })
 

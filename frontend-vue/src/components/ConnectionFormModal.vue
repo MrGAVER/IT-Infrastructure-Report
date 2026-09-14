@@ -10,15 +10,25 @@
 // трогая порты.
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
+import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces } from '../api/deviceInterfaces'
 import type { Connection, Device, DeviceInterface } from '../api/types'
-import { useCatalogsStore } from '../stores/catalogs'
+import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import QuickAddButton from './QuickAddButton.vue'
 import DevicePortsModal from './DevicePortsModal.vue'
+import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
-const props = defineProps<{ connection: Connection | null }>()
+const props = defineProps<{
+  connection: Connection | null
+  // Фикс п.3.4 (батч4, визуальный режим подключений): при создании подключения перетаскиванием
+  // на схеме (см. ConnectionCanvasModal.vue) источник и назначение уже выбраны курсором мыши —
+  // остаётся только тип линии связи/назначение/статус, поэтому оба порта форма подставляет сама.
+  // Игнорируется, если передан connection (редактирование существующего всегда важнее подсказки
+  // для ещё не созданного).
+  prefill?: { sourceInterfaceId: string; destinationInterfaceId: string } | null
+}>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -47,6 +57,76 @@ const form = reactive(emptyForm())
 
 const allInterfaces = computed(() => (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
 
+// Фикс п.3.3: "Назначение линии связи" — брать на основании данных на порту подключаемых
+// устройств (is_management/is_data_transfer на DeviceInterface), а не только вводить вручную.
+// Три преднастроенных значения (PURPOSE_PRESETS выше) как раз и соответствуют трём комбинациям
+// этих двух флагов — та же классификация, что и в структурной схеме приложения (см.
+// "Структурная схема - Приложение 1.docx": "управление активами" / "передача данных" /
+// "передача данных и управление активами").
+function purposeFromFlags(isManagement: boolean, isDataTransfer: boolean): string {
+  if (isManagement && isDataTransfer) return 'Передача данных и управление активами'
+  if (isManagement) return 'Управление активами'
+  if (isDataTransfer) return 'Передача данных'
+  return ''
+}
+
+const selectedSourceInterface = computed(() => allInterfaces.value.find((i) => i.id === form.source_interface_id) ?? null)
+const selectedDestinationInterface = computed(() => allInterfaces.value.find((i) => i.id === form.destination_interface_id) ?? null)
+
+// Расхождение — когда на портах указано РАЗНОЕ назначение (один "управление", другой "передача
+// данных" и т.п.). null, пока не выбраны оба порта — сравнивать пока нечего.
+const purposeMismatch = computed(() => {
+  const s = selectedSourceInterface.value
+  const d = selectedDestinationInterface.value
+  if (!s || !d) return null
+  if (s.is_management === d.is_management && s.is_data_transfer === d.is_data_transfer) return null
+  return { source: s, destination: d }
+})
+
+// Автоподстановка срабатывает только когда оба порта согласны (иначе непонятно, чьё значение
+// брать — см. purposeMismatch и предупреждение в шаблоне ниже) и только если текущее значение
+// поля не является ручным вводом пользователя, отличным от типовых пресетов: пустое поле или уже
+// один из PURPOSE_PRESETS перезаписываются, а вот что-то нестандартное, вписанное вручную (напр.
+// "резервный канал для репликации СХД"), молча не затирается при смене порта.
+watch([selectedSourceInterface, selectedDestinationInterface], ([s, d]) => {
+  if (!s || !d) return
+  if (s.is_management !== d.is_management || s.is_data_transfer !== d.is_data_transfer) return
+  if (form.purpose !== '' && !PURPOSE_PRESETS.includes(form.purpose)) return
+  form.purpose = purposeFromFlags(s.is_management, s.is_data_transfer)
+})
+
+const aligningPorts = ref(false)
+
+// Фикс п.3.3: "выполнять автоматическую проверку и корректировку несовпадающих данных с запросом
+// у пользователя, на обоих подключаемых портах" — при расхождении пользователь явно выбирает,
+// чьё значение считать верным (keepSource), после подтверждения оно копируется на ВТОРОЙ порт.
+// sync_interfaces на бэкенде атомарный на всё устройство целиком (см. api/deviceInterfaces.ts) —
+// нельзя обновить один флаг одного интерфейса точечным PATCH, поэтому перечитываем полный список
+// интерфейсов устройства-"проигравшего", меняем в нём только эту одну строку и сохраняем весь
+// список обратно.
+async function alignPortFlags(keepSource: boolean) {
+  const mismatch = purposeMismatch.value
+  if (!mismatch) return
+  const winner = keepSource ? mismatch.source : mismatch.destination
+  const loser = keepSource ? mismatch.destination : mismatch.source
+  const winnerPurpose = purposeFromFlags(winner.is_management, winner.is_data_transfer) || '— ни управление, ни передача данных не отмечены —'
+  if (!confirm(`Порт «${loser.name}» получит то же назначение, что и «${winner.name}»: ${winnerPurpose}. Продолжить?`)) return
+
+  aligningPorts.value = true
+  errorMessage.value = null
+  try {
+    const rows = await loadDeviceInterfaceDraftRows(loser.physical_device_id)
+    const updatedRows = rows.map((r) => (r.id === loser.id ? { ...r, is_management: winner.is_management, is_data_transfer: winner.is_data_transfer } : r))
+    const { items } = await persistDeviceInterfaces(loser.physical_device_id, updatedRows)
+    catalogs.replaceDeviceInterfaces(loser.physical_device_id, items)
+    form.purpose = purposeFromFlags(winner.is_management, winner.is_data_transfer)
+  } catch (err) {
+    errorMessage.value = err instanceof Error ? err.message : 'Не удалось выровнять назначение портов'
+  } finally {
+    aligningPorts.value = false
+  }
+}
+
 function deviceLabel(d: Device) {
   return d.system_name || d.serial_number
 }
@@ -71,6 +151,17 @@ function deviceInterfaceCount(deviceId: string): number {
 
 const sourceInterfaces = computed(() => interfacesFor(form.sourceDeviceId, form.source_interface_id))
 const destinationInterfaces = computed(() => interfacesFor(form.destinationDeviceId, form.destination_interface_id))
+// Фикс п.3.6: поиск вводом текста в "Устройство"/"Порт" — те же select'ы, что раньше приходилось
+// листать целиком. deviceOptions сортируется тут же (в devicesStore.all порядок — как пришло с
+// бэкенда, см. её комментарий про отсутствие серверной пагинации/сортировки); portOptions уже
+// приходят отсортированными natural sort'ом (см. фикс п.3.5 в stores/catalogs.ts) — allInterfaces
+// читает catalogs.items['interfaces'], .filter() порядок не меняет.
+const deviceOptions = computed(() =>
+  [...devicesStore.all].map((d) => ({ value: d.id, label: deviceLabel(d) })).sort((a, b) => RU_COLLATOR.compare(a.label, b.label)),
+)
+const sourcePortOptions = computed(() => sourceInterfaces.value.map((i) => ({ value: i.id, label: i.name })))
+const destinationPortOptions = computed(() => destinationInterfaces.value.map((i) => ({ value: i.id, label: i.name })))
+const connectionTypeOptions = computed(() => (catalogs.items['connection-types'] ?? []).map((t) => ({ value: t.id, label: t.name })))
 const sourceHasNoInterfacesAtAll = computed(() => form.sourceDeviceId !== '' && deviceInterfaceCount(form.sourceDeviceId) === 0)
 const destinationHasNoInterfacesAtAll = computed(
   () => form.destinationDeviceId !== '' && deviceInterfaceCount(form.destinationDeviceId) === 0,
@@ -91,6 +182,13 @@ watch(
       form.purpose = c.purpose ?? ''
       form.is_active = c.is_active
       form.description = c.description ?? ''
+    } else if (props.prefill) {
+      const src = allInterfaces.value.find((i) => i.id === props.prefill!.sourceInterfaceId)
+      const dst = allInterfaces.value.find((i) => i.id === props.prefill!.destinationInterfaceId)
+      form.sourceDeviceId = src?.physical_device_id ?? ''
+      form.source_interface_id = props.prefill.sourceInterfaceId
+      form.destinationDeviceId = dst?.physical_device_id ?? ''
+      form.destination_interface_id = props.prefill.destinationInterfaceId
     }
   },
   { immediate: true },
@@ -204,18 +302,17 @@ async function submit() {
             <legend>Исходное устройство</legend>
             <label class="field">
               <span>Устройство</span>
-              <select v-model="form.sourceDeviceId">
-                <option value="">— выберите —</option>
-                <option v-for="d in devicesStore.all" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-              </select>
+              <SearchableSelect v-model="form.sourceDeviceId" :options="deviceOptions" placeholder="— выберите —" />
             </label>
             <label class="field">
               <span>Порт *</span>
               <div class="lookup-row">
-                <select v-model="form.source_interface_id" :disabled="!form.sourceDeviceId">
-                  <option value="">— выберите —</option>
-                  <option v-for="i in sourceInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
-                </select>
+                <SearchableSelect
+                  v-model="form.source_interface_id"
+                  :options="sourcePortOptions"
+                  :disabled="!form.sourceDeviceId"
+                  placeholder="— выберите —"
+                />
                 <button
                   type="button"
                   class="quick-add-btn"
@@ -244,18 +341,17 @@ async function submit() {
             <legend>Конечное устройство</legend>
             <label class="field">
               <span>Устройство</span>
-              <select v-model="form.destinationDeviceId">
-                <option value="">— выберите —</option>
-                <option v-for="d in devicesStore.all" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-              </select>
+              <SearchableSelect v-model="form.destinationDeviceId" :options="deviceOptions" placeholder="— выберите —" />
             </label>
             <label class="field">
               <span>Порт *</span>
               <div class="lookup-row">
-                <select v-model="form.destination_interface_id" :disabled="!form.destinationDeviceId">
-                  <option value="">— выберите —</option>
-                  <option v-for="i in destinationInterfaces" :key="i.id" :value="i.id">{{ i.name }}</option>
-                </select>
+                <SearchableSelect
+                  v-model="form.destination_interface_id"
+                  :options="destinationPortOptions"
+                  :disabled="!form.destinationDeviceId"
+                  placeholder="— выберите —"
+                />
                 <button
                   type="button"
                   class="quick-add-btn"
@@ -281,10 +377,7 @@ async function submit() {
           <label class="field">
             <span>Тип физической линии связи *</span>
             <div class="lookup-row">
-              <select v-model="form.connection_type_id">
-                <option value="">— выберите —</option>
-                <option v-for="t in catalogs.items['connection-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
-              </select>
+              <SearchableSelect v-model="form.connection_type_id" :options="connectionTypeOptions" placeholder="— выберите —" />
               <QuickAddButton resource="connection-types" title="Тип подключения" @created="(r) => (form.connection_type_id = r.id)" />
             </div>
           </label>
@@ -296,6 +389,25 @@ async function submit() {
               <option v-for="p in PURPOSE_PRESETS" :key="p" :value="p" />
             </datalist>
           </label>
+
+          <!-- Фикс п.3.3: расхождение в "Управление"/"Передача данных" между двумя портами —
+               предупреждаем и предлагаем выровнять, а не молча оставляем как есть. -->
+          <div v-if="purposeMismatch" class="field field-wide purpose-mismatch">
+            <span class="warning-text">
+              ⚠ На портах указано разное назначение: «{{ purposeMismatch.source.name }}» —
+              {{ purposeFromFlags(purposeMismatch.source.is_management, purposeMismatch.source.is_data_transfer) || 'ни управление, ни передача данных' }},
+              «{{ purposeMismatch.destination.name }}» —
+              {{ purposeFromFlags(purposeMismatch.destination.is_management, purposeMismatch.destination.is_data_transfer) || 'ни управление, ни передача данных' }}.
+            </span>
+            <div class="purpose-mismatch-actions">
+              <button type="button" class="btn btn-secondary" :disabled="aligningPorts" @click="alignPortFlags(true)">
+                Взять как на «{{ purposeMismatch.source.name }}»
+              </button>
+              <button type="button" class="btn btn-secondary" :disabled="aligningPorts" @click="alignPortFlags(false)">
+                Взять как на «{{ purposeMismatch.destination.name }}»
+              </button>
+            </div>
+          </div>
 
           <label class="field checkbox-field">
             <input v-model="form.is_active" type="checkbox" />
@@ -416,6 +528,25 @@ async function submit() {
 }
 .field-wide {
   grid-column: 1 / -1;
+}
+.purpose-mismatch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--status-warn);
+  border-radius: var(--r-s);
+  background: var(--status-warn-soft);
+}
+.purpose-mismatch .warning-text {
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.purpose-mismatch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .lookup-row {
   display: flex;

@@ -4,11 +4,6 @@
 // "быстро добавить" через "+" в других формах (QuickAddModal.vue), без возможности посмотреть
 // список целиком, отредактировать или удалить запись.
 //
-// Исключение — organizations: на него нет FK ни у одной модели (в отличие от
-// support-organizations), поэтому у него не было даже "+" в QuickAddModal.vue — раньше
-// единственным способом отредактировать его была legacy-версия интерфейса. Включён сюда ради
-// паритета с ней при удалении legacy-фронтенда, не потому что чем-то реально используется.
-//
 // OTHER_CATALOGS сознательно НЕ включает: buildings/rooms/racks (свой экран —
 // BuildingsView.vue), structural-units (свой экран), vlans/vlan-domains (управляются на
 // VLANsView.vue, включая панель "Домены VLAN") — добавлять их сюда означало бы дублировать уже
@@ -23,7 +18,6 @@ import { vTruncateTooltip } from '../directives/truncateTooltip'
 import CatalogRecordFormModal from '../components/CatalogRecordFormModal.vue'
 
 const OTHER_CATALOGS = [
-  'organizations',
   'device-types',
   'manufacturers',
   'device-models',
