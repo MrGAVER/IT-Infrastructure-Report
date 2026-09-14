@@ -34,7 +34,10 @@ const isCustom = computed(() => icon.value.mode === 'custom')
 const fillColor = computed(() => (icon.value.mode === 'generated' ? icon.value.color || FALLBACK_COLOR : FALLBACK_COLOR))
 const shape = computed(() => (icon.value.mode === 'generated' ? icon.value.shape : 'generic'))
 const glyphPath = computed(() => SHAPE_GLYPHS[shape.value] ?? SHAPE_GLYPHS.generic)
-const isSwitch = computed(() => shape.value === 'switch')
+// Засечки порта раньше рисовались только для shape === 'switch'; теперь backend считает
+// port_ticks для ЛЮБОГО сгенерированного значка (см. services/diagram_icons.py), так что
+// видимость завязана просто на "у устройства есть хотя бы один известный порт" — работает
+// одинаково для switch, сервера с несколькими NIC, файрвола с WAN/LAN/DMZ и т.д.
 const portTicks = computed(() => (icon.value.mode === 'generated' ? Math.max(0, Math.min(icon.value.port_ticks ?? 0, MAX_PORT_TICKS)) : 0))
 const portOverflow = computed(() => (icon.value.mode === 'generated' ? icon.value.port_overflow ?? 0 : 0))
 
@@ -57,8 +60,8 @@ const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? saniti
 
 <template>
   <div class="diagram-device-node" :class="{ selected: props.selected }" :style="{ width: `${NODE_WIDTH}px`, height: `${NODE_HEIGHT}px` }">
-    <Handle v-if="!isSwitch" type="target" :position="Position.Top" />
-    <Handle v-if="!isSwitch" type="source" :position="Position.Bottom" />
+    <Handle v-if="portTicks === 0" type="target" :position="Position.Top" />
+    <Handle v-if="portTicks === 0" type="source" :position="Position.Bottom" />
 
     <template v-if="isCustom && icon.mode === 'custom'">
       <div class="custom-icon" v-html="sanitizedCustomSvg"></div>
@@ -72,7 +75,7 @@ const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? saniti
       <div v-if="subLabel" class="sub-label" :title="subLabel">{{ subLabel }}</div>
     </div>
 
-    <div v-if="isSwitch" class="port-ticks">
+    <div v-if="portTicks > 0" class="port-ticks">
       <template v-for="i in portTicks" :key="i - 1">
         <div class="port-tick" :style="{ left: `${tickX(i - 1)}px` }"></div>
         <Handle :id="`port-${i - 1}-source`" type="source" :position="Position.Bottom" :style="{ left: `${tickX(i - 1)}px` }" />

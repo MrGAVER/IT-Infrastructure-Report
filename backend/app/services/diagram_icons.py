@@ -133,11 +133,16 @@ def build_device_icon(device: PhysicalDevice, interface_count: int, lookups: Ico
     shape, color = resolve_category_style(category, lookups.categories_by_id)
 
     descriptor = {"mode": "generated", "shape": shape, "color": color}
-    if shape == "switch":
-        port_ticks, port_overflow = port_ticks_for_count(interface_count)
-        descriptor["port_ticks"] = port_ticks
-        if port_overflow:
-            descriptor["port_overflow"] = port_overflow
+    # Раньше засечки считались только при shape == "switch" — на канвасе от этого страдали
+    # многопортовые устройства ЛЮБОЙ другой формы (сервер с несколькими NIC, файрвол с WAN/LAN/
+    # DMZ): все их подключения анкерились к единственному Handle узла и визуально сливались в
+    # одну точку. Засечка — это факт о числе интерфейсов устройства, а не о его форме, поэтому
+    # считаем её для любого сгенерированного значка (см. GraphContext.device_supports_port_index
+    # в services/diagram_graph.py, где это используется при построении рёбер).
+    port_ticks, port_overflow = port_ticks_for_count(interface_count)
+    descriptor["port_ticks"] = port_ticks
+    if port_overflow:
+        descriptor["port_overflow"] = port_overflow
 
     manufacturer = lookups.manufacturers_by_id.get(device.manufacturer_id) if device.manufacturer_id else None
     descriptor["manufacturer_label"] = manufacturer.name if manufacturer else ""

@@ -108,15 +108,38 @@ def test_build_device_icon_generated_switch_with_port_overflow():
     }
 
 
-def test_build_device_icon_non_switch_shape_has_no_port_ticks():
+def test_build_device_icon_non_switch_shape_also_gets_port_ticks():
+    """Раньше засечки считались только при shape == "switch" — из-за этого многопортовый сервер/
+    файрвол на канвасе анкерил ВСЕ свои связи в одну точку узла (нет отдельных Handle на порт).
+    Засечка — это факт о числе интерфейсов устройства, а не о его форме."""
     servers = _category("servers", shape="server", color="#4f7cff")
     device_type = DeviceType(id="dt-server", name="Сервер", category_id="servers")
     device = PhysicalDevice(id="dev-2", device_type_id="dt-server", serial_number="SN-2")
     lookups = IconLookups(device_types_by_id={"dt-server": device_type}, categories_by_id={"servers": servers})
     icon = build_device_icon(device, interface_count=4, lookups=lookups)
     assert icon["shape"] == "server"
-    assert "port_ticks" not in icon
+    assert icon["port_ticks"] == 4
     assert "port_overflow" not in icon
+
+
+def test_build_device_icon_non_switch_shape_with_overflow():
+    servers = _category("servers", shape="server", color="#4f7cff")
+    device_type = DeviceType(id="dt-server", name="Сервер", category_id="servers")
+    device = PhysicalDevice(id="dev-2b", device_type_id="dt-server", serial_number="SN-2b")
+    lookups = IconLookups(device_types_by_id={"dt-server": device_type}, categories_by_id={"servers": servers})
+    icon = build_device_icon(device, interface_count=40, lookups=lookups)
+    assert icon["port_ticks"] == MAX_PORT_TICKS
+    assert icon["port_overflow"] == 8
+
+
+def test_build_device_icon_custom_mode_has_no_port_ticks():
+    """Custom-значок (свой SVG) — единственный случай без вычисляемых засечек: у произвольной
+    пользовательской картинки нет геометрии, к которой можно было бы их привязать."""
+    device_icon = DiagramIcon(id="icon-custom", name="Своя иконка", svg_markup="<svg/>")
+    device = PhysicalDevice(id="dev-2c", device_type_id="dt-x", diagram_icon_id="icon-custom", serial_number="SN-2c")
+    lookups = IconLookups(icons_by_id={"icon-custom": device_icon})
+    icon = build_device_icon(device, interface_count=4, lookups=lookups)
+    assert icon == {"mode": "custom", "svg_markup": "<svg/>"}
 
 
 def test_manual_override_on_physical_device_wins_over_model_and_autogeneration():

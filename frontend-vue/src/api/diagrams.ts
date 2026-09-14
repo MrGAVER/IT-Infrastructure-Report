@@ -66,8 +66,10 @@ export type DiagramNode = DiagramDeviceNode | DiagramGroupNode
 export interface DiagramInterfaceRef {
   id: string
   name: string
-  /** Порядковая позиция среди интерфейсов устройства — только для узлов shape="switch" в
-   * пределах первых 32 портов (см. backend/app/services/diagram_icons.py:MAX_PORT_TICKS).
+  /** Порядковая позиция среди интерфейсов устройства — присутствует, когда этот конец ребра
+   * отрисован как узел устройства со сгенерированным (не custom) значком, в пределах первых 32
+   * портов (см. backend/app/services/diagram_icons.py:MAX_PORT_TICKS). Отсутствует, если конец
+   * ребра свёрнут в узел-группу (у него нет своих засечек порта) или значок узла — custom SVG.
    * Используется для анкеринга ребра к конкретной засечке порта на канвасе. */
   port_index?: number
 }

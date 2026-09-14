@@ -210,10 +210,79 @@ def test_edge_vlans_merge_without_duplicate_vlan_id_and_keeps_interfaces_across_
     assert edge["target_node_id"] == group_nodes[0]["id"]  # сервер — в свёрнутой группе здания
     assert edge["source_interface"]["id"] == switch_iface.id
     assert edge["target_interface"]["id"] == server_ifaces[0].id  # интерфейс сохранён несмотря на сворачивание
-    assert edge["source_interface"]["port_index"] == 0  # switch — есть порядковая позиция
-    assert "port_index" not in edge["target_interface"]  # сервер — не switch, позиции нет
+    assert edge["source_interface"]["port_index"] == 0  # switch — первый (и единственный) интерфейс
+    assert "port_index" not in edge["target_interface"]  # сервер свёрнут в группу — своей засечки нет
     vlan_ids = sorted(v["vlan_id"] for v in edge["vlans"])
     assert vlan_ids == [10, 20]  # без дубля vlan_id=10, пришедшего с обоих концов
+
+
+def test_port_index_assigned_per_interface_for_non_switch_device(db_session):
+    """Прямая проверка причины бага, о котором сообщил пользователь: сервер с несколькими
+    интерфейсами, участвующими в разных связях, должен получать РАЗНЫЕ port_index — иначе на
+    канвасе обе линии анкерились бы в одну и ту же (единственную) точку узла сервера."""
+    server_type, switch_type = _seed_base_catalogs(db_session)
+    server = _make_device(db_session, server_type.id, "SRV-MULTI")
+    server_ifaces = [_make_interface(db_session, server.id, name) for name in ("eth0", "eth1")]
+    switches = [_make_device(db_session, switch_type.id, f"SW-{i}") for i in range(2)]
+    switch_ifaces = [_make_interface(db_session, s.id, "Gi0/1") for s in switches]
+
+    conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
+    connections = [
+        Connection(
+            source_interface_id=server_ifaces[i].id,
+            destination_interface_id=switch_ifaces[i].id,
+            connection_type_id=conn_type.id,
+            is_active=True,
+        )
+        for i in range(2)
+    ]
+    db_session.add_all(connections)
+    diagram = SavedDiagram(name="Диаграмма 9", scope_filter="{}")
+    db_session.add(diagram)
+    db_session.commit()
+
+    graph = build_graph(db_session, diagram)
+    edges_by_id = {e["id"]: e for e in graph["edges"]}
+    assert edges_by_id[connections[0].id]["source_interface"]["port_index"] == 0  # eth0
+    assert edges_by_id[connections[1].id]["source_interface"]["port_index"] == 1  # eth1 — не 0
+
+
+def test_port_index_omitted_when_device_itself_is_collapsed_into_a_group(db_session):
+    """Регрессия: у узла-группы нет собственных засечек порта (DiagramGroupNode.vue рисует
+    только один общий Handle), поэтому если устройство на этом конце СВЁРНУТО в группу, ребро не
+    должно нести port_index этого устройства — иначе фронтенд анкерил бы Handle с id вида
+    "port-N-source" на узле, где такого Handle физически не существует. Раньше это ограничивалось
+    только shape="switch" не по признаку свёрнутости, а по формуле "не switch — вообще нет
+    port_index"; теперь, когда port_index считается для ЛЮБОЙ сгенерированной формы, эта проверка
+    обязательна для корректности на канвасе."""
+    server_type, switch_type = _seed_base_catalogs(db_session)
+    building = Building(name="Здание со свёрнутыми коммутаторами")
+    db_session.add(building)
+    db_session.flush()
+
+    # 2 коммутатора в одном здании при пороге 2 -> здание сворачивается в группу.
+    switches = [_make_device(db_session, switch_type.id, f"SW-{i}", building_id=building.id) for i in range(2)]
+    switch_ifaces = [_make_interface(db_session, s.id, "Gi0/1") for s in switches]
+    server = _make_device(db_session, server_type.id, "SRV-EXTERNAL")
+    server_iface = _make_interface(db_session, server.id, "eth0")
+
+    conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
+    connection = Connection(source_interface_id=switch_ifaces[0].id, destination_interface_id=server_iface.id, connection_type_id=conn_type.id, is_active=True)
+    db_session.add(connection)
+
+    diagram = SavedDiagram(name="Диаграмма 7", scope_filter="{}", group_by="building", collapse_threshold=2)
+    db_session.add(diagram)
+    db_session.commit()
+
+    graph = build_graph(db_session, diagram)
+    group_nodes = [n for n in graph["nodes"] if n["type"] == "group"]
+    assert len(group_nodes) == 1  # оба коммутатора свёрнуты в одну группу по зданию
+
+    edge = next(e for e in graph["edges"] if e["id"] == connection.id)
+    assert edge["source_node_id"] == group_nodes[0]["id"]  # коммутатор свёрнут — ребро идёт от группы
+    assert edge["target_node_id"] == server.id  # сервер вне здания — не свёрнут
+    assert "port_index" not in edge["source_interface"]  # у группы нет своей засечки — анкерить некуда
+    assert edge["target_interface"]["port_index"] == 0  # сервер отрисован как свой узел — засечка есть
 
 
 def test_internal_group_edge_is_not_drawn(db_session):

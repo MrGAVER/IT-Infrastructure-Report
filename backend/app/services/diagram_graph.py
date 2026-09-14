@@ -25,12 +25,18 @@
    полноценный иерархический алгоритм (DiagramLayout.auto_layout_algorithm="hierarchical" —
    поле-задел под будущее улучшение, не реализуется этим коммитом).
 
-5. Порядковая позиция интерфейса среди интерфейсов switch-устройства (раздел 4.4 — "каждый
-   интерфейс получает порядковую позицию... ребро визуально подключается к засечке конкретного
-   порта") передаётся полем port_index внутри source_interface/target_interface объекта ребра
-   — единственное место контракта, где участвует конкретный интерфейс. Присутствует только когда
-   узел на этом конце имеет shape="switch" и индекс интерфейса < MAX_PORT_TICKS (иначе интерфейс
-   лежит за пределами отрисовываемых засечек — см. services/diagram_icons.MAX_PORT_TICKS).
+5. Порядковая позиция интерфейса среди интерфейсов устройства (раздел 4.4 — "каждый интерфейс
+   получает порядковую позицию... ребро визуально подключается к засечке конкретного порта")
+   передаётся полем port_index внутри source_interface/target_interface объекта ребра — единственное
+   место контракта, где участвует конкретный интерфейс. Присутствует, когда ОДНОВРЕМЕННО: (а) узел
+   на этом конце устройства сгенерирован автоматически (icon.mode == "generated" — у custom-значка
+   нет вычисляемых засечек, анкерить не к чему), (б) этот конец ребра фактически отрисован как узел
+   самого устройства, а не свёрнут в узел-группу (у узла-группы нет собственных засечек порта — см.
+   GraphContext.device_supports_port_index) и (в) индекс интерфейса < MAX_PORT_TICKS (иначе интерфейс
+   лежит за пределами отрисовываемых засечек — см. services/diagram_icons.MAX_PORT_TICKS). Раньше
+   это было ограничено только shape="switch" — из-за этого многопортовые устройства других форм
+   (сервер с несколькими сетевыми картами, файрвол с WAN/LAN/DMZ) на канвасе получали все свои рёбра
+   в одной и той же точке узла.
 
 Рёбра, у которых устройство хотя бы одного конца не входит в текущий scope_filter, не строятся —
 на диаграмме физически нет второго узла, к которому их подключить.
@@ -142,9 +148,13 @@ class GraphContext:
                 return link.vlan_id
         return None
 
-    def device_shape(self, device: PhysicalDevice) -> str:
+    def device_supports_port_index(self, device: PhysicalDevice) -> bool:
+        """Есть ли у устройства вычисляемые засечки порта, к которым на канвасе можно анкерить
+        Handle (см. пункт 5 в docstring модуля). Верно для ЛЮБОЙ формы сгенерированного значка —
+        единственное, что исключает анкеринг, это custom-значок (произвольный SVG администратора,
+        для которого нет вычисляемой геометрии засечек)."""
         icon = build_device_icon(device, self.interface_count(device.id), self.icon_lookups)
-        return icon.get("shape", "generic") if icon.get("mode") == "generated" else "generic"
+        return icon.get("mode") == "generated"
 
 
 def _filter_device_ids(ctx: GraphContext, scope_filter: dict) -> set[str]:
@@ -303,11 +313,11 @@ def build_group_node(group_key: str, label: str, device_count: int, position: di
     }
 
 
-def _interface_ref(interface: Optional[DeviceInterface], node_shape: str, ctx: GraphContext) -> Optional[dict]:
+def _interface_ref(interface: Optional[DeviceInterface], supports_port_index: bool, ctx: GraphContext) -> Optional[dict]:
     if interface is None:
         return None
     ref = {"id": interface.id, "name": interface.name}
-    if node_shape == "switch":
+    if supports_port_index:
         index = ctx.interface_index(interface)
         if index < MAX_PORT_TICKS:
             ref["port_index"] = index
@@ -322,8 +332,16 @@ def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, t
     target_iface = ctx.interfaces_by_id.get(connection.destination_interface_id)
     source_device = ctx.devices.get(source_iface.physical_device_id) if source_iface else None
     target_device = ctx.devices.get(target_iface.physical_device_id) if target_iface else None
-    source_shape = ctx.device_shape(source_device) if source_device else "generic"
-    target_shape = ctx.device_shape(target_device) if target_device else "generic"
+    # `source_node_id == source_device.id` проверяет, что этот конец ребра отрисован как узел
+    # САМОГО устройства, а не свёрнут в узел-группу (build_graph.resolve_node_id) — у узла-группы
+    # нет своих засечек порта, анкерить туда конкретный port_index было бы некуда (см. пункт 5
+    # docstring модуля).
+    source_supports_port_index = bool(
+        source_device is not None and source_node_id == source_device.id and ctx.device_supports_port_index(source_device)
+    )
+    target_supports_port_index = bool(
+        target_device is not None and target_node_id == target_device.id and ctx.device_supports_port_index(target_device)
+    )
 
     vlans: dict[str, dict] = {}
     for iface in (source_iface, target_iface):
@@ -338,9 +356,9 @@ def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, t
     return {
         "id": connection.id,
         "source_node_id": source_node_id,
-        "source_interface": _interface_ref(source_iface, source_shape, ctx),
+        "source_interface": _interface_ref(source_iface, source_supports_port_index, ctx),
         "target_node_id": target_node_id,
-        "target_interface": _interface_ref(target_iface, target_shape, ctx),
+        "target_interface": _interface_ref(target_iface, target_supports_port_index, ctx),
         "connection_type": connection_type.name if connection_type else None,
         "is_active": connection.is_active,
         "vlans": list(vlans.values()),
