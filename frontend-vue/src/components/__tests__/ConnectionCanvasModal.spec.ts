@@ -114,6 +114,17 @@ describe('ConnectionCanvasModal.vue — устройства и порты на 
     expect(wrapper.find('.device-node').exists()).toBe(false)
     expect(wrapper.find('.canvas-empty').exists()).toBe(true)
   })
+  it('SVG со связями рисуется в DOM ПОСЛЕ карточек устройств — иначе линии красятся под непрозрачными блоками и часть каждой линии (там, где её конец лежит внутри карточки) визуально пропадает', async () => {
+    const wrapper = mount(ConnectionCanvasModal)
+    await chooseDevice(wrapper, 'srv-a')
+    await chooseDevice(wrapper, 'srv-b')
+
+    const children = Array.from(wrapper.find('.canvas-area').element.children)
+    const svgIndex = children.findIndex((el) => el.classList.contains('canvas-svg'))
+    const deviceNodeIndexes = children.reduce<number[]>((acc, el, i) => (el.classList.contains('device-node') ? [...acc, i] : acc), [])
+
+    expect(svgIndex).toBeGreaterThan(Math.max(...deviceNodeIndexes))
+  })
 })
 
 describe('ConnectionCanvasModal.vue — линии существующих подключений', () => {
