@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { groupKeyOf, isSwitchNode, sourceHandleId, targetHandleId, toFlowEdge, toFlowNode } from '../diagramFlow'
-import type { DiagramDeviceNode, DiagramEdge, DiagramGroupNode } from '../../api/diagrams'
+import { Position } from '@vue-flow/core'
+import {
+  CONNECTION_EDGE_TYPE,
+  edgeMidLabel,
+  edgeSourcePortLabel,
+  edgeTargetPortLabel,
+  groupKeyOf,
+  offsetAlongHandle,
+  sourceHandleId,
+  targetHandleId,
+  toFlowEdge,
+  toFlowNode,
+} from '../diagramFlow'
+import type { DiagramDeviceNode, DiagramEdge } from '../../api/diagrams'
 
 function device(overrides: Partial<DiagramDeviceNode> = {}): DiagramDeviceNode {
   return {
@@ -20,7 +32,19 @@ function device(overrides: Partial<DiagramDeviceNode> = {}): DiagramDeviceNode {
   }
 }
 
-const group: DiagramGroupNode = { id: 'group:building:b1', type: 'group', label: 'Здание 1 (23)', device_count: 23, x: 0, y: 0 }
+function edge(overrides: Partial<DiagramEdge> = {}): DiagramEdge {
+  return {
+    id: 'e1',
+    source_node_id: 'sw',
+    source_interface: { id: 'if-1', name: 'Gi0/1', port_index: 0 },
+    target_node_id: 'srv',
+    target_interface: { id: 'if-2', name: 'eth0', port_index: 0 },
+    connection_type: 'Витая пара',
+    is_active: true,
+    vlans: [],
+    ...overrides,
+  }
+}
 
 describe('groupKeyOf', () => {
   it('снимает префикс group: с id узла-группы', () => {
@@ -31,56 +55,73 @@ describe('groupKeyOf', () => {
   })
 })
 
-describe('isSwitchNode', () => {
-  it('true только для устройства с сгенерированной иконкой shape=switch', () => {
-    const nodes = [device({ id: 'sw', icon: { mode: 'generated', shape: 'switch', color: '#fff', manufacturer_label: '', model_label: '' } })]
-    expect(isSwitchNode(nodes, 'sw')).toBe(true)
+describe('sourceHandleId / targetHandleId', () => {
+  // Контракт (см. backend/app/services/diagram_graph.py:GraphContext.device_supports_port_index)
+  // гарантирует, что port_index присутствует, только когда его безопасно использовать как id
+  // Handle — фронтенду достаточно просто прочитать поле, без повторной проверки формы/группы.
+  it('с известным port_index даёт id засечки — независимо от формы устройства', () => {
+    const e = edge({ source_interface: { id: 'if-1', name: 'Gi0/1', port_index: 3 } })
+    expect(sourceHandleId(e)).toBe('port-3-source')
   })
-  it('false для другой формы, custom-иконки, узла-группы и отсутствующего узла', () => {
-    const nodes = [
-      device({ id: 'srv' }), // shape=server
-      device({ id: 'custom', icon: { mode: 'custom', svg_markup: '<svg/>' } }),
-      group,
-    ]
-    expect(isSwitchNode(nodes, 'srv')).toBe(false)
-    expect(isSwitchNode(nodes, 'custom')).toBe(false)
-    expect(isSwitchNode(nodes, 'group:building:b1')).toBe(false)
-    expect(isSwitchNode(nodes, 'unknown')).toBe(false)
+
+  it('без port_index (custom-значок, свёрнутая группа или порт за пределами 32) не анкерит к засечке', () => {
+    const e = edge({ source_interface: { id: 'if-1', name: 'Gi0/1' }, target_interface: null })
+    expect(sourceHandleId(e)).toBeUndefined()
+    expect(targetHandleId(e)).toBeUndefined()
   })
 })
 
-describe('sourceHandleId / targetHandleId', () => {
-  const switchNode = device({ id: 'sw', icon: { mode: 'generated', shape: 'switch', color: '#fff', manufacturer_label: '', model_label: '' } })
-  const serverNode = device({ id: 'srv' })
-  const nodes = [switchNode, serverNode]
-
-  it('для switch-узла с известным port_index даёт id засечки', () => {
-    const edge: DiagramEdge = {
-      id: 'e1',
-      source_node_id: 'sw',
-      source_interface: { id: 'if-1', name: 'Gi0/1', port_index: 3 },
-      target_node_id: 'srv',
-      target_interface: { id: 'if-2', name: 'eth0' },
-      connection_type: null,
-      is_active: true,
-      vlans: [],
-    }
-    expect(sourceHandleId(nodes, edge)).toBe('port-3-source')
-    expect(targetHandleId(nodes, edge)).toBeUndefined() // srv не switch — дефолтный Handle узла
+describe('edgeMidLabel', () => {
+  it('оба порта известны, VLAN есть — имена портов и VLAN через разделитель', () => {
+    const e = edge({ vlans: [{ id: 'v1', vlan_id: 10, name: 'data' }] })
+    expect(edgeMidLabel(e)).toBe('Gi0/1 ↔ eth0 · VLAN 10')
   })
 
-  it('для switch-узла БЕЗ port_index (интерфейс за пределами 32 портов) не анкерит к засечке', () => {
-    const edge: DiagramEdge = {
-      id: 'e2',
-      source_node_id: 'sw',
-      source_interface: { id: 'if-40', name: 'Gi0/40' },
-      target_node_id: 'srv',
-      target_interface: null,
-      connection_type: null,
-      is_active: true,
-      vlans: [],
-    }
-    expect(sourceHandleId(nodes, edge)).toBeUndefined()
+  it('несколько VLAN — перечисляются через запятую', () => {
+    const e = edge({
+      vlans: [
+        { id: 'v1', vlan_id: 10, name: 'data' },
+        { id: 'v2', vlan_id: 20, name: 'voice' },
+      ],
+    })
+    expect(edgeMidLabel(e)).toBe('Gi0/1 ↔ eth0 · VLAN 10, 20')
+  })
+
+  it('без VLAN — только имена портов', () => {
+    expect(edgeMidLabel(edge({ vlans: [] }))).toBe('Gi0/1 ↔ eth0')
+  })
+
+  it('интерфейс с одной стороны неизвестен — подпись из одного VLAN, без порта', () => {
+    const e = edge({ target_interface: null, vlans: [{ id: 'v1', vlan_id: 10, name: 'data' }] })
+    expect(edgeMidLabel(e)).toBe('VLAN 10')
+  })
+
+  it('ни портов, ни VLAN — пустая строка (подпись не рисуется)', () => {
+    expect(edgeMidLabel(edge({ target_interface: null, vlans: [] }))).toBe('')
+  })
+})
+
+describe('edgeSourcePortLabel / edgeTargetPortLabel', () => {
+  it('возвращают имя интерфейса своей стороны', () => {
+    const e = edge()
+    expect(edgeSourcePortLabel(e)).toBe('Gi0/1')
+    expect(edgeTargetPortLabel(e)).toBe('eth0')
+  })
+
+  it('undefined, если интерфейс этой стороны неизвестен', () => {
+    const e = edge({ target_interface: null })
+    expect(edgeTargetPortLabel(e)).toBeUndefined()
+  })
+})
+
+describe('offsetAlongHandle', () => {
+  it.each([
+    [Position.Top, { x: 100, y: 86 }],
+    [Position.Bottom, { x: 100, y: 114 }],
+    [Position.Left, { x: 86, y: 100 }],
+    [Position.Right, { x: 114, y: 100 }],
+  ])('сдвигает точку на 14px наружу от узла для позиции %s', (position, expected) => {
+    expect(offsetAlongHandle(100, 100, position)).toEqual(expected)
   })
 })
 
@@ -93,43 +134,24 @@ describe('toFlowNode', () => {
 })
 
 describe('toFlowEdge', () => {
-  const switchNode = device({ id: 'sw', icon: { mode: 'generated', shape: 'switch', color: '#fff', manufacturer_label: '', model_label: '' } })
-  const serverNode = device({ id: 'srv' })
-  const nodes = [switchNode, serverNode]
-
-  it('формирует подпись из VLAN и штриховку для неактивной связи', () => {
-    const edge: DiagramEdge = {
-      id: 'e1',
-      source_node_id: 'sw',
-      source_interface: { id: 'if-1', name: 'Gi0/1', port_index: 0 },
-      target_node_id: 'srv',
-      target_interface: { id: 'if-2', name: 'eth0' },
-      connection_type: 'Витая пара',
-      is_active: false,
-      vlans: [{ id: 'v1', vlan_id: 10, name: 'data' }],
-    }
-    const flow = toFlowEdge(nodes, edge)
+  it('анкерит оба конца по port_index, помечает как кастомный тип ребра, штрихует неактивную связь', () => {
+    const e = edge({ is_active: false })
+    const flow = toFlowEdge(e)
+    expect(flow.type).toBe(CONNECTION_EDGE_TYPE)
     expect(flow.source).toBe('sw')
     expect(flow.target).toBe('srv')
     expect(flow.sourceHandle).toBe('port-0-source')
-    expect(flow.label).toBe('VLAN 10')
+    expect(flow.targetHandle).toBe('port-0-target')
     expect(flow.style).toEqual({ strokeDasharray: '6 4' })
-    expect(flow.data).toBe(edge)
+    expect(flow.data).toBe(e)
   })
 
-  it('без VLAN подпись не задаётся, активная связь — без штриховки', () => {
-    const edge: DiagramEdge = {
-      id: 'e2',
-      source_node_id: 'sw',
-      source_interface: null,
-      target_node_id: 'srv',
-      target_interface: null,
-      connection_type: null,
-      is_active: true,
-      vlans: [],
-    }
-    const flow = toFlowEdge(nodes, edge)
-    expect(flow.label).toBeUndefined()
+  it('активная связь — без штриховки; подписи не кладутся в сам объект ребра (их рисует DiagramConnectionEdge из data)', () => {
+    const e = edge({ source_interface: null, target_interface: null })
+    const flow = toFlowEdge(e)
     expect(flow.style).toBeUndefined()
+    expect(flow.label).toBeUndefined()
+    expect(flow.sourceHandle).toBeUndefined()
+    expect(flow.targetHandle).toBeUndefined()
   })
 })

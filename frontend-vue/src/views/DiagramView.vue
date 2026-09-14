@@ -18,9 +18,10 @@ import { useDiagramStore } from '../stores/diagram'
 import { useToast } from '../composables/useToast'
 import DiagramDeviceNode from '../components/diagram/DiagramDeviceNode.vue'
 import DiagramGroupNode from '../components/diagram/DiagramGroupNode.vue'
+import DiagramConnectionEdge from '../components/diagram/DiagramConnectionEdge.vue'
 import DiagramDetailPanel from '../components/diagram/DiagramDetailPanel.vue'
 import DiagramExportPanel from '../components/diagram/DiagramExportPanel.vue'
-import { GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
+import { CONNECTION_EDGE_TYPE, GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
 import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagrams'
 
 const route = useRoute()
@@ -42,7 +43,7 @@ function syncFromStore() {
   const nodes: DiagramNode[] = store.nodes
   const edges: DiagramEdge[] = store.edges
   localNodes.value = nodes.map((n) => toFlowNode(n)) as Node<DiagramNode>[]
-  localEdges.value = edges.map((e) => toFlowEdge(nodes, e)) as Edge<DiagramEdge>[]
+  localEdges.value = edges.map((e) => toFlowEdge(e)) as Edge<DiagramEdge>[]
 }
 
 async function loadAndFit() {
@@ -173,6 +174,7 @@ async function onDelete() {
       >
         <template #node-device="nodeProps"><DiagramDeviceNode v-bind="nodeProps" /></template>
         <template #node-group="nodeProps"><DiagramGroupNode v-bind="nodeProps" /></template>
+        <template #[`edge-${CONNECTION_EDGE_TYPE}`]="edgeProps"><DiagramConnectionEdge v-bind="edgeProps" /></template>
       </VueFlow>
       <DiagramDetailPanel :selection="store.selection" @close="store.clearSelection()" @expand-group="(k) => expandGroup(`${GROUP_PREFIX}${k}`)" />
     </div>

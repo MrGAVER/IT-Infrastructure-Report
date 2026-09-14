@@ -34,10 +34,21 @@ function mountNode(data: DeviceNodeData, selected = false) {
 }
 
 describe('DiagramDeviceNode.vue', () => {
-  it('показывает подпись устройства и не рисует засечки для не-switch формы', () => {
+  it('без данных port_ticks не рисует засечки, показывает подпись устройства', () => {
     const wrapper = mountNode(baseDevice)
     expect(wrapper.text()).toContain('sw-01')
     expect(wrapper.find('.port-ticks').exists()).toBe(false)
+  })
+
+  it('засечки теперь рисуются для ЛЮБОЙ формы со сгенерированным значком, не только switch', () => {
+    // Регрессия: раньше видимость засечек была жёстко завязана на shape === 'switch', из-за чего
+    // сервер/файрвол с несколькими интерфейсами анкерил все свои связи в одну и ту же точку узла.
+    const serverWithPorts: DeviceNodeData = {
+      ...baseDevice,
+      icon: { mode: 'generated', shape: 'server', color: '#4f7cff', port_ticks: 2, manufacturer_label: '', model_label: '' },
+    }
+    const wrapper = mountNode(serverWithPorts)
+    expect(wrapper.findAll('.port-tick')).toHaveLength(2)
   })
 
   it('для shape=switch рисует засечки портов по числу port_ticks и бейдж overflow', () => {
