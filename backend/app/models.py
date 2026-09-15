@@ -437,6 +437,14 @@ class ISContainer(TimestampMixin, Base):
     role: Mapped[Optional[str]] = mapped_column(String(255))
 
 class OpenPort(TimestampMixin, Base):
+    """Открытый порт/протокол владельца (ВМ или интерфейс физ. устройства, см. owner_type/owner_id).
+
+    port/protocol НЕ принимаются от клиента напрямую (правка "убрать текстовые поля Порт/Протокол,
+    эта информация уже есть в справочнике портов") — единственный вход для них — protocol_catalog_id,
+    сервер сам подставляет значения из ProtocolPortCatalog (см. services/crud.py:_apply_open_port_catalog).
+    Колонки port/protocol сохранены как есть (не через relationship) ради обратной совместимости
+    отчёта (reporting.py) и уже существующих строк без protocol_catalog_id — снятие текстовых
+    полей с формы не требует миграции схемы."""
     __tablename__ = "open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))

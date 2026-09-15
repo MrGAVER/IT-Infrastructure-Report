@@ -83,6 +83,16 @@ function sortCatalogItems<T extends CatalogItem>(key: CatalogKey, items: T[]): T
   return [...items].sort((a, b) => RU_COLLATOR.compare(a.name, b.name))
 }
 
+/** Сортирует справочник «Протоколы и порты» численно по port, затем по protocol_type — тот же
+ * принцип "во всех полях с выпадающим текстом должна быть сортировка" (фикс п.4.2), что и
+ * sortCatalogItems() выше, но отдельной функцией: у записи нет поля name (см. комментарий к
+ * protocolPortCatalog в state ниже), поэтому она не входит в CATALOGS/sortCatalogItems.
+ * Экспортируется: нужна и вне этого стора — QuickAddModal.vue пересортировывает локально после
+ * создания новой записи через "+" (см. её комментарий), не дожидаясь полного reload(). */
+export function sortProtocolPortCatalog(items: ProtocolPortCatalogEntry[]): ProtocolPortCatalogEntry[] {
+  return [...items].sort((a, b) => a.port - b.port || a.protocol_type.localeCompare(b.protocol_type, 'ru'))
+}
+
 export const useCatalogsStore = defineStore('catalogs', {
   state: () => ({
     items: {} as Record<CatalogKey, CatalogItem[]>,
@@ -178,7 +188,11 @@ export const useCatalogsStore = defineStore('catalogs', {
           }
         })
         this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
-        this.protocolPortCatalog = protocolPorts.items
+        // Фикс п.4.2 (найден при работе над "убрать текстовые поля Порт/Протокол"): раньше
+        // сортировался только результат quick-add (QuickAddModal.vue), а сама начальная загрузка —
+        // нет, из-за чего справочник в SearchableSelect был отсортирован только ПОСЛЕ первого
+        // добавления записи через "+", а до этого — в порядке ответа бэкенда.
+        this.protocolPortCatalog = sortProtocolPortCatalog(protocolPorts.items)
         this.loaded = true
         this.error = failedKeys.length ? `Не удалось загрузить справочники: ${failedKeys.join(', ')}` : null
       } catch (e) {

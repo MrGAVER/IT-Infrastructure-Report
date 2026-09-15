@@ -5,7 +5,7 @@
 // (см. schema.ts про то, что сознательно не перенесено).
 import { computed, reactive, ref } from 'vue'
 import { createResource } from '../api/client'
-import { useCatalogsStore } from '../stores/catalogs'
+import { useCatalogsStore, sortProtocolPortCatalog } from '../stores/catalogs'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -75,12 +75,10 @@ async function submit() {
     if (props.resource === 'protocol-port-catalog') {
       // Особый случай: у ProtocolPortCatalogEntry нет поля name, поэтому он живёт не в
       // общем catalogs.items, а в отдельном catalogs.protocolPortCatalog — см. комментарий
-      // к типу в api/types.ts. Сортировка по (port, protocol_type) — фикс п.4.2, тот же
-      // принцип, что и у catalogs.addCatalogItem() для обычных каталогов ниже.
+      // к типу в api/types.ts. sortProtocolPortCatalog() — общая с catalogs.ts:reload()
+      // точка сортировки по (port, protocol_type), фикс п.4.2.
       const entry = created as unknown as ProtocolPortCatalogEntry
-      catalogs.protocolPortCatalog = [...catalogs.protocolPortCatalog, entry].sort(
-        (a, b) => a.port - b.port || a.protocol_type.localeCompare(b.protocol_type, 'ru'),
-      )
+      catalogs.protocolPortCatalog = sortProtocolPortCatalog([...catalogs.protocolPortCatalog, entry])
     } else {
       // Точечно добавляем в уже загруженный каталог вместо полного catalogs.reload() —
       // справочник, в который только что что-то добавили, почти наверняка сейчас показан

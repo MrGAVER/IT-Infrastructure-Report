@@ -21,6 +21,23 @@ def _create_device_type(client, name: str, **extra):
     return client.post("/api/v1/resources/device-types", json={"name": name, "category_id": category_id, **extra}).json()
 
 
+def _create_protocol_catalog_entry(client, port: int, protocol_type: str):
+    """Возвращает запись справочника «Протоколы и порты» с данными port+protocol_type — с тех пор,
+    как OpenPort.port/protocol выводятся сервером только из неё (правка "убрать текстовые поля
+    Порт/Протокол"), тестам открытых портов нужна реальная запись справочника вместо произвольного
+    port в payload.
+
+    Идемпотентно (находит существующую, а не только создаёт): большинство "хрестоматийных" портов,
+    использованных в этих тестах (22/SSH, 80/HTTP, 443/HTTPS и т.п.), уже засеяны по умолчанию
+    (см. PROTOCOL_DEFAULTS в app/services/catalogs.py) — наивный POST здесь падал бы 409
+    (UNIQUE constraint failed) на уже существующей паре port+protocol_type."""
+    existing = client.get("/api/v1/resources/protocol-port-catalog", params={"limit": 1000}).json()["items"]
+    match = next((e for e in existing if e["port"] == port and e["protocol_type"] == protocol_type), None)
+    if match:
+        return match
+    return client.post("/api/v1/resources/protocol-port-catalog", json={"port": port, "protocol_type": protocol_type}).json()
+
+
 def test_health(client):
     r = client.get("/api/v1/health")
     assert r.status_code == 200
@@ -482,17 +499,22 @@ class TestInterfacesSync:
 
     def test_sync_interfaces_creates_and_lists_open_ports(self, client):
         """п.1.4 (батч4): открытые порты теперь свойство интерфейса — переживают сохранение и
-        возвращаются вложенными в свой интерфейс, а не общим списком на устройство."""
+        возвращаются вложенными в свой интерфейс, а не общим списком на устройство.
+
+        Правка "убрать текстовые поля Порт/Протокол": port/protocol в payload не отправляются
+        вовсе — сервер сам выводит их из protocol_catalog_id (см. _apply_open_port_catalog)."""
         dt = _create_device_type(client, "Коммутатор с портами")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-01"}).json()
+        https_entry = _create_protocol_catalog_entry(client, 443, "HTTPS")
+        snmp_entry = _create_protocol_catalog_entry(client, 161, "SNMP")
 
         payload = {
             "interfaces": [
                 {
                     "name": "Gi0/1",
                     "open_ports": [
-                        {"port": 443, "transport_protocol": "TCP", "protocol": "HTTPS", "description": "Веб-интерфейс"},
-                        {"port": 161, "transport_protocol": "UDP", "protocol": "SNMP"},
+                        {"protocol_catalog_id": https_entry["id"], "transport_protocol": "TCP", "description": "Веб-интерфейс"},
+                        {"protocol_catalog_id": snmp_entry["id"], "transport_protocol": "UDP"},
                     ],
                 },
                 {"name": "Gi0/2", "open_ports": []},
@@ -513,14 +535,21 @@ class TestInterfacesSync:
     def test_sync_interfaces_updates_and_removes_open_ports(self, client):
         dt = _create_device_type(client, "Коммутатор обновление портов")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-02"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
+        http_entry = _create_protocol_catalog_entry(client, 80, "HTTP")
+        https_alt_entry = _create_protocol_catalog_entry(client, 8443, "HTTPS-alt")
         first = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22, "protocol": "SSH"}, {"port": 80, "protocol": "HTTP"}]}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [
+                {"protocol_catalog_id": ssh_entry["id"]}, {"protocol_catalog_id": http_entry["id"]},
+            ]}]},
         ).json()
         iface = first["items"][0]
         port_to_keep = next(p for p in iface["open_ports"] if p["port"] == 22)
 
-        # Оставляем один порт (с id — обновляем), убираем второй, добавляем третий новый.
+        # Оставляем один порт (с id — обновляем, меняем описание), убираем второй, добавляем
+        # третий новый. Смена protocol_catalog_id на уже существующей строке — self-healing:
+        # port/protocol пересчитываются заново из новой ссылки, а не остаются от старой.
         second = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
             json={
@@ -529,8 +558,8 @@ class TestInterfacesSync:
                         "id": iface["id"],
                         "name": "Gi0/1",
                         "open_ports": [
-                            {"id": port_to_keep["id"], "port": 22, "protocol": "SSH (обновлено)"},
-                            {"port": 8443, "protocol": "HTTPS-alt"},
+                            {"id": port_to_keep["id"], "protocol_catalog_id": ssh_entry["id"], "description": "обновлено"},
+                            {"protocol_catalog_id": https_alt_entry["id"]},
                         ],
                     }
                 ]
@@ -539,7 +568,8 @@ class TestInterfacesSync:
         assert second.status_code == 200, second.text
         ports = sorted(second.json()["items"][0]["open_ports"], key=lambda p: p["port"])
         assert [p["port"] for p in ports] == [22, 8443]
-        assert ports[0]["protocol"] == "SSH (обновлено)"
+        assert ports[0]["protocol"] == "SSH"
+        assert ports[0]["description"] == "обновлено"
 
     def test_sync_interfaces_open_port_with_foreign_id_rejected(self, client):
         """Порт, принадлежащий ДРУГОМУ интерфейсу, нельзя переприсвоить простой передачей его id в
@@ -547,9 +577,10 @@ class TestInterfacesSync:
         для IP интерфейса чуть выше по файлу."""
         dt = _create_device_type(client, "Коммутатор чужой порт")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-03"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
         created = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22}]}, {"name": "Gi0/2", "open_ports": []}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ssh_entry["id"]}]}, {"name": "Gi0/2", "open_ports": []}]},
         ).json()
         by_name = {i["name"]: i for i in created["items"]}
         foreign_port_id = by_name["Gi0/1"]["open_ports"][0]["id"]
@@ -559,27 +590,33 @@ class TestInterfacesSync:
             json={
                 "interfaces": [
                     {"id": by_name["Gi0/1"]["id"], "name": "Gi0/1", "open_ports": []},
-                    {"id": by_name["Gi0/2"]["id"], "name": "Gi0/2", "open_ports": [{"id": foreign_port_id, "port": 22}]},
+                    {"id": by_name["Gi0/2"]["id"], "name": "Gi0/2", "open_ports": [{"id": foreign_port_id, "protocol_catalog_id": ssh_entry["id"]}]},
                 ]
             },
         )
         assert r.status_code == 422
 
-    def test_sync_interfaces_rejects_non_numeric_open_port(self, client):
+    def test_sync_interfaces_rejects_unknown_protocol_catalog_id(self, client):
+        """Замена test_sync_interfaces_rejects_non_numeric_open_port из версии до правки "убрать
+        текстовые поля Порт/Протокол": номер порта больше не приходит от клиента как свободный
+        текст, поэтому нечего валидировать на "число ли это" — вместо этого проверяем, что
+        несуществующая (или отсутствующая) ссылка на справочник отклоняется 422, а не тихо, и не
+        падением в 409 на уровне БД."""
         dt = _create_device_type(client, "Коммутатор невалидный порт")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-04"}).json()
         r = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": "не число"}]}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": "не-существует"}]}]},
         )
         assert r.status_code == 422
 
     def test_sync_interfaces_deleting_interface_deletes_its_open_ports(self, client):
         dt = _create_device_type(client, "Коммутатор удаление порта")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-05"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
         created = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22}]}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ssh_entry["id"]}]}]},
         ).json()
         iface_id = created["items"][0]["id"]
 
@@ -947,6 +984,72 @@ class TestVlanDomainSync:
         assert any(x["entity_id"] == domain["id"] and x["action"] == "SYNC" for x in r.json()["items"])
 
 
+class TestOpenPortCatalogIsSourceOfTruth:
+    """Правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в справочнике
+    портов": generic-ресурс open-ports (используется ВМ-формой, в отличие от интерфейсов
+    устройства со своим _sync_interface_open_ports, покрытым TestInterfacesSync выше)."""
+
+    def test_create_without_catalog_reference_rejected(self, client):
+        r = client.post("/api/v1/resources/open-ports", json={"owner_type": "virtual_machine", "owner_id": "vm-1"})
+        assert r.status_code == 422
+        assert "справочник" in r.json()["detail"].lower()
+
+    def test_create_with_unknown_catalog_id_rejected(self, client):
+        r = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "virtual_machine", "owner_id": "vm-1", "protocol_catalog_id": "нет-такого-id"},
+        )
+        assert r.status_code == 422
+
+    def test_create_ignores_client_supplied_port_and_protocol(self, client):
+        """Даже если клиент в обход UI пришлёт свои port/protocol вместе с protocol_catalog_id,
+        сервер должен использовать значения САМОЙ записи справочника, а не то, что прислал клиент —
+        иначе OpenPort мог бы разойтись со справочником, ради единственного источника истины в
+        котором эти два текстовых поля и были убраны из формы."""
+        entry = _create_protocol_catalog_entry(client, 3389, "RDP")
+        r = client.post(
+            "/api/v1/resources/open-ports",
+            json={
+                "owner_type": "virtual_machine", "owner_id": "vm-1",
+                "protocol_catalog_id": entry["id"],
+                "port": 9999, "protocol": "ПОДДЕЛЬНЫЙ",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["port"] == 3389
+        assert body["protocol"] == "RDP"
+
+    def test_update_resyncs_port_and_protocol_when_catalog_reference_changes(self, client):
+        old_entry = _create_protocol_catalog_entry(client, 22, "SSH")
+        new_entry = _create_protocol_catalog_entry(client, 443, "HTTPS")
+        created = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "virtual_machine", "owner_id": "vm-1", "protocol_catalog_id": old_entry["id"]},
+        ).json()
+
+        r = client.put(f"/api/v1/resources/open-ports/{created['id']}", json={"protocol_catalog_id": new_entry['id']})
+        assert r.status_code == 200, r.text
+        assert r.json()["port"] == 443
+        assert r.json()["protocol"] == "HTTPS"
+
+    def test_update_unrelated_field_on_legacy_row_without_catalog_reference_still_works(self, client, db_session):
+        """Обратная совместимость: строки, созданные ДО этой правки, могли не иметь
+        protocol_catalog_id вовсе. Правка не должна ретроактивно блокировать правку у них
+        НЕсвязанного поля (см. осторожность в update_resource — условие на 'protocol_catalog_id'
+        in payload). db_session — тот же engine, что и у client (см. фикстуру client в
+        conftest.py), поэтому запись, вставленная здесь напрямую, видна через API ниже."""
+        from app.models import OpenPort
+
+        legacy = OpenPort(owner_type="virtual_machine", owner_id="vm-legacy", port=8080, protocol=None)
+        db_session.add(legacy); db_session.commit(); legacy_id = legacy.id
+
+        r = client.put(f"/api/v1/resources/open-ports/{legacy_id}", json={"description": "легаси-запись"})
+        assert r.status_code == 200, r.text
+        assert r.json()["description"] == "легаси-запись"
+        assert r.json()["port"] == 8080  # не тронут, т.к. protocol_catalog_id не пришёл и не был задан
+
+
 class TestGlobalSearchTextIndex:
     """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 4 таблицах
     (is-ips/is-sources/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
@@ -990,9 +1093,10 @@ class TestGlobalSearchTextIndex:
     def test_open_port_ip_searchable_by_address(self, client):
         dt = _create_device_type(client, "Тип для поиска порта")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRCH-2"}).json()
+        https_entry = _create_protocol_catalog_entry(client, 443, "HTTPS")
         r = client.post(
             "/api/v1/resources/open-ports",
-            json={"owner_type": "physical_device", "owner_id": dev["id"], "port": 443, "ip_address": "10.20.30.43"},
+            json={"owner_type": "physical_device", "owner_id": dev["id"], "protocol_catalog_id": https_entry["id"], "ip_address": "10.20.30.43"},
         )
         assert r.status_code == 201, r.text
         r = client.get("/api/v1/resources/open-ports?q=10.20.30.43")

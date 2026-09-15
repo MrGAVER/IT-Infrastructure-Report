@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
@@ -256,6 +256,12 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     if model is VirtualMachine and data.get('physical_device_id'):
         host = session.get(PhysicalDevice, data['physical_device_id'])
         data['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
+    # Правка "убрать текстовые поля Порт/Протокол": новая запись open-ports создаётся ТОЛЬКО через
+    # generic-ресурс (ВМ, VMFormModal.vue) — в отличие от интерфейсов устройства, где свой путь
+    # синхронизации (_sync_interface_open_ports). port/protocol из payload клиента игнорируются —
+    # см. _apply_open_port_catalog.
+    if model is OpenPort:
+        _apply_open_port_catalog(data, session)
     validate_resource(model, data, session, confirm_duplicate=bool(payload.get('confirm_system_name_duplicate')), confirm_rack_reassign=bool(payload.get('confirm_rack_position_reassign')))
     obj = model(**data); session.add(obj)
     try:
@@ -273,11 +279,19 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     if model is VirtualMachine and proposed.get('physical_device_id'):
         host = session.get(PhysicalDevice, proposed['physical_device_id'])
         proposed['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
+    # Пересчитываем port/protocol из справочника, только если запись УЖЕ привязана к нему или
+    # клиент явно меняет привязку сейчас — так правку можно раскатить, не отказывая в сохранении
+    # старым строкам open-ports без protocol_catalog_id (были возможны до этой правки) при правке
+    # у них любого другого поля (например description).
+    if model is OpenPort and ('protocol_catalog_id' in payload or proposed.get('protocol_catalog_id')):
+        _apply_open_port_catalog(proposed, session)
     validate_resource(model, proposed, session, item_id, bool(payload.get('confirm_system_name_duplicate')), bool(payload.get('confirm_rack_position_reassign')))
     for key, value in payload.items():
         if key in allowed: setattr(obj, key, value)
     if model is VirtualMachine and 'physical_device_id' in proposed:
         obj.hypervisor_os_id = proposed.get('hypervisor_os_id')
+    if model is OpenPort and ('protocol_catalog_id' in payload or proposed.get('protocol_catalog_id')):
+        obj.port = proposed['port']; obj.protocol = proposed['protocol']
     try:
         session.flush(); audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
     except IntegrityError as exc:
@@ -337,6 +351,32 @@ def delete_resource(resource: str, item_id: str, session: Session):
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
 _VLAN_MODES = frozenset({"access", "trunk"})
+
+
+def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> ProtocolPortCatalog:
+    """Достаёт запись справочника «Протоколы и порты» по id или кидает понятную 422 — общая точка
+    для _apply_open_port_catalog() ниже, чтобы формулировка ошибки не разъезжалась между
+    интерфейсами устройства и generic create/update_resource('open-ports') (ВМ)."""
+    entry = session.get(ProtocolPortCatalog, catalog_id) if catalog_id else None
+    if not entry:
+        raise HTTPException(422, 'Не выбрана существующая запись справочника «Протоколы и порты»')
+    return entry
+
+
+def _apply_open_port_catalog(data: dict[str, Any], session: Session) -> None:
+    """Правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в справочнике
+    портов": OpenPort.port/protocol больше не принимаются от клиента как свободный текст, а
+    ВСЕГДА выводятся сервером из выбранной записи protocol_port_catalogs. Так проверялось на
+    фронтенде (OpenPortListEditor.vue) и раньше, но только там — прямой запрос к API в обход UI
+    мог записать порт/протокол, не совпадающий со справочником (тот же класс проблемы, что и
+    validate_ipv4_field для IP интерфейса, код-ревью п.3.4).
+
+    Мутирует data на месте (добавляет/перезаписывает 'port' и 'protocol') — вызывается ДО
+    построения ORM-объекта в create_resource/_sync_interface_open_ports, поэтому подстановка
+    попадает в тот же INSERT/UPDATE, без дополнительного запроса."""
+    entry = _resolve_protocol_catalog_entry(data.get('protocol_catalog_id'), session)
+    data['port'] = entry.port
+    data['protocol'] = entry.protocol_type
 
 
 def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]) -> None:
@@ -407,11 +447,11 @@ def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: S
     old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id)).all()
     old_map = {x.id: x for x in old_ports}; seen: set[str] = set()
     for port_data in open_ports:
-        if not isinstance(port_data, dict) or port_data.get('port') in (None, ''): continue
-        try:
-            port_number = int(port_data['port'])
-        except (TypeError, ValueError):
-            raise HTTPException(422, 'Номер открытого порта должен быть числом')
+        # Пустая строка без выбранной записи справочника — незаполненная строка-плейсхолдер
+        # (пользователь нажал "+ Открытый порт", но ещё не выбрал запись) — как и раньше с
+        # пустым 'port', тихо пропускаем, а не 422 (см. addRow() в OpenPortListEditor.vue).
+        if not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
+        _apply_open_port_catalog(port_data, session)  # port_data['port']/['protocol'] ← справочник
         port_id = port_data.get('id')
         if port_id:
             port_obj = old_map.get(port_id)
@@ -419,10 +459,10 @@ def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: S
             seen.add(port_id)
         else:
             port_obj = OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(port_obj)
-        port_obj.port = port_number
+        port_obj.port = port_data['port']
+        port_obj.protocol = port_data['protocol']
+        port_obj.protocol_catalog_id = port_data['protocol_catalog_id']
         port_obj.transport_protocol = port_data.get('transport_protocol') or 'TCP'
-        port_obj.protocol = port_data.get('protocol') or None
-        port_obj.protocol_catalog_id = port_data.get('protocol_catalog_id') or None
         port_obj.description = port_data.get('description') or None
     for old_port in old_ports:
         if old_port.id not in seen: session.delete(old_port)
