@@ -442,9 +442,10 @@ class OpenPort(TimestampMixin, Base):
     port/protocol НЕ принимаются от клиента напрямую (правка "убрать текстовые поля Порт/Протокол,
     эта информация уже есть в справочнике портов") — единственный вход для них — protocol_catalog_id,
     сервер сам подставляет значения из ProtocolPortCatalog (см. services/crud.py:_apply_open_port_catalog).
-    Колонки port/protocol сохранены как есть (не через relationship) ради обратной совместимости
-    отчёта (reporting.py) и уже существующих строк без protocol_catalog_id — снятие текстовых
-    полей с формы не требует миграции схемы."""
+    protocol_catalog_id обязателен (NOT NULL, миграция a1b7c9d3e502 с бэкфиллом старых строк) — без
+    него неоткуда взять port/protocol при создании/обновлении. Колонки port/protocol сохранены как
+    есть (не через relationship) ради обратной совместимости отчёта (reporting.py) и уже
+    существующих запросов, читающих их напрямую с этой модели."""
     __tablename__ = "open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
@@ -452,7 +453,7 @@ class OpenPort(TimestampMixin, Base):
     transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
     port: Mapped[int] = mapped_column(Integer)
     protocol: Mapped[Optional[str]] = mapped_column(String(100))
-    protocol_catalog_id: Mapped[Optional[str]] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
+    protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     description: Mapped[Optional[str]] = mapped_column(Text)
 

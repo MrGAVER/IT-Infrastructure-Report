@@ -31,7 +31,7 @@ try:
         Base, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface, DeviceType,
         EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, InterfaceIP, InterfaceVLAN,
         ISContainer, ISDepartment, ISDevice, ISIP, ISVM, Manufacturer, OpenPort, OperatingSystem,
-        OperatingSystemCategory, PhysicalDevice, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, VMSoftware,
+        OperatingSystemCategory, PhysicalDevice, ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, VMSoftware,
     )
     from app.reporting import HEADERS1, HEADERS2, HEADERS3, HEADERS4, build_report
     from app.services.report_engine import ReportContext
@@ -172,8 +172,14 @@ def _seed_rich_dataset(session, *, via_legacy_links: bool):
     session.add(vlan)
     session.flush()
     session.add(InterfaceVLAN(interface_id=iface1.id, vlan_id=vlan.id))
+    # protocol_catalog_id NOT NULL с миграции a1b7c9d3e502 — OpenPort больше нельзя завести даже
+    # напрямую через ORM без ссылки на справочник (см. её тесты в
+    # test_migrations_open_ports_catalog.py), поэтому запись каталога заводим здесь явно.
+    ssh_catalog = ProtocolPortCatalog(port=22, protocol_type="SSH")
+    session.add(ssh_catalog)
+    session.flush()
     session.add(OpenPort(owner_type="physical_device", owner_id=dev1.id,
-                          transport_protocol="TCP", port=22, protocol="SSH"))
+                          transport_protocol="TCP", port=22, protocol="SSH", protocol_catalog_id=ssh_catalog.id))
 
     isys = InformationSystem(name="ИС Бухгалтерия", description="Учётная система", purpose="Учёт",
                               localization="ЦОД-1", siem_enabled=True, crypto_protection_enabled=True)
@@ -192,8 +198,11 @@ def _seed_rich_dataset(session, *, via_legacy_links: bool):
     session.add(sw)
     session.flush()
     session.add(VMSoftware(virtual_machine_id=vm1.id, software_asset_id=sw.id))
+    onec_catalog = ProtocolPortCatalog(port=1540, protocol_type="1C")
+    session.add(onec_catalog)
+    session.flush()
     session.add(OpenPort(owner_type="virtual_machine", owner_id=vm1.id,
-                          transport_protocol="TCP", port=1540, protocol="1C"))
+                          transport_protocol="TCP", port=1540, protocol="1C", protocol_catalog_id=onec_catalog.id))
     container = Container(name="buh-container", virtual_machine_id=vm1.id)
     session.add(container)
     session.flush()

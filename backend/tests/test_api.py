@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 from app.config import REPORT_DIR
 
 
@@ -1033,21 +1035,20 @@ class TestOpenPortCatalogIsSourceOfTruth:
         assert r.json()["port"] == 443
         assert r.json()["protocol"] == "HTTPS"
 
-    def test_update_unrelated_field_on_legacy_row_without_catalog_reference_still_works(self, client, db_session):
-        """Обратная совместимость: строки, созданные ДО этой правки, могли не иметь
-        protocol_catalog_id вовсе. Правка не должна ретроактивно блокировать правку у них
-        НЕсвязанного поля (см. осторожность в update_resource — условие на 'protocol_catalog_id'
-        in payload). db_session — тот же engine, что и у client (см. фикстуру client в
-        conftest.py), поэтому запись, вставленная здесь напрямую, видна через API ниже."""
+    def test_protocol_catalog_id_is_not_null_at_db_level(self, client, db_session):
+        """Выполнено «Возможное улучшение 1» из прошлой правки: миграция a1b7c9d3e502 забэкфиллила
+        старые строки без protocol_catalog_id и перевела колонку в NOT NULL — до неё этот же вызов
+        создавал бы «повисшую» запись без ссылки на справочник (см. удалённый тест
+        test_update_unrelated_field_on_legacy_row_without_catalog_reference_still_works в истории).
+        Теперь такую строку нельзя завести даже в обход API, напрямую через ORM — IntegrityError
+        летит уже на commit(), до всякой прикладной валидации."""
         from app.models import OpenPort
+        from sqlalchemy.exc import IntegrityError
 
         legacy = OpenPort(owner_type="virtual_machine", owner_id="vm-legacy", port=8080, protocol=None)
-        db_session.add(legacy); db_session.commit(); legacy_id = legacy.id
-
-        r = client.put(f"/api/v1/resources/open-ports/{legacy_id}", json={"description": "легаси-запись"})
-        assert r.status_code == 200, r.text
-        assert r.json()["description"] == "легаси-запись"
-        assert r.json()["port"] == 8080  # не тронут, т.к. protocol_catalog_id не пришёл и не был задан
+        db_session.add(legacy)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
 
 
 class TestGlobalSearchTextIndex:

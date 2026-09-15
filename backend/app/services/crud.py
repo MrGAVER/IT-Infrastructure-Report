@@ -279,18 +279,17 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     if model is VirtualMachine and proposed.get('physical_device_id'):
         host = session.get(PhysicalDevice, proposed['physical_device_id'])
         proposed['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
-    # Пересчитываем port/protocol из справочника, только если запись УЖЕ привязана к нему или
-    # клиент явно меняет привязку сейчас — так правку можно раскатить, не отказывая в сохранении
-    # старым строкам open-ports без protocol_catalog_id (были возможны до этой правки) при правке
-    # у них любого другого поля (например description).
-    if model is OpenPort and ('protocol_catalog_id' in payload or proposed.get('protocol_catalog_id')):
+    # protocol_catalog_id — NOT NULL в БД с миграции a1b7c9d3e502 (бэкфилл закрыл старые строки
+    # без ссылки на справочник), поэтому proposed['protocol_catalog_id'] здесь гарантированно
+    # заполнен всегда — условность (была нужна только для переходного периода до миграции) убрана.
+    if model is OpenPort:
         _apply_open_port_catalog(proposed, session)
     validate_resource(model, proposed, session, item_id, bool(payload.get('confirm_system_name_duplicate')), bool(payload.get('confirm_rack_position_reassign')))
     for key, value in payload.items():
         if key in allowed: setattr(obj, key, value)
     if model is VirtualMachine and 'physical_device_id' in proposed:
         obj.hypervisor_os_id = proposed.get('hypervisor_os_id')
-    if model is OpenPort and ('protocol_catalog_id' in payload or proposed.get('protocol_catalog_id')):
+    if model is OpenPort:
         obj.port = proposed['port']; obj.protocol = proposed['protocol']
     try:
         session.flush(); audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
