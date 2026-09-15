@@ -140,6 +140,10 @@ describe('DeviceFormModal.vue', () => {
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()
+    // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи в SearchableSelect
+    // резолвится по catalogs.protocolPortCatalog (см. OpenPortListEditor.vue:catalogOptions) —
+    // stubCatalogsFetch() отдаёт пустой protocol-port-catalog, поэтому запись нужна отдельно.
+    catalogs.protocolPortCatalog = [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }]
 
     const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-9' } as never
     vi.stubGlobal(
@@ -158,7 +162,7 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/resources/open-ports')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }],
+              items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -173,7 +177,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
     await wrapper.find('.expand-toggle').trigger('click') // открытые порты скрыты до раскрытия строки интерфейса
 
-    expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
+    expect(wrapper.find('.ports-block .searchable-select input').element).toHaveProperty('value', '22 / SSH')
   })
 
   it('сохраняет добавленный открытый порт интерфейса под id нового устройства и не отправляет пустые строки', async () => {
@@ -909,8 +913,10 @@ describe('DeviceFormModal.vue', () => {
     await body.find('form').trigger('submit')
     await flushPromises()
 
-    expect((wrapper.find('input.col-port').element as HTMLInputElement).value).toBe('3389')
-    expect((wrapper.find('input.col-protocol').element as HTMLInputElement).value).toBe('RDP')
+    // Правка "убрать текстовые поля Порт/Протокол": больше нет отдельных input'ов для порта и
+    // протокола — быстрое добавление подставляет саму запись в SearchableSelect, порт/протокол
+    // выведет сервер при сохранении.
+    expect(wrapper.find('.ports-block .searchable-select input').element).toHaveProperty('value', '3389 / RDP')
   })
 
   it('п.3: длинное системное имя показывает подсказку через секунду наведения', async () => {
@@ -978,7 +984,7 @@ describe('DeviceFormModal.vue', () => {
           // Фикс п.1.4 (батч4): открытый порт донора висит на его интерфейсе (owner_type=
           // 'device_interface', owner_id интерфейса), а не на самом устройстве.
           if (url.includes('/resources/open-ports') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
           }
           if (url.includes('/resources/interfaces') && method === 'GET') {
             return new Response(JSON.stringify({ items: [{ id: 'if-src', physical_device_id: 'dev-src', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
@@ -989,13 +995,16 @@ describe('DeviceFormModal.vue', () => {
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
       )
+      // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи резолвится по
+      // catalogs.protocolPortCatalog — stubCatalogsFetch() отдаёт её пустой.
+      catalogs.protocolPortCatalog = [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }]
 
       const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
       await flushPromises()
       await wrapper.find('.expand-toggle').trigger('click') // порты скрыты до раскрытия строки интерфейса
 
       // Донор дал открытый порт 22/SSH на интерфейсе eth0 — оба должны были подгрузиться в форму.
-      expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
+      expect(wrapper.find('.ports-block .searchable-select input').element).toHaveProperty('value', '22 / SSH')
 
       await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
       await wrapper.find('form').trigger('submit')

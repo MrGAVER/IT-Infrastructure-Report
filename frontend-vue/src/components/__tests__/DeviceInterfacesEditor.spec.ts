@@ -423,11 +423,15 @@ describe('DeviceInterfacesEditor.vue', () => {
 
   describe('п.1.4 (батч4): открытые порты интерфейса и копирование на другой интерфейс', () => {
     it('блок "Открытые порты" рендерится внутри развёрнутой строки интерфейса', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }]
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }] },
+      })
       await expandRow(wrapper)
       expect(wrapper.find('.ports-block').exists()).toBe(true)
-      expect((wrapper.find('.ports-block input.col-port').element as HTMLInputElement).value).toBe('22')
+      // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи справочника
+      // теперь рендерится SearchableSelect'ом, отдельных input'ов для порта/протокола больше нет.
+      expect((wrapper.find('.ports-block .searchable-select input').element as HTMLInputElement).value).toBe('22 / SSH')
     })
 
     it('добавление порта на одном интерфейсе не затрагивает open_ports другого', async () => {
@@ -442,7 +446,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('с единственным интерфейсом кнопку "Копировать на порт…" показывать не для чего — блок выбора получателя не рендерится', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: '', transport_protocol: 'TCP', description: '' }] }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await expandRow(wrapper)
       expect(wrapper.find('.copy-ports-row').exists()).toBe(false)
@@ -450,7 +454,7 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('копирует набор открытых портов на выбранный интерфейс со сброшенными id (это КОПИЯ, а не перенос)', async () => {
       const rows: InterfaceDraftRow[] = [
-        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
         { ...emptyRow(), name: 'eth1' },
       ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
@@ -460,15 +464,15 @@ describe('DeviceInterfacesEditor.vue', () => {
       await wrapper.find('.copy-ports-row button').trigger('click')
 
       const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
-      expect(result[1].open_ports).toEqual([{ id: undefined, protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }])
+      expect(result[1].open_ports).toEqual([{ id: undefined, protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }])
       expect(result[0].open_ports).toHaveLength(1) // у источника порты остаются как есть — это копирование, не перемещение
     })
 
     it('если у получателя уже есть порты — требует подтверждения и не заменяет их при отказе', async () => {
       vi.stubGlobal('confirm', vi.fn(() => false))
       const rows: InterfaceDraftRow[] = [
-        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
-        { ...emptyRow(), name: 'eth1', open_ports: [{ id: 'op-2', protocol_catalog_id: '', port: '443', protocol: 'HTTPS', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth1', open_ports: [{ id: 'op-2', protocol_catalog_id: 'cat-https', transport_protocol: 'TCP', description: '' }] },
       ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await expandRow(wrapper, 0)

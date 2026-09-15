@@ -7,28 +7,38 @@
 // "Ещё не сделано" в frontend-vue/README.md: "привязка ... открытых портов к
 // устройству" — в vanilla-фронтенде это saveDeviceOpenPorts в vm-editors.js,
 // почти дословно совпадающий с saveVMOpenPorts).
+//
+// Правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в справочнике
+// портов": раньше здесь были ещё два <input> (номер порта и протокол прикладного уровня),
+// которые пользователь мог отредактировать вручную ПОСЛЕ выбора записи справочника — то
+// самое "поле дублирует справочник и может с ним разойтись", убранное этой правкой. Теперь
+// единственный вход — выбор записи (SearchableSelect ниже, фикс п.2 — сортировка и поиск
+// вводом текста, как и у остальных подобных полей, см. catalogEntries prop и
+// stores/catalogs.ts:sortProtocolPortCatalog), а сервер сам подставляет порт/протокол из
+// справочника при сохранении (backend/app/services/crud.py:_apply_open_port_catalog) —
+// хранить их в черновике смысла больше нет, см. OpenPortDraftRow в api/types.ts.
 import type { OpenPortDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: OpenPortDraftRow[]] }>()
 
-// Фикс п.1.5/4.3 ("дублирование полей 'Протокол' и блок с выбором TCP/UDP"): поля НЕ объединены,
-// т.к. это разные атрибуты одной и той же записи открытого порта, оба нужны для отчёта Excel
-// (backend/app/reporting.py собирает ячейку как "{transport_protocol}/{port}, {protocol}, ...") —
-// protocol здесь прикладной уровень (SSH, HTTPS), transport_protocol — транспортный (TCP/UDP).
-// Реальная причина путаницы — оба поля были без подписи (голый placeholder на входе, у select
-// вообще никакой), из-за чего "TCP" в select рядом с "SSH"/"TCP/HTTPS" в текстовом поле читались
-// как одно и то же. Правка — только title/placeholder, без изменения модели данных.
 const TRANSPORT_OPTIONS = ['TCP', 'UDP', 'TCP/UDP']
 
 function emptyRow(): OpenPortDraftRow {
-  return { protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }
+  return { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }
 }
 
 function catalogLabel(entry: ProtocolPortCatalogEntry): string {
   return `${entry.port} / ${entry.protocol_type}`
 }
+
+// catalogEntries приходит уже отсортированным (catalogs.protocolPortCatalog, см. фикс п.4.2 в
+// stores/catalogs.ts) — здесь только маппинг в плоский формат SearchableSelect, без пересортировки,
+// тем же принципом, что и у остальных select'ов, читающих catalogs.items[key] как есть.
+const catalogOptions = (): SearchableSelectOption[] => props.catalogEntries.map((e) => ({ value: e.id, label: catalogLabel(e) }))
 
 function addRow() {
   emit('update:modelValue', [...props.modelValue, emptyRow()])
@@ -46,26 +56,16 @@ function updateField(index: number, patch: Partial<OpenPortDraftRow>) {
   emit('update:modelValue', next)
 }
 
-// Выбор записи справочника подставляет порт и протокол — как onVMOpenPortCatalogChanged()
-// в vanilla-версии (frontend/static/vm-editors.js). Пользователь может отредактировать
-// оба поля вручную после — справочник только ускоряет типичный случай.
+// Выбор (или снятие — catalogId === '', крестик очистки SearchableSelect) записи справочника.
+// Явный сброс port/protocol здесь больше не нужен: их не осталось в OpenPortDraftRow вовсе —
+// достаточно записать сам protocol_catalog_id, сервер выведет из него порт/протокол при сохранении.
 function onCatalogChange(index: number, catalogId: string) {
-  const entry = props.catalogEntries.find((e) => e.id === catalogId)
-  updateField(index, {
-    protocol_catalog_id: catalogId,
-    ...(entry ? { port: String(entry.port), protocol: entry.protocol_type } : {}),
-  })
+  updateField(index, { protocol_catalog_id: catalogId })
 }
 
-// Быстро добавленная запись используется НАПРЯМУЮ (не через onCatalogChange, который ищет
-// её в props.catalogEntries) — на момент этого вызова прокинутый вниз проп catalogEntries ещё
-// не обязательно успел обновиться: обновление стора в QuickAddModal.vue и эмит 'created'
-// происходят синхронно, до следующего цикла реактивности/рендера родителя, так что при поиске
-// по props.catalogEntries новая запись иногда ещё не была бы найдена. У record уже есть все
-// нужные поля — используем их напрямую, без обхода через поиск.
 function onQuickAdded(index: number, record: CatalogItem) {
   const entry = record as unknown as ProtocolPortCatalogEntry
-  updateField(index, { protocol_catalog_id: entry.id, port: String(entry.port), protocol: entry.protocol_type })
+  updateField(index, { protocol_catalog_id: entry.id })
 }
 </script>
 
@@ -80,35 +80,17 @@ function onQuickAdded(index: number, record: CatalogItem) {
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
       <div class="col-catalog lookup-row">
-        <select
-          :value="row.protocol_catalog_id"
-          @change="onCatalogChange(i, ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">— справочник —</option>
-          <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ catalogLabel(entry) }}</option>
-        </select>
+        <SearchableSelect
+          :model-value="row.protocol_catalog_id"
+          :options="catalogOptions()"
+          placeholder="— справочник —"
+          @update:model-value="(v) => onCatalogChange(i, v)"
+        />
         <QuickAddButton resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
       </div>
-      <input
-        class="col-port"
-        type="number"
-        min="1"
-        max="65535"
-        placeholder="Порт"
-        :value="row.port"
-        @input="updateField(i, { port: ($event.target as HTMLInputElement).value })"
-      />
-      <input
-        class="col-protocol"
-        type="text"
-        placeholder="Протокол (напр. SSH)"
-        title="Протокол — прикладного уровня (SSH, HTTPS, SNMP и т.п.), не путать с транспортным протоколом справа"
-        :value="row.protocol"
-        @input="updateField(i, { protocol: ($event.target as HTMLInputElement).value })"
-      />
       <select
         class="col-transport"
-        title="Транспортный протокол (TCP/UDP) — отдельно от прикладного протокола слева"
+        title="Транспортный протокол (TCP/UDP) — отдельно от прикладного протокола, который несёт запись справочника слева"
         :value="row.transport_protocol"
         @change="updateField(i, { transport_protocol: ($event.target as HTMLSelectElement).value })"
       >
@@ -163,7 +145,7 @@ function onQuickAdded(index: number, record: CatalogItem) {
 }
 .nested-row {
   display: grid;
-  grid-template-columns: 1.5fr 0.7fr 1fr 0.9fr 1.3fr auto;
+  grid-template-columns: 1.8fr 0.9fr 1.3fr auto;
   align-items: center;
   gap: 8px;
 }
@@ -172,7 +154,7 @@ function onQuickAdded(index: number, record: CatalogItem) {
   align-items: center;
   gap: 6px;
 }
-.lookup-row select {
+.lookup-row .searchable-select {
   flex: 1;
   min-width: 0;
 }

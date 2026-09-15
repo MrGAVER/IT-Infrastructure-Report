@@ -101,8 +101,8 @@ describe('loadDeviceInterfaceDraftRows', () => {
 
     const [row] = await loadDeviceInterfaceDraftRows('dev-1')
     expect(row.open_ports).toEqual([
-      { id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' },
-      { id: 'op-2', protocol_catalog_id: '', port: '443', protocol: 'HTTPS', transport_protocol: 'TCP', description: '' },
+      { id: 'op-1', protocol_catalog_id: '', transport_protocol: 'TCP', description: '' },
+      { id: 'op-2', protocol_catalog_id: '', transport_protocol: 'TCP', description: '' },
     ])
   })
 
@@ -246,10 +246,11 @@ describe('persistDeviceInterfaces', () => {
     expect(result.items).toEqual([{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0' }])
   })
 
-  // Фикс п.1.4 (батч4): открытые порты интерфейса персистятся атомарно вместе с ним — те же
-  // правила приведения типов/фильтрации пустых строк, что раньше жили в
-  // DeviceFormModal.vue:persistOpenPorts (удалена).
-  it('фикс п.1.4: приводит port к числу, пропускает пустые строки, сохраняет id для обновления существующих', async () => {
+  // Правка "убрать текстовые поля Порт/Протокол": port/protocol больше не приходят от клиента —
+  // единственный вход теперь protocol_catalog_id, сервер сам выводит порт/протокол из него (см.
+  // backend/app/services/crud.py:_apply_open_port_catalog). Раньше здесь же жили правила
+  // приведения типов/фильтрации пустых строк из DeviceFormModal.vue:persistOpenPorts (удалена).
+  it('фикс "убрать текстовые поля Порт/Протокол": пропускает строки без protocol_catalog_id, сохраняет id для обновления существующих', async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ items: [] }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -259,17 +260,17 @@ describe('persistDeviceInterfaces', () => {
         id: 'if-1',
         name: 'eth0',
         open_ports: [
-          { id: 'op-1', protocol_catalog_id: 'cat-1', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: 'Консоль' },
-          { protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }, // пустой port — отфильтровывается, NOT NULL на бэкенде
-          { protocol_catalog_id: '', port: '443', protocol: '', transport_protocol: '', description: '' }, // новая строка без id, пустой transport_protocol — по умолчанию TCP
+          { id: 'op-1', protocol_catalog_id: 'cat-1', transport_protocol: 'TCP', description: 'Консоль' },
+          { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }, // без справочника — незаполненная строка-плейсхолдер, отфильтровывается
+          { protocol_catalog_id: 'cat-2', transport_protocol: '', description: '' }, // новая строка без id, пустой transport_protocol — по умолчанию TCP
         ],
       },
     ])
 
     const body = JSON.parse(fetchMock.mock.calls[0][1]!.body as string)
     expect(body.interfaces[0].open_ports).toEqual([
-      { id: 'op-1', protocol_catalog_id: 'cat-1', port: 22, protocol: 'SSH', transport_protocol: 'TCP', description: 'Консоль' },
-      { id: undefined, protocol_catalog_id: null, port: 443, protocol: null, transport_protocol: 'TCP', description: null },
+      { id: 'op-1', protocol_catalog_id: 'cat-1', transport_protocol: 'TCP', description: 'Консоль' },
+      { id: undefined, protocol_catalog_id: 'cat-2', transport_protocol: 'TCP', description: null },
     ])
   })
 

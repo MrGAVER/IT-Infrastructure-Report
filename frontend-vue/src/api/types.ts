@@ -209,12 +209,15 @@ export interface VmIpDraftRow {
 /** Черновая строка редактора открытых портов (OpenPortListEditor.vue) — переиспользуется и для
  * ВМ (VMFormModal.vue, owner_type='virtual_machine'), и для интерфейсов физических устройств
  * (InterfaceDraftRow.open_ports ниже, фикс п.1.4 батч4, owner_type='device_interface'), т.к.
- * OpenPort — полиморфная таблица с одинаковым набором полей независимо от owner_type. */
+ * OpenPort — полиморфная таблица с одинаковым набором полей независимо от owner_type.
+ *
+ * Без port/protocol (правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в
+ * справочнике портов"): единственный вход теперь — protocol_catalog_id, сервер сам подставляет
+ * порт/протокол из справочника при сохранении (см. backend/app/services/crud.py:
+ * _apply_open_port_catalog) и возвращает их в ответе OpenPort ниже — черновику их хранить не нужно. */
 export interface OpenPortDraftRow {
   id?: string
   protocol_catalog_id: string
-  port: string
-  protocol: string
   transport_protocol: string
   description: string
 }

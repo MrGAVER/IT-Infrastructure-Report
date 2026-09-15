@@ -65,8 +65,6 @@ function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
   return {
     id: x.id,
     protocol_catalog_id: x.protocol_catalog_id ?? '',
-    port: String(x.port),
-    protocol: x.protocol ?? '',
     transport_protocol: x.transport_protocol,
     description: x.description ?? '',
   }
@@ -158,17 +156,16 @@ async function persistOpenPorts(vmId: string) {
     await deleteResource('open-ports', old.id)
   }
   for (const row of openPorts.value) {
-    // port — NOT NULL на бэкенде (backend/app/models.py:OpenPort), в отличие от
-    // vanilla-версии здесь не отправляем строку без порта, даже если выбрана
-    // запись справочника: иначе сервер ответит 409 (нарушение целостности)
-    // вместо понятной валидационной ошибки.
-    if (!row.port.trim()) continue
+    // Правка "убрать текстовые поля Порт/Протокол": protocol_catalog_id — единственный вход,
+    // без него нечего сохранять (та же пустая строка-плейсхолдер, что раньше отсекалась по
+    // пустому row.port). port/protocol в payload не отправляем вовсе — сервер сам выводит их
+    // из справочника (backend/app/services/crud.py:_apply_open_port_catalog) и вернёт 422 с
+    // понятным текстом, если protocol_catalog_id всё же окажется невалидным.
+    if (!row.protocol_catalog_id) continue
     await createResource<OpenPort>('open-ports', {
       owner_type: 'virtual_machine',
       owner_id: vmId,
-      protocol_catalog_id: row.protocol_catalog_id || null,
-      port: Number(row.port),
-      protocol: row.protocol || null,
+      protocol_catalog_id: row.protocol_catalog_id,
       transport_protocol: row.transport_protocol || 'TCP',
       description: row.description || null,
     })

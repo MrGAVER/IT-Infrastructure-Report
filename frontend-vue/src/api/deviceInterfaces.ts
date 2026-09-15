@@ -66,8 +66,6 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
         .map((p) => ({
           id: p.id,
           protocol_catalog_id: p.protocol_catalog_id ?? '',
-          port: String(p.port),
-          protocol: p.protocol ?? '',
           transport_protocol: p.transport_protocol,
           description: p.description ?? '',
         })),
@@ -95,16 +93,11 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | 
       if (!isValidIPv4(ip.ip_address)) return `Некорректный IP-адрес «${ip.ip_address}» на порту «${row.name}».`
       if (!isValidPrefixLength(ip.prefix_length)) return `Некорректный префикс «${ip.prefix_length}» на порту «${row.name}» — допустимо 0-32.`
     }
-    // Фикс п.1.4 (батч4): открытые порты переехали на уровень интерфейса — та же проверка, что
-    // раньше защищала список на уровне устройства (DeviceFormModal.vue:persistOpenPorts просто
-    // молча пропускал пустые/нечисловые номера порта; здесь — явная ошибка до отправки запроса,
-    // а не тихая потеря введённых данных).
-    for (const port of row.open_ports) {
-      if (!port.port.trim()) continue
-      if (!Number.isInteger(Number(port.port)) || Number(port.port) < 0) {
-        return `Некорректный номер открытого порта «${port.port}» на порту «${row.name}».`
-      }
-    }
+    // Фикс "убрать текстовые поля Порт/Протокол": раньше здесь же проверялся номер открытого
+    // порта (свободный текст, введённый вручную) — с тех пор, как единственный вход стал
+    // protocol_catalog_id (значение из справочника, а не текст), проверять на этом уровне
+    // больше нечего: несуществующую ссылку отклонит сервер (422), а пустую строку без выбора
+    // тихо пропускает toApiPayload() (см. её комментарий) — как и раньше с пустым номером порта.
   }
   return null
 }
@@ -149,16 +142,16 @@ export async function persistDeviceInterfaces(deviceId: string, rows: InterfaceD
           purpose: ip.purpose || null,
         })),
       // Фикс п.1.4 (батч4): открытые порты round-trip'ятся вместе со своим интерфейсом в том же
-      // атомарном PUT — см. backend/app/services/crud.py:_sync_interface_open_ports. Пустой
-      // port (после trim) пропускается так же, как раньше в DeviceFormModal.vue:persistOpenPorts
-      // (колонка NOT NULL на бэкенде).
+      // атомарном PUT — см. backend/app/services/crud.py:_sync_interface_open_ports. Правка
+      // "убрать текстовые поля Порт/Протокол": строка без выбранной записи справочника (после
+      // добавления "+ Открытый порт", пока пользователь ещё ничего не выбрал) пропускается так
+      // же, как раньше пустой port; port/protocol в payload не отправляем вовсе — сервер сам
+      // выведет их из protocol_catalog_id.
       open_ports: row.open_ports
-        .filter((p) => p.port.trim())
+        .filter((p) => p.protocol_catalog_id)
         .map((p) => ({
           id: p.id,
-          protocol_catalog_id: p.protocol_catalog_id || null,
-          port: Number(p.port),
-          protocol: p.protocol || null,
+          protocol_catalog_id: p.protocol_catalog_id,
           transport_protocol: p.transport_protocol || 'TCP',
           description: p.description || null,
         })),

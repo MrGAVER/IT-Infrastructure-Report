@@ -33,6 +33,11 @@ describe('VMFormModal.vue', () => {
       status: 'active',
       description: null,
     }
+    const catalogs = useCatalogsStore()
+    // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи в SearchableSelect
+    // резолвится по catalogs.protocolPortCatalog (см. OpenPortListEditor.vue:catalogOptions) —
+    // без записи в сторе id 'cat-https' был бы виден только как пустой плейсхолдер.
+    catalogs.protocolPortCatalog = [{ id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null }]
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -45,7 +50,7 @@ describe('VMFormModal.vue', () => {
         if (url.includes('/resources/open-ports')) {
           return jsonResponse({
             ...EMPTY_PAGE,
-            items: [{ id: 'op-1', owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', port: 443, protocol: 'HTTPS', protocol_catalog_id: null, ip_address: null, description: null }],
+            items: [{ id: 'op-1', owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', port: 443, protocol: 'HTTPS', protocol_catalog_id: 'cat-https', ip_address: null, description: null }],
           })
         }
         return jsonResponse(EMPTY_PAGE)
@@ -56,17 +61,20 @@ describe('VMFormModal.vue', () => {
     await flushPromises()
 
     expect(wrapper.find('input[placeholder="IP-адрес"]').element).toHaveProperty('value', '10.20.30.5')
-    expect(wrapper.find('input.col-port').element).toHaveProperty('value', '443')
+    expect(wrapper.find('.col-catalog .searchable-select input').element).toHaveProperty('value', '443 / HTTPS')
   })
 
   it('создаёт новую ВМ и сохраняет добавленные IP-адрес и открытый порт под её id', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.protocolPortCatalog = [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }]
     const wrapper = mount(VMFormModal, { props: { vm: null } })
 
     await wrapper.find('button.add-btn').trigger('click') // + IP-адрес
     await wrapper.find('input[placeholder="IP-адрес"]').setValue('192.168.1.10')
     const addButtons = wrapper.findAll('button.add-btn')
     await addButtons[1].trigger('click') // + Открытый порт
-    await wrapper.find('input.col-port').setValue('22')
+    await wrapper.find('.col-catalog .searchable-select input').trigger('focus')
+    await wrapper.find('.col-catalog .ss-option').trigger('mousedown') // единственная опция — "22 / SSH"
 
     const calls: Array<{ url: string; method: string; body: unknown }> = []
     vi.stubGlobal(
@@ -98,7 +106,10 @@ describe('VMFormModal.vue', () => {
     expect(vmIpCreate?.body).toMatchObject({ virtual_machine_id: 'vm-new', ip_address: '192.168.1.10' })
 
     const openPortCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/open-ports'))
-    expect(openPortCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', port: 22 })
+    // port/protocol больше не отправляются — сервер сам выводит их из protocol_catalog_id.
+    expect(openPortCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', protocol_catalog_id: 'cat-ssh' })
+    expect(openPortCreate?.body).not.toHaveProperty('port')
+    expect(openPortCreate?.body).not.toHaveProperty('protocol')
 
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
