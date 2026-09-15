@@ -1049,6 +1049,80 @@ class TestOpenPortCatalogIsSourceOfTruth:
         db_session.add(legacy)
         with pytest.raises(IntegrityError):
             db_session.commit()
+class TestNewDomainVlanAutoAssignedToSourceDevice:
+    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в справочник (POST
+    /resources/vlans) сразу с domain_id, должен появиться в «VLAN устройства» устройства-источника
+    домена без отдельного ручного шага — до этой правки sync_vlan_domain не помогал (см. docstring
+    _auto_assign_new_domain_vlan_to_source_device в services/crud.py): он реплицирует то, что УЖЕ
+    назначено источнику, а только что созданный VLAN там ещё не значится."""
+
+    def test_create_with_domain_that_has_source_device_auto_assigns(self, client):
+        dt = _create_device_type(client, "Коммутатор авто-VLAN")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-1"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен с источником", "source_device_id": source["id"]}).json()
+
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 77, "name": "Гости", "domain_id": domain["id"]}).json()
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert r.status_code == 200
+        assert [row["vlan_id"] for row in r.json()["items"]] == [vlan["id"]]
+
+    def test_create_with_domain_without_source_device_does_not_fail(self, client):
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без источника"}).json()
+        r = client.post("/api/v1/resources/vlans", json={"vlan_id": 78, "name": "Без источника", "domain_id": domain["id"]})
+        assert r.status_code == 201, r.text
+
+    def test_create_without_domain_does_not_auto_assign_anywhere(self, client):
+        dt = _create_device_type(client, "Коммутатор для локального VLAN")
+        device = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-2"}).json()
+        client.post("/api/v1/resources/vlans", json={"vlan_id": 79, "name": "Локальный"})
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={device['id']}")
+        assert r.json()["items"] == []
+
+    def test_assigning_domain_via_update_also_auto_assigns(self, client):
+        """Тот же эффект, если domain_id проставлен не сразу при создании VLAN, а последующим
+        PUT — VLANFormModal.vue допускает и такое (редактирование существующего локального VLAN,
+        привязка его к домену задним числом)."""
+        dt = _create_device_type(client, "Коммутатор для отложенной привязки")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-3"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен для PUT", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 80, "name": "Позже в домене"}).json()
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+        assert r.status_code == 200, r.text
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert [row["vlan_id"] for row in r.json()["items"]] == [vlan["id"]]
+
+    def test_editing_unrelated_field_does_not_duplicate_or_touch_assignment(self, client):
+        """domain_id НЕ пришёл в payload этого PUT — авто-назначение не должно срабатывать повторно
+        (условие 'domain_id' in payload в update_resource); подтверждаем через отсутствие
+        дублирования записи device-vlans."""
+        dt = _create_device_type(client, "Коммутатор без повторного назначения")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-4"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без дублей", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 81, "name": "Без дублей", "domain_id": domain["id"]}).json()
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"description": "просто описание"})
+        assert r.status_code == 200, r.text
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert len(r.json()["items"]) == 1
+
+    def test_does_not_duplicate_if_source_device_already_has_this_vlan(self, client):
+        """Устройство-источник могло уже иметь этот VLAN назначенным вручную ДО того, как VLAN
+        привязали к домену (или до повторного PUT domain_id на том же значении) — уникальный
+        constraint uq_physical_device_vlan не должен превратиться в 409 на ровном месте."""
+        dt = _create_device_type(client, "Коммутатор ручного назначения")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-5"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен ручного назначения", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 82, "name": "Уже назначен"}).json()
+        client.post("/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan["id"]})
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+        assert r.status_code == 200, r.text
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert len(r.json()["items"]) == 1
 
 
 class TestGlobalSearchTextIndex:

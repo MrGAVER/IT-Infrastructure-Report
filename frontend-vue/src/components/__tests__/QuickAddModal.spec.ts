@@ -34,6 +34,29 @@ describe('QuickAddModal.vue', () => {
     expect(body().text()).toContain('Заполните поле «Наименование»')
   })
 
+  it('правка "иконка вместо текстового блока в Добавить: Модель устройства": поле diagram_icon_id — DeviceIconPicker, а не текстовый input', () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-types'] = [{ id: 'dt-1', name: 'Сервер' }]
+    catalogs.items['manufacturers'] = [{ id: 'mf-1', name: 'Dell' }]
+    catalogs.items['diagram-icons'] = [{ id: 'icon-1', name: 'Сервер (кастом)', svg_markup: '<svg></svg>' } as never]
+
+    mount(QuickAddModal, { props: { resource: 'device-models' } })
+
+    // DeviceIconPicker.vue рендерит корневой .icon-picker и собственный <select> с опцией
+    // "Автоматически — по категории устройства" — этого достаточно, чтобы отличить его от
+    // обычного текстового <input>, в который поле проваливалось раньше (falling through в
+    // общий v-else).
+    expect(body().find('.icon-picker').exists()).toBe(true)
+    expect(body().text()).toContain('Автоматически — по категории устройства')
+    expect(body().text()).toContain('Иконка на диаграмме топологии сети')
+    // DeviceIconPicker — <select>, а не текстовый <input> (в который поле проваливалось раньше,
+    // falling through в общий v-else) — сам факт наличия .icon-picker .icon-select это уже
+    // покрывает; здесь дополнительно убеждаемся, что внутри .icon-picker нет ничего похожего
+    // на текстовое поле ввода названия иконки руками.
+    expect(body().find('.icon-picker input[type="text"]').exists()).toBe(false)
+    expect(body().find('.icon-picker .icon-select').exists()).toBe(true)
+  })
+
   it('fk-поле берёт опции из уже загруженного каталога стора', async () => {
     const catalogs = useCatalogsStore()
     catalogs.items['device-types'] = [{ id: 'dt-1', name: 'Сервер' }]

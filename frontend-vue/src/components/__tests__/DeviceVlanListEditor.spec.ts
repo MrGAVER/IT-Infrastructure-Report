@@ -110,6 +110,37 @@ describe('DeviceVlanListEditor.vue', () => {
       expect(wrapper.emitted('vlan-created')?.[0]).toEqual([{ id: 'v-new', vlan_id: 42, name: 'Гостевой' }])
     })
 
+    it('пункт 3 правки "создание физического устройства": вложенное создание НОВОГО Домена VLAN (внутри формы добавления VLAN) эмитится наружу отдельным событием vlan-domain-created', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          if (method === 'POST' && url.endsWith('/resources/vlan-domains')) {
+            return jsonResponse({ id: 'domain-new', name: 'Новый домен' }, 201)
+          }
+          return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+        }),
+      )
+      const rows: DeviceVlanDraftRow[] = [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions } })
+
+      await wrapper.find('.col-vlan button').trigger('click') // "+" у VLAN — открывает QuickAddModal('vlans')
+      // Вложенный "+" у поля "Домен VLAN" ВНУТРИ этой модалки (domain_id -> nestedQuickAdd в
+      // quickAdd/schema.ts) — оба тепортированы в document.body как соседние узлы, поэтому
+      // ищем именно по aria-label, а не по общему для обеих модалок ".modal".
+      await teleportedContent().find('button[aria-label="Добавить: Домен VLAN"]').trigger('click')
+
+      const domainModal = teleportedContent().findAll('.modal')[1]
+      await domainModal.find('input[type="text"]').setValue('Новый домен') // Наименование
+      await domainModal.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.emitted('vlan-domain-created')?.[0]).toEqual([{ id: 'domain-new', name: 'Новый домен' }])
+      // Сам VLAN в этот момент ещё не создан — только что созданный домен лишь подставился в
+      // его поле domain_id (см. onNestedCreated в QuickAddModal.vue); vlan-created пока нет.
+      expect(wrapper.emitted('vlan-created')).toBeUndefined()
+    })
+
     it('фикс п.2.2: если устройство уже состоит ровно в одном домене VLAN, поле домена в форме добавления предзаполнено им', async () => {
       const catalogs = useCatalogsStore()
       catalogs.items['vlan-domains'] = [{ id: 'domain-x', name: 'Домен X' }]

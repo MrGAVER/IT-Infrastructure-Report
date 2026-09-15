@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
@@ -248,6 +248,35 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         items = [serialize(row) for row in rows]
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
+def _auto_assign_new_domain_vlan_to_source_device(vlan: 'VLAN', session: Session) -> None:
+    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в «справочник VLAN»
+    (VLANFormModal.vue) сразу с привязкой к домену, должен появиться в блоке «VLAN устройства»
+    без отдельного ручного шага. До этой правки требовалось отдельно зайти в форму
+    устройства-источника и добавить VLAN там вручную — sync_vlan_domain (см. api/system.py) не
+    помогает, т.к. он реплицирует набор VLAN устройства-источника НА остальных участников,
+    отталкиваясь от уже существующих у источника PhysicalDeviceVLAN, а только что созданный VLAN
+    там ещё не значится.
+
+    Единственный однозначный получатель — устройство-источник домена (если оно задано):
+    остальные участники получат этот VLAN штатной синхронизацией, когда источник его уже будет
+    иметь. Если у домена источник не задан, или VLAN не привязан ни к какому домену — делать
+    нечего, тихо выходим (это не ошибка, а обычный локальный/пока-не-синхронизируемый VLAN)."""
+    if not vlan.domain_id:
+        return
+    domain = session.get(VLANDomain, vlan.domain_id)
+    if not domain or not domain.source_device_id:
+        return
+    exists = session.scalar(
+        select(PhysicalDeviceVLAN).where(
+            PhysicalDeviceVLAN.physical_device_id == domain.source_device_id,
+            PhysicalDeviceVLAN.vlan_id == vlan.id,
+        )
+    )
+    if exists:
+        return
+    session.add(PhysicalDeviceVLAN(physical_device_id=domain.source_device_id, vlan_id=vlan.id, description=vlan.description))
+
+
 def create_resource(resource: str, payload: dict[str, Any], session: Session):
     ensure_writable(resource)
     payload = validate_payload_schema(resource, payload, is_update=False)
@@ -265,7 +294,10 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     validate_resource(model, data, session, confirm_duplicate=bool(payload.get('confirm_system_name_duplicate')), confirm_rack_reassign=bool(payload.get('confirm_rack_position_reassign')))
     obj = model(**data); session.add(obj)
     try:
-        session.flush(); audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit(); return serialize(obj)
+        session.flush()
+        if model is VLAN:
+            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+        audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit(); return serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
@@ -292,7 +324,14 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     if model is OpenPort:
         obj.port = proposed['port']; obj.protocol = proposed['protocol']
     try:
-        session.flush(); audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
+        session.flush()
+        # Пункт 2 правки "создание физического устройства": только когда domain_id реально
+        # менялся в этом запросе — иначе безобидное редактирование ДРУГОГО поля VLAN (например,
+        # описания) на каждый сохранение заново бы проверяло/дублировало привязку к
+        # устройству-источнику домена, в котором этот VLAN и так уже давно значится.
+        if model is VLAN and 'domain_id' in payload:
+            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+        audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 

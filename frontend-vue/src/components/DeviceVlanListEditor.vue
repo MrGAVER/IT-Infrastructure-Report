@@ -28,7 +28,13 @@ const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLAND
 // будет совпадающего <option> в vlanOptions, пока vlansStore не подтянет его самостоятельно.
 // Полная запись (не просто факт создания) — родителю нужен её domain_id, чтобы при необходимости
 // добавить устройство в участники этого домена (фикс п.1.3.8, см. комментарий в DeviceFormModal.vue).
-const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]]; 'vlan-created': [record: CatalogItem] }>()
+// vlan-domain-created: пункт 3 правки "создание физического устройства" — если ВНУТРИ формы
+// добавления VLAN пользователь вложенным "+" завёл ещё и НОВЫЙ Домен VLAN (см. domain_id в схеме
+// 'vlans' в quickAdd/schema.ts), родителю нужно узнать об этом отдельно от самого VLAN, чтобы
+// подставить текущее устройство источником синхронизации этого домена (см.
+// DeviceFormModal.vue:onVlanDomainCreated) — то, что VLAN уже выбрал этот домен, тут не годится:
+// пользователь мог выбрать и уже СУЩЕСТВУЮЩИЙ домен, трогать чужую настройку источника нельзя.
+const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]]; 'vlan-created': [record: CatalogItem]; 'vlan-domain-created': [record: CatalogItem] }>()
 
 function emptyRow(): DeviceVlanDraftRow {
   return { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }
@@ -56,6 +62,10 @@ function onVlanCreated(index: number, created: CatalogItem) {
   updateField(index, { vlan_id: created.id })
   emit('vlan-created', created)
 }
+
+function onNestedCreated(_fieldName: string, fkResource: string, record: CatalogItem) {
+  if (fkResource === 'vlan-domains') emit('vlan-domain-created', record)
+}
 </script>
 
 <template>
@@ -78,6 +88,7 @@ function onVlanCreated(index: number, created: CatalogItem) {
           title="VLAN"
           :initial-values="deviceDomainId ? { domain_id: deviceDomainId } : undefined"
           @created="(r: CatalogItem) => onVlanCreated(i, r)"
+          @nested-created="onNestedCreated"
         />
       </div>
       <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />

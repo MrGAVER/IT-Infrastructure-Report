@@ -9,8 +9,7 @@ import { useCatalogsStore, sortProtocolPortCatalog } from '../stores/catalogs'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
-import { vTruncateTooltip } from '../directives/truncateTooltip'
-// Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
+import { vTruncateTooltip } from '../directives/truncateTooltip'// Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
 // Циклический импорт (QuickAddButton.vue сам рендерит QuickAddModal.vue) безопасен: обе стороны
 // используются только в шаблоне/во время рендера, а не в теле модуля при загрузке — к моменту
 // первого рендера оба модуля уже полностью инициализированы. Второй уровень вложенности не
@@ -19,9 +18,21 @@ import { vTruncateTooltip } from '../directives/truncateTooltip'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
+import DeviceIconPicker from './DeviceIconPicker.vue'
 
 const props = defineProps<{ resource: string; initialValues?: Record<string, string> }>()
-const emit = defineEmits<{ close: []; created: [record: CatalogItem] }>()
+const emit = defineEmits<{
+  close: []
+  created: [record: CatalogItem]
+  // Пункт 2/3 правки "создание физического устройства": родителю нужно знать не только что
+  // текущее поле заполнилось (это values[fieldName] уже делает ниже), но и КАКОЙ РЕСУРС был
+  // только что создан вложенным "+" — чтобы, например, DeviceVlanListEditor.vue отличил
+  // "заведён новый VLAN" от "внутри этого — ещё и заведён новый Домен VLAN" и среагировал на
+  // домен отдельно (см. DeviceFormModal.vue:onVlanDomainCreated). Второй уровень вложенности
+  // сюда не добавляется (см. комментарий у импорта QuickAddButton выше) — это просто трансляция
+  // уже существующего вложенного события дальше вверх по цепочке компонентов.
+  'nested-created': [fieldName: string, fkResource: string, record: CatalogItem]
+}>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
@@ -49,9 +60,11 @@ function fkSelectOptions(fkResource: string | undefined): SearchableSelectOption
 }
 
 /** Запись, созданная через вложенную QuickAddModal (кнопка "+" у fk-поля), сразу подставляется
- * в это поле текущей формы — так же, как QuickAddButton.vue делает для полей вызывающих форм. */
-function onNestedCreated(fieldName: string, record: CatalogItem) {
+ * в это поле текущей формы — так же, как QuickAddButton.vue делает для полей вызывающих форм.
+ * Событие транслируется и наверх (nested-created) — см. его комментарий у defineEmits выше. */
+function onNestedCreated(fieldName: string, fkResource: string, record: CatalogItem) {
   values[fieldName] = record.id
+  emit('nested-created', fieldName, fkResource, record)
 }
 
 async function submit() {
@@ -117,8 +130,12 @@ async function submit() {
         <div v-if="!fields.length" class="form-error">Для «{{ resource }}» быстрое добавление не настроено.</div>
 
         <form v-else class="form-grid" @submit.prevent="submit">
-          <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' }">
-            <span>{{ f.label }}{{ f.required ? ' *' : '' }}</span>
+          <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
+            <!-- Правка "иконка вместо текстового блока в 'Добавить: Модель устройства'": та же
+                 причина без <span>-подписи здесь, что и в аналогичном месте
+                 CatalogRecordFormModal.vue — DeviceIconPicker уже рендерит собственную подпись
+                 "Иконка на диаграмме топологии сети" в своём шаблоне. -->
+            <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
             <div v-if="f.type === 'fk'" class="fk-row">
               <SearchableSelect
                 :model-value="(values[f.name] as string) ?? ''"
@@ -129,7 +146,7 @@ async function submit() {
                 v-if="f.nestedQuickAdd && f.fkResource"
                 :resource="f.fkResource"
                 :title="QUICK_ADD_LABELS[f.fkResource]"
-                @created="(record) => onNestedCreated(f.name, record)"
+                @created="(record) => onNestedCreated(f.name, f.fkResource ?? '', record)"
               />
             </div>
             <textarea v-else-if="f.type === 'textarea'" v-model="values[f.name] as string" rows="2"></textarea>
@@ -140,6 +157,11 @@ async function submit() {
                 @change="values[f.name] = ($event.target as HTMLInputElement).checked"
               />
             </label>
+            <DeviceIconPicker
+              v-else-if="f.type === 'diagram-icon'"
+              :model-value="(values[f.name] as string) || null"
+              @update:model-value="(v) => (values[f.name] = v ?? '')"
+            />
             <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
           </label>
         </form>
