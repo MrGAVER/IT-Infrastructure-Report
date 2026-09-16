@@ -32,7 +32,19 @@ const { notify, notifyError } = useToast()
 // Геометрия карточки устройства на схеме — подобраны на глаз под компактный список портов.
 const NODE_WIDTH = 220
 const HEADER_HEIGHT = 34
-const PORT_ROW_HEIGHT = 26
+const PORT_ROW_HEIGHT = 32
+// Фикс "линии от центра блока к центру блока -> от точки к точке портов": раньше pinPosition()
+// координатой X всегда брал NODE_WIDTH/2 (горизонтальный центр ВСЕЙ карточки) — линии сходились
+// в одну вертикальную ось внутри блока, а не в реальные точки-кружки (.port-pin) у каждого
+// порта. Теперь pinPosition() указывает ровно на центр .port-pin — эти два смещения должны
+// держаться в синхроне с CSS .port-row/.port-pin-row/.port-pin ниже (см. комментарий в её CSS,
+// почему координаты не измеряются через DOM, а держатся отдельными константами).
+const PIN_CENTER_X = 15 // padding-left (10) + половина ширины .port-pin (10/2)
+// PORT_ROW теперь двухстрочная (см. фикс "название порта должно быть над линией" ниже): сверху
+// узкая строка с названием порта, снизу — сам pin. PIN_CENTER_Y — расстояние от верха строки
+// порта до центра pin'а: 4 (padding-top) + 12 (высота строки названия) + 16/2 (половина высоты
+// строки pin'а) = 24.
+const PIN_CENTER_Y = 24
 const NODE_GAP_X = 60
 const NODE_GAP_Y = 40
 const GRID_COLS = 3
@@ -106,9 +118,18 @@ const canvasSize = computed(() => {
 const canvasEl = ref<HTMLElement | null>(null)
 const draggingNode = ref<{ deviceId: string; offsetX: number; offsetY: number } | null>(null)
 
+// Фикс: .canvas-area — сам по себе скроллящийся контейнер (overflow:auto, см. его CSS), а
+// карточки/pin'ы внутри позиционируются position:absolute в его СОДЕРЖИМОМ (canvas-координаты),
+// а не в его видимой области. getBoundingClientRect() даёт позицию ВИДИМОЙ области контейнера в
+// вьюпорте — без прибавления scrollLeft/scrollTop координата курсора считалась бы так, будто
+// прокрутки не было вовсе: чем больше проскроллено вниз, тем сильнее конец протягиваемой линии
+// отстаёт от курсора вверх (сам баг). Прокрутка СТРАНИЦЫ (.overlay, overflow-y:auto) сюда не
+// относится — getBoundingClientRect() уже сама пересчитывается при любой прокрутке страницы, в
+// отличие от прокрутки СОДЕРЖИМОГО самого canvasEl.
 function canvasPoint(event: MouseEvent): { x: number; y: number } {
-  const rect = canvasEl.value!.getBoundingClientRect()
-  return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  const el = canvasEl.value!
+  const rect = el.getBoundingClientRect()
+  return { x: event.clientX - rect.left + el.scrollLeft, y: event.clientY - rect.top + el.scrollTop }
 }
 
 function onNodeHeaderMouseDown(deviceId: string, event: MouseEvent) {
@@ -214,7 +235,7 @@ function pinPosition(interfaceId: string): { x: number; y: number } | null {
   const ports = interfacesOf(iface.physical_device_id)
   const index = ports.findIndex((p) => p.id === interfaceId)
   if (index === -1) return null
-  return { x: pos.x + NODE_WIDTH / 2, y: pos.y + HEADER_HEIGHT + index * PORT_ROW_HEIGHT + PORT_ROW_HEIGHT / 2 }
+  return { x: pos.x + PIN_CENTER_X, y: pos.y + HEADER_HEIGHT + index * PORT_ROW_HEIGHT + PIN_CENTER_Y }
 }
 
 function bezierPath(a: { x: number; y: number }, b: { x: number; y: number }): string {
@@ -285,12 +306,14 @@ const dragLinePath = computed(() => {
               :class="{ occupied: isOccupied(iface.id) }"
               :data-interface-id="iface.id"
             >
-              <span
-                class="port-pin"
-                :title="isOccupied(iface.id) ? 'Порт уже занят активным подключением' : 'Перетащите на другой порт, чтобы подключить'"
-                @mousedown="onPinMouseDown(iface.id, $event)"
-              ></span>
               <span class="port-name" :title="iface.name">{{ iface.name }}</span>
+              <span class="port-pin-row">
+                <span
+                  class="port-pin"
+                  :title="isOccupied(iface.id) ? 'Порт уже занят активным подключением' : 'Перетащите на другой порт, чтобы подключить'"
+                  @mousedown="onPinMouseDown(iface.id, $event)"
+                ></span>
+              </span>
             </div>
           </div>
 
@@ -467,21 +490,42 @@ const dragLinePath = computed(() => {
   padding: 8px 10px;
   font-size: 11px;
   color: var(--ink-muted);
-  height: 26px;
+  height: 32px;
   display: flex;
   align-items: center;
 }
+/* Фикс "название порта должно быть над линией": раньше .port-pin и .port-name были соседями в
+   одной строке flex-row с align-items:center — оба сидели на одной высоте, ровно там, где
+   pinPosition() рисует конец линии (см. её комментарий), из-за чего линия визуально протыкала
+   текст названия порта. Теперь строка порта двухстрочная: сверху узкая строка названия, снизу —
+   pin (у него теперь СВОЯ подстрока .port-pin-row) — линия по-прежнему упирается ровно в pin, но
+   тот сместился ниже подписи, а не делит с ней одну ось. PIN_CENTER_X/PIN_CENTER_Y в <script> —
+   те же самые отступы, что и здесь (10px padding, 12px строка названия, 16px строка pin'а) —
+   меняя один, обязательно поменяйте и другой. */
 .port-row {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  height: 26px;
+  flex-direction: column;
+  padding: 4px 10px 0;
+  height: 32px;
   border-top: 1px solid var(--border);
-  font-size: 11.5px;
 }
 .port-row.occupied {
   color: var(--ink-muted);
+}
+.port-name {
+  height: 12px;
+  line-height: 12px;
+  font-size: 9.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+.port-pin-row {
+  display: flex;
+  align-items: center;
+  height: 16px;
 }
 .port-pin {
   flex-shrink: 0;
@@ -497,11 +541,5 @@ const dragLinePath = computed(() => {
   background: var(--ink-muted);
   outline-color: var(--ink-muted);
   cursor: not-allowed;
-}
-.port-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono);
 }
 </style>
