@@ -55,6 +55,8 @@ function device(overrides: Partial<Device>): Device {
     status: null,
     description: null,
     diagram_icon_id: null,
+    oac_certificate_number: null,
+    oac_certificate_registry_date: null,
     management_interface: '',
     management_ips: '',
     interface_count: 0,

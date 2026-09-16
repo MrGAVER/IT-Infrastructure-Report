@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -26,12 +26,24 @@ class CryptoProtectionMeans(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(500), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    # Средство криптографической защиты — это конкретный экземпляр в реестре оборудования
+    # (аппаратный крипто-модуль, сервер с установленным СКЗИ и т.п.), а не только абстрактное
+    # название. Nullable: справочник может содержать записи, ещё не привязанные к конкретному
+    # устройству (или устройство ещё не заведено в инвентаризации), и уже существующие записи
+    # каталога при накатывании миграции этой FK не имеют.
+    physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
 
 class SupportMethod(TimestampMixin, Base):
     __tablename__ = "support_methods"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    # Способ оказания техподдержки может быть привязан к конкретной организации техподдержки
+    # (одна организация — свой набор способов), либо оставаться универсальным (NULL — подходит
+    # любой организации). Nullable по той же причине, что и CryptoProtectionMeans.physical_device_id
+    # выше: не ломает уже заведённые записи каталога. Согласованность пары "организация ИС ↔
+    # способ" при сохранении ИС проверяется в services/validation.validate_support_method_organization.
+    support_organization_id: Mapped[Optional[str]] = mapped_column(ForeignKey("support_organizations.id"), index=True)
 
 class PlacementAsset(TimestampMixin, Base):
     """Catalog of equipment / software / interfaces an information system can be hosted on,
@@ -169,6 +181,12 @@ class PhysicalDevice(TimestampMixin, Base):
     # Ручное переопределение автогенерируемой иконки для ЭТОГО конкретного устройства (раздел 4.3
     # ТЗ диаграммы топологии сети). Приоритет выше, чем DeviceModel.diagram_icon_id.
     diagram_icon_id: Mapped[Optional[str]] = mapped_column(ForeignKey("diagram_icons.id"), index=True)
+    # Необязательный блок "Сертификат ОАЦ" — заполняется, если устройство реализует
+    # сертифицированное средство криптографической защиты (см. CryptoProtectionMeans.
+    # physical_device_id выше). Оба поля nullable и независимы друг от друга: пара
+    # "заполнено/не заполнено" не проверяется — карточка устройства не обязана иметь сертификат.
+    oac_certificate_number: Mapped[Optional[str]] = mapped_column(String(255))
+    oac_certificate_registry_date: Mapped[Optional[date]] = mapped_column(Date)
 
 class DeviceStack(TimestampMixin, Base):
     """Пункт 5 правки "создание физического устройства": стек физических устройств (например,

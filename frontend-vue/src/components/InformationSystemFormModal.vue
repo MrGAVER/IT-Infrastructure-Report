@@ -16,6 +16,7 @@ import type {
   ISSourceDraftRow,
   ISProtocolDraftRow,
   CatalogPickerDraftRow,
+  CatalogItem,
 } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -27,6 +28,8 @@ import CatalogPickerListEditor from './CatalogPickerListEditor.vue'
 import ISProtocolsListEditor from './ISProtocolsListEditor.vue'
 import ISSourcesListEditor from './ISSourcesListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { stripIds } from '../utils/copyEntity'
@@ -48,6 +51,53 @@ const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.system !== null)
 
 const deviceOptions = computed(() => filterHostDevices(devicesStore.all, catalogs))
+
+const supportOrganizationOptions = computed<SearchableSelectOption[]>(() =>
+  (catalogs.items['support-organizations'] ?? []).map((o) => ({ value: o.id, label: o.name })),
+)
+
+/** SupportMethod.support_organization_id (models.py), если задан. CatalogItem типизирован через
+ * индексную сигнатуру ([key: string]: unknown), поэтому нужен явный каст. */
+function methodOrganizationId(m: CatalogItem): string | null {
+  return (m.support_organization_id as string | null | undefined) ?? null
+}
+
+// Способ оказания техподдержки либо универсален (без организации — виден при любом выборе
+// организации выше), либо привязан к конкретной организации (виден, только если она совпадает
+// с уже выбранной у ИС — или пока организация вообще не выбрана, чтобы можно было выбрать
+// способ раньше организации, а не только после). Группировка (SearchableSelectOption.group)
+// отделяет организационные способы от универсальных прямо в списке. Бэкенд повторно проверяет
+// эту же пару при сохранении (validate_support_method_organization в
+// services/validation.py) — фильтр в форме не единственная защита от несовместимой пары.
+const supportMethodOptions = computed<SearchableSelectOption[]>(() =>
+  (catalogs.items['support-methods'] ?? [])
+    .filter((m) => {
+      const orgId = methodOrganizationId(m)
+      return !orgId || !form.support_organization_id || orgId === form.support_organization_id
+    })
+    .map((m) => {
+      const orgId = methodOrganizationId(m)
+      return {
+        value: m.id,
+        label: m.name as string,
+        group: orgId ? catalogs.label('support-organizations', orgId) : undefined,
+      }
+    }),
+)
+
+// Сброс выбранного способа при РУЧНОЙ смене организации (не при программной загрузке формы —
+// см. вызов из шаблона через @update:model-value, а не через watch(): SearchableSelect эмитит
+// update:model-value только в ответ на реальное действие пользователя, программное
+// присваивание form.support_organization_id при открытии формы на редактирование через этот
+// обработчик не проходит). Если этого не сделать, можно было бы отправить на сохранение
+// несовместимую пару, которую бэкенд всё равно отклонит 422-й — лучше сразу очистить поле.
+function onSupportOrganizationChange(orgId: string) {
+  form.support_organization_id = orgId
+  const method = (catalogs.items['support-methods'] ?? []).find((m) => m.id === form.support_method_id)
+  if (method && methodOrganizationId(method) && methodOrganizationId(method) !== orgId) {
+    form.support_method_id = ''
+  }
+}
 
 function emptyForm() {
   return {
@@ -281,10 +331,12 @@ async function submit() {
         <label class="field">
           <span>Организация технической поддержки</span>
           <div class="lookup-row">
-            <select v-model="form.support_organization_id">
-              <option value="">— не указана —</option>
-              <option v-for="o in catalogs.items['support-organizations'] ?? []" :key="o.id" :value="o.id">{{ o.name }}</option>
-            </select>
+            <SearchableSelect
+              :model-value="form.support_organization_id"
+              :options="supportOrganizationOptions"
+              placeholder="— не указана —"
+              @update:model-value="onSupportOrganizationChange"
+            />
             <QuickAddButton resource="support-organizations" title="Организация технической поддержки" @created="(r) => (form.support_organization_id = r.id)" />
           </div>
         </label>
@@ -292,10 +344,7 @@ async function submit() {
         <label class="field">
           <span>Способ оказания техподдержки</span>
           <div class="lookup-row">
-            <select v-model="form.support_method_id">
-              <option value="">— не указан —</option>
-              <option v-for="m in catalogs.items['support-methods'] ?? []" :key="m.id" :value="m.id">{{ m.name }}</option>
-            </select>
+            <SearchableSelect v-model="form.support_method_id" :options="supportMethodOptions" placeholder="— не указан —" />
             <QuickAddButton resource="support-methods" title="Способ оказания техподдержки" @created="(r) => (form.support_method_id = r.id)" />
           </div>
         </label>

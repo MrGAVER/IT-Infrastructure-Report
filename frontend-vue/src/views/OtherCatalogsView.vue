@@ -11,6 +11,7 @@
 // здание/помещение/стойка, у VLAN — таблица с фильтрами).
 import { computed, onMounted, ref } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { QuickField } from '../quickAdd/schema'
 import { useToast } from '../composables/useToast'
@@ -38,12 +39,18 @@ const OTHER_CATALOGS = [
 type OtherCatalogKey = (typeof OTHER_CATALOGS)[number]
 
 const catalogs = useCatalogsStore()
+const devicesStore = useDevicesStore()
 const { notify, notifyError } = useToast()
 const loading = ref(true)
 
 onMounted(async () => {
   try {
-    await catalogs.ensureLoaded()
+    // devicesStore — нужен для отображения/выбора "Физическое устройство" у
+    // crypto-protection-means (QuickField.fkSource==='devices', см. quickAdd/schema.ts);
+    // остальные 15 справочников этого экрана его не используют, но раздельная загрузка ради
+    // одного поля не оправдана — тот же компромисс, что и во всех остальных ensureLoaded() в
+    // этом приложении (см. комментарий в stores/devices.ts).
+    await Promise.all([catalogs.ensureLoaded(), devicesStore.ensureLoaded()])
   } catch (err) {
     notifyError(err)
   } finally {
@@ -70,6 +77,10 @@ function recordCount(key: OtherCatalogKey): number {
 function cellValue(record: Record<string, unknown>, field: QuickField): string {
   const raw = record[field.name]
   if (field.type === 'fk' && field.fkResource) {
+    if (field.fkSource === 'devices') {
+      const device = devicesStore.all.find((d) => d.id === raw)
+      return device ? device.system_name || device.serial_number : '—'
+    }
     return catalogs.label(field.fkResource as keyof typeof catalogs.items, raw as string | null | undefined)
   }
   if (field.type === 'checkbox') return raw ? 'Да' : 'Нет'

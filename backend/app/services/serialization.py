@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import date
 from types import SimpleNamespace
 from typing import Any, Sequence
 from sqlalchemy import select
@@ -12,7 +12,11 @@ def serialize(obj: Any) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for col in inspect(obj).mapper.column_attrs:
         value = getattr(obj, col.key)
-        result[col.key] = value.isoformat() if isinstance(value, datetime) else value
+        # datetime.datetime — подкласс datetime.date, поэтому одна проверка на date покрывает и
+        # DateTime-колонки (created_at/updated_at), и обычные Date-колонки (например,
+        # PhysicalDevice.oac_certificate_registry_date) — обе форматируются одинаково через
+        # .isoformat(), без отдельной ветки под каждый тип.
+        result[col.key] = value.isoformat() if isinstance(value, date) else value
     return result
 
 def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[dict[str, Any]]:

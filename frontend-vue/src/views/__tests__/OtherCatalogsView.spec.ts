@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import OtherCatalogsView from '../OtherCatalogsView.vue'
 import CatalogRecordFormModal from '../../components/CatalogRecordFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
+import { useDevicesStore } from '../../stores/devices'
 import { useToast } from '../../composables/useToast'
 
 function jsonResponse(body: unknown, status = 200) {
@@ -37,6 +38,11 @@ function seedCatalogs() {
   catalogs.items['manufacturers'] = [{ id: 'mf-1', name: 'Dell' }]
   catalogs.protocolPortCatalog = [{ id: 'pp-1', port: 443, protocol_type: 'HTTPS', description: '' }]
   catalogs.loaded = true
+  // OtherCatalogsView.vue теперь дожидается и devicesStore.ensureLoaded() (нужен для
+  // отображения/выбора "Физическое устройство" у crypto-protection-means) — помечаем
+  // предзагруженным, чтобы тесты этого файла проверяли поведение самого view, а не факт
+  // дополнительного сетевого запроса к /devices при монтировании.
+  useDevicesStore().loaded = true
   return catalogs
 }
 
