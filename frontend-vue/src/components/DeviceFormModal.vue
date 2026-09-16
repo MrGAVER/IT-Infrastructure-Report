@@ -844,6 +844,7 @@ async function submit() {
   min-width: 0;
 }
 .field input[type='text'],
+.field input[type='date'],
 .field select,
 .field textarea {
   background: var(--surface-2);
@@ -856,6 +857,17 @@ async function submit() {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+/* Фикс: "Дата внесения в реестр" (единственный input[type=date] в этой форме) визуально
+   выпадала из стиля проекта — селектор выше раньше подхватывал только input[type='text'], а
+   тёмная тема приложения (theme.css) нигде не объявляет color-scheme, поэтому нативные иконка
+   календаря и всплывающий пикер браузера всегда светлые поверх тёмного инпута. color-scheme
+   переключает именно их палитру на тёмную, ничего в разметке/поведении не меняя; ширина/фон/
+   рамка самого поля уже выровнены общим правилом выше. Область действия — только это поле, а
+   не вся тема, т.к. остальные нативные контролы приложения (например, <select>) решены иначе —
+   собственным SearchableSelect.vue, а не color-scheme. */
+.oac-cert-grid input[type='date'] {
+  color-scheme: dark;
 }
 .field select:disabled {
   opacity: 0.5;
