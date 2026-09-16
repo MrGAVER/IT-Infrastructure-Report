@@ -453,6 +453,39 @@ export interface VLANDomainDeviceLink {
   physical_device_id: string
 }
 
+/** Пункт 5 правки "создание физического устройства": стек физических устройств. CRUD — через
+ * generic /resources/device-stacks, членство — через /resources/device-stack-members (не путать
+ * с добавлением участника — POST /device-stacks/{id}/members ниже, идемпотентный и с понятной
+ * 409, если устройство уже в другом стеке, см. backend/app/api/system.py). */
+export interface DeviceStack {
+  id: string
+  name: string
+  description: string | null
+}
+
+export interface DeviceStackMember {
+  id: string
+  stack_id: string
+  physical_device_id: string
+  position: number
+}
+
+/** GET /api/v1/device-stacks/{id}/detail (backend/app/api/system.py:device_stack_detail) —
+ * "просмотр... вместе": участники — Device (см. enrich_devices) плюс два поля из членства, и
+ * связывающие подключения — та же форма, что Connection ниже (см. enrich_connections),
+ * вычисленные на лету по признаку "оба конца — интерфейсы устройств из этого стека" (не
+ * хранятся отдельным флагом, см. docstring класса DeviceStack в models.py). */
+export interface DeviceStackMemberDetail extends Device {
+  stack_member_id: string
+  stack_position: number
+}
+
+export interface DeviceStackDetail {
+  stack: DeviceStack
+  members: DeviceStackMemberDetail[]
+  connections: Connection[]
+}
+
 /** Черновая строка DeviceVlanListEditor.vue. */
 export interface DeviceVlanDraftRow {
   id?: string

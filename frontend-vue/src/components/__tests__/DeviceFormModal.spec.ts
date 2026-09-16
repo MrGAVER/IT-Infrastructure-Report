@@ -509,6 +509,74 @@ describe('DeviceFormModal.vue', () => {
     expect(deviceVlanIdx).toBeGreaterThan(membershipIdx) // порядок важен — см. комментарий в submit()
   })
 
+  it('пункт 3 правки "создание физического устройства": домен VLAN, заведённый вложенным "+" при добавлении VLAN, получает устройство источником и включённую автосинхронизацию', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = []
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+
+    const device = { id: 'dev-9', device_type_id: 'dt-server', serial_number: 'SN-21' } as never
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.endsWith('/resources/vlan-domains')) {
+          return new Response(JSON.stringify({ id: 'domain-new', name: 'Домен для dev-9' }), { status: 201 })
+        }
+        if (method === 'POST' && url.endsWith('/resources/vlans')) {
+          return new Response(JSON.stringify({ id: 'v-new', vlan_id: 66, name: 'Новый VLAN', domain_id: 'domain-new' }), { status: 201 })
+        }
+        if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }
+        if (url.includes('/vlan-dashboard')) {
+          return new Response(
+            JSON.stringify({
+              items: [{ vlan_id: 66, definitions: [{ id: 'v-new', vlan_id: 66, name: 'Новый VLAN', description: '', domain_id: 'domain-new', domain_name: 'Домен для dev-9', devices: [] }] }],
+            }),
+          )
+        }
+        if (method === 'PUT' && url.includes('/resources/devices/dev-9')) {
+          return new Response(JSON.stringify(device))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    await vlanEditor.find('.add-btn').trigger('click')
+    await vlanEditor.find('.col-vlan button').trigger('click') // "+" у VLAN — открывает "Добавить: VLAN"
+
+    const body = new DOMWrapper(document.body)
+    // Вложенный "+" у поля "Домен VLAN" ВНУТРИ этой модалки — заводим НОВЫЙ домен, а не выбираем
+    // существующий (тем и отличается от соседнего теста "п.1.3.8" выше, где домен уже есть).
+    await body.find('button[aria-label="Добавить: Домен VLAN"]').trigger('click')
+    const domainModal = body.findAll('.modal')[1]
+    await domainModal.find('input[type="text"]').setValue('Домен для dev-9')
+    await domainModal.find('form').trigger('submit')
+    await flushPromises()
+
+    await body.find('input[type="number"]').setValue(66)
+    await body.findAll('input[type="text"]')[0].setValue('Новый VLAN')
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Правка п.3: PUT /resources/vlan-domains/domain-new, а не создание нового домена (тот уже
+    // создан вложенным quick-add'ом выше) — частичное обновление source_device_id + auto_sync.
+    const domainUpdate = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/vlan-domains/domain-new'))
+    expect(domainUpdate?.body).toEqual({ source_device_id: 'dev-9', auto_sync: true })
+  })
+
   it('снятие VLAN устройства убирает его из vlan_ids уже заведённого порта при сохранении', async () => {
     // Регрессия для watch(portVlanOptions) в DeviceFormModal.vue: важно сравнивать НОВЫЙ список
     // опций со СТАРЫМ (а не просто фильтровать по текущему), иначе первая же загрузка стёрла бы
@@ -1090,7 +1158,7 @@ describe('DeviceFormModal.vue', () => {
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
 
-      const cell = wrapper.find('td.col-check')
+      const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
       expect(cell.classes()).toContain('has-conflict')
     })
 
@@ -1114,7 +1182,7 @@ describe('DeviceFormModal.vue', () => {
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
 
-      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
     })
   })
 

@@ -170,6 +170,37 @@ class PhysicalDevice(TimestampMixin, Base):
     # ТЗ диаграммы топологии сети). Приоритет выше, чем DeviceModel.diagram_icon_id.
     diagram_icon_id: Mapped[Optional[str]] = mapped_column(ForeignKey("diagram_icons.id"), index=True)
 
+class DeviceStack(TimestampMixin, Base):
+    """Пункт 5 правки "создание физического устройства": стек физических устройств (например,
+    стек коммутаторов) — логическая группа, физически соединённая между собой через указанные
+    порты. Само межстековое кабелирование НЕ дублируется отдельной моделью — это обычные
+    Connection (см. класс ниже) между интерфейсами устройств-участников: "стековые" среди них —
+    это просто те, у которых ОБА конца принадлежат участникам ОДНОГО стека (см.
+    services/crud.py:stack_detail — вычисляется на лету, а не хранится отдельным флагом, чтобы
+    не рассинхронизироваться при добавлении/удалении обычных Connection в обход стека)."""
+    __tablename__ = "device_stacks"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class DeviceStackMember(TimestampMixin, Base):
+    """Членство устройства в стеке. UniqueConstraint только на physical_device_id (не на паре
+    stack_id+physical_device_id) — намеренно: устройство физически может состоять максимум в
+    ОДНОМ стеке одновременно, в отличие от, например, VLANDomainDevice, где участие в НЕСКОЛЬКИХ
+    доменов — обычный случай."""
+    __tablename__ = "device_stack_members"
+    __table_args__ = (UniqueConstraint("physical_device_id", name="uq_device_stack_member_device"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    stack_id: Mapped[str] = mapped_column(ForeignKey("device_stacks.id"), index=True)
+    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
+    # Позиция участника в стеке (1, 2, 3...) — соответствует физическому "stack member ID" на
+    # реальном оборудовании (напр. `show switch` на Cisco). Не участвует ни в какой валидации
+    # уникальности внутри стека: два участника с одинаковой позицией — это на совести того, кто
+    # заполняет форму, а не то, что стоит блокировать (иногда позиции временно задваивают при
+    # физической замене одного члена стека на другой).
+    position: Mapped[int] = mapped_column(Integer, default=1)
+
 class InformationSystem(TimestampMixin, Base):
     __tablename__ = "information_systems"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

@@ -1049,6 +1049,181 @@ class TestOpenPortCatalogIsSourceOfTruth:
         db_session.add(legacy)
         with pytest.raises(IntegrityError):
             db_session.commit()
+class TestNewDomainVlanAutoAssignedToSourceDevice:
+    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в справочник (POST
+    /resources/vlans) сразу с domain_id, должен появиться в «VLAN устройства» устройства-источника
+    домена без отдельного ручного шага — до этой правки sync_vlan_domain не помогал (см. docstring
+    _auto_assign_new_domain_vlan_to_source_device в services/crud.py): он реплицирует то, что УЖЕ
+    назначено источнику, а только что созданный VLAN там ещё не значится."""
+
+    def test_create_with_domain_that_has_source_device_auto_assigns(self, client):
+        dt = _create_device_type(client, "Коммутатор авто-VLAN")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-1"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен с источником", "source_device_id": source["id"]}).json()
+
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 77, "name": "Гости", "domain_id": domain["id"]}).json()
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert r.status_code == 200
+        assert [row["vlan_id"] for row in r.json()["items"]] == [vlan["id"]]
+
+    def test_create_with_domain_without_source_device_does_not_fail(self, client):
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без источника"}).json()
+        r = client.post("/api/v1/resources/vlans", json={"vlan_id": 78, "name": "Без источника", "domain_id": domain["id"]})
+        assert r.status_code == 201, r.text
+
+    def test_create_without_domain_does_not_auto_assign_anywhere(self, client):
+        dt = _create_device_type(client, "Коммутатор для локального VLAN")
+        device = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-2"}).json()
+        client.post("/api/v1/resources/vlans", json={"vlan_id": 79, "name": "Локальный"})
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={device['id']}")
+        assert r.json()["items"] == []
+
+    def test_assigning_domain_via_update_also_auto_assigns(self, client):
+        """Тот же эффект, если domain_id проставлен не сразу при создании VLAN, а последующим
+        PUT — VLANFormModal.vue допускает и такое (редактирование существующего локального VLAN,
+        привязка его к домену задним числом)."""
+        dt = _create_device_type(client, "Коммутатор для отложенной привязки")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-3"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен для PUT", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 80, "name": "Позже в домене"}).json()
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+        assert r.status_code == 200, r.text
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert [row["vlan_id"] for row in r.json()["items"]] == [vlan["id"]]
+
+    def test_editing_unrelated_field_does_not_duplicate_or_touch_assignment(self, client):
+        """domain_id НЕ пришёл в payload этого PUT — авто-назначение не должно срабатывать повторно
+        (условие 'domain_id' in payload в update_resource); подтверждаем через отсутствие
+        дублирования записи device-vlans."""
+        dt = _create_device_type(client, "Коммутатор без повторного назначения")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-4"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без дублей", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 81, "name": "Без дублей", "domain_id": domain["id"]}).json()
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"description": "просто описание"})
+        assert r.status_code == 200, r.text
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert len(r.json()["items"]) == 1
+
+    def test_does_not_duplicate_if_source_device_already_has_this_vlan(self, client):
+        """Устройство-источник могло уже иметь этот VLAN назначенным вручную ДО того, как VLAN
+        привязали к домену (или до повторного PUT domain_id на том же значении) — уникальный
+        constraint uq_physical_device_vlan не должен превратиться в 409 на ровном месте."""
+        dt = _create_device_type(client, "Коммутатор ручного назначения")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-5"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен ручного назначения", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 82, "name": "Уже назначен"}).json()
+        client.post("/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan["id"]})
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+        assert r.status_code == 200, r.text
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert len(r.json()["items"]) == 1
+
+
+class TestDeviceStacks:
+    """Пункт 5 правки "создание физического устройства": стек физических устройств, соединённых
+    на основании указанных портов (см. DeviceStack/DeviceStackMember в models.py — межстековые
+    соединения переиспользуют обычный Connection, отдельной сущности под кабель между членами
+    стека нет)."""
+
+    def test_detail_returns_members_ordered_by_position_with_stack_membership_ids(self, client):
+        dt = _create_device_type(client, "Коммутатор для стека")
+        dev1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-01"}).json()
+        dev2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-02"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек ядра", "description": "2 коммутатора"}).json()
+
+        # Добавляем в обратном порядке позиций — ответ детали должен быть отсортирован по
+        # position, а не по порядку добавления/id.
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev2["id"], "position": 2})
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev1["id"], "position": 1})
+
+        r = client.get(f"/api/v1/device-stacks/{stack['id']}/detail")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["stack"]["name"] == "Стек ядра"
+        assert [m["id"] for m in body["members"]] == [dev1["id"], dev2["id"]]
+        assert [m["stack_position"] for m in body["members"]] == [1, 2]
+        assert all(m["stack_member_id"] for m in body["members"])
+        assert body["connections"] == []
+
+    def test_detail_404_for_unknown_stack(self, client):
+        r = client.get("/api/v1/device-stacks/нет-такого/detail")
+        assert r.status_code == 404
+
+    def test_adding_device_already_in_another_stack_rejected_with_stack_name(self, client):
+        dt = _create_device_type(client, "Коммутатор занят другим стеком")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-03"}).json()
+        stack_a = client.post("/api/v1/resources/device-stacks", json={"name": "Стек А"}).json()
+        stack_b = client.post("/api/v1/resources/device-stacks", json={"name": "Стек Б"}).json()
+        client.post(f"/api/v1/device-stacks/{stack_a['id']}/members", json={"physical_device_id": dev["id"]})
+
+        r = client.post(f"/api/v1/device-stacks/{stack_b['id']}/members", json={"physical_device_id": dev["id"]})
+        assert r.status_code == 409
+        assert "Стек А" in r.json()["detail"]
+
+    def test_adding_same_device_to_same_stack_twice_is_idempotent(self, client):
+        dt = _create_device_type(client, "Коммутатор повторное добавление")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-04"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек идемпотентный"}).json()
+
+        first = client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+        second = client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+        assert first.status_code == 200 and second.status_code == 200
+        assert first.json()["id"] == second.json()["id"]
+
+        members = client.get(f"/api/v1/resources/device-stack-members?stack_id={stack['id']}").json()["items"]
+        assert len(members) == 1
+
+    def test_detail_includes_connections_between_members_only(self, client):
+        """Подключение между двумя УЧАСТНИКАМИ стека — попадает в детали. Подключение от участника
+        к устройству СНАРУЖИ стека — нет, даже если оно есть в БД (это обычный аплинк, не
+        межстековый кабель)."""
+        dt = _create_device_type(client, "Коммутатор с портами для стека")
+        stack_dev1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-05"}).json()
+        stack_dev2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-06"}).json()
+        outside_dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-07-outside"}).json()
+
+        def _iface(device_id, name):
+            r = client.put(f"/api/v1/devices/{device_id}/interfaces", json={"interfaces": [{"name": name}]})
+            return r.json()["items"][0]["id"]
+
+        iface1 = _iface(stack_dev1["id"], "stack-link")
+        iface2 = _iface(stack_dev2["id"], "stack-link")
+        iface_outside = _iface(outside_dev["id"], "uplink")
+        ct = client.post("/api/v1/resources/connection-types", json={"name": "Стековый кабель (тест)"}).json()
+
+        stack_conn = client.post(
+            "/api/v1/resources/connections",
+            json={"source_interface_id": iface1, "destination_interface_id": iface2, "connection_type_id": ct["id"]},
+        ).json()
+        client.post(
+            "/api/v1/resources/connections",
+            json={"source_interface_id": iface2, "destination_interface_id": iface_outside, "connection_type_id": ct["id"]},
+        )
+
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек с топологией"}).json()
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": stack_dev1["id"], "position": 1})
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": stack_dev2["id"], "position": 2})
+
+        r = client.get(f"/api/v1/device-stacks/{stack['id']}/detail")
+        conns = r.json()["connections"]
+        assert [c["id"] for c in conns] == [stack_conn["id"]]
+        assert conns[0]["source_device_name"] == "STACK-05"
+        assert conns[0]["destination_device_name"] == "STACK-06"
+
+    def test_deleting_stack_with_members_is_blocked(self, client):
+        dt = _create_device_type(client, "Коммутатор для удаления стека")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-08"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек на удаление"}).json()
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+
+        r = client.delete(f"/api/v1/resources/device-stacks/{stack['id']}")
+        assert r.status_code == 409
 
 
 class TestGlobalSearchTextIndex:
