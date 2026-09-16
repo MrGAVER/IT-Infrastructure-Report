@@ -113,13 +113,22 @@ function ipPlaceholder(row: ISSourceDraftRow): string {
         />
         <input placeholder="Назначение" :value="row.purpose" @input="updateRow(i, { purpose: ($event.target as HTMLInputElement).value })" />
         <input placeholder="Роль в ИС" :value="row.role" @input="updateRow(i, { role: ($event.target as HTMLInputElement).value })" />
-        <label class="external-check">
-          <input type="checkbox" :checked="row.external_interaction" @change="updateRow(i, { external_interaction: ($event.target as HTMLInputElement).checked })" />
-          <span>Внешнее</span>
-        </label>
-        <button type="button" class="icon-btn danger" aria-label="Удалить источник" @click="removeRow(i)">
-          <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-        </button>
+        <!-- Фикс: чекбокс "Внешнее" и кнопка удаления объединены в одну ячейку грида (.row-actions)
+             — раньше это были два отдельных элемента грида, а .source-grid — 4-колоночный: при 9
+             элементах в 4 колонках 9-й (кнопка удаления) оставался один на новой строке в 1-й
+             колонке и прижимался вправо ВНУТРИ этой узкой ячейки (justify-self:end), визуально
+             "сползая" вправо-вниз от чекбокса, который оказывался в конце ПРЕДЫДУЩЕЙ строки. Теперь
+             ровно 8 элементов на 4 колонки (2 строки без остатка) на любой ширине, включая
+             брейкпоинты ниже (900px/560px), и чекбокс с кнопкой всегда рядом в одной ячейке. -->
+        <div class="row-actions">
+          <label class="external-check">
+            <input type="checkbox" :checked="row.external_interaction" @change="updateRow(i, { external_interaction: ($event.target as HTMLInputElement).checked })" />
+            <span>Внешнее</span>
+          </label>
+          <button type="button" class="icon-btn danger" aria-label="Удалить источник" @click="removeRow(i)">
+            <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -191,11 +200,18 @@ function ipPlaceholder(row: ISSourceDraftRow): string {
   color: var(--ink-muted);
   white-space: nowrap;
 }
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
 .icon-btn.danger {
   color: var(--status-crit);
   border-color: transparent;
   background: transparent;
-  justify-self: end;
+  flex-shrink: 0;
 }
 .icon-btn.danger:hover {
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));

@@ -28,6 +28,11 @@ export interface QuickField {
   required: boolean
   /** Только для type='fk' — ключ каталога в CATALOGS (stores/catalogs.ts), откуда берутся опции. */
   fkResource?: string
+  /** Только для type='fk' с fkSource='devices' — опции берутся не из catalogs.items (устройства
+   * сознательно не входят в CATALOGS из-за объёма реестра, см. комментарий в stores/catalogs.ts),
+   * а из useDevicesStore().all (CatalogRecordFormModal.vue/QuickAddModal.vue/OtherCatalogsView.vue
+   * читают его напрямую при этом значении). Отсутствие поля — как и раньше, источник catalogs.items. */
+  fkSource?: 'devices'
   /** Только для type='fk'. Показывает кнопку "+" рядом с select'ом — открывает ВЛОЖЕННУЮ
    * QuickAddModal для fkResource, не закрывая текущую форму (см. QuickAddModal.vue: nested-*).
    * Включено точечно для полей, где отсутствие нужного значения в справочнике реально мешает
@@ -150,10 +155,22 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
   ],
   'support-methods': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
+    // SupportMethod.support_organization_id (models.py) — способ либо привязан к конкретной
+    // организации техподдержки (виден только у ИС с этой же организацией — см.
+    // InformationSystemFormModal.vue:supportMethodOptions), либо остаётся без организации
+    // (NULL) и считается универсальным. required: false — не ломает уже заведённые
+    // "универсальные" записи и не требует организации там, где способ реально общий для всех.
+    { name: 'support_organization_id', label: 'Организация технической поддержки', type: 'fk', required: false, fkResource: 'support-organizations' },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
   'crypto-protection-means': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
+    // CryptoProtectionMeans.physical_device_id (models.py) — конкретный экземпляр в реестре
+    // оборудования, на котором это средство реально развёрнуто. nestedQuickAdd намеренно не
+    // включён: у "устройств" нет записи в этой generic-схеме (PhysicalDevice заводится через
+    // отдельную полноценную форму DeviceFormModal.vue с обязательными типом/серийным номером,
+    // а не парой текстовых полей) — вложенное создание было бы неполным и обречённым на 422.
+    { name: 'physical_device_id', label: 'Физическое устройство', type: 'fk', required: false, fkResource: 'devices', fkSource: 'devices' },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
   'software-assets': [

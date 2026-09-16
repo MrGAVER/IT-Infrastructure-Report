@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from ..models import (
     DeviceModel, DeviceType, OperatingSystem, OperatingSystemCategory, PhysicalDevice,
-    Rack, Room, DeviceInterface, Connection, EmbeddedOperatingSystem,
+    Rack, Room, DeviceInterface, Connection, EmbeddedOperatingSystem, SupportMethod,
 )
 
 # Код-ревью п.3.4: формат IPv4/длина префикса проверялись только на клиенте
@@ -122,6 +122,31 @@ def validate_device_location_hierarchy(data: dict[str, Any], session: Session) -
         raise HTTPException(422, 'Для выбора стойки необходимо сначала выбрать помещение')
     if rack and rack.room_id != room_id:
         raise HTTPException(422, 'Выбранная стойка не принадлежит выбранному помещению')
+
+def validate_support_method_organization(data: dict[str, Any], session: Session) -> None:
+    """Способ оказания техподдержки, привязанный к конкретной организации
+    (SupportMethod.support_organization_id), можно сохранить у ИС только вместе с ЭТОЙ ЖЕ
+    организацией техподдержки — иначе в данных ИС оказалась бы пара "организация А" + "способ,
+    принадлежащий организации Б", которая не может быть верной одновременно. Способ без
+    организации (support_organization_id IS NULL) считается универсальным и подходит любой
+    организации, в том числе не указанной вовсе. Тот же принцип согласованности пары полей, что
+    и validate_device_location_hierarchy (помещение должно принадлежать зданию) выше — только
+    здесь оба поля лежат на самой ИС, а не разнесены по разным таблицам.
+
+    Пример вызова:
+        validate_support_method_organization(
+            {"support_method_id": "m1", "support_organization_id": "o1"}, session,
+        )  # не бросает, если SupportMethod("m1").support_organization_id in (None, "o1")
+    """
+    method_id = data.get('support_method_id')
+    if not method_id:
+        return
+    method = session.get(SupportMethod, method_id)
+    if not method:
+        raise HTTPException(422, 'Выбранный способ оказания техподдержки не найден')
+    if method.support_organization_id and method.support_organization_id != data.get('support_organization_id'):
+        raise HTTPException(422, 'Выбранный способ оказания техподдержки принадлежит другой организации технической поддержки')
+
 
 def validate_connection(data: dict[str, Any], session: Session, current_connection_id: str | None = None) -> None:
     source_id, destination_id = data.get('source_interface_id'), data.get('destination_interface_id')

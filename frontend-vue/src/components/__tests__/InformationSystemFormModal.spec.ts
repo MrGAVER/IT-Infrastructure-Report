@@ -251,7 +251,11 @@ describe('InformationSystemFormModal.vue — миграция и сохране�
     await teleportedContent().find('form').trigger('submit')
     await flushPromises()
 
-    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('so-new')
+    // Фикс: поле теперь SearchableSelect, а не нативный <select> — читаем отображённую подпись
+    // выбранной опции через её input, как и везде в тестах SearchableSelect (см.
+    // DeviceFormModal.spec.ts). "Очистить" (.ss-clear) не мешает найти именно этот input: он
+    // рендерится только когда значение уже выбрано, а перед созданием организации поле пустое.
+    expect((wrapper.find('.searchable-select input').element as HTMLInputElement).value).toBe('ООО "Технический партнёр"')
   })
 
   it('п.3: длинное наименование ИС показывает подсказку через секунду наведения', async () => {

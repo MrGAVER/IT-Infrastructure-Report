@@ -9,8 +9,10 @@
 // применения, см. README).
 import { computed, reactive, ref } from 'vue'
 import { createResource, deleteResource, updateResource } from '../api/client'
-import { useCatalogsStore } from '../stores/catalogs'
+import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
+import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
+import type { QuickField } from '../quickAdd/schema'
 import type { CatalogItem } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
@@ -28,6 +30,7 @@ const emit = defineEmits<{ close: []; saved: [record: CatalogItem]; deleted: [id
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
+const devicesStore = useDevicesStore()
 const fields = QUICK_ADD_FIELDS[props.resource] ?? []
 const isEdit = computed(() => props.item !== null)
 // Общий human-readable ярлык ресурса — используется и в заголовке, и в сообщении "форма не
@@ -49,7 +52,19 @@ const saving = ref(false)
 const deleting = ref(false)
 const errorMessage = ref<string | null>(null)
 
-function fkSelectOptions(fkResource: string | undefined): SearchableSelectOption[] {
+function fkSelectOptions(f: QuickField): SearchableSelectOption[] {
+  // fkSource='devices' — физические устройства не входят в catalogs.items (см. комментарий у
+  // QuickField.fkSource в quickAdd/schema.ts), опции берём из отдельного стора устройств.
+  // Он уже загружен родительским экраном (OtherCatalogsView.vue дожидается ensureLoaded() до
+  // открытия этой модалки), сортируем по совпадению с общим принципом "выпадающие списки
+  // отсортированы" (фикс п.4.2 в stores/catalogs.ts), т.к. порядок в devicesStore.all —
+  // порядок ответа API, а не алфавитный.
+  if (f.fkSource === 'devices') {
+    return [...devicesStore.all]
+      .map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))
+      .sort((a, b) => RU_COLLATOR.compare(a.label, b.label))
+  }
+  const fkResource = f.fkResource
   if (!fkResource) return []
   const items = catalogs.items[fkResource as keyof typeof catalogs.items] ?? []
   // Self-referencing fk (parent_id у иерархических справочников, напр. departments): при
@@ -135,7 +150,7 @@ async function removeItem() {
             <div v-if="f.type === 'fk'" class="fk-row">
               <SearchableSelect
                 :model-value="(values[f.name] as string) ?? ''"
-                :options="fkSelectOptions(f.fkResource)"
+                :options="fkSelectOptions(f)"
                 @update:model-value="(v) => (values[f.name] = v)"
               />
               <QuickAddButton

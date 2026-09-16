@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,6 +36,13 @@ class PhysicalDeviceCreate(BaseModel):
     rack_position: Optional[str] = None
     status: Optional[str] = None
     description: Optional[str] = None
+    # Необязательный блок "Сертификат ОАЦ" (см. models.PhysicalDevice) — валидируются здесь, а
+    # не оставляются сырым dict, чтобы некорректный формат даты приходил клиенту понятным 422
+    # ("value is not a valid date"), а не падал глубже как IntegrityError/тип, специфичный для
+    # конкретной СУБД (Date-колонка в Postgres, в отличие от SQLite, не принимает произвольную
+    # строку напрямую).
+    oac_certificate_number: Optional[str] = Field(default=None, max_length=255)
+    oac_certificate_registry_date: Optional[date] = None
 
 
 class PhysicalDeviceUpdate(BaseModel):
@@ -56,6 +64,8 @@ class PhysicalDeviceUpdate(BaseModel):
     rack_position: Optional[str] = None
     status: Optional[str] = None
     description: Optional[str] = None
+    oac_certificate_number: Optional[str] = Field(default=None, max_length=255)
+    oac_certificate_registry_date: Optional[date] = None
 
 
 class InformationSystemCreate(BaseModel):

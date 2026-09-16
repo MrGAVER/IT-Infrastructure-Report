@@ -13,7 +13,7 @@ from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
 from .diagram_icons import validate_svg_markup
-from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os
+from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
 
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
@@ -182,6 +182,9 @@ def _validate_vmip_entry(data: dict[str, Any], session: Session, item_id: str | 
     validate_ipv4_field(data.get('ip_address'), 'IP-адрес виртуальной машины')
     validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса виртуальной машины')
 
+def _validate_information_system_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    validate_support_method_organization(data, session)
+
 # Реестр валидаторов по модели (код-ревью п.3.5): раньше это была цепочка if/elif внутри
 # validate_resource() — каждая новая модель, которой требуется своя проверка, была обязана
 # трогать тело диспетчера (нарушение OCP; интеграция feature/network-topology-diagram и
@@ -199,6 +202,7 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     DeviceType: _validate_device_type_entry,
     DiagramIcon: _validate_diagram_icon_entry,
     VMIP: _validate_vmip_entry,
+    InformationSystem: _validate_information_system_entry,
 }
 
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:

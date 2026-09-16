@@ -109,6 +109,9 @@ export interface Device {
   status: string | null
   description: string | null
   diagram_icon_id: string | null
+  // Необязательный блок "Сертификат ОАЦ" — см. models.PhysicalDevice в backend/app/models.py.
+  oac_certificate_number: string | null
+  oac_certificate_registry_date: string | null
   created_at?: string
   updated_at?: string
   // enrich_devices()

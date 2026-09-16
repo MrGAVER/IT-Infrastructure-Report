@@ -5,8 +5,10 @@
 // (см. schema.ts про то, что сознательно не перенесено).
 import { computed, reactive, ref } from 'vue'
 import { createResource } from '../api/client'
-import { useCatalogsStore } from '../stores/catalogs'
+import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
+import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
+import type { QuickField } from '../quickAdd/schema'
 import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
@@ -25,6 +27,7 @@ const emit = defineEmits<{ close: []; created: [record: CatalogItem] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
+const devicesStore = useDevicesStore()
 const fields = QUICK_ADD_FIELDS[props.resource] ?? []
 const title = computed(() => QUICK_ADD_LABELS[props.resource] ?? props.resource)
 
@@ -43,9 +46,20 @@ function fkOptions(fkResource: string | undefined): CatalogItem[] {
   return catalogs.items[fkResource as keyof typeof catalogs.items] ?? []
 }
 
-/** п.4: опции fk-поля в формате SearchableSelect. */
-function fkSelectOptions(fkResource: string | undefined): SearchableSelectOption[] {
-  return fkOptions(fkResource).map((opt) => ({ value: opt.id, label: opt.name }))
+/** п.4: опции fk-поля в формате SearchableSelect. fkSource='devices' — см. комментарий у
+ * QuickField.fkSource в quickAdd/schema.ts: устройства не входят в catalogs.items, опции берём
+ * из useDevicesStore().all и сортируем вручную (devicesStore.all не отсортирован, в отличие от
+ * уже отсортированных catalogs.items — фикс п.4.2). Единственный вызывающий эту схему для
+ * fkSource='devices' на сегодня — crypto-protection-means, открываемый из
+ * InformationSystemFormModal.vue, где devicesStore уже загружен родительским
+ * InformationSystemsView.vue. */
+function fkSelectOptions(f: QuickField): SearchableSelectOption[] {
+  if (f.fkSource === 'devices') {
+    return [...devicesStore.all]
+      .map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))
+      .sort((a, b) => RU_COLLATOR.compare(a.label, b.label))
+  }
+  return fkOptions(f.fkResource).map((opt) => ({ value: opt.id, label: opt.name }))
 }
 
 /** Запись, созданная через вложенную QuickAddModal (кнопка "+" у fk-поля), сразу подставляется
@@ -124,7 +138,7 @@ async function submit() {
             <div v-if="f.type === 'fk'" class="fk-row">
               <SearchableSelect
                 :model-value="(values[f.name] as string) ?? ''"
-                :options="fkSelectOptions(f.fkResource)"
+                :options="fkSelectOptions(f)"
                 @update:model-value="(v) => (values[f.name] = v)"
               />
               <QuickAddButton

@@ -52,6 +52,12 @@ function emptyForm() {
     rack_id: '',
     rack_position: '',
     description: '',
+    // Необязательный блок "Сертификат ОАЦ" (models.PhysicalDevice) — заполняется, если на
+    // устройстве установлено сертифицированное средство криптографической защиты (см. также
+    // CryptoProtectionMeans.physical_device_id, привязываемый со стороны справочника СКЗИ в
+    // "Другие справочники"). Оба поля независимы: пара "заполнено/не заполнено" не проверяется.
+    oac_certificate_number: '',
+    oac_certificate_registry_date: '',
     // Раздел 4.3 ТЗ: ручное переопределение автогенерируемой иконки диаграммы для КОНКРЕТНОГО
     // устройства (побеждает переопределение на уровне DeviceModel, если оно тоже задано).
     diagram_icon_id: '',
@@ -684,6 +690,28 @@ async function submit() {
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
 
+        <div class="field field-wide oac-cert-block">
+          <div class="oac-cert-head">
+            <b>Сертификат ОАЦ</b>
+            <span class="hint">Необязательно — заполняется, если на устройстве установлено сертифицированное средство криптографической защиты информации.</span>
+          </div>
+          <div class="oac-cert-grid">
+            <label class="field">
+              <span>Регистрационный номер сертификата соответствия (экспертного заключения)</span>
+              <input
+                v-model.trim="form.oac_certificate_number"
+                v-truncate-tooltip="form.oac_certificate_number"
+                type="text"
+                maxlength="255"
+              />
+            </label>
+            <label class="field">
+              <span>Дата внесения в реестр</span>
+              <input v-model="form.oac_certificate_registry_date" type="date" />
+            </label>
+          </div>
+        </div>
+
         <div class="field field-wide">
           <DeviceIconPicker :model-value="form.diagram_icon_id || null" @update:model-value="form.diagram_icon_id = $event ?? ''" />
         </div>
@@ -775,6 +803,35 @@ async function submit() {
 }
 .field-wide {
   grid-column: 1 / -1;
+}
+.oac-cert-block {
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 12px;
+  gap: 10px;
+}
+.oac-cert-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.oac-cert-head b {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.oac-cert-head .hint {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+}
+.oac-cert-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+@media (max-width: 640px) {
+  .oac-cert-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .lookup-row {
   display: flex;
