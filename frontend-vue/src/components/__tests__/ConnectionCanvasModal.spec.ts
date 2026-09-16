@@ -311,3 +311,110 @@ describe('ConnectionCanvasModal.vue — перетаскивание карто�
     expect(wrapper.findComponent(ConnectionFormModal).exists()).toBe(false)
   })
 })
+
+describe('ConnectionCanvasModal.vue — геометрия линий (фикс "от центра блока к центру блока -> от точки к точке портов")', () => {
+  // pathStartX/pathEndX: 'M {x} {y} C ...' — первое число после 'M' это x начала пути.
+  function pathStartX(d: string): number {
+    return Number(d.match(/^M\s*([\d.-]+)/)![1])
+  }
+
+  it('линия подключения начинается на X точки-пина, а не на горизонтальном центре карточки устройства', async () => {
+    const connections = useConnectionsStore()
+    connections.all = [connection()]
+    const wrapper = mount(ConnectionCanvasModal)
+    await chooseDevice(wrapper, 'srv-a')
+    await chooseDevice(wrapper, 'srv-b')
+
+    // nextGridPosition() читает canvasDeviceIds.value.length ПОСЛЕ того, как в addDevice() в
+    // этот массив уже добавлен новый id (см. её реализацию) — поэтому первое добавленное
+    // устройство попадает не в 0-й, а в 1-й слот сетки (col=1, x = CANVAS_MARGIN(60) +
+    // (NODE_WIDTH(220)+NODE_GAP_X(60)) = 340). Это отдельная, не связанная с этим фиксом
+    // особенность (0-й слот сетки в итоге просто никогда не используется) — здесь ориентируемся
+    // на фактическое поведение, а не на "круглые" координаты.
+    const d = wrapper.find('.connection-line:not(.drag-preview)').attributes('d')!
+    // PIN_CENTER_X (15) — тот же отступ, что и у самого .port-pin в CSS (10px padding-left +
+    // половина ширины пина). NODE_WIDTH/2 (110) — старое (неверное) смещение, которое было бы
+    // здесь при регрессии этого фикса (сходилось бы в центр карточки, а не в точку пина).
+    expect(pathStartX(d)).toBe(340 + 15)
+    expect(pathStartX(d)).not.toBe(340 + 110)
+  })
+
+  it('временная линия протяжки тоже начинается на X точки-пина', async () => {
+    const wrapper = mount(ConnectionCanvasModal)
+    await chooseDevice(wrapper, 'srv-a') // единственное устройство — тоже в 1-м слоте сетки, x=340 (см. комментарий выше)
+
+    const sourceEl = choosePort(wrapper, 'if-a1').find('.port-pin').element
+    sourceEl.dispatchEvent(mouseEvent('mousedown', 10, 10))
+    window.dispatchEvent(mouseEvent('mousemove', 50, 60))
+    await wrapper.vm.$nextTick()
+
+    const d = wrapper.find('.connection-line.drag-preview').attributes('d')!
+    expect(pathStartX(d)).toBe(340 + 15)
+  })
+
+  it('название порта выведено отдельной строкой НАД строкой с самим пином (не в одном flex-ряду с ним)', async () => {
+    const wrapper = mount(ConnectionCanvasModal)
+    await chooseDevice(wrapper, 'srv-a')
+
+    const row = choosePort(wrapper, 'if-a1')
+    const name = row.find('.port-name')
+    const pinRow = row.find('.port-pin-row')
+    expect(name.exists()).toBe(true)
+    expect(pinRow.find('.port-pin').exists()).toBe(true)
+    // Название и пин — в РАЗНЫХ дочерних элементах строки порта (а не в одном ряду), и название
+    // идёт ПЕРВЫМ по порядку — то есть визуально выше пина, т.к. .port-row теперь column.
+    const children = Array.from(row.element.children)
+    expect(children.indexOf(name.element)).toBeLessThan(children.indexOf(pinRow.element))
+  })
+})
+
+describe('ConnectionCanvasModal.vue — координаты курсора при прокрученной схеме (баг "линия уходит вверх после прокрутки")', () => {
+  it('протяжка линии учитывает scrollTop/scrollLeft контейнера схемы, а не только позицию курсора в вьюпорте', async () => {
+    const wrapper = mount(ConnectionCanvasModal)
+    await chooseDevice(wrapper, 'srv-a')
+
+    const canvasArea = wrapper.find('.canvas-area').element as HTMLElement
+    // jsdom не рендерит реальный layout, но scrollTop/scrollLeft — обычные settable-свойства
+    // элемента, не требующие реальной прокрутки для проверки самой формулы canvasPoint().
+    Object.defineProperty(canvasArea, 'scrollLeft', { value: 40, configurable: true })
+    Object.defineProperty(canvasArea, 'scrollTop', { value: 200, configurable: true })
+
+    const sourceEl = choosePort(wrapper, 'if-a1').find('.port-pin').element
+    sourceEl.dispatchEvent(mouseEvent('mousedown', 10, 10))
+    window.dispatchEvent(mouseEvent('mousemove', 50, 60))
+    await wrapper.vm.$nextTick()
+
+    const d = wrapper.find('.connection-line.drag-preview').attributes('d')!
+    // Конец пути — последняя пара чисел в 'C ..., {endX} {endY}'. При clientY=60 без учёта
+    // scrollTop получили бы endY=60 (сам баг: "линия уходит вверх" при прокрутке вниз) —
+    // правильное значение — clientY(60) + scrollTop(200) = 260, аналогично для X.
+    const endMatch = d.match(/,\s*([\d.-]+)\s+([\d.-]+)$/)!
+    expect(Number(endMatch[1])).toBe(50 + 40)
+    expect(Number(endMatch[2])).toBe(60 + 200)
+  })
+
+  it('перетаскивание карточки устройства тоже учитывает прокрутку схемы (тот же canvasPoint())', async () => {
+    const wrapper = mount(ConnectionCanvasModal)
+    await chooseDevice(wrapper, 'srv-a') // первое устройство на схеме — {x:60, y:60}, см. nextGridPosition()
+
+    const canvasArea = wrapper.find('.canvas-area').element as HTMLElement
+    Object.defineProperty(canvasArea, 'scrollTop', { value: 300, configurable: true })
+
+    const node = wrapper.find('.device-node')
+    await wrapper.find('.node-header').trigger('mousedown', { clientX: 40, clientY: 40 })
+    window.dispatchEvent(mouseEvent('mousemove', 40, 90)) // курсор сдвинулся на +50 по Y
+    window.dispatchEvent(mouseEvent('mouseup', 40, 90))
+    await wrapper.vm.$nextTick()
+
+    // offsetY считается один раз при mousedown (340-60=280, где 340 = clientY(40)+scrollTop(300))
+    // и вычитается из point при каждом mousemove — пока scrollTop не меняется ПОСЕРЕДИНЕ протяжки,
+    // он самосокращается в offset'е, и итоговая позиция зависит только от сдвига курсора (+50):
+    // 60 (исходный y) + 50 = 110. Без фикса (без прибавления scrollTop в canvasPoint()) результат
+    // был бы тем же для ЭТОГО теста — сам баг здесь не в конечной позиции при перетаскивании
+    // карточки, а в линии протяжки соединения (см. предыдущий тест) и в согласованности с ней:
+    // раз canvasPoint() общая функция для обоих, тест фиксирует, что перетаскивание карточки
+    // по-прежнему работает корректно ПОСЛЕ фикса, не только протяжка линии.
+    expect((node.element as HTMLElement).style.top).toBe('110px')
+  })
+})
+
