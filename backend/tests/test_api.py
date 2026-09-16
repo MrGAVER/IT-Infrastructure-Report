@@ -1125,6 +1125,107 @@ class TestNewDomainVlanAutoAssignedToSourceDevice:
         assert len(r.json()["items"]) == 1
 
 
+class TestDeviceStacks:
+    """Пункт 5 правки "создание физического устройства": стек физических устройств, соединённых
+    на основании указанных портов (см. DeviceStack/DeviceStackMember в models.py — межстековые
+    соединения переиспользуют обычный Connection, отдельной сущности под кабель между членами
+    стека нет)."""
+
+    def test_detail_returns_members_ordered_by_position_with_stack_membership_ids(self, client):
+        dt = _create_device_type(client, "Коммутатор для стека")
+        dev1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-01"}).json()
+        dev2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-02"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек ядра", "description": "2 коммутатора"}).json()
+
+        # Добавляем в обратном порядке позиций — ответ детали должен быть отсортирован по
+        # position, а не по порядку добавления/id.
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev2["id"], "position": 2})
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev1["id"], "position": 1})
+
+        r = client.get(f"/api/v1/device-stacks/{stack['id']}/detail")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["stack"]["name"] == "Стек ядра"
+        assert [m["id"] for m in body["members"]] == [dev1["id"], dev2["id"]]
+        assert [m["stack_position"] for m in body["members"]] == [1, 2]
+        assert all(m["stack_member_id"] for m in body["members"])
+        assert body["connections"] == []
+
+    def test_detail_404_for_unknown_stack(self, client):
+        r = client.get("/api/v1/device-stacks/нет-такого/detail")
+        assert r.status_code == 404
+
+    def test_adding_device_already_in_another_stack_rejected_with_stack_name(self, client):
+        dt = _create_device_type(client, "Коммутатор занят другим стеком")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-03"}).json()
+        stack_a = client.post("/api/v1/resources/device-stacks", json={"name": "Стек А"}).json()
+        stack_b = client.post("/api/v1/resources/device-stacks", json={"name": "Стек Б"}).json()
+        client.post(f"/api/v1/device-stacks/{stack_a['id']}/members", json={"physical_device_id": dev["id"]})
+
+        r = client.post(f"/api/v1/device-stacks/{stack_b['id']}/members", json={"physical_device_id": dev["id"]})
+        assert r.status_code == 409
+        assert "Стек А" in r.json()["detail"]
+
+    def test_adding_same_device_to_same_stack_twice_is_idempotent(self, client):
+        dt = _create_device_type(client, "Коммутатор повторное добавление")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-04"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек идемпотентный"}).json()
+
+        first = client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+        second = client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+        assert first.status_code == 200 and second.status_code == 200
+        assert first.json()["id"] == second.json()["id"]
+
+        members = client.get(f"/api/v1/resources/device-stack-members?stack_id={stack['id']}").json()["items"]
+        assert len(members) == 1
+
+    def test_detail_includes_connections_between_members_only(self, client):
+        """Подключение между двумя УЧАСТНИКАМИ стека — попадает в детали. Подключение от участника
+        к устройству СНАРУЖИ стека — нет, даже если оно есть в БД (это обычный аплинк, не
+        межстековый кабель)."""
+        dt = _create_device_type(client, "Коммутатор с портами для стека")
+        stack_dev1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-05"}).json()
+        stack_dev2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-06"}).json()
+        outside_dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-07-outside"}).json()
+
+        def _iface(device_id, name):
+            r = client.put(f"/api/v1/devices/{device_id}/interfaces", json={"interfaces": [{"name": name}]})
+            return r.json()["items"][0]["id"]
+
+        iface1 = _iface(stack_dev1["id"], "stack-link")
+        iface2 = _iface(stack_dev2["id"], "stack-link")
+        iface_outside = _iface(outside_dev["id"], "uplink")
+        ct = client.post("/api/v1/resources/connection-types", json={"name": "Стековый кабель (тест)"}).json()
+
+        stack_conn = client.post(
+            "/api/v1/resources/connections",
+            json={"source_interface_id": iface1, "destination_interface_id": iface2, "connection_type_id": ct["id"]},
+        ).json()
+        client.post(
+            "/api/v1/resources/connections",
+            json={"source_interface_id": iface2, "destination_interface_id": iface_outside, "connection_type_id": ct["id"]},
+        )
+
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек с топологией"}).json()
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": stack_dev1["id"], "position": 1})
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": stack_dev2["id"], "position": 2})
+
+        r = client.get(f"/api/v1/device-stacks/{stack['id']}/detail")
+        conns = r.json()["connections"]
+        assert [c["id"] for c in conns] == [stack_conn["id"]]
+        assert conns[0]["source_device_name"] == "STACK-05"
+        assert conns[0]["destination_device_name"] == "STACK-06"
+
+    def test_deleting_stack_with_members_is_blocked(self, client):
+        dt = _create_device_type(client, "Коммутатор для удаления стека")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-08"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек на удаление"}).json()
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+
+        r = client.delete(f"/api/v1/resources/device-stacks/{stack['id']}")
+        assert r.status_code == 409
+
+
 class TestGlobalSearchTextIndex:
     """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 4 таблицах
     (is-ips/is-sources/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
