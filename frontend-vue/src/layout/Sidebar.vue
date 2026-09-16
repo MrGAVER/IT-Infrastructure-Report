@@ -20,6 +20,7 @@ const primaryNav = [
   { to: '/dashboard', icon: 'i-home', label: 'Дашборд' },
   { to: '/information-systems', icon: 'i-layers', label: 'Информационные системы' },
   { to: '/devices', icon: 'i-server', label: 'Инвентаризация устройств' },
+  { to: '/device-stacks', icon: 'i-layers', label: 'Стеки устройств' },
   { to: '/connections', icon: 'i-network', label: 'Подключения' },
   { to: '/diagrams', icon: 'i-sitemap', label: 'Диаграмма топологии сети' },
   { to: '/vms', icon: 'i-box', label: 'Виртуальные машины' },
