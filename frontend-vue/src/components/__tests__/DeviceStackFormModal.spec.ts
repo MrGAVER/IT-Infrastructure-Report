@@ -78,7 +78,10 @@ describe('DeviceStackFormModal.vue', () => {
 
     const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/device-stacks'))
     expect(create?.body).toEqual({ name: 'Стек ядра', description: '2 коммутатора' })
-    expect(wrapper.emitted('saved')).toBeTruthy()
+    // Возвращает родителю именно сохранённую запись (а не просто факт "сохранено") —
+    // DevicesView.vue использует её, чтобы после создания сразу переключить эту же модалку в
+    // режим редактирования.
+    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'stack-new' }])
   })
 
   it('при редактировании загружает и отображает участников по позиции, с типом устройства', async () => {

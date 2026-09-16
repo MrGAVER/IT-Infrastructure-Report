@@ -221,11 +221,13 @@ def device_stack_detail(stack_id: str, session: Session = Depends(get_db)):
     # словарного доступа, реальный порядок задаёт member_rows.
     ordered_devices = [devices_by_id[d_id] for d_id in device_ids if d_id in devices_by_id]
     members = enrich_devices(ordered_devices, session)
-    position_by_device = {m.physical_device_id: m.position for m in member_rows}
+    # stack_position теперь приходит из enrich_devices() само по себе (см. п.2 правки
+    # "инвентаризация физических устройств" в serialization.py) — здесь довешиваем только
+    # stack_member_id: id самой строки членства (не самого устройства), нужный
+    # DeviceStackFormModal.vue для DELETE /device-stack-members/{id} при исключении из стека.
     member_row_id_by_device = {m.physical_device_id: m.id for m in member_rows}
     for item in members:
         item['stack_member_id'] = member_row_id_by_device.get(item['id'])
-        item['stack_position'] = position_by_device.get(item['id'])
 
     connections = []
     if device_ids:

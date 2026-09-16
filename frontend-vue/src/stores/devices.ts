@@ -12,6 +12,12 @@ import { useCatalogsStore } from './catalogs'
 
 const PAGE_SIZE = 6
 
+/** Пункт 2 правки "инвентаризация физических устройств": строка таблицы — либо одиночное
+ * устройство, либо СВЁРНУТАЯ группа участников одного стека (см. groupedFiltered ниже). */
+export type DeviceRow =
+  | { kind: 'device'; device: Device }
+  | { kind: 'stack'; stackId: string; stackName: string; members: Device[] }
+
 export const useDevicesStore = defineStore('devices', {
   state: () => ({
     all: [] as Device[],
@@ -66,12 +72,39 @@ export const useDevicesStore = defineStore('devices', {
       }
       return rows
     },
-    pageCount(): number {
-      return Math.max(1, Math.ceil(this.filtered.length / PAGE_SIZE))
+    /** Участники одного стека схлопываются в ОДНУ строку 'stack' — в позиции первого попадания
+     * в filtered (т.е. там, где стоял бы алфавитно самый ранний участник по system_name, раз
+     * backend отдаёт /devices уже отсортированным им), остальные участники того же стека из
+     * потока пропускаются (уже представлены через members). Одиночные устройства идут как
+     * раньше, по одной строке 'device'. Пагинация (pageCount/pageItems ниже) считается ИМЕННО
+     * по этим строкам, а не по числу "сырых" устройств: стек из 4 физических коммутаторов
+     * занимает один пагинационный слот, а не четыре (см. п.2 правки "инвентаризация физических
+     * устройств") — иначе часть страниц показывала бы заметно меньше 6 видимых строк только
+     * потому, что крупный стек "съел" большую часть слотов на свёрнутый заголовок.
+     */
+    groupedFiltered(): DeviceRow[] {
+      const rows: DeviceRow[] = []
+      const seenStacks = new Set<string>()
+      for (const d of this.filtered) {
+        if (!d.stack_id) {
+          rows.push({ kind: 'device', device: d })
+          continue
+        }
+        if (seenStacks.has(d.stack_id)) continue
+        seenStacks.add(d.stack_id)
+        const members = this.filtered
+          .filter((m: Device) => m.stack_id === d.stack_id)
+          .sort((a: Device, b: Device) => (a.stack_position ?? 0) - (b.stack_position ?? 0))
+        rows.push({ kind: 'stack', stackId: d.stack_id, stackName: d.stack_name ?? '', members })
+      }
+      return rows
     },
-    pageItems(): Device[] {
+    pageCount(): number {
+      return Math.max(1, Math.ceil(this.groupedFiltered.length / PAGE_SIZE))
+    },
+    pageItems(): DeviceRow[] {
       const start = (this.page - 1) * PAGE_SIZE
-      return this.filtered.slice(start, start + PAGE_SIZE)
+      return this.groupedFiltered.slice(start, start + PAGE_SIZE)
     },
   },
   actions: {

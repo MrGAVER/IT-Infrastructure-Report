@@ -21,7 +21,7 @@ import DeviceFormModal from './DeviceFormModal.vue'
 import ConnectionFormModal from './ConnectionFormModal.vue'
 
 const props = defineProps<{ stack: DeviceStack | null }>()
-const emit = defineEmits<{ close: []; saved: [] }>()
+const emit = defineEmits<{ close: []; saved: [stack: DeviceStack] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const devicesStore = useDevicesStore()
@@ -125,9 +125,13 @@ async function submit() {
   saving.value = true
   try {
     const payload = { name: form.name.trim(), description: form.description || null }
-    if (isEdit.value) await updateResource('device-stacks', props.stack!.id, payload)
-    else await createResource('device-stacks', payload)
-    emit('saved')
+    // Возвращаем родителю сохранённую запись (а не просто факт "сохранено") — DevicesView.vue
+    // использует её, чтобы после СОЗДАНИЯ сразу переключить эту же модалку в режим
+    // редактирования и дать добавить участников, не открывая форму заново.
+    const saved = isEdit.value
+      ? await updateResource<DeviceStack>('device-stacks', props.stack!.id, payload)
+      : await createResource<DeviceStack>('device-stacks', payload)
+    emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить стек устройств'
   } finally {
