@@ -1158,7 +1158,7 @@ describe('DeviceFormModal.vue', () => {
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
 
-      const cell = wrapper.find('td.col-check')
+      const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
       expect(cell.classes()).toContain('has-conflict')
     })
 
@@ -1182,7 +1182,7 @@ describe('DeviceFormModal.vue', () => {
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
 
-      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
     })
   })
 
