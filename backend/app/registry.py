@@ -1,7 +1,7 @@
 from __future__ import annotations
 from .models import (
     AuditLog, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface,
-    DeviceModel, DeviceSoftware, DeviceType, DiagramIcon, InterfaceIP, InterfaceSpeed, InterfaceType,
+    DeviceModel, DeviceSoftware, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InterfaceSpeed, InterfaceType,
     ISContainer, ISDepartment, ISDevice, ISIP, ISProtocol, ISVM, InformationSystem, InformationSystemSource, InterfaceVLAN, OpenPort, ProtocolPortCatalog,
     Manufacturer, OperatingSystem, OperatingSystemCategory, EmbeddedOperatingSystem, DeviceTypeVLAN, PhysicalDeviceVLAN, SupportOrganization, SupportMethod, CryptoProtectionMeans, PlacementAsset, ISPlacementAsset, PhysicalDevice,
     Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VMIP, VMSoftware, VirtualMachine,
@@ -31,6 +31,7 @@ MODEL_MAP = {
     'containers': Container, 'software-assets': SoftwareAsset, 'device-software': DeviceSoftware,
     'vm-software': VMSoftware, 'is-devices': ISDevice, 'is-vms': ISVM, 'is-containers': ISContainer, 'is-sources': InformationSystemSource,
     'open-ports': OpenPort, 'audit-log': AuditLog,
+    'device-stacks': DeviceStack, 'device-stack-members': DeviceStackMember,
 }
 
 DISPLAY_NAMES = {
@@ -43,5 +44,6 @@ DISPLAY_NAMES = {
     'vlans':'VLAN', 'vlan-domains':'Домены VLAN', 'vlan-domain-devices':'Устройства в доменах VLAN', 'interface-vlans':'Интерфейсы ↔ VLAN', 'connection-types':'Типы подключений', 'connections':'Подключения',
     'vms':'Виртуальные машины', 'vm-ips':'IP VM', 'containers':'Контейнеры', 'software-assets':'Программные активы',
     'device-software':'ПО физических устройств', 'vm-software':'ПО VM', 'is-devices':'ИС ↔ устройства (устарело, только чтение истории — см. ИС ↔ источники размещения)', 'is-vms':'ИС ↔ VM (устарело, только чтение истории — см. ИС ↔ источники размещения)',
-    'is-containers':'ИС ↔ контейнеры (устарело, только чтение истории — см. ИС ↔ источники размещения)', 'is-sources':'ИС ↔ источники размещения', 'open-ports':'Открытые порты', 'audit-log':'Аудит'
+    'is-containers':'ИС ↔ контейнеры (устарело, только чтение истории — см. ИС ↔ источники размещения)', 'is-sources':'ИС ↔ источники размещения', 'open-ports':'Открытые порты', 'audit-log':'Аудит',
+    'device-stacks':'Стеки устройств', 'device-stack-members':'Устройства в стеках',
 }

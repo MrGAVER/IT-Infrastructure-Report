@@ -4,9 +4,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from ..config import APP_VERSION, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
-from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, PhysicalDeviceVLAN, VLANDomain, VLANDomainDevice)
+from ..models import (Connection, Container, DeviceInterface, DeviceStack, DeviceStackMember, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, PhysicalDeviceVLAN, VLANDomain, VLANDomainDevice)
 from ..services.catalogs import seed_defaults
-from ..services.serialization import enrich_devices, serialize
+from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
 from ..services.crud import audit
 from ..constants import AuditAction

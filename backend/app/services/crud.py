@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
@@ -190,6 +190,18 @@ def _validate_vmip_entry(data: dict[str, Any], session: Session, item_id: str | 
 # значения — вызываемые с единой сигнатурой (data, session, item_id, confirm_duplicate,
 # confirm_rack_reassign) — там, где исходный валидатор её не использует, параметры просто
 # игнорируются тонкой обёрткой-адаптером выше.
+def _validate_device_stack_member_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    """Пункт 5 правки "создание физического устройства": устройство может состоять максимум в
+    ОДНОМ стеке одновременно (см. UniqueConstraint('physical_device_id') на DeviceStackMember) —
+    без этой проверки повторная попытка добавить уже состоящее в другом стеке устройство падала
+    бы сырым 409 IntegrityError вместо понятного сообщения с названием стека, где оно уже состоит."""
+    if not data.get('stack_id') or not data.get('physical_device_id'):
+        raise HTTPException(422, 'Необходимо указать стек и устройство')
+    existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == data['physical_device_id']))
+    if existing and existing.id != item_id:
+        stack = session.get(DeviceStack, existing.stack_id)
+        raise HTTPException(409, f'Устройство уже состоит в стеке «{stack.name if stack else existing.stack_id}»')
+
 _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, bool, bool], None]] = {
     PhysicalDevice: _validate_physical_device,
     VirtualMachine: _validate_virtual_machine_entry,
@@ -199,6 +211,7 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     DeviceType: _validate_device_type_entry,
     DiagramIcon: _validate_diagram_icon_entry,
     VMIP: _validate_vmip_entry,
+    DeviceStackMember: _validate_device_stack_member_entry,
 }
 
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
