@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from ..models import (
     DeviceModel, DeviceType, OperatingSystem, OperatingSystemCategory, PhysicalDevice,
     Rack, Room, DeviceInterface, Connection, EmbeddedOperatingSystem, SupportMethod,
+    DeviceStackMember,
 )
 
 # Код-ревью п.3.4: формат IPv4/длина префикса проверялись только на клиенте
@@ -106,7 +107,24 @@ def duplicate_system_name(session: Session, value: str | None, current_id: str |
     stmt = select(PhysicalDevice).where(func.lower(PhysicalDevice.system_name) == value.strip().lower())
     if current_id:
         stmt = stmt.where(PhysicalDevice.id != current_id)
-    return session.scalar(stmt)
+    duplicate = session.scalar(stmt)
+    if duplicate is None or not current_id:
+        return duplicate
+    # Пункт 3 правки "инвентаризация физических устройств": стекируемое оборудование (например,
+    # стек коммутаторов Cisco) штатно показывает ОДИН и тот же системный hostname для всех
+    # участников стека — это норма для такого железа, а не ошибка заполнения формы, поэтому
+    # предупреждение не нужно, если совпадение найдено внутри ОДНОГО И ТОГО ЖЕ стека
+    # (DeviceStackMember.physical_device_id уникален — участник состоит максимум в одном стеке,
+    # см. models.py). На создании (current_id ещё нет — устройство только заводится, оно
+    # физически не может уже состоять в стеке) эта ветка не участвует — предупреждение всё равно
+    # сработает как раньше, а к стеку устройство добавляют отдельным шагом после создания.
+    current_stack_id = session.scalar(select(DeviceStackMember.stack_id).where(DeviceStackMember.physical_device_id == current_id))
+    if current_stack_id is None:
+        return duplicate
+    duplicate_stack_id = session.scalar(select(DeviceStackMember.stack_id).where(DeviceStackMember.physical_device_id == duplicate.id))
+    if duplicate_stack_id == current_stack_id:
+        return None
+    return duplicate
 
 def validate_device_location_hierarchy(data: dict[str, Any], session: Session) -> None:
     building_id, room_id, rack_id = data.get('building_id'), data.get('room_id'), data.get('rack_id')

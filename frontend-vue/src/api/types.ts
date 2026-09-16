@@ -121,6 +121,11 @@ export interface Device {
   embedded_os_name: string
   embedded_os_version: string
   vlan_summary: string
+  // Принадлежность к стеку устройств (DeviceStackMember) — см. models.py. Устройство состоит
+  // максимум в одном стеке, все три поля либо все null (вне стека), либо все заполнены разом.
+  stack_id: string | null
+  stack_name: string | null
+  stack_position: number | null
 }
 
 export interface DevicesResponse {

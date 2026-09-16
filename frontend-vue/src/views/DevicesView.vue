@@ -5,10 +5,12 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
-import type { Device } from '../api/types'
+import type { Device, DeviceStack } from '../api/types'
 import StatCard from '../components/StatCard.vue'
 import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
+import DeviceTableRow from '../components/DeviceTableRow.vue'
+import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
 
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
@@ -22,6 +24,12 @@ const modalDevice = ref<Device | null>(null)
 const copyFromDevice = ref<Device | null>(null)
 const modalOpen = ref(false)
 const deletingId = ref<string | null>(null)
+
+// Пункты 1-2 правки "инвентаризация физических устройств": создание стека и раскрытие его
+// строки в этой же таблице (см. stores/devices.ts:groupedFiltered).
+const stackModalOpen = ref(false)
+const stackModalStack = ref<DeviceStack | null>(null)
+const expandedStacks = ref(new Set<string>())
 
 onMounted(async () => {
   // vlans — не для собственной таблицы этого экрана, а для выпадающего списка VLAN в
@@ -42,17 +50,16 @@ function toggleUnit(id: string) {
   else devices.structuralUnitIds.splice(idx, 1)
 }
 
-function siemLabel(v: boolean) {
-  return v ? 'Да' : 'Нет'
+function toggleStack(id: string) {
+  expandedStacks.value.has(id) ? expandedStacks.value.delete(id) : expandedStacks.value.add(id)
 }
 
-function buildingLabel(id: string | null) {
-  if (!id) return '—'
-  return (catalogs.indexOf('buildings').get(id)?.name as string) ?? '—'
-}
-function roomLabel(id: string | null) {
-  if (!id) return ''
-  return (catalogs.indexOf('rooms').get(id)?.name as string) ?? ''
+/** Русское склонение "N устройство/устройства/устройств" для счётчика в строке стека. */
+function deviceCountLabel(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  const word = mod10 === 1 && mod100 !== 11 ? 'устройство' : mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14) ? 'устройства' : 'устройств'
+  return `${n} ${word}`
 }
 
 const siemCount = () => devices.all.filter((d) => d.siem_enabled).length
@@ -100,6 +107,36 @@ async function removeDevice(d: Device) {
     notifyError(err)
   } finally {
     deletingId.value = null
+  }
+}
+
+function openCreateStack() {
+  stackModalStack.value = null
+  stackModalOpen.value = true
+}
+function closeStackModal() {
+  stackModalOpen.value = false
+  stackModalStack.value = null
+  // Добавление/удаление участников стека (внутри DeviceStackFormModal.vue) применяется сразу
+  // по клику, а не только по кнопке "Сохранить" формы — перезагружаем реестр устройств при
+  // ЛЮБОМ закрытии модалки (а не только в onStackSaved ниже), иначе принадлежность к стеку и
+  // номер позиции в этой таблице могли бы остаться устаревшими, закрой пользователь её крестиком.
+  devices.reload()
+}
+async function onStackSaved(stack: DeviceStack) {
+  const wasCreate = stackModalStack.value === null
+  await devices.reload()
+  if (wasCreate) {
+    // Стек только что создан и пока пуст — сразу переключаем ЭТУ ЖЕ модалку в режим
+    // редактирования (watch(() => props.stack, ...) в DeviceStackFormModal.vue отработает сам
+    // от смены пропса), чтобы добавить участников можно было тут же, не открывая форму заново и
+    // не уходя на отдельный экран "Стеки устройств".
+    stackModalStack.value = stack
+    notify('Стек создан — добавьте устройства ниже', 'success')
+  } else {
+    stackModalOpen.value = false
+    stackModalStack.value = null
+    notify('Стек обновлён', 'success')
   }
 }
 </script>
@@ -158,6 +195,10 @@ async function removeDevice(d: Device) {
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
+      <button class="btn btn-secondary" @click="openCreateStack">
+        <svg class="icon"><use href="/icons.svg#i-layers" /></svg>
+        Стек
+      </button>
       <button class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить устройство
@@ -186,36 +227,45 @@ async function removeDevice(d: Device) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in devices.pageItems" :key="d.id">
-              <td class="type-tag">{{ catalogs.label('device-types', d.device_type_id) }}</td>
-              <td>
-                <span class="devname">{{ d.system_name || '—' }}</span>
-                <span v-if="d.description" class="devmodel">{{ d.description }}</span>
-              </td>
-              <td class="mono">{{ d.serial_number }}</td>
-              <td>{{ [catalogs.label('manufacturers', d.manufacturer_id, ''), catalogs.label('device-models', d.model_id, '')].filter(Boolean).join(' · ') || '—' }}</td>
-              <td>{{ d.embedded_os_name || catalogs.label('operating-systems', d.operating_system_id) }}</td>
-              <td class="mono">{{ d.management_ips || '—' }}</td>
-              <td>{{ [buildingLabel(d.building_id), roomLabel(d.room_id)].filter(Boolean).join(' · ') }}</td>
-              <td>
-                <span class="status" :class="d.siem_enabled ? 'on' : 'off'">
-                  <span class="status-dot"></span>{{ siemLabel(d.siem_enabled) }}
-                </span>
-              </td>
-              <td>
-                <div class="row-actions">
-                  <button type="button" aria-label="Редактировать" @click="openEdit(d)">
-                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
-                  </button>
-                  <button type="button" aria-label="Копировать" @click="openCopy(d)">
-                    <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
-                  </button>
-                  <button type="button" aria-label="Удалить" :disabled="deletingId === d.id" @click="removeDevice(d)">
-                    <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
+            <template v-for="row in devices.pageItems" :key="row.kind === 'device' ? row.device.id : 'stack-' + row.stackId">
+              <DeviceTableRow
+                v-if="row.kind === 'device'"
+                :device="row.device"
+                :removing="deletingId === row.device.id"
+                @edit="openEdit"
+                @copy="openCopy"
+                @remove="removeDevice"
+              />
+              <template v-else>
+                <tr class="stack-summary-row">
+                  <td colspan="9">
+                    <button
+                      type="button"
+                      class="stack-toggle"
+                      :aria-expanded="expandedStacks.has(row.stackId)"
+                      @click="toggleStack(row.stackId)"
+                    >
+                      <svg class="icon chev" :class="{ open: expandedStacks.has(row.stackId) }"><use href="/icons.svg#i-chevd" /></svg>
+                      <svg class="icon stack-icon"><use href="/icons.svg#i-layers" /></svg>
+                      <b>{{ row.stackName }}</b>
+                      <span class="stack-count">{{ deviceCountLabel(row.members.length) }}</span>
+                    </button>
+                  </td>
+                </tr>
+                <template v-if="expandedStacks.has(row.stackId)">
+                  <DeviceTableRow
+                    v-for="m in row.members"
+                    :key="m.id"
+                    :device="m"
+                    :stack-position="m.stack_position"
+                    :removing="deletingId === m.id"
+                    @edit="openEdit"
+                    @copy="openCopy"
+                    @remove="removeDevice"
+                  />
+                </template>
+              </template>
+            </template>
             <tr v-if="!devices.filtered.length">
               <td colspan="9" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
             </tr>
@@ -223,7 +273,7 @@ async function removeDevice(d: Device) {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ devices.pageItems.length ? (devices.page - 1) * 6 + 1 : 0 }}–{{ (devices.page - 1) * 6 + devices.pageItems.length }} из {{ devices.filtered.length }}</span>
+        <span>Показано {{ devices.pageItems.length ? (devices.page - 1) * 6 + 1 : 0 }}–{{ (devices.page - 1) * 6 + devices.pageItems.length }} из {{ devices.groupedFiltered.length }}</span>
         <div class="pager">
           <button :disabled="devices.page <= 1" @click="devices.setPage(devices.page - 1)">‹</button>
           <button v-for="p in devices.pageCount" :key="p" :class="{ on: p === devices.page }" @click="devices.setPage(p)">{{ p }}</button>
@@ -233,6 +283,7 @@ async function removeDevice(d: Device) {
     </div>
 
     <DeviceFormModal v-if="modalOpen" :device="modalDevice" :copy-from="copyFromDevice" @close="closeModal" @saved="onSaved" />
+    <DeviceStackFormModal v-if="stackModalOpen" :stack="stackModalStack" @close="closeStackModal" @saved="onStackSaved" />
   </div>
 </template>
 
@@ -380,43 +431,40 @@ tbody tr:last-child td {
 tbody tr:hover td {
   background: var(--surface-2);
 }
-.devname {
-  font-weight: 600;
-  display: block;
+.stack-summary-row td {
+  padding: 0;
 }
-.devmodel {
-  display: block;
-  color: var(--ink-muted);
-  font-size: 11.3px;
-  margin-top: 1px;
-}
-.type-tag {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-.row-actions {
+.stack-toggle {
   display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-}
-.row-actions button {
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   background: none;
   border: none;
-  padding: 5px;
-  color: var(--ink-muted);
-  border-radius: var(--r-s);
-}
-.row-actions button:hover:not(:disabled) {
-  background: var(--surface-2);
+  padding: 10px 14px;
+  cursor: pointer;
+  text-align: left;
   color: var(--ink);
+  font-size: 12.5px;
+  font-family: inherit;
 }
-.row-actions button:disabled {
-  opacity: 0.4;
+.stack-toggle b {
+  font-weight: 600;
 }
-.row-actions .icon {
-  width: 14px;
-  height: 14px;
-  display: block;
+.stack-toggle .stack-icon {
+  color: var(--brand);
+}
+.stack-toggle .chev {
+  transition: transform 0.15s ease;
+  color: var(--ink-muted);
+}
+.stack-toggle .chev.open {
+  transform: rotate(180deg);
+}
+.stack-count {
+  color: var(--ink-muted);
+  font-size: 11px;
+  margin-left: auto;
 }
 .empty-row {
   text-align: center;

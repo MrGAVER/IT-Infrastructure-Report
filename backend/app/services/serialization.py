@@ -5,7 +5,7 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, InterfaceIP, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, Department, Container, ProtocolPortCatalog, VMIP, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN)
+from ..models import (Connection, ConnectionType, DeviceInterface, InterfaceIP, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, Department, Container, ProtocolPortCatalog, VMIP, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember)
 from .computed import device_management_ports_and_ips
 
 def serialize(obj: Any) -> dict[str, Any]:
@@ -36,6 +36,15 @@ def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[
     vlan_map = {x.id: x for x in session.scalars(select(VLAN).where(VLAN.id.in_(vlan_ids))).all()} if vlan_ids else {}
     vlans_by_device: dict[str, list[PhysicalDeviceVLAN]] = {}
     for link in vlan_links: vlans_by_device.setdefault(link.physical_device_id, []).append(link)
+    # Пункт 2 правки "инвентаризация физических устройств": стек, в который входит устройство —
+    # тот же батч-принцип, что и у остальных enrich_devices-полей выше (одним запросом на все
+    # device_ids, а не по одному на устройство). Устройство состоит максимум в одном стеке
+    # (UniqueConstraint на DeviceStackMember.physical_device_id, см. models.py), поэтому
+    # member_by_device — словарь "один к одному", без списков.
+    stack_members = session.scalars(select(DeviceStackMember).where(DeviceStackMember.physical_device_id.in_(device_ids))).all()
+    member_by_device = {m.physical_device_id: m for m in stack_members}
+    stack_ids = {m.stack_id for m in stack_members}
+    stack_map = {s.id: s for s in session.scalars(select(DeviceStack).where(DeviceStack.id.in_(stack_ids))).all()} if stack_ids else {}
     result=[]
     for device in devices:
         data=serialize(device); management=[i for i in by_device.get(device.id, []) if i.is_management]
@@ -47,6 +56,11 @@ def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[
         data['embedded_os_name']=embedded_map.get(device.embedded_os_id).name if device.embedded_os_id and embedded_map.get(device.embedded_os_id) else ''
         data['embedded_os_version']=embedded_map.get(device.embedded_os_id).version if device.embedded_os_id and embedded_map.get(device.embedded_os_id) else ''
         data['vlan_summary']='; '.join(dict.fromkeys(f"{vlan_map[x.vlan_id].vlan_id} {vlan_map[x.vlan_id].name}" for x in vlans_by_device.get(device.id, []) if x.vlan_id in vlan_map))
+        member = member_by_device.get(device.id)
+        stack = stack_map.get(member.stack_id) if member else None
+        data['stack_id'] = member.stack_id if member else None
+        data['stack_name'] = stack.name if stack else None
+        data['stack_position'] = member.position if member else None
         result.append(data)
     return result
 

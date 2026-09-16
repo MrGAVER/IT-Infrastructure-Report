@@ -109,4 +109,36 @@ describe('useDevicesStore', () => {
     store.setPage(5)
     expect(store.page).toBe(1) // не может выйти за pageCount
   })
+
+  it('группирует участников одного стека в одну строку, отсортированную по позиции', async () => {
+    const store = useDevicesStore()
+    await store.ensureLoaded()
+    // dev-1 и dev-2 — участники одного стека; позиции намеренно в обратном алфавиту порядке
+    // (dev-2 первый, dev-1 второй), чтобы отличить сортировку по stack_position от случайного
+    // совпадения с порядком в fixture. dev-3 остаётся одиночным устройством.
+    store.all = store.all.map((d) => {
+      if (d.id === 'dev-1') return { ...d, stack_id: 'stack-1', stack_name: 'Стек ядра', stack_position: 2 }
+      if (d.id === 'dev-2') return { ...d, stack_id: 'stack-1', stack_name: 'Стек ядра', stack_position: 1 }
+      return d
+    })
+
+    const rows = store.groupedFiltered
+    expect(rows).toHaveLength(2) // одна строка на стек (2 участника схлопнуты) + одна на dev-3
+    const stackRow = rows.find((r) => r.kind === 'stack')
+    expect(stackRow?.kind === 'stack' && stackRow.stackName).toBe('Стек ядра')
+    expect(stackRow?.kind === 'stack' && stackRow.members.map((m) => m.id)).toEqual(['dev-2', 'dev-1'])
+    const deviceRow = rows.find((r) => r.kind === 'device')
+    expect(deviceRow?.kind === 'device' && deviceRow.device.id).toBe('dev-3')
+  })
+
+  it('стек занимает один слот пагинации независимо от числа участников', async () => {
+    const store = useDevicesStore()
+    await store.ensureLoaded()
+    store.all = store.all.map((d) =>
+      d.id === 'dev-1' || d.id === 'dev-2' ? { ...d, stack_id: 'stack-1', stack_name: 'Стек ядра', stack_position: 1 } : d,
+    )
+    // 3 "сырых" устройства, но 2 строки (1 стек + 1 одиночное устройство) — по-прежнему 1 страница.
+    expect(store.groupedFiltered).toHaveLength(2)
+    expect(store.pageCount).toBe(1)
+  })
 })

@@ -1,0 +1,141 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import DevicesView from '../DevicesView.vue'
+import { useDevicesStore } from '../../stores/devices'
+import { useCatalogsStore } from '../../stores/catalogs'
+import { useVLANsStore } from '../../stores/vlans'
+import type { Device } from '../../api/types'
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status })
+}
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })))
+})
+
+function device(overrides: Partial<Device>): Device {
+  return {
+    id: 'id-' + Math.random().toString(36).slice(2),
+    device_type_id: 'dt-1',
+    manufacturer_id: null,
+    model_id: null,
+    serial_number: 'SN-0000',
+    system_name: null,
+    operating_system_id: null,
+    embedded_os_id: null,
+    siem_enabled: false,
+    building_id: null,
+    room_id: null,
+    rack_id: null,
+    rack_position: null,
+    status: null,
+    description: null,
+    diagram_icon_id: null,
+    oac_certificate_number: null,
+    oac_certificate_registry_date: null,
+    stack_id: null,
+    stack_name: null,
+    stack_position: null,
+    management_interface: '',
+    management_ips: '',
+    interface_count: 0,
+    embedded_os_name: '',
+    embedded_os_version: '',
+    vlan_summary: '',
+    ...overrides,
+  }
+}
+
+function seed(devices: Device[]) {
+  const store = useDevicesStore()
+  store.all = devices
+  store.total = devices.length
+  store.loaded = true
+  useCatalogsStore().items['device-types'] = [{ id: 'dt-1', name: 'Коммутатор' }]
+  useCatalogsStore().loaded = true
+  useVLANsStore().loaded = true
+}
+
+describe('DevicesView.vue', () => {
+  it('кнопка "Стек" открывает форму создания стека', async () => {
+    seed([])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    await wrapper.findAll('.filter-bar button').find((b) => b.text() === 'Стек')!.trigger('click')
+
+    expect(wrapper.find('.modal-head h2').text()).toBe('Добавить стек устройств')
+  })
+
+  it('устройства одного стека сворачиваются в одну строку с раскрывающимся списком участников', async () => {
+    seed([
+      device({ id: 'dev-1', system_name: 'core-sw-01', stack_id: 'stack-1', stack_name: 'Стек ядра', stack_position: 1 }),
+      device({ id: 'dev-2', system_name: 'core-sw-02', stack_id: 'stack-1', stack_name: 'Стек ядра', stack_position: 2 }),
+      device({ id: 'dev-3', system_name: 'edge-01' }),
+    ])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    // 2 участника стека схлопнуты в одну строку + dev-3 отдельной строкой — 2 строки, не 3.
+    expect(wrapper.findAll('tbody tr').filter((r) => !r.classes().includes('stack-member-row'))).toHaveLength(2)
+    expect(wrapper.find('.stack-toggle').text()).toContain('Стек ядра')
+    expect(wrapper.find('.stack-toggle').text()).toContain('2 устройства')
+    expect(wrapper.findAll('.stack-member-row')).toHaveLength(0) // свёрнуто по умолчанию
+
+    await wrapper.find('.stack-toggle').trigger('click')
+
+    const memberRows = wrapper.findAll('.stack-member-row')
+    expect(memberRows).toHaveLength(2)
+    expect(memberRows[0].text()).toContain('#1')
+    expect(memberRows[0].text()).toContain('core-sw-01')
+    expect(memberRows[1].text()).toContain('#2')
+    expect(memberRows[1].text()).toContain('core-sw-02')
+  })
+
+  it('повторный клик по строке стека снова сворачивает список участников', async () => {
+    seed([
+      device({ id: 'dev-1', system_name: 'sw-1', stack_id: 'stack-1', stack_name: 'Стек', stack_position: 1 }),
+      device({ id: 'dev-2', system_name: 'sw-2', stack_id: 'stack-1', stack_name: 'Стек', stack_position: 2 }),
+    ])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    await wrapper.find('.stack-toggle').trigger('click')
+    expect(wrapper.findAll('.stack-member-row')).toHaveLength(2)
+
+    await wrapper.find('.stack-toggle').trigger('click')
+    expect(wrapper.findAll('.stack-member-row')).toHaveLength(0)
+  })
+
+  it('после создания стека форма переключается в режим редактирования, не закрываясь', async () => {
+    seed([])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'POST' && url.endsWith('/resources/device-stacks')) {
+          return jsonResponse({ id: 'stack-new', name: 'Новый стек', description: null }, 201)
+        }
+        if (url.includes('/device-stacks/stack-new/detail')) {
+          return jsonResponse({ stack: { id: 'stack-new', name: 'Новый стек', description: null }, members: [], connections: [] })
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    await wrapper.findAll('.filter-bar button').find((b) => b.text() === 'Стек')!.trigger('click')
+    await wrapper.find('.modal input[type="text"]').setValue('Новый стек')
+    await wrapper.find('.modal form').trigger('submit')
+    await flushPromises()
+
+    // Модалка не закрылась, а переключилась в режим редактирования только что созданного стека —
+    // можно сразу добавлять участников, не открывая форму заново.
+    expect(wrapper.find('.modal-head h2').text()).toBe('Редактировать стек устройств')
+  })
+})

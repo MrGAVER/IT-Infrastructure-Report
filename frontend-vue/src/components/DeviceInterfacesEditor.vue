@@ -599,7 +599,15 @@ function applyBulkEdit() {
               <span v-else class="empty">VLAN не назначены</span>
             </td>
             <td class="col-actions">
-              <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Применить заполненные поля этой строки к отмеченным галочкой интерфейсам ниже"
+                aria-label="Применить к выбранным"
+                @click="applyBulkEdit"
+              >
+                <svg class="icon"><use href="/icons.svg#i-check" /></svg>
+              </button>
             </td>
           </tr>
           <template v-for="(row, i) in modelValue" :key="row.id ?? i">
