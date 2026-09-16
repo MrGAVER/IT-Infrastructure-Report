@@ -423,11 +423,15 @@ describe('DeviceInterfacesEditor.vue', () => {
 
   describe('п.1.4 (батч4): открытые порты интерфейса и копирование на другой интерфейс', () => {
     it('блок "Открытые порты" рендерится внутри развёрнутой строки интерфейса', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }]
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }] },
+      })
       await expandRow(wrapper)
       expect(wrapper.find('.ports-block').exists()).toBe(true)
-      expect((wrapper.find('.ports-block input.col-port').element as HTMLInputElement).value).toBe('22')
+      // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи справочника
+      // теперь рендерится SearchableSelect'ом, отдельных input'ов для порта/протокола больше нет.
+      expect((wrapper.find('.ports-block .searchable-select input').element as HTMLInputElement).value).toBe('22 / SSH')
     })
 
     it('добавление порта на одном интерфейсе не затрагивает open_ports другого', async () => {
@@ -442,7 +446,7 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('с единственным интерфейсом кнопку "Копировать на порт…" показывать не для чего — блок выбора получателя не рендерится', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: '', transport_protocol: 'TCP', description: '' }] }]
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await expandRow(wrapper)
       expect(wrapper.find('.copy-ports-row').exists()).toBe(false)
@@ -450,7 +454,7 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('копирует набор открытых портов на выбранный интерфейс со сброшенными id (это КОПИЯ, а не перенос)', async () => {
       const rows: InterfaceDraftRow[] = [
-        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
         { ...emptyRow(), name: 'eth1' },
       ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
@@ -460,15 +464,15 @@ describe('DeviceInterfacesEditor.vue', () => {
       await wrapper.find('.copy-ports-row button').trigger('click')
 
       const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
-      expect(result[1].open_ports).toEqual([{ id: undefined, protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }])
+      expect(result[1].open_ports).toEqual([{ id: undefined, protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }])
       expect(result[0].open_ports).toHaveLength(1) // у источника порты остаются как есть — это копирование, не перемещение
     })
 
     it('если у получателя уже есть порты — требует подтверждения и не заменяет их при отказе', async () => {
       vi.stubGlobal('confirm', vi.fn(() => false))
       const rows: InterfaceDraftRow[] = [
-        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' }] },
-        { ...emptyRow(), name: 'eth1', open_ports: [{ id: 'op-2', protocol_catalog_id: '', port: '443', protocol: 'HTTPS', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
+        { ...emptyRow(), name: 'eth1', open_ports: [{ id: 'op-2', protocol_catalog_id: 'cat-https', transport_protocol: 'TCP', description: '' }] },
       ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await expandRow(wrapper, 0)
@@ -632,28 +636,31 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('без интерфейсов панель не показывается', () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: [], typeOptions, speedOptions, vlanOptions } })
-      expect(wrapper.find('.bulk-edit-bar').exists()).toBe(false)
+      expect(wrapper.find('.bulk-edit-row').exists()).toBe(false)
     })
 
-    it('п.1.3.5: "Массовое редактирование" и таблица "Список интерфейсов" — один визуальный блок (общий iface-panel), а не два отдельных', () => {
+    it('пункт 4 правки "создание физического устройства": массовое редактирование — первая строка ТОЙ ЖЕ таблицы "Список интерфейсов", а не отдельная панель', () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
       const panel = wrapper.find('.iface-panel')
       expect(panel.exists()).toBe(true)
-      expect(panel.find('.bulk-edit-bar').exists()).toBe(true)
       expect(panel.find('.iface-list-head').exists()).toBe(true)
-      expect(panel.find('.iface-table-wrap').exists()).toBe(true)
+      const table = panel.find('.iface-table-wrap table.iface-table')
+      expect(table.exists()).toBe(true)
+      expect(table.find('.bulk-edit-row').exists()).toBe(true)
+      // "Первая строка" — буквально: сразу после thead, перед реальными строками интерфейсов.
+      expect(table.find('tbody tr').classes()).toContain('bulk-edit-row')
     })
 
     it('без отмеченных строк по клику "Применить" показывает ошибку и ничего не эмитит', async () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
-      await wrapper.find('.bulk-edit-bar button').trigger('click')
+      await wrapper.find('.bulk-edit-row button').trigger('click')
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
     })
 
-    it('"Выбрать все" отмечает чекбоксы "Выбрать" на всех строках таблицы', async () => {
+    it('"Выбрать все" (шапка таблицы, общая для массового редактирования и самого списка) отмечает чекбоксы "Выбрать" на всех строках', async () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
-      await wrapper.find('.bulk-edit-bar .if-select-label input').setValue(true)
-      const rowChecks = wrapper.findAll('.iface-table tbody .col-select input')
+      await wrapper.find('input[aria-label="Выбрать все интерфейсы"]').setValue(true)
+      const rowChecks = wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')
       expect(rowChecks.every((c) => (c.element as HTMLInputElement).checked)).toBe(true)
     })
 
@@ -661,10 +668,10 @@ describe('DeviceInterfacesEditor.vue', () => {
       const rows = threeRows()
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
-      const rowChecks = wrapper.findAll('.iface-table tbody .col-select input')
+      const rowChecks = wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')
       await rowChecks[0].setValue(true) // отмечаем только eth0
-      await wrapper.find('.bulk-field select').setValue('t-eth') // "Тип интерфейса"
-      await wrapper.find('.bulk-edit-bar button').trigger('click')
+      await wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').setValue('t-eth')
+      await wrapper.find('.bulk-edit-row button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
@@ -677,27 +684,45 @@ describe('DeviceInterfacesEditor.vue', () => {
       const rows = threeRows()
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
-      const rowChecks = wrapper.findAll('.iface-table tbody .col-select input')
+      const rowChecks = wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')
       await rowChecks[2].setValue(true) // отмечаем eth2 (уже с v-mgmt)
-      await wrapper.find('.bulk-edit-bar .vlan-check input').setValue(true) // добавляем v-mgmt ещё раз через панель
-      await wrapper.find('.bulk-edit-bar button').trigger('click')
+      await wrapper.find('.bulk-edit-row .vlan-check:not(.vlan-check-all) input').setValue(true) // добавляем v-mgmt ещё раз через панель
+      await wrapper.find('.bulk-edit-row button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
       expect(result[2].vlan_ids).toEqual(['v-mgmt']) // без дублей
     })
 
+    it('пункт 4: галочка "Все VLAN" в массовом редактировании появляется только при выбранном режиме Trunk и отмечает весь vlanOptions разом', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+
+      expect(wrapper.find('.bulk-edit-row .vlan-check-all').exists()).toBe(false) // режим ещё не выбран
+
+      await wrapper.find('select[aria-label="Режим порта — массовое редактирование"]').setValue('trunk')
+      expect(wrapper.find('.bulk-edit-row .vlan-check-all').exists()).toBe(true)
+
+      await wrapper.find('.bulk-edit-row .vlan-check-all input').setValue(true)
+      await wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[1].setValue(true) // отмечаем eth1
+      await wrapper.find('.bulk-edit-row button').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+      expect(result[1].vlan_mode).toBe('trunk')
+      expect(new Set(result[1].vlan_ids)).toEqual(new Set(vOptions.map((v) => v.id)))
+    })
+
     it('после применения панель сбрасывается — выбор и поля возвращаются к значениям по умолчанию', async () => {
       const rows = threeRows()
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
-      await wrapper.findAll('.iface-table tbody .col-select input')[0].setValue(true)
-      await wrapper.find('.bulk-field select').setValue('t-eth')
-      await wrapper.find('.bulk-edit-bar button').trigger('click')
+      await wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[0].setValue(true)
+      await wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').setValue('t-eth')
+      await wrapper.find('.bulk-edit-row button').trigger('click')
       await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[] })
 
-      expect((wrapper.find('.bulk-field select').element as HTMLSelectElement).value).toBe('')
-      expect((wrapper.findAll('.iface-table tbody .col-select input')[0].element as HTMLInputElement).checked).toBe(false)
+      expect((wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').element as HTMLSelectElement).value).toBe('')
+      expect((wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[0].element as HTMLInputElement).checked).toBe(false)
     })
   })
 
@@ -708,7 +733,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'GigabitEthernet0/0/0/1.100500', vlan_mode: 'trunk', vlan_ids: ['v-1'] }]
         const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
-        const nameInput = wrapper.find('.cell-input')
+        const nameInput = wrapper.find('tr:not(.bulk-edit-row) .cell-input')
         Object.defineProperty(nameInput.element, 'scrollWidth', { value: 300, configurable: true })
         Object.defineProperty(nameInput.element, 'clientWidth', { value: 100, configurable: true })
         await nameInput.trigger('mouseenter')
@@ -735,7 +760,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { 'if-1': 'На связанном порту другое назначение' } },
       })
 
-      const cell = wrapper.find('td.col-check')
+      const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
       expect(cell.classes()).toContain('has-conflict')
       expect(cell.attributes('title')).toBe('На связанном порту другое назначение')
       expect(cell.find('.conflict-icon').exists()).toBe(true)
@@ -745,7 +770,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
-      const cell = wrapper.find('td.col-check')
+      const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
       expect(cell.classes()).not.toContain('has-conflict')
       expect(cell.find('.conflict-icon').exists()).toBe(false)
     })
@@ -756,7 +781,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { undefined: 'x' } as never },
       })
 
-      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
     })
   })
 })

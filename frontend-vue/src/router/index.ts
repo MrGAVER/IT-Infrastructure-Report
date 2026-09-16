@@ -20,6 +20,11 @@ const routes = [
     component: () => import('../views/DevicesView.vue'),
   },
   {
+    path: '/device-stacks',
+    name: 'device-stacks',
+    component: () => import('../views/DeviceStacksView.vue'),
+  },
+  {
     path: '/connections',
     name: 'connections',
     component: () => import('../views/ConnectionsView.vue'),

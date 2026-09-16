@@ -4,11 +4,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from ..config import APP_VERSION, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
-from ..models import (Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, PhysicalDeviceVLAN, VLANDomain, VLANDomainDevice)
+from ..models import (Connection, Container, DeviceInterface, DeviceStack, DeviceStackMember, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, PhysicalDeviceVLAN, VLANDomain, VLANDomainDevice)
 from ..services.catalogs import seed_defaults
-from ..services.serialization import enrich_devices, serialize
+from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
-from ..services.crud import audit
+from ..services.crud import audit, validate_resource
 from ..constants import AuditAction
 from ..reporting import build_report
 
@@ -196,6 +196,67 @@ def download_report(filename: str):
     if path.parent != REPORT_DIR.resolve() or not path.is_file(): raise HTTPException(404, 'Файл отчета не найден')
     media_type = REPORT_MEDIA_TYPES.get(path.suffix.lower(), 'application/octet-stream')
     return FileResponse(path, media_type=media_type, filename=path.name)
+
+@router.get('/api/v1/device-stacks/{stack_id}/detail')
+def device_stack_detail(stack_id: str, session: Session = Depends(get_db)):
+    """Пункт 5 правки "создание физического устройства" — "просмотр каждого устройства в стеке по
+    отдельности, а также вместе": отдельность уже обеспечена тем, что участник стека — обычное
+    PhysicalDevice (открывается тем же DeviceFormModal.vue, что и любое другое устройство, без
+    специального кода). Этот эндпоинт — про "вместе": участники стека (полными карточками, как на
+    списке устройств, — enrich_devices) плюс связывающие их подключения.
+
+    "Связывающее" (внутристековое) подключение вычисляется на лету по членству — Connection, у
+    которого ОБА конца (source/destination interface) принадлежат устройствам ИЗ ЭТОГО стека, —
+    а не хранится отдельным флагом на самом Connection (см. docstring класса DeviceStack в
+    models.py, почему: иначе флаг рассинхронизировался бы при добавлении/удалении обычных
+    Connection в обход стека, например когда участника переносят в другой стек)."""
+    stack = session.get(DeviceStack, stack_id)
+    if not stack: raise HTTPException(404, 'Стек не найден')
+
+    member_rows = session.scalars(select(DeviceStackMember).where(DeviceStackMember.stack_id == stack_id).order_by(DeviceStackMember.position)).all()
+    device_ids = [m.physical_device_id for m in member_rows]
+    devices_by_id = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
+    # Порядок — по DeviceStackMember.position (физический номер участника в стеке), а не по тому,
+    # в каком порядке БД вернула бы PhysicalDevice — devices_by_id используется только для
+    # словарного доступа, реальный порядок задаёт member_rows.
+    ordered_devices = [devices_by_id[d_id] for d_id in device_ids if d_id in devices_by_id]
+    members = enrich_devices(ordered_devices, session)
+    position_by_device = {m.physical_device_id: m.position for m in member_rows}
+    member_row_id_by_device = {m.physical_device_id: m.id for m in member_rows}
+    for item in members:
+        item['stack_member_id'] = member_row_id_by_device.get(item['id'])
+        item['stack_position'] = position_by_device.get(item['id'])
+
+    connections = []
+    if device_ids:
+        interface_ids = session.scalars(select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(device_ids))).all()
+        if interface_ids:
+            connections = session.scalars(
+                select(Connection).where(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids))
+            ).all()
+
+    return {'stack': serialize(stack), 'members': members, 'connections': enrich_connections(connections, session)}
+
+
+@router.post('/api/v1/device-stacks/{stack_id}/members')
+def add_device_stack_member(stack_id: str, payload: dict, session: Session = Depends(get_db)):
+    """Идемпотентно (как и add_vlan_domain_member выше) — повторное добавление уже состоящего в
+    ЭТОМ ЖЕ стеке устройства просто возвращает существующую запись членства, не 409. Попытка
+    добавить устройство, состоящее в ДРУГОМ стеке, всё равно упадёт понятной 409 —
+    _validate_device_stack_member_entry (см. services/crud.py) вызывается ниже через
+    validate_resource, как и для любого generic-ресурса."""
+    stack = session.get(DeviceStack, stack_id)
+    device = session.get(PhysicalDevice, payload.get('physical_device_id'))
+    if not stack or not device: raise HTTPException(404, 'Стек или физическое устройство не найдено')
+    existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == device.id))
+    if existing and existing.stack_id == stack_id: return serialize(existing)
+    data = {'stack_id': stack_id, 'physical_device_id': device.id, 'position': payload.get('position', 1)}
+    validate_resource(DeviceStackMember, data, session, item_id=None)
+    obj = DeviceStackMember(**data)
+    session.add(obj); session.flush()
+    audit(session, 'device-stack-members', obj.id, AuditAction.CREATE, f'Устройство добавлено в стек «{stack.name}»')
+    session.commit(); session.refresh(obj); return serialize(obj)
+
 
 @router.get('/', include_in_schema=False)
 def frontend_index():

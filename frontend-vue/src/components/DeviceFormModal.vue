@@ -84,6 +84,14 @@ const memberDomainIds = ref<Set<string>>(new Set())
 // формы (см. submit() ниже) — тот же принцип staged-черновика, что у interfaces/deviceVlans и
 // остальных вложенных списков этой формы, просто без отдельного UI-редактора для него.
 const pendingDomainMemberships = ref<Set<string>>(new Set())
+// Пункт 3 правки "создание физического устройства": домен VLAN, заведённый вложенным "+" прямо
+// здесь же (тем же путём domain_id -> nestedQuickAdd, что и pendingDomainMemberships выше) — это
+// домен, который почти наверняка создан РАДИ синхронизации именно этого устройства, а не
+// существовавший ранее домен, который здесь просто выбрали из списка (тот трогать нельзя — у
+// него уже могут быть свои источник/участники/настройки). Поэтому здесь, в отличие от
+// pendingDomainMemberships, id домена появляется ТОЛЬКО из события nested-created
+// (DeviceVlanListEditor.vue:onNestedCreated), а не из самого факта членства.
+const pendingSourceDomainIds = ref<Set<string>>(new Set())
 const deviceTypeVlanIds = ref<Set<string>>(new Set())
 const loadingNested = ref(false)
 
@@ -220,6 +228,7 @@ watch(
     deviceVlans.value = []
     memberDomainIds.value = new Set()
     pendingDomainMemberships.value = new Set()
+    pendingSourceDomainIds.value = new Set()
     deviceTypeVlanIds.value = new Set()
     if (source) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
@@ -453,6 +462,16 @@ function onVlanCreated(record: CatalogItem) {
   }
 }
 
+// Пункт 3 правки "создание физического устройства": в отличие от onVlanCreated выше (который
+// реагирует на выбор ЛЮБОГО домена, включая уже существующий), это — событие именно СОЗДАНИЯ
+// нового домена вложенным "+" (см. комментарий у pendingSourceDomainIds и цепочку nested-created
+// в QuickAddModal.vue/QuickAddButton.vue/DeviceVlanListEditor.vue). Само присвоение
+// source_device_id/auto_sync откладывается до persistPendingSourceDomains() ниже — у
+// создаваемого устройства ещё может не быть id.
+function onVlanDomainCreated(record: CatalogItem) {
+  pendingSourceDomainIds.value = new Set([...pendingSourceDomainIds.value, record.id])
+}
+
 async function persistSoftwareAssets(deviceId: string) {
   const existing = await listResource<DeviceSoftware>('device-software', { physical_device_id: deviceId, limit: 1000 })
   for (const old of existing.items) {
@@ -478,6 +497,17 @@ async function persistSoftwareAssets(deviceId: string) {
 async function persistPendingDomainMemberships(deviceId: string) {
   for (const domainId of pendingDomainMemberships.value) {
     await createResource('vlan-domain-devices', { physical_device_id: deviceId, domain_id: domainId })
+  }
+}
+
+// Пункт 3 правки "создание физического устройства": PUT (не POST) — домен уже существует
+// (создан вложенным quick-add'ом на pendingSourceDomainIds.value.add в onVlanDomainCreated
+// выше), здесь только доопределяем source_device_id/auto_sync частичным обновлением. Порядок
+// относительно persistPendingDomainMemberships не важен — оба независимо пишут в vlan-domains
+// разные записи/поля.
+async function persistPendingSourceDomains(deviceId: string) {
+  for (const domainId of pendingSourceDomainIds.value) {
+    await updateResource('vlan-domains', domainId, { source_device_id: deviceId, auto_sync: true })
   }
 }
 
@@ -541,6 +571,7 @@ async function submit() {
           : await createResource<Device>('devices', payload)
         await persistSoftwareAssets(saved.id)
         await persistPendingDomainMemberships(saved.id)
+        await persistPendingSourceDomains(saved.id)
         // persistDeviceVlans ДО persistDeviceInterfaces (не как раньше) — sync_interfaces на
         // бэкенде проверяет vlan_ids порта против уже сохранённых в БД PhysicalDeviceVLAN (см.
         // allowed_vlans в backend/app/services/crud.py). Если VLAN только что добавлен в блок
@@ -727,7 +758,7 @@ async function submit() {
           :conflict-warnings="interfaceConflictWarnings"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
         />
-        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" :device-domain-id="singleDeviceDomainId" @vlan-created="onVlanCreated" />
+        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" :device-domain-id="singleDeviceDomainId" @vlan-created="onVlanCreated" @vlan-domain-created="onVlanDomainCreated" />
       </form>
 
       <div class="modal-foot">

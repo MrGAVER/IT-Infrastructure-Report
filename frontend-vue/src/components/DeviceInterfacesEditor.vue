@@ -390,6 +390,18 @@ function toggleBulkVlan(vlanDefId: string, checked: boolean) {
   else bulkVlanIds.value.delete(vlanDefId)
 }
 
+// Пункт 4 правки "создание физического устройства": та же механика "Все VLAN", что и у
+// isAllVlansSelected()/toggleAllVlans() для одиночного порта выше — тот же способ проставить/
+// снять полный набор VLAN одним кликом, только применительно к bulkVlanIds панели массового
+// редактирования, а не к vlan_ids конкретной строки.
+function isBulkAllVlansSelected(): boolean {
+  return props.vlanOptions.length > 0 && props.vlanOptions.every((v) => bulkVlanIds.value.has(v.id))
+}
+
+function toggleBulkAllVlans(checked: boolean) {
+  bulkVlanIds.value = new Set(checked ? props.vlanOptions.map((v) => v.id) : [])
+}
+
 // Применяет накопленные в панели правки ко всем отмеченным карточкам разом — портировано из
 // applyBulkInterfaceEdit() в vanilla-версии. Поля со значением "— не менять —" (пустая строка)
 // не трогают соответствующее поле выбранных строк; VLAN добавляется К уже стоящим на порту
@@ -485,71 +497,14 @@ function applyBulkEdit() {
     </div>
     <span class="hint generator-hint">Без галочки «Заменить все порты» новые интерфейсы добавляются к уже существующим, не изменяя их. С галочкой — все существующие интерфейсы заменяются шаблонными значениями (после подтверждения).</span>
 
-    <!-- Фикс п.1.3.5: "Массовое редактирование" раньше было отдельной карточкой со своей рамкой
-         НАД карточкой списка интерфейсов — два визуально несвязанных блока, хотя по смыслу
-         "массовое редактирование" относится ровно к тому, что показано в этой самой таблице
-         строкой ниже. iface-panel — одна общая рамка на весь блок (шапка со счётчиком/кнопкой
-         "+ Интерфейс" -> панель массового редактирования -> сама таблица), без отдельной рамки
-         у bulk-edit-bar (только разделитель снизу, см. её CSS) — теперь читается как один
-         прикреплённый к таблице узел, а не как два независимых. -->
+    <!-- Пункт 4 правки "создание физического устройства" ("Массовое редактирование должно быть в
+         виде и с такой же разметкой, как таблица Список интерфейсов"): раньше это была отдельная
+         flex-панель со своими подписанными полями НАД таблицей (см. историю фикса п.1.3.5 — тогда
+         объединили только общую рамку, не разметку). Теперь это первая строка ТОЙ ЖЕ самой
+         <table class="iface-table">, с теми же классами колонок col-select/col-index/col-check/
+         col-actions — значения читаются по заголовкам <thead> таблицы ниже, отдельных подписей
+         полей (бывший <span>Тип интерфейса</span> и т.п.) больше не нужно. -->
     <div v-if="modelValue.length" class="iface-panel">
-      <div class="bulk-edit-bar">
-        <b>Массовое редактирование</b>
-        <label class="if-select-label">
-          <input type="checkbox" :checked="selectedIndices.size === modelValue.length" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
-          <span>Выбрать все</span>
-        </label>
-        <label class="bulk-field">
-          <span>Тип интерфейса</span>
-          <select v-model="bulkTypeId">
-            <option value="">— не менять —</option>
-            <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
-        </label>
-        <label class="bulk-field">
-          <span>Скорость</span>
-          <select v-model="bulkSpeedId">
-            <option value="">— не менять —</option>
-            <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
-        </label>
-        <label class="bulk-field">
-          <span>Управление</span>
-          <select v-model="bulkManagement">
-            <option value="">— не менять —</option>
-            <option value="true">Включить</option>
-            <option value="false">Выключить</option>
-          </select>
-        </label>
-        <label class="bulk-field">
-          <span>Передача данных</span>
-          <select v-model="bulkDataTransfer">
-            <option value="">— не менять —</option>
-            <option value="true">Включить</option>
-            <option value="false">Выключить</option>
-          </select>
-        </label>
-        <label class="bulk-field">
-          <span>Режим порта</span>
-          <select v-model="bulkVlanMode">
-            <option value="">— не менять —</option>
-            <option value="trunk">Trunk</option>
-            <option value="access">Access</option>
-          </select>
-        </label>
-        <div class="bulk-field bulk-field-wide">
-          <span>VLAN на порту (будет добавлен к выбранным)</span>
-          <div v-if="vlanOptions.length" class="vlan-checks">
-            <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-              <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-              {{ vlanLabel(v) }}
-            </label>
-          </div>
-          <span v-else class="empty">VLAN не назначены</span>
-        </div>
-        <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
-      </div>
-
       <div class="iface-list-head">
         <b>Список интерфейсов</b>
         <button type="button" class="btn btn-secondary" @click="addRow">
@@ -586,6 +541,67 @@ function applyBulkEdit() {
           </tr>
         </thead>
         <tbody>
+          <tr class="bulk-edit-row">
+            <td class="col-select">—</td>
+            <td class="col-index">—</td>
+            <td><b>Массовое редактирование</b></td>
+            <td>
+              <select class="cell-input" v-model="bulkTypeId" aria-label="Тип интерфейса — массовое редактирование">
+                <option value="">— не менять —</option>
+                <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
+              </select>
+            </td>
+            <td>—</td>
+            <td>
+              <select class="cell-input" v-model="bulkSpeedId" aria-label="Скорость — массовое редактирование">
+                <option value="">— не менять —</option>
+                <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </td>
+            <td class="col-check">
+              <select class="cell-input bulk-tri-select" v-model="bulkManagement" aria-label="Управление — массовое редактирование">
+                <option value="">—</option>
+                <option value="true">Вкл</option>
+                <option value="false">Выкл</option>
+              </select>
+            </td>
+            <td class="col-check">
+              <select class="cell-input bulk-tri-select" v-model="bulkDataTransfer" aria-label="Передача данных — массовое редактирование">
+                <option value="">—</option>
+                <option value="true">Вкл</option>
+                <option value="false">Выкл</option>
+              </select>
+            </td>
+            <td class="col-vlan-bulk">
+              <select class="cell-input" v-model="bulkVlanMode" aria-label="Режим порта — массовое редактирование">
+                <option value="">— не менять —</option>
+                <option value="trunk">Trunk</option>
+                <option value="access">Access</option>
+              </select>
+              <div v-if="vlanOptions.length" class="vlan-checks">
+                <!-- Пункт 4: галочка "Все VLAN" — та же механика, что и у одиночного порта в
+                     trunk-режиме (см. isAllVlansSelected/toggleAllVlans выше и .vlan-check-all
+                     в развёрнутой строке ниже) — показывается только при выбранном Trunk, т.к.
+                     для access (не более одного VLAN) она не имеет смысла. -->
+                <label v-if="bulkVlanMode === 'trunk'" class="vlan-check vlan-check-all">
+                  <input
+                    type="checkbox"
+                    :checked="isBulkAllVlansSelected()"
+                    @change="toggleBulkAllVlans(($event.target as HTMLInputElement).checked)"
+                  />
+                  <b>Все VLAN</b>
+                </label>
+                <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+                  <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+                  {{ vlanLabel(v) }}
+                </label>
+              </div>
+              <span v-else class="empty">VLAN не назначены</span>
+            </td>
+            <td class="col-actions">
+              <button type="button" class="btn btn-secondary" @click="applyBulkEdit">Применить к выбранным</button>
+            </td>
+          </tr>
           <template v-for="(row, i) in modelValue" :key="row.id ?? i">
             <tr class="iface-row">
               <td class="col-select">
@@ -871,10 +887,10 @@ function applyBulkEdit() {
 .generator .lookup-row select {
   width: 130px;
 }
-/* Фикс п.1.3.5: одна общая рамка на "Массовое редактирование" + шапку списка + саму таблицу —
-   раньше у bulk-edit-bar была своя рамка отдельно от таблицы ниже, из-за чего они читались как
-   два разных, визуально не связанных блока, хотя массовое редактирование имеет смысл только в
-   контексте этой же таблицы. */
+/* Пункт 4 правки "создание физического устройства": панель массового редактирования стала
+   первой строкой той же <table class="iface-table"> ниже (было — отдельная flex-панель со
+   своими подписанными полями, см. историю фикса п.1.3.5 выше — тогда объединили только общую
+   рамку .iface-panel, не саму разметку). */
 .iface-panel {
   display: flex;
   flex-direction: column;
@@ -883,49 +899,20 @@ function applyBulkEdit() {
   border-radius: var(--r-m);
   padding: 10px;
 }
-.bulk-edit-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px dashed var(--border);
-}
-.bulk-edit-bar > b {
-  flex-basis: 100%;
-  font-size: 11.5px;
-}
-.bulk-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-.bulk-field select {
+.bulk-edit-row {
   background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 7px 8px;
-  font-size: 12.5px;
-  color: var(--ink);
-  font-family: inherit;
-  width: 150px;
 }
-.bulk-field-wide {
-  flex: 1 1 100%;
+.bulk-edit-row .cell-input {
+  width: 100%;
 }
-.if-select-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--ink-muted);
+/* Тройной выбор "не менять/вкл/выкл" не помещается в узкую .col-check (рассчитанную на один
+   чекбокс 14×14) без переноса — расширяем только для этого select, не трогая ширину самой
+   колонки у остальных строк (у них там обычный чекбокс, ему запас не нужен). */
+.bulk-tri-select {
+  min-width: 64px;
 }
-.if-select-label input {
-  accent-color: var(--brand);
-  width: 14px;
-  height: 14px;
+.col-vlan-bulk {
+  min-width: 220px;
 }
 .iface-list-head {
   display: flex;

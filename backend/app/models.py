@@ -188,6 +188,37 @@ class PhysicalDevice(TimestampMixin, Base):
     oac_certificate_number: Mapped[Optional[str]] = mapped_column(String(255))
     oac_certificate_registry_date: Mapped[Optional[date]] = mapped_column(Date)
 
+class DeviceStack(TimestampMixin, Base):
+    """Пункт 5 правки "создание физического устройства": стек физических устройств (например,
+    стек коммутаторов) — логическая группа, физически соединённая между собой через указанные
+    порты. Само межстековое кабелирование НЕ дублируется отдельной моделью — это обычные
+    Connection (см. класс ниже) между интерфейсами устройств-участников: "стековые" среди них —
+    это просто те, у которых ОБА конца принадлежат участникам ОДНОГО стека (см.
+    services/crud.py:stack_detail — вычисляется на лету, а не хранится отдельным флагом, чтобы
+    не рассинхронизироваться при добавлении/удалении обычных Connection в обход стека)."""
+    __tablename__ = "device_stacks"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class DeviceStackMember(TimestampMixin, Base):
+    """Членство устройства в стеке. UniqueConstraint только на physical_device_id (не на паре
+    stack_id+physical_device_id) — намеренно: устройство физически может состоять максимум в
+    ОДНОМ стеке одновременно, в отличие от, например, VLANDomainDevice, где участие в НЕСКОЛЬКИХ
+    доменов — обычный случай."""
+    __tablename__ = "device_stack_members"
+    __table_args__ = (UniqueConstraint("physical_device_id", name="uq_device_stack_member_device"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    stack_id: Mapped[str] = mapped_column(ForeignKey("device_stacks.id"), index=True)
+    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
+    # Позиция участника в стеке (1, 2, 3...) — соответствует физическому "stack member ID" на
+    # реальном оборудовании (напр. `show switch` на Cisco). Не участвует ни в какой валидации
+    # уникальности внутри стека: два участника с одинаковой позицией — это на совести того, кто
+    # заполняет форму, а не то, что стоит блокировать (иногда позиции временно задваивают при
+    # физической замене одного члена стека на другой).
+    position: Mapped[int] = mapped_column(Integer, default=1)
+
 class InformationSystem(TimestampMixin, Base):
     __tablename__ = "information_systems"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -455,6 +486,15 @@ class ISContainer(TimestampMixin, Base):
     role: Mapped[Optional[str]] = mapped_column(String(255))
 
 class OpenPort(TimestampMixin, Base):
+    """Открытый порт/протокол владельца (ВМ или интерфейс физ. устройства, см. owner_type/owner_id).
+
+    port/protocol НЕ принимаются от клиента напрямую (правка "убрать текстовые поля Порт/Протокол,
+    эта информация уже есть в справочнике портов") — единственный вход для них — protocol_catalog_id,
+    сервер сам подставляет значения из ProtocolPortCatalog (см. services/crud.py:_apply_open_port_catalog).
+    protocol_catalog_id обязателен (NOT NULL, миграция a1b7c9d3e502 с бэкфиллом старых строк) — без
+    него неоткуда взять port/protocol при создании/обновлении. Колонки port/protocol сохранены как
+    есть (не через relationship) ради обратной совместимости отчёта (reporting.py) и уже
+    существующих запросов, читающих их напрямую с этой модели."""
     __tablename__ = "open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
@@ -462,7 +502,7 @@ class OpenPort(TimestampMixin, Base):
     transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
     port: Mapped[int] = mapped_column(Integer)
     protocol: Mapped[Optional[str]] = mapped_column(String(100))
-    protocol_catalog_id: Mapped[Optional[str]] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
+    protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     description: Mapped[Optional[str]] = mapped_column(Text)
 

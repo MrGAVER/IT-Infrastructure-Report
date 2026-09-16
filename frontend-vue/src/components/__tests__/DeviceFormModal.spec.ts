@@ -140,6 +140,10 @@ describe('DeviceFormModal.vue', () => {
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()
+    // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи в SearchableSelect
+    // резолвится по catalogs.protocolPortCatalog (см. OpenPortListEditor.vue:catalogOptions) —
+    // stubCatalogsFetch() отдаёт пустой protocol-port-catalog, поэтому запись нужна отдельно.
+    catalogs.protocolPortCatalog = [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }]
 
     const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-9' } as never
     vi.stubGlobal(
@@ -158,7 +162,7 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/resources/open-ports')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }],
+              items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -173,7 +177,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
     await wrapper.find('.expand-toggle').trigger('click') // открытые порты скрыты до раскрытия строки интерфейса
 
-    expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
+    expect(wrapper.find('.ports-block .searchable-select input').element).toHaveProperty('value', '22 / SSH')
   })
 
   it('сохраняет добавленный открытый порт интерфейса под id нового устройства и не отправляет пустые строки', async () => {
@@ -503,6 +507,74 @@ describe('DeviceFormModal.vue', () => {
     expect(membershipIdx).toBeGreaterThanOrEqual(0)
     expect(calls[membershipIdx].body).toEqual({ physical_device_id: 'dev-8', domain_id: 'domain-x' })
     expect(deviceVlanIdx).toBeGreaterThan(membershipIdx) // порядок важен — см. комментарий в submit()
+  })
+
+  it('пункт 3 правки "создание физического устройства": домен VLAN, заведённый вложенным "+" при добавлении VLAN, получает устройство источником и включённую автосинхронизацию', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = []
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+
+    const device = { id: 'dev-9', device_type_id: 'dt-server', serial_number: 'SN-21' } as never
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.endsWith('/resources/vlan-domains')) {
+          return new Response(JSON.stringify({ id: 'domain-new', name: 'Домен для dev-9' }), { status: 201 })
+        }
+        if (method === 'POST' && url.endsWith('/resources/vlans')) {
+          return new Response(JSON.stringify({ id: 'v-new', vlan_id: 66, name: 'Новый VLAN', domain_id: 'domain-new' }), { status: 201 })
+        }
+        if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }
+        if (url.includes('/vlan-dashboard')) {
+          return new Response(
+            JSON.stringify({
+              items: [{ vlan_id: 66, definitions: [{ id: 'v-new', vlan_id: 66, name: 'Новый VLAN', description: '', domain_id: 'domain-new', domain_name: 'Домен для dev-9', devices: [] }] }],
+            }),
+          )
+        }
+        if (method === 'PUT' && url.includes('/resources/devices/dev-9')) {
+          return new Response(JSON.stringify(device))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    await vlanEditor.find('.add-btn').trigger('click')
+    await vlanEditor.find('.col-vlan button').trigger('click') // "+" у VLAN — открывает "Добавить: VLAN"
+
+    const body = new DOMWrapper(document.body)
+    // Вложенный "+" у поля "Домен VLAN" ВНУТРИ этой модалки — заводим НОВЫЙ домен, а не выбираем
+    // существующий (тем и отличается от соседнего теста "п.1.3.8" выше, где домен уже есть).
+    await body.find('button[aria-label="Добавить: Домен VLAN"]').trigger('click')
+    const domainModal = body.findAll('.modal')[1]
+    await domainModal.find('input[type="text"]').setValue('Домен для dev-9')
+    await domainModal.find('form').trigger('submit')
+    await flushPromises()
+
+    await body.find('input[type="number"]').setValue(66)
+    await body.findAll('input[type="text"]')[0].setValue('Новый VLAN')
+    await body.find('.overlay form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Правка п.3: PUT /resources/vlan-domains/domain-new, а не создание нового домена (тот уже
+    // создан вложенным quick-add'ом выше) — частичное обновление source_device_id + auto_sync.
+    const domainUpdate = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/vlan-domains/domain-new'))
+    expect(domainUpdate?.body).toEqual({ source_device_id: 'dev-9', auto_sync: true })
   })
 
   it('снятие VLAN устройства убирает его из vlan_ids уже заведённого порта при сохранении', async () => {
@@ -909,8 +981,10 @@ describe('DeviceFormModal.vue', () => {
     await body.find('form').trigger('submit')
     await flushPromises()
 
-    expect((wrapper.find('input.col-port').element as HTMLInputElement).value).toBe('3389')
-    expect((wrapper.find('input.col-protocol').element as HTMLInputElement).value).toBe('RDP')
+    // Правка "убрать текстовые поля Порт/Протокол": больше нет отдельных input'ов для порта и
+    // протокола — быстрое добавление подставляет саму запись в SearchableSelect, порт/протокол
+    // выведет сервер при сохранении.
+    expect(wrapper.find('.ports-block .searchable-select input').element).toHaveProperty('value', '3389 / RDP')
   })
 
   it('п.3: длинное системное имя показывает подсказку через секунду наведения', async () => {
@@ -978,7 +1052,7 @@ describe('DeviceFormModal.vue', () => {
           // Фикс п.1.4 (батч4): открытый порт донора висит на его интерфейсе (owner_type=
           // 'device_interface', owner_id интерфейса), а не на самом устройстве.
           if (url.includes('/resources/open-ports') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: null, ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
           }
           if (url.includes('/resources/interfaces') && method === 'GET') {
             return new Response(JSON.stringify({ items: [{ id: 'if-src', physical_device_id: 'dev-src', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
@@ -989,13 +1063,16 @@ describe('DeviceFormModal.vue', () => {
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
       )
+      // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи резолвится по
+      // catalogs.protocolPortCatalog — stubCatalogsFetch() отдаёт её пустой.
+      catalogs.protocolPortCatalog = [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }]
 
       const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: sourceDevice } })
       await flushPromises()
       await wrapper.find('.expand-toggle').trigger('click') // порты скрыты до раскрытия строки интерфейса
 
       // Донор дал открытый порт 22/SSH на интерфейсе eth0 — оба должны были подгрузиться в форму.
-      expect(wrapper.find('input.col-port').element).toHaveProperty('value', '22')
+      expect(wrapper.find('.ports-block .searchable-select input').element).toHaveProperty('value', '22 / SSH')
 
       await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
       await wrapper.find('form').trigger('submit')
@@ -1081,7 +1158,7 @@ describe('DeviceFormModal.vue', () => {
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
 
-      const cell = wrapper.find('td.col-check')
+      const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
       expect(cell.classes()).toContain('has-conflict')
     })
 
@@ -1105,7 +1182,7 @@ describe('DeviceFormModal.vue', () => {
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
 
-      expect(wrapper.find('td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
     })
   })
 

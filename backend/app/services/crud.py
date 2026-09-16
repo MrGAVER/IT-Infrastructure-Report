@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
@@ -193,6 +193,18 @@ def _validate_information_system_entry(data: dict[str, Any], session: Session, i
 # значения — вызываемые с единой сигнатурой (data, session, item_id, confirm_duplicate,
 # confirm_rack_reassign) — там, где исходный валидатор её не использует, параметры просто
 # игнорируются тонкой обёрткой-адаптером выше.
+def _validate_device_stack_member_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    """Пункт 5 правки "создание физического устройства": устройство может состоять максимум в
+    ОДНОМ стеке одновременно (см. UniqueConstraint('physical_device_id') на DeviceStackMember) —
+    без этой проверки повторная попытка добавить уже состоящее в другом стеке устройство падала
+    бы сырым 409 IntegrityError вместо понятного сообщения с названием стека, где оно уже состоит."""
+    if not data.get('stack_id') or not data.get('physical_device_id'):
+        raise HTTPException(422, 'Необходимо указать стек и устройство')
+    existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == data['physical_device_id']))
+    if existing and existing.id != item_id:
+        stack = session.get(DeviceStack, existing.stack_id)
+        raise HTTPException(409, f'Устройство уже состоит в стеке «{stack.name if stack else existing.stack_id}»')
+
 _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, bool, bool], None]] = {
     PhysicalDevice: _validate_physical_device,
     VirtualMachine: _validate_virtual_machine_entry,
@@ -203,6 +215,7 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     DiagramIcon: _validate_diagram_icon_entry,
     VMIP: _validate_vmip_entry,
     InformationSystem: _validate_information_system_entry,
+    DeviceStackMember: _validate_device_stack_member_entry,
 }
 
 def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
@@ -252,6 +265,35 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         items = [serialize(row) for row in rows]
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
+def _auto_assign_new_domain_vlan_to_source_device(vlan: 'VLAN', session: Session) -> None:
+    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в «справочник VLAN»
+    (VLANFormModal.vue) сразу с привязкой к домену, должен появиться в блоке «VLAN устройства»
+    без отдельного ручного шага. До этой правки требовалось отдельно зайти в форму
+    устройства-источника и добавить VLAN там вручную — sync_vlan_domain (см. api/system.py) не
+    помогает, т.к. он реплицирует набор VLAN устройства-источника НА остальных участников,
+    отталкиваясь от уже существующих у источника PhysicalDeviceVLAN, а только что созданный VLAN
+    там ещё не значится.
+
+    Единственный однозначный получатель — устройство-источник домена (если оно задано):
+    остальные участники получат этот VLAN штатной синхронизацией, когда источник его уже будет
+    иметь. Если у домена источник не задан, или VLAN не привязан ни к какому домену — делать
+    нечего, тихо выходим (это не ошибка, а обычный локальный/пока-не-синхронизируемый VLAN)."""
+    if not vlan.domain_id:
+        return
+    domain = session.get(VLANDomain, vlan.domain_id)
+    if not domain or not domain.source_device_id:
+        return
+    exists = session.scalar(
+        select(PhysicalDeviceVLAN).where(
+            PhysicalDeviceVLAN.physical_device_id == domain.source_device_id,
+            PhysicalDeviceVLAN.vlan_id == vlan.id,
+        )
+    )
+    if exists:
+        return
+    session.add(PhysicalDeviceVLAN(physical_device_id=domain.source_device_id, vlan_id=vlan.id, description=vlan.description))
+
+
 def create_resource(resource: str, payload: dict[str, Any], session: Session):
     ensure_writable(resource)
     payload = validate_payload_schema(resource, payload, is_update=False)
@@ -260,10 +302,19 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     if model is VirtualMachine and data.get('physical_device_id'):
         host = session.get(PhysicalDevice, data['physical_device_id'])
         data['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
+    # Правка "убрать текстовые поля Порт/Протокол": новая запись open-ports создаётся ТОЛЬКО через
+    # generic-ресурс (ВМ, VMFormModal.vue) — в отличие от интерфейсов устройства, где свой путь
+    # синхронизации (_sync_interface_open_ports). port/protocol из payload клиента игнорируются —
+    # см. _apply_open_port_catalog.
+    if model is OpenPort:
+        _apply_open_port_catalog(data, session)
     validate_resource(model, data, session, confirm_duplicate=bool(payload.get('confirm_system_name_duplicate')), confirm_rack_reassign=bool(payload.get('confirm_rack_position_reassign')))
     obj = model(**data); session.add(obj)
     try:
-        session.flush(); audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit(); return serialize(obj)
+        session.flush()
+        if model is VLAN:
+            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+        audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit(); return serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
@@ -277,13 +328,27 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     if model is VirtualMachine and proposed.get('physical_device_id'):
         host = session.get(PhysicalDevice, proposed['physical_device_id'])
         proposed['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
+    # protocol_catalog_id — NOT NULL в БД с миграции a1b7c9d3e502 (бэкфилл закрыл старые строки
+    # без ссылки на справочник), поэтому proposed['protocol_catalog_id'] здесь гарантированно
+    # заполнен всегда — условность (была нужна только для переходного периода до миграции) убрана.
+    if model is OpenPort:
+        _apply_open_port_catalog(proposed, session)
     validate_resource(model, proposed, session, item_id, bool(payload.get('confirm_system_name_duplicate')), bool(payload.get('confirm_rack_position_reassign')))
     for key, value in payload.items():
         if key in allowed: setattr(obj, key, value)
     if model is VirtualMachine and 'physical_device_id' in proposed:
         obj.hypervisor_os_id = proposed.get('hypervisor_os_id')
+    if model is OpenPort:
+        obj.port = proposed['port']; obj.protocol = proposed['protocol']
     try:
-        session.flush(); audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
+        session.flush()
+        # Пункт 2 правки "создание физического устройства": только когда domain_id реально
+        # менялся в этом запросе — иначе безобидное редактирование ДРУГОГО поля VLAN (например,
+        # описания) на каждый сохранение заново бы проверяло/дублировало привязку к
+        # устройству-источнику домена, в котором этот VLAN и так уже давно значится.
+        if model is VLAN and 'domain_id' in payload:
+            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+        audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
@@ -341,6 +406,32 @@ def delete_resource(resource: str, item_id: str, session: Session):
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
 _VLAN_MODES = frozenset({"access", "trunk"})
+
+
+def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> ProtocolPortCatalog:
+    """Достаёт запись справочника «Протоколы и порты» по id или кидает понятную 422 — общая точка
+    для _apply_open_port_catalog() ниже, чтобы формулировка ошибки не разъезжалась между
+    интерфейсами устройства и generic create/update_resource('open-ports') (ВМ)."""
+    entry = session.get(ProtocolPortCatalog, catalog_id) if catalog_id else None
+    if not entry:
+        raise HTTPException(422, 'Не выбрана существующая запись справочника «Протоколы и порты»')
+    return entry
+
+
+def _apply_open_port_catalog(data: dict[str, Any], session: Session) -> None:
+    """Правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в справочнике
+    портов": OpenPort.port/protocol больше не принимаются от клиента как свободный текст, а
+    ВСЕГДА выводятся сервером из выбранной записи protocol_port_catalogs. Так проверялось на
+    фронтенде (OpenPortListEditor.vue) и раньше, но только там — прямой запрос к API в обход UI
+    мог записать порт/протокол, не совпадающий со справочником (тот же класс проблемы, что и
+    validate_ipv4_field для IP интерфейса, код-ревью п.3.4).
+
+    Мутирует data на месте (добавляет/перезаписывает 'port' и 'protocol') — вызывается ДО
+    построения ORM-объекта в create_resource/_sync_interface_open_ports, поэтому подстановка
+    попадает в тот же INSERT/UPDATE, без дополнительного запроса."""
+    entry = _resolve_protocol_catalog_entry(data.get('protocol_catalog_id'), session)
+    data['port'] = entry.port
+    data['protocol'] = entry.protocol_type
 
 
 def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]) -> None:
@@ -411,11 +502,11 @@ def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: S
     old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id)).all()
     old_map = {x.id: x for x in old_ports}; seen: set[str] = set()
     for port_data in open_ports:
-        if not isinstance(port_data, dict) or port_data.get('port') in (None, ''): continue
-        try:
-            port_number = int(port_data['port'])
-        except (TypeError, ValueError):
-            raise HTTPException(422, 'Номер открытого порта должен быть числом')
+        # Пустая строка без выбранной записи справочника — незаполненная строка-плейсхолдер
+        # (пользователь нажал "+ Открытый порт", но ещё не выбрал запись) — как и раньше с
+        # пустым 'port', тихо пропускаем, а не 422 (см. addRow() в OpenPortListEditor.vue).
+        if not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
+        _apply_open_port_catalog(port_data, session)  # port_data['port']/['protocol'] ← справочник
         port_id = port_data.get('id')
         if port_id:
             port_obj = old_map.get(port_id)
@@ -423,10 +514,10 @@ def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: S
             seen.add(port_id)
         else:
             port_obj = OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(port_obj)
-        port_obj.port = port_number
+        port_obj.port = port_data['port']
+        port_obj.protocol = port_data['protocol']
+        port_obj.protocol_catalog_id = port_data['protocol_catalog_id']
         port_obj.transport_protocol = port_data.get('transport_protocol') or 'TCP'
-        port_obj.protocol = port_data.get('protocol') or None
-        port_obj.protocol_catalog_id = port_data.get('protocol_catalog_id') or None
         port_obj.description = port_data.get('description') or None
     for old_port in old_ports:
         if old_port.id not in seen: session.delete(old_port)

@@ -29,26 +29,53 @@ describe('OpenPortListEditor.vue', () => {
     expect(wrapper.text()).toContain('Открытые порты не добавлены')
   })
 
-  it('подставляет порт и протокол при выборе записи справочника', async () => {
-    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }]
+  it('правка "убрать текстовые поля Порт/Протокол": инпутов для них больше нет', () => {
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }]
     const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
 
-    await wrapper.find('.col-catalog select').setValue('cat-https')
-
-    const emitted = wrapper.emitted('update:modelValue')!
-    expect(emitted[0][0]).toEqual([
-      { protocol_catalog_id: 'cat-https', port: '443', protocol: 'HTTPS', transport_protocol: 'TCP', description: '' },
-    ])
+    expect(wrapper.find('input.col-port').exists()).toBe(false)
+    expect(wrapper.find('input.col-protocol').exists()).toBe(false)
+    // Справочник теперь SearchableSelect (фикс п.2 — поиск вводом текста), не нативный <select>.
+    expect(wrapper.find('.col-catalog select').exists()).toBe(false)
+    expect(wrapper.find('.col-catalog .searchable-select').exists()).toBe(true)
   })
 
-  it('позволяет заполнить порт вручную без справочника', async () => {
-    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }]
+  it('подставляет protocol_catalog_id при выборе записи справочника (порт/протокол выводит сервер)', async () => {
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }]
     const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
 
-    await wrapper.find('input.col-port').setValue('8080')
+    await wrapper.find('.col-catalog .searchable-select input').trigger('focus')
+    await wrapper.find('.col-catalog .ss-option').trigger('mousedown') // единственная опция первой в списке — "22 / SSH"
 
     const emitted = wrapper.emitted('update:modelValue')!
-    expect((emitted[0][0] as OpenPortDraftRow[])[0].port).toBe('8080')
+    expect(emitted[0][0]).toEqual([{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }])
+  })
+
+  it('поиск вводом текста фильтрует записи справочника (фикс п.2, как и у других похожих полей)', async () => {
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    const input = wrapper.find('.col-catalog .searchable-select input')
+    await input.trigger('focus')
+    await input.setValue('HTTPS')
+
+    const options = wrapper.findAll('.col-catalog .ss-option')
+    expect(options).toHaveLength(1)
+    expect(options[0].text()).toBe('443 / HTTPS')
+
+    await options[0].trigger('mousedown')
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect(emitted[0][0]).toEqual([{ protocol_catalog_id: 'cat-https', transport_protocol: 'TCP', description: '' }])
+  })
+
+  it('снятие выбора (крестик очистки) сбрасывает protocol_catalog_id', async () => {
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    await wrapper.find('.col-catalog .ss-clear').trigger('mousedown')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as OpenPortDraftRow[])[0].protocol_catalog_id).toBe('')
   })
 
   it('добавляет новую строку с транспортом TCP по умолчанию', async () => {
@@ -56,15 +83,11 @@ describe('OpenPortListEditor.vue', () => {
     await wrapper.find('button.add-btn').trigger('click')
 
     const emitted = wrapper.emitted('update:modelValue')!
-    expect(emitted[0][0]).toEqual([
-      { protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' },
-    ])
+    expect(emitted[0][0]).toEqual([{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }])
   })
 
   it('удаляет строку по клику на кнопку удаления', async () => {
-    const rows: OpenPortDraftRow[] = [
-      { id: 'op-1', protocol_catalog_id: '', port: '22', protocol: 'SSH', transport_protocol: 'TCP', description: '' },
-    ]
+    const rows: OpenPortDraftRow[] = [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }]
     const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
 
     await wrapper.find('.icon-btn.danger').trigger('click')
@@ -73,26 +96,8 @@ describe('OpenPortListEditor.vue', () => {
     expect(emitted[0][0]).toEqual([])
   })
 
-  it('поле "Протокол" и селект транспорта подписаны по-разному — не выглядят как дублирующие (п.1.5/4.3)', () => {
-    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }]
-    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
-
-    const protocolInput = wrapper.find('input.col-protocol')
-    const transportSelect = wrapper.find('select.col-transport')
-    expect(protocolInput.attributes('title')).toMatch(/прикладного уровня/)
-    expect(transportSelect.attributes('title')).toMatch(/Транспортный протокол/)
-    // Собственно проверка "не дублируют" — тексты подсказок разные и явно называют, чем один
-    // отличается от другого (а не два одинаковых generic "Протокол").
-    expect(protocolInput.attributes('title')).not.toBe(transportSelect.attributes('title'))
-  })
-
   it('быстрое добавление записи справочника подставляет id в protocol_catalog_id строки', async () => {
-    // Порт/протокол автозаполняются только если catalogEntries уже отражает созданную запись —
-    // в реальном приложении так и есть (VMFormModal.vue/DeviceFormModal.vue передают проп как
-    // catalogs.protocolPortCatalog напрямую из стора, реактивно), но в изолированном юнит-тесте
-    // с статичным массивом это не воспроизвести — см. интеграционный тест в
-    // DeviceFormModal.spec.ts на полное автозаполнение после квик-добавления.
-    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', port: '', protocol: '', transport_protocol: 'TCP', description: '' }]
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }]
     const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
 
     vi.stubGlobal(

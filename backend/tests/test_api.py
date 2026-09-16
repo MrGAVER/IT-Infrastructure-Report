@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 from app.config import REPORT_DIR
 
 
@@ -19,6 +21,23 @@ def _create_device_type(client, name: str, **extra):
     только синтаксически валидный тип устройства для последующего создания физических устройств."""
     category_id = client.get("/api/v1/resources/device-categories", params={"limit": 1}).json()["items"][0]["id"]
     return client.post("/api/v1/resources/device-types", json={"name": name, "category_id": category_id, **extra}).json()
+
+
+def _create_protocol_catalog_entry(client, port: int, protocol_type: str):
+    """Возвращает запись справочника «Протоколы и порты» с данными port+protocol_type — с тех пор,
+    как OpenPort.port/protocol выводятся сервером только из неё (правка "убрать текстовые поля
+    Порт/Протокол"), тестам открытых портов нужна реальная запись справочника вместо произвольного
+    port в payload.
+
+    Идемпотентно (находит существующую, а не только создаёт): большинство "хрестоматийных" портов,
+    использованных в этих тестах (22/SSH, 80/HTTP, 443/HTTPS и т.п.), уже засеяны по умолчанию
+    (см. PROTOCOL_DEFAULTS в app/services/catalogs.py) — наивный POST здесь падал бы 409
+    (UNIQUE constraint failed) на уже существующей паре port+protocol_type."""
+    existing = client.get("/api/v1/resources/protocol-port-catalog", params={"limit": 1000}).json()["items"]
+    match = next((e for e in existing if e["port"] == port and e["protocol_type"] == protocol_type), None)
+    if match:
+        return match
+    return client.post("/api/v1/resources/protocol-port-catalog", json={"port": port, "protocol_type": protocol_type}).json()
 
 
 def test_health(client):
@@ -482,17 +501,22 @@ class TestInterfacesSync:
 
     def test_sync_interfaces_creates_and_lists_open_ports(self, client):
         """п.1.4 (батч4): открытые порты теперь свойство интерфейса — переживают сохранение и
-        возвращаются вложенными в свой интерфейс, а не общим списком на устройство."""
+        возвращаются вложенными в свой интерфейс, а не общим списком на устройство.
+
+        Правка "убрать текстовые поля Порт/Протокол": port/protocol в payload не отправляются
+        вовсе — сервер сам выводит их из protocol_catalog_id (см. _apply_open_port_catalog)."""
         dt = _create_device_type(client, "Коммутатор с портами")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-01"}).json()
+        https_entry = _create_protocol_catalog_entry(client, 443, "HTTPS")
+        snmp_entry = _create_protocol_catalog_entry(client, 161, "SNMP")
 
         payload = {
             "interfaces": [
                 {
                     "name": "Gi0/1",
                     "open_ports": [
-                        {"port": 443, "transport_protocol": "TCP", "protocol": "HTTPS", "description": "Веб-интерфейс"},
-                        {"port": 161, "transport_protocol": "UDP", "protocol": "SNMP"},
+                        {"protocol_catalog_id": https_entry["id"], "transport_protocol": "TCP", "description": "Веб-интерфейс"},
+                        {"protocol_catalog_id": snmp_entry["id"], "transport_protocol": "UDP"},
                     ],
                 },
                 {"name": "Gi0/2", "open_ports": []},
@@ -513,14 +537,21 @@ class TestInterfacesSync:
     def test_sync_interfaces_updates_and_removes_open_ports(self, client):
         dt = _create_device_type(client, "Коммутатор обновление портов")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-02"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
+        http_entry = _create_protocol_catalog_entry(client, 80, "HTTP")
+        https_alt_entry = _create_protocol_catalog_entry(client, 8443, "HTTPS-alt")
         first = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22, "protocol": "SSH"}, {"port": 80, "protocol": "HTTP"}]}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [
+                {"protocol_catalog_id": ssh_entry["id"]}, {"protocol_catalog_id": http_entry["id"]},
+            ]}]},
         ).json()
         iface = first["items"][0]
         port_to_keep = next(p for p in iface["open_ports"] if p["port"] == 22)
 
-        # Оставляем один порт (с id — обновляем), убираем второй, добавляем третий новый.
+        # Оставляем один порт (с id — обновляем, меняем описание), убираем второй, добавляем
+        # третий новый. Смена protocol_catalog_id на уже существующей строке — self-healing:
+        # port/protocol пересчитываются заново из новой ссылки, а не остаются от старой.
         second = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
             json={
@@ -529,8 +560,8 @@ class TestInterfacesSync:
                         "id": iface["id"],
                         "name": "Gi0/1",
                         "open_ports": [
-                            {"id": port_to_keep["id"], "port": 22, "protocol": "SSH (обновлено)"},
-                            {"port": 8443, "protocol": "HTTPS-alt"},
+                            {"id": port_to_keep["id"], "protocol_catalog_id": ssh_entry["id"], "description": "обновлено"},
+                            {"protocol_catalog_id": https_alt_entry["id"]},
                         ],
                     }
                 ]
@@ -539,7 +570,8 @@ class TestInterfacesSync:
         assert second.status_code == 200, second.text
         ports = sorted(second.json()["items"][0]["open_ports"], key=lambda p: p["port"])
         assert [p["port"] for p in ports] == [22, 8443]
-        assert ports[0]["protocol"] == "SSH (обновлено)"
+        assert ports[0]["protocol"] == "SSH"
+        assert ports[0]["description"] == "обновлено"
 
     def test_sync_interfaces_open_port_with_foreign_id_rejected(self, client):
         """Порт, принадлежащий ДРУГОМУ интерфейсу, нельзя переприсвоить простой передачей его id в
@@ -547,9 +579,10 @@ class TestInterfacesSync:
         для IP интерфейса чуть выше по файлу."""
         dt = _create_device_type(client, "Коммутатор чужой порт")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-03"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
         created = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22}]}, {"name": "Gi0/2", "open_ports": []}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ssh_entry["id"]}]}, {"name": "Gi0/2", "open_ports": []}]},
         ).json()
         by_name = {i["name"]: i for i in created["items"]}
         foreign_port_id = by_name["Gi0/1"]["open_ports"][0]["id"]
@@ -559,27 +592,33 @@ class TestInterfacesSync:
             json={
                 "interfaces": [
                     {"id": by_name["Gi0/1"]["id"], "name": "Gi0/1", "open_ports": []},
-                    {"id": by_name["Gi0/2"]["id"], "name": "Gi0/2", "open_ports": [{"id": foreign_port_id, "port": 22}]},
+                    {"id": by_name["Gi0/2"]["id"], "name": "Gi0/2", "open_ports": [{"id": foreign_port_id, "protocol_catalog_id": ssh_entry["id"]}]},
                 ]
             },
         )
         assert r.status_code == 422
 
-    def test_sync_interfaces_rejects_non_numeric_open_port(self, client):
+    def test_sync_interfaces_rejects_unknown_protocol_catalog_id(self, client):
+        """Замена test_sync_interfaces_rejects_non_numeric_open_port из версии до правки "убрать
+        текстовые поля Порт/Протокол": номер порта больше не приходит от клиента как свободный
+        текст, поэтому нечего валидировать на "число ли это" — вместо этого проверяем, что
+        несуществующая (или отсутствующая) ссылка на справочник отклоняется 422, а не тихо, и не
+        падением в 409 на уровне БД."""
         dt = _create_device_type(client, "Коммутатор невалидный порт")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-04"}).json()
         r = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": "не число"}]}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": "не-существует"}]}]},
         )
         assert r.status_code == 422
 
     def test_sync_interfaces_deleting_interface_deletes_its_open_ports(self, client):
         dt = _create_device_type(client, "Коммутатор удаление порта")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-PORTS-05"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
         created = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"port": 22}]}]},
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ssh_entry["id"]}]}]},
         ).json()
         iface_id = created["items"][0]["id"]
 
@@ -947,6 +986,246 @@ class TestVlanDomainSync:
         assert any(x["entity_id"] == domain["id"] and x["action"] == "SYNC" for x in r.json()["items"])
 
 
+class TestOpenPortCatalogIsSourceOfTruth:
+    """Правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в справочнике
+    портов": generic-ресурс open-ports (используется ВМ-формой, в отличие от интерфейсов
+    устройства со своим _sync_interface_open_ports, покрытым TestInterfacesSync выше)."""
+
+    def test_create_without_catalog_reference_rejected(self, client):
+        r = client.post("/api/v1/resources/open-ports", json={"owner_type": "virtual_machine", "owner_id": "vm-1"})
+        assert r.status_code == 422
+        assert "справочник" in r.json()["detail"].lower()
+
+    def test_create_with_unknown_catalog_id_rejected(self, client):
+        r = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "virtual_machine", "owner_id": "vm-1", "protocol_catalog_id": "нет-такого-id"},
+        )
+        assert r.status_code == 422
+
+    def test_create_ignores_client_supplied_port_and_protocol(self, client):
+        """Даже если клиент в обход UI пришлёт свои port/protocol вместе с protocol_catalog_id,
+        сервер должен использовать значения САМОЙ записи справочника, а не то, что прислал клиент —
+        иначе OpenPort мог бы разойтись со справочником, ради единственного источника истины в
+        котором эти два текстовых поля и были убраны из формы."""
+        entry = _create_protocol_catalog_entry(client, 3389, "RDP")
+        r = client.post(
+            "/api/v1/resources/open-ports",
+            json={
+                "owner_type": "virtual_machine", "owner_id": "vm-1",
+                "protocol_catalog_id": entry["id"],
+                "port": 9999, "protocol": "ПОДДЕЛЬНЫЙ",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["port"] == 3389
+        assert body["protocol"] == "RDP"
+
+    def test_update_resyncs_port_and_protocol_when_catalog_reference_changes(self, client):
+        old_entry = _create_protocol_catalog_entry(client, 22, "SSH")
+        new_entry = _create_protocol_catalog_entry(client, 443, "HTTPS")
+        created = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "virtual_machine", "owner_id": "vm-1", "protocol_catalog_id": old_entry["id"]},
+        ).json()
+
+        r = client.put(f"/api/v1/resources/open-ports/{created['id']}", json={"protocol_catalog_id": new_entry['id']})
+        assert r.status_code == 200, r.text
+        assert r.json()["port"] == 443
+        assert r.json()["protocol"] == "HTTPS"
+
+    def test_protocol_catalog_id_is_not_null_at_db_level(self, client, db_session):
+        """Выполнено «Возможное улучшение 1» из прошлой правки: миграция a1b7c9d3e502 забэкфиллила
+        старые строки без protocol_catalog_id и перевела колонку в NOT NULL — до неё этот же вызов
+        создавал бы «повисшую» запись без ссылки на справочник (см. удалённый тест
+        test_update_unrelated_field_on_legacy_row_without_catalog_reference_still_works в истории).
+        Теперь такую строку нельзя завести даже в обход API, напрямую через ORM — IntegrityError
+        летит уже на commit(), до всякой прикладной валидации."""
+        from app.models import OpenPort
+        from sqlalchemy.exc import IntegrityError
+
+        legacy = OpenPort(owner_type="virtual_machine", owner_id="vm-legacy", port=8080, protocol=None)
+        db_session.add(legacy)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+class TestNewDomainVlanAutoAssignedToSourceDevice:
+    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в справочник (POST
+    /resources/vlans) сразу с domain_id, должен появиться в «VLAN устройства» устройства-источника
+    домена без отдельного ручного шага — до этой правки sync_vlan_domain не помогал (см. docstring
+    _auto_assign_new_domain_vlan_to_source_device в services/crud.py): он реплицирует то, что УЖЕ
+    назначено источнику, а только что созданный VLAN там ещё не значится."""
+
+    def test_create_with_domain_that_has_source_device_auto_assigns(self, client):
+        dt = _create_device_type(client, "Коммутатор авто-VLAN")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-1"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен с источником", "source_device_id": source["id"]}).json()
+
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 77, "name": "Гости", "domain_id": domain["id"]}).json()
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert r.status_code == 200
+        assert [row["vlan_id"] for row in r.json()["items"]] == [vlan["id"]]
+
+    def test_create_with_domain_without_source_device_does_not_fail(self, client):
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без источника"}).json()
+        r = client.post("/api/v1/resources/vlans", json={"vlan_id": 78, "name": "Без источника", "domain_id": domain["id"]})
+        assert r.status_code == 201, r.text
+
+    def test_create_without_domain_does_not_auto_assign_anywhere(self, client):
+        dt = _create_device_type(client, "Коммутатор для локального VLAN")
+        device = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-2"}).json()
+        client.post("/api/v1/resources/vlans", json={"vlan_id": 79, "name": "Локальный"})
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={device['id']}")
+        assert r.json()["items"] == []
+
+    def test_assigning_domain_via_update_also_auto_assigns(self, client):
+        """Тот же эффект, если domain_id проставлен не сразу при создании VLAN, а последующим
+        PUT — VLANFormModal.vue допускает и такое (редактирование существующего локального VLAN,
+        привязка его к домену задним числом)."""
+        dt = _create_device_type(client, "Коммутатор для отложенной привязки")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-3"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен для PUT", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 80, "name": "Позже в домене"}).json()
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+        assert r.status_code == 200, r.text
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert [row["vlan_id"] for row in r.json()["items"]] == [vlan["id"]]
+
+    def test_editing_unrelated_field_does_not_duplicate_or_touch_assignment(self, client):
+        """domain_id НЕ пришёл в payload этого PUT — авто-назначение не должно срабатывать повторно
+        (условие 'domain_id' in payload в update_resource); подтверждаем через отсутствие
+        дублирования записи device-vlans."""
+        dt = _create_device_type(client, "Коммутатор без повторного назначения")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-4"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без дублей", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 81, "name": "Без дублей", "domain_id": domain["id"]}).json()
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"description": "просто описание"})
+        assert r.status_code == 200, r.text
+
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert len(r.json()["items"]) == 1
+
+    def test_does_not_duplicate_if_source_device_already_has_this_vlan(self, client):
+        """Устройство-источник могло уже иметь этот VLAN назначенным вручную ДО того, как VLAN
+        привязали к домену (или до повторного PUT domain_id на том же значении) — уникальный
+        constraint uq_physical_device_vlan не должен превратиться в 409 на ровном месте."""
+        dt = _create_device_type(client, "Коммутатор ручного назначения")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUTO-SRC-5"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен ручного назначения", "source_device_id": source["id"]}).json()
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 82, "name": "Уже назначен"}).json()
+        client.post("/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan["id"]})
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+        assert r.status_code == 200, r.text
+        r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
+        assert len(r.json()["items"]) == 1
+
+
+class TestDeviceStacks:
+    """Пункт 5 правки "создание физического устройства": стек физических устройств, соединённых
+    на основании указанных портов (см. DeviceStack/DeviceStackMember в models.py — межстековые
+    соединения переиспользуют обычный Connection, отдельной сущности под кабель между членами
+    стека нет)."""
+
+    def test_detail_returns_members_ordered_by_position_with_stack_membership_ids(self, client):
+        dt = _create_device_type(client, "Коммутатор для стека")
+        dev1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-01"}).json()
+        dev2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-02"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек ядра", "description": "2 коммутатора"}).json()
+
+        # Добавляем в обратном порядке позиций — ответ детали должен быть отсортирован по
+        # position, а не по порядку добавления/id.
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev2["id"], "position": 2})
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev1["id"], "position": 1})
+
+        r = client.get(f"/api/v1/device-stacks/{stack['id']}/detail")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["stack"]["name"] == "Стек ядра"
+        assert [m["id"] for m in body["members"]] == [dev1["id"], dev2["id"]]
+        assert [m["stack_position"] for m in body["members"]] == [1, 2]
+        assert all(m["stack_member_id"] for m in body["members"])
+        assert body["connections"] == []
+
+    def test_detail_404_for_unknown_stack(self, client):
+        r = client.get("/api/v1/device-stacks/нет-такого/detail")
+        assert r.status_code == 404
+
+    def test_adding_device_already_in_another_stack_rejected_with_stack_name(self, client):
+        dt = _create_device_type(client, "Коммутатор занят другим стеком")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-03"}).json()
+        stack_a = client.post("/api/v1/resources/device-stacks", json={"name": "Стек А"}).json()
+        stack_b = client.post("/api/v1/resources/device-stacks", json={"name": "Стек Б"}).json()
+        client.post(f"/api/v1/device-stacks/{stack_a['id']}/members", json={"physical_device_id": dev["id"]})
+
+        r = client.post(f"/api/v1/device-stacks/{stack_b['id']}/members", json={"physical_device_id": dev["id"]})
+        assert r.status_code == 409
+        assert "Стек А" in r.json()["detail"]
+
+    def test_adding_same_device_to_same_stack_twice_is_idempotent(self, client):
+        dt = _create_device_type(client, "Коммутатор повторное добавление")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-04"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек идемпотентный"}).json()
+
+        first = client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+        second = client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+        assert first.status_code == 200 and second.status_code == 200
+        assert first.json()["id"] == second.json()["id"]
+
+        members = client.get(f"/api/v1/resources/device-stack-members?stack_id={stack['id']}").json()["items"]
+        assert len(members) == 1
+
+    def test_detail_includes_connections_between_members_only(self, client):
+        """Подключение между двумя УЧАСТНИКАМИ стека — попадает в детали. Подключение от участника
+        к устройству СНАРУЖИ стека — нет, даже если оно есть в БД (это обычный аплинк, не
+        межстековый кабель)."""
+        dt = _create_device_type(client, "Коммутатор с портами для стека")
+        stack_dev1 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-05"}).json()
+        stack_dev2 = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-06"}).json()
+        outside_dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-07-outside"}).json()
+
+        def _iface(device_id, name):
+            r = client.put(f"/api/v1/devices/{device_id}/interfaces", json={"interfaces": [{"name": name}]})
+            return r.json()["items"][0]["id"]
+
+        iface1 = _iface(stack_dev1["id"], "stack-link")
+        iface2 = _iface(stack_dev2["id"], "stack-link")
+        iface_outside = _iface(outside_dev["id"], "uplink")
+        ct = client.post("/api/v1/resources/connection-types", json={"name": "Стековый кабель (тест)"}).json()
+
+        stack_conn = client.post(
+            "/api/v1/resources/connections",
+            json={"source_interface_id": iface1, "destination_interface_id": iface2, "connection_type_id": ct["id"]},
+        ).json()
+        client.post(
+            "/api/v1/resources/connections",
+            json={"source_interface_id": iface2, "destination_interface_id": iface_outside, "connection_type_id": ct["id"]},
+        )
+
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек с топологией"}).json()
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": stack_dev1["id"], "position": 1})
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": stack_dev2["id"], "position": 2})
+
+        r = client.get(f"/api/v1/device-stacks/{stack['id']}/detail")
+        conns = r.json()["connections"]
+        assert [c["id"] for c in conns] == [stack_conn["id"]]
+        assert conns[0]["source_device_name"] == "STACK-05"
+        assert conns[0]["destination_device_name"] == "STACK-06"
+
+    def test_deleting_stack_with_members_is_blocked(self, client):
+        dt = _create_device_type(client, "Коммутатор для удаления стека")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "STACK-08"}).json()
+        stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек на удаление"}).json()
+        client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": dev["id"]})
+
+        r = client.delete(f"/api/v1/resources/device-stacks/{stack['id']}")
+        assert r.status_code == 409
+
+
 class TestGlobalSearchTextIndex:
     """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 4 таблицах
     (is-ips/is-sources/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
@@ -990,9 +1269,10 @@ class TestGlobalSearchTextIndex:
     def test_open_port_ip_searchable_by_address(self, client):
         dt = _create_device_type(client, "Тип для поиска порта")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRCH-2"}).json()
+        https_entry = _create_protocol_catalog_entry(client, 443, "HTTPS")
         r = client.post(
             "/api/v1/resources/open-ports",
-            json={"owner_type": "physical_device", "owner_id": dev["id"], "port": 443, "ip_address": "10.20.30.43"},
+            json={"owner_type": "physical_device", "owner_id": dev["id"], "protocol_catalog_id": https_entry["id"], "ip_address": "10.20.30.43"},
         )
         assert r.status_code == 201, r.text
         r = client.get("/api/v1/resources/open-ports?q=10.20.30.43")
