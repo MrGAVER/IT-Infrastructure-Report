@@ -76,6 +76,38 @@ def test_update_layout_rejects_non_object_positions(client):
     assert r.status_code == 422
 
 
+def test_rename_diagram_updates_name(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Старое название"}).json()
+    r = client.put(f"/api/v1/diagrams/{diagram['id']}/rename", json={"name": "Новое название"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Новое название"
+    assert client.get(f"/api/v1/diagrams/{diagram['id']}").json()["name"] == "Новое название"
+
+
+def test_rename_diagram_rejects_empty_name(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма для пустого имени"}).json()
+    r = client.put(f"/api/v1/diagrams/{diagram['id']}/rename", json={"name": "   "})
+    assert r.status_code == 422
+
+
+def test_rename_diagram_rejects_duplicate_name(client):
+    client.post("/api/v1/diagrams", json={"name": "Занятое имя"})
+    other = client.post("/api/v1/diagrams", json={"name": "Диаграмма для переименования"}).json()
+    r = client.put(f"/api/v1/diagrams/{other['id']}/rename", json={"name": "Занятое имя"})
+    assert r.status_code == 409
+
+
+def test_rename_diagram_allows_keeping_own_current_name(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "То же имя"}).json()
+    r = client.put(f"/api/v1/diagrams/{diagram['id']}/rename", json={"name": "То же имя"})
+    assert r.status_code == 200
+
+
+def test_rename_diagram_not_found(client):
+    r = client.put("/api/v1/diagrams/does-not-exist/rename", json={"name": "Что угодно"})
+    assert r.status_code == 404
+
+
 def test_update_group_state_creates_and_updates(client):
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма групп"}).json()
     r = client.put(f"/api/v1/diagrams/{diagram['id']}/groups/building:x", json={"is_collapsed": True, "custom_threshold": 3})

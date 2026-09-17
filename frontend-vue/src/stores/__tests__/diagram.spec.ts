@@ -150,6 +150,32 @@ describe('useDiagramStore', () => {
     expect(store.exporting).toBeNull() // сброшено в finally
   })
 
+  it('rename() обновляет имя диаграммы в сторе', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'PUT') calls.push({ url, body: JSON.parse(init!.body as string) })
+        return jsonResponse({ id: 'd1', name: 'Новое имя', description: null, group_by: 'structural_unit', collapse_threshold: 20 })
+      }),
+    )
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    await store.rename('Новое имя')
+    expect(calls).toEqual([{ url: '/api/v1/diagrams/d1/rename', body: { name: 'Новое имя' } }])
+    expect(store.diagram?.name).toBe('Новое имя')
+  })
+
+  it('rename() при ошибке (напр. занятое имя) выбрасывает исключение и не трогает имя в сторе', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Диаграмма с таким названием уже существует' }, 409)))
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    await expect(store.rename('Занятое имя')).rejects.toThrow('Диаграмма с таким названием уже существует')
+    expect(store.diagram?.name).toBe('Диаграмма 1') // не изменилось
+  })
+
   it('remove() очищает текущую диаграмму', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ status: 'ok' })))
     const store = useDiagramStore()

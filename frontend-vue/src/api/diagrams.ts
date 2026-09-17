@@ -157,6 +157,10 @@ export function updateDiagramLayout(id: string, payload: UpdateLayoutPayload) {
   return api.put<{ status: string }>(`/diagrams/${id}/layout`, payload)
 }
 
+export function renameDiagram(id: string, name: string) {
+  return api.put<SavedDiagramSummary>(`/diagrams/${id}/rename`, { name })
+}
+
 export function updateGroupState(id: string, groupKey: string, payload: { is_collapsed?: boolean; custom_threshold?: number | null }) {
   return api.put<GroupStateResult>(`/diagrams/${id}/groups/${encodeURIComponent(groupKey)}`, payload)
 }

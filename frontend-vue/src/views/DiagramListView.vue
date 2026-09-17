@@ -5,7 +5,7 @@
 // StatCard-подобные простые списковые экраны без сложной клиентской логики.
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { deleteDiagram, duplicateDiagram, listDiagrams, type SavedDiagramSummary } from '../api/diagrams'
+import { deleteDiagram, duplicateDiagram, listDiagrams, GROUP_BY_OPTIONS, type SavedDiagramSummary } from '../api/diagrams'
 import { useToast } from '../composables/useToast'
 import DiagramFormModal from '../components/diagram/DiagramFormModal.vue'
 
@@ -34,6 +34,13 @@ onMounted(reload)
 
 function open(d: SavedDiagramSummary) {
   router.push({ name: 'diagram-detail', params: { id: d.id } })
+}
+
+/** Фикс: раньше в карточку попадало сырое значение поля (напр. "structural_unit") — то же
+ * человекочитаемое сопоставление, что уже используется в DiagramFormModal.vue при выборе
+ * измерения группировки. */
+function groupByLabel(value: string): string {
+  return GROUP_BY_OPTIONS.find((o) => o.value === value)?.label ?? value
 }
 
 async function duplicate(d: SavedDiagramSummary) {
@@ -95,7 +102,7 @@ function onCreated(id: string) {
       <div v-for="d in items" :key="d.id" class="row card">
         <div class="row-main" @click="open(d)">
           <span class="name">{{ d.name }}</span>
-          <span class="meta">{{ d.group_by }} · порог сворачивания {{ d.collapse_threshold }}</span>
+          <span class="meta">{{ groupByLabel(d.group_by) }} · порог сворачивания {{ d.collapse_threshold }}</span>
         </div>
         <div class="row-actions">
           <button class="btn btn-secondary" type="button" @click="open(d)">Открыть</button>

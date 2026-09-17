@@ -37,6 +37,16 @@ describe('DiagramListView.vue', () => {
     expect(wrapper.text()).toContain('Диаграмма 2')
   })
 
+  it('показывает человекочитаемое название измерения группировки, а не сырое значение поля', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(SAMPLE)))
+    const wrapper = mount(DiagramListView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('По зданию')
+    expect(wrapper.text()).toContain('По VLAN')
+    expect(wrapper.text()).not.toContain('building')
+    expect(wrapper.text()).not.toMatch(/\bvlan\b/) // "VLAN" (заглавными, как в лейбле) — не то же самое, что сырое "vlan"
+  })
+
   it('пустой список показывает подсказку создать первую диаграмму', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([])))
     const wrapper = mount(DiagramListView, { global: { plugins: [router] } })

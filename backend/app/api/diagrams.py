@@ -161,6 +161,29 @@ def get_diagram(diagram_id: str, session: Session = Depends(get_db)):
     return {**_diagram_out(diagram), "nodes": graph["nodes"], "edges": graph["edges"], "viewport": viewport}
 
 
+@router.put("/{diagram_id}/rename")
+def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
+    """Только name — узко специализированный эндпоинт под конкретную операцию (тот же принцип,
+    что и у PUT .../layout и PUT .../groups/{group_key} выше: отдельный узкий эндпоинт под
+    операцию, а не один "общий" PUT на весь SavedDiagram). Изменение group_by/scope_filter уже
+    требует пересборки графа (см. POST /regenerate) — смешивать это с переименованием было бы
+    двумя разными по цене и последствиям операциями под одной ручкой."""
+    diagram = _get_diagram_or_404(session, diagram_id)
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(422, "Укажите название диаграммы")
+    dup = session.scalar(select(SavedDiagram).where(SavedDiagram.name == name, SavedDiagram.id != diagram_id))
+    if dup:
+        raise HTTPException(409, "Диаграмма с таким названием уже существует")
+    old_name = diagram.name
+    diagram.name = name
+    session.flush()
+    audit(session, "diagrams", diagram.id, AuditAction.UPDATE, f"Диаграмма «{old_name}» переименована в «{name}»")
+    session.commit()
+    session.refresh(diagram)
+    return _diagram_out(diagram)
+
+
 @router.put("/{diagram_id}/layout")
 def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
