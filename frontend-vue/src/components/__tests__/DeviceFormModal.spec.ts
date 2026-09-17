@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
+import { useVLANDomainsStore } from '../../stores/vlanDomains'
 import { useConnectionsStore } from '../../stores/connections'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
 
@@ -575,6 +576,80 @@ describe('DeviceFormModal.vue', () => {
     // создан вложенным quick-add'ом выше) — частичное обновление source_device_id + auto_sync.
     const domainUpdate = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/vlan-domains/domain-new'))
     expect(domainUpdate?.body).toEqual({ source_device_id: 'dev-9', auto_sync: true })
+  })
+
+  it('пункт 3 правки "домен VLAN": кнопка "Включить в домен" в блоке "VLAN устройства" добавляет устройство в существующий домен при сохранении формы', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = []
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+    const vlanDomains = useVLANDomainsStore()
+    vlanDomains.all = [{ id: 'dom-existing', name: 'Ядро сети', description: null, source_device_id: null, auto_sync: false }]
+    vlanDomains.loaded = true
+
+    const device = { id: 'dev-10', device_type_id: 'dt-server', serial_number: 'SN-22' } as never
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 })) // устройство пока ни в одном домене
+        }
+        if (method === 'POST' && url.endsWith('/resources/vlan-domain-devices')) {
+          return new Response(JSON.stringify({ id: 'link-new', domain_id: 'dom-existing', physical_device_id: 'dev-10' }), { status: 201 })
+        }
+        if (method === 'PUT' && url.includes('/resources/devices/dev-10')) {
+          return new Response(JSON.stringify(device))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    await vlanEditor.find('.join-domain-row select').setValue('dom-existing')
+    await vlanEditor.find('.join-domain-row button').trigger('click')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const membershipCreate = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
+    expect(membershipCreate?.body).toEqual({ physical_device_id: 'dev-10', domain_id: 'dom-existing' })
+  })
+
+  it('пункт 3: домен, в котором устройство уже состоит, не показывается повторно в списке "Включить в домен"', async () => {
+    const vlans = useVLANsStore()
+    vlans.groups = []
+    vlans.loaded = true
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+    const vlanDomains = useVLANDomainsStore()
+    vlanDomains.all = [{ id: 'dom-a', name: 'Домен А', description: null, source_device_id: null, auto_sync: false }]
+    vlanDomains.loaded = true
+
+    const device = { id: 'dev-11', device_type_id: 'dt-server', serial_number: 'SN-23' } as never
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/resources/vlan-domain-devices')) {
+          return new Response(JSON.stringify({ items: [{ id: 'link-1', domain_id: 'dom-a', physical_device_id: 'dev-11' }], total: 1, offset: 0, limit: 1000 }))
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    expect(vlanEditor.find('.join-domain-row').exists()).toBe(false)
   })
 
   it('снятие VLAN устройства убирает его из vlan_ids уже заведённого порта при сохранении', async () => {

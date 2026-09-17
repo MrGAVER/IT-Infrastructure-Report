@@ -163,4 +163,42 @@ describe('DeviceVlanListEditor.vue', () => {
       expect((domainInput.element as HTMLInputElement).value).toBe('')
     })
   })
+
+  describe('пункт 3 правки "домен VLAN": кнопка "Включить в домен"', () => {
+    const joinableDomains = [
+      { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: null, auto_sync: false },
+      { id: 'dom-2', name: 'Доступ', description: null, source_device_id: null, auto_sync: false },
+    ]
+
+    it('раздел не показывается, если joinableDomains пуст (устройство уже во всех доменах или доменов нет)', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [], vlanOptions, joinableDomains: [] } })
+      expect(wrapper.find('.join-domain-row').exists()).toBe(false)
+    })
+
+    it('показывает список доступных для включения доменов и по клику эмитит join-domain', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [], vlanOptions, joinableDomains } })
+
+      const select = wrapper.find('.join-domain-row select')
+      expect(select.findAll('option').map((o) => o.text())).toEqual(['— включить в домен —', 'Ядро сети', 'Доступ'])
+
+      await select.setValue('dom-2')
+      await wrapper.find('.join-domain-row button').trigger('click')
+
+      expect(wrapper.emitted('join-domain')?.[0]).toEqual(['dom-2'])
+    })
+
+    it('кнопка "Включить" неактивна, пока домен не выбран', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [], vlanOptions, joinableDomains } })
+      expect((wrapper.find('.join-domain-row button').element as HTMLButtonElement).disabled).toBe(true)
+    })
+
+    it('после включения сбрасывает выбор в select (готов к следующему выбору)', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [], vlanOptions, joinableDomains } })
+      const select = wrapper.find('.join-domain-row select')
+      await select.setValue('dom-1')
+      await wrapper.find('.join-domain-row button').trigger('click')
+
+      expect((select.element as HTMLSelectElement).value).toBe('')
+    })
+  })
 })
