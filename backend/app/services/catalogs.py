@@ -142,7 +142,14 @@ def _seed_operating_systems(session: Session) -> None:
         if key not in existing_os: session.add(OperatingSystem(category_id=cat.id, name=name, vendor=vendor, version=version))
     existing_embedded = {(x.name, x.version) for x in session.scalars(select(EmbeddedOperatingSystem)).all()}
     for name, version, vendor in EMBEDDED_OS_DEFAULTS:
-        if (name, version) not in existing_embedded: session.add(EmbeddedOperatingSystem(name=name, version=version or None, vendor=vendor))
+        # Фикс: version хранится как None, если версия не указана (version or None ниже) — но
+        # у SONiC в самом EMBEDDED_OS_DEFAULTS версия задана пустой строкой ''. Без этой
+        # нормализации ДО сравнения (x.name, x.version) из БД содержит ('SONiC', None), а ключ
+        # для проверки — ('SONiC', ''): 'не найдено' на каждом запуске, и SONiC заводился заново
+        # при каждом старте приложения. У всех остальных записей версия непустая, поэтому баг
+        # был виден только на этой одной.
+        version = version or None
+        if (name, version) not in existing_embedded: session.add(EmbeddedOperatingSystem(name=name, version=version, vendor=vendor))
 
 
 def _seed_protocols(session: Session) -> None:
