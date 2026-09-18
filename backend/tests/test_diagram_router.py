@@ -76,6 +76,38 @@ def test_update_layout_rejects_non_object_positions(client):
     assert r.status_code == 422
 
 
+def test_rename_diagram_updates_name(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Старое название"}).json()
+    r = client.put(f"/api/v1/diagrams/{diagram['id']}/rename", json={"name": "Новое название"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Новое название"
+    assert client.get(f"/api/v1/diagrams/{diagram['id']}").json()["name"] == "Новое название"
+
+
+def test_rename_diagram_rejects_empty_name(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма для пустого имени"}).json()
+    r = client.put(f"/api/v1/diagrams/{diagram['id']}/rename", json={"name": "   "})
+    assert r.status_code == 422
+
+
+def test_rename_diagram_rejects_duplicate_name(client):
+    client.post("/api/v1/diagrams", json={"name": "Занятое имя"})
+    other = client.post("/api/v1/diagrams", json={"name": "Диаграмма для переименования"}).json()
+    r = client.put(f"/api/v1/diagrams/{other['id']}/rename", json={"name": "Занятое имя"})
+    assert r.status_code == 409
+
+
+def test_rename_diagram_allows_keeping_own_current_name(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "То же имя"}).json()
+    r = client.put(f"/api/v1/diagrams/{diagram['id']}/rename", json={"name": "То же имя"})
+    assert r.status_code == 200
+
+
+def test_rename_diagram_not_found(client):
+    r = client.put("/api/v1/diagrams/does-not-exist/rename", json={"name": "Что угодно"})
+    assert r.status_code == 404
+
+
 def test_update_group_state_creates_and_updates(client):
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма групп"}).json()
     r = client.put(f"/api/v1/diagrams/{diagram['id']}/groups/building:x", json={"is_collapsed": True, "custom_threshold": 3})
@@ -177,6 +209,23 @@ def test_export_rejects_unknown_format(client):
     assert r.status_code == 422
 
 
+def test_export_failure_returns_clean_500_instead_of_raw_traceback(client, monkeypatch):
+    """Реальная причина такого сбоя в проде оказалась окружением (EXE-сборка не паковала файлы
+    данных vsdx/drawpyo — см. infra_registry.spec и test_pyinstaller_spec.py), но на случай
+    ЛЮБОЙ другой непредвиденной причины экспорт должен отдавать понятную ошибку, а не голый
+    500 без единого объяснения (см. try/except в export_diagram)."""
+    import app.api.diagrams as diagrams_module
+
+    def _boom(graph):
+        raise RuntimeError("симулированный сбой стороннего пакета экспорта")
+
+    monkeypatch.setitem(diagrams_module.EXPORT_FORMATS, "svg", ("image/svg+xml", _boom))
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма с падающим экспортом"}).json()
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg"})
+    assert r.status_code == 500
+    assert ".svg" in r.json()["detail"]
+
+
 def test_delete_diagram_cascades_layout_and_group_states(client, db_session):
     """Раздел 13 ТЗ дословно: 'DELETE /diagrams/{id} каскадно удаляет
     diagram_layouts/diagram_group_states'."""
@@ -256,7 +305,10 @@ def test_switch_node_edge_carries_port_index_end_to_end(client, db_session):
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма коммутатора"}).json()
     detail = client.get(f"/api/v1/diagrams/{diagram['id']}").json()
     switch_node = next(n for n in detail["nodes"] if n["id"] == switch.id)
-    assert switch_node["icon"]["shape"] == "switch"
+    # Пункт 5 правки "диаграмма топологии сети": 'Коммутатор L2' теперь резолвится в
+    # switch_l2 (собственная подкатегория 'Коммутаторы L2'), а не в общий 'switch' — см.
+    # test_diagram_catalogs.py:test_l2_and_l3_switches_resolve_to_different_categories_with_distinct_shapes.
+    assert switch_node["icon"]["shape"] == "switch_l2"
     assert switch_node["icon"]["port_ticks"] == 1
     edge = detail["edges"][0]
     assert edge["source_interface"]["port_index"] == 0

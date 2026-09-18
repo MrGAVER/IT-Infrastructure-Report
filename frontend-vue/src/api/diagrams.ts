@@ -12,7 +12,7 @@ export const GROUP_BY_OPTIONS: { value: DiagramGroupBy; label: string }[] = [
   { value: 'device_category', label: 'По категории устройства' },
 ]
 
-export type DiagramIconShape = 'server' | 'switch' | 'firewall' | 'workstation' | 'peripheral' | 'generic'
+export type DiagramIconShape = 'server' | 'switch' | 'switch_l2' | 'switch_l3' | 'router' | 'firewall' | 'workstation' | 'peripheral' | 'generic'
 
 export interface DiagramIconGenerated {
   mode: 'generated'
@@ -155,6 +155,10 @@ export function getDiagram(id: string) {
 
 export function updateDiagramLayout(id: string, payload: UpdateLayoutPayload) {
   return api.put<{ status: string }>(`/diagrams/${id}/layout`, payload)
+}
+
+export function renameDiagram(id: string, name: string) {
+  return api.put<SavedDiagramSummary>(`/diagrams/${id}/rename`, { name })
 }
 
 export function updateGroupState(id: string, groupKey: string, payload: { is_collapsed?: boolean; custom_threshold?: number | null }) {

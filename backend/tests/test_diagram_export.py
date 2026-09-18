@@ -80,6 +80,18 @@ def test_export_svg_zero_port_ticks_renders_no_tick_elements():
     assert svg.count("port-tick") == 0
 
 
+@pytest.mark.parametrize("shape", ["switch", "switch_l2", "switch_l3"])
+def test_export_svg_port_ticks_render_for_every_switch_variant(shape):
+    """Пункт 5 правки "диаграмма топологии сети": раньше засечки рисовались только при
+    shape == "switch" точным сравнением — после разделения на switch_l2/switch_l3
+    (services/catalogs.py) это исключило бы обе новые формы. Регрессия на .startswith("switch")
+    в _svg_node."""
+    graph = _sample_graph(port_ticks=6)
+    graph["nodes"][0]["icon"]["shape"] = shape
+    svg = export_svg(graph)
+    assert svg.count("port-tick") == 6
+
+
 def test_export_svg_escapes_special_characters_in_label():
     graph = _sample_graph()
     graph["nodes"][0]["label"] = 'sw<01>&"test"'
@@ -125,6 +137,16 @@ def test_export_drawio_switch_port_ticks_rendered_as_separate_objects():
     vertices = _drawio_vertex_cells(xml_text)
     tick_objects = [v for v in vertices if not v.get("value")]
     assert len(tick_objects) == 24
+
+
+@pytest.mark.parametrize("shape", ["switch", "switch_l2", "switch_l3"])
+def test_export_drawio_port_ticks_render_for_every_switch_variant(shape):
+    graph = _sample_graph(port_ticks=6)
+    graph["nodes"][0]["icon"]["shape"] = shape
+    xml_text = export_drawio(graph)
+    vertices = _drawio_vertex_cells(xml_text)
+    tick_objects = [v for v in vertices if not v.get("value")]
+    assert len(tick_objects) == 6
 
 
 def test_export_drawio_edge_count_matches_graph():

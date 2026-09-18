@@ -33,6 +33,20 @@ def test_seed_defaults_creates_full_category_hierarchy(db_session):
     assert servers.parent_id is None
     assert servers.diagram_shape == "server"
     assert servers.diagram_color == "#4f7cff"
+    # Пункт 5 правки "диаграмма топологии сети": L2/L3-коммутаторы и маршрутизаторы — свои
+    # подкатегории с собственным diagram_shape (иначе на диаграмме получают одинаковый значок),
+    # цвет не задают — наследуют зелёный от "Сетевая инфраструктура" по цепочке.
+    switches_l2 = categories["Коммутаторы L2"]
+    switches_l3 = categories["Коммутаторы L3"]
+    routers = categories["Маршрутизаторы"]
+    assert switches_l2.parent_id == switches.id
+    assert switches_l2.diagram_shape == "switch_l2"
+    assert switches_l2.diagram_color is None
+    assert switches_l3.parent_id == switches.id
+    assert switches_l3.diagram_shape == "switch_l3"
+    assert routers.parent_id == categories["Сетевая инфраструктура"].id
+    assert routers.diagram_shape == "router"
+    assert routers.diagram_color is None
 
 
 def test_seed_defaults_creates_all_device_types_with_category(db_session):
@@ -47,6 +61,20 @@ def test_seed_defaults_creates_all_device_types_with_category(db_session):
     # Устаревшие обобщённые типы больше не входят в стандартный набор (раздел 4.2 ТЗ).
     assert "Сетевое оборудование" not in types
     assert "Средство защиты информации" not in types
+
+
+def test_l2_and_l3_switches_resolve_to_different_categories_with_distinct_shapes(db_session):
+    """Пункт 5 правки "диаграмма топологии сети": раньше 'Коммутатор L2' и 'Коммутатор L3'
+    указывали на ОДНУ и ту же категорию 'Коммутаторы' — получали одинаковый значок на диаграмме,
+    различить уровень коммутации на глаз было нельзя."""
+    seed_defaults(db_session)
+    types = {t.name: t for t in db_session.scalars(select(DeviceType)).all()}
+    categories = {c.id: c for c in db_session.scalars(select(DeviceCategory)).all()}
+    l2_category = categories[types["Коммутатор L2"].category_id]
+    l3_category = categories[types["Коммутатор L3"].category_id]
+    router_category = categories[types["Маршрутизатор"].category_id]
+    assert l2_category.id != l3_category.id
+    assert {l2_category.diagram_shape, l3_category.diagram_shape, router_category.diagram_shape} == {"switch_l2", "switch_l3", "router"}
 
 
 def test_seed_defaults_is_idempotent_for_categories_and_types(db_session):

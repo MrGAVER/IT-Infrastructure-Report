@@ -49,15 +49,14 @@ function vlanSummary(edge: DiagramEdge): string | undefined {
   return edge.vlans.length ? `VLAN ${edge.vlans.map((v) => v.vlan_id).join(', ')}` : undefined
 }
 
-/** Общая подпись ребра (рисуется посередине линии, см. DiagramConnectionEdge.vue): раньше несла
- * только VLAN, из-за чего на канвасе не было НИКАКОГО текстового указания порта, даже когда сами
- * линии уже анкерились к разным засечкам. Теперь показывает оба конца связи по именам портов и,
- * если есть, список VLAN — например "eth0 ↔ Gi0/3 · VLAN 10, 20". */
+/** Общая подпись ребра (рисуется посередине линии, см. DiagramConnectionEdge.vue) — только
+ * список VLAN, если есть. Раньше сюда же дублировались имена портов ("eth0 ↔ Gi0/3 · VLAN 10,
+ * 20"), хотя те же самые имена ОТДЕЛЬНО показываются и у каждого конца линии
+ * (edgeSourcePortLabel/edgeTargetPortLabel ниже) — на плотных диаграммах с длинными именами
+ * портов и заметным числом связей это удваивало объём текста на линию без новой информации и
+ * усиливало наложение подписей друг на друга (пункт 3 правки "диаграмма топологии сети"). */
 export function edgeMidLabel(edge: DiagramEdge): string | undefined {
-  const from = interfaceName(edge.source_interface)
-  const to = interfaceName(edge.target_interface)
-  const ports = from && to ? `${from} ↔ ${to}` : undefined
-  return [ports, vlanSummary(edge)].filter((part): part is string => !!part).join(' · ')
+  return vlanSummary(edge)
 }
 
 /** Подпись конкретного порта у самого устройства (доп. к общей подписи посередине линии, раздел
@@ -90,8 +89,45 @@ export function offsetAlongHandle(x: number, y: number, position: Position, dist
   }
 }
 
+/** Угол линии от (x1,y1) к (x2,y2) в градусах для CSS `rotate()`, под который подписи ребра
+ * кладутся ВДОЛЬ линии, а не всегда горизонтально (пункт 3 правки "диаграмма топологии сети").
+ * Нормализован в (-90, 90] — не «угол линии как есть», а с разворотом на 180°, если он вышел бы
+ * за эти пределы: иначе половина линий (те, что идут справа налево или снизу вверх) укладывала
+ * бы текст вверх ногами, читать который пришлось бы буквально наклонив голову. Единый угол на
+ * все три подписи ребра (среднюю и обе крайние у портов) — не отдельный тангенс кривой Безье в
+ * каждой точке: разница на глаз для типичных, не сильно изогнутых соединений этой диаграммы
+ * пренебрежимо мала, а общий угол проще и предсказуемее для всех трёх сразу. */
+export function edgeAngleDeg(x1: number, y1: number, x2: number, y2: number): number {
+  let angle = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI
+  if (angle > 90) angle -= 180
+  else if (angle < -90) angle += 180
+  return angle
+}
+
+/** Пункт 4 правки "диаграмма топологии сети": при большом числе связей трудно понять, что куда
+ * идёт. Наведение на узел или ребро (см. DiagramView.vue) подсвечивает СВЯЗАННЫЕ с ним рёбра и
+ * приглушает остальные — линии никак не перекраиваются, только упрощается проследить взглядом
+ * конкретное соединение. Наведение на ребро — точечное (только оно само); наведение на узел —
+ * все рёбра, у которых этот узел источник ИЛИ приёмник. hoveredEdgeId в приоритете над
+ * hoveredNodeId, если наведены оба одновременно (курсор физически не может быть одновременно
+ * над двумя разными элементами, но проверка на всякий случай не помешает).
+ */
+export function edgeIsRelatedToHover(edge: DiagramEdge, hoveredNodeId: string | null, hoveredEdgeId: string | null): boolean {
+  if (hoveredEdgeId !== null) return edge.id === hoveredEdgeId
+  if (hoveredNodeId !== null) return edge.source_node_id === hoveredNodeId || edge.target_node_id === hoveredNodeId
+  return true
+}
+
 export function toFlowNode(n: DiagramNode): Node<DiagramNode> {
   return { id: n.id, type: n.type, position: { x: n.x, y: n.y }, data: n, draggable: true }
+}
+
+/** Базовый (не зависящий от подсветки при наведении, см. DiagramView.vue) стиль линии ребра —
+ * вынесено отдельно, чтобы watcher подсветки в DiagramView.vue мог ДОБАВИТЬ opacity поверх
+ * этого стиля, а не затереть его целиком (иначе неактивное соединение потеряло бы пунктир, как
+ * только на диаграмме начиналось наведение на что угодно). */
+export function edgeBaseStyle(e: DiagramEdge): Record<string, string> | undefined {
+  return e.is_active ? undefined : { strokeDasharray: '6 4' }
 }
 
 export function toFlowEdge(e: DiagramEdge): Edge<DiagramEdge> {
@@ -104,6 +140,6 @@ export function toFlowEdge(e: DiagramEdge): Edge<DiagramEdge> {
     targetHandle: targetHandleId(e),
     data: e,
     updatable: false,
-    style: e.is_active ? undefined : { strokeDasharray: '6 4' },
+    style: edgeBaseStyle(e),
   }
 }

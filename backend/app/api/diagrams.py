@@ -14,6 +14,7 @@ duplicate создаёт полный снимок диаграммы на мо�
 from __future__ import annotations
 
 import json
+import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -27,6 +28,7 @@ from ..services.crud import audit
 from ..services.diagram_export import export_drawio, export_svg, export_vsdx
 from ..services.diagram_graph import GROUP_DIMENSIONS, build_graph, parse_scope_filter
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/diagrams", tags=["Diagrams"])
 
 DEFAULT_COLLAPSE_THRESHOLD = 20
@@ -161,6 +163,29 @@ def get_diagram(diagram_id: str, session: Session = Depends(get_db)):
     return {**_diagram_out(diagram), "nodes": graph["nodes"], "edges": graph["edges"], "viewport": viewport}
 
 
+@router.put("/{diagram_id}/rename")
+def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
+    """Только name — узко специализированный эндпоинт под конкретную операцию (тот же принцип,
+    что и у PUT .../layout и PUT .../groups/{group_key} выше: отдельный узкий эндпоинт под
+    операцию, а не один "общий" PUT на весь SavedDiagram). Изменение group_by/scope_filter уже
+    требует пересборки графа (см. POST /regenerate) — смешивать это с переименованием было бы
+    двумя разными по цене и последствиям операциями под одной ручкой."""
+    diagram = _get_diagram_or_404(session, diagram_id)
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(422, "Укажите название диаграммы")
+    dup = session.scalar(select(SavedDiagram).where(SavedDiagram.name == name, SavedDiagram.id != diagram_id))
+    if dup:
+        raise HTTPException(409, "Диаграмма с таким названием уже существует")
+    old_name = diagram.name
+    diagram.name = name
+    session.flush()
+    audit(session, "diagrams", diagram.id, AuditAction.UPDATE, f"Диаграмма «{old_name}» переименована в «{name}»")
+    session.commit()
+    session.refresh(diagram)
+    return _diagram_out(diagram)
+
+
 @router.put("/{diagram_id}/layout")
 def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
@@ -258,7 +283,16 @@ def export_diagram(diagram_id: str, format: str = Query(..., alias="format"), se
     _, positions = _load_layout(session, diagram_id)
     graph = build_graph(session, diagram, node_positions=positions)
     media_type, serialize = EXPORT_FORMATS[format]
-    data = serialize(graph)
+    try:
+        data = serialize(graph)
+    except Exception:
+        # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
+        # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
+        # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
+        # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
+        # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
+        logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
+        raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
     diagram.last_export_format = format
     session.commit()
     filename = f"{diagram.name}.{format}"

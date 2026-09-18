@@ -71,7 +71,10 @@ def _svg_node(node: dict, x: float, y: float) -> str:
     else:
         color = icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
         parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{color}" stroke="#333333" stroke-width="1.5"/>')
-        if icon.get("shape") == "switch":
+        # startswith, а не точное сравнение — 'switch' (общий fallback категории "Коммутаторы"
+        # без более точной L2/L3 подкатегории), 'switch_l2' и 'switch_l3' одинаково рисуются с
+        # засечками портов, различаются только заливкой формы значка (см. DiagramDeviceNode.vue).
+        if icon.get("shape", "").startswith("switch"):
             parts.append(_svg_port_ticks(x, y, NODE_WIDTH, NODE_HEIGHT, icon.get("port_ticks", 0)))
     parts.append(
         f'<text x="{x + NODE_WIDTH / 2}" y="{y + NODE_HEIGHT - 8}" text-anchor="middle" '
@@ -142,7 +145,7 @@ def export_drawio(graph: dict) -> str:
         else:
             icon = node["icon"]
             obj.fillColor = icon.get("color", CUSTOM_ICON_FALLBACK_COLOR) if icon.get("mode") == "generated" else CUSTOM_ICON_FALLBACK_COLOR
-            if icon.get("mode") == "generated" and icon.get("shape") == "switch":
+            if icon.get("mode") == "generated" and icon.get("shape", "").startswith("switch"):
                 ticks = icon.get("port_ticks", 0)
                 if ticks:
                     spacing = NODE_WIDTH / (ticks + 1)

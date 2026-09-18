@@ -10,6 +10,7 @@ import {
   exportDiagram as apiExportDiagram,
   getDiagram,
   regenerateDiagram as apiRegenerateDiagram,
+  renameDiagram as apiRenameDiagram,
   updateDiagramLayout,
   updateGroupState as apiUpdateGroupState,
   type CreateDiagramPayload,
@@ -60,6 +61,18 @@ export const useDiagramStore = defineStore('diagram', {
       const summary = await apiCreateDiagram(payload)
       await this.load(summary.id)
       return this.diagram!
+    },
+
+    /** Пункт 8 правки "диаграмма топологии сети": переименование — раньше диаграмму нельзя было
+     * переименовать вообще, только создать заново под другим именем. errors выбрасывается
+     * (а не гасится в this.error, как остальные действия этого стора) — DiagramView.vue должен
+     * показать ошибку ПРЯМО В поле переименования (напр. "такое имя уже занято") и оставить
+     * режим редактирования открытым для повторной попытки, а не молча провалиться и вернуть
+     * старое имя без объяснения. */
+    async rename(name: string) {
+      if (!this.diagram) return
+      const updated = await apiRenameDiagram(this.diagram.id, name)
+      this.diagram.name = updated.name
     },
 
     selectNode(node: DiagramNode) {
