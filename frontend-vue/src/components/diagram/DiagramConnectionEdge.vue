@@ -9,7 +9,7 @@
 import { computed } from 'vue'
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@vue-flow/core'
 import type { DiagramEdge } from '../../api/diagrams'
-import { edgeMidLabel, edgeSourcePortLabel, edgeTargetPortLabel, offsetAlongHandle } from '../../utils/diagramFlow'
+import { edgeAngleDeg, edgeMidLabel, edgeSourcePortLabel, edgeTargetPortLabel, offsetAlongHandle } from '../../utils/diagramFlow'
 
 const props = defineProps<EdgeProps<DiagramEdge>>()
 
@@ -32,9 +32,21 @@ const sourcePortLabel = computed(() => edgeSourcePortLabel(props.data))
 const targetPortLabel = computed(() => edgeTargetPortLabel(props.data))
 const sourceLabelPos = computed(() => offsetAlongHandle(props.sourceX, props.sourceY, props.sourcePosition))
 const targetLabelPos = computed(() => offsetAlongHandle(props.targetX, props.targetY, props.targetPosition))
+// Пункт 3 правки "диаграмма топологии сети": один угол на все три подписи этого ребра, а не
+// горизонтальный текст независимо от направления линии (см. edgeAngleDeg — нормализован, чтобы
+// подпись никогда не оказывалась вверх ногами).
+const angle = computed(() => edgeAngleDeg(props.sourceX, props.sourceY, props.targetX, props.targetY))
+// Пункт 4: DiagramView.vue приглушает НЕсвязанные с наведением рёбра через props.style.opacity
+// (см. edgeIsRelatedToHover) — тот style применяется только к <BaseEdge> (сама линия), подписи
+// рисуются отдельно через EdgeLabelRenderer со своим style и не унаследовали бы его сами по
+// себе: подпись осталась бы чёткой на фоне потускневшей линии, что выглядело бы непоследовательно.
+const opacity = computed(() => {
+  const raw = (props.style as Record<string, unknown> | undefined)?.opacity
+  return typeof raw === 'number' ? raw : 1
+})
 
 function labelStyle(x: number, y: number) {
-  return { transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }
+  return { transform: `translate(-50%, -50%) translate(${x}px, ${y}px) rotate(${angle.value}deg)`, opacity: opacity.value }
 }
 </script>
 

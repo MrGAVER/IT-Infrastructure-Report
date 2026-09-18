@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { Position } from '@vue-flow/core'
 import {
   CONNECTION_EDGE_TYPE,
+  edgeAngleDeg,
+  edgeBaseStyle,
+  edgeIsRelatedToHover,
   edgeMidLabel,
   edgeSourcePortLabel,
   edgeTargetPortLabel,
@@ -72,9 +75,9 @@ describe('sourceHandleId / targetHandleId', () => {
 })
 
 describe('edgeMidLabel', () => {
-  it('оба порта известны, VLAN есть — имена портов и VLAN через разделитель', () => {
+  it('есть VLAN — их список', () => {
     const e = edge({ vlans: [{ id: 'v1', vlan_id: 10, name: 'data' }] })
-    expect(edgeMidLabel(e)).toBe('Gi0/1 ↔ eth0 · VLAN 10')
+    expect(edgeMidLabel(e)).toBe('VLAN 10')
   })
 
   it('несколько VLAN — перечисляются через запятую', () => {
@@ -84,20 +87,15 @@ describe('edgeMidLabel', () => {
         { id: 'v2', vlan_id: 20, name: 'voice' },
       ],
     })
-    expect(edgeMidLabel(e)).toBe('Gi0/1 ↔ eth0 · VLAN 10, 20')
+    expect(edgeMidLabel(e)).toBe('VLAN 10, 20')
   })
 
-  it('без VLAN — только имена портов', () => {
-    expect(edgeMidLabel(edge({ vlans: [] }))).toBe('Gi0/1 ↔ eth0')
-  })
-
-  it('интерфейс с одной стороны неизвестен — подпись из одного VLAN, без порта', () => {
-    const e = edge({ target_interface: null, vlans: [{ id: 'v1', vlan_id: 10, name: 'data' }] })
-    expect(edgeMidLabel(e)).toBe('VLAN 10')
-  })
-
-  it('ни портов, ни VLAN — пустая строка (подпись не рисуется)', () => {
-    expect(edgeMidLabel(edge({ target_interface: null, vlans: [] }))).toBe('')
+  it('без VLAN — undefined (подпись не рисуется), даже если оба порта известны', () => {
+    // Регрессия (пункт 3 правки "диаграмма топологии сети"): раньше сюда же дублировались
+    // имена портов ("Gi0/1 ↔ eth0") — та же информация уже показывается отдельно у каждого
+    // конца линии (edgeSourcePortLabel/edgeTargetPortLabel), дублирование лишь усиливало
+    // наложение подписей друг на друга на плотных диаграммах.
+    expect(edgeMidLabel(edge({ vlans: [] }))).toBeUndefined()
   })
 })
 
@@ -153,5 +151,69 @@ describe('toFlowEdge', () => {
     expect(flow.label).toBeUndefined()
     expect(flow.sourceHandle).toBeUndefined()
     expect(flow.targetHandle).toBeUndefined()
+  })
+})
+
+describe('edgeAngleDeg', () => {
+  it('горизонтальная линия слева направо — 0°', () => {
+    expect(edgeAngleDeg(0, 0, 100, 0)).toBe(0)
+  })
+
+  it('вертикальная линия сверху вниз — 90°', () => {
+    expect(edgeAngleDeg(0, 0, 0, 100)).toBe(90)
+  })
+
+  it('линия под 45° вниз-вправо', () => {
+    expect(edgeAngleDeg(0, 0, 100, 100)).toBeCloseTo(45)
+  })
+
+  it('линия справа налево нормализуется в (-90, 90] — не 180°, иначе текст лёг бы вверх ногами', () => {
+    // Та же горизонталь, что и в первом тесте, но source/target поменяны местами — без
+    // нормализации получилось бы 180°, что для CSS rotate() визуально переворачивает подпись.
+    expect(edgeAngleDeg(100, 0, 0, 0)).toBe(0)
+  })
+
+  it('линия снизу вверх и влево нормализуется в (-90, 90]', () => {
+    // Сырой atan2 здесь дал бы -135°; нормализация (+180°) приводит к 45° — тот же наклон,
+    // что и у зеркальной линии сверху-вниз-вправо, только читается слева направо.
+    expect(edgeAngleDeg(100, 100, 0, 0)).toBeCloseTo(45)
+  })
+})
+
+describe('edgeBaseStyle', () => {
+  it('активная связь — без стиля', () => {
+    expect(edgeBaseStyle(edge({ is_active: true }))).toBeUndefined()
+  })
+  it('неактивная связь — пунктир', () => {
+    expect(edgeBaseStyle(edge({ is_active: false }))).toEqual({ strokeDasharray: '6 4' })
+  })
+})
+
+describe('edgeIsRelatedToHover', () => {
+  const e = edge({ source_node_id: 'a', target_node_id: 'b' })
+
+  it('ничего не наведено — связано (подсветка неактивна, приглушать нечего)', () => {
+    expect(edgeIsRelatedToHover(e, null, null)).toBe(true)
+  })
+
+  it('наведено само это ребро — связано', () => {
+    expect(edgeIsRelatedToHover(e, null, 'e1')).toBe(true)
+  })
+
+  it('наведено другое ребро — не связано', () => {
+    expect(edgeIsRelatedToHover(e, null, 'other-edge')).toBe(false)
+  })
+
+  it('наведён узел-источник или узел-приёмник этого ребра — связано', () => {
+    expect(edgeIsRelatedToHover(e, 'a', null)).toBe(true)
+    expect(edgeIsRelatedToHover(e, 'b', null)).toBe(true)
+  })
+
+  it('наведён посторонний узел — не связано', () => {
+    expect(edgeIsRelatedToHover(e, 'c', null)).toBe(false)
+  })
+
+  it('наведены и узел, и ребро одновременно — ребро в приоритете', () => {
+    expect(edgeIsRelatedToHover(e, 'c', 'e1')).toBe(true) // узел посторонний, но ребро — это оно само
   })
 })
