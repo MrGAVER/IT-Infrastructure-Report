@@ -95,4 +95,55 @@ describe('DiagramDeviceNode.vue', () => {
     const wrapper = mountNode(baseDevice, true)
     expect(wrapper.find('.diagram-device-node').classes()).toContain('selected')
   })
+
+  it('показывает серийный номер и IP на самом значке (не только в панели деталей по клику)', () => {
+    const deviceWithIp: DeviceNodeData = {
+      ...baseDevice,
+      serial_number: 'SN-777',
+      ip_addresses: [
+        { address: '10.0.0.5', purpose: null, is_management: false },
+        { address: '10.0.0.1', purpose: 'management', is_management: true },
+      ],
+    }
+    const wrapper = mountNode(deviceWithIp)
+    // management-адрес показан, а не первый в списке
+    expect(wrapper.find('.identity-label').text()).toBe('SN-777 · 10.0.0.1')
+  })
+
+  it('без IP-адресов показывает только серийный номер, без хвостового разделителя', () => {
+    const wrapper = mountNode({ ...baseDevice, serial_number: 'SN-42', ip_addresses: [] })
+    expect(wrapper.find('.identity-label').text()).toBe('SN-42')
+  })
+
+  it('без management-адреса берёт первый IP из списка', () => {
+    const device: DeviceNodeData = {
+      ...baseDevice,
+      serial_number: 'SN-1',
+      ip_addresses: [
+        { address: '192.168.1.10', purpose: null, is_management: false },
+        { address: '192.168.1.11', purpose: null, is_management: false },
+      ],
+    }
+    const wrapper = mountNode(device)
+    expect(wrapper.find('.identity-label').text()).toBe('SN-1 · 192.168.1.10')
+  })
+
+  it.each(['switch_l2', 'switch_l3', 'router'] as const)('рендерит новый значок формы %s без ошибок', (shape) => {
+    const device: DeviceNodeData = {
+      ...baseDevice,
+      icon: { mode: 'generated', shape, color: '#2fa86a', manufacturer_label: '', model_label: '' },
+    }
+    const wrapper = mountNode(device)
+    const path = wrapper.find('.shape-glyph path').attributes('d')
+    expect(path).toBeTruthy()
+    // switch_l2/switch_l3/router — три РАЗНЫЕ формы, ни одна не должна молча съезжать на
+    // generic-заглушку (ромб 'M6 1 11 6 6 11 1 6z') из-за отсутствия в SHAPE_GLYPHS.
+    expect(path).not.toBe('M6 1 11 6 6 11 1 6z')
+  })
+
+  it('switch_l2 и switch_l3 — разные значки (различимы визуально по уровню коммутации)', () => {
+    const l2 = mountNode({ ...baseDevice, icon: { mode: 'generated', shape: 'switch_l2', color: '#2fa86a', manufacturer_label: '', model_label: '' } })
+    const l3 = mountNode({ ...baseDevice, icon: { mode: 'generated', shape: 'switch_l3', color: '#2fa86a', manufacturer_label: '', model_label: '' } })
+    expect(l2.find('.shape-glyph path').attributes('d')).not.toBe(l3.find('.shape-glyph path').attributes('d'))
+  })
 })

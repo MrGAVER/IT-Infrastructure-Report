@@ -209,6 +209,23 @@ def test_export_rejects_unknown_format(client):
     assert r.status_code == 422
 
 
+def test_export_failure_returns_clean_500_instead_of_raw_traceback(client, monkeypatch):
+    """Реальная причина такого сбоя в проде оказалась окружением (EXE-сборка не паковала файлы
+    данных vsdx/drawpyo — см. infra_registry.spec и test_pyinstaller_spec.py), но на случай
+    ЛЮБОЙ другой непредвиденной причины экспорт должен отдавать понятную ошибку, а не голый
+    500 без единого объяснения (см. try/except в export_diagram)."""
+    import app.api.diagrams as diagrams_module
+
+    def _boom(graph):
+        raise RuntimeError("симулированный сбой стороннего пакета экспорта")
+
+    monkeypatch.setitem(diagrams_module.EXPORT_FORMATS, "svg", ("image/svg+xml", _boom))
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма с падающим экспортом"}).json()
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg"})
+    assert r.status_code == 500
+    assert ".svg" in r.json()["detail"]
+
+
 def test_delete_diagram_cascades_layout_and_group_states(client, db_session):
     """Раздел 13 ТЗ дословно: 'DELETE /diagrams/{id} каскадно удаляет
     diagram_layouts/diagram_group_states'."""
@@ -288,7 +305,10 @@ def test_switch_node_edge_carries_port_index_end_to_end(client, db_session):
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма коммутатора"}).json()
     detail = client.get(f"/api/v1/diagrams/{diagram['id']}").json()
     switch_node = next(n for n in detail["nodes"] if n["id"] == switch.id)
-    assert switch_node["icon"]["shape"] == "switch"
+    # Пункт 5 правки "диаграмма топологии сети": 'Коммутатор L2' теперь резолвится в
+    # switch_l2 (собственная подкатегория 'Коммутаторы L2'), а не в общий 'switch' — см.
+    # test_diagram_catalogs.py:test_l2_and_l3_switches_resolve_to_different_categories_with_distinct_shapes.
+    assert switch_node["icon"]["shape"] == "switch_l2"
     assert switch_node["icon"]["port_ticks"] == 1
     edge = detail["edges"][0]
     assert edge["source_interface"]["port_index"] == 0

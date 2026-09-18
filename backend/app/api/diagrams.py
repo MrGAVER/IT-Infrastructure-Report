@@ -14,6 +14,7 @@ duplicate создаёт полный снимок диаграммы на мо�
 from __future__ import annotations
 
 import json
+import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -27,6 +28,7 @@ from ..services.crud import audit
 from ..services.diagram_export import export_drawio, export_svg, export_vsdx
 from ..services.diagram_graph import GROUP_DIMENSIONS, build_graph, parse_scope_filter
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/diagrams", tags=["Diagrams"])
 
 DEFAULT_COLLAPSE_THRESHOLD = 20
@@ -281,7 +283,16 @@ def export_diagram(diagram_id: str, format: str = Query(..., alias="format"), se
     _, positions = _load_layout(session, diagram_id)
     graph = build_graph(session, diagram, node_positions=positions)
     media_type, serialize = EXPORT_FORMATS[format]
-    data = serialize(graph)
+    try:
+        data = serialize(graph)
+    except Exception:
+        # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
+        # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
+        # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
+        # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
+        # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
+        logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
+        raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
     diagram.last_export_format = format
     session.commit()
     filename = f"{diagram.name}.{format}"

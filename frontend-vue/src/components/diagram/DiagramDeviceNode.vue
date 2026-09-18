@@ -12,7 +12,11 @@ import { sanitizeSvg } from '../../utils/sanitizeSvg'
 // существуют (см. port_overflow), но отдельной засечки/Handle для них не рисуется.
 const MAX_PORT_TICKS = 32
 const NODE_WIDTH = 160
-const NODE_HEIGHT = 70
+// Пункт 6 правки "диаграмма топологии сети": +14px под новую строку "серийный номер · IP"
+// (см. identityLabel ниже) — раньше высота узла умещала только имя + под-подпись
+// производитель/модель, серийник и IP были видны только в панели деталей по клику
+// (DiagramDetailPanel.vue), а не прямо на самом значке.
+const NODE_HEIGHT = 84
 const FALLBACK_COLOR = '#8FA0B3'
 
 // Небольшой глиф формы в левом верхнем углу — не силуэт устройства целиком (раздел 4.3 ТЗ:
@@ -21,6 +25,16 @@ const FALLBACK_COLOR = '#8FA0B3'
 const SHAPE_GLYPHS: Record<string, string> = {
   server: 'M2 2h10v2H2zM2 5h10v2H2zM2 8h10v2H2z',
   switch: 'M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z',
+  // Пункт 5 правки "диаграмма топологии сети": до этого switch_l2/switch_l3/router не
+  // существовали как формы вовсе — L2- и L3-коммутаторы получали один и тот же 'switch' (три
+  // порта), маршрутизатор — 'generic' (ромб) вместе с точками Wi-Fi/GSM-модемами. switch_l2 —
+  // тот же символ, что и раньше был у 'switch' (три блока-порта); switch_l3 — то же самое плюс
+  // маленький треугольник-стрелка сверху (символ маршрутизации поверх коммутации); router —
+  // компас/крест из 4 стрелок с центром — устоявшийся в сетевых схемах символ маршрутизатора,
+  // визуально не похожий ни на один из существующих значков.
+  switch_l2: 'M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z',
+  switch_l3: 'M1 5h3v4H1zM5.5 5h3v4h-3zM10 5h3v4h-3zM6 0l2.5 3.5h-5z',
+  router: 'M5 4.5h2v2H5zM6 0l1.5 3h-3zM6 11l-1.5-3h3zM0 5.5l3-1.5v3zM12 5.5l-3-1.5v3z',
   firewall: 'M6 0 11 2v4c0 3.5-2.2 5.7-5 6-2.8-.3-5-2.5-5-6V2z',
   workstation: 'M1 2h12v6H1zM5 10h4v1H5z',
   peripheral: 'M6 0a5 5 0 100 10A5 5 0 006 0z',
@@ -53,6 +67,19 @@ const subLabel = computed(() => {
   return [icon.value.manufacturer_label, icon.value.model_label].filter(Boolean).join(' ')
 })
 
+/** Пункт 6 правки "диаграмма топологии сети": серийный номер и основной IP прямо на значке
+ * (раньше были видны только в панели деталей по клику — DiagramDetailPanel.vue). IP выбирается
+ * так же, как и everywhere else в проекте, где нужен ОДИН показательный адрес из списка:
+ * management-адрес в приоритете, иначе первый в списке. Совмещены в одну строку (а не две) —
+ * узел и так уже вырос на одну строку под это (см. NODE_HEIGHT выше), раздувать его дальше
+ * под каждое поле отдельной строкой не хотелось. */
+const primaryIp = computed(() => {
+  const ips = props.data.ip_addresses
+  if (!ips.length) return ''
+  return (ips.find((ip) => ip.is_management) ?? ips[0]).address
+})
+const identityLabel = computed(() => [props.data.serial_number, primaryIp.value].filter(Boolean).join(' · '))
+
 // Код-ревью п.3.1: DiagramIcon.svg_markup — пользовательский ввод, отрисовывается через v-html.
 // Санитизация — второй, независимый от бэкенда рубеж защиты (см. utils/sanitizeSvg.ts).
 const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? sanitizeSvg(icon.value.svg_markup) : ''))
@@ -73,6 +100,7 @@ const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? saniti
     <div class="labels">
       <div class="label" :title="data.label">{{ data.label }}</div>
       <div v-if="subLabel" class="sub-label" :title="subLabel">{{ subLabel }}</div>
+      <div v-if="identityLabel" class="identity-label" :title="identityLabel">{{ identityLabel }}</div>
     </div>
 
     <div v-if="portTicks > 0" class="port-ticks">
@@ -148,6 +176,15 @@ const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? saniti
 .sub-label {
   font-size: 9px;
   color: rgba(255, 255, 255, 0.75);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.identity-label {
+  font-size: 8.5px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: rgba(255, 255, 255, 0.6);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

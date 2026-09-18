@@ -12,7 +12,7 @@ export const GROUP_BY_OPTIONS: { value: DiagramGroupBy; label: string }[] = [
   { value: 'device_category', label: 'По категории устройства' },
 ]
 
-export type DiagramIconShape = 'server' | 'switch' | 'firewall' | 'workstation' | 'peripheral' | 'generic'
+export type DiagramIconShape = 'server' | 'switch' | 'switch_l2' | 'switch_l3' | 'router' | 'firewall' | 'workstation' | 'peripheral' | 'generic'
 
 export interface DiagramIconGenerated {
   mode: 'generated'
