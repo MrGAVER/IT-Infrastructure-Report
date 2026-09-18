@@ -5,9 +5,16 @@
 // (см. комментарий к ISProtocolDraftRow в api/types.ts).
 import type { ISProtocolDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 const props = defineProps<{ modelValue: ISProtocolDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: ISProtocolDraftRow[]] }>()
+
+// catalogEntries приходит уже отсортированным (catalogs.protocolPortCatalog, см. фикс п.4.2 в
+// stores/catalogs.ts) — здесь только маппинг в плоский формат SearchableSelect, без
+// пересортировки, тем же приёмом, что и в OpenPortListEditor.vue для того же справочника.
+const catalogOptions = (): SearchableSelectOption[] => props.catalogEntries.map((e) => ({ value: e.id, label: `${e.port} / ${e.protocol_type}` }))
 
 function addRow() {
   emit('update:modelValue', [...props.modelValue, { protocol_catalog_id: '', protocol: '', port: null, description: '' }])
@@ -54,10 +61,12 @@ function onQuickAdded(index: number, record: CatalogItem) {
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
       <div class="col-catalog lookup-row">
-        <select :value="row.protocol_catalog_id" @change="onCatalogChange(i, ($event.target as HTMLSelectElement).value)">
-          <option value="">— протокол / порт —</option>
-          <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ `${entry.port} / ${entry.protocol_type}` }}</option>
-        </select>
+        <SearchableSelect
+          :model-value="row.protocol_catalog_id"
+          :options="catalogOptions()"
+          placeholder="— протокол / порт —"
+          @update:model-value="(v) => onCatalogChange(i, v)"
+        />
         <QuickAddButton resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
       </div>
       <input
