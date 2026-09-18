@@ -294,6 +294,30 @@ def _auto_assign_new_domain_vlan_to_source_device(vlan: 'VLAN', session: Session
     session.add(PhysicalDeviceVLAN(physical_device_id=domain.source_device_id, vlan_id=vlan.id, description=vlan.description))
 
 
+def assign_domain_vlans_to_device(domain_id: str | None, physical_device_id: str | None, session: Session) -> None:
+    """Пункт 2 правки "домен VLAN": устройство, добавленное в домен, должно СРАЗУ получить набор
+    VLAN, уже определённых для этого домена (VLAN.domain_id == domain_id) — до этой правки это
+    происходило только при следующем ручном "Синхронизировать" (sync_vlan_domain), не при самом
+    добавлении. Публичная (без "_", в отличие от большинства helper'ов рядом) — вызывается не
+    только отсюда (хук ниже, для VLANDomainDevice, созданного через generic-ресурс — этим путём
+    идёт, например, DeviceFormModal.vue:persistPendingDomainMemberships), но и напрямую из
+    api/system.py:add_vlan_domain_member (тот строит VLANDomainDevice сам, в обход
+    create_resource, ради собственной идемпотентности — см. её комментарий).
+
+    Если у домена ещё нет ни одного своего VLAN (устройство-источник не задано или домен ни разу
+    не синхронизировался) — присваивать нечего, это не ошибка, а обычное новое устройство в ещё
+    пустом домене."""
+    if not domain_id or not physical_device_id:
+        return
+    domain_vlans = session.scalars(select(VLAN).where(VLAN.domain_id == domain_id)).all()
+    if not domain_vlans:
+        return
+    existing_ids = set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == physical_device_id)).all())
+    for v in domain_vlans:
+        if v.id not in existing_ids:
+            session.add(PhysicalDeviceVLAN(physical_device_id=physical_device_id, vlan_id=v.id, description=v.description))
+
+
 def create_resource(resource: str, payload: dict[str, Any], session: Session):
     ensure_writable(resource)
     payload = validate_payload_schema(resource, payload, is_update=False)
@@ -314,6 +338,8 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
         session.flush()
         if model is VLAN:
             _auto_assign_new_domain_vlan_to_source_device(obj, session)
+        if model is VLANDomainDevice:
+            assign_domain_vlans_to_device(obj.domain_id, obj.physical_device_id, session)
         audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit(); return serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc

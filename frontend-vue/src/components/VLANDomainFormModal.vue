@@ -100,6 +100,18 @@ async function submit() {
     errorMessage.value = 'Укажите наименование домена.'
     return
   }
+  // Пункт 1 правки "домен VLAN": смена (или первое задание) устройства-источника — не безобидное
+  // изменение поля, а действие с реальными последствиями для устройств домена (см. ниже) —
+  // требует явного согласия пользователя, как и другие последствия такого рода в этом приложении
+  // (напр. подтверждение удаления). Пустая строка (снятие источника) НЕ требует подтверждения —
+  // сама по себе она ничего не перезаписывает, только отключает синхронизацию для домена.
+  const sourceChanged = isEdit.value && form.source_device_id !== (props.domain!.source_device_id ?? '') && form.source_device_id !== ''
+  if (sourceChanged) {
+    const newSourceLabel = deviceLabel(devicesStore.all.find((d) => d.id === form.source_device_id)!)
+    if (!confirm(`При смене устройства-источника на «${newSourceLabel}» все VLAN на устройствах домена будут перезаписаны на VLAN этого устройства. Продолжить?`)) {
+      return
+    }
+  }
   saving.value = true
   try {
     const payload = {
@@ -110,6 +122,12 @@ async function submit() {
     }
     if (isEdit.value) await updateResource('vlan-domains', props.domain!.id, payload)
     else await createResource('vlan-domains', payload)
+    // Сама перезапись — это то, ради чего только что подтверждено предупреждение выше; без этого
+    // вызова оно описывало бы последствие, которого на самом деле не происходит (см. docstring
+    // sync_vlan_domain в api/system.py про replace=true).
+    if (sourceChanged) {
+      await api.post(`/vlan-domains/${props.domain!.id}/sync`, { replace: true })
+    }
     emit('saved')
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить VLAN-домен'
@@ -146,6 +164,7 @@ async function submit() {
             <option value="">— не задано (без синхронизации) —</option>
             <option v-for="d in devicesStore.all" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
           </select>
+          <span v-if="isEdit" class="hint">Смена устройства-источника перезапишет VLAN на устройствах домена.</span>
         </label>
 
         <label class="field checkbox-field">

@@ -11,7 +11,8 @@
 // таковые уже полностью управляются в новом UI через VLANDomainsPanel.vue (см. VLANsView.vue);
 // не перенесены только эти два узкоспециализированных сценария быстрого доступа прямо из формы
 // устройства, см. "Ещё не сделано" во frontend-vue/README.md.
-import type { CatalogItem, DeviceVlanDraftRow, VLANDefinition } from '../api/types'
+import type { CatalogItem, DeviceVlanDraftRow, VLANDefinition, VLANDomain } from '../api/types'
+import { ref } from 'vue'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
 
@@ -20,7 +21,12 @@ import QuickAddButton from './QuickAddButton.vue'
 // когда устройство состоит РОВНО в одном домене (Set с одним элементом): если доменов несколько
 // или ни одного, однозначно предположить, какой из них имелся в виду, нельзя — тогда поле
 // остаётся пустым, как раньше, и пользователь выбирает домен сам.
-const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLANDefinition[]; deviceDomainId?: string | null }>()
+//
+// joinableDomains — пункт 3 правки "домен VLAN": домены, в которые устройство ЕЩЁ не входит (ни
+// сохранённым членством, ни уже отложенным до сохранения) — список уже отфильтрован родителем
+// (DeviceFormModal.vue:joinableDomains), этому компоненту не нужно знать о членстве вообще, он
+// только показывает то, что ему передали, и сообщает о выборе наружу.
+const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLANDefinition[]; deviceDomainId?: string | null; joinableDomains?: VLANDomain[] }>()
 // vlan-created: полный список VLAN (vlanOptions) собирается родителем из useVLANsStore(), а не
 // из catalogs — generic QuickAddModal.vue пишет созданную запись только в catalogs.items['vlans'],
 // поэтому родителю нужно узнать о создании и перезагрузить vlansStore (см. DeviceFormModal.vue),
@@ -34,7 +40,21 @@ const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLAND
 // подставить текущее устройство источником синхронизации этого домена (см.
 // DeviceFormModal.vue:onVlanDomainCreated) — то, что VLAN уже выбрал этот домен, тут не годится:
 // пользователь мог выбрать и уже СУЩЕСТВУЮЩИЙ домен, трогать чужую настройку источника нельзя.
-const emit = defineEmits<{ 'update:modelValue': [rows: DeviceVlanDraftRow[]]; 'vlan-created': [record: CatalogItem]; 'vlan-domain-created': [record: CatalogItem] }>()
+// join-domain: пункт 3 правки "домен VLAN" — прямой запрос "включить устройство в этот
+// СУЩЕСТВУЮЩИЙ домен", без создания нового VLAN (в отличие от vlan-domain-created выше).
+const emit = defineEmits<{
+  'update:modelValue': [rows: DeviceVlanDraftRow[]]
+  'vlan-created': [record: CatalogItem]
+  'vlan-domain-created': [record: CatalogItem]
+  'join-domain': [domainId: string]
+}>()
+
+const selectedJoinDomainId = ref('')
+function joinDomain() {
+  if (!selectedJoinDomainId.value) return
+  emit('join-domain', selectedJoinDomainId.value)
+  selectedJoinDomainId.value = ''
+}
 
 function emptyRow(): DeviceVlanDraftRow {
   return { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }
@@ -114,6 +134,19 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
       <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
       VLAN
     </button>
+
+    <!-- Пункт 3 правки "домен VLAN": прямое включение устройства в уже существующий домен, без
+         необходимости сперва заводить новый VLAN (в отличие от вложенного "+" у поля VLAN выше,
+         которое присоединяет к домену лишь как побочный эффект). Раздел не показывается, если
+         устройство уже состоит во всех существующих доменах (или доменов ещё нет вовсе) —
+         joinableDomains тогда пуст. -->
+    <div v-if="joinableDomains && joinableDomains.length" class="join-domain-row">
+      <select v-model="selectedJoinDomainId">
+        <option value="">— включить в домен —</option>
+        <option v-for="d in joinableDomains" :key="d.id" :value="d.id">{{ d.name }}</option>
+      </select>
+      <button type="button" class="btn btn-secondary" :disabled="!selectedJoinDomainId" @click="joinDomain">Включить</button>
+    </div>
   </div>
 </template>
 
@@ -191,10 +224,32 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 .add-btn {
   align-self: flex-start;
 }
+.join-domain-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.join-domain-row select {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 7px 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  font-family: inherit;
+}
 
 @media (max-width: 700px) {
   .nested-row {
     grid-template-columns: 1fr;
+  }
+  .join-domain-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

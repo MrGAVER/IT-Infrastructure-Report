@@ -14,6 +14,7 @@ import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
 import type { Device, DeviceModel, Rack, Room, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
+import { useVLANDomainsStore } from '../stores/vlanDomains'
 import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
@@ -32,6 +33,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
+const vlanDomainsStore = useVLANDomainsStore()
 const connectionsStore = useConnectionsStore()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -243,6 +245,12 @@ watch(
       // серийником сохранить копию не получится, заставляем ввести новый явно.
       if (isCopy) form.serial_number = ''
     }
+    // Пункт 3 правки "домен VLAN": справочник доменов для кнопки "Включить в домен" нужен и при
+    // СОЗДАНИИ нового устройства (join-запрос откладывается в pendingDomainMemberships до
+    // сохранения — тот же механизм, что уже есть для домена, заведённого через создание VLAN, см.
+    // onVlanDomainCreated), поэтому загружается ДО ранней остановки ниже, а не внутри неё как
+    // vlansStore/connectionsStore (тем нужны данные конкретно существующего устройства).
+    vlanDomainsStore.ensureLoaded()
     if (!source) return
     loadingNested.value = true
     try {
@@ -470,6 +478,19 @@ function onVlanCreated(record: CatalogItem) {
 // создаваемого устройства ещё может не быть id.
 function onVlanDomainCreated(record: CatalogItem) {
   pendingSourceDomainIds.value = new Set([...pendingSourceDomainIds.value, record.id])
+}
+
+// Пункт 3 правки "домен VLAN": кнопка "Включить в домен" в блоке "VLAN устройства"
+// (DeviceVlanListEditor.vue) — прямой путь стать участником УЖЕ СУЩЕСТВУЮЩЕГО домена, в отличие
+// от косвенного onVlanDomainCreated выше (который срабатывает только как побочный эффект
+// заведения нового VLAN). Тот же pendingDomainMemberships и та же проверка "ещё не состоит" —
+// см. onVlanCreated выше по файлу.
+const joinableDomains = computed(() => vlanDomainsStore.all.filter((d) => !memberDomainIds.value.has(d.id) && !pendingDomainMemberships.value.has(d.id)))
+
+function onJoinDomainRequested(domainId: string) {
+  if (!memberDomainIds.value.has(domainId)) {
+    pendingDomainMemberships.value = new Set([...pendingDomainMemberships.value, domainId])
+  }
 }
 
 async function persistSoftwareAssets(deviceId: string) {
@@ -758,7 +779,16 @@ async function submit() {
           :conflict-warnings="interfaceConflictWarnings"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
         />
-        <DeviceVlanListEditor v-if="!loadingNested" v-model="deviceVlans" :vlan-options="availableVlans" :device-domain-id="singleDeviceDomainId" @vlan-created="onVlanCreated" @vlan-domain-created="onVlanDomainCreated" />
+        <DeviceVlanListEditor
+          v-if="!loadingNested"
+          v-model="deviceVlans"
+          :vlan-options="availableVlans"
+          :device-domain-id="singleDeviceDomainId"
+          :joinable-domains="joinableDomains"
+          @vlan-created="onVlanCreated"
+          @vlan-domain-created="onVlanDomainCreated"
+          @join-domain="onJoinDomainRequested"
+        />
       </form>
 
       <div class="modal-foot">

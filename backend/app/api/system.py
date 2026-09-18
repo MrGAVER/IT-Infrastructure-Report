@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from ..config import APP_VERSION, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
@@ -8,7 +8,7 @@ from ..models import (Connection, Container, DeviceInterface, DeviceStack, Devic
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
-from ..services.crud import audit, validate_resource
+from ..services.crud import assign_domain_vlans_to_device, audit, validate_resource
 from ..constants import AuditAction
 from ..reporting import build_report
 
@@ -77,11 +77,25 @@ def add_vlan_domain_member(domain_id: str, payload: dict, session: Session = Dep
     if existing: return serialize(existing)
     obj=VLANDomainDevice(domain_id=domain_id,physical_device_id=device.id)
     session.add(obj); session.flush()
+    # Пункт 2 правки "домен VLAN": сразу переносим на новое устройство то, что уже определено для
+    # этого домена (assign_domain_vlans_to_device — общая с create_resource('vlan-domain-devices')
+    # логика, см. её docstring в services/crud.py).
+    assign_domain_vlans_to_device(domain_id, device.id, session)
     audit(session, 'vlan-domain-devices', obj.id, AuditAction.CREATE, f'Устройство добавлено в VLAN-домен «{domain.name}»')
     session.commit(); session.refresh(obj); return serialize(obj)
 
 @router.post('/api/v1/vlan-domains/{domain_id}/sync')
-def sync_vlan_domain(domain_id: str, session: Session = Depends(get_db)):
+def sync_vlan_domain(domain_id: str, payload: dict = Body(default={}), session: Session = Depends(get_db)):
+    """Пункт 1 правки "домен VLAN" — payload может содержать replace=true (посылается
+    VLANDomainFormModal.vue при смене устройства-источника, после подтверждения
+    пользователем предупреждения о перезаписи): помимо обычного добавления недостающих VLAN
+    участникам (как и раньше), ЕЩЁ убирает у них те VLAN этого домена (VLAN.domain_id==domain_id),
+    которых больше нет у устройства-источника. Именно replace=true даёт то самое "все VLAN на
+    устройствах домена будут перезаписаны на VLAN устройства-источника", о котором предупреждает
+    форма — обычная синхронизация (кнопка "Синхронизировать" в VLANDomainsPanel.vue,
+    replace не передаётся) только добавляет отсутствующее и НЕ трогает лишнее, это её штатное,
+    уже используемое поведение, менять его не нужно."""
+    replace = bool(payload.get('replace'))
     domain = session.get(VLANDomain, domain_id)
     if not domain: raise HTTPException(404, 'Домен VLAN не найден')
     if not domain.source_device_id: raise HTTPException(422, 'Для домена не задано устройство-источник')
@@ -106,6 +120,9 @@ def sync_vlan_domain(domain_id: str, session: Session = Depends(get_db)):
     if member_ids:
         for row in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(member_ids))).all():
             existing_by_device.setdefault(row.physical_device_id, set()).add(row.vlan_id)
+    domain_vlan_ids = {v.id for v in domain_vlans_by_number.values()}
+    keep_ids = {t.id for t in target_by_source_id.values()}
+    removed = 0
     for device_id in member_ids:
         if device_id == domain.source_device_id: continue
         existing_ids = existing_by_device.get(device_id, set())
@@ -114,9 +131,18 @@ def sync_vlan_domain(domain_id: str, session: Session = Depends(get_db)):
             if target.id not in existing_ids:
                 session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=target.id, description=sv.description))
                 updated += 1
-    audit(session, 'vlan-domains', domain_id, AuditAction.SYNC, f'Синхронизация VLAN-домена: создано определений {created}, назначено {updated}')
+        if replace:
+            # Только VLAN ЭТОГО домена (domain_vlan_ids) — VLAN участника из ДРУГИХ доменов или
+            # локальные (без domain_id вовсе) синхронизация трогать не должна ни в каком режиме.
+            stale_ids = (existing_ids & domain_vlan_ids) - keep_ids
+            if stale_ids:
+                session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id, PhysicalDeviceVLAN.vlan_id.in_(stale_ids)))
+                removed += len(stale_ids)
+    detail = f'Синхронизация VLAN-домена: создано определений {created}, назначено {updated}'
+    if replace: detail += f', убрано {removed}'
+    audit(session, 'vlan-domains', domain_id, AuditAction.SYNC, detail)
     session.commit()
-    return {'status':'ok','created_definitions':created,'assigned':updated}
+    return {'status':'ok','created_definitions':created,'assigned':updated,'removed':removed}
 
 @router.post('/api/v1/devices/{device_id}/vlan-copy')
 def copy_device_vlans(device_id: str, payload: dict, session: Session = Depends(get_db)):

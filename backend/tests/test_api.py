@@ -938,6 +938,69 @@ class TestCopyDeviceVlans:
         assert r.status_code == 404
 
 
+class TestVlanDomainMemberGetsDomainVlansImmediately:
+    """Пункт 2 правки "домен VLAN": устройство, добавленное в домен, должно СРАЗУ получить набор
+    VLAN этого домена — без отдельного ручного "Синхронизировать" (см. assign_domain_vlans_to_device
+    в services/crud.py, вызывается и из add_vlan_domain_member, и из create_resource — оба пути
+    добавления участника, см. docstring функции)."""
+
+    def _domain_with_synced_vlans(self, client):
+        """Домен с двумя своими VLAN (10, 20) — как будто уже был синхронизирован с
+        устройством-источником хотя бы раз."""
+        dt = _create_device_type(client, "Коммутатор для готового домена")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "MVI-SRC"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен с VLAN", "source_device_id": source["id"]}).json()
+        for vlan_id in (10, 20):
+            client.post("/api/v1/resources/vlans", json={"vlan_id": vlan_id, "name": f"VLAN {vlan_id}", "domain_id": domain["id"]})
+        return dt, domain
+
+    def test_add_member_via_dedicated_endpoint_gets_domain_vlans_without_manual_sync(self, client):
+        dt, domain = self._domain_with_synced_vlans(client)
+        member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "MVI-M1"}).json()
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
+        assert r.status_code == 200, r.text
+
+        assigned = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
+        assigned_numbers = sorted(client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] for row in assigned)
+        assert assigned_numbers == [10, 20]
+
+    def test_add_member_via_generic_resource_also_gets_domain_vlans(self, client):
+        """Тот же эффект через generic-ресурс (POST /resources/vlan-domain-devices) — этим путём
+        идёт, например, DeviceFormModal.vue:persistPendingDomainMemberships."""
+        dt, domain = self._domain_with_synced_vlans(client)
+        member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "MVI-M2"}).json()
+
+        r = client.post("/api/v1/resources/vlan-domain-devices", json={"domain_id": domain["id"], "physical_device_id": member["id"]})
+        assert r.status_code == 201, r.text
+
+        assigned = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
+        assigned_numbers = sorted(client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] for row in assigned)
+        assert assigned_numbers == [10, 20]
+
+    def test_add_member_to_domain_without_any_vlans_yet_does_not_fail(self, client):
+        dt = _create_device_type(client, "Коммутатор для пустого домена")
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Пустой домен"}).json()
+        member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "MVI-M3"}).json()
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
+        assert r.status_code == 200, r.text
+        assert client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"] == []
+
+    def test_add_member_does_not_duplicate_vlan_already_manually_assigned(self, client):
+        dt, domain = self._domain_with_synced_vlans(client)
+        member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "MVI-M4"}).json()
+        vlan10 = client.get("/api/v1/resources/vlans", params={"domain_id": domain["id"]}).json()["items"]
+        vlan10_id = next(v["id"] for v in vlan10 if v["vlan_id"] == 10)
+        client.post("/api/v1/resources/device-vlans", json={"physical_device_id": member["id"], "vlan_id": vlan10_id})
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
+        assert r.status_code == 200, r.text
+
+        assigned = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
+        assert len(assigned) == 2  # VLAN 10 (уже был) + VLAN 20 (добавлен) — без дублей VLAN 10
+
+
 class TestVlanDomainSync:
     def test_sync_creates_definitions_and_assigns_to_members(self, client):
         """POST /vlan-domains/{id}/sync must propagate every source-device VLAN to every other
@@ -979,11 +1042,91 @@ class TestVlanDomainSync:
         # Re-running sync must not create duplicate definitions or duplicate assignments.
         r2 = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync")
         assert r2.status_code == 200
-        assert r2.json() == {"status": "ok", "created_definitions": 0, "assigned": 0}
+        assert r2.json() == {"status": "ok", "created_definitions": 0, "assigned": 0, "removed": 0}
 
         r = client.get("/api/v1/resources/audit-log?entity_type=vlan-domains&limit=300")
         assert r.status_code == 200
         assert any(x["entity_id"] == domain["id"] and x["action"] == "SYNC" for x in r.json()["items"])
+
+
+class TestVlanDomainReplaceSync:
+    """Пункт 1 правки "домен VLAN": смена устройства-источника должна иметь возможность
+    ПЕРЕЗАПИСАТЬ VLAN участников под новый источник (не только добавить недостающее, как обычная
+    синхронизация) — см. docstring sync_vlan_domain в api/system.py про replace=true."""
+
+    def _domain_with_stale_member_vlan(self, client):
+        """Источник и участник — сначала обычная (не replace) синхронизация раскладывает
+        domain-VLAN 10 и 20 штатным путём (та же цепочка, что в реальности). Затем источник
+        «теряет» VLAN 20 (например, снят на реальном оборудовании) — участник по-прежнему хранит
+        VLAN 20 как устаревший остаток прошлой синхронизации. VLAN 10 у источника остаётся —
+        должен пережить любой режим синхронизации."""
+        dt = _create_device_type(client, "Коммутатор replace-синхронизации")
+        source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "RSY-SRC"}).json()
+        member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "RSY-M"}).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен replace", "source_device_id": source["id"]}).json()
+        client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": source["id"]})
+        client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
+
+        vlan10 = client.post("/api/v1/resources/vlans", json={"vlan_id": 10, "name": "Данные"}).json()
+        vlan20 = client.post("/api/v1/resources/vlans", json={"vlan_id": 20, "name": "Управление"}).json()
+        client.post("/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan10["id"]})
+        client.post("/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan20["id"]})
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync", json={})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"status": "ok", "created_definitions": 2, "assigned": 2, "removed": 0}
+
+        source_vlan20_link = next(
+            row
+            for row in client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}").json()["items"]
+            if client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] == 20
+        )
+        client.delete(f"/api/v1/resources/device-vlans/{source_vlan20_link['id']}")
+        return domain, member
+
+    def test_sync_without_replace_keeps_stale_vlan_no_longer_on_source(self, client):
+        domain, member = self._domain_with_stale_member_vlan(client)
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync", json={})
+        assert r.status_code == 200, r.text
+        assert r.json()["removed"] == 0
+
+        assigned = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
+        numbers = sorted(client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] for row in assigned)
+        assert numbers == [10, 20]  # VLAN 20 остался, хотя источник его больше не имеет
+
+    def test_sync_with_replace_removes_stale_vlan_but_keeps_current_one(self, client):
+        domain, member = self._domain_with_stale_member_vlan(client)
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync", json={"replace": True})
+        assert r.status_code == 200, r.text
+        assert r.json()["removed"] == 1
+
+        assigned = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
+        numbers = sorted(client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] for row in assigned)
+        assert numbers == [10]  # VLAN 20 (устаревший) убран, VLAN 10 (есть у источника) остался
+
+    def test_sync_with_replace_does_not_touch_vlans_outside_this_domain(self, client):
+        """VLAN участника из ДРУГОГО домена (или вовсе локальный, без domain_id) — вне области
+        действия replace, даже если формально это «лишний» с точки зрения текущего источника."""
+        domain, member = self._domain_with_stale_member_vlan(client)
+        other_domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Другой домен"}).json()
+        # Устройству нельзя назначить VLAN чужого домена, не будучи его участником (отдельная
+        # валидация _validate_physical_device_vlan_entry) — добавляем member и туда тоже.
+        client.post(f"/api/v1/vlan-domains/{other_domain['id']}/members", json={"physical_device_id": member["id"]})
+        foreign_vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 99, "name": "Чужой домен", "domain_id": other_domain["id"]}).json()
+        local_vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 100, "name": "Локальный, без домена"}).json()
+        r1 = client.post("/api/v1/resources/device-vlans", json={"physical_device_id": member["id"], "vlan_id": foreign_vlan["id"]})
+        assert r1.status_code == 201, r1.text
+        r2 = client.post("/api/v1/resources/device-vlans", json={"physical_device_id": member["id"], "vlan_id": local_vlan["id"]})
+        assert r2.status_code == 201, r2.text
+
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/sync", json={"replace": True})
+        assert r.status_code == 200, r.text
+
+        assigned = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
+        numbers = sorted(client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] for row in assigned)
+        assert numbers == [10, 99, 100]  # 20 (устаревший, этого домена) убран, чужой/локальный — нет
 
 
 class TestOpenPortCatalogIsSourceOfTruth:

@@ -140,4 +140,126 @@ describe('VLANDomainFormModal.vue', () => {
     expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/resources/vlan-domain-devices/link-1'))).toBe(true)
     expect(wrapper.find('.member-row').exists()).toBe(false)
   })
+
+  it('пункт 1 правки "домен VLAN": редактирование без смены устройства-источника не спрашивает подтверждение и не запускает replace-синхронизацию', async () => {
+    seedDevices()
+    const domain: VLANDomain = { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: 'dev-1', auto_sync: false }
+    const confirmSpy = vi.fn((_message?: string) => true)
+    vi.stubGlobal('confirm', confirmSpy)
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+    await wrapper.find('textarea').setValue('просто новое описание')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(calls.some((c) => c.url.includes('/sync'))).toBe(false)
+    expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/resources/vlan-domains/dom-1'))).toBe(true)
+    expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  it('пункт 1: смена устройства-источника спрашивает подтверждение и, если подтверждено, перезаписывает VLAN участников (POST .../sync с replace: true)', async () => {
+    seedDevices()
+    const domain: VLANDomain = { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: 'dev-1', auto_sync: false }
+    const confirmSpy = vi.fn((_message?: string) => true)
+    vi.stubGlobal('confirm', confirmSpy)
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+    await wrapper.find('select').setValue('dev-2')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy.mock.calls[0][0]).toContain('core-sw-02')
+    expect(confirmSpy.mock.calls[0][0]).toContain('перезаписаны')
+    const update = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/vlan-domains/dom-1'))
+    expect(update?.body).toMatchObject({ source_device_id: 'dev-2' })
+    const sync = calls.find((c) => c.method === 'POST' && c.url.includes('/vlan-domains/dom-1/sync'))
+    expect(sync?.body).toEqual({ replace: true })
+    expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  it('пункт 1: отказ от подтверждения отменяет сохранение целиком — устройство-источник не меняется', async () => {
+    seedDevices()
+    const domain: VLANDomain = { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: 'dev-1', auto_sync: false }
+    vi.stubGlobal('confirm', vi.fn(() => false))
+    const calls: Array<{ url: string; method: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, method: init?.method ?? 'GET' })
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+    await wrapper.find('select').setValue('dev-2')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(calls.some((c) => c.method === 'PUT' || (c.method === 'POST' && c.url.includes('/sync')))).toBe(false)
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
+  it('пункт 1: первое задание источника (было пусто) тоже спрашивает подтверждение', async () => {
+    seedDevices()
+    const domain: VLANDomain = { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: null, auto_sync: false }
+    const confirmSpy = vi.fn((_message?: string) => true)
+    vi.stubGlobal('confirm', confirmSpy)
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+    await wrapper.find('select').setValue('dev-1')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('пункт 1: снятие источника (на пусто) НЕ спрашивает подтверждение и не запускает синхронизацию — перезаписывать нечего', async () => {
+    seedDevices()
+    const domain: VLANDomain = { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: 'dev-1', auto_sync: false }
+    const confirmSpy = vi.fn((_message?: string) => true)
+    vi.stubGlobal('confirm', confirmSpy)
+    const calls: Array<{ url: string; method: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, method: init?.method ?? 'GET' })
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+    await wrapper.find('select').setValue('')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(calls.some((c) => c.url.includes('/sync'))).toBe(false)
+    expect(wrapper.emitted('saved')).toBeTruthy()
+  })
 })
