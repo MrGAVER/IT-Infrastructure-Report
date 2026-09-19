@@ -37,14 +37,48 @@ describe('ISProtocolsListEditor.vue', () => {
     expect(emitted[0][0]).toEqual([{ protocol_catalog_id: '', protocol: '', port: null, description: '' }])
   })
 
+  it('справочник теперь SearchableSelect (фикс п.3 — поиск вводом текста), не нативный select', () => {
+    const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: [{ protocol_catalog_id: '', protocol: '', port: null, description: '' }], catalogEntries: catalog } })
+    expect(wrapper.find('.col-catalog select').exists()).toBe(false)
+    expect(wrapper.find('.col-catalog .searchable-select').exists()).toBe(true)
+  })
+
   it('при выборе записи справочника подставляет protocol и port', async () => {
     const rows: ISProtocolDraftRow[] = [{ protocol_catalog_id: '', protocol: '', port: null, description: '' }]
     const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
 
-    await wrapper.find('.col-catalog select').setValue('cat-https')
+    await wrapper.find('.col-catalog .searchable-select input').trigger('focus')
+    await wrapper.find('.col-catalog .ss-option').trigger('mousedown') // первая в списке — "443 / HTTPS"
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([{ protocol_catalog_id: 'cat-https', protocol: 'HTTPS', port: 443, description: '' }])
+  })
+
+  it('поиск вводом текста фильтрует записи справочника (фикс п.3, как и у других похожих полей)', async () => {
+    const rows: ISProtocolDraftRow[] = [{ protocol_catalog_id: '', protocol: '', port: null, description: '' }]
+    const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    const input = wrapper.find('.col-catalog .searchable-select input')
+    await input.trigger('focus')
+    await input.setValue('SSH')
+
+    const options = wrapper.findAll('.col-catalog .ss-option')
+    expect(options).toHaveLength(1)
+    expect(options[0].text()).toBe('22 / SSH')
+
+    await options[0].trigger('mousedown')
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect(emitted[0][0]).toEqual([{ protocol_catalog_id: 'cat-ssh', protocol: 'SSH', port: 22, description: '' }])
+  })
+
+  it('снятие выбора (крестик очистки) сбрасывает protocol_catalog_id', async () => {
+    const rows: ISProtocolDraftRow[] = [{ id: 'p1', protocol_catalog_id: 'cat-ssh', protocol: 'SSH', port: 22, description: '' }]
+    const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    await wrapper.find('.col-catalog .ss-clear').trigger('mousedown')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as ISProtocolDraftRow[])[0].protocol_catalog_id).toBe('')
   })
 
   it('обновляет описание независимо от выбора справочника', async () => {

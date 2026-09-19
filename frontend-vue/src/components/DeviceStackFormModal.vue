@@ -15,6 +15,7 @@ import { api, createResource, deleteResource, updateResource } from '../api/clie
 import type { Connection, Device, DeviceStack, DeviceStackDetail, DeviceStackMemberDetail } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import SearchableSelect from './SearchableSelect.vue'
 import DeviceFormModal from './DeviceFormModal.vue'
@@ -26,6 +27,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 const devicesStore = useDevicesStore()
 const catalogs = useCatalogsStore()
+const connectionsStore = useConnectionsStore()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.stack !== null)
@@ -71,6 +73,14 @@ watch(
     if (s) {
       form.name = s.name
       form.description = s.description ?? ''
+      // Фикс п.1 правки: "Соединение" ниже открывает ConnectionFormModal.vue, чья фильтрация
+      // "какие порты уже заняты" (interfacesFor → connectionsStore.occupiedInterfaceIds) читает
+      // ИМЕННО этот стор — а DevicesView.vue/DeviceStacksView.vue (откуда обычно открывают эту
+      // форму) его не грузят вовсе. Без ensureLoaded() здесь список занятых портов при первом же
+      // открытии "Соединение" в сессии оказался бы пустым (стор ещё ни разу не подгружался), и
+      // ДАЖЕ уже существующие, не имеющие отношения к этой правке подключения не исключались бы
+      // из списка доступных портов — тот же стор, что использует дашборд "Подключения".
+      await connectionsStore.ensureLoaded()
       await devicesStore.ensureLoaded()
       await loadDetail(s.id)
     }
@@ -113,6 +123,15 @@ async function onDeviceSaved() {
 
 async function onConnectionSaved(_c: Connection) {
   addingConnection.value = false
+  // Фикс п.1 правки "стеки устройств": ConnectionFormModal.vue создаёт подключение через API,
+  // но НЕ трогает connectionsStore сам — раньше здесь перезагружался только состав/топология
+  // самого стека (loadDetail), а не этот стор. connectionsStore.occupiedInterfaceIds (список
+  // занятых портов, см. ConnectionFormModal.vue:interfacesFor) и сам дашборд "Подключения"
+  // (ConnectionsView.vue) читают ОДИН И ТОТ ЖЕ стор — без reload() здесь только что занятые
+  // порты продолжали числиться свободными до полной перезагрузки страницы (которая одна и
+  // сбрасывает stores.loaded в false), а новое подключение не появлялось на дашборде без
+  // отдельного захода туда после общей перезагрузки.
+  await connectionsStore.reload()
   if (props.stack) await loadDetail(props.stack.id)
 }
 
