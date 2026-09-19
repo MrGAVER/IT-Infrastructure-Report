@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceStackFormModal from '../DeviceStackFormModal.vue'
+import ConnectionFormModal from '../ConnectionFormModal.vue'
 import { useDevicesStore } from '../../stores/devices'
 import { useCatalogsStore } from '../../stores/catalogs'
+import { useConnectionsStore } from '../../stores/connections'
 import type { DeviceStack, DeviceStackDetail } from '../../api/types'
 
 const EMPTY_PAGE = { items: [], total: 0, offset: 0, limit: 1000 }
@@ -254,6 +256,71 @@ describe('DeviceStackFormModal.vue', () => {
     expect(wrapper.text()).toContain('core-sw-01 · stack-link')
     expect(wrapper.text()).toContain('core-sw-02 · stack-link')
     expect(wrapper.text()).toContain('Стековый кабель')
+  })
+
+  it('при открытии формы для существующего стека подгружает connectionsStore (фикс п.1)', async () => {
+    // Раньше эта форма вообще не трогала connectionsStore — список занятых портов в
+    // ConnectionFormModal.vue (interfacesFor → occupiedInterfaceIds) строился из пустого стора
+    // при первом же открытии "Соединение" в сессии, если пользователь ещё не заходил на
+    // отдельный дашборд "Подключения".
+    seedDevices()
+    const connectionsStore = useConnectionsStore()
+    expect(connectionsStore.loaded).toBe(false)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/device-stacks/stack-1/detail')) return jsonResponse(detailResponse())
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
+    mount(DeviceStackFormModal, { props: { stack } })
+    await flushPromises()
+
+    expect(connectionsStore.loaded).toBe(true)
+  })
+
+  it('после сохранения подключения через "Соединение" перезагружает connectionsStore и топологию стека (фикс п.1)', async () => {
+    seedDevices()
+    const connectionsStore = useConnectionsStore()
+    const reloadSpy = vi.spyOn(connectionsStore, 'reload')
+    let detailFetchCount = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/device-stacks/stack-1/detail')) {
+          detailFetchCount += 1
+          return jsonResponse(
+            detailResponse({
+              members: [
+                { id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never,
+                { id: 'dev-2', system_name: 'core-sw-02', serial_number: 'SN-2', device_type_id: 'dt-1', stack_member_id: 'sm-2', stack_position: 2 } as never,
+              ],
+            }),
+          )
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
+    const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+    await flushPromises()
+    reloadSpy.mockClear() // сбрасываем счётчик после начального ensureLoaded() при открытии формы
+
+    const connectionButton = wrapper.findAll('button').find((b) => b.text().includes('Соединение'))!
+    await connectionButton.trigger('click')
+    const connectionFormModal = wrapper.findComponent(ConnectionFormModal)
+    expect(connectionFormModal.exists()).toBe(true)
+
+    const detailFetchCountBeforeSave = detailFetchCount
+    await connectionFormModal.vm.$emit('saved', { id: 'conn-new' })
+    await flushPromises()
+
+    expect(reloadSpy).toHaveBeenCalledTimes(1)
+    expect(detailFetchCount).toBe(detailFetchCountBeforeSave + 1) // топология стека тоже перечитана
+    expect(wrapper.findComponent(ConnectionFormModal).exists()).toBe(false) // модалка закрылась
   })
 
   it('кнопка "Просмотреть" открывает DeviceFormModal для отдельного устройства-участника', async () => {
