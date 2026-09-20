@@ -17,8 +17,8 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 
 MODEL_NAMES = [
     "Building", "Connection", "ConnectionType", "Container", "Department", "DeviceInterface",
-    "DeviceModel", "DeviceSoftware", "DeviceType", "EmbeddedOperatingSystem", "ISContainer",
-    "ISDepartment", "ISDevice", "ISIP", "ISPlacementAsset", "ISProtocol", "ISVM",
+    "DeviceModel", "DeviceSoftware", "DeviceType", "EmbeddedOperatingSystem",
+    "ISDepartment", "ISPlacementAsset", "ISProtocol",
     "InformationSystem", "InformationSystemSource", "InterfaceIP", "InterfaceType",
     "InterfaceVLAN", "Manufacturer", "OpenPort", "OperatingSystem", "PhysicalDevice",
     "PhysicalDeviceVLAN", "PlacementAsset", "ProtocolPortCatalog", "Rack", "Room",

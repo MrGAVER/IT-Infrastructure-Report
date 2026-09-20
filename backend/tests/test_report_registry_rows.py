@@ -30,7 +30,7 @@ try:
     from app.models import (
         Base, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface, DeviceType,
         EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, InterfaceIP, InterfaceVLAN,
-        ISContainer, ISDepartment, ISDevice, ISIP, ISVM, Manufacturer, OpenPort, OperatingSystem,
+        ISDepartment, Manufacturer, OpenPort, OperatingSystem,
         OperatingSystemCategory, PhysicalDevice, ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, VMSoftware,
     )
     from app.reporting import HEADERS1, HEADERS2, HEADERS3, HEADERS4, build_report
@@ -123,13 +123,13 @@ class VirtualEntityRegistrationTestCase(unittest.TestCase):
             session.close()
 
 
-def _seed_rich_dataset(session, *, via_legacy_links: bool):
+def _seed_rich_dataset(session):
     """Наполняет БД данными, задействующими большинство ветвлений report_registry_rows.py:
     подключённые/неподключённые порты, VLAN, открытые порты у устройства и у ВМ, СКЗИ, SIEM,
-    протокол с fallback (без записи в каталоге), подразделения. via_legacy_links=True привязывает
-    ИС к оборудованию через устаревшие таблицы is_devices/is_vms/is_containers/is_ips (fallback-
-    ветка _is_row_values при отсутствии InformationSystemSource), False — через актуальную модель
-    InformationSystemSource."""
+    протокол через справочник, подразделения. ИС привязана к оборудованию/ВМ через
+    InformationSystemSource — единственный механизм этой связи с миграции b7f2c1e5a904 (legacy-
+    таблицы information_system_devices/vms/containers/ips удалены вместе с их fallback-веткой в
+    _is_row_values, см. её докстринг)."""
     category = DeviceCategory(name="Серверы и СХД")
     session.add(category)
     session.flush()
@@ -179,7 +179,7 @@ def _seed_rich_dataset(session, *, via_legacy_links: bool):
     session.add(ssh_catalog)
     session.flush()
     session.add(OpenPort(owner_type="physical_device", owner_id=dev1.id,
-                          transport_protocol="TCP", port=22, protocol="SSH", protocol_catalog_id=ssh_catalog.id))
+                          transport_protocol="TCP", protocol_catalog_id=ssh_catalog.id))
 
     isys = InformationSystem(name="ИС Бухгалтерия", description="Учётная система", purpose="Учёт",
                               localization="ЦОД-1", siem_enabled=True, crypto_protection_enabled=True)
@@ -187,7 +187,10 @@ def _seed_rich_dataset(session, *, via_legacy_links: bool):
     session.flush()
     session.add(ISDepartment(information_system_id=isys.id, department_id=dep.id))
     from app.models import ISProtocol
-    session.add(ISProtocol(information_system_id=isys.id, protocol="HTTPS", port=443, description="Веб-интерфейс"))
+    https_catalog = ProtocolPortCatalog(port=443, protocol_type="HTTPS")
+    session.add(https_catalog)
+    session.flush()
+    session.add(ISProtocol(information_system_id=isys.id, protocol_catalog_id=https_catalog.id, description="Веб-интерфейс"))
 
     vm1 = VirtualMachine(name="vm-buh-01", physical_device_id=dev1.id, purpose="1С сервер",
                           operating_system_id=operating_system.id)
@@ -202,21 +205,15 @@ def _seed_rich_dataset(session, *, via_legacy_links: bool):
     session.add(onec_catalog)
     session.flush()
     session.add(OpenPort(owner_type="virtual_machine", owner_id=vm1.id,
-                          transport_protocol="TCP", port=1540, protocol="1C", protocol_catalog_id=onec_catalog.id))
+                          transport_protocol="TCP", protocol_catalog_id=onec_catalog.id))
     container = Container(name="buh-container", virtual_machine_id=vm1.id)
     session.add(container)
     session.flush()
 
-    if via_legacy_links:
-        session.add(ISDevice(information_system_id=isys.id, physical_device_id=dev1.id))
-        session.add(ISVM(information_system_id=isys.id, virtual_machine_id=vm1.id))
-        session.add(ISContainer(information_system_id=isys.id, container_id=container.id))
-        session.add(ISIP(information_system_id=isys.id, ip_address="203.0.113.5"))
-    else:
-        session.add(InformationSystemSource(information_system_id=isys.id, source_type="device",
-                                             physical_device_id=dev1.id))
-        session.add(InformationSystemSource(information_system_id=isys.id, source_type="vm",
-                                             virtual_machine_id=vm1.id, ip_address="203.0.113.5"))
+    session.add(InformationSystemSource(information_system_id=isys.id, source_type="device",
+                                         physical_device_id=dev1.id))
+    session.add(InformationSystemSource(information_system_id=isys.id, source_type="vm",
+                                         virtual_machine_id=vm1.id, ip_address="203.0.113.5"))
 
     session.commit()
 
@@ -226,12 +223,12 @@ class ExactParityTestCase(unittest.TestCase):
     """Строит оба отчёта (регламентированный и шаблон-заготовку конструктора) на одних данных и
     построчно/поколоночно сравнивает содержимое, включая заголовки — не только структуру."""
 
-    def _build_both_and_compare(self, tmp_path, *, via_legacy_links):
+    def _build_both_and_compare(self, tmp_path):
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         session = sessionmaker(bind=engine)()
         try:
-            _seed_rich_dataset(session, via_legacy_links=via_legacy_links)
+            _seed_rich_dataset(session)
 
             orig_path = build_report(session, tmp_path)
             wb_orig = openpyxl.load_workbook(orig_path)
@@ -262,15 +259,7 @@ class ExactParityTestCase(unittest.TestCase):
     def test_exact_parity_with_current_source_model(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            self._build_both_and_compare(Path(tmp), via_legacy_links=False)
-
-    def test_exact_parity_with_legacy_link_tables(self):
-        """Тот же сценарий, но ИС привязана к оборудованию через устаревшие таблицы
-        (is_devices/is_vms/is_containers/is_ips), без InformationSystemSource — проверяет fallback-
-        ветку _is_row_values, которую использует и оригинал, и шаблон конструктора (общая функция)."""
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            self._build_both_and_compare(Path(tmp), via_legacy_links=True)
+            self._build_both_and_compare(Path(tmp))
 
     def test_exact_parity_with_structural_unit_filter(self):
         """Тот же сценарий, но с активным structural_unit_ids на обоих движках — подтверждает, что
@@ -283,7 +272,7 @@ class ExactParityTestCase(unittest.TestCase):
         Base.metadata.create_all(engine)
         session = sessionmaker(bind=engine)()
         try:
-            _seed_rich_dataset(session, via_legacy_links=False)
+            _seed_rich_dataset(session)
             unit = StructuralUnit(name="Филиал А")
             session.add(unit)
             session.flush()

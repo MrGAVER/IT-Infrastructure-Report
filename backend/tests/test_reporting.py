@@ -63,12 +63,12 @@ class Sheet1InformationSystems(ReportingTestCase):
         vm = C["VirtualMachine"](id="v1", name="VM1", physical_device_id="d1", purpose="")
         vm_ip = C["VMIP"](id="vip1", virtual_machine_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True)
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
-        isdev = C["ISDevice"](id="isd1", information_system_id="is1", physical_device_id="d1")
-        isvm = C["ISVM"](id="isv1", information_system_id="is1", virtual_machine_id="v1")
+        src_dev = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1")
+        src_vm = C["InformationSystemSource"](id="src2", information_system_id="is1", source_type="vm", virtual_machine_id="v1")
         self.table.update({
             "InformationSystem": [isys], "PhysicalDevice": [dev], "DeviceInterface": [iface],
             "InterfaceIP": [dev_ip], "VirtualMachine": [vm], "VMIP": [vm_ip],
-            "ISDevice": [isdev], "ISVM": [isvm],
+            "InformationSystemSource": [src_dev, src_vm],
         })
         wb = self.build(Path("/tmp/test_reports_2"))
         rows = self.sheet_rows(wb, "Перечень ИС")
@@ -76,35 +76,15 @@ class Sheet1InformationSystems(ReportingTestCase):
         self.assertNotIn("10.0.0.5", ip_col or "")
         self.assertIn("10.0.1.5", ip_col or "")
 
-    def test_legacy_tables_used_as_fallback_when_no_unified_sources(self):
-        """ИС, ни разу не пересохранённая через новую форму (unified-источники пусты), должна
-        по-прежнему показывать оборудование из старых таблиц ISDevice/ISVM/ISContainer."""
-        C = self.C
-        dev = C["PhysicalDevice"](id="d1", serial_number="SN1", system_name="LEGACY-SRV")
-        isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
-        isdev = C["ISDevice"](id="isd1", information_system_id="is1", physical_device_id="d1")
-        self.table.update({
-            "InformationSystem": [isys], "PhysicalDevice": [dev], "ISDevice": [isdev],
-            "InformationSystemSource": [],  # явно пусто — имитация немигрированной записи
-        })
-        wb = self.build(Path("/tmp/test_reports_11"))
-        rows = self.sheet_rows(wb, "Перечень ИС")
-        header = rows[0]
-        equipment_idx = self.col_index(header, "Оборудование ООО")
-        self.assertIn("LEGACY-SRV", rows[1][equipment_idx])
-
-    def test_unified_sources_take_priority_and_no_duplication(self):
-        """Как только у ИС есть unified-источники, легаси-таблицы игнорируются полностью (даже
-        если в них есть устаревшие данные) — оборудование не должно задваиваться."""
+    def test_unified_sources_do_not_duplicate_equipment(self):
+        """Оборудование, привязанное через unified-источник, не должно задваиваться в столбце."""
         C = self.C
         dev = C["PhysicalDevice"](id="d1", serial_number="SN1", system_name="NEW-SRV")
-        stale_dev = C["PhysicalDevice"](id="d2", serial_number="SN2", system_name="STALE-SRV")
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
         src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1", role="server")
-        stale_isdev = C["ISDevice"](id="isd1", information_system_id="is1", physical_device_id="d2")
         self.table.update({
-            "InformationSystem": [isys], "PhysicalDevice": [dev, stale_dev],
-            "InformationSystemSource": [src], "ISDevice": [stale_isdev],
+            "InformationSystem": [isys], "PhysicalDevice": [dev],
+            "InformationSystemSource": [src],
         })
         wb = self.build(Path("/tmp/test_reports_12"))
         rows = self.sheet_rows(wb, "Перечень ИС")
@@ -112,7 +92,6 @@ class Sheet1InformationSystems(ReportingTestCase):
         equipment_idx = self.col_index(header, "Оборудование ООО")
         equipment_cell = rows[1][equipment_idx]
         self.assertIn("NEW-SRV", equipment_cell)
-        self.assertNotIn("STALE-SRV", equipment_cell)
         self.assertEqual(equipment_cell.count("NEW-SRV"), 1)
 
     def test_crypto_column_includes_means_name_when_enabled(self):
@@ -293,9 +272,13 @@ class Sheet3Connections(ReportingTestCase):
         C = self.C
         dev1, _ = self._two_devices_two_connections()
         # if1 = eth0 устройства d1 (см. _two_devices_two_connections) — порты вешаем именно на него.
-        p1 = C["OpenPort"](id="op1", owner_type="device_interface", owner_id="if1", port=22, protocol="SSH", transport_protocol="TCP")
-        p2 = C["OpenPort"](id="op2", owner_type="device_interface", owner_id="if1", port=161, protocol="SNMP", transport_protocol="UDP")
-        self.table.update({"OpenPort": [p1, p2]})
+        # protocol_catalog_id обязателен (port/protocol больше не колонки OpenPort, см. models.py) —
+        # значения резолвятся join'ом к protocol_port_catalogs при построении отчёта.
+        cat_ssh = C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH")
+        cat_snmp = C["ProtocolPortCatalog"](id="cat-snmp", port=161, protocol_type="SNMP")
+        p1 = C["OpenPort"](id="op1", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-ssh", transport_protocol="TCP")
+        p2 = C["OpenPort"](id="op2", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-snmp", transport_protocol="UDP")
+        self.table.update({"ProtocolPortCatalog": [cat_ssh, cat_snmp], "OpenPort": [p1, p2]})
         wb = self.build(Path("/tmp/test_reports_11"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
         header = self.sheet_rows(wb, "Организация подключений")[0]
@@ -321,8 +304,9 @@ class Sheet3Connections(ReportingTestCase):
         такие записи просто перестают быть видны, а не падают с ошибкой."""
         C = self.C
         self._two_devices_two_connections()
-        legacy = C["OpenPort"](id="op-legacy", owner_type="physical_device", owner_id="d1", port=22, protocol="SSH", transport_protocol="TCP")
-        self.table.update({"OpenPort": [legacy]})
+        cat_ssh = C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH")
+        legacy = C["OpenPort"](id="op-legacy", owner_type="physical_device", owner_id="d1", protocol_catalog_id="cat-ssh", transport_protocol="TCP")
+        self.table.update({"ProtocolPortCatalog": [cat_ssh], "OpenPort": [legacy]})
         wb = self.build(Path("/tmp/test_reports_11b"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
         header = self.sheet_rows(wb, "Организация подключений")[0]
@@ -456,8 +440,8 @@ class StructuralUnitFiltering(ReportingTestCase):
         C = self.C
         dev1, dev2 = self._two_units_two_buildings_two_devices()
         isys = C["InformationSystem"](id="is1", name="ИС на оборудовании филиала А", crypto_protection_enabled=False)
-        link = C["ISDevice"](id="isd1", information_system_id="is1", physical_device_id="d1")
-        self.table.update({"InformationSystem": [isys], "ISDevice": [link]})
+        link = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1")
+        self.table.update({"InformationSystem": [isys], "InformationSystemSource": [link]})
         wb_in = self.build(Path("/tmp/test_su_is_in"), structural_unit_ids=["su1"])
         self.assertEqual([r[1] for r in self.sheet_rows(wb_in, "Перечень ИС")[1:]], ["ИС на оборудовании филиала А"])
         wb_out = self.build(Path("/tmp/test_su_is_out"), structural_unit_ids=["su2"])
@@ -469,8 +453,8 @@ class StructuralUnitFiltering(ReportingTestCase):
         dev1, dev2 = self._two_units_two_buildings_two_devices()
         vm = C["VirtualMachine"](id="v1", name="VM-1", physical_device_id="d1", purpose="")
         isys = C["InformationSystem"](id="is1", name="ИС на ВМ филиала А", crypto_protection_enabled=False)
-        link = C["ISVM"](id="isv1", information_system_id="is1", virtual_machine_id="v1")
-        self.table.update({"VirtualMachine": [vm], "InformationSystem": [isys], "ISVM": [link]})
+        link = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="vm", virtual_machine_id="v1")
+        self.table.update({"VirtualMachine": [vm], "InformationSystem": [isys], "InformationSystemSource": [link]})
         wb_in = self.build(Path("/tmp/test_su_isvm_in"), structural_unit_ids=["su1"])
         self.assertEqual([r[1] for r in self.sheet_rows(wb_in, "Перечень ИС")[1:]], ["ИС на ВМ филиала А"])
         wb_out = self.build(Path("/tmp/test_su_isvm_out"), structural_unit_ids=["su2"])

@@ -220,9 +220,10 @@ export interface VmIpDraftRow {
  * OpenPort — полиморфная таблица с одинаковым набором полей независимо от owner_type.
  *
  * Без port/protocol (правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в
- * справочнике портов"): единственный вход теперь — protocol_catalog_id, сервер сам подставляет
- * порт/протокол из справочника при сохранении (см. backend/app/services/crud.py:
- * _apply_open_port_catalog) и возвращает их в ответе OpenPort ниже — черновику их хранить не нужно. */
+ * справочнике портов"): единственный вход теперь — protocol_catalog_id; port/protocol больше не
+ * колонки backend-модели вовсе (см. models.py, миграция b7f2c1e5a904) — сервер вычисляет их из
+ * справочника на КАЖДОЕ чтение (services/serialization.py:enrich_open_port(s)) и возвращает в
+ * ответе OpenPort ниже — черновику их хранить не нужно. */
 export interface OpenPortDraftRow {
   id?: string
   protocol_catalog_id: string
@@ -282,11 +283,7 @@ export interface Container {
  * vanilla-версии (frontend/static/information-systems.js:saveInformationSystemForm). */
 export interface InformationSystemDetails {
   departments: Array<{ id: string; department_id: string }>
-  ips: Array<{ id: string; ip_address: string; purpose: string | null; virtual_machine_id: string | null; physical_device_id: string | null; external_interaction: boolean }>
-  protocols: Array<{ id: string; protocol_catalog_id: string | null; protocol: string; port: number | null; description: string | null }>
-  devices: Array<{ id: string; physical_device_id: string; role: string | null }>
-  vms: Array<{ id: string; virtual_machine_id: string; role: string | null }>
-  containers: Array<{ id: string; container_id: string; role: string | null }>
+  protocols: Array<{ id: string; protocol_catalog_id: string; description: string | null }>
   sources: ISSource[]
   placement_assets: Array<{ id: string; placement_asset_id: string }>
 }
@@ -312,14 +309,12 @@ export interface CatalogPickerDraftRow {
   catalogId: string
 }
 
-/** Черновая строка ISProtocolsListEditor.vue. protocol/port не редактируются напрямую —
- * подставляются при выборе protocol_catalog_id (см. компонент), но обязаны уйти в payload:
- * ISProtocol.protocol — обязательное поле на бэкенде (backend/app/models.py). */
+/** Черновая строка ISProtocolsListEditor.vue. protocol/port больше не колонки backend-модели
+ * (см. models.py, миграция b7f2c1e5a904) — значения показываются read-only из выбранной записи
+ * справочника (protocol_catalog_id), обязательного поля. */
 export interface ISProtocolDraftRow {
   id?: string
   protocol_catalog_id: string
-  protocol: string
-  port: number | null
   description: string
 }
 

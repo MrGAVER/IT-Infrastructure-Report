@@ -3,10 +3,9 @@
 // протоколы, источники размещения/IP, места размещения — через отдельный атомарный ресурс
 // /resources/information-systems/{id}/details (см. InformationSystemDetails в api/types.ts).
 // Портировано с openInformationSystemForm/saveInformationSystemForm в
-// frontend/static/information-systems.js, включая одноразовую миграцию устаревших связанных
-// таблиц (ips/devices/vms/containers) в унифицированный sources при первом открытии формы для
-// ИС, у которой sources ещё пуст, — иначе такая ИС выглядела бы в новом UI так, будто у неё
-// вообще нет источников, хотя данные есть, просто в старых таблицах.
+// frontend/static/information-systems.js. Устаревшие связанные таблицы (ips/devices/vms/
+// containers) удалены вместе со всей их поддержкой (миграция b7f2c1e5a904, см. models.py) —
+// sources (InformationSystemSource) теперь единственный источник этих данных.
 import { computed, reactive, ref, watch } from 'vue'
 import { api, createResource, updateResource } from '../api/client'
 import type {
@@ -136,38 +135,6 @@ function toSourceDraftRow(x: ISSource): ISSourceDraftRow {
   }
 }
 
-// Одноразовая миграция устаревших связанных таблиц в sources — портировано дословно с
-// openInformationSystemForm() в frontend/static/information-systems.js. Срабатывает только
-// когда details.sources пуст: для ИС, уже сохранённых через новый UI (или через vanilla после
-// того, как он тоже перешёл на sources), sources уже заполнен и эта функция не трогается.
-function migrateLegacyToSources(details: InformationSystemDetails): ISSource[] {
-  if (details.sources.length) return details.sources
-  const migrated: ISSource[] = []
-  for (const x of details.devices) {
-    migrated.push({ id: '', source_type: 'device', physical_device_id: x.physical_device_id, virtual_machine_id: null, container_id: null, ip_address: '', purpose: '', role: x.role ?? '', external_interaction: false })
-  }
-  for (const x of details.vms) {
-    migrated.push({ id: '', source_type: 'vm', physical_device_id: null, virtual_machine_id: x.virtual_machine_id, container_id: null, ip_address: '', purpose: '', role: x.role ?? '', external_interaction: false })
-  }
-  for (const x of details.containers) {
-    migrated.push({ id: '', source_type: 'container', physical_device_id: null, virtual_machine_id: null, container_id: x.container_id, ip_address: '', purpose: '', role: x.role ?? '', external_interaction: false })
-  }
-  const keyOf = (x: Pick<ISSource, 'source_type' | 'physical_device_id' | 'virtual_machine_id' | 'container_id'>) =>
-    `${x.source_type}:${x.physical_device_id || x.virtual_machine_id || x.container_id || ''}`
-  for (const ip of details.ips) {
-    const key = ip.virtual_machine_id ? `vm:${ip.virtual_machine_id}` : ip.physical_device_id ? `device:${ip.physical_device_id}` : `manual:${ip.ip_address}`
-    const existing = migrated.find((x) => keyOf(x) === key)
-    if (existing) {
-      existing.ip_address = existing.ip_address ? `${existing.ip_address}, ${ip.ip_address}` : ip.ip_address
-      existing.purpose = ip.purpose || existing.purpose
-      existing.external_interaction = Boolean(ip.external_interaction)
-    } else {
-      migrated.push({ id: '', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ip_address: ip.ip_address || '', purpose: ip.purpose ?? '', role: '', external_interaction: Boolean(ip.external_interaction) })
-    }
-  }
-  return migrated
-}
-
 watch(
   () => props.system ?? props.copyFrom ?? null,
   async (source) => {
@@ -203,8 +170,8 @@ watch(
       ])
       if (details) {
         const rawDepartments = details.departments.map((x) => ({ id: x.id, catalogId: x.department_id }))
-        const rawProtocols = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id ?? '', protocol: x.protocol, port: x.port, description: x.description ?? '' }))
-        const rawSources = migrateLegacyToSources(details).map(toSourceDraftRow)
+        const rawProtocols = details.protocols.map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id, description: x.description ?? '' }))
+        const rawSources = details.sources.map(toSourceDraftRow)
         const rawPlacementAssets = details.placement_assets.map((x) => ({ id: x.id, catalogId: x.placement_asset_id }))
         // При копировании каждая вложенная строка должна создаться заново под НОВОЙ ИС, а не
         // обновить запись донора — см. подробный комментарий у stripIds() выше.
@@ -231,20 +198,15 @@ function toPayload() {
 }
 
 // Собирает payload для PUT .../details — та же фильтрация "что не отправлять", что в
-// saveInformationSystemForm() в vanilla-версии: legacy-таблицы всегда пустые (вся актуальная
-// информация идёт через sources), пустые строки справочников/протоколов отбрасываются, а
-// source-строки отбрасываются только если тип "вручную" и IP не заполнен — для остальных типов
-// строка сохраняется, даже если сам источник (сервер/ВМ/контейнер) ещё не выбран.
+// saveInformationSystemForm() в vanilla-версии: пустые строки справочников/протоколов
+// отбрасываются, а source-строки отбрасываются только если тип "вручную" и IP не заполнен — для
+// остальных типов строка сохраняется, даже если сам источник (сервер/ВМ/контейнер) ещё не выбран.
 function buildDetailsPayload() {
   return {
     departments: departments.value.filter((x) => x.catalogId).map((x) => ({ id: x.id, department_id: x.catalogId })),
-    ips: [],
     protocols: protocols.value
-      .filter((x) => x.protocol_catalog_id || x.protocol.trim())
-      .map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id || null, protocol: x.protocol, port: x.port, description: x.description || null })),
-    devices: [],
-    vms: [],
-    containers: [],
+      .filter((x) => x.protocol_catalog_id)
+      .map((x) => ({ id: x.id, protocol_catalog_id: x.protocol_catalog_id, description: x.description || null })),
     sources: sources.value
       .filter((x) => (x.source_type === 'manual' ? x.ip_address.trim() : true))
       .map((x) => ({

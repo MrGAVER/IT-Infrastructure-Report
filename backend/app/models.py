@@ -242,17 +242,6 @@ class ISDepartment(TimestampMixin, Base):
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
 
-class ISIP(TimestampMixin, Base):
-    __tablename__ = "information_system_ips"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    ip_address: Mapped[str] = mapped_column(String(64))
-    purpose: Mapped[Optional[str]] = mapped_column(String(500))
-    protocol: Mapped[Optional[str]] = mapped_column(String(100))
-    external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)
-    physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    virtual_machine_id: Mapped[Optional[str]] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-
 class ProtocolPortCatalog(TimestampMixin, Base):
     __tablename__ = "protocol_port_catalogs"
     __table_args__ = (UniqueConstraint("port", "protocol_type", name="uq_protocol_port_catalog_port_type"),)
@@ -262,14 +251,21 @@ class ProtocolPortCatalog(TimestampMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
 
 class ISProtocol(TimestampMixin, Base):
+    """Протокол передачи данных ИС (Лист 1, колонка "Протокол передачи данных").
+
+    protocol/port больше не отдельные колонки (правка "справочник — единственный источник
+    правды для порта/протокола", по аналогии с OpenPort, см. миграцию
+    b7f2c1e5a904_isprotocol_catalog_required): значения ВСЕГДА читаются join'ом к
+    protocol_port_catalogs по protocol_catalog_id (обязателен, NOT NULL) — правка справочника
+    сразу отражается на уже сохранённых строках, без их отдельного пересохранения. description —
+    отдельное, СВОЁ поле записи (a не справочника): произвольный комментарий пользователя к
+    конкретному использованию протокола в этой ИС (см. ISProtocolsListEditor.vue), не путать с
+    ProtocolPortCatalog.description (общее техническое описание самого протокола) — reporting.py
+    показывает оба значения вместе, не выбирая одно вместо другого."""
     __tablename__ = "information_system_protocols"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    protocol: Mapped[str] = mapped_column(String(200))
-    port: Mapped[Optional[int]] = mapped_column(Integer)
-    protocol_catalog_id: Mapped[Optional[str]] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
-    version: Mapped[Optional[str]] = mapped_column(String(100))  # legacy, no longer shown in UI
-    direction: Mapped[Optional[str]] = mapped_column(String(50))  # legacy, no longer shown in UI
+    protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
 class DeviceInterface(TimestampMixin, Base):
@@ -452,6 +448,12 @@ class VMSoftware(TimestampMixin, Base):
     version: Mapped[Optional[str]] = mapped_column(String(100))
 
 class InformationSystemSource(TimestampMixin, Base):
+    """Связь ИС с оборудованием/ВМ/контейнером или произвольный IP-источник (source_type: manual,
+    device, vm, container) — Лист 1, столбцы "Оборудование..." и "IP-адрес...". Единственная и
+    обязательная модель этой связи: четыре прежние отдельные таблицы-связки (information_system_
+    devices/vms/containers/ips) удалены (миграция b7f2c1e5a904_isprotocol_catalog_required) вместе
+    со всем их поддерживающим кодом — до этого они существовали параллельно как исторический
+    fallback для записей ИС, ни разу не пересохранённых через актуальную форму."""
     __tablename__ = "information_system_sources"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
@@ -464,44 +466,24 @@ class InformationSystemSource(TimestampMixin, Base):
     role: Mapped[Optional[str]] = mapped_column(String(255))
     external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)
 
-class ISDevice(TimestampMixin, Base):
-    __tablename__ = "information_system_devices"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    role: Mapped[Optional[str]] = mapped_column(String(255))
-
-class ISVM(TimestampMixin, Base):
-    __tablename__ = "information_system_vms"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    virtual_machine_id: Mapped[str] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-    role: Mapped[Optional[str]] = mapped_column(String(255))
-
-class ISContainer(TimestampMixin, Base):
-    __tablename__ = "information_system_containers"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    container_id: Mapped[str] = mapped_column(ForeignKey("containers.id"))
-    role: Mapped[Optional[str]] = mapped_column(String(255))
-
 class OpenPort(TimestampMixin, Base):
     """Открытый порт/протокол владельца (ВМ или интерфейс физ. устройства, см. owner_type/owner_id).
 
     port/protocol НЕ принимаются от клиента напрямую (правка "убрать текстовые поля Порт/Протокол,
-    эта информация уже есть в справочнике портов") — единственный вход для них — protocol_catalog_id,
-    сервер сам подставляет значения из ProtocolPortCatalog (см. services/crud.py:_apply_open_port_catalog).
-    protocol_catalog_id обязателен (NOT NULL, миграция a1b7c9d3e502 с бэкфиллом старых строк) — без
-    него неоткуда взять port/protocol при создании/обновлении. Колонки port/protocol сохранены как
-    есть (не через relationship) ради обратной совместимости отчёта (reporting.py) и уже
-    существующих запросов, читающих их напрямую с этой модели."""
+    эта информация уже есть в справочнике портов") — единственный вход для них — protocol_catalog_id.
+    port/protocol больше не отдельные колонки (правка "справочник — единственный источник правды
+    для порта/протокола", см. миграцию b7f2c1e5a904_isprotocol_catalog_required): значения ВСЕГДА
+    читаются join'ом к protocol_port_catalogs по protocol_catalog_id при каждом чтении (см.
+    services/serialization.py:enrich_open_port(s), reporting.py:_open_port_label) — правка записи
+    справочника сразу отражается на уже созданных портах, без их отдельного пересохранения (то,
+    чего не было до этой правки — старая версия хранила снимок port/protocol на самой записи и
+    актуализировала его только при пересохранении именно этой записи порта). protocol_catalog_id
+    обязателен (NOT NULL, миграция a1b7c9d3e502)."""
     __tablename__ = "open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
     owner_id: Mapped[str] = mapped_column(String(36))
     transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
-    port: Mapped[int] = mapped_column(Integer)
-    protocol: Mapped[Optional[str]] = mapped_column(String(100))
     protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     description: Mapped[Optional[str]] = mapped_column(Text)
