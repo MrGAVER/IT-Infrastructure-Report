@@ -719,6 +719,44 @@ class TestVmIpValidation:
         assert r.status_code == 201, r.text
 
 
+class TestContainerHostExclusivity:
+    """Код-ревью (отчёт по анализу БД, вопрос 6): Container.physical_device_id/
+    virtual_machine_id — альтернативы по смыслу («размещается либо на ВМ, либо на физическом
+    устройстве, либо нигде конкретно»), но модель и БД допускали заполнение обоих одновременно —
+    это соблюдалось только на уровне формы (ContainerFormModal.vue). Прямой вызов API в обход
+    формы мог записать оба FK сразу."""
+
+    def test_create_rejects_both_host_fields_at_once(self, client):
+        dt = _create_device_type(client, "Хост для контейнера")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-CONTAINER"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера"}).json()
+        r = client.post(
+            "/api/v1/resources/containers",
+            json={"name": "container-both-hosts", "physical_device_id": dev["id"], "virtual_machine_id": vm["id"]},
+        )
+        assert r.status_code == 422
+
+    def test_create_accepts_single_host_field(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера 2"}).json()
+        r = client.post(
+            "/api/v1/resources/containers",
+            json={"name": "container-on-vm", "virtual_machine_id": vm["id"]},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_create_accepts_neither_host_field(self, client):
+        r = client.post("/api/v1/resources/containers", json={"name": "container-no-host"})
+        assert r.status_code == 201, r.text
+
+    def test_update_rejects_setting_both_host_fields(self, client):
+        dt = _create_device_type(client, "Хост для контейнера 2")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-CONTAINER-2"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера 3"}).json()
+        container = client.post("/api/v1/resources/containers", json={"name": "container-update", "virtual_machine_id": vm["id"]}).json()
+        r = client.put(f"/api/v1/resources/containers/{container['id']}", json={"physical_device_id": dev["id"]})
+        assert r.status_code == 422
+
+
 class TestNPlusOneRegressions:
     """Закрепляет количество SQL-запросов к конкретным таблицам там, где раньше был N+1 (см.
     историю коммита e068add) — если кто-то случайно вернёт запрос внутрь цикла, эти тесты упадут
