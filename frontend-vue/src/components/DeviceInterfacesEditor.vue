@@ -30,8 +30,11 @@
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
 import { ref } from 'vue'
-import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
+import { updateResource } from '../api/client'
+import { useCatalogsStore } from '../stores/catalogs'
+import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
+import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
@@ -48,15 +51,16 @@ const props = withDefaults(
     // тот же catalogs.protocolPortCatalog, что раньше прокидывался напрямую в единственный
     // ("на всё устройство") экземпляр редактора в DeviceFormModal.vue.
     protocolPortCatalog?: ProtocolPortCatalogEntry[]
-    // Фикс п.3.3 (вторая часть): предупреждения по id строки — считаются родителем
-    // (DeviceFormModal.vue: interfaceConflictWarnings), т.к. только у него есть доступ к
-    // стору подключений; этот компонент их только отображает, ничего сам не вычисляет.
-    conflictWarnings?: Record<string, string>
+    // Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — считаются
+    // родителем (DeviceFormModal.vue: interfaceConflicts), т.к. только у него есть доступ к
+    // стору подключений; этот компонент их только отображает и предлагает разрешить.
+    conflicts?: Record<string, PortConflictInfo>
   }>(),
-  { conflictWarnings: () => ({}), protocolPortCatalog: () => [] },
+  { conflicts: () => ({}), protocolPortCatalog: () => [] },
 )
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
-const { notify } = useToast()
+const { notify, notifyError } = useToast()
+const catalogs = useCatalogsStore()
 
 // Поля генератора — черновой ввод формы, не часть modelValue (как if-count/if-name-template в
 // vanilla). Начальное количество подставляется от уже загруженных интерфейсов один раз при
@@ -120,8 +124,68 @@ function applyTemplate(template: string, n: number): string {
   return template.replaceAll('{n}', String(n)).replaceAll('{n0}', String(n).padStart(2, '0'))
 }
 
-function rowConflict(row: InterfaceDraftRow): string | undefined {
-  return row.id ? props.conflictWarnings[row.id] : undefined
+function rowConflict(row: InterfaceDraftRow): PortConflictInfo | undefined {
+  return row.id ? props.conflicts[row.id] : undefined
+}
+
+function conflictSummary(conflict: PortConflictInfo, kind: 'flags' | 'vlan_mode'): string {
+  const where = `${conflict.otherDeviceName} · ${conflict.otherInterfaceName}`
+  if (kind === 'flags') return `На связанном порту (${where}) указано другое назначение (Управление/Передача данных).`
+  return `На связанном порту (${where}) установлен другой режим порта (Trunk/Access).`
+}
+
+// Пункты 1-2 правки "физическое устройство: расхождение с соседним портом": одно окно на оба
+// вида расхождения — kind определяет, какие именно поля показать/применить, но сам механизм
+// (два действия — "оставить как у меня" / "взять как у соседа") общий.
+const activeConflict = ref<{ index: number; kind: 'flags' | 'vlan_mode' } | null>(null)
+const applyingConflict = ref(false)
+
+function openConflict(index: number, kind: 'flags' | 'vlan_mode') {
+  activeConflict.value = { index, kind }
+}
+function closeConflict() {
+  activeConflict.value = null
+}
+const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(closeConflict)
+
+// "Применить конфигурацию соседа [ко мне]" — меняет только ЭТУ строку черновика, сохраняется
+// вместе с остальной формой при её отправке (тот же принцип отложенного сохранения, что и у
+// всех прочих полей этого редактора) — отдельного запроса к API не требует.
+function applyNeighborConfig() {
+  if (!activeConflict.value) return
+  const { index, kind } = activeConflict.value
+  const row = props.modelValue[index]
+  const conflict = rowConflict(row)
+  if (!conflict) return
+  if (kind === 'flags') updateRow(index, { is_management: conflict.other.is_management, is_data_transfer: conflict.other.is_data_transfer })
+  else setVlanMode(index, conflict.other.vlan_mode)
+  closeConflict()
+}
+
+// "Применить текущую конфигурацию [соседу]" — сам сосед принадлежит ДРУГОМУ устройству, не
+// входящему в modelValue этой формы, поэтому это не черновик, а немедленный PUT (тот же
+// generic-ресурс 'interfaces', которым сохраняется и сама эта форма при отправке). После
+// успешного ответа правим локальный кэш catalogs.items['interfaces'] на месте — иначе значок
+// расхождения пропал бы только после полной перезагрузки каталогов, а не сразу.
+async function applyCurrentConfigToNeighbor() {
+  if (!activeConflict.value) return
+  const { index, kind } = activeConflict.value
+  const row = props.modelValue[index]
+  const conflict = rowConflict(row)
+  if (!conflict) return
+  applyingConflict.value = true
+  try {
+    const payload = kind === 'flags' ? { is_management: row.is_management, is_data_transfer: row.is_data_transfer } : { vlan_mode: row.vlan_mode }
+    await updateResource('interfaces', conflict.otherInterfaceId, payload)
+    const cached = ((catalogs.items['interfaces'] ?? []) as unknown as { id: string }[]).find((i) => i.id === conflict.otherInterfaceId)
+    if (cached) Object.assign(cached, payload)
+    notify('Конфигурация применена к соседнему порту', 'success')
+    closeConflict()
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    applyingConflict.value = false
+  }
 }
 
 // Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
@@ -639,15 +703,25 @@ function applyBulkEdit() {
                   <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
                 </select>
               </td>
-              <td class="col-check" :class="{ 'has-conflict': rowConflict(row) }" :title="rowConflict(row)">
+              <td class="col-check" :class="{ 'has-conflict': rowConflict(row)?.flagsDiffer }">
                 <input type="checkbox" :checked="row.is_management" @change="updateRow(i, { is_management: ($event.target as HTMLInputElement).checked })" />
-                <svg v-if="rowConflict(row)" class="icon conflict-icon" aria-label="Расхождение с подключённым портом"><use href="/icons.svg#i-alert" /></svg>
+                <button
+                  v-if="rowConflict(row)?.flagsDiffer"
+                  type="button"
+                  class="conflict-icon-btn"
+                  :title="conflictSummary(rowConflict(row)!, 'flags')"
+                  aria-label="Расхождение с подключённым портом — открыть варианты решения"
+                  @click="openConflict(i, 'flags')"
+                >
+                  <svg class="icon conflict-icon"><use href="/icons.svg#i-alert" /></svg>
+                </button>
               </td>
-              <td class="col-check" :class="{ 'has-conflict': rowConflict(row) }" :title="rowConflict(row)">
+              <td class="col-check" :class="{ 'has-conflict': rowConflict(row)?.flagsDiffer }">
                 <input type="checkbox" :checked="row.is_data_transfer" @change="updateRow(i, { is_data_transfer: ($event.target as HTMLInputElement).checked })" />
               </td>
               <td>
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
+                  <svg v-if="rowConflict(row)?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
                   <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP</span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
                 </button>
@@ -669,6 +743,16 @@ function applyBulkEdit() {
                   <div class="vlan-block">
                     <div class="vlan-mode-row">
                       <b>Режим порта</b>
+                      <button
+                        v-if="rowConflict(row)?.vlanModeDiffer"
+                        type="button"
+                        class="conflict-icon-btn"
+                        :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"
+                        aria-label="Расхождение режима порта с подключённым портом — открыть варианты решения"
+                        @click="openConflict(i, 'vlan_mode')"
+                      >
+                        <svg class="icon conflict-icon"><use href="/icons.svg#i-alert" /></svg>
+                      </button>
                       <label class="radio-inline">
                         <input
                           type="radio"
@@ -801,6 +885,55 @@ function applyBulkEdit() {
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Интерфейс
       </button>
+    </div>
+  </div>
+
+  <!-- Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения:
+       показывает конфигурацию текущего порта и соседнего рядом, даёт применить любую из двух. -->
+  <div v-if="activeConflict" class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+    <div class="conflict-modal card" role="dialog" aria-modal="true">
+      <div class="conflict-modal-head">
+        <h3>{{ activeConflict.kind === 'flags' ? 'Расхождение назначения порта' : 'Расхождение режима порта' }}</h3>
+        <button type="button" class="icon-btn" aria-label="Закрыть" @click="closeConflict">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
+      </div>
+      <p class="conflict-modal-desc">
+        Порт «{{ modelValue[activeConflict.index].name }}» соединён с портом «{{ rowConflict(modelValue[activeConflict.index])?.otherInterfaceName }}» устройства
+        «{{ rowConflict(modelValue[activeConflict.index])?.otherDeviceName }}», но их настройки разошлись.
+      </p>
+      <table class="conflict-compare">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Этот порт</th>
+            <th>Соседний порт</th>
+          </tr>
+        </thead>
+        <tbody v-if="activeConflict.kind === 'flags'">
+          <tr>
+            <td>Управление</td>
+            <td>{{ modelValue[activeConflict.index].is_management ? 'Да' : 'Нет' }}</td>
+            <td>{{ rowConflict(modelValue[activeConflict.index])?.other.is_management ? 'Да' : 'Нет' }}</td>
+          </tr>
+          <tr>
+            <td>Передача данных</td>
+            <td>{{ modelValue[activeConflict.index].is_data_transfer ? 'Да' : 'Нет' }}</td>
+            <td>{{ rowConflict(modelValue[activeConflict.index])?.other.is_data_transfer ? 'Да' : 'Нет' }}</td>
+          </tr>
+        </tbody>
+        <tbody v-else>
+          <tr>
+            <td>Режим порта</td>
+            <td>{{ modelValue[activeConflict.index].vlan_mode === 'access' ? 'Access' : 'Trunk' }}</td>
+            <td>{{ rowConflict(modelValue[activeConflict.index])?.other.vlan_mode === 'access' ? 'Access' : 'Trunk' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="conflict-modal-actions">
+        <button type="button" class="btn btn-secondary" :disabled="applyingConflict" @click="applyNeighborConfig">Применить конфигурацию соседа</button>
+        <button type="button" class="btn btn-primary" :disabled="applyingConflict" @click="applyCurrentConfigToNeighbor">Применить текущую конфигурацию</button>
+      </div>
     </div>
   </div>
 </template>
@@ -986,13 +1119,16 @@ function applyBulkEdit() {
   background: var(--status-warn-soft);
   position: relative;
 }
-.iface-table .conflict-icon {
-  position: absolute;
-  top: 2px;
-  right: 2px;
+.conflict-icon {
   width: 11px;
   height: 11px;
   color: var(--status-warn);
+  flex-shrink: 0;
+}
+.iface-table .col-check .conflict-icon-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
 }
 .cell-input {
   background: var(--surface-2);
@@ -1187,5 +1323,80 @@ function applyBulkEdit() {
     flex-wrap: wrap;
     width: 100%;
   }
+}
+
+/* Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения
+   конфликта. .overlay/.modal-head — та же база, что и в остальных модалках приложения (напр.
+   ConnectionFormModal.vue), но пошире карточка не нужна — здесь всего сравнительная таблица из
+   двух-трёх строк и две кнопки. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 16px;
+  overflow-y: auto;
+}
+.conflict-modal {
+  width: 100%;
+  max-width: 420px;
+  padding: 18px 20px 16px;
+}
+.conflict-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.conflict-modal-head h3 {
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  margin: 0;
+}
+.conflict-modal-desc {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 0 0 12px;
+}
+.conflict-compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-bottom: 14px;
+}
+.conflict-compare th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.conflict-compare td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.conflict-compare tr:last-child td {
+  border-bottom: none;
+}
+.conflict-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.conflict-modal-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+.conflict-icon-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  cursor: pointer;
 }
 </style>

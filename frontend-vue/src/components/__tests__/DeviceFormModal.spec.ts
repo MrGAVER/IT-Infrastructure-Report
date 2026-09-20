@@ -1207,30 +1207,46 @@ describe('DeviceFormModal.vue', () => {
     })
   })
 
-  describe('фикс п.3.3 (вторая часть): предупреждение при редактировании "Управления"/"Передачи данных"', () => {
+  describe('пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — вычисление в DeviceFormModal.vue', () => {
     const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
 
-    it('интерфейс с активным подключением, чьё назначение расходится со "вторым концом", подсвечивается предупреждением', async () => {
+    function mountWithConnection(thisIface: Record<string, unknown>, otherIface: Record<string, unknown>) {
       const catalogs = useCatalogsStore()
       catalogs.items['interfaces'] = [
-        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' },
-        { id: 'if-other', physical_device_id: 'dev-2', name: 'Gi0/2', is_management: false, is_data_transfer: true, vlan_mode: 'trunk' },
+        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface },
+        { id: 'if-other', physical_device_id: 'dev-2', name: 'Gi0/2', ...otherIface },
       ] as never
       const connections = useConnectionsStore()
-      connections.all = [{ id: 'c-1', source_interface_id: 'if-this', destination_interface_id: 'if-other', is_active: true } as never]
+      connections.all = [
+        {
+          id: 'c-1',
+          source_interface_id: 'if-this',
+          destination_interface_id: 'if-other',
+          is_active: true,
+          source_device_name: 'sw-01',
+          source_interface_name: 'Gi0/1',
+          destination_device_name: 'sw-02',
+          destination_interface_name: 'Gi0/2',
+        } as never,
+      ]
       connections.loaded = true
-
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string) => {
           if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
-            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }))
           }
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
       )
+      return mount(DeviceFormModal, { props: { device } })
+    }
 
-      const wrapper = mount(DeviceFormModal, { props: { device } })
+    it('интерфейс с активным подключением, чьё назначение расходится со "вторым концом", подсвечивается предупреждением', async () => {
+      const wrapper = mountWithConnection(
+        { is_management: true, is_data_transfer: false, vlan_mode: 'trunk' },
+        { is_management: false, is_data_transfer: true, vlan_mode: 'trunk' },
+      )
       await flushPromises()
 
       const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
@@ -1258,6 +1274,40 @@ describe('DeviceFormModal.vue', () => {
       await flushPromises()
 
       expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
+    })
+
+    it('пункт 2: совпадающие флаги, но разный режим порта — конфликт есть, но ячейки Упр./Данные не подсвечены', async () => {
+      const wrapper = mountWithConnection(
+        { is_management: true, is_data_transfer: true, vlan_mode: 'access' },
+        { is_management: true, is_data_transfer: true, vlan_mode: 'trunk' },
+      )
+      await flushPromises()
+
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('.expand-toggle .conflict-icon').exists()).toBe(true)
+    })
+
+    it('совпадающие флаги И режим порта — конфликта нет вовсе', async () => {
+      const wrapper = mountWithConnection(
+        { is_management: true, is_data_transfer: false, vlan_mode: 'access' },
+        { is_management: true, is_data_transfer: false, vlan_mode: 'access' },
+      )
+      await flushPromises()
+
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('.expand-toggle .conflict-icon').exists()).toBe(false)
+    })
+
+    it('окно решения показывает реальные имена устройства/порта соседа из подключения (enrich_connections)', async () => {
+      const wrapper = mountWithConnection(
+        { is_management: true, is_data_transfer: false, vlan_mode: 'access' },
+        { is_management: false, is_data_transfer: false, vlan_mode: 'access' },
+      )
+      await flushPromises()
+
+      await wrapper.find('.conflict-icon-btn').trigger('click')
+      expect(wrapper.text()).toContain('sw-02')
+      expect(wrapper.text()).toContain('Gi0/2')
     })
   })
 

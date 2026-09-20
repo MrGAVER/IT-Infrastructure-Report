@@ -11,7 +11,7 @@ import { ApiError, createResource, deleteResource, listResource, updateResource,
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceModel, Rack, Room, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
+import type { Device, DeviceModel, Rack, Room, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface, PortConflictInfo } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
@@ -113,26 +113,38 @@ const singleDeviceDomainId = computed(() => {
   return ids.size === 1 ? [...ids][0] : null
 })
 
-// Фикс п.3.3 (вторая часть): предупреждает, если у интерфейса с активным подключением
-// "Управление"/"Передача данных" разошлись с тем же на "втором конце" линии — та же проверка,
-// что и при создании/редактировании самого подключения в ConnectionFormModal.vue, только со
-// стороны формы устройства. Только для УЖЕ СОХРАНЁННЫХ интерфейсов (row.id) — у черновых строк
-// без id (новая или скопированная, см. фикс п.2) подключений ещё не может быть в принципе.
-const interfaceConflictWarnings = computed<Record<string, string>>(() => {
-  const warnings: Record<string, string> = {}
+// Пункты 1-2 правки "физическое устройство: расхождение с соседним портом": раньше здесь
+// считалась только ГОТОВАЯ строка-предупреждение (interfaceConflictWarnings, Record<string,
+// string>) для пассивной подсказки при наведении — саму информацию о соседнем порте и
+// возможность применить любую из двух конфигураций пользователю было взять неоткуда. Теперь
+// считается richer-объект (PortConflictInfo, см. api/types.ts) с фактическими значениями
+// соседа — DeviceInterfacesEditor.vue сам решает, как их показать и что́ по каждой из двух
+// кнопок применить (пункт 1 — is_management/is_data_transfer, пункт 2 — vlan_mode; это два
+// НЕЗАВИСИМЫХ флага расхождения, у каждого своё место в интерфейсе редактора).
+const interfaceConflicts = computed<Record<string, PortConflictInfo>>(() => {
+  const conflicts: Record<string, PortConflictInfo> = {}
   const allInterfaces = (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[]
   for (const row of interfaces.value) {
     if (!row.id) continue
     const connection = connectionsStore.all.find((c) => c.is_active && (c.source_interface_id === row.id || c.destination_interface_id === row.id))
     if (!connection) continue
-    const otherId = connection.source_interface_id === row.id ? connection.destination_interface_id : connection.source_interface_id
+    const otherIsSource = connection.source_interface_id !== row.id
+    const otherId = otherIsSource ? connection.source_interface_id : connection.destination_interface_id
     const other = allInterfaces.find((i) => i.id === otherId)
     if (!other) continue
-    if (other.is_management !== row.is_management || other.is_data_transfer !== row.is_data_transfer) {
-      warnings[row.id] = `На связанном порту подключения указано другое назначение (Управление/Передача данных) — проверьте соответствие на обоих концах линии.`
+    const flagsDiffer = other.is_management !== row.is_management || other.is_data_transfer !== row.is_data_transfer
+    const vlanModeDiffer = other.vlan_mode !== row.vlan_mode
+    if (!flagsDiffer && !vlanModeDiffer) continue
+    conflicts[row.id] = {
+      otherInterfaceId: other.id,
+      otherDeviceName: otherIsSource ? connection.source_device_name : connection.destination_device_name,
+      otherInterfaceName: otherIsSource ? connection.source_interface_name : connection.destination_interface_name,
+      flagsDiffer,
+      vlanModeDiffer,
+      other: { is_management: other.is_management, is_data_transfer: other.is_data_transfer, vlan_mode: other.vlan_mode },
     }
   }
-  return warnings
+  return conflicts
 })
 
 // Опции для чекбоксов "VLAN на порту" (DeviceInterfacesEditor.vue) — НЕ то же самое, что
@@ -776,7 +788,7 @@ async function submit() {
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
-          :conflict-warnings="interfaceConflictWarnings"
+          :conflicts="interfaceConflicts"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
         />
         <DeviceVlanListEditor
