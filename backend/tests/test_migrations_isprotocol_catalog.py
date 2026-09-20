@@ -84,6 +84,48 @@ def _insert_legacy_is_device(conn: sqlite3.Connection, is_id: str, device_id: st
     conn.commit()
 
 
+def _insert_virtual_machine(conn: sqlite3.Connection) -> str:
+    vm_id = _uid()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO virtual_machines (id, name, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)",
+        (vm_id, f"VM-{vm_id[:8]}", now, now),
+    )
+    conn.commit()
+    return vm_id
+
+
+def _insert_legacy_is_vm(conn: sqlite3.Connection, is_id: str, vm_id: str, *, role: str | None = None) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO information_system_vms (id, information_system_id, virtual_machine_id, role, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (_uid(), is_id, vm_id, role, now, now),
+    )
+    conn.commit()
+
+
+def _insert_container(conn: sqlite3.Connection) -> str:
+    container_id = _uid()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO containers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        (container_id, f"container-{container_id[:8]}", now, now),
+    )
+    conn.commit()
+    return container_id
+
+
+def _insert_legacy_is_container(conn: sqlite3.Connection, is_id: str, container_id: str, *, role: str | None = None) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO information_system_containers (id, information_system_id, container_id, role, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (_uid(), is_id, container_id, role, now, now),
+    )
+    conn.commit()
+
+
 def _insert_legacy_is_ip(conn: sqlite3.Connection, is_id: str, ip_address: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
@@ -139,6 +181,56 @@ def test_legacy_is_device_migrated_to_sources_when_no_sources_exist(alembic_conf
     assert row["source_type"] == "device"
     assert row["physical_device_id"] == device_id
     assert row["role"] == "Основной сервер"
+    conn.close()
+
+
+def test_legacy_is_vm_migrated_to_sources_when_no_sources_exist(alembic_config):
+    """Аналог test_legacy_is_device_migrated_to_sources_when_no_sources_exist для
+    information_system_vms (код-ревью, отчёт по рефакторингу и безопасности, находка 3 —
+    четыре legacy-таблицы переносятся почти одинаковым, но не переиспользуемым кодом; до этого
+    теста ветка information_system_vms не была отдельно проверена, и перепутанная колонка
+    (например, container_id вместо virtual_machine_id) не была бы поймана)."""
+    cfg, db_path = alembic_config
+    command.upgrade(cfg, PRE_REVISION)
+    conn = _connect(db_path)
+    is_id = _insert_information_system(conn)
+    vm_id = _insert_virtual_machine(conn)
+    _insert_legacy_is_vm(conn, is_id, vm_id, role="Гипервизор")
+    conn.close()
+
+    command.upgrade(cfg, TARGET_REVISION)
+    conn = _connect(db_path)
+    row = conn.execute(
+        "SELECT source_type, virtual_machine_id, role FROM information_system_sources WHERE information_system_id=?",
+        (is_id,),
+    ).fetchone()
+    assert row is not None
+    assert row["source_type"] == "vm"
+    assert row["virtual_machine_id"] == vm_id
+    assert row["role"] == "Гипервизор"
+    conn.close()
+
+
+def test_legacy_is_container_migrated_to_sources_when_no_sources_exist(alembic_config):
+    """Аналог для information_system_containers — см. docstring теста для vm выше."""
+    cfg, db_path = alembic_config
+    command.upgrade(cfg, PRE_REVISION)
+    conn = _connect(db_path)
+    is_id = _insert_information_system(conn)
+    container_id = _insert_container(conn)
+    _insert_legacy_is_container(conn, is_id, container_id, role="Прикладной контейнер")
+    conn.close()
+
+    command.upgrade(cfg, TARGET_REVISION)
+    conn = _connect(db_path)
+    row = conn.execute(
+        "SELECT source_type, container_id, role FROM information_system_sources WHERE information_system_id=?",
+        (is_id,),
+    ).fetchone()
+    assert row is not None
+    assert row["source_type"] == "container"
+    assert row["container_id"] == container_id
+    assert row["role"] == "Прикладной контейнер"
     conn.close()
 
 

@@ -421,6 +421,19 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
         for row in rows if row.cnt
     ]
 
+# Код-ревью (отчёт по рефакторингу и безопасности, находка 1): открытые порты (OpenPort) —
+# единственная сейчас модель с полиморфным владельцем (owner_type/owner_id без настоящего FK),
+# поэтому _find_referencing_counts() выше их структурно не видит. Точечный словарь, а не общее
+# решение (например, обучить _find_referencing_counts понимать полиморфные владельцы) — дешевле и
+# достаточен, пока таких таблиц-владельцев одна; если правки из отчёта по анализу БД добавят
+# owner_type/owner_id для IP-адресов или связей с ПО (см. тот отчёт, вопрос 4), этот словарь и
+# вызывающий его delete_resource() — первое, что нужно будет расширить.
+_POLYMORPHIC_OWNER_CLEANUP = {
+    'interfaces': OwnerType.DEVICE_INTERFACE,
+    'vms': OwnerType.VIRTUAL_MACHINE,
+    'devices': OwnerType.PHYSICAL_DEVICE,
+}
+
 def delete_resource(resource: str, item_id: str, session: Session):
     ensure_writable(resource)
     model = model_for(resource); obj = session.get(model, item_id)
@@ -430,6 +443,21 @@ def delete_resource(resource: str, item_id: str, session: Session):
         details = ', '.join(f'{name}: {count}' for name, count in refs)
         raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': f'Нельзя удалить: запись используется в других данных ({details}).'})
     try:
+        # Код-ревью (отчёт по рефакторингу и безопасности, находка 1): open_ports.owner_id/
+        # owner_type — полиморфная связь БЕЗ настоящего ForeignKey в БД (см. docstring
+        # models.OpenPort), поэтому _find_referencing_counts() её не видит — она сканирует только
+        # настоящие FK-колонки. Единственное место, где open_ports раньше подчищались при удалении
+        # владельца, — sync_interfaces() (при исключении интерфейса из списка), а не этот общий
+        # путь удаления. Подтверждено эмпирически: DELETE /resources/interfaces/{id} в обход
+        # sync_interfaces удалял интерфейс, но оставлял открытые порты в БД с owner_id,
+        # указывающим на уже не существующую запись. Явно подчищаем перед удалением для всех трёх
+        # значений OwnerType — включая PHYSICAL_DEVICE (legacy: порт привязан к устройству
+        # напрямую, без интерфейса, см. constants.OwnerType) — тем же случаем осиротевших записей,
+        # только для устройства без интерфейсов, у которого нет настоящих FK-ссылок, блокирующих
+        # удаление.
+        owner_type = _POLYMORPHIC_OWNER_CLEANUP.get(resource)
+        if owner_type:
+            session.execute(delete(OpenPort).where(OpenPort.owner_type == owner_type, OpenPort.owner_id == item_id))
         session.delete(obj); session.flush(); audit(session, resource, item_id, AuditAction.DELETE, 'Удаление записи'); session.commit(); return {'status': 'deleted', 'id': item_id}
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
@@ -664,8 +692,15 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
         # ip_address источника ИС может содержать несколько адресов через запятую (см. её сборку в
         # services/serialization.py:_enrich_single_information_system) — в отличие от IP интерфейса
         # или ВМ (там всегда ровно один адрес на запись), поэтому валидируется каждая часть
-        # отдельно, а не строка целиком.
-        for raw_ip in (item.get('ip_address') or '').split(','):
+        # отдельно, а не строка целиком. Код-ревью (отчёт по рефакторингу и безопасности,
+        # находка 2): .split(',') требует str — этот payload не проходит через pydantic-схему (см.
+        # docstring RESOURCE_SCHEMAS), поэтому нестроковое значение (число, список — оба валидный
+        # JSON) раньше падало необработанным AttributeError вместо аккуратной 422, как это уже
+        # делает сама validate_ipv4_field() ниже для остальных полей.
+        raw_ip_value = item.get('ip_address')
+        if raw_ip_value is not None and not isinstance(raw_ip_value, str):
+            raise HTTPException(422, 'IP-адрес источника ИС: некорректный формат')
+        for raw_ip in (raw_ip_value or '').split(','):
             validate_ipv4_field(raw_ip.strip(), 'IP-адрес источника ИС')
         obj = source_map.get(item.get('id')) if item.get('id') else InformationSystemSource(information_system_id=system_id)
         if obj is None: raise HTTPException(422, 'Источник не принадлежит выбранной ИС')
