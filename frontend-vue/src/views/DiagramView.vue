@@ -251,7 +251,7 @@ async function commitRename() {
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
         Удалить
       </button>
-      <DiagramExportPanel :exporting="store.exporting" @export="onExport" />
+      <DiagramExportPanel :exporting="store.exporting" :last-format="store.diagram?.last_export_format ?? null" @export="onExport" />
     </div>
 
     <div v-if="store.error" class="error-banner card">

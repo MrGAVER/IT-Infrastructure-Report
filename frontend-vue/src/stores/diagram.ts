@@ -172,6 +172,10 @@ export const useDiagramStore = defineStore('diagram', {
         link.click()
         link.remove()
         URL.revokeObjectURL(url)
+        // Сервер уже сохранил last_export_format (см. backend/app/api/diagrams.py) — отражаем
+        // это в локальном состоянии сразу, без перезапроса всей диаграммы, чтобы сплит-кнопка
+        // экспорта (DiagramExportPanel.vue) сменила основной формат немедленно.
+        this.diagram.last_export_format = format
       } finally {
         this.exporting = null
       }

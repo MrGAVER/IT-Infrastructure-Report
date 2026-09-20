@@ -47,8 +47,8 @@ describe('CatalogRecordFormModal.vue', () => {
       vi.fn(async (url: string, init?: RequestInit) => {
         expect(init?.method).toBe('POST')
         expect(url).toContain('/resources/device-types')
-        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Коммутатор', category_id: 'cat-1' })
-        return jsonResponse({ id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1' }, 201)
+        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Коммутатор', category_id: 'cat-1', allows_vm_hosting: false })
+        return jsonResponse({ id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1', allows_vm_hosting: false }, 201)
       }),
     )
     const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: null } })
@@ -59,7 +59,7 @@ describe('CatalogRecordFormModal.vue', () => {
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1' }])
+    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-new', name: 'Коммутатор', category_id: 'cat-1', allows_vm_hosting: false }])
   })
 
   it('редактирование: PUT на ресурс/id, emit saved', async () => {
@@ -70,8 +70,8 @@ describe('CatalogRecordFormModal.vue', () => {
       vi.fn(async (url: string, init?: RequestInit) => {
         expect(init?.method).toBe('PUT')
         expect(url).toContain('/resources/device-types/dt-1')
-        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Сервер (переименован)', category_id: 'cat-1' })
-        return jsonResponse({ id: 'dt-1', name: 'Сервер (переименован)', category_id: 'cat-1' })
+        expect(JSON.parse(init!.body as string)).toEqual({ name: 'Сервер (переименован)', category_id: 'cat-1', allows_vm_hosting: false })
+        return jsonResponse({ id: 'dt-1', name: 'Сервер (переименован)', category_id: 'cat-1', allows_vm_hosting: false })
       }),
     )
     const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: { id: 'dt-1', name: 'Сервер', category_id: 'cat-1' } } })
@@ -79,7 +79,30 @@ describe('CatalogRecordFormModal.vue', () => {
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-1', name: 'Сервер (переименован)', category_id: 'cat-1' }])
+    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-1', name: 'Сервер (переименован)', category_id: 'cat-1', allows_vm_hosting: false }])
+  })
+
+  it('чекбокс allows_vm_hosting у device-types: предзаполняется из item, меняется, попадает в payload', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-categories'] = [{ id: 'cat-1', name: 'Сетевая инфраструктура' }]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        expect(url).toContain('/resources/device-types/dt-1')
+        expect(JSON.parse(init!.body as string)).toMatchObject({ allows_vm_hosting: true })
+        return jsonResponse({ id: 'dt-1', name: 'Blade-сервер', category_id: 'cat-1', allows_vm_hosting: true })
+      }),
+    )
+    const wrapper = mount(CatalogRecordFormModal, {
+      props: { resource: 'device-types', item: { id: 'dt-1', name: 'Blade-сервер', category_id: 'cat-1', allows_vm_hosting: false } },
+    })
+    const checkbox = body().find('input[type="checkbox"]')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(false)
+
+    await checkbox.setValue(true)
+    await body().find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.emitted('saved')?.[0]).toEqual([{ id: 'dt-1', name: 'Blade-сервер', category_id: 'cat-1', allows_vm_hosting: true }])
   })
 
   it('ошибка сохранения показывается в форме, а не проглатывается', async () => {
