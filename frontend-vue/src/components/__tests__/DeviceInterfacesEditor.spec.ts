@@ -671,7 +671,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       const rowChecks = wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')
       await rowChecks[0].setValue(true) // отмечаем только eth0
       await wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').setValue('t-eth')
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
@@ -680,31 +680,45 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result[2].vlan_ids).toEqual(['v-mgmt']) // не отмеченная — VLAN не тронут
     })
 
-    it('VLAN из панели добавляется к уже стоящим на порту (объединение, не замена)', async () => {
+    it('пункт 3 правки "физическое устройство: массовое редактирование": список VLAN — во всплывающем окне по кнопке, а не инлайновым списком в ячейке', () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+
+      expect(wrapper.find('.bulk-edit-row .vlan-checks').exists()).toBe(false) // список не в ячейке
+      expect(wrapper.find('.bulk-edit-row .vlan-picker-btn').exists()).toBe(true)
+      expect(wrapper.find('.vlan-picker-modal').exists()).toBe(false) // окно ещё не открыто
+    })
+
+    it('VLAN из панели (выбранный во всплывающем окне) добавляется к уже стоящим на порту (объединение, не замена)', async () => {
       const rows = threeRows()
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
       const rowChecks = wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')
       await rowChecks[2].setValue(true) // отмечаем eth2 (уже с v-mgmt)
-      await wrapper.find('.bulk-edit-row .vlan-check:not(.vlan-check-all) input').setValue(true) // добавляем v-mgmt ещё раз через панель
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      await wrapper.find('.vlan-picker-modal .vlan-check:not(.vlan-check-all) input').setValue(true) // добавляем v-mgmt ещё раз через панель
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click') // "Готово" — закрывает окно
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
       expect(result[2].vlan_ids).toEqual(['v-mgmt']) // без дублей
     })
 
-    it('пункт 4: галочка "Все VLAN" в массовом редактировании появляется только при выбранном режиме Trunk и отмечает весь vlanOptions разом', async () => {
+    it('пункт 4: галочка "Все VLAN" в массовом редактировании (во всплывающем окне) появляется только при выбранном режиме Trunk и отмечает весь vlanOptions разом', async () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
 
-      expect(wrapper.find('.bulk-edit-row .vlan-check-all').exists()).toBe(false) // режим ещё не выбран
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      expect(wrapper.find('.vlan-picker-modal .vlan-check-all').exists()).toBe(false) // режим ещё не выбран
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click') // закрываем, чтобы сменить режим в ячейке снаружи
 
       await wrapper.find('select[aria-label="Режим порта — массовое редактирование"]').setValue('trunk')
-      expect(wrapper.find('.bulk-edit-row .vlan-check-all').exists()).toBe(true)
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      expect(wrapper.find('.vlan-picker-modal .vlan-check-all').exists()).toBe(true)
 
-      await wrapper.find('.bulk-edit-row .vlan-check-all input').setValue(true)
+      await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(true)
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click')
       await wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[1].setValue(true) // отмечаем eth1
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
@@ -712,17 +726,21 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(new Set(result[1].vlan_ids)).toEqual(new Set(vOptions.map((v) => v.id)))
     })
 
-    it('после применения панель сбрасывается — выбор и поля возвращаются к значениям по умолчанию', async () => {
+    it('после применения панель сбрасывается — выбор, поля и выбранные VLAN возвращаются к значениям по умолчанию', async () => {
       const rows = threeRows()
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
       await wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[0].setValue(true)
       await wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').setValue('t-eth')
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      await wrapper.find('.vlan-picker-modal .vlan-check input').setValue(true)
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click')
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
       await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[] })
 
       expect((wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').element as HTMLSelectElement).value).toBe('')
       expect((wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[0].element as HTMLInputElement).checked).toBe(false)
+      expect(wrapper.find('.vlan-picker-btn').text()).toBe('— выбрать VLAN —')
     })
   })
 
@@ -753,35 +771,142 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
   })
 
-  describe('фикс п.3.3 (вторая часть): предупреждение о расхождении с подключённым портом', () => {
-    it('строка с id, для которого есть conflictWarnings, подсвечена и показывает иконку/подсказку', () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
-      const wrapper = mount(DeviceInterfacesEditor, {
-        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { 'if-1': 'На связанном порту другое назначение' } },
-      })
+  describe('пункты 1-2 правки "физическое устройство: расхождение с соседним портом"', () => {
+    const flagsConflict = {
+      otherInterfaceId: 'if-2',
+      otherDeviceName: 'sw-02',
+      otherInterfaceName: 'Gi0/2',
+      flagsDiffer: true,
+      vlanModeDiffer: false,
+      other: { is_management: true, is_data_transfer: false, vlan_mode: 'access' as const },
+    }
+    const vlanModeConflict = {
+      otherInterfaceId: 'if-3',
+      otherDeviceName: 'sw-03',
+      otherInterfaceName: 'Gi0/3',
+      flagsDiffer: false,
+      vlanModeDiffer: true,
+      other: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' as const },
+    }
 
-      const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
-      expect(cell.classes()).toContain('has-conflict')
-      expect(cell.attributes('title')).toBe('На связанном порту другое назначение')
-      expect(cell.find('.conflict-icon').exists()).toBe(true)
+    it('пункт 1: строка с расхождением флагов подсвечена, показывает кликабельную иконку в ячейках Упр./Данные', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+
+      const cells = wrapper.findAll('tr:not(.bulk-edit-row) td.col-check')
+      expect(cells[0].classes()).toContain('has-conflict')
+      expect(cells[1].classes()).toContain('has-conflict')
+      expect(cells[0].find('.conflict-icon-btn').exists()).toBe(true)
     })
 
-    it('без conflictWarnings (по умолчанию) — ни подсветки, ни иконки', () => {
+    it('без conflicts (по умолчанию) — ни подсветки, ни иконки, ни у флагов, ни у режима порта', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
 
       const cell = wrapper.find('tr:not(.bulk-edit-row) td.col-check')
       expect(cell.classes()).not.toContain('has-conflict')
-      expect(cell.find('.conflict-icon').exists()).toBe(false)
+      expect(cell.find('.conflict-icon-btn').exists()).toBe(false)
+      expect(wrapper.find('.expand-toggle .conflict-icon').exists()).toBe(false)
     })
 
     it('черновая строка без id (новая/скопированная) не подсвечивается, даже если id случайно совпал бы с ключом карты', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/1' }] // без id
       const wrapper = mount(DeviceInterfacesEditor, {
-        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflictWarnings: { undefined: 'x' } as never },
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { undefined: flagsConflict } as never },
       })
 
       expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
+    })
+
+    it('пункт 2: расхождение режима порта показывает иконку и на свёрнутой строке, и рядом с "Режим порта" в развёрнутой детали — но не подсвечивает ячейки флагов', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': vlanModeConflict } } })
+
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('.expand-toggle .conflict-icon').exists()).toBe(true)
+
+      await wrapper.find('.expand-toggle').trigger('click')
+      expect(wrapper.find('.vlan-mode-row .conflict-icon-btn').exists()).toBe(true)
+    })
+
+    it('клик по иконке расхождения флагов открывает окно сравнения с текущими и соседними значениями', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', is_management: false, is_data_transfer: true }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+
+      await wrapper.find('.conflict-icon-btn').trigger('click')
+
+      expect(wrapper.find('.conflict-modal').exists()).toBe(true)
+      expect(wrapper.text()).toContain('Gi0/2')
+      expect(wrapper.text()).toContain('sw-02')
+      const rowsText = wrapper.findAll('.conflict-compare tbody tr').map((r) => r.text())
+      expect(rowsText[0]).toContain('Управление')
+      expect(rowsText[0]).toContain('Нет') // текущее — false
+      expect(rowsText[0]).toContain('Да') // соседнее — true
+    })
+
+    it('"Применить конфигурацию соседа" переносит значения соседа в черновик строки локально, без запроса к API', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', is_management: false, is_data_transfer: true }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+
+      await wrapper.find('.conflict-icon-btn').trigger('click')
+      await wrapper.find('.conflict-modal-actions .btn-secondary').trigger('click')
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      const emitted = wrapper.emitted('update:modelValue')!
+      const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+      expect(result[0].is_management).toBe(true) // взято у соседа
+      expect(result[0].is_data_transfer).toBe(false) // взято у соседа
+      expect(wrapper.find('.conflict-modal').exists()).toBe(false) // окно закрылось
+    })
+
+    it('"Применить текущую конфигурацию" отправляет PUT на интерфейс соседа и закрывает окно', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', is_management: false, is_data_transfer: true }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(init.body as string) : undefined })
+          return jsonResponse({ id: 'if-2', is_management: false, is_data_transfer: true })
+        }),
+      )
+
+      await wrapper.find('.conflict-icon-btn').trigger('click')
+      await wrapper.find('.conflict-modal-actions .btn-primary').trigger('click')
+      await flushPromises()
+
+      const call = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/interfaces/if-2'))
+      expect(call?.body).toEqual({ is_management: false, is_data_transfer: true })
+      expect(wrapper.find('.conflict-modal').exists()).toBe(false)
+      // Черновик ЭТОЙ строки не менялся — обновился сосед, а не текущий порт.
+      expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+    })
+
+    it('пункт 2: "Применить конфигурацию соседа" по расхождению режима порта меняет только vlan_mode строки', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', vlan_mode: 'access' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': vlanModeConflict } } })
+      await wrapper.find('.expand-toggle').trigger('click')
+
+      await wrapper.find('.vlan-mode-row .conflict-icon-btn').trigger('click')
+      await wrapper.find('.conflict-modal-actions .btn-secondary').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+      expect(result[0].vlan_mode).toBe('trunk')
+    })
+
+    it('ошибка запроса при "Применить текущую конфигурацию" не закрывает окно молча — сообщается через notify', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Интерфейс не найден' }, 404)))
+
+      await wrapper.find('.conflict-icon-btn').trigger('click')
+      await wrapper.find('.conflict-modal-actions .btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.conflict-modal').exists()).toBe(true) // окно осталось открытым
     })
   })
 })

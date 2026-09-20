@@ -393,6 +393,21 @@ export interface InterfaceIpDraftRow {
  * откатывался в trunk после каждого сохранения+перезагрузки формы. item.vlan_mode по-прежнему
  * дублируется и на InterfaceVLAN.mode при сохранении (см. _sync_single_interface в crud.py) —
  * это не источник истины, а просто согласованность данных для любого другого читающего кода. */
+/** Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — DeviceFormModal.vue
+ * (interfaceConflicts) считает это по активному Connection этого интерфейса, DeviceInterfacesEditor.vue
+ * только показывает и предлагает разрешить (кнопки "Применить текущую"/"Применить соседа"). Один
+ * объект — на интерфейс, у которого есть активное подключение и (хотя бы одно) расхождение;
+ * flagsDiffer/vlanModeDiffer — независимые флаги, т.к. это два разных пункта правки с разным
+ * местом в UI (col-check ячейки vs строка "Режим порта" в развёрнутой детали). */
+export interface PortConflictInfo {
+  otherInterfaceId: string
+  otherDeviceName: string
+  otherInterfaceName: string
+  flagsDiffer: boolean
+  vlanModeDiffer: boolean
+  other: { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk' }
+}
+
 export interface InterfaceDraftRow {
   id?: string
   name: string
