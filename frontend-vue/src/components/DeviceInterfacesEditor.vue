@@ -29,7 +29,7 @@
 //   умолчанию для любой строки, включая только что добавленную;
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { updateResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
 import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
@@ -434,6 +434,13 @@ const bulkManagement = ref('') // '' — не менять, 'true'/'false' — �
 const bulkDataTransfer = ref('')
 const bulkVlanMode = ref('') // '' — не менять, 'access'/'trunk' — режим порта (п.1.4.3.2)
 const bulkVlanIds = ref<Set<string>>(new Set())
+// Пункт 3 правки "физическое устройство: массовое редактирование" — при большом числе VLAN на
+// устройстве инлайновый список чекбоксов в ячейке "растягивал" всю строку массового
+// редактирования (а с ней — и всю таблицу). Список чекбоксов переехал во всплывающее окно,
+// открываемое кнопкой; сама ячейка показывает только краткую сводку (сколько выбрано).
+const bulkVlanPickerOpen = ref(false)
+const bulkVlanSummary = computed(() => (bulkVlanIds.value.size ? `Выбрано VLAN: ${bulkVlanIds.value.size}` : '— выбрать VLAN —'))
+const { onOverlayPointerDown: onVlanPickerOverlayPointerDown, onOverlayClick: onVlanPickerOverlayClick } = useOverlayDismiss(() => (bulkVlanPickerOpen.value = false))
 
 function toggleSelect(index: number, checked: boolean) {
   if (checked) selectedIndices.value.add(index)
@@ -508,6 +515,7 @@ function applyBulkEdit() {
   bulkDataTransfer.value = ''
   bulkVlanMode.value = ''
   bulkVlanIds.value = new Set()
+  bulkVlanPickerOpen.value = false
 }
 </script>
 
@@ -642,24 +650,14 @@ function applyBulkEdit() {
                 <option value="trunk">Trunk</option>
                 <option value="access">Access</option>
               </select>
-              <div v-if="vlanOptions.length" class="vlan-checks">
-                <!-- Пункт 4: галочка "Все VLAN" — та же механика, что и у одиночного порта в
-                     trunk-режиме (см. isAllVlansSelected/toggleAllVlans выше и .vlan-check-all
-                     в развёрнутой строке ниже) — показывается только при выбранном Trunk, т.к.
-                     для access (не более одного VLAN) она не имеет смысла. -->
-                <label v-if="bulkVlanMode === 'trunk'" class="vlan-check vlan-check-all">
-                  <input
-                    type="checkbox"
-                    :checked="isBulkAllVlansSelected()"
-                    @change="toggleBulkAllVlans(($event.target as HTMLInputElement).checked)"
-                  />
-                  <b>Все VLAN</b>
-                </label>
-                <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-                  <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-                  {{ vlanLabel(v) }}
-                </label>
-              </div>
+              <button
+                v-if="vlanOptions.length"
+                type="button"
+                class="btn btn-secondary vlan-picker-btn"
+                @click="bulkVlanPickerOpen = true"
+              >
+                {{ bulkVlanSummary }}
+              </button>
               <span v-else class="empty">VLAN не назначены</span>
             </td>
             <td class="col-actions">
@@ -888,6 +886,35 @@ function applyBulkEdit() {
     </div>
   </div>
 
+  <!-- Пункт 3 правки "физическое устройство: массовое редактирование" — список VLAN для
+       массового назначения вынесен из ячейки таблицы во всплывающее окно (см. bulkVlanPickerOpen
+       выше) — сама модалка со своей внутренней прокруткой, а не растягивающийся список в ячейке. -->
+  <div v-if="bulkVlanPickerOpen" class="overlay" @mousedown="onVlanPickerOverlayPointerDown" @click="onVlanPickerOverlayClick">
+    <div class="vlan-picker-modal card" role="dialog" aria-modal="true">
+      <div class="conflict-modal-head">
+        <h3>Выбор VLAN — массовое редактирование</h3>
+        <button type="button" class="icon-btn" aria-label="Закрыть" @click="bulkVlanPickerOpen = false">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
+      </div>
+      <div class="vlan-checks vlan-picker-list">
+        <!-- Пункт 4 (предыдущая правка): галочка "Все VLAN" — показывается только при выбранном
+             Trunk, т.к. для access (не более одного VLAN) она не имеет смысла. -->
+        <label v-if="bulkVlanMode === 'trunk'" class="vlan-check vlan-check-all">
+          <input type="checkbox" :checked="isBulkAllVlansSelected()" @change="toggleBulkAllVlans(($event.target as HTMLInputElement).checked)" />
+          <b>Все VLAN</b>
+        </label>
+        <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
+          <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+          {{ vlanLabel(v) }}
+        </label>
+      </div>
+      <div class="conflict-modal-actions">
+        <button type="button" class="btn btn-primary" @click="bulkVlanPickerOpen = false">Готово</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения:
        показывает конфигурацию текущего порта и соседнего рядом, даёт применить любую из двух. -->
   <div v-if="activeConflict" class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
@@ -1054,6 +1081,24 @@ function applyBulkEdit() {
 }
 .col-vlan-bulk {
   min-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vlan-picker-btn {
+  white-space: nowrap;
+}
+.vlan-picker-modal {
+  width: 100%;
+  max-width: 360px;
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+.vlan-picker-list {
+  overflow-y: auto;
+  margin-bottom: 14px;
 }
 .iface-list-head {
   display: flex;

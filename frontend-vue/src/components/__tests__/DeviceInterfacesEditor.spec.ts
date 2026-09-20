@@ -671,7 +671,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       const rowChecks = wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')
       await rowChecks[0].setValue(true) // отмечаем только eth0
       await wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').setValue('t-eth')
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
@@ -680,31 +680,45 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result[2].vlan_ids).toEqual(['v-mgmt']) // не отмеченная — VLAN не тронут
     })
 
-    it('VLAN из панели добавляется к уже стоящим на порту (объединение, не замена)', async () => {
+    it('пункт 3 правки "физическое устройство: массовое редактирование": список VLAN — во всплывающем окне по кнопке, а не инлайновым списком в ячейке', () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+
+      expect(wrapper.find('.bulk-edit-row .vlan-checks').exists()).toBe(false) // список не в ячейке
+      expect(wrapper.find('.bulk-edit-row .vlan-picker-btn').exists()).toBe(true)
+      expect(wrapper.find('.vlan-picker-modal').exists()).toBe(false) // окно ещё не открыто
+    })
+
+    it('VLAN из панели (выбранный во всплывающем окне) добавляется к уже стоящим на порту (объединение, не замена)', async () => {
       const rows = threeRows()
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
       const rowChecks = wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')
       await rowChecks[2].setValue(true) // отмечаем eth2 (уже с v-mgmt)
-      await wrapper.find('.bulk-edit-row .vlan-check:not(.vlan-check-all) input').setValue(true) // добавляем v-mgmt ещё раз через панель
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      await wrapper.find('.vlan-picker-modal .vlan-check:not(.vlan-check-all) input').setValue(true) // добавляем v-mgmt ещё раз через панель
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click') // "Готово" — закрывает окно
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
       expect(result[2].vlan_ids).toEqual(['v-mgmt']) // без дублей
     })
 
-    it('пункт 4: галочка "Все VLAN" в массовом редактировании появляется только при выбранном режиме Trunk и отмечает весь vlanOptions разом', async () => {
+    it('пункт 4: галочка "Все VLAN" в массовом редактировании (во всплывающем окне) появляется только при выбранном режиме Trunk и отмечает весь vlanOptions разом', async () => {
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
 
-      expect(wrapper.find('.bulk-edit-row .vlan-check-all').exists()).toBe(false) // режим ещё не выбран
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      expect(wrapper.find('.vlan-picker-modal .vlan-check-all').exists()).toBe(false) // режим ещё не выбран
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click') // закрываем, чтобы сменить режим в ячейке снаружи
 
       await wrapper.find('select[aria-label="Режим порта — массовое редактирование"]').setValue('trunk')
-      expect(wrapper.find('.bulk-edit-row .vlan-check-all').exists()).toBe(true)
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      expect(wrapper.find('.vlan-picker-modal .vlan-check-all').exists()).toBe(true)
 
-      await wrapper.find('.bulk-edit-row .vlan-check-all input').setValue(true)
+      await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(true)
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click')
       await wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[1].setValue(true) // отмечаем eth1
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
 
       const emitted = wrapper.emitted('update:modelValue')!
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
@@ -712,17 +726,21 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(new Set(result[1].vlan_ids)).toEqual(new Set(vOptions.map((v) => v.id)))
     })
 
-    it('после применения панель сбрасывается — выбор и поля возвращаются к значениям по умолчанию', async () => {
+    it('после применения панель сбрасывается — выбор, поля и выбранные VLAN возвращаются к значениям по умолчанию', async () => {
       const rows = threeRows()
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
 
       await wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[0].setValue(true)
       await wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').setValue('t-eth')
-      await wrapper.find('.bulk-edit-row button').trigger('click')
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      await wrapper.find('.vlan-picker-modal .vlan-check input').setValue(true)
+      await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click')
+      await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
       await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[] })
 
       expect((wrapper.find('select[aria-label="Тип интерфейса — массовое редактирование"]').element as HTMLSelectElement).value).toBe('')
       expect((wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[0].element as HTMLInputElement).checked).toBe(false)
+      expect(wrapper.find('.vlan-picker-btn').text()).toBe('— выбрать VLAN —')
     })
   })
 
