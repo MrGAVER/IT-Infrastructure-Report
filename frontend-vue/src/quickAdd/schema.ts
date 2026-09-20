@@ -193,7 +193,7 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     // каталога на продукт (напр. "1С:Предприятие"), поэтому версия ПРОДУКТА в каталоге в принципе
     // не может отражать реальность, если этот продукт установлен на разных устройствах/ВМ в
     // разных версиях. Версия по месту установки — это отдельное поле на самой связи
-    // (VMSoftware.version / DeviceSoftware.version), которое и редактируется в
+    // (DeployedSoftware.version, owner_type/owner_id — см. models.py), которое и редактируется в
     // SoftwareAssetListEditor.vue построчно. Колонка SoftwareAsset.version в БД сохранена
     // (не удалялась миграцией) — просто эта форма больше её не показывает и не пишет.
     { name: 'description', label: 'Описание', type: 'textarea', required: false },

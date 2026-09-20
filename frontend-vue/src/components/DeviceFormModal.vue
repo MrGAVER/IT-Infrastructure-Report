@@ -11,7 +11,7 @@ import { ApiError, createResource, deleteResource, listResource, updateResource,
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceModel, Rack, Room, DeviceSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
+import type { Device, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
@@ -190,7 +190,7 @@ watch(portVlanOptions, (options, oldOptions) => {
   })
 })
 
-function toSoftwareDraftRow(x: DeviceSoftware): SoftwareAssetDraftRow {
+function toSoftwareDraftRow(x: DeployedSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
 }
 
@@ -255,7 +255,7 @@ watch(
     loadingNested.value = true
     try {
       const [software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
-        listResource<DeviceSoftware>('device-software', { physical_device_id: source.id, limit: 1000 }),
+        listResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: source.id, limit: 1000 }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
         // помощник использует DevicePortsModal.vue (управление портами с экрана «Подключения»).
         // Открытые порты каждого интерфейса (фикс п.1.4, батч4) приходят уже вложенными в
@@ -276,12 +276,13 @@ watch(
       ])
       // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
       // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
-      // backend/app/services/crud.py:sync_interfaces (и аналогичные функции для device-software/
-      // device-vlans) отклонит его 422 "не принадлежит выбранному устройству", т.к. у нового
-      // устройства такого id ещё нет и появиться неоткуда. stripIds() (см. ниже) убирает id из
-      // каждой строки — тогда backend создаёт их как новые записи. Открытые порты каждого
-      // интерфейса — тот же принцип на один уровень глубже (stripIds и на сам интерфейс, и на
-      // его open_ports, как уже делалось для его ips).
+      // backend/app/services/crud.py:sync_interfaces (для интерфейсов) или generic create/update
+      // (для device-vlans/deployed-software — оба без выделенной sync-функции) отклонит его 422
+      // "не принадлежит выбранному устройству", т.к. у нового устройства такого id ещё нет и
+      // появиться неоткуда. stripIds() (см. ниже) убирает id из каждой строки — тогда backend
+      // создаёт их как новые записи. Открытые порты каждого интерфейса — тот же принцип на один
+      // уровень глубже (stripIds и на сам интерфейс, и на его open_ports, как уже делалось для
+      // его ips).
       softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
       interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports) })) : ifaceRows
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
@@ -494,14 +495,15 @@ function onJoinDomainRequested(domainId: string) {
 }
 
 async function persistSoftwareAssets(deviceId: string) {
-  const existing = await listResource<DeviceSoftware>('device-software', { physical_device_id: deviceId, limit: 1000 })
+  const existing = await listResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: deviceId, limit: 1000 })
   for (const old of existing.items) {
-    await deleteResource('device-software', old.id)
+    await deleteResource('deployed-software', old.id)
   }
   for (const row of softwareAssets.value) {
     if (!row.software_asset_id) continue
-    await createResource<DeviceSoftware>('device-software', {
-      physical_device_id: deviceId,
+    await createResource<DeployedSoftware>('deployed-software', {
+      owner_type: 'physical_device',
+      owner_id: deviceId,
       software_asset_id: row.software_asset_id,
       version: row.version || null,
     })

@@ -43,7 +43,7 @@ if DEPS_AVAILABLE:
         Base, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface, DeviceType,
         EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, InterfaceIP, InterfaceVLAN,
         ISDepartment, Manufacturer, OpenPort, OperatingSystem,
-        OperatingSystemCategory, PhysicalDevice, ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, VMSoftware,
+        OperatingSystemCategory, PhysicalDevice, ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, DeployedSoftware,
     )
     from app.reporting import HEADERS1, HEADERS2, HEADERS3, HEADERS4, build_report
     from app.services.report_engine import ReportContext
@@ -208,7 +208,7 @@ def _seed_rich_dataset(session):
     sw = SoftwareAsset(name="1С:Предприятие")
     session.add(sw)
     session.flush()
-    session.add(VMSoftware(virtual_machine_id=vm1.id, software_asset_id=sw.id))
+    session.add(DeployedSoftware(owner_type="virtual_machine", owner_id=vm1.id, software_asset_id=sw.id))
     onec_catalog = ProtocolPortCatalog(port=1540, protocol_type="1C")
     session.add(onec_catalog)
     session.flush()

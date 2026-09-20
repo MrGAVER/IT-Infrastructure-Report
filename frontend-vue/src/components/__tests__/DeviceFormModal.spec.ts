@@ -241,8 +241,8 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/device-software'))
-    expect(softwareCreate?.body).toMatchObject({ physical_device_id: 'dev-new', software_asset_id: 'sa-ad' })
+    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/deployed-software'))
+    expect(softwareCreate?.body).toMatchObject({ owner_type: 'physical_device', owner_id: 'dev-new', software_asset_id: 'sa-ad' })
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 

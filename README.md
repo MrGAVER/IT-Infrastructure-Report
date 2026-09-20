@@ -2477,6 +2477,27 @@ Backend: 490 pytest, `ruff check` — зелёные. Frontend: 753 vitest, `vue
 payload), 6 тестов на `DiagramExportPanel.vue` (сплит-кнопка полностью переписана), обновлён тест
 `stores/diagram.ts:exportAs`. Frontend: 758 vitest, `vue-tsc -b`, `vite build` — зелёные.
 
+### 2.79.0 — DeviceSoftware/VMSoftware объединены в DeployedSoftware (owner_type/owner_id)
+
+По итогам вопроса 2 отчёта по анализу БД (подтверждено заказчиком: «в обеих может быть одинаковое
+ПО, можно объединять»).
+
+`device_software`/`vm_software` хранили идентичное по смыслу содержимое — «на этом владельце
+развёрнут вот такой программный актив из справочника `software_assets`, вот в такой версии» —
+отличаясь только именем FK-колонки владельца. Тот же случай, что уже решён для `OpenPort`
+(2.72.0): объединены в единую `deployed_software` с `owner_type`/`owner_id`. Ресурс `device-
+software`/`vm-software` заменён на единый `deployed-software`; `DeviceFormModal.vue`/
+`VMFormModal.vue` фильтруют список по `owner_type`+`owner_id` вместо прежних `physical_device_id`/
+`virtual_machine_id`.
+
+Миграция `c4a91e6f2b83` проще прошлых двух: создание новой таблицы, перенос данных, удаление
+старых — на SQLite не нужна ручная пересборка (в отличие от `ALTER`/`DROP COLUMN` в
+`a1b7c9d3e502`/`b7f2c1e5a904`). `downgrade()` не поддерживается — тот же принцип.
+
+15 новых тестов (6 на миграцию, 3 API-уровневых на фильтрацию по владельцу, 1 на путь физического
+устройства в отчёте, плюс адаптация существующих). Backend: 504 pytest, ruff check — зелёные.
+Frontend: 758 vitest, vue-tsc -b, vite build — зелёные.
+
 ## Известные ограничения и заметки
 
 - EXE-вариант — однопользовательский локальный режим; для одновременной работы нескольких
