@@ -675,6 +675,24 @@ class TestInformationSystemDetails:
         )
         assert r.status_code == 422
 
+    def test_sync_details_rejects_non_string_ip_in_sources(self, client):
+        """Код-ревью (отчёт по рефакторингу и безопасности, находка 2): этот payload не проходит
+        через pydantic-схему (см. docstring RESOURCE_SCHEMAS), а .split(',') в
+        _sync_information_system_sources раньше вызывался до проверки типа — нестроковое значение
+        (валидный JSON: число, список) роняло запрос необработанным AttributeError вместо
+        аккуратной 422."""
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС с IP не строкой"}).json()
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"sources": [{"source_type": "manual", "ip_address": 12345}]},
+        )
+        assert r.status_code == 422
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"sources": [{"source_type": "manual", "ip_address": ["10.0.0.1"]}]},
+        )
+        assert r.status_code == 422
+
 
 class TestVmIpValidation:
     def test_create_vm_ip_rejects_malformed_ip_address(self, client):
@@ -1194,6 +1212,64 @@ class TestOpenPortCatalogIsSourceOfTruth:
         db_session.add(legacy)
         with pytest.raises(IntegrityError):
             db_session.commit()
+
+
+class TestPolymorphicOwnerCleanupOnDelete:
+    """Код-ревью (отчёт по рефакторингу и безопасности, находка 1): open_ports.owner_id/
+    owner_type — полиморфная связь БЕЗ настоящего ForeignKey в БД (см. docstring models.OpenPort),
+    поэтому обычная проверка ссылок (_find_referencing_counts) её не видит. До правки
+    DELETE /resources/{interfaces,vms,devices}/{id} в обход sync_interfaces оставлял такие
+    open_ports в базе осиротевшими (owner_id указывал на уже не существующую запись) — эти три
+    теста проверяют, что теперь они подчищаются вместе с владельцем."""
+
+    def test_deleting_interface_removes_its_open_ports(self, client):
+        dt = _create_device_type(client, "Коммутатор для удаления порта")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEL-IF"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
+        r = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ssh_entry["id"]}]}]},
+        )
+        iface = r.json()["items"][0]
+        port_id = iface["open_ports"][0]["id"]
+
+        r = client.delete(f"/api/v1/resources/interfaces/{iface['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/open-ports/{port_id}").status_code == 404
+
+    def test_deleting_vm_removes_its_open_ports(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для удаления порта"}).json()
+        rdp_entry = _create_protocol_catalog_entry(client, 3389, "RDP")
+        port = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "virtual_machine", "owner_id": vm["id"], "protocol_catalog_id": rdp_entry["id"]},
+        ).json()
+
+        r = client.delete(f"/api/v1/resources/vms/{vm['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/open-ports/{port['id']}").status_code == 404
+
+    def test_deleting_device_removes_its_legacy_open_ports(self, client):
+        """owner_type='physical_device' — устаревший паттерн (порт привязан к устройству
+        напрямую, без интерфейса, см. constants.OwnerType); устройство без интерфейсов не имеет
+        настоящих FK-ссылок, блокирующих удаление, поэтому такой порт осиротевал бы точно так же,
+        как и в двух тестах выше."""
+        dt = _create_device_type(client, "Коммутатор с портом на уровне устройства")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEL-DEV"}).json()
+        snmp_entry = _create_protocol_catalog_entry(client, 161, "SNMP")
+        port = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "physical_device", "owner_id": dev["id"], "protocol_catalog_id": snmp_entry["id"]},
+        ).json()
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/open-ports/{port['id']}").status_code == 404
+
+
 class TestNewDomainVlanAutoAssignedToSourceDevice:
     """Пункт 2 правки "создание физического устройства": VLAN, заведённый в справочник (POST
     /resources/vlans) сразу с domain_id, должен появиться в «VLAN устройства» устройства-источника

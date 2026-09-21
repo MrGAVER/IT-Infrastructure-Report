@@ -27,6 +27,18 @@ try:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
+    DEPS_AVAILABLE = True
+except ImportError:
+    DEPS_AVAILABLE = False
+
+# Код-ревью (отчёт по рефакторингу и безопасности, находка 5): именно широкий except ImportError
+# вокруг ЭТОГО блока раньше маскировал падение импорта уже удалённых моделей (ISContainer/
+# ISDevice/ISIP/ISVM) под "DEPS_AVAILABLE = False, зависимости не установлены" — все 7 тестов
+# этого файла молча пропускались вместо явного падения (исправлено отдельно в той же ветке, что
+# ввела эту правку). Импорты из app.* — внутренние, не внешние опциональные пакеты, поэтому
+# сознательно вынесены из try/except: если кто-то в будущем переименует/удалит одну из этих
+# моделей без обновления этого файла, тест упадёт явной ImportError, а не тихим skip.
+if DEPS_AVAILABLE:
     from app.models import (
         Base, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface, DeviceType,
         EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, InterfaceIP, InterfaceVLAN,
@@ -39,10 +51,6 @@ try:
     from app.services.report_meta import build_entity_metadata
     from app.services.report_registry_rows import VIRTUAL_ENTITIES
     from app.services.report_seed_templates import TEMPLATE_NAME, default_registry_template_config
-
-    DEPS_AVAILABLE = True
-except ImportError:
-    DEPS_AVAILABLE = False
 
 
 @unittest.skipUnless(DEPS_AVAILABLE, "sqlalchemy/openpyxl не установлены в этом окружении")

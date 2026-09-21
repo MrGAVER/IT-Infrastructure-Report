@@ -31,7 +31,7 @@ beforeEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('InformationSystemFormModal.vue — миграция и сохранение вложенных связей', () => {
+describe('InformationSystemFormModal.vue — загрузка и сохранение вложенных связей', () => {
   it('загружает уже сохранённые sources и отправляет их обратно без изменений', async () => {
     const system: InformationSystem = {
       id: 'is-2',

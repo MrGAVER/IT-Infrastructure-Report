@@ -276,11 +276,10 @@ export interface Container {
 /** GET /api/v1/resources/information-systems/{id}/details — атомарно синхронизируется через
  * PUT на тот же путь (backend/app/services/crud.py:sync_information_system_details), так же
  * как интерфейсы устройства (см. DeviceInterfacesEditor.vue), только эндпоинт лежит под
- * /resources/, а не /devices/. `ips`/`devices`/`vms`/`containers` — устаревшие таблицы,
- * сохраняемые только ради обратной совместимости отчёта; читаются лишь один раз при первом
- * открытии формы для миграции в единый `sources`, если он ещё пуст (см.
- * InformationSystemFormModal.vue) — при сохранении всегда отправляются пустыми, как и в
- * vanilla-версии (frontend/static/information-systems.js:saveInformationSystemForm). */
+ * /resources/, а не /devices/. sources — единственный (с миграции b7f2c1e5a904) механизм связи
+ * ИС с оборудованием/ВМ/контейнером и IP-адресом источника, не относящегося ни к одному из них
+ * ('manual'); устаревшие таблицы-связки (ips/devices/vms/containers) и клиентская миграция в
+ * sources удалены вместе с ними. */
 export interface InformationSystemDetails {
   departments: Array<{ id: string; department_id: string }>
   protocols: Array<{ id: string; protocol_catalog_id: string; description: string | null }>
