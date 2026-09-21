@@ -346,10 +346,10 @@ class Sheet4VirtualMachines(ReportingTestCase):
         vm = C["VirtualMachine"](id="v1", name="VM-1C")
         sw1 = C["SoftwareAsset"](id="sw1", name="1С:Предприятие")
         sw2 = C["SoftwareAsset"](id="sw2", name="Web-сервер Nginx")
-        link1 = C["VMSoftware"](id="l1", virtual_machine_id="v1", software_asset_id="sw1")
-        link2 = C["VMSoftware"](id="l2", virtual_machine_id="v1", software_asset_id="sw2")
+        link1 = C["DeployedSoftware"](id="l1", owner_type="virtual_machine", owner_id="v1", software_asset_id="sw1")
+        link2 = C["DeployedSoftware"](id="l2", owner_type="virtual_machine", owner_id="v1", software_asset_id="sw2")
         self.table.update({
-            "VirtualMachine": [vm], "SoftwareAsset": [sw1, sw2], "VMSoftware": [link1, link2],
+            "VirtualMachine": [vm], "SoftwareAsset": [sw1, sw2], "DeployedSoftware": [link1, link2],
         })
         wb = self.build(Path("/tmp/test_reports_15"))
         rows = self.sheet_rows(wb, "Организация управления ВМ")[1:]
@@ -358,6 +358,27 @@ class Sheet4VirtualMachines(ReportingTestCase):
         vm_row = next(r for r in rows if r[0] == "VM-1C")
         self.assertIn("1С:Предприятие", vm_row[sw_idx])
         self.assertIn("Web-сервер Nginx", vm_row[sw_idx])
+
+    def test_device_software_appears_in_is_equipment_column(self):
+        """Код-ревью (объединение DeviceSoftware/VMSoftware в DeployedSoftware, owner_type/
+        owner_id): ветка owner_type='physical_device' раньше не была отдельно проверена этим
+        мок-набором тестов (только ВМ-путь выше) — до этого теста перепутанная ветка если/иначе в
+        _load_report_data (например, если бы owner_type сравнивался неверно) не была бы поймана."""
+        C = self.C
+        dev = C["PhysicalDevice"](id="d1", serial_number="SN1", system_name="SRV-1C")
+        sw = C["SoftwareAsset"](id="sw1", name="1С:Предприятие")
+        link = C["DeployedSoftware"](id="l1", owner_type="physical_device", owner_id="d1", software_asset_id="sw1")
+        isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
+        src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1")
+        self.table.update({
+            "PhysicalDevice": [dev], "SoftwareAsset": [sw], "DeployedSoftware": [link],
+            "InformationSystem": [isys], "InformationSystemSource": [src],
+        })
+        wb = self.build(Path("/tmp/test_reports_16"))
+        rows = self.sheet_rows(wb, "Перечень ИС")
+        header = rows[0]
+        equipment_idx = self.col_index(header, "Оборудование ООО")
+        self.assertIn("1С:Предприятие", rows[1][equipment_idx])
 
     def test_virtualization_env_version_joined_by_space_not_semicolon(self):
         """5.3: 'VMware ESXi 7.0', а не 'VMware ESXi; 7.0'."""

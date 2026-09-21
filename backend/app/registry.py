@@ -1,10 +1,10 @@
 from __future__ import annotations
 from .models import (
     AuditLog, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface,
-    DeviceModel, DeviceSoftware, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InterfaceSpeed, InterfaceType,
+    DeployedSoftware, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InterfaceSpeed, InterfaceType,
     ISDepartment, ISProtocol, InformationSystem, InformationSystemSource, InterfaceVLAN, OpenPort, ProtocolPortCatalog,
     Manufacturer, OperatingSystem, OperatingSystemCategory, EmbeddedOperatingSystem, DeviceTypeVLAN, PhysicalDeviceVLAN, SupportOrganization, SupportMethod, CryptoProtectionMeans, PlacementAsset, ISPlacementAsset, PhysicalDevice,
-    Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VMIP, VMSoftware, VirtualMachine,
+    Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VMIP, VirtualMachine,
 )
 
 # Ресурсы, доступные через generic CRUD только для чтения. audit-log должен быть неизменяемым:
@@ -28,8 +28,7 @@ MODEL_MAP = {
     'interfaces': DeviceInterface, 'interface-ips': InterfaceIP, 'interface-types': InterfaceType,
     'interface-speeds': InterfaceSpeed, 'vlans': VLAN, 'vlan-domains': VLANDomain, 'vlan-domain-devices': VLANDomainDevice, 'interface-vlans': InterfaceVLAN,
     'connection-types': ConnectionType, 'connections': Connection, 'vms': VirtualMachine, 'vm-ips': VMIP,
-    'containers': Container, 'software-assets': SoftwareAsset, 'device-software': DeviceSoftware,
-    'vm-software': VMSoftware, 'is-sources': InformationSystemSource,
+    'containers': Container, 'software-assets': SoftwareAsset, 'deployed-software': DeployedSoftware, 'is-sources': InformationSystemSource,
     'open-ports': OpenPort, 'audit-log': AuditLog,
     'device-stacks': DeviceStack, 'device-stack-members': DeviceStackMember,
 }
@@ -43,7 +42,7 @@ DISPLAY_NAMES = {
     'interfaces':'Интерфейсы', 'interface-ips':'IP интерфейсов', 'interface-types':'Типы интерфейсов', 'interface-speeds':'Скорости интерфейсов',
     'vlans':'VLAN', 'vlan-domains':'Домены VLAN', 'vlan-domain-devices':'Устройства в доменах VLAN', 'interface-vlans':'Интерфейсы ↔ VLAN', 'connection-types':'Типы подключений', 'connections':'Подключения',
     'vms':'Виртуальные машины', 'vm-ips':'IP VM', 'containers':'Контейнеры', 'software-assets':'Программные активы',
-    'device-software':'ПО физических устройств', 'vm-software':'ПО VM',
+    'deployed-software':'ПО, развёрнутое на устройствах и ВМ (owner_type/owner_id — см. models.DeployedSoftware)',
     'is-sources':'ИС ↔ источники размещения', 'open-ports':'Открытые порты', 'audit-log':'Аудит',
     'device-stacks':'Стеки устройств', 'device-stack-members':'Устройства в стеках',
 }

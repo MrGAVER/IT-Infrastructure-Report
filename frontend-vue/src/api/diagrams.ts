@@ -104,7 +104,7 @@ export interface SavedDiagramSummary {
   scope_filter: Record<string, unknown>
   group_by: DiagramGroupBy
   collapse_threshold: number
-  last_export_format: string | null
+  last_export_format: DiagramExportFormat | null
   created_at: string | null
   updated_at: string | null
 }

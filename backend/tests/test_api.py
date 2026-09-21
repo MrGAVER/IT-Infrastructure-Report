@@ -719,6 +719,96 @@ class TestVmIpValidation:
         assert r.status_code == 201, r.text
 
 
+class TestContainerHostExclusivity:
+    """Код-ревью (отчёт по анализу БД, вопрос 6): Container.physical_device_id/
+    virtual_machine_id — альтернативы по смыслу («размещается либо на ВМ, либо на физическом
+    устройстве, либо нигде конкретно»), но модель и БД допускали заполнение обоих одновременно —
+    это соблюдалось только на уровне формы (ContainerFormModal.vue). Прямой вызов API в обход
+    формы мог записать оба FK сразу."""
+
+    def test_create_rejects_both_host_fields_at_once(self, client):
+        dt = _create_device_type(client, "Хост для контейнера")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-CONTAINER"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера"}).json()
+        r = client.post(
+            "/api/v1/resources/containers",
+            json={"name": "container-both-hosts", "physical_device_id": dev["id"], "virtual_machine_id": vm["id"]},
+        )
+        assert r.status_code == 422
+
+    def test_create_accepts_single_host_field(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера 2"}).json()
+        r = client.post(
+            "/api/v1/resources/containers",
+            json={"name": "container-on-vm", "virtual_machine_id": vm["id"]},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_create_accepts_neither_host_field(self, client):
+        r = client.post("/api/v1/resources/containers", json={"name": "container-no-host"})
+        assert r.status_code == 201, r.text
+
+    def test_update_rejects_setting_both_host_fields(self, client):
+        dt = _create_device_type(client, "Хост для контейнера 2")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-CONTAINER-2"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера 3"}).json()
+        container = client.post("/api/v1/resources/containers", json={"name": "container-update", "virtual_machine_id": vm["id"]}).json()
+        r = client.put(f"/api/v1/resources/containers/{container['id']}", json={"physical_device_id": dev["id"]})
+        assert r.status_code == 422
+
+
+class TestDeployedSoftwareOwnerType:
+    """Код-ревью (отчёт по анализу БД, вопрос 2, подтверждено заказчиком: "в обеих может быть
+    одинаковое ПО"): device_software/vm_software объединены в deployed_software с owner_type/
+    owner_id — тот же паттерн, что уже применён к OpenPort. Проверяет, что генерик-ресурс
+    'deployed-software' действительно фильтруется по владельцу так, как ожидает фронтенд
+    (DeviceFormModal.vue/VMFormModal.vue: list_resource с owner_type+owner_id в filters)."""
+
+    def test_create_and_filter_by_device_owner(self, client):
+        dt = _create_device_type(client, "Хост для ПО")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-SOFTWARE"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "1С:Предприятие"}).json()
+        r = client.post(
+            "/api/v1/resources/deployed-software",
+            json={"owner_type": "physical_device", "owner_id": dev["id"], "software_asset_id": asset["id"], "version": "8.3"},
+        )
+        assert r.status_code == 201, r.text
+
+        listing = client.get(f"/api/v1/resources/deployed-software?owner_type=physical_device&owner_id={dev['id']}").json()
+        assert len(listing["items"]) == 1
+        assert listing["items"][0]["software_asset_id"] == asset["id"]
+        assert listing["items"][0]["version"] == "8.3"
+
+    def test_create_and_filter_by_vm_owner(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для ПО"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "Nginx"}).json()
+        r = client.post(
+            "/api/v1/resources/deployed-software",
+            json={"owner_type": "virtual_machine", "owner_id": vm["id"], "software_asset_id": asset["id"]},
+        )
+        assert r.status_code == 201, r.text
+
+        listing = client.get(f"/api/v1/resources/deployed-software?owner_type=virtual_machine&owner_id={vm['id']}").json()
+        assert len(listing["items"]) == 1
+        assert listing["items"][0]["software_asset_id"] == asset["id"]
+
+    def test_device_and_vm_software_do_not_leak_into_each_others_filter(self, client):
+        """Один и тот же software_asset_id может быть развёрнут и на устройстве, и на ВМ (это и
+        было основанием для объединения) — но список для устройства не должен включать запись ВМ,
+        и наоборот."""
+        dt = _create_device_type(client, "Хост для ПО 2")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-SOFTWARE-2"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для ПО 2"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "Общее ПО"}).json()
+        client.post("/api/v1/resources/deployed-software", json={"owner_type": "physical_device", "owner_id": dev["id"], "software_asset_id": asset["id"]})
+        client.post("/api/v1/resources/deployed-software", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "software_asset_id": asset["id"]})
+
+        device_listing = client.get(f"/api/v1/resources/deployed-software?owner_type=physical_device&owner_id={dev['id']}").json()
+        assert len(device_listing["items"]) == 1
+        vm_listing = client.get(f"/api/v1/resources/deployed-software?owner_type=virtual_machine&owner_id={vm['id']}").json()
+        assert len(vm_listing["items"]) == 1
+
+
 class TestNPlusOneRegressions:
     """Закрепляет количество SQL-запросов к конкретным таблицам там, где раньше был N+1 (см.
     историю коммита e068add) — если кто-то случайно вернёт запрос внутрь цикла, эти тесты упадут

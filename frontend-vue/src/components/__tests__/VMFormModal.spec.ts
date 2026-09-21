@@ -228,7 +228,7 @@ describe('VMFormModal.vue', () => {
         if (method === 'POST' && url.endsWith('/resources/vms')) {
           return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }, 201)
         }
-        if (method === 'POST' && url.includes('/resources/vm-software')) {
+        if (method === 'POST' && url.includes('/resources/deployed-software')) {
           return jsonResponse({ id: 'sw-new' }, 201)
         }
         return jsonResponse(EMPTY_PAGE)
@@ -239,8 +239,8 @@ describe('VMFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/vm-software'))
-    expect(softwareCreate?.body).toMatchObject({ virtual_machine_id: 'vm-new', software_asset_id: 'sa-1c', version: '8.3.20' })
+    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/deployed-software'))
+    expect(softwareCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', software_asset_id: 'sa-1c', version: '8.3.20' })
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 

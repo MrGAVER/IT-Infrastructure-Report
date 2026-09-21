@@ -433,17 +433,18 @@ class SoftwareAsset(TimestampMixin, Base):
     version: Mapped[Optional[str]] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
-class DeviceSoftware(TimestampMixin, Base):
-    __tablename__ = "device_software"
+class DeployedSoftware(TimestampMixin, Base):
+    """Развёрнутый программный актив на устройстве/ВМ (1С, веб-сервер, файловый сервер, AD и т.п.
+    — Лист 4 отчёта, столбец «Какие программные активы развёрнуты»). owner_type/owner_id вместо
+    прежних отдельных таблиц device_software/vm_software (миграция c4a91e6f2b83, объединены по той
+    же причине и тем же паттерном, что уже применён к OpenPort: логически идентичные данные —
+    связь «владелец (устройство или ВМ) ↔ запись каталога software_assets + версия» — вводились в
+    двух разных формах и хранились в двух отдельных таблицах, отличавшихся только именем FK-
+    колонки владельца."""
+    __tablename__ = "deployed_software"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    software_asset_id: Mapped[str] = mapped_column(ForeignKey("software_assets.id"))
-    version: Mapped[Optional[str]] = mapped_column(String(100))
-
-class VMSoftware(TimestampMixin, Base):
-    __tablename__ = "vm_software"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    virtual_machine_id: Mapped[str] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
+    owner_type: Mapped[str] = mapped_column(String(50))
+    owner_id: Mapped[str] = mapped_column(String(36))
     software_asset_id: Mapped[str] = mapped_column(ForeignKey("software_assets.id"))
     version: Mapped[Optional[str]] = mapped_column(String(100))
 

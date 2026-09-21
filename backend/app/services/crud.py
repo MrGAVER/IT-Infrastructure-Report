@@ -7,13 +7,13 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
+from ..models import AuditLog, Connection, Container, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
 from .diagram_icons import validate_svg_markup
-from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
+from .validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
 
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
@@ -149,6 +149,9 @@ def _validate_device_model(data: dict[str, Any], session: Session, item_id: str 
 def _validate_virtual_machine_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     validate_operating_system(data, session); validate_hypervisor(data, session); validate_vm_host(data, session)
 
+def _validate_container_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    validate_container_host(data)
+
 def _validate_physical_device_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     _validate_physical_device_vlan(data, session)
 
@@ -209,6 +212,7 @@ def _validate_device_stack_member_entry(data: dict[str, Any], session: Session, 
 _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, bool, bool], None]] = {
     PhysicalDevice: _validate_physical_device,
     VirtualMachine: _validate_virtual_machine_entry,
+    Container: _validate_container_entry,
     PhysicalDeviceVLAN: _validate_physical_device_vlan_entry,
     DeviceModel: _validate_device_model_entry,
     Connection: _validate_connection_entry,

@@ -148,6 +148,9 @@ describe('useDiagramStore', () => {
     await store.exportAs('svg')
     expect(clickSpy).toHaveBeenCalled()
     expect(store.exporting).toBeNull() // сброшено в finally
+    // Сервер уже сохранил last_export_format — сплит-кнопка экспорта должна отразить это сразу,
+    // без отдельного перезапроса диаграммы (см. DiagramExportPanel.vue).
+    expect(store.diagram?.last_export_format).toBe('svg')
   })
 
   it('rename() обновляет имя диаграммы в сторе', async () => {

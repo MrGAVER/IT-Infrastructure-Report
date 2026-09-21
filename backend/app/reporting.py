@@ -10,12 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .models import (
     Building, Connection, ConnectionType, Container, CryptoProtectionMeans, Department,
-    DeviceInterface, DeviceModel, DeviceSoftware, DeviceType, EmbeddedOperatingSystem,
+    DeployedSoftware, DeviceInterface, DeviceModel, DeviceType, EmbeddedOperatingSystem,
     ISDepartment, ISPlacementAsset, ISProtocol,
     InformationSystem, InformationSystemSource, InterfaceIP, InterfaceType, InterfaceVLAN,
     Manufacturer, OpenPort, OperatingSystem, PhysicalDevice, PhysicalDeviceVLAN, PlacementAsset,
     ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, SupportMethod, SupportOrganization, VLAN,
-    VMIP, VMSoftware, VirtualMachine,
+    VMIP, VirtualMachine,
 )
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix
 from .services.excel_safety import excel_safe_row
@@ -215,12 +215,12 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     d.device_vlan_rows=session.scalars(select(PhysicalDeviceVLAN)).all(); d.device_vlan_by_device=defaultdict(list)
     for x in d.device_vlan_rows: d.device_vlan_by_device[x.physical_device_id].append(x)
     for x in d.iface_vlans: d.vlan_by_iface[x.interface_id].append(d.vlan_map.get(x.vlan_id))
-    d.vm_software=session.scalars(select(VMSoftware)).all(); d.software={x.id:x for x in session.scalars(select(SoftwareAsset)).all()}; d.software_by_vm=defaultdict(list)
-    for link in d.vm_software:
-        if link.software_asset_id in d.software: d.software_by_vm[link.virtual_machine_id].append(d.software[link.software_asset_id])
-    d.device_software=session.scalars(select(DeviceSoftware)).all(); d.software_by_device=defaultdict(list)
-    for link in d.device_software:
-        if link.software_asset_id in d.software: d.software_by_device[link.physical_device_id].append(d.software[link.software_asset_id])
+    d.deployed_software=session.scalars(select(DeployedSoftware)).all(); d.software={x.id:x for x in session.scalars(select(SoftwareAsset)).all()}
+    d.software_by_vm=defaultdict(list); d.software_by_device=defaultdict(list)
+    for link in d.deployed_software:
+        if link.software_asset_id not in d.software: continue
+        target = d.software_by_vm if link.owner_type=='virtual_machine' else d.software_by_device
+        target[link.owner_id].append(d.software[link.software_asset_id])
     d.dep_by_is=defaultdict(list); d.protocol_by_is=defaultdict(list); d.source_by_is=defaultdict(list)
     for x in d.is_deps: d.dep_by_is[x.information_system_id].append(x)
     for x in d.is_protocols: d.protocol_by_is[x.information_system_id].append(x)
