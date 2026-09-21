@@ -7,11 +7,11 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISIP, ISProtocol, ISDevice, ISVM, ISContainer, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
+from ..models import AuditLog, Connection, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
-from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, serialize
+from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
 from .diagram_icons import validate_svg_markup
 from .validation import duplicate_system_name, validate_connection, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
 
@@ -178,7 +178,8 @@ def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id
 def _validate_vmip_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     # Код-ревью п.3.4: VMIP — единственная из моделей с ip_address/prefix_length, идущая через
     # ПОЛНОСТЬЮ generic create_resource/update_resource (без выделенной sync-функции, в отличие
-    # от InterfaceIP/ISIP — см. их отдельные вызовы validate_ipv4_field выше по файлу).
+    # от InterfaceIP — см. её отдельный вызов validate_ipv4_field выше по файлу, и от source ИС —
+    # см. validate_ipv4_field в _sync_information_system_sources ниже по файлу).
     validate_ipv4_field(data.get('ip_address'), 'IP-адрес виртуальной машины')
     validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса виртуальной машины')
 
@@ -261,6 +262,8 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         items = enrich_connections(rows, session)
     elif model is InformationSystem:
         items = enrich_information_systems(rows, session)
+    elif model is OpenPort:
+        items = enrich_open_ports(rows, session)
     else:
         items = [serialize(row) for row in rows]
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
@@ -328,10 +331,11 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
         data['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
     # Правка "убрать текстовые поля Порт/Протокол": новая запись open-ports создаётся ТОЛЬКО через
     # generic-ресурс (ВМ, VMFormModal.vue) — в отличие от интерфейсов устройства, где свой путь
-    # синхронизации (_sync_interface_open_ports). port/protocol из payload клиента игнорируются —
-    # см. _apply_open_port_catalog.
+    # синхронизации (_sync_interface_open_ports). port/protocol — больше не колонки этой модели
+    # вовсе (см. models.OpenPort); единственное, что здесь ещё нужно — проверить, что
+    # protocol_catalog_id ссылается на существующую запись справочника.
     if model is OpenPort:
-        _apply_open_port_catalog(data, session)
+        _validate_open_port_catalog(data, session)
     validate_resource(model, data, session, confirm_duplicate=bool(payload.get('confirm_system_name_duplicate')), confirm_rack_reassign=bool(payload.get('confirm_rack_position_reassign')))
     obj = model(**data); session.add(obj)
     try:
@@ -340,7 +344,8 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
             _auto_assign_new_domain_vlan_to_source_device(obj, session)
         if model is VLANDomainDevice:
             assign_domain_vlans_to_device(obj.domain_id, obj.physical_device_id, session)
-        audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit(); return serialize(obj)
+        audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
+        return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
@@ -354,18 +359,15 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     if model is VirtualMachine and proposed.get('physical_device_id'):
         host = session.get(PhysicalDevice, proposed['physical_device_id'])
         proposed['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
-    # protocol_catalog_id — NOT NULL в БД с миграции a1b7c9d3e502 (бэкфилл закрыл старые строки
-    # без ссылки на справочник), поэтому proposed['protocol_catalog_id'] здесь гарантированно
-    # заполнен всегда — условность (была нужна только для переходного периода до миграции) убрана.
+    # protocol_catalog_id — NOT NULL в БД с миграции a1b7c9d3e502; port/protocol не колонки этой
+    # модели вовсе (см. create_resource выше) — здесь только валидация ссылки на справочник.
     if model is OpenPort:
-        _apply_open_port_catalog(proposed, session)
+        _validate_open_port_catalog(proposed, session)
     validate_resource(model, proposed, session, item_id, bool(payload.get('confirm_system_name_duplicate')), bool(payload.get('confirm_rack_position_reassign')))
     for key, value in payload.items():
         if key in allowed: setattr(obj, key, value)
     if model is VirtualMachine and 'physical_device_id' in proposed:
         obj.hypervisor_os_id = proposed.get('hypervisor_os_id')
-    if model is OpenPort:
-        obj.port = proposed['port']; obj.protocol = proposed['protocol']
     try:
         session.flush()
         # Пункт 2 правки "создание физического устройства": только когда domain_id реально
@@ -374,7 +376,8 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         # устройству-источнику домена, в котором этот VLAN и так уже давно значится.
         if model is VLAN and 'domain_id' in payload:
             _auto_assign_new_domain_vlan_to_source_device(obj, session)
-        audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit(); return serialize(obj)
+        audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit()
+        return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
 
@@ -436,7 +439,7 @@ _VLAN_MODES = frozenset({"access", "trunk"})
 
 def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> ProtocolPortCatalog:
     """Достаёт запись справочника «Протоколы и порты» по id или кидает понятную 422 — общая точка
-    для _apply_open_port_catalog() ниже, чтобы формулировка ошибки не разъезжалась между
+    для _validate_open_port_catalog() ниже, чтобы формулировка ошибки не разъезжалась между
     интерфейсами устройства и generic create/update_resource('open-ports') (ВМ)."""
     entry = session.get(ProtocolPortCatalog, catalog_id) if catalog_id else None
     if not entry:
@@ -444,20 +447,15 @@ def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> Protoc
     return entry
 
 
-def _apply_open_port_catalog(data: dict[str, Any], session: Session) -> None:
-    """Правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в справочнике
-    портов": OpenPort.port/protocol больше не принимаются от клиента как свободный текст, а
-    ВСЕГДА выводятся сервером из выбранной записи protocol_port_catalogs. Так проверялось на
-    фронтенде (OpenPortListEditor.vue) и раньше, но только там — прямой запрос к API в обход UI
-    мог записать порт/протокол, не совпадающий со справочником (тот же класс проблемы, что и
-    validate_ipv4_field для IP интерфейса, код-ревью п.3.4).
-
-    Мутирует data на месте (добавляет/перезаписывает 'port' и 'protocol') — вызывается ДО
-    построения ORM-объекта в create_resource/_sync_interface_open_ports, поэтому подстановка
-    попадает в тот же INSERT/UPDATE, без дополнительного запроса."""
-    entry = _resolve_protocol_catalog_entry(data.get('protocol_catalog_id'), session)
-    data['port'] = entry.port
-    data['protocol'] = entry.protocol_type
+def _validate_open_port_catalog(data: dict[str, Any], session: Session) -> None:
+    """Правка "справочник — единственный источник правды для порта/протокола": OpenPort.port/
+    protocol больше не колонки этой модели вовсе (см. models.OpenPort) — значения читаются join'ом
+    к protocol_port_catalogs при КАЖДОМ чтении (services/serialization.py:enrich_open_port(s)), а
+    не подставляются один раз при записи, как было раньше (до миграции b7f2c1e5a904). Поэтому
+    здесь больше нечего мутировать в data — остаётся только убедиться, что protocol_catalog_id
+    ссылается на существующую запись справочника, иначе клиент получит понятную 422 вместо
+    IntegrityError на NOT NULL при flush()."""
+    _resolve_protocol_catalog_entry(data.get('protocol_catalog_id'), session)
 
 
 def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]) -> None:
@@ -532,7 +530,7 @@ def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: S
         # (пользователь нажал "+ Открытый порт", но ещё не выбрал запись) — как и раньше с
         # пустым 'port', тихо пропускаем, а не 422 (см. addRow() в OpenPortListEditor.vue).
         if not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
-        _apply_open_port_catalog(port_data, session)  # port_data['port']/['protocol'] ← справочник
+        _validate_open_port_catalog(port_data, session)
         port_id = port_data.get('id')
         if port_id:
             port_obj = old_map.get(port_id)
@@ -540,8 +538,6 @@ def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: S
             seen.add(port_id)
         else:
             port_obj = OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(port_obj)
-        port_obj.port = port_data['port']
-        port_obj.protocol = port_data['protocol']
         port_obj.protocol_catalog_id = port_data['protocol_catalog_id']
         port_obj.transport_protocol = port_data.get('transport_protocol') or 'TCP'
         port_obj.description = port_data.get('description') or None
@@ -585,7 +581,17 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
         return {'items': [{
             **serialize(iface),
             'ips': [serialize(ip) for ip in session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == iface.id).order_by(InterfaceIP.ip_address)).all()],
-            'open_ports': [serialize(p) for p in session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(OpenPort.port)).all()],
+            # port больше не колонка OpenPort (см. models.py) — сортируем по номеру порта из
+            # справочника через join, а не по несуществующей больше колонке.
+            'open_ports': enrich_open_ports(
+                session.scalars(
+                    select(OpenPort)
+                    .join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+                    .where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id)
+                    .order_by(ProtocolPortCatalog.port)
+                ).all(),
+                session,
+            ),
         } for iface in result]}
     except HTTPException:
         session.rollback(); raise
@@ -598,32 +604,31 @@ def get_information_system_details(system_id: str, session: Session) -> dict[str
         raise HTTPException(404, 'Информационная система не найдена')
     return {
         'departments': [serialize(x) for x in session.scalars(select(ISDepartment).where(ISDepartment.information_system_id == system_id)).all()],
-        'ips': [serialize(x) for x in session.scalars(select(ISIP).where(ISIP.information_system_id == system_id)).all()],
         'protocols': [serialize(x) for x in session.scalars(select(ISProtocol).where(ISProtocol.information_system_id == system_id)).all()],
-        'devices': [serialize(x) for x in session.scalars(select(ISDevice).where(ISDevice.information_system_id == system_id)).all()],
-        'vms': [serialize(x) for x in session.scalars(select(ISVM).where(ISVM.information_system_id == system_id)).all()],
-        'containers': [serialize(x) for x in session.scalars(select(ISContainer).where(ISContainer.information_system_id == system_id)).all()],
         'sources': [serialize(x) for x in session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()],
         'placement_assets': [serialize(x) for x in session.scalars(select(ISPlacementAsset).where(ISPlacementAsset.information_system_id == system_id)).all()],
     }
 
-_LINKED_TABLE_SPECS = [('departments', ISDepartment), ('ips', ISIP), ('protocols', ISProtocol), ('devices', ISDevice), ('vms', ISVM), ('containers', ISContainer), ('placement_assets', ISPlacementAsset)]
+_LINKED_TABLE_SPECS = [('departments', ISDepartment), ('protocols', ISProtocol), ('placement_assets', ISPlacementAsset)]
 
 
 def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Session) -> None:
-    """Синхронизирует одну из устаревших связанных таблиц (ISDepartment/ISIP/...), которые
-    по-прежнему поддерживаются ради совместимости отчёта Excel. Вынесено из
-    sync_information_system_details(), чтобы снизить цикломатическую сложность внешней функции
-    (была 25) — сама логика не изменена."""
+    """Синхронизирует одну из простых связанных таблиц ИС (ISDepartment/ISProtocol/
+    ISPlacementAsset — все три остаются актуальными наравне с information_system_sources, просто
+    описывают другой аспект ИС). Вынесено из sync_information_system_details(), чтобы снизить
+    цикломатическую сложность внешней функции (была 25) — сама логика не изменена.
+
+    ISProtocol.protocol_catalog_id — обязательное поле (NOT NULL, миграция b7f2c1e5a904) и не
+    проверяется здесь отдельно: generic-цикл ниже просто передаст его как есть, а его отсутствие
+    или ссылка на несуществующую запись справочника упадёт при flush() понятной IntegrityError —
+    информационных систем немного, а отдельная проверка ради чуть более дружелюбного сообщения
+    здесь не стоит лишнего запроса на каждую строку протокола (в отличие от open-ports, где эта
+    проверка уже даёт понятную 422 — см. _validate_open_port_catalog)."""
     if not isinstance(items, list): raise HTTPException(422, f'Поле {key} должно быть массивом')
     existing = session.scalars(select(model).where(model.information_system_id == system_id)).all()
     existing_map = {x.id: x for x in existing}; seen=set()
     for item in items:
         if not isinstance(item, dict): continue
-        if model is ISIP:
-            # Код-ревью п.3.4: ISIP — единственная из связанных таблиц с полем ip_address;
-            # generic-цикл ниже пишет колонки как есть, без проверки формата.
-            validate_ipv4_field(item.get('ip_address'), 'IP-адрес ИС')
         obj = existing_map.get(item.get('id')) if item.get('id') else model(information_system_id=system_id)
         if obj is None: raise HTTPException(422, f'Запись {key} не принадлежит выбранной ИС')
         if not getattr(obj, 'id', None): session.add(obj)
@@ -645,8 +650,10 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
 
 
 def _sync_information_system_sources(system_id: str, source_items: Any, session: Session) -> None:
-    """Синхронизирует унифицированные записи InformationSystemSource. Вынесено из
-    sync_information_system_details() по той же причине, что и _sync_linked_table()."""
+    """Синхронизирует унифицированные записи InformationSystemSource — единственный (с миграции
+    b7f2c1e5a904) механизм связи ИС с оборудованием/ВМ/контейнером и IP-адресом источника, не
+    относящегося ни к одному из них ('manual'). Вынесено из sync_information_system_details() по
+    той же причине, что и _sync_linked_table()."""
     if not isinstance(source_items, list): raise HTTPException(422, 'Поле sources должно быть массивом')
     existing_sources = session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()
     source_map = {x.id: x for x in existing_sources}; seen=set()
@@ -654,6 +661,12 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
         if not isinstance(item, dict): continue
         source_type = item.get('source_type') or SourceType.MANUAL
         if source_type not in SourceType.ALL: raise HTTPException(422, 'Недопустимый тип источника')
+        # ip_address источника ИС может содержать несколько адресов через запятую (см. её сборку в
+        # services/serialization.py:_enrich_single_information_system) — в отличие от IP интерфейса
+        # или ВМ (там всегда ровно один адрес на запись), поэтому валидируется каждая часть
+        # отдельно, а не строка целиком.
+        for raw_ip in (item.get('ip_address') or '').split(','):
+            validate_ipv4_field(raw_ip.strip(), 'IP-адрес источника ИС')
         obj = source_map.get(item.get('id')) if item.get('id') else InformationSystemSource(information_system_id=system_id)
         if obj is None: raise HTTPException(422, 'Источник не принадлежит выбранной ИС')
         if not getattr(obj, 'id', None): session.add(obj)
@@ -673,12 +686,11 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
 def sync_information_system_details(system_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
     if not session.get(InformationSystem, system_id):
         raise HTTPException(404, 'Информационная система не найдена')
-    # Legacy linked tables are still synchronized for Excel/report compatibility.
     try:
         for key, model in _LINKED_TABLE_SPECS:
             _sync_linked_table(key, model, payload.get(key, []), system_id, session)
         _sync_information_system_sources(system_id, payload.get('sources', []), session)
-        audit(session, 'information-systems', system_id, AuditAction.UPDATE, 'Обновлены связанные данные ИС (подразделения/протоколы/источники/устройства/ВМ/размещение)')
+        audit(session, 'information-systems', system_id, AuditAction.UPDATE, 'Обновлены связанные данные ИС (подразделения/протоколы/источники/размещение)')
         session.commit()
         return get_information_system_details(system_id, session)
     except HTTPException:

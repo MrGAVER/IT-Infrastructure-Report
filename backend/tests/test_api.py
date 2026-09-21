@@ -663,13 +663,15 @@ class TestInformationSystemDetails:
         assert r.status_code == 200
         assert any(x["entity_id"] == info["id"] and x["action"] == "UPDATE" for x in r.json()["items"])
 
-    def test_sync_details_rejects_malformed_ip_in_ips(self, client):
-        """Код-ревью п.3.4: ISIP — единственная из связанных ("legacy") таблиц с ip_address;
-        generic-цикл _sync_linked_table пишет колонки как есть, без проверки формата."""
+    def test_sync_details_rejects_malformed_ip_in_sources(self, client):
+        """information_system_ips (legacy) удалена вместе с остальными устаревшими таблицами-
+        связками ИС (см. models.py, миграция b7f2c1e5a904) — IP теперь вводится только через
+        sources (InformationSystemSource), и валидация формата перенесена туда же
+        (_sync_information_system_sources), чтобы не потерять защиту, которая была у ISIP."""
         info = client.post("/api/v1/resources/information-systems", json={"name": "ИС с плохим IP"}).json()
         r = client.put(
             f"/api/v1/resources/information-systems/{info['id']}/details",
-            json={"ips": [{"ip_address": "999.999.999.999"}]},
+            json={"sources": [{"source_type": "manual", "ip_address": "999.999.999.999"}]},
         )
         assert r.status_code == 422
 
@@ -1188,7 +1190,7 @@ class TestOpenPortCatalogIsSourceOfTruth:
         from app.models import OpenPort
         from sqlalchemy.exc import IntegrityError
 
-        legacy = OpenPort(owner_type="virtual_machine", owner_id="vm-legacy", port=8080, protocol=None)
+        legacy = OpenPort(owner_type="virtual_machine", owner_id="vm-legacy")
         db_session.add(legacy)
         with pytest.raises(IntegrityError):
             db_session.commit()
@@ -1370,20 +1372,11 @@ class TestDeviceStacks:
 
 
 class TestGlobalSearchTextIndex:
-    """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 4 таблицах
-    (is-ips/is-sources/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
-    IP из этих таблиц приходилось искать вручную по разделам."""
-
-    def test_is_ip_searchable_by_address(self, client):
-        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС для поиска IP"}).json()
-        r = client.post(
-            "/api/v1/resources/is-ips",
-            json={"information_system_id": is_["id"], "ip_address": "10.20.30.40"},
-        )
-        assert r.status_code == 201, r.text
-        r = client.get("/api/v1/resources/is-ips?q=10.20.30.40")
-        assert r.status_code == 200
-        assert any(x["ip_address"] == "10.20.30.40" for x in r.json()["items"])
+    """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 3 таблицах
+    (is-sources/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
+    IP из этих таблиц приходилось искать вручную по разделам. is-ips была в этом списке до
+    удаления legacy-таблиц связей ИС (миграция b7f2c1e5a904) — is-sources её полностью заменяет,
+    см. test_is_source_searchable_by_address ниже."""
 
     def test_is_source_searchable_by_address(self, client):
         is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС-источник для поиска"}).json()
