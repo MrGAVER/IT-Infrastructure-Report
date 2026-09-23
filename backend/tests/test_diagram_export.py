@@ -8,11 +8,13 @@
 """
 from __future__ import annotations
 
+import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 
 import pytest
 
-from app.services.diagram_export import export_drawio, export_svg, export_vsdx
+from app.services.diagram_export import GROUP_FILL_COLOR, export_drawio, export_svg, export_vsdx
 
 
 def _sample_graph(port_ticks: int = 24) -> dict:
@@ -201,3 +203,124 @@ def test_export_vsdx_edge_connector_present(tmp_path):
         vf.close_vsdx()
     vlan_labelled = [s for s in shapes if "VLAN 10" in (s.text or "")]
     assert len(vlan_labelled) == 1
+
+
+# --------------------------------------------------------------------------------------
+# Паритет атрибутов между форматами и открываемость .vsdx сторонним ПО (Фаза 1, п.7 плана
+# доработок экспорта диаграмм: "тест на паритет атрибутов и открываемость файла — один и тот же
+# тестовый граф прогоняется через все три экспортёра, проверяется совпадение «цвет узла
+# присутствует» / «группа отличима от устройства» / «неактивное ребро визуально помечено»").
+# --------------------------------------------------------------------------------------
+
+def _parity_graph() -> dict:
+    """_sample_graph() + одно неактивное ребро на уже имеющуюся в ней группу — минимальное
+    расширение, не меняющее число узлов/рёбер, на которое опираются остальные тесты выше."""
+    graph = _sample_graph()
+    graph["edges"].append(
+        {
+            "id": "conn-2",
+            "source_node_id": "dev-switch",
+            "target_node_id": "group:building:none",
+            "source_interface": {"id": "iface-3", "name": "Gi0/2"},
+            "target_interface": None,
+            "connection_type": "Витая пара",
+            "is_active": False,
+            "vlans": [],
+        }
+    )
+    return graph
+
+
+def test_export_svg_group_and_inactive_edge_marked_visually():
+    graph = _parity_graph()
+    svg = export_svg(graph)
+    assert f'fill="{graph["nodes"][0]["icon"]["color"]}"' in svg  # цвет категории есть
+    assert "stroke-dasharray" in svg  # у группы И у неактивного ребра — есть хоть один пунктир
+
+
+def test_export_drawio_group_and_inactive_edge_marked_visually():
+    graph = _parity_graph()
+    xml_text = export_drawio(graph)
+    root = ET.fromstring(xml_text)
+
+    vertex_styles = [cell.get("style", "") for cell in root.iter("mxCell") if cell.get("vertex") == "1"]
+    assert any(f'fillColor={graph["nodes"][0]["icon"]["color"]}' in s for s in vertex_styles)
+    assert any("dashed=1" in s for s in vertex_styles)  # группа
+    assert any("rounded=1" in s for s in vertex_styles)
+
+    edge_styles = [cell.get("style", "") for cell in root.iter("mxCell") if cell.get("edge") == "1"]
+    assert edge_styles
+    # Раздел 4.3 ТЗ / находка отчёта: связь между устройствами не имеет "направления" —
+    # стрелок не должно быть ни у одного ребра, как и в .svg/.vsdx.
+    assert all("endArrow=none" in s for s in edge_styles)
+    # Ровно одно (неактивное) ребро из двух помечено пунктиром (pattern="dashed_medium" ->
+    # dashed=1;dashPattern=...) — активное остаётся сплошной линией, иначе их не различить.
+    dashed_count = sum("dashed=1" in s for s in edge_styles)
+    assert dashed_count == 1
+    assert dashed_count < len(edge_styles)
+
+
+def test_export_vsdx_group_and_device_and_inactive_edge_distinguishable(tmp_path):
+    """Паритет с .svg/.drawio: группа должна визуально отличаться от устройства (иначе на
+    .vsdx-экспорте их не различить), а неактивное ребро — быть помечено пунктиром."""
+    vsdx = pytest.importorskip("vsdx")
+    graph = _parity_graph()
+    data = export_vsdx(graph)
+    out_path = tmp_path / "diagram_parity.vsdx"
+    out_path.write_bytes(data)
+
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        page = vf.get_page(0)
+        shapes = list(page.child_shapes)
+        by_text = {(s.text or "").strip(): s for s in shapes}
+
+        switch_shape = by_text["sw-01"]
+        assert switch_shape.fill_color.lower() == graph["nodes"][0]["icon"]["color"].lower()
+
+        group_shape = by_text["Без здания (5)"]
+        assert group_shape.fill_color.lower() == GROUP_FILL_COLOR.lower()
+        assert group_shape.cell_value("LinePattern") == "2"  # пунктирная рамка группы
+
+        # Устройство (в отличие от группы) пунктирную рамку получать не должно.
+        assert switch_shape.cell_value("LinePattern") is None
+
+        inactive_connectors = [
+            s for s in shapes if s.cell_value("LinePattern") == "2" and s is not group_shape
+        ]
+        assert len(inactive_connectors) == 1  # ровно один коннектор помечен как неактивный
+    finally:
+        vf.close_vsdx()
+
+
+def test_export_vsdx_opens_in_third_party_reader(tmp_path):
+    """Находка №1 отчёта об экспорте диаграмм: .vsdx мог читаться обратно самой библиотекой
+    vsdx, но открываться ПОЛНОСТЬЮ ПУСТЫМ листом в стороннем ПО (см. docstring модуля и
+    _finalize_vsdx_package). LibreOffice — не единственный сторонний читатель в природе, но
+    самый доступный для автоматической проверки; отсутствие soffice в окружении не должно
+    ронять пайплайн — тест в этом случае пропускается, а не падает."""
+    pytest.importorskip("vsdx")
+    soffice = shutil.which("soffice")
+    if not soffice:
+        pytest.skip("soffice (LibreOffice) недоступен в этом окружении")
+
+    graph = _parity_graph()
+    data = export_vsdx(graph)
+    src_path = tmp_path / "diagram_openability.vsdx"
+    src_path.write_bytes(data)
+
+    result = subprocess.run(
+        [soffice, "--headless", "--convert-to", "png", "--outdir", str(tmp_path), str(src_path)],
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+
+    png_path = tmp_path / "diagram_openability.png"
+    assert png_path.exists()
+    # Пустой (полностью белый) лист LibreOffice отдаёт заметно меньшим PNG, чем лист с реальным
+    # содержимым (см. отчёт и docstring _finalize_vsdx_package: воспроизведённый пустой рендер
+    # ~6 КБ против ~15-26 КБ для того же графа с фигурами). Порог с большим запасом ниже
+    # наблюдавшегося "пустого" размера, чтобы не быть хрупким к мелким изменениям рендеринга.
+    assert png_path.stat().st_size > 8_000
