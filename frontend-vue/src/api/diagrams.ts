@@ -18,6 +18,11 @@ export interface DiagramIconGenerated {
   mode: 'generated'
   shape: DiagramIconShape
   color: string
+  // Путь SVG-глифа формы (viewBox "0 0 12 11") — Фаза 2, п.2 плана доработок экспорта диаграмм:
+  // раньше жил только во фронтенде (SHAPE_GLYPHS в DiagramDeviceNode.vue), теперь единственный
+  // источник — backend/app/services/diagram_icons.py:SHAPE_GLYPHS, чтобы тот же путь могли
+  // нарисовать и .svg/.drawio-экспортёры, не только канвас.
+  glyph: string
   port_ticks?: number
   port_overflow?: number
   manufacturer_label: string

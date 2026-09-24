@@ -19,35 +19,22 @@ const NODE_WIDTH = 160
 const NODE_HEIGHT = 84
 const FALLBACK_COLOR = '#8FA0B3'
 
-// Небольшой глиф формы в левом верхнем углу — не силуэт устройства целиком (раздел 4.3 ТЗ:
-// "реальные товарные знаки/логотипы не воспроизводятся"), просто визуальное отличие категорий
-// друг от друга на канвасе, тем же путём short-hand, что и в .svg-экспорте.
-const SHAPE_GLYPHS: Record<string, string> = {
-  server: 'M2 2h10v2H2zM2 5h10v2H2zM2 8h10v2H2z',
-  switch: 'M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z',
-  // Пункт 5 правки "диаграмма топологии сети": до этого switch_l2/switch_l3/router не
-  // существовали как формы вовсе — L2- и L3-коммутаторы получали один и тот же 'switch' (три
-  // порта), маршрутизатор — 'generic' (ромб) вместе с точками Wi-Fi/GSM-модемами. switch_l2 —
-  // тот же символ, что и раньше был у 'switch' (три блока-порта); switch_l3 — то же самое плюс
-  // маленький треугольник-стрелка сверху (символ маршрутизации поверх коммутации); router —
-  // компас/крест из 4 стрелок с центром — устоявшийся в сетевых схемах символ маршрутизатора,
-  // визуально не похожий ни на один из существующих значков.
-  switch_l2: 'M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z',
-  switch_l3: 'M1 5h3v4H1zM5.5 5h3v4h-3zM10 5h3v4h-3zM6 0l2.5 3.5h-5z',
-  router: 'M5 4.5h2v2H5zM6 0l1.5 3h-3zM6 11l-1.5-3h3zM0 5.5l3-1.5v3zM12 5.5l-3-1.5v3z',
-  firewall: 'M6 0 11 2v4c0 3.5-2.2 5.7-5 6-2.8-.3-5-2.5-5-6V2z',
-  workstation: 'M1 2h12v6H1zM5 10h4v1H5z',
-  peripheral: 'M6 0a5 5 0 100 10A5 5 0 006 0z',
-  generic: 'M6 1 11 6 6 11 1 6z',
-}
+// Глиф формы в левом верхнем углу — не силуэт устройства целиком (раздел 4.3 ТЗ: "реальные
+// товарные знаки/логотипы не воспроизводятся"), просто визуальное отличие категорий друг от
+// друга. Фаза 2, п.2 плана доработок экспорта диаграмм: путь глифа раньше жил только здесь
+// (SHAPE_GLYPHS), теперь приходит с бэкенда в самом дескрипторе иконки (icon.glyph, см.
+// services/diagram_icons.py:SHAPE_GLYPHS) — единственный источник правды и для канваса, и для
+// .svg/.drawio-экспорта; локальную копию словаря держать больше не нужно. GENERIC_GLYPH — на
+// случай кэшированного/устаревшего ответа API без поля glyph (тот же ромб, что раньше был
+// SHAPE_GLYPHS.generic).
+const GENERIC_GLYPH = 'M6 1 11 6 6 11 1 6z'
 
 const props = defineProps<NodeProps<DiagramDeviceNodeData>>()
 
 const icon = computed(() => props.data.icon)
 const isCustom = computed(() => icon.value.mode === 'custom')
 const fillColor = computed(() => (icon.value.mode === 'generated' ? icon.value.color || FALLBACK_COLOR : FALLBACK_COLOR))
-const shape = computed(() => (icon.value.mode === 'generated' ? icon.value.shape : 'generic'))
-const glyphPath = computed(() => SHAPE_GLYPHS[shape.value] ?? SHAPE_GLYPHS.generic)
+const glyphPath = computed(() => (icon.value.mode === 'generated' ? icon.value.glyph : undefined) || GENERIC_GLYPH)
 // Засечки порта раньше рисовались только для shape === 'switch'; теперь backend считает
 // port_ticks для ЛЮБОГО сгенерированного значка (см. services/diagram_icons.py), так что
 // видимость завязана просто на "у устройства есть хотя бы один известный порт" — работает

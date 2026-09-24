@@ -28,7 +28,7 @@ function device(overrides: Partial<DiagramDeviceNode> = {}): DiagramDeviceNode {
     manufacturer: null,
     model: null,
     ip_addresses: [],
-    icon: { mode: 'generated', shape: 'server', color: '#4f7cff', manufacturer_label: '', model_label: '' },
+    icon: { mode: 'generated', shape: 'server', color: '#4f7cff', glyph: 'M2 2h10v2H2z', manufacturer_label: '', model_label: '' },
     x: 10,
     y: 20,
     ...overrides,
