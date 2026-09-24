@@ -39,6 +39,7 @@ import shutil
 import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 NODE_WIDTH = 160
@@ -87,6 +88,19 @@ def _port_anchor_fraction(interface_ref: dict | None, port_ticks: int) -> float 
     return (port_index + 1) / (port_ticks + 1)
 
 
+def _glyph_data_uri(glyph: str) -> str:
+    """SVG-глиф категории (icon["glyph"], см. diagram_icons.py:SHAPE_GLYPHS) как data URI для
+    .drawio (находка №3 отчёта, Фаза 2 п.2). mxGraph/draw.io поддерживает style="shape=image;
+    image=<url>" с любым URL, включая data: — это заметно надёжнее и дешевле, чем воспроизводить
+    path через собственный (недокументированный публично) формат stencil-шаблонов draw.io.
+    Percent-encoding, а не base64: drawpyo.Object.apply_style_string() режет значение стиля по
+    ПЕРВОМУ "=" в строке (см. _add_and_set_style_attrib ниже, который мы поэтому вызываем
+    напрямую, а не через apply_style_string) — base64-padding ("==") сломал бы декодирование,
+    percent-encoded URI такого символа не содержит."""
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 11"><path d="{glyph}" fill="rgba(255,255,255,0.85)"/></svg>'
+    return f"data:image/svg+xml,{quote(svg)}"
+
+
 # --------------------------------------------------------------------------------------
 # .svg
 # --------------------------------------------------------------------------------------
@@ -123,6 +137,13 @@ def _svg_node(node: dict, x: float, y: float) -> str:
     else:
         color = icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
         parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{color}" stroke="#333333" stroke-width="1.5"/>')
+        # Находка №3 отчёта об экспорте (Фаза 2, п.2): глиф категории поверх прямоугольника —
+        # тот же путь (viewBox "0 0 12 11"), что рисует канвас (DiagramDeviceNode.vue), теперь
+        # приходит готовым в дескрипторе (icon["glyph"], см. diagram_icons.py:SHAPE_GLYPHS) —
+        # вложенный <svg> с собственным viewBox дешевле пересчитывать координаты пути вручную.
+        glyph = icon.get("glyph")
+        if glyph:
+            parts.append(f'<svg x="{x + 6}" y="{y + 6}" width="14" height="13" viewBox="0 0 12 11">' f'<path d="{glyph}" fill="rgba(255,255,255,0.85)"/></svg>')
         # Раньше засечки рисовались только при icon["shape"].startswith("switch"): backend уже
         # считает port_ticks для ЛЮБОЙ сгенерированной иконки (см. diagram_graph.py, п.5 —
         # раньше это тоже было ограничено только switch), а видимость в canvas (см.
@@ -217,6 +238,21 @@ def export_drawio(graph: dict) -> str:
             # сгенерированной иконки: без этого у остальных форм ребро (см. ниже exitX/entryX)
             # целилось бы в засечку, которой на самой фигуре не видно.
             if icon.get("mode") == "generated":
+                glyph = icon.get("glyph")
+                if glyph:
+                    # Находка №3 отчёта (Фаза 2, п.2): глиф категории поверх прямоугольника, тот
+                    # же путь и позиция (top:6px, left:6px, 14x13), что рисует канвас
+                    # (DiagramDeviceNode.vue) и .svg-экспорт (_svg_node) — см. _glyph_data_uri.
+                    glyph_obj = drawpyo.diagram.Object(page=page, value="")
+                    glyph_obj.position = (node["x"] + 6, node["y"] + 6)
+                    glyph_obj.width = 14
+                    glyph_obj.height = 13
+                    # apply_style_string() режет по первому "=" — для data URI использовать
+                    # нельзя (см. docstring _glyph_data_uri), поэтому выставляем атрибуты стиля
+                    # напрямую тем же способом, каким это делает сама apply_style_string.
+                    glyph_obj._add_and_set_style_attrib("shape", "image")
+                    glyph_obj._add_and_set_style_attrib("image", _glyph_data_uri(glyph))
+
                 ticks = icon.get("port_ticks", 0)
                 if ticks:
                     spacing = NODE_WIDTH / (ticks + 1)

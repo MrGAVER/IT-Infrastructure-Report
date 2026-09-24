@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from urllib.parse import quote
 
 import pytest
 
@@ -33,7 +34,7 @@ def _sample_graph(port_ticks: int = 24) -> dict:
                 "label": "sw-01",
                 "x": 0,
                 "y": 0,
-                "icon": {"mode": "generated", "shape": "switch", "color": "#4f7cff", "port_ticks": port_ticks},
+                "icon": {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": "M1 4h3v4H1z", "port_ticks": port_ticks},
             },
             {
                 "id": "dev-server",
@@ -41,7 +42,7 @@ def _sample_graph(port_ticks: int = 24) -> dict:
                 "label": "srv-01",
                 "x": 300,
                 "y": 0,
-                "icon": {"mode": "generated", "shape": "server", "color": "#8a8f98"},
+                "icon": {"mode": "generated", "shape": "server", "color": "#8a8f98", "glyph": "M2 2h10v2H2z"},
             },
             {"id": "group:building:none", "type": "group", "label": "Без здания (5)", "device_count": 5, "x": 600, "y": 0},
         ],
@@ -122,6 +123,15 @@ def test_export_svg_custom_icon_embeds_svg_markup_verbatim():
     assert "custom-mark" in svg
 
 
+def test_export_svg_renders_category_glyph_path_from_descriptor():
+    """Находка №3 отчёта (Фаза 2, п.2): путь глифа берётся из icon["glyph"] (единый источник —
+    diagram_icons.py:SHAPE_GLYPHS), а не вычисляется самим экспортёром по имени формы."""
+    graph = _sample_graph()
+    svg = export_svg(graph)
+    switch_glyph = graph["nodes"][0]["icon"]["glyph"]
+    assert f'<path d="{switch_glyph}"' in svg
+
+
 def test_export_svg_edge_anchors_to_resolved_port_tick_not_center():
     """Находка №2 отчёта об экспорте (Фаза 2, п.1): ребро с известным port_index должно
     целиться в конкретную засечку порта (x + spacing*(port_index+1), y + height), а не в центр
@@ -157,11 +167,18 @@ def _drawio_vertex_cells(xml_text: str):
     return [cell for cell in root.iter("mxCell") if cell.get("vertex") == "1"]
 
 
+def _drawio_tick_cells(vertices):
+    """Засечки порта — vertex-объекты с пустым value, КРОМЕ глифа категории (Фаза 2, п.2), у
+    которого value тоже пусто, но стиль — shape=image (см. _glyph_data_uri), а не заливка."""
+    return [v for v in vertices if not v.get("value") and "shape=image" not in v.get("style", "")]
+
+
 def test_export_drawio_is_valid_xml_and_parses_back_with_matching_node_count():
     graph = _sample_graph()
     xml_text = export_drawio(graph)
     vertices = _drawio_vertex_cells(xml_text)
-    # Значимые узлы (непустой value) — засечки портов тоже vertex-объекты, но с value="".
+    # Значимые узлы (непустой value) — засечки портов и глиф категории тоже vertex-объекты, но
+    # с value="".
     named_vertices = [v for v in vertices if v.get("value")]
     assert len(named_vertices) == len(graph["nodes"])
 
@@ -170,7 +187,7 @@ def test_export_drawio_switch_port_ticks_rendered_as_separate_objects():
     graph = _sample_graph(port_ticks=24)
     xml_text = export_drawio(graph)
     vertices = _drawio_vertex_cells(xml_text)
-    tick_objects = [v for v in vertices if not v.get("value")]
+    tick_objects = _drawio_tick_cells(vertices)
     assert len(tick_objects) == 24
 
 
@@ -180,8 +197,22 @@ def test_export_drawio_port_ticks_render_for_every_switch_variant(shape):
     graph["nodes"][0]["icon"]["shape"] = shape
     xml_text = export_drawio(graph)
     vertices = _drawio_vertex_cells(xml_text)
-    tick_objects = [v for v in vertices if not v.get("value")]
+    tick_objects = _drawio_tick_cells(vertices)
     assert len(tick_objects) == 6
+
+
+def test_export_drawio_category_glyph_rendered_as_image_shape():
+    """Находка №3 отчёта (Фаза 2, п.2): глиф категории — отдельный vertex со style=shape=image
+    и data URI, содержащим тот же path, что icon["glyph"] (единый источник — diagram_icons.py:
+    SHAPE_GLYPHS, см. docstring _glyph_data_uri)."""
+    graph = _sample_graph()
+    xml_text = export_drawio(graph)
+    vertices = _drawio_vertex_cells(xml_text)
+    glyph_cells = [v for v in vertices if "shape=image" in v.get("style", "")]
+    # По одному глифу на каждый generated-узел (switch + server); группа глифа не имеет.
+    assert len(glyph_cells) == 2
+    switch_glyph = graph["nodes"][0]["icon"]["glyph"]
+    assert any(quote(f'<path d="{switch_glyph}"') in v.get("style", "") for v in glyph_cells)
 
 
 def test_export_drawio_edge_count_matches_graph():

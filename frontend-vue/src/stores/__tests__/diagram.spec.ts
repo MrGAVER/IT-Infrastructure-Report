@@ -15,7 +15,7 @@ function sampleDiagram(overrides: Partial<SavedDiagramDetail> = {}): SavedDiagra
     created_at: null,
     updated_at: null,
     nodes: [
-      { id: 'dev-1', type: 'device', label: 'sw-01', serial_number: 'SN-1', system_name: 'sw-01', category_id: null, manufacturer: null, model: null, ip_addresses: [], icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', manufacturer_label: '', model_label: '' }, x: 0, y: 0 },
+      { id: 'dev-1', type: 'device', label: 'sw-01', serial_number: 'SN-1', system_name: 'sw-01', category_id: null, manufacturer: null, model: null, ip_addresses: [], icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', manufacturer_label: '', model_label: '' }, x: 0, y: 0 },
     ],
     edges: [],
     viewport: { zoom: 1, pan_x: 0, pan_y: 0 },

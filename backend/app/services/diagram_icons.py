@@ -22,6 +22,32 @@ MAX_PORT_TICKS = 32
 DEFAULT_SHAPE = "generic"
 DEFAULT_COLOR = "#9aa0a6"  # "default нейтральный серый" (раздел 4.3 ТЗ)
 
+# Небольшой глиф формы поверх прямоугольника узла — не силуэт устройства целиком (раздел 4.3 ТЗ:
+# "реальные товарные знаки/логотипы не воспроизводятся"), просто визуальное отличие категорий
+# друг от друга. Раньше жил только во фронтенде (DiagramDeviceNode.vue) — Фаза 2, п.2 плана
+# доработок экспорта диаграмм: перенесено сюда, в дескриптор иконки, единственный источник
+# правды для ВСЕХ мест отрисовки (см. docstring модуля) — теперь .svg/.drawio-экспорт тоже может
+# нарисовать тот же глиф, а не только интерактивный канвас. Координаты — в системе viewBox
+# "0 0 12 11" (см. GLYPH_VIEWBOX ниже); фронтенд отрисовывает эти же path без изменений.
+SHAPE_GLYPHS: dict[str, str] = {
+    "server": "M2 2h10v2H2zM2 5h10v2H2zM2 8h10v2H2z",
+    "switch": "M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z",
+    # switch_l2/switch_l3/router появились позже (см. диаграмма-графа "Пункт 5 правки"): до этого
+    # L2/L3-коммутаторы получали общий 'switch' (три порта), маршрутизатор — 'generic' (ромб)
+    # вместе с точками Wi-Fi/GSM-модемами. switch_l2 — тот же символ, что раньше был у 'switch';
+    # switch_l3 — то же самое плюс маленький треугольник-стрелка сверху (маршрутизация поверх
+    # коммутации); router — компас/крест из 4 стрелок с центром, устоявшийся в сетевых схемах
+    # символ маршрутизатора, визуально не похожий ни на один из существующих значков.
+    "switch_l2": "M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z",
+    "switch_l3": "M1 5h3v4H1zM5.5 5h3v4h-3zM10 5h3v4h-3zM6 0l2.5 3.5h-5z",
+    "router": "M5 4.5h2v2H5zM6 0l1.5 3h-3zM6 11l-1.5-3h3zM0 5.5l3-1.5v3zM12 5.5l-3-1.5v3z",
+    "firewall": "M6 0 11 2v4c0 3.5-2.2 5.7-5 6-2.8-.3-5-2.5-5-6V2z",
+    "workstation": "M1 2h12v6H1zM5 10h4v1H5z",
+    "peripheral": "M6 0a5 5 0 100 10A5 5 0 006 0z",
+    "generic": "M6 1 11 6 6 11 1 6z",
+}
+GLYPH_VIEWBOX = (12, 11)  # ширина, высота системы координат SHAPE_GLYPHS-путей
+
 # Код-ревью п.3.1 (критичная уязвимость): DiagramIcon.svg_markup попадает без изменений и в
 # экспортируемый .svg (services/diagram_export.py), и во фронтенд через v-html
 # (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
@@ -133,6 +159,7 @@ def build_device_icon(device: PhysicalDevice, interface_count: int, lookups: Ico
     shape, color = resolve_category_style(category, lookups.categories_by_id)
 
     descriptor = {"mode": "generated", "shape": shape, "color": color}
+    descriptor["glyph"] = SHAPE_GLYPHS.get(shape, SHAPE_GLYPHS[DEFAULT_SHAPE])
     # Раньше засечки считались только при shape == "switch" — на канвасе от этого страдали
     # многопортовые устройства ЛЮБОЙ другой формы (сервер с несколькими NIC, файрвол с WAN/LAN/
     # DMZ): все их подключения анкерились к единственному Handle узла и визуально сливались в

@@ -19,6 +19,7 @@ from app.models import DeviceCategory, DeviceModel, DeviceType, DiagramIcon, Man
 from app.services.diagram_icons import (
     DEFAULT_COLOR,
     DEFAULT_SHAPE,
+    SHAPE_GLYPHS,
     IconLookups,
     MAX_PORT_TICKS,
     build_device_icon,
@@ -101,6 +102,7 @@ def test_build_device_icon_generated_switch_with_port_overflow():
         "mode": "generated",
         "shape": "switch",
         "color": "#2fa86a",
+        "glyph": SHAPE_GLYPHS["switch"],
         "port_ticks": 32,
         "port_overflow": 8,
         "manufacturer_label": "Cisco",

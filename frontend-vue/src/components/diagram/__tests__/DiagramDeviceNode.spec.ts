@@ -21,7 +21,7 @@ const baseDevice: DeviceNodeData = {
   manufacturer: null,
   model: null,
   ip_addresses: [],
-  icon: { mode: 'generated', shape: 'server', color: '#4f7cff', manufacturer_label: '', model_label: '' },
+  icon: { mode: 'generated', shape: 'server', color: '#4f7cff', glyph: 'M2 2h10v2H2z', manufacturer_label: '', model_label: '' },
   x: 0,
   y: 0,
 }
@@ -45,7 +45,7 @@ describe('DiagramDeviceNode.vue', () => {
     // сервер/файрвол с несколькими интерфейсами анкерил все свои связи в одну и ту же точку узла.
     const serverWithPorts: DeviceNodeData = {
       ...baseDevice,
-      icon: { mode: 'generated', shape: 'server', color: '#4f7cff', port_ticks: 2, manufacturer_label: '', model_label: '' },
+      icon: { mode: 'generated', shape: 'server', color: '#4f7cff', glyph: 'M2 2h10v2H2z', port_ticks: 2, manufacturer_label: '', model_label: '' },
     }
     const wrapper = mountNode(serverWithPorts)
     expect(wrapper.findAll('.port-tick')).toHaveLength(2)
@@ -54,7 +54,7 @@ describe('DiagramDeviceNode.vue', () => {
   it('для shape=switch рисует засечки портов по числу port_ticks и бейдж overflow', () => {
     const switchDevice: DeviceNodeData = {
       ...baseDevice,
-      icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', port_ticks: 5, port_overflow: 12, manufacturer_label: 'Cisco', model_label: 'C2960' },
+      icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', port_ticks: 5, port_overflow: 12, manufacturer_label: 'Cisco', model_label: 'C2960' },
     }
     const wrapper = mountNode(switchDevice)
     expect(wrapper.findAll('.port-tick')).toHaveLength(5)
@@ -85,7 +85,7 @@ describe('DiagramDeviceNode.vue', () => {
   it('порог в 32 засечки не превышается даже при большем port_ticks в данных', () => {
     const overflowingDevice: DeviceNodeData = {
       ...baseDevice,
-      icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', port_ticks: 40, manufacturer_label: '', model_label: '' },
+      icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', port_ticks: 40, manufacturer_label: '', model_label: '' },
     }
     const wrapper = mountNode(overflowingDevice)
     expect(wrapper.findAll('.port-tick')).toHaveLength(32)
@@ -128,22 +128,26 @@ describe('DiagramDeviceNode.vue', () => {
     expect(wrapper.find('.identity-label').text()).toBe('SN-1 · 192.168.1.10')
   })
 
-  it.each(['switch_l2', 'switch_l3', 'router'] as const)('рендерит новый значок формы %s без ошибок', (shape) => {
+  // Фаза 2, п.2 плана доработок экспорта диаграмм: путь глифа больше не вычисляется компонентом
+  // по shape (локальный SHAPE_GLYPHS убран) — приходит готовым в icon.glyph от бэкенда
+  // (backend/app/services/diagram_icons.py:SHAPE_GLYPHS, единственный источник правды). Ниже —
+  // проверка чистого прохождения значения, а не вычисления по имени формы.
+  it.each(['switch_l2', 'switch_l3', 'router'] as const)('рендерит icon.glyph формы %s без изменений', (shape) => {
+    const glyph = `glyph-path-for-${shape}`
     const device: DeviceNodeData = {
       ...baseDevice,
-      icon: { mode: 'generated', shape, color: '#2fa86a', manufacturer_label: '', model_label: '' },
+      icon: { mode: 'generated', shape, color: '#2fa86a', glyph, manufacturer_label: '', model_label: '' },
     }
     const wrapper = mountNode(device)
-    const path = wrapper.find('.shape-glyph path').attributes('d')
-    expect(path).toBeTruthy()
-    // switch_l2/switch_l3/router — три РАЗНЫЕ формы, ни одна не должна молча съезжать на
-    // generic-заглушку (ромб 'M6 1 11 6 6 11 1 6z') из-за отсутствия в SHAPE_GLYPHS.
-    expect(path).not.toBe('M6 1 11 6 6 11 1 6z')
+    expect(wrapper.find('.shape-glyph path').attributes('d')).toBe(glyph)
   })
 
-  it('switch_l2 и switch_l3 — разные значки (различимы визуально по уровню коммутации)', () => {
-    const l2 = mountNode({ ...baseDevice, icon: { mode: 'generated', shape: 'switch_l2', color: '#2fa86a', manufacturer_label: '', model_label: '' } })
-    const l3 = mountNode({ ...baseDevice, icon: { mode: 'generated', shape: 'switch_l3', color: '#2fa86a', manufacturer_label: '', model_label: '' } })
-    expect(l2.find('.shape-glyph path').attributes('d')).not.toBe(l3.find('.shape-glyph path').attributes('d'))
+  it('без glyph в ответе API откатывается на generic-ромб (устаревший кэш/ответ без поля)', () => {
+    const device: DeviceNodeData = {
+      ...baseDevice,
+      icon: { mode: 'generated', shape: 'switch', color: '#2fa86a', manufacturer_label: '', model_label: '' } as unknown as DeviceNodeData['icon'],
+    }
+    const wrapper = mountNode(device)
+    expect(wrapper.find('.shape-glyph path').attributes('d')).toBe('M6 1 11 6 6 11 1 6z')
   })
 })
