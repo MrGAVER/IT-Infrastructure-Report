@@ -63,6 +63,30 @@ def _device_fill_color(icon: dict) -> str:
     return CUSTOM_ICON_FALLBACK_COLOR
 
 
+def _port_ticks_of(node: dict) -> int:
+    """Число засечек порта у узла — 0 для группы (своих портов не имеет, см.
+    diagram_graph.build_group_node) и для узла-устройства без известных интерфейсов."""
+    if node["type"] != "device":
+        return 0
+    return node["icon"].get("port_ticks", 0)
+
+
+def _port_anchor_fraction(interface_ref: dict | None, port_ticks: int) -> float | None:
+    """Доля (0..1) по ширине узла, куда должен упираться конец ребра — тот же расчёт, что и
+    _svg_port_ticks/frontend DiagramDeviceNode.vue:tickX (см. находку №2 отчёта об экспорте
+    диаграмм, Фаза 2 п.1: "точная привязка ребра к засечке порта"). None означает "у этого конца
+    порт не резолвится (группа, custom-иконка или устройство без интерфейсов) — анкерить в центр
+    узла, как раньше", а не "порт с индексом 0", поэтому проверяем именно на None, а не на falsy.
+    port_index уже гарантированно < port_ticks на уровне графа (см. diagram_graph.GraphContext.
+    interface_index) — здесь это не перепроверяется."""
+    if not interface_ref or port_ticks <= 0:
+        return None
+    port_index = interface_ref.get("port_index")
+    if port_index is None:
+        return None
+    return (port_index + 1) / (port_ticks + 1)
+
+
 # --------------------------------------------------------------------------------------
 # .svg
 # --------------------------------------------------------------------------------------
@@ -99,11 +123,16 @@ def _svg_node(node: dict, x: float, y: float) -> str:
     else:
         color = icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
         parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{color}" stroke="#333333" stroke-width="1.5"/>')
-        # startswith, а не точное сравнение — 'switch' (общий fallback категории "Коммутаторы"
-        # без более точной L2/L3 подкатегории), 'switch_l2' и 'switch_l3' одинаково рисуются с
-        # засечками портов, различаются только заливкой формы значка (см. DiagramDeviceNode.vue).
-        if icon.get("shape", "").startswith("switch"):
-            parts.append(_svg_port_ticks(x, y, NODE_WIDTH, NODE_HEIGHT, icon.get("port_ticks", 0)))
+        # Раньше засечки рисовались только при icon["shape"].startswith("switch"): backend уже
+        # считает port_ticks для ЛЮБОЙ сгенерированной иконки (см. diagram_graph.py, п.5 —
+        # раньше это тоже было ограничено только switch), а видимость в canvas (см.
+        # DiagramDeviceNode.vue) завязана просто на "port_ticks > 0", без проверки формы —
+        # сервер с несколькими NIC или файрвол с WAN/LAN/DMZ получают засечки точно так же, как
+        # коммутатор. Проверка по shape была рассинхронизирована с этим и без явной привязки
+        # ребра к засечке (см. _svg_edge ниже) была просто "лишним" рисунком у одной формы —
+        # теперь, когда ребро реально целится в конкретную засечку, рисовать её нужно везде, где
+        # она есть, иначе привязка у остальных форм будет указывать в пустое место.
+        parts.append(_svg_port_ticks(x, y, NODE_WIDTH, NODE_HEIGHT, icon.get("port_ticks", 0)))
     parts.append(
         f'<text x="{x + NODE_WIDTH / 2}" y="{y + NODE_HEIGHT - 8}" text-anchor="middle" '
         f'font-size="11" fill="#ffffff">{_esc(node["label"])}</text>'
@@ -112,9 +141,20 @@ def _svg_node(node: dict, x: float, y: float) -> str:
     return "".join(parts)
 
 
-def _svg_edge(edge: dict, centers: dict) -> str:
-    x1, y1 = centers[edge["source_node_id"]]
-    x2, y2 = centers[edge["target_node_id"]]
+def _svg_edge_anchor(node: dict, interface_ref: dict | None) -> tuple[float, float]:
+    """Точка на этом конце ребра: если для узла резолвится конкретная засечка порта (находка №2
+    отчёта об экспорте) — её координата (та же формула, что _svg_port_ticks), иначе (группа,
+    custom-иконка, устройство без интерфейсов) — прежнее поведение, центр узла."""
+    x, y = node["x"], node["y"]
+    fraction = _port_anchor_fraction(interface_ref, _port_ticks_of(node))
+    if fraction is None:
+        return (x + NODE_WIDTH / 2, y + NODE_HEIGHT / 2)
+    return (x + NODE_WIDTH * fraction, y + NODE_HEIGHT)
+
+
+def _svg_edge(edge: dict, nodes_by_id: dict) -> str:
+    x1, y1 = _svg_edge_anchor(nodes_by_id[edge["source_node_id"]], edge.get("source_interface"))
+    x2, y2 = _svg_edge_anchor(nodes_by_id[edge["target_node_id"]], edge.get("target_interface"))
     dash = "" if edge.get("is_active", True) else ' stroke-dasharray="6,4"'
     label_text = _vlan_label(edge)
     label = (
@@ -132,14 +172,10 @@ def _svg_edge(edge: dict, centers: dict) -> str:
 def export_svg(graph: dict) -> str:
     """Раздел 9 ТЗ: собирается напрямую из графовой модели строковым шаблоном — без
     растеризации и без headless-рендерера, тем же способом, каким drawpyo формирует свой XML."""
-    centers: dict[str, tuple[float, float]] = {}
-    nodes_svg = []
-    for node in graph["nodes"]:
-        x, y = node["x"], node["y"]
-        centers[node["id"]] = (x + NODE_WIDTH / 2, y + NODE_HEIGHT / 2)
-        nodes_svg.append(_svg_node(node, x, y))
+    nodes_by_id: dict[str, dict] = {n["id"]: n for n in graph["nodes"]}
+    nodes_svg = [_svg_node(node, node["x"], node["y"]) for node in graph["nodes"]]
 
-    edges_svg = [_svg_edge(e, centers) for e in graph["edges"] if e["source_node_id"] in centers and e["target_node_id"] in centers]
+    edges_svg = [_svg_edge(e, nodes_by_id) for e in graph["edges"] if e["source_node_id"] in nodes_by_id and e["target_node_id"] in nodes_by_id]
 
     max_x = max((n["x"] for n in graph["nodes"]), default=0) + NODE_WIDTH + 40
     max_y = max((n["y"] for n in graph["nodes"]), default=0) + NODE_HEIGHT + 40
@@ -176,7 +212,11 @@ def export_drawio(graph: dict) -> str:
         else:
             icon = node["icon"]
             obj.fillColor = _device_fill_color(icon)
-            if icon.get("mode") == "generated" and icon.get("shape", "").startswith("switch"):
+            # Раньше — только icon["shape"].startswith("switch"), см. тот же комментарий у
+            # _svg_node про рассинхронизацию с port_ticks, который backend считает для ЛЮБОЙ
+            # сгенерированной иконки: без этого у остальных форм ребро (см. ниже exitX/entryX)
+            # целилось бы в засечку, которой на самой фигуре не видно.
+            if icon.get("mode") == "generated":
                 ticks = icon.get("port_ticks", 0)
                 if ticks:
                     spacing = NODE_WIDTH / (ticks + 1)
@@ -188,6 +228,7 @@ def export_drawio(graph: dict) -> str:
                         tick.fillColor = "#222222"
         objects_by_node_id[node["id"]] = obj
 
+    nodes_by_id = {n["id"]: n for n in graph["nodes"]}
     for edge in graph["edges"]:
         source = objects_by_node_id.get(edge["source_node_id"])
         target = objects_by_node_id.get(edge["target_node_id"])
@@ -199,15 +240,25 @@ def export_drawio(graph: dict) -> str:
         # pattern="dashed_medium" — та же семантика, что и stroke-dasharray в .svg для
         # is_active=False (раздел 4.4 ТЗ: неактивная связь размечается визуально, не только
         # цветом в интерактивном канвасе).
-        drawpyo.diagram.Edge(
-            page=page,
-            source=source,
-            target=target,
-            label=_vlan_label(edge),
-            line_end_source="none",
-            line_end_target="none",
-            pattern=None if edge.get("is_active", True) else "dashed_medium",
-        )
+        edge_kwargs = {
+            "line_end_source": "none",
+            "line_end_target": "none",
+            "pattern": None if edge.get("is_active", True) else "dashed_medium",
+        }
+        # Находка №2 отчёта об экспорте (Фаза 2, п.1): "точная привязка ребра к засечке порта" —
+        # entryX/entryY (и exitX/exitY) как доля 0-1 от габарита фигуры, mxGraph-конвенция
+        # (0,0)=левый верхний угол, (1,1)=правый нижний. Если для конца ребра порт не резолвится
+        # (группа/custom-иконка/устройство без интерфейсов) — оставляем как раньше, без entry/exit,
+        # drawio.js сам выберет точку автоматической маршрутизации.
+        exit_fraction = _port_anchor_fraction(edge.get("source_interface"), _port_ticks_of(nodes_by_id[edge["source_node_id"]]))
+        if exit_fraction is not None:
+            edge_kwargs["exitX"] = exit_fraction
+            edge_kwargs["exitY"] = 1.0
+        entry_fraction = _port_anchor_fraction(edge.get("target_interface"), _port_ticks_of(nodes_by_id[edge["target_node_id"]]))
+        if entry_fraction is not None:
+            edge_kwargs["entryX"] = entry_fraction
+            edge_kwargs["entryY"] = 1.0
+        drawpyo.diagram.Edge(page=page, source=source, target=target, label=_vlan_label(edge), **edge_kwargs)
 
     return file.xml
 
@@ -215,13 +266,6 @@ def export_drawio(graph: dict) -> str:
 # --------------------------------------------------------------------------------------
 # .vsdx (vsdx) — копирование шаблонных фигур, см. docstring модуля
 # --------------------------------------------------------------------------------------
-
-# xml.etree.ElementTree генерирует именно такие синтетические префиксы (ns0, ns1, ...) для
-# любого namespace, для которого не был явно зарегистрирован префикс на момент сериализации —
-# подлинные файлы Visio так никогда не называют префиксы, поэтому наличие "xmlns:nsN=" в частях
-# пакета — надёжный, самодостаточный признак повреждения (см. _finalize_vsdx_package).
-_SYNTHETIC_NAMESPACE_DECLARATION = re.compile(rb"xmlns:ns\d+=")
-
 
 # xml.etree.ElementTree генерирует именно такие синтетические префиксы (ns0, ns1, ...) для
 # любого namespace, для которого не был явно зарегистрирован префикс на момент сериализации —
@@ -330,6 +374,22 @@ def _strip_dangling_glue_formulas(shape) -> None:
             cell.xml.attrib.pop("F", None)
 
 
+def _vsdx_port_anchor(shape, fraction: float | None) -> tuple[float, float]:
+    """Точка на этом конце коннектора: shape.x/shape.y — PinX/PinY, то есть ЦЕНТР фигуры (см.
+    комментарий у target_x/target_y в export_vsdx), а не левый верхний угол. Находка №2 отчёта
+    (Фаза 2, п.1): если для этого конца ребра резолвится конкретная засечка порта — точка на
+    НИЖНЕЙ (в терминах графа/canvas) грани фигуры на нужной доле ширины, а не центр. "Нижняя"
+    грань графа — это МЕНЬШИЙ Y в осях Visio (см. находку №1: страница построена так, что ось Y
+    Visio растёт снизу вверх, а не сверху вниз, поэтому "низ" в exported-координатах — это
+    shape.y - height/2, а не + height/2). fraction=None (порт не резолвится — группа/
+    custom-иконка/устройство без интерфейсов) — прежнее поведение, центр фигуры."""
+    if fraction is None:
+        return shape.center_x_y
+    left = shape.x - shape.width / 2
+    bottom = shape.y - shape.height / 2
+    return (left + shape.width * fraction, bottom)
+
+
 def export_vsdx(graph: dict) -> bytes:
     import vsdx
     from vsdx import namespace as visio_ns
@@ -380,13 +440,22 @@ def export_vsdx(graph: dict) -> bytes:
                     shape.line_color = color
                 shapes_by_node_id[node["id"]] = shape
 
+            nodes_by_id = {n["id"]: n for n in graph["nodes"]}
             for edge in graph["edges"]:
                 source = shapes_by_node_id.get(edge["source_node_id"])
                 target = shapes_by_node_id.get(edge["target_node_id"])
                 if source is None or target is None:
                     continue
                 connector = connector_template.copy()
-                connector.set_start_and_finish(source.center_x_y, target.center_x_y)
+                source_fraction = _port_anchor_fraction(
+                    edge.get("source_interface"), _port_ticks_of(nodes_by_id[edge["source_node_id"]])
+                )
+                target_fraction = _port_anchor_fraction(
+                    edge.get("target_interface"), _port_ticks_of(nodes_by_id[edge["target_node_id"]])
+                )
+                connector.set_start_and_finish(
+                    _vsdx_port_anchor(source, source_fraction), _vsdx_port_anchor(target, target_fraction)
+                )
                 _strip_dangling_glue_formulas(connector)
                 connector.text = _vlan_label(edge)
                 if not edge.get("is_active", True):

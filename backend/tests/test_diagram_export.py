@@ -14,7 +14,14 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from app.services.diagram_export import GROUP_FILL_COLOR, export_drawio, export_svg, export_vsdx
+from app.services.diagram_export import (
+    GROUP_FILL_COLOR,
+    NODE_HEIGHT,
+    NODE_WIDTH,
+    export_drawio,
+    export_svg,
+    export_vsdx,
+)
 
 
 def _sample_graph(port_ticks: int = 24) -> dict:
@@ -115,6 +122,32 @@ def test_export_svg_custom_icon_embeds_svg_markup_verbatim():
     assert "custom-mark" in svg
 
 
+def test_export_svg_edge_anchors_to_resolved_port_tick_not_center():
+    """Находка №2 отчёта об экспорте (Фаза 2, п.1): ребро с известным port_index должно
+    целиться в конкретную засечку порта (x + spacing*(port_index+1), y + height), а не в центр
+    узла. _sample_graph(): switch (x=0,y=0), source_interface.port_index=0, port_ticks=24 по
+    умолчанию -> fraction=1/25, ожидаемый x = 160*1/25 = 6.4, y = 70 (нижняя грань)."""
+    graph = _sample_graph()
+    svg = export_svg(graph)
+    root = ET.fromstring(svg)
+    line = next(el for el in root.iter() if el.tag.endswith("line"))
+    assert float(line.get("x1")) == pytest.approx(6.4)
+    assert float(line.get("y1")) == pytest.approx(70.0)
+    # Целевая сторона (dev-server) интерфейса без port_index — прежнее поведение, центр узла.
+    assert float(line.get("x2")) == pytest.approx(300 + NODE_WIDTH / 2)
+
+
+def test_export_svg_edge_falls_back_to_center_without_port_index():
+    graph = _sample_graph()
+    graph["nodes"][0]["icon"]["port_ticks"] = 0
+    del graph["edges"][0]["source_interface"]["port_index"]
+    svg = export_svg(graph)
+    root = ET.fromstring(svg)
+    line = next(el for el in root.iter() if el.tag.endswith("line"))
+    assert float(line.get("x1")) == pytest.approx(0 + NODE_WIDTH / 2)
+    assert float(line.get("y1")) == pytest.approx(0 + NODE_HEIGHT / 2)
+
+
 # --------------------------------------------------------------------------------------
 # .drawio
 # --------------------------------------------------------------------------------------
@@ -159,6 +192,20 @@ def test_export_drawio_edge_count_matches_graph():
     assert len(edges) == len(graph["edges"])
 
 
+def test_export_drawio_edge_exit_fraction_matches_resolved_port():
+    """Находка №2 отчёта (Фаза 2, п.1): exitX/exitY как доля 0-1 от габарита фигуры, а не
+    отсутствие entry/exit (== автомаршрутизация drawio.js в центр). _sample_graph(): source
+    port_index=0, port_ticks=24 -> exitX=1/25; target-интерфейс без port_index -> entryX не
+    должен быть выставлен вовсе (прежнее поведение — автовыбор точки)."""
+    graph = _sample_graph()
+    xml_text = export_drawio(graph)
+    root = ET.fromstring(xml_text)
+    edge_style = next(cell.get("style", "") for cell in root.iter("mxCell") if cell.get("edge") == "1")
+    assert "exitX=0.04;" in edge_style
+    assert "exitY=1.0;" in edge_style
+    assert "entryX=" not in edge_style
+
+
 def test_export_drawio_handles_empty_graph():
     xml_text = export_drawio(_empty_graph())
     ET.fromstring(xml_text)
@@ -186,6 +233,34 @@ def test_export_vsdx_parses_back_with_matching_node_count(tmp_path):
     labels = {node["label"] for node in graph["nodes"]}
     matching = [s for s in shapes if (s.text or "").strip() in labels]
     assert len(matching) == len(graph["nodes"])
+
+
+def test_export_vsdx_edge_anchors_to_resolved_port_not_shape_center(tmp_path):
+    """Находка №2 отчёта (Фаза 2, п.1): для конца ребра с известным port_index точка коннектора
+    должна лежать на нижней грани фигуры (в терминах графа) на нужной доле ширины, а не в
+    center_x_y. _sample_graph(): source_interface.port_index=0 на switch (port_ticks=24)."""
+    vsdx = pytest.importorskip("vsdx")
+    graph = _sample_graph()
+    data = export_vsdx(graph)
+    out_path = tmp_path / "diagram_port_anchor.vsdx"
+    out_path.write_bytes(data)
+
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        page = vf.get_page(0)
+        shapes = list(page.child_shapes)
+        switch_shape = next(s for s in shapes if (s.text or "").strip() == "sw-01")
+        connector = next(s for s in shapes if s.cell_value("BeginX") is not None)
+
+        expected_x = (switch_shape.x - switch_shape.width / 2) + switch_shape.width * (1 / 25)
+        expected_y = switch_shape.y - switch_shape.height / 2
+        assert float(connector.cell_value("BeginX")) == pytest.approx(expected_x, abs=1e-6)
+        assert float(connector.cell_value("BeginY")) == pytest.approx(expected_y, abs=1e-6)
+        # Не должно случайно совпасть с центром фигуры — иначе тест не отличил бы старое
+        # поведение (center_x_y) от нового (анкер на грани).
+        assert float(connector.cell_value("BeginX")) != pytest.approx(switch_shape.x, abs=1e-6)
+    finally:
+        vf.close_vsdx()
 
 
 def test_export_vsdx_edge_connector_present(tmp_path):
