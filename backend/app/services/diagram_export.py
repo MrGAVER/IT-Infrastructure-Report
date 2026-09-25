@@ -48,6 +48,20 @@ CUSTOM_ICON_FALLBACK_COLOR = "#cccccc"
 GROUP_FILL_COLOR = "#dddddd"
 VSDX_SCALE = 100.0  # пиксели графа -> дюймы Visio (чисто визуальный масштаб)
 
+# Находка №4 отчёта об экспорте диаграмм (Фаза 2, п.4): раньше каждый формат подписывал узлы и
+# рёбра шрифтом по умолчанию своего движка рендеринга (браузер для .svg, draw.io/Visio — своим),
+# так что один и тот же граф визуально "звучал" по-разному в каждом формате. Calibri — не
+# призвольный выбор: это единственный шрифт, который уже фигурирует в таблице шрифтов
+# (FaceNames) шаблона media.vsdx, использованного в export_vsdx (см. находку №1, Фаза 1) — то
+# есть .vsdx им и так пользуется неявно по умолчанию, без единой правки. Задав то же имя явно в
+# .svg/.drawio, приводим все три формата к одному и тому же шрифту, ничем не рискуя в .vsdx.
+# Возможности задать per-shape размер шрифта в .vsdx без риска нет — см. README, раздел
+# «Известные ограничения»: у библиотеки vsdx нет API для создания Section "Character" с нуля, а
+# у шаблонных фигур такой секции нет вовсе, так что 11pt/9pt ниже относятся только к .svg/.drawio.
+DIAGRAM_FONT_FAMILY = "Calibri"
+DIAGRAM_NODE_FONT_SIZE = 11
+DIAGRAM_EDGE_FONT_SIZE = 9
+
 
 def _vlan_label(edge: dict) -> str:
     return ", ".join(f"VLAN {v['vlan_id']}" for v in edge.get("vlans", []))
@@ -126,7 +140,7 @@ def _svg_node(node: dict, x: float, y: float) -> str:
             f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" '
             f'fill="{GROUP_FILL_COLOR}" stroke="#333333" stroke-width="1.5" stroke-dasharray="4,3"/>'
             f'<text x="{x + NODE_WIDTH / 2}" y="{y + NODE_HEIGHT / 2}" text-anchor="middle" '
-            f'font-size="11" fill="#222222">{_esc(node["label"])}</text>'
+            f'font-size="{DIAGRAM_NODE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#222222">{_esc(node["label"])}</text>'
             f"</g>"
         )
 
@@ -156,7 +170,7 @@ def _svg_node(node: dict, x: float, y: float) -> str:
         parts.append(_svg_port_ticks(x, y, NODE_WIDTH, NODE_HEIGHT, icon.get("port_ticks", 0)))
     parts.append(
         f'<text x="{x + NODE_WIDTH / 2}" y="{y + NODE_HEIGHT - 8}" text-anchor="middle" '
-        f'font-size="11" fill="#ffffff">{_esc(node["label"])}</text>'
+        f'font-size="{DIAGRAM_NODE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#ffffff">{_esc(node["label"])}</text>'
     )
     parts.append("</g>")
     return "".join(parts)
@@ -179,7 +193,7 @@ def _svg_edge(edge: dict, nodes_by_id: dict) -> str:
     dash = "" if edge.get("is_active", True) else ' stroke-dasharray="6,4"'
     label_text = _vlan_label(edge)
     label = (
-        f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" text-anchor="middle" font-size="9" fill="#555555">{_esc(label_text)}</text>'
+        f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" text-anchor="middle" font-size="{DIAGRAM_EDGE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#555555">{_esc(label_text)}</text>'
         if label_text
         else ""
     )
@@ -227,6 +241,13 @@ def export_drawio(graph: dict) -> str:
         # Визуальный паритет с .svg/канвасом, где у узла и группы rx="8" (скруглённые углы) —
         # без этого .drawio-узлы рисовались строго прямоугольными.
         obj.rounded = 1
+        # Находка №4 отчёта (Фаза 2, п.4): явный шрифт вместо дефолтного шрифта draw.io — та же
+        # пара family/size, что и в .svg (см. DIAGRAM_FONT_FAMILY выше). text_format — штатный
+        # (не самодельный) способ: drawpyo.diagram.Object уже создаёт TextFormat() по умолчанию,
+        # и в отличие от style_attributes (которым для Edge приходится подделывать конкретные
+        # именованные kwargs) это работает одинаково что для Object, что для Edge.
+        obj.text_format.fontFamily = DIAGRAM_FONT_FAMILY
+        obj.text_format.fontSize = DIAGRAM_NODE_FONT_SIZE
         if node["type"] == "group":
             obj.fillColor = GROUP_FILL_COLOR
             obj.dashed = 1
@@ -294,7 +315,10 @@ def export_drawio(graph: dict) -> str:
         if entry_fraction is not None:
             edge_kwargs["entryX"] = entry_fraction
             edge_kwargs["entryY"] = 1.0
-        drawpyo.diagram.Edge(page=page, source=source, target=target, label=_vlan_label(edge), **edge_kwargs)
+        edge_obj = drawpyo.diagram.Edge(page=page, source=source, target=target, label=_vlan_label(edge), **edge_kwargs)
+        # Находка №4 отчёта (Фаза 2, п.4): тот же явный шрифт, что и у узлов, — для метки связи.
+        edge_obj.text_format.fontFamily = DIAGRAM_FONT_FAMILY
+        edge_obj.text_format.fontSize = DIAGRAM_EDGE_FONT_SIZE
 
     return file.xml
 
@@ -309,10 +333,11 @@ def export_drawio(graph: dict) -> str:
 # пакета — надёжный, самодостаточный признак повреждения (см. _finalize_vsdx_package).
 _SYNTHETIC_NAMESPACE_DECLARATION = re.compile(rb"xmlns:ns\d+=")
 
-# Единственная часть пакета, которую export_vsdx осмысленно меняет — сама страница с нашими
-# фигурами. Всё остальное (мастера, глобальные настройки документа, метаданные, декларация
-# content-types) от графа НЕ зависит и в Фазе 1 не модифицируется вообще — см. _finalize_vsdx_package.
-_VSDX_CONTENT_PART = "visio/pages/page1.xml"
+# Части пакета, которые export_vsdx осмысленно меняет: сама страница с фигурами и — начиная с
+# Фазы 2, п.3 (_fit_vsdx_page_to_content) — pages.xml, где хранится PageWidth/PageHeight. Всё
+# остальное (мастера, глобальные настройки документа, метаданные, декларация content-types) от
+# графа не зависит и не модифицируется вообще — см. _finalize_vsdx_package.
+_VSDX_CONTENT_PARTS = ("visio/pages/page1.xml", "visio/pages/pages.xml")
 
 
 def _finalize_vsdx_package(saved_path: str, template_path: str) -> None:
@@ -338,15 +363,12 @@ def _finalize_vsdx_package(saved_path: str, template_path: str) -> None:
        друг против друга ничего не находит (каждая пара/тройка/четвёрка по отдельности рендерится
        нормально), из чего следует: причина не в содержимом какой-то одной части, а в том, что
        vsdx вообще пропускает эти части через собственный ElementTree-round-trip. Поскольку
-       document.xml/masters/master1.xml/pages.xml/docProps/app.xml/[Content_Types].xml в текущей
-       реализации export_vsdx от графа НЕ зависят и никогда не изменяются, самый надёжный фикс —
-       вообще не пользоваться тем, что vsdx с ними сделал, а вернуть их как есть из пристинного
-       шаблона. Меняется (и чинится по namespace) только сама страница с фигурами.
-
-    ВАЖНО для дальнейшего развития: если Фаза 2 (см. отчёт, п.3 "подгонка .vsdx-страницы под
-    контент") начнёт пересчитывать PageWidth/PageHeight, "pages.xml" тоже перестанет быть
-    неизменным — на тот момент эту функцию нужно будет расширить (чинить namespace и у pages.xml
-    вместо того, чтобы целиком возвращать её из шаблона).
+       document.xml/masters/master1.xml/docProps/app.xml/[Content_Types].xml в текущей реализации
+       export_vsdx от графа не зависят и никогда не изменяются, самый надёжный фикс — вообще не
+       пользоваться тем, что vsdx с ними сделал, а вернуть их как есть из пристинного шаблона.
+       Меняются (и чинятся по namespace, а не заменяются целиком) только части из
+       _VSDX_CONTENT_PARTS — сама страница с фигурами и (с Фазы 2, п.3) pages.xml, где
+       _fit_vsdx_page_to_content меняет PageWidth/PageHeight под контент графа.
 
     Пример вызова:
         vf.save_vsdx(out_path)
@@ -360,19 +382,20 @@ def _finalize_vsdx_package(saved_path: str, template_path: str) -> None:
         pristine = {name: zf.read(name) for name in zf.namelist()}
 
     for name in order:
-        if name == _VSDX_CONTENT_PART:
+        if name in _VSDX_CONTENT_PARTS:
             continue
         if name in pristine:
             entries[name] = pristine[name]
 
-    data = entries[_VSDX_CONTENT_PART]
-    if _SYNTHETIC_NAMESPACE_DECLARATION.search(data):
-        root = ET.fromstring(data)
-        if root.tag.startswith("{"):
-            ET.register_namespace("", root.tag[1:].split("}", 1)[0])
-        buf = io.BytesIO()
-        ET.ElementTree(root).write(buf, xml_declaration=True, encoding="UTF-8", method="xml")
-        entries[_VSDX_CONTENT_PART] = buf.getvalue()
+    for part in _VSDX_CONTENT_PARTS:
+        data = entries[part]
+        if _SYNTHETIC_NAMESPACE_DECLARATION.search(data):
+            root = ET.fromstring(data)
+            if root.tag.startswith("{"):
+                ET.register_namespace("", root.tag[1:].split("}", 1)[0])
+            buf = io.BytesIO()
+            ET.ElementTree(root).write(buf, xml_declaration=True, encoding="UTF-8", method="xml")
+            entries[part] = buf.getvalue()
 
     with zipfile.ZipFile(saved_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for name in order:
@@ -426,6 +449,25 @@ def _vsdx_port_anchor(shape, fraction: float | None) -> tuple[float, float]:
     return (left + shape.width * fraction, bottom)
 
 
+def _fit_vsdx_page_to_content(page, graph: dict) -> float:
+    """Возвращает итоговую высоту страницы (дюймы) — используется вызывающим кодом для формулы
+    target_y (находка №1, поправка на высоту страницы). Находка №5 отчёта (Фаза 2, п.3):
+    страница .vsdx-экспорта раньше всегда была фиксированного размера шаблона (страница A4 в
+    media.vsdx) — большой граф обрезался за пределами видимой страницы, а маленький терялся на
+    непропорционально большом пустом листе. .svg этой проблемы по своей природе не имеет —
+    viewBox считается по контенту (см. export_svg); здесь воспроизводим тот же расчёт (тот же
+    отступ 40px), переведённый в дюймы Visio через тот же VSDX_SCALE, что и позиционирование
+    фигур ниже. Пустой граф (нет узлов) — страницу не трогаем, оставляем размер шаблона."""
+    if not graph["nodes"]:
+        return page.height
+    margin = 40
+    max_x = max(n["x"] + NODE_WIDTH for n in graph["nodes"]) + margin
+    max_y = max(n["y"] + NODE_HEIGHT for n in graph["nodes"]) + margin
+    page.width = max_x / VSDX_SCALE
+    page.height = max_y / VSDX_SCALE
+    return page.height
+
+
 def export_vsdx(graph: dict) -> bytes:
     import vsdx
     from vsdx import namespace as visio_ns
@@ -439,7 +481,7 @@ def export_vsdx(graph: dict) -> bytes:
         vf = vsdx.VisioFile(out_path)
         try:
             page = vf.get_page(0)
-            page_height = page.height  # дюймы; см. пересчёт target_y ниже
+            page_height = _fit_vsdx_page_to_content(page, graph)  # дюймы; см. target_y ниже
             template_shapes = list(page.child_shapes)
             template_ids = {s.ID for s in template_shapes}
             rect_template = next(s for s in template_shapes if "RECTANGLE" in (s.text or ""))

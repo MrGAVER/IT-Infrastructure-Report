@@ -17,6 +17,7 @@ import pytest
 
 from app.services.diagram_export import (
     GROUP_FILL_COLOR,
+    DIAGRAM_FONT_FAMILY,
     NODE_HEIGHT,
     NODE_WIDTH,
     export_drawio,
@@ -158,6 +159,17 @@ def test_export_svg_edge_falls_back_to_center_without_port_index():
     assert float(line.get("y1")) == pytest.approx(0 + NODE_HEIGHT / 2)
 
 
+def test_export_svg_uses_explicit_font_for_every_text_element():
+    """Находка №4 отчёта (Фаза 2, п.4): единый явный шрифт вместо дефолта браузера/движка —
+    у КАЖДОГО <text> (подписи узла, группы, ребра), а не только у части."""
+    graph = _sample_graph()
+    svg = export_svg(graph)
+    root = ET.fromstring(svg)
+    texts = list(root.iter("{http://www.w3.org/2000/svg}text"))
+    assert texts, "ожидался хотя бы один <text> элемент"
+    assert all(t.get("font-family") == DIAGRAM_FONT_FAMILY for t in texts)
+
+
 # --------------------------------------------------------------------------------------
 # .drawio
 # --------------------------------------------------------------------------------------
@@ -215,6 +227,21 @@ def test_export_drawio_category_glyph_rendered_as_image_shape():
     assert any(quote(f'<path d="{switch_glyph}"') in v.get("style", "") for v in glyph_cells)
 
 
+def test_export_drawio_uses_explicit_font_for_nodes_and_edges():
+    """Находка №4 отчёта (Фаза 2, п.4): единый явный шрифт вместо дефолта draw.io — у узлов,
+    групп и меток связей (через text_format, не через style_attributes — см. docstring
+    вызывающего кода про особенность Edge.style_attributes). Декоративные объекты без текста
+    (засечки порта, глиф категории) шрифт не выставляют — им нечего им подписывать."""
+    graph = _sample_graph()
+    xml_text = export_drawio(graph)
+    root = ET.fromstring(xml_text)
+    labelled_cells = [
+        cell for cell in root.iter("mxCell") if cell.get("value") and (cell.get("vertex") == "1" or cell.get("edge") == "1")
+    ]
+    assert len(labelled_cells) == len(graph["nodes"]) + len(graph["edges"])
+    assert all(f"fontFamily={DIAGRAM_FONT_FAMILY};" in cell.get("style", "") for cell in labelled_cells)
+
+
 def test_export_drawio_edge_count_matches_graph():
     graph = _sample_graph()
     xml_text = export_drawio(graph)
@@ -246,7 +273,50 @@ def test_export_drawio_handles_empty_graph():
 # .vsdx
 # --------------------------------------------------------------------------------------
 
-def test_export_vsdx_parses_back_with_matching_node_count(tmp_path):
+def test_export_vsdx_page_fits_content_bounding_box(tmp_path):
+    """Находка №5 отчёта (Фаза 2, п.3): страница подгоняется под фактический охват графа
+    (тот же расчёт с отступом 40px, что и viewBox в export_svg), а не остаётся фиксированного
+    размера шаблона A4 — иначе большой граф обрезался бы, а маленький терялся на пустом листе."""
+    vsdx = pytest.importorskip("vsdx")
+    graph = {
+        "nodes": [
+            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {"id": "b", "type": "device", "label": "b", "x": 800, "y": 400, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+        ],
+        "edges": [],
+    }
+    data = export_vsdx(graph)
+    out_path = tmp_path / "diagram_page_fit.vsdx"
+    out_path.write_bytes(data)
+
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        page = vf.get_page(0)
+        expected_width = (800 + NODE_WIDTH + 40) / 100.0
+        expected_height = (400 + NODE_HEIGHT + 40) / 100.0
+        assert page.width == pytest.approx(expected_width)
+        assert page.height == pytest.approx(expected_height)
+    finally:
+        vf.close_vsdx()
+
+
+def test_export_vsdx_empty_graph_keeps_template_page_size(tmp_path):
+    vsdx = pytest.importorskip("vsdx")
+    data = export_vsdx({"nodes": [], "edges": []})
+    out_path = tmp_path / "diagram_empty.vsdx"
+    out_path.write_bytes(data)
+
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        page = vf.get_page(0)
+        # Размер шаблона media.vsdx (A4) — не 0x0 и не какое-то произвольное значение.
+        assert page.width == pytest.approx(8.26771653543307)
+        assert page.height == pytest.approx(11.69291338582677)
+    finally:
+        vf.close_vsdx()
+
+
+
     vsdx = pytest.importorskip("vsdx")
     graph = _sample_graph()
     data = export_vsdx(graph)
