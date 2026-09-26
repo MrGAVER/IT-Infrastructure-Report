@@ -35,7 +35,7 @@ def _sample_graph(port_ticks: int = 24) -> dict:
                 "label": "sw-01",
                 "x": 0,
                 "y": 0,
-                "icon": {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": "M1 4h3v4H1z", "port_ticks": port_ticks},
+                "icon": {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": '<rect x="2" y="6" width="20" height="9"/>', "port_ticks": port_ticks},
             },
             {
                 "id": "dev-server",
@@ -43,7 +43,7 @@ def _sample_graph(port_ticks: int = 24) -> dict:
                 "label": "srv-01",
                 "x": 300,
                 "y": 0,
-                "icon": {"mode": "generated", "shape": "server", "color": "#8a8f98", "glyph": "M2 2h10v2H2z"},
+                "icon": {"mode": "generated", "shape": "server", "color": "#8a8f98", "glyph": '<rect x="4" y="2" width="16" height="20"/>'},
             },
             {"id": "group:building:none", "type": "group", "label": "Без здания (5)", "device_count": 5, "x": 600, "y": 0},
         ],
@@ -130,7 +130,7 @@ def test_export_svg_renders_category_glyph_path_from_descriptor():
     graph = _sample_graph()
     svg = export_svg(graph)
     switch_glyph = graph["nodes"][0]["icon"]["glyph"]
-    assert f'<path d="{switch_glyph}"' in svg
+    assert switch_glyph in svg
 
 
 def test_export_svg_edge_anchors_to_resolved_port_tick_not_center():
@@ -224,7 +224,7 @@ def test_export_drawio_category_glyph_rendered_as_image_shape():
     # По одному глифу на каждый generated-узел (switch + server); группа глифа не имеет.
     assert len(glyph_cells) == 2
     switch_glyph = graph["nodes"][0]["icon"]["glyph"]
-    assert any(quote(f'<path d="{switch_glyph}"') in v.get("style", "") for v in glyph_cells)
+    assert any(quote(switch_glyph) in v.get("style", "") for v in glyph_cells)
 
 
 def test_export_drawio_uses_explicit_font_for_nodes_and_edges():

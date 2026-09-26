@@ -128,18 +128,19 @@ describe('DiagramDeviceNode.vue', () => {
     expect(wrapper.find('.identity-label').text()).toBe('SN-1 · 192.168.1.10')
   })
 
-  // Фаза 2, п.2 плана доработок экспорта диаграмм: путь глифа больше не вычисляется компонентом
-  // по shape (локальный SHAPE_GLYPHS убран) — приходит готовым в icon.glyph от бэкенда
-  // (backend/app/services/diagram_icons.py:SHAPE_GLYPHS, единственный источник правды). Ниже —
-  // проверка чистого прохождения значения, а не вычисления по имени формы.
+  // Фаза 3, п.5 плана доработок экспорта диаграмм: glyph теперь фрагмент SVG-разметки
+  // (rect/circle/path), а не одно значение атрибута d — компонент оборачивает его в свой <svg> и
+  // вставляет как есть (после санитизации), не разбирая по элементам. Проверка чистого
+  // прохождения значения, а не вычисления по имени формы (локальный SHAPE_GLYPHS убран ещё в
+  // Фазе 2, п.2 — единственный источник правды: backend/app/services/diagram_icons.py).
   it.each(['switch_l2', 'switch_l3', 'router'] as const)('рендерит icon.glyph формы %s без изменений', (shape) => {
-    const glyph = `glyph-path-for-${shape}`
+    const glyph = `<rect class="test-glyph-${shape}" width="5" height="5"/>`
     const device: DeviceNodeData = {
       ...baseDevice,
       icon: { mode: 'generated', shape, color: '#2fa86a', glyph, manufacturer_label: '', model_label: '' },
     }
     const wrapper = mountNode(device)
-    expect(wrapper.find('.shape-glyph path').attributes('d')).toBe(glyph)
+    expect(wrapper.find(`.shape-glyph rect.test-glyph-${shape}`).exists()).toBe(true)
   })
 
   it('без glyph в ответе API откатывается на generic-ромб (устаревший кэш/ответ без поля)', () => {
@@ -148,6 +149,6 @@ describe('DiagramDeviceNode.vue', () => {
       icon: { mode: 'generated', shape: 'switch', color: '#2fa86a', manufacturer_label: '', model_label: '' } as unknown as DeviceNodeData['icon'],
     }
     const wrapper = mountNode(device)
-    expect(wrapper.find('.shape-glyph path').attributes('d')).toBe('M6 1 11 6 6 11 1 6z')
+    expect(wrapper.find('.shape-glyph path').attributes('d')).toBe('M12 2 22 12 12 22 2 12z')
   })
 })

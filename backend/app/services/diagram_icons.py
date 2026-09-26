@@ -22,31 +22,73 @@ MAX_PORT_TICKS = 32
 DEFAULT_SHAPE = "generic"
 DEFAULT_COLOR = "#9aa0a6"  # "default нейтральный серый" (раздел 4.3 ТЗ)
 
-# Небольшой глиф формы поверх прямоугольника узла — не силуэт устройства целиком (раздел 4.3 ТЗ:
-# "реальные товарные знаки/логотипы не воспроизводятся"), просто визуальное отличие категорий
-# друг от друга. Раньше жил только во фронтенде (DiagramDeviceNode.vue) — Фаза 2, п.2 плана
-# доработок экспорта диаграмм: перенесено сюда, в дескриптор иконки, единственный источник
-# правды для ВСЕХ мест отрисовки (см. docstring модуля) — теперь .svg/.drawio-экспорт тоже может
-# нарисовать тот же глиф, а не только интерактивный канвас. Координаты — в системе viewBox
-# "0 0 12 11" (см. GLYPH_VIEWBOX ниже); фронтенд отрисовывает эти же path без изменений.
+# Иконка категории поверх прямоугольника узла — не силуэт конкретного устройства/бренда (раздел
+# 4.3 ТЗ: "реальные товарные знаки/логотипы не воспроизводятся"), а обобщённый, отраслевой символ
+# того типа, каким его рисуют сетевые инженеры на любой схеме топологии (коммутатор — корпус с
+# портами, маршрутизатор — компас из стрелок, файрвол — кирпичная стена и т.д.) — не оригинальная
+# иконка конкретного производителя. Раньше это был один плоский <path> малого размера (Фаза 2, п.2
+# плана доработок экспорта диаграмм) — по итогам Фазы 3 (находка №5, "кастомные SVG-иконки")
+# переработан в полноценный, узнаваемый значок: несколько примитивов (rect/circle/path) БЕЗ
+# жёсткого fill/stroke на дочерних элементах — оба наследуются от обёртки (тот же приём, что и у
+# custom-иконок, см. svg_markup ниже), чтобы один и тот же фрагмент разметки одинаково работал и
+# белым по цветной заливке узла, и тёмным на светлом фоне легенды (Фаза 3, п.1). Координаты — в
+# системе viewBox "0 0 24 24" (см. GLYPH_VIEWBOX); фронтенд отрисовывает эту же разметку без
+# изменений (см. DiagramDeviceNode.vue).
 SHAPE_GLYPHS: dict[str, str] = {
-    "server": "M2 2h10v2H2zM2 5h10v2H2zM2 8h10v2H2z",
-    "switch": "M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z",
+    "server": (
+        '<rect x="4" y="2" width="16" height="20" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M4 9h16M4 16h16" stroke="currentColor" stroke-width="1.4"/>'
+        '<circle cx="7.2" cy="5.5" r="1"/><circle cx="7.2" cy="12.5" r="1"/><circle cx="7.2" cy="19.2" r="1"/>'
+        '<path d="M11 5.5h6M11 12.5h6M11 19.2h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
+    ),
     # switch_l2/switch_l3/router появились позже (см. диаграмма-графа "Пункт 5 правки"): до этого
     # L2/L3-коммутаторы получали общий 'switch' (три порта), маршрутизатор — 'generic' (ромб)
-    # вместе с точками Wi-Fi/GSM-модемами. switch_l2 — тот же символ, что раньше был у 'switch';
-    # switch_l3 — то же самое плюс маленький треугольник-стрелка сверху (маршрутизация поверх
-    # коммутации); router — компас/крест из 4 стрелок с центром, устоявшийся в сетевых схемах
-    # символ маршрутизатора, визуально не похожий ни на один из существующих значков.
-    "switch_l2": "M1 4h3v4H1zM5.5 4h3v4h-3zM10 4h3v4h-3z",
-    "switch_l3": "M1 5h3v4H1zM5.5 5h3v4h-3zM10 5h3v4h-3zM6 0l2.5 3.5h-5z",
-    "router": "M5 4.5h2v2H5zM6 0l1.5 3h-3zM6 11l-1.5-3h3zM0 5.5l3-1.5v3zM12 5.5l-3-1.5v3z",
-    "firewall": "M6 0 11 2v4c0 3.5-2.2 5.7-5 6-2.8-.3-5-2.5-5-6V2z",
-    "workstation": "M1 2h12v6H1zM5 10h4v1H5z",
-    "peripheral": "M6 0a5 5 0 100 10A5 5 0 006 0z",
-    "generic": "M6 1 11 6 6 11 1 6z",
+    # вместе с точками Wi-Fi/GSM-модемами. 'switch' — общий сейчас неиспользуемый (не назначается
+    # ни одной категорией напрямую, см. resolve_category_style) фолбэк-алиас на switch_l2, на
+    # случай если какая-то будущая категория укажет ровно "switch": корпус с портами и стрелками
+    # переключения кадров — тот же символ, что и у switch_l2. switch_l3 — то же самое плюс
+    # треугольная "крыша" сверху (маршрутизация поверх коммутации). router — круг со спицами-
+    # стрелками на все 4 стороны (компас) — устоявшийся в сетевых схемах символ маршрутизатора,
+    # визуально не похожий ни на один из значков коммутаторов.
+    "switch_l2": (
+        '<rect x="2" y="6" width="20" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M5.5 15v3.2M9.5 15v3.2M14.5 15v3.2M18.5 15v3.2" stroke="currentColor" stroke-width="1.4"/>'
+        '<path d="M6.5 10.5h4.5M9.5 8.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M17.5 10.5h-4.5M14.5 8.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+    ),
+    "switch_l3": (
+        '<rect x="2" y="9" width="20" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M5.5 18v3.2M9.5 18v3.2M14.5 18v3.2M18.5 18v3.2" stroke="currentColor" stroke-width="1.4"/>'
+        '<path d="M6.5 13.5h4.5M9.5 11.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M17.5 13.5h-4.5M14.5 11.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M12 1.5 15 6.5H9z"/>'
+    ),
+    "router": (
+        '<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M12 2.2v3.3M12 18.5v3.3M2.2 12h3.3M18.5 12h3.3" stroke="currentColor" stroke-width="1.6" fill="none"/>'
+        '<path d="M12 1.2 10.6 4h2.8zM12 22.8 10.6 20h2.8zM1.2 12 4 10.6v2.8zM22.8 12 20 10.6v2.8z"/>'
+    ),
+    "firewall": (
+        '<rect x="2" y="3" width="20" height="18" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M2 8h20M2 13h20M2 18h20M7 3v5M12 8v5M17 3v5M7 13v5M17 13v5M12 18v3" stroke="currentColor" stroke-width="1.3"/>'
+    ),
+    "workstation": (
+        '<rect x="2" y="3" width="20" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M9 20.5h6M12 16v4.5M6 19.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
+    ),
+    "peripheral": (
+        '<rect x="3" y="8" width="18" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M6 8V4h12v4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<rect x="7" y="17" width="10" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+        '<circle cx="17.5" cy="11" r="0.9"/>'
+    ),
+    "generic": '<path d="M12 2 22 12 12 22 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/>',
 }
-GLYPH_VIEWBOX = (12, 11)  # ширина, высота системы координат SHAPE_GLYPHS-путей
+# "switch" (без L2/L3) — для обратной совместимости со старыми записями категорий (тип
+# DiagramIconShape на фронтенде до сих пор допускает это значение) — тот же символ, что и у
+# switch_l2, см. комментарий выше про происхождение switch_l2/switch_l3/router.
+SHAPE_GLYPHS["switch"] = SHAPE_GLYPHS["switch_l2"]
+GLYPH_VIEWBOX = (24, 24)  # ширина, высота системы координат SHAPE_GLYPHS-разметки
 
 # Код-ревью п.3.1 (критичная уязвимость): DiagramIcon.svg_markup попадает без изменений и в
 # экспортируемый .svg (services/diagram_export.py), и во фронтенд через v-html
