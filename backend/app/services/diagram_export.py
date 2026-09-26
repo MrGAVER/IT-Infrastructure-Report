@@ -62,6 +62,12 @@ DIAGRAM_FONT_FAMILY = "Calibri"
 DIAGRAM_NODE_FONT_SIZE = 11
 DIAGRAM_EDGE_FONT_SIZE = 9
 
+# Находка №5 отчёта (Фаза 3, п.5 "кастомные SVG-иконки"): иконка категории раньше была мелким
+# угловым акцентом (14x13, см. историю в diagram_icons.py), теперь — полноценный узнаваемый
+# значок по центру верхней части узла, тем же viewBox "0 0 24 24", что и SHAPE_GLYPHS.
+GLYPH_DISPLAY_SIZE = 32
+GLYPH_TOP_MARGIN = 4
+
 
 def _vlan_label(edge: dict) -> str:
     return ", ".join(f"VLAN {v['vlan_id']}" for v in edge.get("vlans", []))
@@ -104,14 +110,21 @@ def _port_anchor_fraction(interface_ref: dict | None, port_ticks: int) -> float 
 
 def _glyph_data_uri(glyph: str) -> str:
     """SVG-глиф категории (icon["glyph"], см. diagram_icons.py:SHAPE_GLYPHS) как data URI для
-    .drawio (находка №3 отчёта, Фаза 2 п.2). mxGraph/draw.io поддерживает style="shape=image;
-    image=<url>" с любым URL, включая data: — это заметно надёжнее и дешевле, чем воспроизводить
-    path через собственный (недокументированный публично) формат stencil-шаблонов draw.io.
+    .drawio (находка №3 отчёта, Фаза 2 п.2; узнаваемая иконка вместо мелкого акцента — находка
+    №5, Фаза 3 п.5). mxGraph/draw.io поддерживает style="shape=image;image=<url>" с любым URL,
+    включая data: — это заметно надёжнее и дешевле, чем воспроизводить path через собственный
+    (недокументированный публично) формат stencil-шаблонов draw.io.
     Percent-encoding, а не base64: drawpyo.Object.apply_style_string() режет значение стиля по
     ПЕРВОМУ "=" в строке (см. _add_and_set_style_attrib ниже, который мы поэтому вызываем
     напрямую, а не через apply_style_string) — base64-padding ("==") сломал бы декодирование,
-    percent-encoded URI такого символа не содержит."""
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 11"><path d="{glyph}" fill="rgba(255,255,255,0.85)"/></svg>'
+    percent-encoded URI такого символа не содержит.
+    glyph — фрагмент разметки (rect/circle/path), а не готовый <path d=...> — те же элементы без
+    жёсткого fill/stroke, что и в _svg_node; fill+color на обёртке ниже дают им обоим по цепочке
+    наследования один и тот же белый цвет."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        f'<g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
+    )
     return f"data:image/svg+xml,{quote(svg)}"
 
 
@@ -151,13 +164,20 @@ def _svg_node(node: dict, x: float, y: float) -> str:
     else:
         color = icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
         parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{color}" stroke="#333333" stroke-width="1.5"/>')
-        # Находка №3 отчёта об экспорте (Фаза 2, п.2): глиф категории поверх прямоугольника —
-        # тот же путь (viewBox "0 0 12 11"), что рисует канвас (DiagramDeviceNode.vue), теперь
-        # приходит готовым в дескрипторе (icon["glyph"], см. diagram_icons.py:SHAPE_GLYPHS) —
-        # вложенный <svg> с собственным viewBox дешевле пересчитывать координаты пути вручную.
+        # Находка №5 отчёта (Фаза 3, п.5): полноценная узнаваемая иконка категории (не мелкий
+        # угловой акцент, как в Фазе 2, п.2) по центру верхней части узла — та же разметка
+        # (viewBox "0 0 24 24"), что рисует канвас (DiagramDeviceNode.vue), приходит готовой в
+        # дескрипторе (icon["glyph"], см. diagram_icons.py:SHAPE_GLYPHS) как фрагмент SVG-разметки
+        # (rect/circle/path) БЕЗ жёсткого fill/stroke на дочерних элементах — оба наследуются от
+        # обёртки <g>, поэтому один и тот же фрагмент одинаково работает и здесь (белым по цветной
+        # заливке узла), и в легенде (Фаза 3, п.1, тёмным по светлому фону).
         glyph = icon.get("glyph")
         if glyph:
-            parts.append(f'<svg x="{x + 6}" y="{y + 6}" width="14" height="13" viewBox="0 0 12 11">' f'<path d="{glyph}" fill="rgba(255,255,255,0.85)"/></svg>')
+            glyph_x = x + (NODE_WIDTH - GLYPH_DISPLAY_SIZE) / 2
+            parts.append(
+                f'<svg x="{glyph_x}" y="{y + GLYPH_TOP_MARGIN}" width="{GLYPH_DISPLAY_SIZE}" height="{GLYPH_DISPLAY_SIZE}" viewBox="0 0 24 24">'
+                f'<g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
+            )
         # Раньше засечки рисовались только при icon["shape"].startswith("switch"): backend уже
         # считает port_ticks для ЛЮБОЙ сгенерированной иконки (см. diagram_graph.py, п.5 —
         # раньше это тоже было ограничено только switch), а видимость в canvas (см.
@@ -261,13 +281,13 @@ def export_drawio(graph: dict) -> str:
             if icon.get("mode") == "generated":
                 glyph = icon.get("glyph")
                 if glyph:
-                    # Находка №3 отчёта (Фаза 2, п.2): глиф категории поверх прямоугольника, тот
-                    # же путь и позиция (top:6px, left:6px, 14x13), что рисует канвас
-                    # (DiagramDeviceNode.vue) и .svg-экспорт (_svg_node) — см. _glyph_data_uri.
+                    # Находка №5 отчёта (Фаза 3, п.5): полноценная узнаваемая иконка по центру
+                    # верхней части узла (не мелкий угловой акцент 14x13 из Фазы 2, п.2) — та же
+                    # позиция/размер, что и в .svg (_svg_node) и на канвасе (DiagramDeviceNode.vue).
                     glyph_obj = drawpyo.diagram.Object(page=page, value="")
-                    glyph_obj.position = (node["x"] + 6, node["y"] + 6)
-                    glyph_obj.width = 14
-                    glyph_obj.height = 13
+                    glyph_obj.position = (node["x"] + (NODE_WIDTH - GLYPH_DISPLAY_SIZE) / 2, node["y"] + GLYPH_TOP_MARGIN)
+                    glyph_obj.width = GLYPH_DISPLAY_SIZE
+                    glyph_obj.height = GLYPH_DISPLAY_SIZE
                     # apply_style_string() режет по первому "=" — для data URI использовать
                     # нельзя (см. docstring _glyph_data_uri), поэтому выставляем атрибуты стиля
                     # напрямую тем же способом, каким это делает сама apply_style_string.

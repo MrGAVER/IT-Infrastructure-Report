@@ -19,22 +19,35 @@ const NODE_WIDTH = 160
 const NODE_HEIGHT = 84
 const FALLBACK_COLOR = '#8FA0B3'
 
-// Глиф формы в левом верхнем углу — не силуэт устройства целиком (раздел 4.3 ТЗ: "реальные
-// товарные знаки/логотипы не воспроизводятся"), просто визуальное отличие категорий друг от
-// друга. Фаза 2, п.2 плана доработок экспорта диаграмм: путь глифа раньше жил только здесь
-// (SHAPE_GLYPHS), теперь приходит с бэкенда в самом дескрипторе иконки (icon.glyph, см.
+// Иконка категории по центру верхней части узла — не силуэт устройства целиком (раздел 4.3 ТЗ:
+// "реальные товарные знаки/логотипы не воспроизводятся"), а обобщённый отраслевой символ типа
+// устройства. Путь глифа приходит с бэкенда в дескрипторе иконки (icon.glyph, см.
 // services/diagram_icons.py:SHAPE_GLYPHS) — единственный источник правды и для канваса, и для
-// .svg/.drawio-экспорта; локальную копию словаря держать больше не нужно. GENERIC_GLYPH — на
-// случай кэшированного/устаревшего ответа API без поля glyph (тот же ромб, что раньше был
-// SHAPE_GLYPHS.generic).
-const GENERIC_GLYPH = 'M6 1 11 6 6 11 1 6z'
+// .svg/.drawio-экспорта. Фаза 3, п.5 плана доработок экспорта диаграмм: раньше это был мелкий
+// угловой акцент (14x13, один <path>, виден только Vue-биндингом атрибута — не через v-html, так
+// как строка `d` не может содержать исполняемый код сама по себе); теперь — полноценная
+// узнаваемая иконка (32x32), а glyph — фрагмент разметки из нескольких элементов (rect/circle/
+// path), который нужно вставлять как реальные SVG-элементы, а не как значение одного атрибута.
+// GENERIC_GLYPH — на случай кэшированного/устаревшего ответа API без поля glyph (тот же ромб,
+// что и SHAPE_GLYPHS["generic"] на бэкенде).
+const GENERIC_GLYPH = '<path d="M12 2 22 12 12 22 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/>'
 
 const props = defineProps<NodeProps<DiagramDeviceNodeData>>()
 
 const icon = computed(() => props.data.icon)
 const isCustom = computed(() => icon.value.mode === 'custom')
 const fillColor = computed(() => (icon.value.mode === 'generated' ? icon.value.color || FALLBACK_COLOR : FALLBACK_COLOR))
-const glyphPath = computed(() => (icon.value.mode === 'generated' ? icon.value.glyph : undefined) || GENERIC_GLYPH)
+// v-html на самом <svg>/<g>-элементе ненадёжен кросс-браузерно (innerHTML не всегда парсит
+// вставляемый фрагмент в SVG-namespace, если сам элемент-приёмник не является корневым <svg> —
+// известный нюанс, из-за которого голый path/rect без обёртки может отрисоваться неправильно в
+// части браузеров). Оборачиваем фрагмент в полноценный <svg> здесь же, тем же приёмом, что и
+// sanitizedCustomSvg ниже (div + v-html + свой корневой <svg> внутри строки) — это гарантированно
+// работает везде, а не полагается на то, что <g>, в который вставляется innerHTML, уже находится
+// в SVG-контексте на момент вставки.
+const glyphMarkup = computed(() => {
+  const raw = (icon.value.mode === 'generated' ? icon.value.glyph : undefined) || GENERIC_GLYPH
+  return sanitizeSvg(`<svg viewBox="0 0 24 24"><g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">${raw}</g></svg>`)
+})
 // Засечки порта раньше рисовались только для shape === 'switch'; теперь backend считает
 // port_ticks для ЛЮБОГО сгенерированного значка (см. services/diagram_icons.py), так что
 // видимость завязана просто на "у устройства есть хотя бы один известный порт" — работает
@@ -81,7 +94,7 @@ const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? saniti
       <div class="custom-icon" v-html="sanitizedCustomSvg"></div>
     </template>
     <div v-else class="generated-icon" :style="{ background: fillColor }">
-      <svg class="shape-glyph" viewBox="0 0 12 11"><path :d="glyphPath" fill="rgba(255,255,255,0.85)" /></svg>
+      <div class="shape-glyph" v-html="glyphMarkup"></div>
     </div>
 
     <div class="labels">
@@ -136,9 +149,14 @@ const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? saniti
 .shape-glyph {
   position: absolute;
   top: 6px;
-  left: 6px;
-  width: 14px;
-  height: 13px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 32px;
+}
+.shape-glyph :deep(svg) {
+  width: 100%;
+  height: 100%;
 }
 .labels {
   position: absolute;
