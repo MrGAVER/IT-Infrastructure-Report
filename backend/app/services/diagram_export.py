@@ -128,6 +128,27 @@ def _glyph_data_uri(glyph: str) -> str:
     return f"data:image/svg+xml,{quote(svg)}"
 
 
+def _rasterize_glyph_png(glyph: str) -> bytes:
+    """Растрирует SVG-глиф категории (icon["glyph"]) в PNG с прозрачным фоном — для .vsdx
+    (находка №5 отчёта, Фаза 3 п.5, часть 2). vsdx не поддерживает произвольную SVG-разметку
+    поверх фигуры напрямую (в отличие от .svg — родной формат, и .drawio — умеет shape=image, см.
+    _glyph_data_uri), поэтому здесь та же разметка растрируется в готовую картинку заранее и
+    встраивается как отдельная фигура-оверлей (см. _embed_vsdx_category_icons и вызывающий код).
+    Тот же rgba(255,255,255,0.9), что и в .svg/.drawio — картинка кладётся ПОВЕРХ уже закрашенной
+    цветом категории фигуры узла (находка №1, Фаза 1), поэтому фон должен быть прозрачным, а не
+    залитым: там, где глиф ничего не рисует, должен быть виден цвет фигуры под картинкой, а не
+    чёрный/белый прямоугольник. resvg_py — Rust-биндинг (resvg), выбран вместо cairosvg/
+    ImageMagick: устанавливается как обычное prebuilt-колесо, без системных библиотек (проверено:
+    ни cairo, ни librsvg на хосте не нужны)."""
+    import resvg_py
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        f'<g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
+    )
+    return bytes(resvg_py.svg_to_bytes(svg_string=svg, width=128, height=128))
+
+
 # --------------------------------------------------------------------------------------
 # .svg
 # --------------------------------------------------------------------------------------
@@ -422,6 +443,84 @@ def _finalize_vsdx_package(saved_path: str, template_path: str) -> None:
             zf.writestr(name, entries[name])
 
 
+# Схема ForeignData/Rel — не догадка и не проба с потолка, сверена дословно с открытой
+# спецификацией: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-vsdx/
+# c5a5df0c-02e6-4e72-9042-d5766f614cf5 (ForeignData_Type) и .../34f54be6-adb2-4aa8-a683-
+# 7d1db7a25d46 (Rel_Type). ObjectWidth/ObjectHeight у ForeignData помечены в спецификации как
+# "unused and MUST be ignored" для ForeignType="Bitmap" (используются только для OLE2 embedded
+# object) — фактический размер картинки задаётся обычными Width/Height фигуры-контейнера, как и
+# для любой другой фигуры.
+# ВАЖНО: несмотря на то что XML построен дословно по спецификации, ни один доступный инструмент
+# проверки саму картинку не показал — headless LibreOffice не крашит и не пустит весь лист (как
+# было при более грубых ошибках в находке №1), а тихо откатывает фигуру на обычную геометрию:
+# именно поэтому icon_shape ниже явно очищает text/fill/line — единственное отличие от "картинка
+# отрисовалась" в разумном фолбэке это небольшой белый прямоугольник на месте иконки вместо самой
+# иконки, а не что-то более разрушительное. Похоже на отсутствие поддержки ForeignData/Bitmap в
+# конкретно этом импорт-фильтре (libvisio), а не на ошибку в собранном XML — см. learnings в
+# памяти проекта. Внедрено по решению пользователя ("внедряй, проверим позже") без подтверждённой
+# сторонним инструментом отрисовки самой картинки; при появлении доступа к настоящему Visio эту
+# находку стоит перепроверить в первую очередь.
+_R_NS_URI = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PKG_RELS_NS_URI = "http://schemas.openxmlformats.org/package/2006/relationships"
+_CONTENT_TYPES_NS_URI = "http://schemas.openxmlformats.org/package/2006/content-types"
+_IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+
+
+def _embed_vsdx_category_icons(saved_path: str, icon_pngs: dict[str, bytes]) -> None:
+    """Дописывает растрированные иконки категорий (icon_pngs: rId -> PNG-байты) в уже
+    финализированный _finalize_vsdx_package() пакет: новые части visio/media/imageN.png, связи в
+    page1.xml.rels и Default-запись для "png" в [Content_Types].xml. Выполняется ПОСЛЕ
+    _finalize_vsdx_package (а не вместо неё), потому что сама привязка ForeignData/Rel к rId
+    прописывается в XML фигуры ДО save_vsdx() (см. export_vsdx), пока r:id ещё не подкреплён
+    относящейся к нему связью — эта функция дописывает недостающую связь и саму картинку поверх
+    уже готового, namespace-починенного пакета, а не заменяет какую-либо из его частей.
+    icon_pngs может быть пустым (в графе нет ни одной сгенерированной иконки) — тогда функция
+    ничего не делает."""
+    if not icon_pngs:
+        return
+
+    with zipfile.ZipFile(saved_path, "r") as zf:
+        order = zf.namelist()
+        entries = {name: zf.read(name) for name in order}
+
+    rels_path = "visio/pages/_rels/page1.xml.rels"
+    rels_root = ET.fromstring(entries[rels_path])
+    ct_root = ET.fromstring(entries["[Content_Types].xml"])
+    has_png_default = any(el.get("Extension") == "png" for el in ct_root.findall(f"{{{_CONTENT_TYPES_NS_URI}}}Default"))
+
+    for index, (rel_id, png_bytes) in enumerate(sorted(icon_pngs.items()), start=1):
+        media_name = f"visio/media/image{index}.png"
+        entries[media_name] = png_bytes
+        order.append(media_name)
+
+        relationship = ET.SubElement(rels_root, f"{{{_PKG_RELS_NS_URI}}}Relationship")
+        relationship.set("Id", rel_id)
+        relationship.set("Type", _IMAGE_REL_TYPE)
+        relationship.set("Target", f"../media/image{index}.png")
+
+    if not has_png_default:
+        default = ET.SubElement(ct_root, f"{{{_CONTENT_TYPES_NS_URI}}}Default")
+        default.set("Extension", "png")
+        default.set("ContentType", "image/png")
+
+    # register_namespace регистрирует эти два URI на пустой префикс НЕПОСРЕДСТВЕННО перед
+    # сериализацией каждой части — по одной части за раз, тем же приёмом, что и в
+    # _finalize_vsdx_package, во избежание той же коллизии реестра namespace (см. её docstring).
+    ET.register_namespace("", _PKG_RELS_NS_URI)
+    rels_buf = io.BytesIO()
+    ET.ElementTree(rels_root).write(rels_buf, xml_declaration=True, encoding="UTF-8", method="xml")
+    entries[rels_path] = rels_buf.getvalue()
+
+    ET.register_namespace("", _CONTENT_TYPES_NS_URI)
+    ct_buf = io.BytesIO()
+    ET.ElementTree(ct_root).write(ct_buf, xml_declaration=True, encoding="UTF-8", method="xml")
+    entries["[Content_Types].xml"] = ct_buf.getvalue()
+
+    with zipfile.ZipFile(saved_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in order:
+            zf.writestr(name, entries[name])
+
+
 # "Sheet.N" — то, как формулы шаблонного коннектора (_WALKGLUE(...)/_XFTRIGGER(Sheet.N!...))
 # ссылаются по имени на ДРУГИЕ фигуры той же страницы шаблона (RECTANGLE/CONNECTED_SHAPE), см.
 # _strip_dangling_glue_formulas — настоящие формулы наших собственных фигур такую подстроку не
@@ -507,6 +606,14 @@ def export_vsdx(graph: dict) -> bytes:
             rect_template = next(s for s in template_shapes if "RECTANGLE" in (s.text or ""))
             connector_template = next(s for s in template_shapes if "STRAIGHT_CONNECTOR" in (s.text or ""))
 
+            # Находка №5 отчёта (Фаза 3, п.5, часть 2): один PNG на УНИКАЛЬНЫЙ глиф, а не на
+            # узел — картинка рисуется в нейтральном белом цвете (см. _rasterize_glyph_png) и
+            # ложится поверх любой заливки фигуры прозрачным фоном, так что один и тот же файл
+            # годится для всех узлов этой категории независимо от цвета. rId начинаются с 2,
+            # т.к. rId1 в page1.xml.rels уже занят связью на master (см. media.vsdx).
+            icon_pngs: dict[str, bytes] = {}
+            glyph_rel_ids: dict[str, str] = {}
+
             shapes_by_node_id = {}
             for node in graph["nodes"]:
                 shape = rect_template.copy()
@@ -536,6 +643,42 @@ def export_vsdx(graph: dict) -> bytes:
                     color = _device_fill_color(node["icon"])
                     shape.fill_color = color
                     shape.line_color = color
+
+                    glyph = node["icon"].get("glyph")
+                    if glyph:
+                        rel_id = glyph_rel_ids.get(glyph)
+                        if rel_id is None:
+                            rel_id = f"rId{len(glyph_rel_ids) + 2}"
+                            glyph_rel_ids[glyph] = rel_id
+                            icon_pngs[rel_id] = _rasterize_glyph_png(glyph)
+
+                        # Находка №5 отчёта (Фаза 3, п.5): та же позиция/размер иконки, что и в
+                        # .svg (_svg_node) и .drawio (см. GLYPH_DISPLAY_SIZE/GLYPH_TOP_MARGIN) —
+                        # по центру верхней части узла, переведённые в дюймы Visio через тот же
+                        # VSDX_SCALE, что и позиционирование самих фигур. Отдельная фигура-оверлей
+                        # (а не что-то в самой цветной фигуре), т.к. ForeignData делает фигуру
+                        # картинкой целиком — подмешивать её в уже закрашенный прямоугольник со
+                        # своей геометрией нельзя.
+                        icon_size = GLYPH_DISPLAY_SIZE / VSDX_SCALE
+                        icon_shape = rect_template.copy()
+                        # Если ForeignData не распознаётся читателем (см. docstring выше — ни
+                        # один доступный инструмент проверки её не поддержал), фигура откатывается
+                        # на свою обычную геометрию — унаследованный от шаблона текст
+                        # "RECTANGLE" и заливку нужно убрать явно, иначе вместо аккуратной
+                        # картинки останется белый прямоугольник с посторонним текстом.
+                        icon_shape.text = ""
+                        icon_shape.fill_color = "#FFFFFF"
+                        icon_shape.line_color = "#FFFFFF"
+                        top_edge = shape.y + shape.height / 2
+                        icon_center_y = top_edge - GLYPH_TOP_MARGIN / VSDX_SCALE - icon_size / 2
+                        icon_shape.move(shape.x - icon_shape.x, icon_center_y - icon_shape.y)
+                        icon_shape.width = icon_size
+                        icon_shape.height = icon_size
+                        foreign_data = ET.SubElement(icon_shape.xml, f"{visio_ns}ForeignData")
+                        foreign_data.set("ForeignType", "Bitmap")
+                        rel_el = ET.SubElement(foreign_data, f"{visio_ns}Rel")
+                        rel_el.set(f"{{{_R_NS_URI}}}id", rel_id)
+
                 shapes_by_node_id[node["id"]] = shape
 
             nodes_by_id = {n["id"]: n for n in graph["nodes"]}
@@ -587,6 +730,8 @@ def export_vsdx(graph: dict) -> bytes:
         # См. docstring _finalize_vsdx_package: без этого шага результат читается обратно самой
         # vsdx (тесты ниже это проверяют), но открывается ПУСТЫМ листом в стороннем ПО.
         _finalize_vsdx_package(out_path, template_path)
+        # После финализации, а не вместо неё — см. docstring _embed_vsdx_category_icons.
+        _embed_vsdx_category_icons(out_path, icon_pngs)
 
         with open(out_path, "rb") as fh:
             return fh.read()
