@@ -41,9 +41,9 @@ except ImportError:
 if DEPS_AVAILABLE:
     from app.models import (
         Base, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface, DeviceType,
-        EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, InterfaceIP, InterfaceVLAN,
+        EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, IPAddress, InterfaceVLAN,
         ISDepartment, Manufacturer, OpenPort, OperatingSystem,
-        OperatingSystemCategory, PhysicalDevice, ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, VMIP, DeployedSoftware,
+        OperatingSystemCategory, PhysicalDevice, ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, DeployedSoftware,
     )
     from app.reporting import HEADERS1, HEADERS2, HEADERS3, HEADERS4, build_report
     from app.services.report_engine import ReportContext
@@ -167,7 +167,7 @@ def _seed_rich_dataset(session):
     iface3 = DeviceInterface(physical_device_id=dev2.id, name="Gi0/2", is_management=False)  # неподключённый
     session.add_all([iface1, iface2, iface3])
     session.flush()
-    session.add(InterfaceIP(interface_id=iface1.id, ip_address="10.0.0.1"))
+    session.add(IPAddress(owner_type="device_interface", owner_id=iface1.id, ip_address="10.0.0.1"))
     session.flush()
 
     ctype = ConnectionType(name="Витая пара")
@@ -204,7 +204,7 @@ def _seed_rich_dataset(session):
                           operating_system_id=operating_system.id)
     session.add(vm1)
     session.flush()
-    session.add(VMIP(virtual_machine_id=vm1.id, ip_address="192.168.1.10", is_management=True))
+    session.add(IPAddress(owner_type="virtual_machine", owner_id=vm1.id, ip_address="192.168.1.10", is_management=True))
     sw = SoftwareAsset(name="1С:Предприятие")
     session.add(sw)
     session.flush()
@@ -220,8 +220,11 @@ def _seed_rich_dataset(session):
 
     session.add(InformationSystemSource(information_system_id=isys.id, source_type="device",
                                          physical_device_id=dev1.id))
-    session.add(InformationSystemSource(information_system_id=isys.id, source_type="vm",
-                                         virtual_machine_id=vm1.id, ip_address="203.0.113.5"))
+    src_vm = InformationSystemSource(information_system_id=isys.id, source_type="vm",
+                                      virtual_machine_id=vm1.id)
+    session.add(src_vm)
+    session.flush()
+    session.add(IPAddress(owner_type="information_system_source", owner_id=src_vm.id, ip_address="203.0.113.5"))
 
     session.commit()
 

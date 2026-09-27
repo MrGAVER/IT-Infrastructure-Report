@@ -41,10 +41,10 @@ describe('VMFormModal.vue', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        if (url.includes('/resources/vm-ips')) {
+        if (url.includes('/resources/ip-addresses')) {
           return jsonResponse({
             ...EMPTY_PAGE,
-            items: [{ id: 'ip-1', virtual_machine_id: 'vm-1', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }],
+            items: [{ id: 'ip-1', owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }],
           })
         }
         if (url.includes('/resources/open-ports')) {
@@ -85,10 +85,10 @@ describe('VMFormModal.vue', () => {
         if (method === 'POST' && url.endsWith('/resources/vms')) {
           return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }, 201)
         }
-        if (method === 'GET' && (url.includes('/resources/vm-ips') || url.includes('/resources/open-ports'))) {
+        if (method === 'GET' && (url.includes('/resources/ip-addresses') || url.includes('/resources/open-ports'))) {
           return jsonResponse(EMPTY_PAGE)
         }
-        if (method === 'POST' && url.includes('/resources/vm-ips')) {
+        if (method === 'POST' && url.includes('/resources/ip-addresses')) {
           return jsonResponse({ id: 'ip-new' }, 201)
         }
         if (method === 'POST' && url.includes('/resources/open-ports')) {
@@ -102,8 +102,8 @@ describe('VMFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const vmIpCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/vm-ips'))
-    expect(vmIpCreate?.body).toMatchObject({ virtual_machine_id: 'vm-new', ip_address: '192.168.1.10' })
+    const vmIpCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/ip-addresses'))
+    expect(vmIpCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', ip_address: '192.168.1.10' })
 
     const openPortCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/open-ports'))
     // port/protocol больше не отправляются — сервер сам выводит их из protocol_catalog_id.
@@ -170,7 +170,7 @@ describe('VMFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/vm-ips'))).toBe(false)
+    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/ip-addresses'))).toBe(false)
     expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/open-ports'))).toBe(false)
   })
 
@@ -191,8 +191,8 @@ describe('VMFormModal.vue', () => {
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method })
-        if (method === 'GET' && url.includes('/resources/vm-ips')) {
-          return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-old', virtual_machine_id: 'vm-1', ip_address: '10.0.0.1', prefix_length: null, purpose: null, is_management: false }] })
+        if (method === 'GET' && url.includes('/resources/ip-addresses')) {
+          return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-old', owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: '10.0.0.1', prefix_length: null, purpose: null, is_management: false }] })
         }
         if (method === 'PUT' && url.includes('/resources/vms/vm-1')) {
           return jsonResponse({ ...vm })
@@ -206,7 +206,7 @@ describe('VMFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/resources/vm-ips/ip-old'))).toBe(true)
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/resources/ip-addresses/ip-old'))).toBe(true)
   })
 
   it('сохраняет добавленный программный актив под id новой ВМ', async () => {
@@ -318,8 +318,8 @@ describe('VMFormModal.vue', () => {
         vi.fn(async (url: string, init?: RequestInit) => {
           const method = init?.method ?? 'GET'
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
-          if (method === 'GET' && url.includes('/resources/vm-ips')) {
-            return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-src', virtual_machine_id: 'vm-src', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }] })
+          if (method === 'GET' && url.includes('/resources/ip-addresses')) {
+            return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-src', owner_type: 'virtual_machine', owner_id: 'vm-src', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }] })
           }
           if (method === 'POST' && url.endsWith('/resources/vms')) {
             return jsonResponse({ id: 'vm-new', name: 'app-server-02', operating_system_id: 'os-1', physical_device_id: null, hypervisor_os_id: null, purpose: 'веб-сервер', status: 'active', description: null }, 201)
@@ -336,8 +336,8 @@ describe('VMFormModal.vue', () => {
       await wrapper.find('form').trigger('submit')
       await flushPromises()
 
-      const ipCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/vm-ips'))
-      expect(ipCreate?.body).toMatchObject({ virtual_machine_id: 'vm-new', ip_address: '10.20.30.5' })
+      const ipCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/ip-addresses'))
+      expect(ipCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', ip_address: '10.20.30.5' })
       // Копия создаёт НОВУЮ ВМ (POST), а не обновляет донора.
       expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/resources/vms/vm-src'))).toBe(false)
     })

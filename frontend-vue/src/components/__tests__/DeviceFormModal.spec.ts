@@ -265,9 +265,9 @@ describe('DeviceFormModal.vue', () => {
             }),
           )
         }
-        if (url.includes('/resources/interface-ips')) {
+        if (url.includes('/resources/ip-addresses')) {
           return new Response(
-            JSON.stringify({ items: [{ id: 'ip-1', interface_id: 'if-1', ip_address: '192.168.1.1', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }),
+            JSON.stringify({ items: [{ id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '192.168.1.1', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }),
           )
         }
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))

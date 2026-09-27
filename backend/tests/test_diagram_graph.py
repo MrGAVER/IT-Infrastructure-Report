@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 
 from app.models import (
-    Building, Connection, ConnectionType, DeviceInterface, DeviceType, DiagramGroupState, InterfaceIP,
+    Building, Connection, ConnectionType, DeviceInterface, DeviceType, DiagramGroupState, IPAddress,
     InterfaceVLAN, PhysicalDevice, PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN, VLANDomain,
 )
 from app.services.catalogs import seed_defaults
@@ -147,7 +147,7 @@ def test_device_node_ip_addresses_merge_interface_and_vlan_ips_without_duplicate
     server_type, _ = _seed_base_catalogs(db_session)
     device = _make_device(db_session, server_type.id, "SN-IP")
     iface = _make_interface(db_session, device.id, "eth0")
-    db_session.add(InterfaceIP(interface_id=iface.id, ip_address="10.0.0.1", prefix_length=24, purpose="управление", is_management=True))
+    db_session.add(IPAddress(owner_type="device_interface", owner_id=iface.id, ip_address="10.0.0.1", prefix_length=24, purpose="управление", is_management=True))
     domain = VLANDomain(name="Домен")
     db_session.add(domain)
     db_session.flush()

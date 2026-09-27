@@ -59,15 +59,15 @@ class Sheet1InformationSystems(ReportingTestCase):
         C = self.C
         dev = C["PhysicalDevice"](id="d1", serial_number="SN1")
         iface = C["DeviceInterface"](id="if1", physical_device_id="d1", is_management=True)
-        dev_ip = C["InterfaceIP"](id="ip1", interface_id="if1", ip_address="10.0.0.5", prefix_length=24)
+        dev_ip = C["IPAddress"](id="ip1", owner_type="device_interface", owner_id="if1", ip_address="10.0.0.5", prefix_length=24)
         vm = C["VirtualMachine"](id="v1", name="VM1", physical_device_id="d1", purpose="")
-        vm_ip = C["VMIP"](id="vip1", virtual_machine_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True)
+        vm_ip = C["IPAddress"](id="vip1", owner_type="virtual_machine", owner_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True)
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
         src_dev = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1")
         src_vm = C["InformationSystemSource"](id="src2", information_system_id="is1", source_type="vm", virtual_machine_id="v1")
         self.table.update({
             "InformationSystem": [isys], "PhysicalDevice": [dev], "DeviceInterface": [iface],
-            "InterfaceIP": [dev_ip], "VirtualMachine": [vm], "VMIP": [vm_ip],
+            "IPAddress": [dev_ip, vm_ip], "VirtualMachine": [vm],
             "InformationSystemSource": [src_dev, src_vm],
         })
         wb = self.build(Path("/tmp/test_reports_2"))

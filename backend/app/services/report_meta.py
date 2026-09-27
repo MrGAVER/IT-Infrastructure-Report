@@ -35,7 +35,7 @@ _RU_FIELD_LABELS: dict[str, str] = {
     "port": "Порт", "transport_protocol": "Транспортный протокол", "version": "Версия",
     "vendor": "Производитель", "model": "Модель", "address": "Адрес", "height_u": "Высота, U",
     "rack_position": "Позиция в стойке", "role": "Роль", "runtime": "Runtime", "runtime_version": "Версия runtime",
-    "management_ip": "IP управления", "vlan_id": "VLAN ID", "mode": "Режим", "category": "Категория",
+    "vlan_id": "VLAN ID", "mode": "Режим", "category": "Категория",
     "external_interaction": "Внешнее взаимодействие", "auto_sync": "Автосинхронизация", "action": "Действие",
     "entity_type": "Тип сущности", "entity_id": "ID сущности", "details": "Подробности",
 }

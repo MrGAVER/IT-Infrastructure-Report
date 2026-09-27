@@ -299,10 +299,26 @@ class InterfaceSpeed(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
-class InterfaceIP(TimestampMixin, Base):
-    __tablename__ = "interface_ips"
+class IPAddress(TimestampMixin, Base):
+    """IP-адрес владельца — интерфейс устройства, ВМ или источник ИС (owner_type/owner_id, тот же
+    паттерн, что уже применён к OpenPort/DeployedSoftware). Объединяет прежние отдельные таблицы
+    interface_ips/vm_ips и IP-адрес(а) InformationSystemSource (миграция d8e35a1c7f60, вопросы
+    1/3/5 отчёта по анализу БД — согласовано с заказчиком): все три случая хранили идентичный по
+    смыслу набор данных «IP-адрес + необязательные префикс/назначение/признак IP администрирования
+    у конкретного владельца», отличаясь только именем FK-колонки владельца (для interface_ips/
+    vm_ips) или тем, что раньше несколько IP одного источника ИС хранились одной строкой через
+    запятую в единственном текстовом поле (для information_system_sources.ip_address) — теперь
+    каждый IP-адрес источника ИС тоже отдельная строка (owner_type="information_system_source",
+    owner_id=<id строки InformationSystemSource>), что вместе с этим и даёт заказчику несколько
+    отдельных полей ввода IP вместо одного текстового.
+
+    Container.management_ip НЕ перенесён сюда: подтверждено, что поле не редактировалось ни через
+    один UI (см. комментарий в ContainerFormModal.vue "у контейнера нет своего IP на уровне
+    отчёта") — мёртвая колонка, удалена той же миграцией, а не активирована задним числом."""
+    __tablename__ = "ip_addresses"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)
+    owner_type: Mapped[str] = mapped_column(String(50))
+    owner_id: Mapped[str] = mapped_column(String(36))
     ip_address: Mapped[str] = mapped_column(String(64), index=True)
     prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
     purpose: Mapped[Optional[str]] = mapped_column(String(255))
@@ -404,15 +420,6 @@ class VirtualMachine(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(50), default="active")
     description: Mapped[Optional[str]] = mapped_column(Text)
 
-class VMIP(TimestampMixin, Base):
-    __tablename__ = "vm_ips"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    virtual_machine_id: Mapped[str] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-    ip_address: Mapped[str] = mapped_column(String(64), index=True)
-    prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
-    purpose: Mapped[Optional[str]] = mapped_column(String(255))
-    is_management: Mapped[bool] = mapped_column(Boolean, default=False)
-
 class Container(TimestampMixin, Base):
     __tablename__ = "containers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -422,7 +429,6 @@ class Container(TimestampMixin, Base):
     runtime: Mapped[Optional[str]] = mapped_column(String(100))
     runtime_version: Mapped[Optional[str]] = mapped_column(String(100))
     purpose: Mapped[Optional[str]] = mapped_column(Text)
-    management_ip: Mapped[Optional[str]] = mapped_column(String(64))
 
 class SoftwareAsset(TimestampMixin, Base):
     __tablename__ = "software_assets"
@@ -454,7 +460,14 @@ class InformationSystemSource(TimestampMixin, Base):
     обязательная модель этой связи: четыре прежние отдельные таблицы-связки (information_system_
     devices/vms/containers/ips) удалены (миграция b7f2c1e5a904_isprotocol_catalog_required) вместе
     со всем их поддерживающим кодом — до этого они существовали параллельно как исторический
-    fallback для записей ИС, ни разу не пересохранённых через актуальную форму."""
+    fallback для записей ИС, ни разу не пересохранённых через актуальную форму.
+
+    ip_address (раньше — своя колонка, несколько адресов через запятую в одной строке) удалена
+    миграцией d8e35a1c7f60: IP-адреса источника (актуально только для source_type="manual" — для
+    остальных типов IP берётся из связанного оборудования/ВМ) теперь отдельные строки IPAddress
+    с owner_type="information_system_source", owner_id=<id этой записи> — по одному адресу на
+    строку, а не через запятую (вопрос 3/5 отчёта по анализу БД, согласовано с заказчиком: "можно
+    добавлять несколько полей IP вместо одного текстового поля")."""
     __tablename__ = "information_system_sources"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
@@ -462,7 +475,6 @@ class InformationSystemSource(TimestampMixin, Base):
     physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
     virtual_machine_id: Mapped[Optional[str]] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
     container_id: Mapped[Optional[str]] = mapped_column(ForeignKey("containers.id"), index=True)
-    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     purpose: Mapped[Optional[str]] = mapped_column(String(500))
     role: Mapped[Optional[str]] = mapped_column(String(255))
     external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)

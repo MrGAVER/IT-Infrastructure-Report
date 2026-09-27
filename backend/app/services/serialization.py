@@ -5,7 +5,8 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, InterfaceIP, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, VMIP, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember)
+from ..models import (Connection, ConnectionType, DeviceInterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember)
+from ..constants import OwnerType
 from .computed import device_management_ports_and_ips
 
 def serialize(obj: Any) -> dict[str, Any]:
@@ -54,9 +55,9 @@ def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[
     by_device: dict[str, list[DeviceInterface]] = {}
     for iface in interfaces: by_device.setdefault(iface.physical_device_id, []).append(iface)
     interface_ids = [i.id for i in interfaces]
-    ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id.in_(interface_ids)).order_by(InterfaceIP.ip_address)).all() if interface_ids else []
-    ips_by_interface: dict[str, list[InterfaceIP]] = {}
-    for ip in ips: ips_by_interface.setdefault(ip.interface_id, []).append(ip)
+    ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(interface_ids)).order_by(IPAddress.ip_address)).all() if interface_ids else []
+    ips_by_interface: dict[str, list[IPAddress]] = {}
+    for ip in ips: ips_by_interface.setdefault(ip.owner_id, []).append(ip)
     embedded_ids = {d.embedded_os_id for d in devices if getattr(d, 'embedded_os_id', None)}
     embedded_map = {x.id: x for x in session.scalars(select(EmbeddedOperatingSystem).where(EmbeddedOperatingSystem.id.in_(embedded_ids))).all()} if embedded_ids else {}
     vlan_links = session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(device_ids))).all()
@@ -98,11 +99,11 @@ def enrich_interfaces(items: Sequence[DeviceInterface], session: Session) -> lis
         return []
     interface_ids = [i.id for i in items]
     ips = session.scalars(
-        select(InterfaceIP).where(InterfaceIP.interface_id.in_(interface_ids)).order_by(InterfaceIP.ip_address)
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(interface_ids)).order_by(IPAddress.ip_address)
     ).all()
-    by_interface: dict[str, list[InterfaceIP]] = {}
+    by_interface: dict[str, list[IPAddress]] = {}
     for ip in ips:
-        by_interface.setdefault(ip.interface_id, []).append(ip)
+        by_interface.setdefault(ip.owner_id, []).append(ip)
     result = []
     for iface in items:
         data = serialize(iface)
@@ -184,12 +185,20 @@ def _load_information_systems_links(items: Sequence[InformationSystem], session:
 
     # Every VM referenced by any IS (through a source row) contributes its actual IPs to that IS's
     # summary. Loaded once here for all systems, instead of once per system inside the loop below,
-    # to avoid an N+1 query against VMIP.
+    # to avoid an N+1 query against IPAddress.
     all_referenced_vm_ids = set(ln.vm_map.keys())
-    ln.vm_ips_by_vm: dict[str, list[VMIP]] = {}
+    ln.vm_ips_by_vm: dict[str, list[IPAddress]] = {}
     if all_referenced_vm_ids:
-        for x in session.scalars(select(VMIP).where(VMIP.virtual_machine_id.in_(all_referenced_vm_ids))).all():
-            ln.vm_ips_by_vm.setdefault(x.virtual_machine_id, []).append(x)
+        for x in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id.in_(all_referenced_vm_ids))).all():
+            ln.vm_ips_by_vm.setdefault(x.owner_id, []).append(x)
+
+    # IP-адреса "ручных" источников ИС — раньше src.ip_address (одна строка, несколько адресов
+    # через запятую), теперь отдельные строки IPAddress (миграция d8e35a1c7f60, owner_type=
+    # "information_system_source"), по той же причине загружены здесь одним batch-запросом.
+    ln.source_ips_by_source: dict[str, list[IPAddress]] = {}
+    if source_rows:
+        for x in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id.in_([s.id for s in source_rows]))).all():
+            ln.source_ips_by_source.setdefault(x.owner_id, []).append(x)
     return ln
 
 
@@ -208,8 +217,7 @@ def _enrich_single_information_system(obj: InformationSystem, ln: SimpleNamespac
     vms = []
     containers = []
     for src in ln.source_by_is.get(obj.id, []):
-        if src.ip_address:
-            ips.extend(p.strip() for p in src.ip_address.split(',') if p.strip())
+        ips.extend(x.ip_address for x in ln.source_ips_by_source.get(src.id, []))
         if src.physical_device_id in ln.device_map and ln.device_map[src.physical_device_id] not in devices:
             devices.append(ln.device_map[src.physical_device_id])
         if src.virtual_machine_id in ln.vm_map and ln.vm_map[src.virtual_machine_id] not in vms:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 from .models import (
     AuditLog, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface,
-    DeployedSoftware, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InterfaceSpeed, InterfaceType,
+    DeployedSoftware, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InterfaceSpeed, InterfaceType,
     ISDepartment, ISProtocol, InformationSystem, InformationSystemSource, InterfaceVLAN, OpenPort, ProtocolPortCatalog,
     Manufacturer, OperatingSystem, OperatingSystemCategory, EmbeddedOperatingSystem, DeviceTypeVLAN, PhysicalDeviceVLAN, SupportOrganization, SupportMethod, CryptoProtectionMeans, PlacementAsset, ISPlacementAsset, PhysicalDevice,
-    Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VMIP, VirtualMachine,
+    Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VirtualMachine,
 )
 
 # Ресурсы, доступные через generic CRUD только для чтения. audit-log должен быть неизменяемым:
@@ -25,9 +25,9 @@ MODEL_MAP = {
     'os-categories': OperatingSystemCategory, 'operating-systems': OperatingSystem, 'embedded-os': EmbeddedOperatingSystem, 'device-type-vlans': DeviceTypeVLAN, 'device-vlans': PhysicalDeviceVLAN, 'devices': PhysicalDevice,
     'information-systems': InformationSystem, 'is-departments': ISDepartment, 'is-protocols': ISProtocol, 'protocol-port-catalog': ProtocolPortCatalog,
     'placement-assets': PlacementAsset, 'is-placement-assets': ISPlacementAsset,
-    'interfaces': DeviceInterface, 'interface-ips': InterfaceIP, 'interface-types': InterfaceType,
+    'interfaces': DeviceInterface, 'interface-types': InterfaceType,
     'interface-speeds': InterfaceSpeed, 'vlans': VLAN, 'vlan-domains': VLANDomain, 'vlan-domain-devices': VLANDomainDevice, 'interface-vlans': InterfaceVLAN,
-    'connection-types': ConnectionType, 'connections': Connection, 'vms': VirtualMachine, 'vm-ips': VMIP,
+    'connection-types': ConnectionType, 'connections': Connection, 'vms': VirtualMachine, 'ip-addresses': IPAddress,
     'containers': Container, 'software-assets': SoftwareAsset, 'deployed-software': DeployedSoftware, 'is-sources': InformationSystemSource,
     'open-ports': OpenPort, 'audit-log': AuditLog,
     'device-stacks': DeviceStack, 'device-stack-members': DeviceStackMember,
@@ -39,9 +39,9 @@ DISPLAY_NAMES = {
     'os-categories':'Категории ОС', 'operating-systems':'ОС и гипервизоры', 'embedded-os':'Встроенные ОС', 'device-type-vlans':'VLAN типов устройств', 'device-vlans':'VLAN физических устройств', 'devices':'Физические устройства',
     'information-systems':'Информационные системы', 'is-departments':'ИС ↔ подразделения', 'is-protocols':'Протоколы ИС', 'protocol-port-catalog':'Справочник протоколов и портов',
     'placement-assets':'Оборудование, ПО, интерфейс на которых размещается ИС', 'is-placement-assets':'ИС ↔ оборудование/ПО/интерфейс размещения',
-    'interfaces':'Интерфейсы', 'interface-ips':'IP интерфейсов', 'interface-types':'Типы интерфейсов', 'interface-speeds':'Скорости интерфейсов',
+    'interfaces':'Интерфейсы', 'interface-types':'Типы интерфейсов', 'interface-speeds':'Скорости интерфейсов',
     'vlans':'VLAN', 'vlan-domains':'Домены VLAN', 'vlan-domain-devices':'Устройства в доменах VLAN', 'interface-vlans':'Интерфейсы ↔ VLAN', 'connection-types':'Типы подключений', 'connections':'Подключения',
-    'vms':'Виртуальные машины', 'vm-ips':'IP VM', 'containers':'Контейнеры', 'software-assets':'Программные активы',
+    'vms':'Виртуальные машины', 'ip-addresses':'IP-адреса (интерфейсов устройств, ВМ и источников ИС — owner_type/owner_id, см. models.IPAddress)', 'containers':'Контейнеры', 'software-assets':'Программные активы',
     'deployed-software':'ПО, развёрнутое на устройствах и ВМ (owner_type/owner_id — см. models.DeployedSoftware)',
     'is-sources':'ИС ↔ источники размещения', 'open-ports':'Открытые порты', 'audit-log':'Аудит',
     'device-stacks':'Стеки устройств', 'device-stack-members':'Устройства в стеках',

@@ -8,7 +8,7 @@
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
 import { api, listResource } from './client'
-import type { DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow, OpenPort } from './types'
+import type { DeviceInterface, IPAddress, InterfaceVLAN, InterfaceDraftRow, OpenPort } from './types'
 
 /**
  * Грузит интерфейсы одного устройства вместе с их IP и VLAN-привязками и приводит к формату
@@ -25,7 +25,7 @@ import type { DeviceInterface, InterfaceIP, InterfaceVLAN, InterfaceDraftRow, Op
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
   const [ifaces, allIps, allVlans, allOpenPorts] = await Promise.all([
     listResource<DeviceInterface>('interfaces', { physical_device_id: deviceId, limit: 1000 }),
-    listResource<InterfaceIP>('interface-ips', { limit: 1000 }),
+    listResource<IPAddress>('ip-addresses', { owner_type: 'device_interface', limit: 1000 }),
     listResource<InterfaceVLAN>('interface-vlans', { limit: 1000 }),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
     // 'device_interface', owner_id=id интерфейса), не всего устройства, см. комментарий к
@@ -53,7 +53,7 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
       // (DeviceInterface.vlan_mode, backend/app/models.py) — источник истины, не вывод.
       vlan_mode: x.vlan_mode,
       ips: allIps.items
-        .filter((ip) => ip.interface_id === x.id)
+        .filter((ip) => ip.owner_id === x.id)
         .map((ip) => ({
           id: ip.id,
           ip_address: ip.ip_address,

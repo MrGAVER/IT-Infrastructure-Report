@@ -109,17 +109,17 @@ class InformationSystemSourceFKTestCase(unittest.TestCase):
         self.session.add(isys); self.session.commit()
 
         payload = {
-            "departments": [], "ips": [], "protocols": [], "devices": [], "vms": [], "containers": [],
+            "departments": [], "protocols": [],
             "sources": [{
                 "source_type": "manual", "physical_device_id": "", "virtual_machine_id": "",
-                "container_id": "", "ip_address": "10.0.0.5", "purpose": "", "role": "",
+                "container_id": "", "ips": [{"ip_address": "10.0.0.5"}], "purpose": "", "role": "",
                 "external_interaction": False,
             }],
             "placement_assets": [],
         }
         result = sync_information_system_details(isys.id, payload, self.session)
         self.assertEqual(len(result["sources"]), 1)
-        self.assertEqual(result["sources"][0]["ip_address"], "10.0.0.5")
+        self.assertEqual(result["sources"][0]["ips"][0]["ip_address"], "10.0.0.5")
         self.assertIsNone(result["sources"][0]["physical_device_id"])
 
 

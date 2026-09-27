@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, Container, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, InterfaceIP, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, VMIP, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
+from ..models import AuditLog, Connection, Container, DeployedSoftware, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
@@ -178,13 +178,15 @@ def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id
     # выполнялся бы в браузере через v-html (фронтенд) и при экспорте .svg (бэкенд).
     validate_svg_markup(data.get('svg_markup'))
 
-def _validate_vmip_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
-    # Код-ревью п.3.4: VMIP — единственная из моделей с ip_address/prefix_length, идущая через
-    # ПОЛНОСТЬЮ generic create_resource/update_resource (без выделенной sync-функции, в отличие
-    # от InterfaceIP — см. её отдельный вызов validate_ipv4_field выше по файлу, и от source ИС —
-    # см. validate_ipv4_field в _sync_information_system_sources ниже по файлу).
-    validate_ipv4_field(data.get('ip_address'), 'IP-адрес виртуальной машины')
-    validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса виртуальной машины')
+def _validate_ip_address_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    # Код-ревью п.3.4 + объединение InterfaceIP/VMIP в IPAddress (owner_type/owner_id, миграция
+    # d8e35a1c7f60): владение интерфейсом синхронизируется отдельной функцией
+    # (_sync_interface_ips, свой вызов validate_ipv4_field ниже по файлу), владение источником ИС —
+    # тоже отдельной (_sync_information_system_sources). Этот валидатор покрывает оставшийся путь —
+    # ПОЛНОСТЬЮ generic create_resource/update_resource (владение виртуальной машиной, как и было
+    # у VMIP до объединения).
+    validate_ipv4_field(data.get('ip_address'), 'IP-адрес')
+    validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса')
 
 def _validate_information_system_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     validate_support_method_organization(data, session)
@@ -218,7 +220,7 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     Connection: _validate_connection_entry,
     DeviceType: _validate_device_type_entry,
     DiagramIcon: _validate_diagram_icon_entry,
-    VMIP: _validate_vmip_entry,
+    IPAddress: _validate_ip_address_entry,
     InformationSystem: _validate_information_system_entry,
     DeviceStackMember: _validate_device_stack_member_entry,
 }
@@ -425,17 +427,18 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
         for row in rows if row.cnt
     ]
 
-# Код-ревью (отчёт по рефакторингу и безопасности, находка 1): открытые порты (OpenPort) —
-# единственная сейчас модель с полиморфным владельцем (owner_type/owner_id без настоящего FK),
-# поэтому _find_referencing_counts() выше их структурно не видит. Точечный словарь, а не общее
-# решение (например, обучить _find_referencing_counts понимать полиморфные владельцы) — дешевле и
-# достаточен, пока таких таблиц-владельцев одна; если правки из отчёта по анализу БД добавят
-# owner_type/owner_id для IP-адресов или связей с ПО (см. тот отчёт, вопрос 4), этот словарь и
-# вызывающий его delete_resource() — первое, что нужно будет расширить.
-_POLYMORPHIC_OWNER_CLEANUP = {
-    'interfaces': OwnerType.DEVICE_INTERFACE,
-    'vms': OwnerType.VIRTUAL_MACHINE,
-    'devices': OwnerType.PHYSICAL_DEVICE,
+# Код-ревью (отчёт по рефакторингу и безопасности, находка 1): открытые порты (OpenPort),
+# развёрнутое ПО (DeployedSoftware) и IP-адреса (IPAddress) — три модели с полиморфным владельцем
+# (owner_type/owner_id без настоящего FK), поэтому _find_referencing_counts() выше их структурно
+# не видит. Значение словаря — СПИСОК (модель, owner_type), не один элемент: у одного resource_key
+# может быть несколько таких моделей сразу (например, у устройства — и открытые порты, и ПО).
+# Если правки из отчёта по анализу БД добавят owner_type/owner_id ещё куда-то — этот словарь и
+# вызывающий его delete_resource() снова первое, что нужно будет расширить.
+_POLYMORPHIC_OWNER_CLEANUP: dict[str, list[tuple[type, str]]] = {
+    'interfaces': [(OpenPort, OwnerType.DEVICE_INTERFACE), (IPAddress, OwnerType.DEVICE_INTERFACE)],
+    'vms': [(OpenPort, OwnerType.VIRTUAL_MACHINE), (DeployedSoftware, OwnerType.VIRTUAL_MACHINE), (IPAddress, OwnerType.VIRTUAL_MACHINE)],
+    'devices': [(OpenPort, OwnerType.PHYSICAL_DEVICE), (DeployedSoftware, OwnerType.PHYSICAL_DEVICE)],
+    'is-sources': [(IPAddress, OwnerType.INFORMATION_SYSTEM_SOURCE)],
 }
 
 def delete_resource(resource: str, item_id: str, session: Session):
@@ -447,21 +450,12 @@ def delete_resource(resource: str, item_id: str, session: Session):
         details = ', '.join(f'{name}: {count}' for name, count in refs)
         raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': f'Нельзя удалить: запись используется в других данных ({details}).'})
     try:
-        # Код-ревью (отчёт по рефакторингу и безопасности, находка 1): open_ports.owner_id/
-        # owner_type — полиморфная связь БЕЗ настоящего ForeignKey в БД (см. docstring
-        # models.OpenPort), поэтому _find_referencing_counts() её не видит — она сканирует только
-        # настоящие FK-колонки. Единственное место, где open_ports раньше подчищались при удалении
-        # владельца, — sync_interfaces() (при исключении интерфейса из списка), а не этот общий
-        # путь удаления. Подтверждено эмпирически: DELETE /resources/interfaces/{id} в обход
-        # sync_interfaces удалял интерфейс, но оставлял открытые порты в БД с owner_id,
-        # указывающим на уже не существующую запись. Явно подчищаем перед удалением для всех трёх
-        # значений OwnerType — включая PHYSICAL_DEVICE (legacy: порт привязан к устройству
-        # напрямую, без интерфейса, см. constants.OwnerType) — тем же случаем осиротевших записей,
-        # только для устройства без интерфейсов, у которого нет настоящих FK-ссылок, блокирующих
-        # удаление.
-        owner_type = _POLYMORPHIC_OWNER_CLEANUP.get(resource)
-        if owner_type:
-            session.execute(delete(OpenPort).where(OpenPort.owner_type == owner_type, OpenPort.owner_id == item_id))
+        # Подтверждено эмпирически: DELETE /resources/interfaces/{id} в обход sync_interfaces
+        # удалял интерфейс, но оставлял открытые порты/IP в БД с owner_id, указывающим на уже не
+        # существующую запись. Явно подчищаем перед удалением для каждой полиморфной модели,
+        # зарегистрированной для этого resource_key выше.
+        for cleanup_model, owner_type in _POLYMORPHIC_OWNER_CLEANUP.get(resource, []):
+            session.execute(delete(cleanup_model).where(cleanup_model.owner_type == owner_type, cleanup_model.owner_id == item_id))
         session.delete(obj); session.flush(); audit(session, resource, item_id, AuditAction.DELETE, 'Удаление записи'); session.commit(); return {'status': 'deleted', 'id': item_id}
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
@@ -528,11 +522,11 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     for vlan_id in unique_vlan_ids: session.add(InterfaceVLAN(interface_id=obj.id,vlan_id=vlan_id,mode=vlan_mode))
     ips = item.get('ips') or []
     if not isinstance(ips, list): raise HTTPException(422, 'Поле ips интерфейса должно быть массивом')
-    old_ips = session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
+    old_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == obj.id)).all(); old_map = {x.id: x for x in old_ips}; seen: set[str] = set()
     for ip_data in ips:
         if not isinstance(ip_data, dict) or not ip_data.get('ip_address'): continue
         # Код-ревью п.3.4: формат проверялся только на фронтенде (ipValidation.ts) — прямой
-        # запрос к API мог записать в InterfaceIP произвольную строку вместо IPv4-адреса.
+        # запрос к API мог записать в IPAddress произвольную строку вместо IPv4-адреса.
         validate_ipv4_field(ip_data.get('ip_address'), 'IP-адрес интерфейса')
         validate_prefix_length_field(ip_data.get('prefix_length'), 'Префикс IP-адреса интерфейса')
         ip_id = ip_data.get('id')
@@ -540,7 +534,7 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
             ip_obj = old_map.get(ip_id)
             if not ip_obj: raise HTTPException(422, 'IP не принадлежит выбранному интерфейсу')
             seen.add(ip_id)
-        else: ip_obj = InterfaceIP(interface_id=obj.id); session.add(ip_obj)
+        else: ip_obj = IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(ip_obj)
         ip_obj.ip_address = ip_data['ip_address']; ip_obj.prefix_length = ip_data.get('prefix_length'); ip_obj.purpose = ip_data.get('purpose'); ip_obj.is_management = bool(obj.is_management)
     for old_ip in old_ips:
         if old_ip.id not in seen: session.delete(old_ip)
@@ -600,19 +594,19 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             _sync_single_interface(obj, item, device, session, allowed_vlans)
         for obj in existing:
             if obj.id not in incoming_ids:
-                session.execute(delete(InterfaceIP).where(InterfaceIP.interface_id == obj.id))
+                session.execute(delete(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == obj.id))
                 # Открытые порты полиморфны (нет FK/каскада на уровне БД, см. models.OpenPort) —
                 # без явного удаления здесь они осиротели бы при удалении своего интерфейса.
                 session.execute(delete(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id))
                 session.delete(obj)
         session.flush()
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
-        for iface in all_ifaces: session.execute(update(InterfaceIP).where(InterfaceIP.interface_id == iface.id).values(is_management=bool(iface.is_management)))
+        for iface in all_ifaces: session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).values(is_management=bool(iface.is_management)))
         audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}'); session.commit()
         result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name)).all()
         return {'items': [{
             **serialize(iface),
-            'ips': [serialize(ip) for ip in session.scalars(select(InterfaceIP).where(InterfaceIP.interface_id == iface.id).order_by(InterfaceIP.ip_address)).all()],
+            'ips': [serialize(ip) for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.ip_address)).all()],
             # port больше не колонка OpenPort (см. models.py) — сортируем по номеру порта из
             # справочника через join, а не по несуществующей больше колонке.
             'open_ports': enrich_open_ports(
@@ -634,10 +628,18 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
 def get_information_system_details(system_id: str, session: Session) -> dict[str, Any]:
     if not session.get(InformationSystem, system_id):
         raise HTTPException(404, 'Информационная система не найдена')
+    sources = session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()
+    # Один batch-запрос на все source-строки сразу, а не по одному на строку (N+1) — тот же приём,
+    # что и в enrich_open_ports/enrich_information_systems (services/serialization.py).
+    ips_by_source: dict[str, list[Any]] = {}
+    if sources:
+        source_ids = [s.id for s in sources]
+        for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id.in_(source_ids)).order_by(IPAddress.ip_address)).all():
+            ips_by_source.setdefault(ip.owner_id, []).append(serialize(ip))
     return {
         'departments': [serialize(x) for x in session.scalars(select(ISDepartment).where(ISDepartment.information_system_id == system_id)).all()],
         'protocols': [serialize(x) for x in session.scalars(select(ISProtocol).where(ISProtocol.information_system_id == system_id)).all()],
-        'sources': [serialize(x) for x in session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()],
+        'sources': [{**serialize(x), 'ips': ips_by_source.get(x.id, [])} for x in sources],
         'placement_assets': [serialize(x) for x in session.scalars(select(ISPlacementAsset).where(ISPlacementAsset.information_system_id == system_id)).all()],
     }
 
@@ -681,6 +683,31 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
         if obj.id not in seen: session.delete(obj)
 
 
+def _sync_source_ip_addresses(source_id: str, ip_items: Any, session: Session) -> None:
+    """Вложенный список IP-адресов одной строки InformationSystemSource — по одному адресу на
+    отдельное поле ввода (вопрос 3/5 отчёта по анализу БД, согласовано с заказчиком: "можно
+    добавлять несколько полей IP вместо одного текстового поля"), а не через запятую в одном
+    текстовом поле, как было раньше (до миграции d8e35a1c7f60). Тот же приём, что
+    _sync_interface_ips (внутри sync_interfaces) для интерфейса, только без наследования
+    is_management от владельца — у источника ИС такого родительского флага нет."""
+    if not isinstance(ip_items, list): raise HTTPException(422, 'Поле ips источника должно быть массивом')
+    existing_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id == source_id)).all()
+    old_map = {x.id: x for x in existing_ips}; seen_ip_ids: set[str] = set()
+    for ip_data in ip_items:
+        if not isinstance(ip_data, dict) or not ip_data.get('ip_address'): continue
+        validate_ipv4_field(ip_data.get('ip_address'), 'IP-адрес источника ИС')
+        ip_id = ip_data.get('id')
+        if ip_id:
+            ip_obj = old_map.get(ip_id)
+            if not ip_obj: raise HTTPException(422, 'IP не принадлежит выбранному источнику')
+            seen_ip_ids.add(ip_id)
+        else:
+            ip_obj = IPAddress(owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id=source_id); session.add(ip_obj)
+        ip_obj.ip_address = ip_data['ip_address']
+    for old_ip in existing_ips:
+        if old_ip.id not in seen_ip_ids: session.delete(old_ip)
+
+
 def _sync_information_system_sources(system_id: str, source_items: Any, session: Session) -> None:
     """Синхронизирует унифицированные записи InformationSystemSource — единственный (с миграции
     b7f2c1e5a904) механизм связи ИС с оборудованием/ВМ/контейнером и IP-адресом источника, не
@@ -693,33 +720,24 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
         if not isinstance(item, dict): continue
         source_type = item.get('source_type') or SourceType.MANUAL
         if source_type not in SourceType.ALL: raise HTTPException(422, 'Недопустимый тип источника')
-        # ip_address источника ИС может содержать несколько адресов через запятую (см. её сборку в
-        # services/serialization.py:_enrich_single_information_system) — в отличие от IP интерфейса
-        # или ВМ (там всегда ровно один адрес на запись), поэтому валидируется каждая часть
-        # отдельно, а не строка целиком. Код-ревью (отчёт по рефакторингу и безопасности,
-        # находка 2): .split(',') требует str — этот payload не проходит через pydantic-схему (см.
-        # docstring RESOURCE_SCHEMAS), поэтому нестроковое значение (число, список — оба валидный
-        # JSON) раньше падало необработанным AttributeError вместо аккуратной 422, как это уже
-        # делает сама validate_ipv4_field() ниже для остальных полей.
-        raw_ip_value = item.get('ip_address')
-        if raw_ip_value is not None and not isinstance(raw_ip_value, str):
-            raise HTTPException(422, 'IP-адрес источника ИС: некорректный формат')
-        for raw_ip in (raw_ip_value or '').split(','):
-            validate_ipv4_field(raw_ip.strip(), 'IP-адрес источника ИС')
         obj = source_map.get(item.get('id')) if item.get('id') else InformationSystemSource(information_system_id=system_id)
         if obj is None: raise HTTPException(422, 'Источник не принадлежит выбранной ИС')
-        if not getattr(obj, 'id', None): session.add(obj)
-        for k in ('source_type','physical_device_id','virtual_machine_id','container_id','ip_address','purpose','role','external_interaction'):
+        is_new = not getattr(obj, 'id', None)
+        if is_new: session.add(obj)
+        for k in ('source_type','physical_device_id','virtual_machine_id','container_id','purpose','role','external_interaction'):
             value = item.get(k)
             # Same empty-string-vs-NULL issue as above: disabled selects for the fields that don't
             # apply to the chosen source_type still submit '' rather than null.
             if value == '' and k in ('physical_device_id','virtual_machine_id','container_id'): value = None
             setattr(obj, k, value)
-        # Same reasoning as _sync_linked_table(): a single flush() after the loop is enough.
-        if obj.id: seen.add(obj.id)
+        if is_new: session.flush()  # нужен obj.id ниже — для владения вложенными IP этой строки
+        seen.add(obj.id)
+        _sync_source_ip_addresses(obj.id, item.get('ips') or [], session)
     session.flush()
     for obj in existing_sources:
-        if obj.id not in seen: session.delete(obj)
+        if obj.id not in seen:
+            session.execute(delete(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id == obj.id))
+            session.delete(obj)
 
 
 def sync_information_system_details(system_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:

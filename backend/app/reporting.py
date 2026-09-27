@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 from .models import (
     Building, Connection, ConnectionType, Container, CryptoProtectionMeans, Department,
     DeployedSoftware, DeviceInterface, DeviceModel, DeviceType, EmbeddedOperatingSystem,
-    ISDepartment, ISPlacementAsset, ISProtocol,
-    InformationSystem, InformationSystemSource, InterfaceIP, InterfaceType, InterfaceVLAN,
+    IPAddress, ISDepartment, ISPlacementAsset, ISProtocol,
+    InformationSystem, InformationSystemSource, InterfaceType, InterfaceVLAN,
     Manufacturer, OpenPort, OperatingSystem, PhysicalDevice, PhysicalDeviceVLAN, PlacementAsset,
     ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, SupportMethod, SupportOrganization, VLAN,
-    VMIP, VirtualMachine,
+    VirtualMachine,
 )
+from .constants import OwnerType
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix
 from .services.excel_safety import excel_safe_row
 
@@ -197,13 +198,15 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     for x in session.scalars(select(ISPlacementAsset)).all(): d.placement_by_is[x.information_system_id].append(x)
     d.interface_types={x.id:x for x in session.scalars(select(InterfaceType)).all()}
     d.interfaces=session.scalars(select(DeviceInterface).order_by(DeviceInterface.name)).all(); d.iface_map={x.id:x for x in d.interfaces}
-    d.interface_ips=session.scalars(select(InterfaceIP).order_by(InterfaceIP.ip_address)).all()
+    d.interface_ips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)).all()
     d.ips_by_iface=defaultdict(list)
-    for x in d.interface_ips: d.ips_by_iface[x.interface_id].append(x)
+    for x in d.interface_ips: d.ips_by_iface[x.owner_id].append(x)
     d.ifaces_by_device=defaultdict(list)
     for x in d.interfaces: d.ifaces_by_device[x.physical_device_id].append(x)
-    d.vmips=session.scalars(select(VMIP).order_by(VMIP.ip_address)).all(); d.vmips_by_vm=defaultdict(list)
-    for x in d.vmips: d.vmips_by_vm[x.virtual_machine_id].append(x)
+    d.vmips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all(); d.vmips_by_vm=defaultdict(list)
+    for x in d.vmips: d.vmips_by_vm[x.owner_id].append(x)
+    d.source_ips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.INFORMATION_SYSTEM_SOURCE)).all(); d.ips_by_source=defaultdict(list)
+    for x in d.source_ips: d.ips_by_source[x.owner_id].append(x)
     d.vms=session.scalars(select(VirtualMachine).order_by(VirtualMachine.name)).all(); d.vm_map={x.id:x for x in d.vms}
     d.containers=session.scalars(select(Container)).all(); d.container_map={x.id:x for x in d.containers}
     d.protocols=session.scalars(select(ProtocolPortCatalog)).all(); d.protocol_catalog={x.id:x for x in d.protocols}
@@ -267,9 +270,9 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
     for dev in physical_names:
         physical_ips += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id,[]) if iface.is_management for ip in d.ips_by_iface.get(iface.id,[])]
     vm_names=[v.name for v in linked_vms] + [c.name for c in linked_containers]
-    vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])] + [c.management_ip for c in linked_containers if c.management_ip]
+    vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])]
     departments_text=join_values([d.dep_map[x.department_id].name for x in d.dep_by_is[obj.id] if x.department_id in d.dep_map])
-    ips_text=join_values([x.ip_address for x in source_rows if x.ip_address] + vm_ips)
+    ips_text=join_values([x.ip_address for src in source_rows for x in d.ips_by_source.get(src.id,[])] + vm_ips)
     support=d.support_map.get(obj.support_organization_id)
     support_method_name=d.support_methods[obj.support_method_id].name if obj.support_method_id in d.support_methods else ""
     crypto_mean=d.crypto_means.get(obj.crypto_protection_description_id)

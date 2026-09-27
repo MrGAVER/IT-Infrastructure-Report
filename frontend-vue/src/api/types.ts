@@ -163,12 +163,16 @@ export interface VMsResponse {
   total: number
 }
 
-/** GET /api/v1/resources/vm-ips?virtual_machine_id=... — генерический ресурс, {items,total,offset,limit}
- * (см. PagedResponse в api/client.ts). Лист 4 требует "IP-адрес виртуальной машины/контейнера" —
- * у одной ВМ их может быть несколько, поэтому отдельная таблица, а не колонка на VirtualMachine. */
-export interface VMIP {
+/** GET /api/v1/resources/ip-addresses?owner_type=...&owner_id=... — единая модель вместо
+ * прежних отдельных InterfaceIP/VMIP и IP-адреса(ов) на строке InformationSystemSource
+ * (backend/app/models.py:IPAddress, миграция d8e35a1c7f60), тот же паттерн owner_type/owner_id,
+ * что уже применён к OpenPort/DeployedSoftware. Лист 4 требует "IP-адрес виртуальной
+ * машины/контейнера" — у одного владельца их может быть несколько, поэтому отдельная таблица, а
+ * не колонка на владельце. */
+export interface IPAddress {
   id: string
-  virtual_machine_id: string
+  owner_type: string
+  owner_id: string
   ip_address: string
   prefix_length: number | null
   purpose: string | null
@@ -204,8 +208,9 @@ export interface ProtocolPortCatalogEntry {
 
 /** Черновая строка редактора IP-адресов ВМ (VmIpListEditor.vue). Поля — строки для прямого
  * v-model на input'ах (в т.ч. числовое prefix_length: пустая строка — валидное "не задано",
- * что не выразить через number). Конвертируется в payload VMIP при сохранении, см.
- * VMFormModal.vue:persistVmIps. `id` присутствует только у строк, загруженных с бэкенда. */
+ * что не выразить через number). Конвертируется в payload IPAddress при сохранении (owner_type=
+ * 'virtual_machine'), см. VMFormModal.vue:persistSoftwareAssets и аналогичный persistVmIps.
+ * `id` присутствует только у строк, загруженных с бэкенда. */
 export interface VmIpDraftRow {
   id?: string
   ip_address: string
@@ -285,7 +290,7 @@ export interface ISSource {
   physical_device_id: string | null
   virtual_machine_id: string | null
   container_id: string | null
-  ip_address: string | null
+  ips: IPAddress[]
   purpose: string | null
   role: string | null
   external_interaction: boolean
@@ -309,6 +314,16 @@ export interface ISProtocolDraftRow {
   description: string
 }
 
+/** Черновая строка одного IP-адреса "ручного" источника ИС (ISSourcesListEditor.vue) — самый
+ * простой из трёх вариантов черновых IP-строк (см. VmIpDraftRow/InterfaceIpDraftRow): ни
+ * prefix_length, ни purpose, ни is_management источнику ИС не нужны, это просто список адресов
+ * (миграция d8e35a1c7f60, вопрос 3/5 отчёта по анализу БД — несколько отдельных полей вместо
+ * одного текстового через запятую). */
+export interface SourceIpDraftRow {
+  id?: string
+  ip_address: string
+}
+
 /** Черновая строка ISSourcesListEditor.vue — см. комментарий к InformationSystemDetails.sources
  * и ISSourcesListEditor.vue про порядок полей source_type/physical_device_id/virtual_machine_id. */
 export interface ISSourceDraftRow {
@@ -317,20 +332,10 @@ export interface ISSourceDraftRow {
   physical_device_id: string
   virtual_machine_id: string
   container_id: string
-  ip_address: string
+  ips: SourceIpDraftRow[]
   purpose: string
   role: string
   external_interaction: boolean
-}
-
-/** GET /api/v1/resources/interface-ips?interface_id=... — см. комментарий к DeviceInterface. */
-export interface InterfaceIP {
-  id: string
-  interface_id: string
-  ip_address: string
-  prefix_length: number | null
-  purpose: string | null
-  is_management: boolean
 }
 
 /** GET /api/v1/resources/device-type-vlans?device_type_id=... — какие определения VLAN
@@ -355,7 +360,9 @@ export interface InterfaceVLAN {
   mode: string | null
 }
 
-/** Черновая строка IP-адреса интерфейса внутри DeviceInterfacesEditor.vue. */
+/** Черновая строка IP-адреса интерфейса внутри DeviceInterfacesEditor.vue. Конвертируется в
+ * payload IPAddress при сохранении (owner_type='device_interface', is_management наследуется от
+ * самого интерфейса — не редактируется на уровне отдельного IP, см. _sync_interface_ips). */
 export interface InterfaceIpDraftRow {
   id?: string
   ip_address: string

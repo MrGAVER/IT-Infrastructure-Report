@@ -58,7 +58,7 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
         if (url.includes('/information-systems/is-2/details') && method === 'GET') {
           return jsonResponse({
             ...EMPTY_DETAILS,
-            sources: [{ id: 'src-1', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ip_address: '1.1.1.1', purpose: '', role: '', external_interaction: false }],
+            sources: [{ id: 'src-1', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ips: [{ id: 'ip-1', ip_address: '1.1.1.1' }], purpose: '', role: '', external_interaction: false }],
           })
         }
         if (method === 'PUT' && url.includes('/resources/information-systems/is-2') && !url.includes('/details')) {
@@ -74,9 +74,10 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     await flushPromises()
 
     const detailsSave = calls.find((c) => c.method === 'PUT' && c.url.includes('/details'))
-    const body = detailsSave!.body as { sources: Array<{ id?: string; physical_device_id: string | null }> }
+    const body = detailsSave!.body as { sources: Array<{ id?: string; physical_device_id: string | null; ips: Array<{ ip_address: string }> }> }
     expect(body.sources).toHaveLength(1)
-    expect(body.sources[0]).toMatchObject({ id: 'src-1', physical_device_id: null, ip_address: '1.1.1.1' })
+    expect(body.sources[0]).toMatchObject({ id: 'src-1', physical_device_id: null })
+    expect(body.sources[0].ips).toEqual([{ id: 'ip-1', ip_address: '1.1.1.1' }])
   })
 
   it('создаёт новую ИС и сохраняет подразделение, протокол и источник', async () => {
@@ -94,7 +95,8 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     await editors.departments.find('select').setValue('dep-1')
     await editors.protocols.find('.col-catalog .searchable-select input').trigger('focus')
     await editors.protocols.find('.col-catalog .ss-option').trigger('mousedown') // единственная запись — "443 / HTTPS"
-    await editors.sources.find('.source-grid input').setValue('192.168.1.1') // IP при типе "вручную" по умолчанию
+    await editors.sources.find('.source-grid button.btn-link').trigger('click') // "+ IP-адрес" при типе "вручную" по умолчанию
+    await editors.sources.find('.manual-ip-row input').setValue('192.168.1.1')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -118,7 +120,7 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     expect(body.departments).toEqual([{ id: undefined, department_id: 'dep-1' }])
     expect(body.protocols).toEqual([{ id: undefined, protocol_catalog_id: 'cat-https', description: null }])
     expect(body.sources).toEqual([
-      { id: undefined, source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ip_address: '192.168.1.1', purpose: null, role: null, external_interaction: false },
+      { id: undefined, source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ips: [{ id: undefined, ip_address: '192.168.1.1' }], purpose: null, role: null, external_interaction: false },
     ])
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
@@ -129,7 +131,8 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
 
     const editors = findEditors(wrapper)
     await editors.sources.find('button.add-btn').trigger('click')
-    await editors.sources.find('.source-grid input.col-ip').setValue('не ip адрес')
+    await editors.sources.find('.source-grid button.btn-link').trigger('click')
+    await editors.sources.find('.manual-ip-row input').setValue('не ip адрес')
     await wrapper.find('input[type="text"]').setValue('new-is')
 
     const fetchMock = vi.fn()
@@ -262,7 +265,7 @@ describe('фикс п.2: копирование информационной с�
           return jsonResponse({
             ...EMPTY_DETAILS,
             departments: [{ id: 'dep-link-src', department_id: 'dep-1' }],
-            sources: [{ id: 'src-src', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ip_address: '10.0.0.9', purpose: '', role: '', external_interaction: false }],
+            sources: [{ id: 'src-src', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ips: [{ id: 'ip-src', ip_address: '10.0.0.9' }], purpose: '', role: '', external_interaction: false }],
           })
         }
         if (method === 'POST' && url.endsWith('/resources/information-systems')) {
@@ -283,10 +286,13 @@ describe('фикс п.2: копирование информационной с�
     await flushPromises()
 
     const detailsSave = calls.find((c) => c.method === 'PUT' && c.url.includes('/information-systems/is-new/details'))
-    const body = detailsSave!.body as { departments: Array<{ id?: string; department_id: string }>; sources: Array<{ id?: string; ip_address: string }> }
+    const body = detailsSave!.body as { departments: Array<{ id?: string; department_id: string }>; sources: Array<{ id?: string; ips: Array<{ id?: string; ip_address: string }> }> }
     expect(body.departments).toEqual([{ id: undefined, department_id: 'dep-1' }]) // подгружено у донора, id обнулён
     expect(body.sources[0].id).toBeUndefined()
-    expect(body.sources[0].ip_address).toBe('10.0.0.9')
+    // Донорский id вложенного IP тоже обнулён (см. комментарий у stripIds() в компоненте) — иначе
+    // backend отклонил бы его 422 "IP не принадлежит выбранному источнику" (у новой source-строки
+    // такого id ещё быть не может).
+    expect(body.sources[0].ips).toEqual([{ id: undefined, ip_address: '10.0.0.9' }])
     // Копия создаёт НОВУЮ ИС (POST) и её собственные details (PUT .../is-new/details) — донор не трогается.
     expect(calls.some((c) => c.url.includes('/information-systems/is-src/details') && c.method === 'PUT')).toBe(false)
   })

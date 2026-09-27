@@ -7,7 +7,13 @@
 // сама ВМ) остаются активны одновременно — выбор ВМ подставляет её хост автоматически, но хост
 // можно потом переопределить вручную (это сбросит выбранную ВМ). Сохранено как есть ради
 // точного паритета поведения, а не "исправлено" по собственной инициативе.
-import type { Device, ISSourceDraftRow, VirtualMachine, Container } from '../api/types'
+//
+// IP "ручного" источника — список отдельных полей (ips), а не одно текстовое поле через запятую
+// (миграция d8e35a1c7f60, вопрос 3/5 отчёта по анализу БД, согласовано с заказчиком). Список
+// рендерится отдельным блоком под основной 4-колоночной сеткой (.source-grid), а не внутри неё —
+// переменное число IP сломало бы фиксированную раскладку "8 элементов на 4 колонки" (см.
+// комментарий у .row-actions ниже).
+import type { Device, ISSourceDraftRow, SourceIpDraftRow, VirtualMachine, Container } from '../api/types'
 
 const props = defineProps<{ modelValue: ISSourceDraftRow[]; deviceOptions: Device[]; vmOptions: VirtualMachine[]; containerOptions: Container[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: ISSourceDraftRow[]] }>()
@@ -28,7 +34,7 @@ function sortedVms(row: ISSourceDraftRow): VirtualMachine[] {
 }
 
 function emptyRow(): ISSourceDraftRow {
-  return { source_type: 'manual', physical_device_id: '', virtual_machine_id: '', container_id: '', ip_address: '', purpose: '', role: '', external_interaction: false }
+  return { source_type: 'manual', physical_device_id: '', virtual_machine_id: '', container_id: '', ips: [], purpose: '', role: '', external_interaction: false }
 }
 
 function addRow() {
@@ -50,7 +56,7 @@ function updateRow(index: number, patch: Partial<ISSourceDraftRow>) {
 }
 
 function onTypeChange(index: number, sourceType: string) {
-  updateRow(index, { source_type: sourceType as ISSourceDraftRow['source_type'], physical_device_id: '', virtual_machine_id: '', container_id: '', ip_address: '' })
+  updateRow(index, { source_type: sourceType as ISSourceDraftRow['source_type'], physical_device_id: '', virtual_machine_id: '', container_id: '', ips: [] })
 }
 
 function onDeviceChange(index: number, deviceId: string) {
@@ -62,8 +68,20 @@ function onVmChange(index: number, vmId: string) {
   updateRow(index, { virtual_machine_id: vmId, source_type: 'vm', physical_device_id: vm?.physical_device_id ?? '' })
 }
 
-function ipPlaceholder(row: ISSourceDraftRow): string {
-  return row.source_type === 'manual' ? 'IP-адрес (можно несколько через запятую)' : 'IP берётся из выбранного оборудования/ВМ'
+function addIp(rowIndex: number) {
+  const row = props.modelValue[rowIndex]
+  updateRow(rowIndex, { ips: [...row.ips, { ip_address: '' }] })
+}
+
+function removeIp(rowIndex: number, ipIndex: number) {
+  const row = props.modelValue[rowIndex]
+  updateRow(rowIndex, { ips: row.ips.filter((_, j) => j !== ipIndex) })
+}
+
+function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
+  const row = props.modelValue[rowIndex]
+  const ips: SourceIpDraftRow[] = row.ips.map((x, j) => (j === ipIndex ? { ...x, ip_address: ipAddress } : x))
+  updateRow(rowIndex, { ips })
 }
 </script>
 
@@ -104,13 +122,8 @@ function ipPlaceholder(row: ISSourceDraftRow): string {
           <option value="">— контейнер —</option>
           <option v-for="c in containerOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
-        <input
-          class="col-ip"
-          :placeholder="ipPlaceholder(row)"
-          :disabled="row.source_type !== 'manual'"
-          :value="row.ip_address"
-          @input="updateRow(i, { ip_address: ($event.target as HTMLInputElement).value })"
-        />
+        <button v-if="row.source_type === 'manual'" type="button" class="btn-link col-ip" @click="addIp(i)">+ IP-адрес</button>
+        <span v-else class="ip-hint col-ip">IP берётся из выбранного оборудования/ВМ</span>
         <input placeholder="Назначение" :value="row.purpose" @input="updateRow(i, { purpose: ($event.target as HTMLInputElement).value })" />
         <input placeholder="Роль в ИС" :value="row.role" @input="updateRow(i, { role: ($event.target as HTMLInputElement).value })" />
         <!-- Фикс: чекбокс "Внешнее" и кнопка удаления объединены в одну ячейку грида (.row-actions)
@@ -127,6 +140,15 @@ function ipPlaceholder(row: ISSourceDraftRow): string {
           </label>
           <button type="button" class="icon-btn danger" aria-label="Удалить источник" @click="removeRow(i)">
             <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+          </button>
+        </div>
+      </div>
+
+      <div v-if="row.source_type === 'manual' && row.ips.length" class="manual-ips">
+        <div v-for="(ip, j) in row.ips" :key="ip.id ?? j" class="manual-ip-row">
+          <input placeholder="IP-адрес" :value="ip.ip_address" @input="updateIp(i, j, ($event.target as HTMLInputElement).value)" />
+          <button type="button" class="icon-btn danger" aria-label="Удалить IP" @click="removeIp(i, j)">
+            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
           </button>
         </div>
       </div>
@@ -218,6 +240,49 @@ function ipPlaceholder(row: ISSourceDraftRow): string {
 }
 .add-btn {
   align-self: flex-start;
+}
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--brand);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-link:hover {
+  text-decoration: underline;
+}
+.ip-hint {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+.manual-ips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.manual-ip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.manual-ip-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ink);
+  font-family: inherit;
 }
 
 @media (max-width: 900px) {
