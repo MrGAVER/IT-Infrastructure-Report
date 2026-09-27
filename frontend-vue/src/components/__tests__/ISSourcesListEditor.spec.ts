@@ -14,7 +14,7 @@ const vms: VirtualMachine[] = [
 const containers: Container[] = [{ id: 'ct-1', name: 'nginx-container', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null }]
 
 function emptyRow(): ISSourceDraftRow {
-  return { source_type: 'manual', physical_device_id: '', virtual_machine_id: '', container_id: '', ips: [], purpose: '', role: '', external_interaction: false }
+  return { source_type: 'manual', owner_id: '', vmHostHint: '', ips: [], purpose: '', role: '', external_interaction: false }
 }
 
 const baseProps = { deviceOptions: devices, vmOptions: vms, containerOptions: containers }
@@ -33,7 +33,7 @@ describe('ISSourcesListEditor.vue', () => {
     expect(emitted[0][0]).toEqual([emptyRow()])
   })
 
-  it('при смене типа сбрасывает device/vm/container/ips выбранной строки', async () => {
+  it('при смене типа сбрасывает owner_id/vmHostHint/ips выбранной строки', async () => {
     const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'manual', ips: [{ ip_address: '10.0.0.1' }] }]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
@@ -43,7 +43,7 @@ describe('ISSourcesListEditor.vue', () => {
     expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'device' }])
   })
 
-  it('при выборе ВМ подставляет её хост и переключает тип на "vm"', async () => {
+  it('при выборе ВМ owner_id становится id ВМ, тип переключается на "vm", хост виден в селекте сервера', async () => {
     const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm' }]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
@@ -51,18 +51,23 @@ describe('ISSourcesListEditor.vue', () => {
     await vmSelect.setValue('vm-2')
 
     const emitted = wrapper.emitted('update:modelValue')!
-    expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'vm', virtual_machine_id: 'vm-2', physical_device_id: 'dev-2' }])
+    expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-2' }])
+
+    // Хост подставлен автоматически из vmOptions по owner_id (а не хранится отдельным полем).
+    await wrapper.setProps({ modelValue: emitted[0][0] as ISSourceDraftRow[] })
+    const deviceSelect = wrapper.findAll('.source-grid select')[1]
+    expect((deviceSelect.element as HTMLSelectElement).value).toBe('dev-2')
   })
 
-  it('при ручном выборе устройства сбрасывает уже выбранную ВМ', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', virtual_machine_id: 'vm-1', physical_device_id: 'dev-1' }]
+  it('при ручном выборе устройства (тип "ВМ") сбрасывает owner_id и запоминает хост как фильтр', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
     const deviceSelect = wrapper.findAll('.source-grid select')[1]
     await deviceSelect.setValue('dev-2')
 
     const emitted = wrapper.emitted('update:modelValue')!
-    expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'vm', physical_device_id: 'dev-2', virtual_machine_id: '' }])
+    expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'vm', owner_id: '', vmHostHint: 'dev-2' }])
   })
 
   it('для типа не "вручную" показывает подсказку вместо списка IP', () => {

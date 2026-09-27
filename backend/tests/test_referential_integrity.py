@@ -83,10 +83,15 @@ class ReferentialIntegrityTestCase(unittest.TestCase):
 
 
 class InformationSystemSourceFKTestCase(unittest.TestCase):
-    """Регрессия: форма ИС отправляет '' (а не null) для FK-полей источника, которые не относятся
-    к выбранному типу источника (например physical_device_id при source_type='manual'), потому что
-    браузер по-прежнему присылает значение неактивного <select>. Пустая строка — не NULL, поэтому
-    SQLite/Postgres отклоняли запись с 'FOREIGN KEY constraint failed', и данные молча терялись."""
+    """Регрессия: форма ИС отправляет '' (а не null) для owner_id, когда выбранному типу источника
+    (source_type='manual') владелец вообще не нужен, потому что браузер по-прежнему присылает
+    значение неактивного <select>. До миграции 944bd490d967 (три отдельные FK-колонки) пустая
+    строка — не NULL, поэтому SQLite/Postgres отклоняли запись с 'FOREIGN KEY constraint failed', и
+    данные молча терялись. owner_id, пришедший ей на замену, настоящим FK уже не является (см.
+    докстринг модели InformationSystemSource), так что буквально та же ошибка теперь невозможна —
+    но нормализация оставлена: хранить owner_id='' вместо NULL значило бы завести "пустое, но не
+    NULL" значение, которое не сможет ни на что сослаться, а по факту будет неотличимо на глаз в
+    БД от настоящего id."""
 
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
@@ -104,15 +109,15 @@ class InformationSystemSourceFKTestCase(unittest.TestCase):
     def tearDown(self):
         self.session.close()
 
-    def test_empty_string_fk_fields_in_source_are_normalized_to_null(self):
+    def test_empty_string_owner_id_in_source_is_normalized_to_null(self):
         isys = InformationSystem(name="ИС для теста FK")
         self.session.add(isys); self.session.commit()
 
         payload = {
             "departments": [], "protocols": [],
             "sources": [{
-                "source_type": "manual", "physical_device_id": "", "virtual_machine_id": "",
-                "container_id": "", "ips": [{"ip_address": "10.0.0.5"}], "purpose": "", "role": "",
+                "source_type": "manual", "owner_id": "",
+                "ips": [{"ip_address": "10.0.0.5"}], "purpose": "", "role": "",
                 "external_interaction": False,
             }],
             "placement_assets": [],
@@ -120,7 +125,7 @@ class InformationSystemSourceFKTestCase(unittest.TestCase):
         result = sync_information_system_details(isys.id, payload, self.session)
         self.assertEqual(len(result["sources"]), 1)
         self.assertEqual(result["sources"][0]["ips"][0]["ip_address"], "10.0.0.5")
-        self.assertIsNone(result["sources"][0]["physical_device_id"])
+        self.assertIsNone(result["sources"][0]["owner_id"])
 
 
 if __name__ == "__main__":

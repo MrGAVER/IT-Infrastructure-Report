@@ -58,7 +58,7 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
         if (url.includes('/information-systems/is-2/details') && method === 'GET') {
           return jsonResponse({
             ...EMPTY_DETAILS,
-            sources: [{ id: 'src-1', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ips: [{ id: 'ip-1', ip_address: '1.1.1.1' }], purpose: '', role: '', external_interaction: false }],
+            sources: [{ id: 'src-1', source_type: 'manual', owner_id: null, ips: [{ id: 'ip-1', ip_address: '1.1.1.1' }], purpose: '', role: '', external_interaction: false }],
           })
         }
         if (method === 'PUT' && url.includes('/resources/information-systems/is-2') && !url.includes('/details')) {
@@ -74,9 +74,9 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     await flushPromises()
 
     const detailsSave = calls.find((c) => c.method === 'PUT' && c.url.includes('/details'))
-    const body = detailsSave!.body as { sources: Array<{ id?: string; physical_device_id: string | null; ips: Array<{ ip_address: string }> }> }
+    const body = detailsSave!.body as { sources: Array<{ id?: string; owner_id: string | null; ips: Array<{ ip_address: string }> }> }
     expect(body.sources).toHaveLength(1)
-    expect(body.sources[0]).toMatchObject({ id: 'src-1', physical_device_id: null })
+    expect(body.sources[0]).toMatchObject({ id: 'src-1', owner_id: null })
     expect(body.sources[0].ips).toEqual([{ id: 'ip-1', ip_address: '1.1.1.1' }])
   })
 
@@ -120,7 +120,7 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     expect(body.departments).toEqual([{ id: undefined, department_id: 'dep-1' }])
     expect(body.protocols).toEqual([{ id: undefined, protocol_catalog_id: 'cat-https', description: null }])
     expect(body.sources).toEqual([
-      { id: undefined, source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ips: [{ id: undefined, ip_address: '192.168.1.1' }], purpose: null, role: null, external_interaction: false },
+      { id: undefined, source_type: 'manual', owner_id: null, ips: [{ id: undefined, ip_address: '192.168.1.1' }], purpose: null, role: null, external_interaction: false },
     ])
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
@@ -265,7 +265,7 @@ describe('фикс п.2: копирование информационной с�
           return jsonResponse({
             ...EMPTY_DETAILS,
             departments: [{ id: 'dep-link-src', department_id: 'dep-1' }],
-            sources: [{ id: 'src-src', source_type: 'manual', physical_device_id: null, virtual_machine_id: null, container_id: null, ips: [{ id: 'ip-src', ip_address: '10.0.0.9' }], purpose: '', role: '', external_interaction: false }],
+            sources: [{ id: 'src-src', source_type: 'manual', owner_id: null, ips: [{ id: 'ip-src', ip_address: '10.0.0.9' }], purpose: '', role: '', external_interaction: false }],
           })
         }
         if (method === 'POST' && url.endsWith('/resources/information-systems')) {

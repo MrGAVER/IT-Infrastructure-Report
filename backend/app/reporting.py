@@ -138,14 +138,16 @@ def _is_source_links(obj, d: SimpleNamespace) -> tuple:
     без дублирования и риска разойтись."""
     linked_devices=[]; linked_vms=[]; linked_containers=[]
     for src in d.source_by_is[obj.id]:
-        if src.source_type=='device' and src.physical_device_id in d.device_map:
-            dev=d.device_map[src.physical_device_id]
+        # owner_id хранит id устройства/ВМ/контейнера в зависимости от source_type (миграция
+        # 944bd490d967, см. models.InformationSystemSource) — раньше это были три отдельные колонки.
+        if src.source_type=='device' and src.owner_id in d.device_map:
+            dev=d.device_map[src.owner_id]
             if dev not in linked_devices: linked_devices.append(dev)
-        elif src.source_type=='vm' and src.virtual_machine_id in d.vm_map:
-            v=d.vm_map[src.virtual_machine_id]
+        elif src.source_type=='vm' and src.owner_id in d.vm_map:
+            v=d.vm_map[src.owner_id]
             if v not in linked_vms: linked_vms.append(v)
-        elif src.source_type=='container' and src.container_id in d.container_map:
-            c=d.container_map[src.container_id]
+        elif src.source_type=='container' and src.owner_id in d.container_map:
+            c=d.container_map[src.owner_id]
             if c not in linked_containers: linked_containers.append(c)
     return linked_devices, linked_vms, linked_containers
 

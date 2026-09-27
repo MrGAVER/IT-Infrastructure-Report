@@ -467,14 +467,32 @@ class InformationSystemSource(TimestampMixin, Base):
     остальных типов IP берётся из связанного оборудования/ВМ) теперь отдельные строки IPAddress
     с owner_type="information_system_source", owner_id=<id этой записи> — по одному адресу на
     строку, а не через запятую (вопрос 3/5 отчёта по анализу БД, согласовано с заказчиком: "можно
-    добавлять несколько полей IP вместо одного текстового поля")."""
+    добавлять несколько полей IP вместо одного текстового поля").
+
+    owner_id (миграция 944bd490d967, п.5 отчёта по анализу БД) заменяет три прежние nullable FK-
+    колонки (physical_device_id/virtual_machine_id/container_id — у любой строки была заполнена от
+    силы одна, конкретно какая — определялась уже существующим source_type). Тот же приём, что и у
+    OpenPort/DeployedSoftware/IPAddress (owner_type/owner_id), только здесь роль owner_type играет
+    само поле source_type — заводить для него отдельную колонку было бы чистым дублированием, само
+    значение и так однозначно: 'device' → PhysicalDevice, 'vm' → VirtualMachine,
+    'container' → Container, 'manual' → owner_id всегда NULL.
+
+    ВАЖНО — семантика владения здесь ОБРАТНАЯ по отношению к тем трём моделям: там владелец
+    (устройство/ВМ) владеет дочерней записью и её осиротение при удалении владельца желательно
+    (см. _POLYMORPHIC_OWNER_CLEANUP в services/crud.py). Здесь ИС лишь ССЫЛАЕТСЯ на оборудование
+    как на место размещения — удаление устройства/ВМ/контейнера, на который ссылается хотя бы одна
+    строка source, должно быть ЗАБЛОКИРОВАНО (иначе регуляторный отчёт будет описывать размещение
+    ИС на уже не существующем оборудовании). Раньше это обеспечивал сам FK на уровне БД; owner_id
+    настоящим FK не является (ссылается на одну из трёх разных таблиц в зависимости от source_type
+    — единая FK-колонка не может ссылаться на разные таблицы), поэтому защита воссоздана вручную в
+    services/crud.py:delete_resource() через _BLOCK_DELETE_IF_REFERENCED_BY_SOURCE — решение
+    заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
+    точности отчёта)."""
     __tablename__ = "information_system_sources"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    source_type: Mapped[str] = mapped_column(String(30))  # manual, device, vm, container
-    physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    virtual_machine_id: Mapped[Optional[str]] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-    container_id: Mapped[Optional[str]] = mapped_column(ForeignKey("containers.id"), index=True)
+    source_type: Mapped[str] = mapped_column(String(30))  # manual, device, vm, container — также играет роль owner_type
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)  # id устройства/ВМ/контейнера по source_type; NULL при source_type='manual'. Не настоящий FK — см. докстринг класса
     purpose: Mapped[Optional[str]] = mapped_column(String(500))
     role: Mapped[Optional[str]] = mapped_column(String(255))
     external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)

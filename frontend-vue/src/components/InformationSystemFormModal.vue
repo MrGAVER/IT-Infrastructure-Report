@@ -125,9 +125,11 @@ function toSourceDraftRow(x: ISSource): ISSourceDraftRow {
   return {
     id: x.id || undefined,
     source_type: (x.source_type as ISSourceDraftRow['source_type']) || 'manual',
-    physical_device_id: x.physical_device_id ?? '',
-    virtual_machine_id: x.virtual_machine_id ?? '',
-    container_id: x.container_id ?? '',
+    owner_id: x.owner_id ?? '',
+    // Пусто: ВМ (если это source_type='vm') уже сохранена, её хост показывается через vmOptions
+    // по owner_id (см. deviceSelectValue в ISSourcesListEditor.vue) — hint нужен только для ещё не
+    // сохранённого выбора.
+    vmHostHint: '',
     ips: x.ips.map((ip) => ({ id: ip.id, ip_address: ip.ip_address })),
     purpose: x.purpose ?? '',
     role: x.role ?? '',
@@ -216,9 +218,9 @@ function buildDetailsPayload() {
       .map((x) => ({
         id: x.id,
         source_type: x.source_type,
-        physical_device_id: x.physical_device_id || null,
-        virtual_machine_id: x.virtual_machine_id || null,
-        container_id: x.container_id || null,
+        // vmHostHint сюда намеренно не попадает — это чисто клиентское UX-состояние выбора ВМ по
+        // хосту (см. api/types.ts), backend про него не знает.
+        owner_id: x.owner_id || null,
         ips: x.ips.filter((ip) => ip.ip_address.trim()).map((ip) => ({ id: ip.id, ip_address: ip.ip_address.trim() })),
         purpose: x.purpose || null,
         role: x.role || null,

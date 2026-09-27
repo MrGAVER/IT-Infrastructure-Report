@@ -1418,6 +1418,68 @@ class TestPolymorphicOwnerCleanupOnDelete:
         assert client.get(f"/api/v1/resources/ip-addresses/{ip['id']}").status_code == 404
 
 
+class TestInformationSystemSourceBlocksOwnerDeletion:
+    """Правка "переработка структуры БД", п.5 отчёта по анализу БД: information_system_sources.
+    owner_id ссылается на устройство/ВМ/контейнер, но НЕ является настоящим FK (миграция
+    944bd490d967, см. docstring models.InformationSystemSource) — в отличие от
+    TestPolymorphicOwnerCleanupOnDelete выше, здесь семантика владения ОБРАТНАЯ (ИС ссылается на
+    оборудование, не владеет им), поэтому вместо тихой зачистки нужна блокировка удаления —
+    воссоздана вручную в crud.py (_information_system_source_block_refs), см. её docstring."""
+
+    def test_cannot_delete_device_referenced_by_is_source(self, client):
+        dt = _create_device_type(client, "Сервер для блокировки удаления по источнику ИС")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-IS-SRC-DEV"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС на устройстве"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "device", "owner_id": dev["id"]})
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+
+    def test_cannot_delete_vm_referenced_by_is_source(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для блокировки удаления по источнику ИС"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС на ВМ"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "vm", "owner_id": vm["id"]})
+
+        r = client.delete(f"/api/v1/resources/vms/{vm['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+
+    def test_cannot_delete_container_referenced_by_is_source(self, client):
+        container = client.post("/api/v1/resources/containers", json={"name": "container-is-src"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС на контейнере"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "container", "owner_id": container["id"]})
+
+        r = client.delete(f"/api/v1/resources/containers/{container['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+
+    def test_device_deletable_again_after_referencing_source_removed(self, client):
+        dt = _create_device_type(client, "Сервер, источник ИС на котором потом удалили")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-IS-SRC-FREED"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС, источник которой удалили"}).json()
+        source = client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "device", "owner_id": dev["id"]}).json()
+
+        assert client.delete(f"/api/v1/resources/devices/{dev['id']}").status_code == 409
+        assert client.delete(f"/api/v1/resources/is-sources/{source['id']}").status_code == 200
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 200, r.text
+
+    def test_manual_source_never_blocks_any_owner_deletion(self, client):
+        """source_type='manual' не задействует блокировку ни для одного resource — owner_id у
+        такой строки всегда NULL, поэтому нет и не может быть записи, для удаления которой она
+        стала бы препятствием; тест лишь фиксирует это явно, а не проверяет отсутствие побочного
+        эффекта на всех resource-типах разом."""
+        dt = _create_device_type(client, "Сервер, не связанный ни с одним источником ИС")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-IS-SRC-MANUAL"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС с ручным источником"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "manual"})
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 200, r.text
+
+
 class TestNewDomainVlanAutoAssignedToSourceDevice:
     """Пункт 2 правки "создание физического устройства": VLAN, заведённый в справочник (POST
     /resources/vlans) сразу с domain_id, должен появиться в «VLAN устройства» устройства-источника

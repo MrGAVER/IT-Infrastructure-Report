@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ..models import (Connection, ConnectionType, DeviceInterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember)
-from ..constants import OwnerType
+from ..constants import OwnerType, SourceType
 from .computed import device_management_ports_and_ips
 
 def serialize(obj: Any) -> dict[str, Any]:
@@ -165,13 +165,17 @@ def _load_information_systems_links(items: Sequence[InformationSystem], session:
     dep_ids = {x.department_id for x in dep_links}
     ln.dep_map = {x.id: x for x in session.scalars(select(Department).where(Department.id.in_(dep_ids))).all()} if dep_ids else {}
 
-    device_ids = {x.physical_device_id for x in source_rows if x.physical_device_id}
+    # owner_id хранит id устройства/ВМ/контейнера в зависимости от source_type (миграция
+    # 944bd490d967, см. models.InformationSystemSource) — раньше это были три отдельные FK-колонки,
+    # каждая фильтровалась просто на "не NULL"; теперь принадлежность владельца к конкретному типу
+    # определяется исключительно по source_type, поэтому фильтр по нему обязателен на каждой строке.
+    device_ids = {x.owner_id for x in source_rows if x.source_type == SourceType.DEVICE and x.owner_id}
     ln.device_map = {x.id: x for x in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
 
-    vm_ids = {x.virtual_machine_id for x in source_rows if x.virtual_machine_id}
+    vm_ids = {x.owner_id for x in source_rows if x.source_type == SourceType.VM and x.owner_id}
     ln.vm_map = {x.id: x for x in session.scalars(select(VirtualMachine).where(VirtualMachine.id.in_(vm_ids))).all()} if vm_ids else {}
 
-    cont_ids = {x.container_id for x in source_rows if x.container_id}
+    cont_ids = {x.owner_id for x in source_rows if x.source_type == SourceType.CONTAINER and x.owner_id}
     ln.cont_map = {x.id: x for x in session.scalars(select(Container).where(Container.id.in_(cont_ids))).all()} if cont_ids else {}
 
     proto_ids = {x.protocol_catalog_id for x in proto_rows if x.protocol_catalog_id}
@@ -218,12 +222,12 @@ def _enrich_single_information_system(obj: InformationSystem, ln: SimpleNamespac
     containers = []
     for src in ln.source_by_is.get(obj.id, []):
         ips.extend(x.ip_address for x in ln.source_ips_by_source.get(src.id, []))
-        if src.physical_device_id in ln.device_map and ln.device_map[src.physical_device_id] not in devices:
-            devices.append(ln.device_map[src.physical_device_id])
-        if src.virtual_machine_id in ln.vm_map and ln.vm_map[src.virtual_machine_id] not in vms:
-            vms.append(ln.vm_map[src.virtual_machine_id])
-        if src.container_id in ln.cont_map and ln.cont_map[src.container_id] not in containers:
-            containers.append(ln.cont_map[src.container_id])
+        if src.source_type == SourceType.DEVICE and src.owner_id in ln.device_map and ln.device_map[src.owner_id] not in devices:
+            devices.append(ln.device_map[src.owner_id])
+        if src.source_type == SourceType.VM and src.owner_id in ln.vm_map and ln.vm_map[src.owner_id] not in vms:
+            vms.append(ln.vm_map[src.owner_id])
+        if src.source_type == SourceType.CONTAINER and src.owner_id in ln.cont_map and ln.cont_map[src.owner_id] not in containers:
+            containers.append(ln.cont_map[src.owner_id])
 
     # If an IS is linked to a VM, include its actual VM IPs in the summary.
     for v in vms:

@@ -284,12 +284,14 @@ export interface InformationSystemDetails {
   placement_assets: Array<{ id: string; placement_asset_id: string }>
 }
 
+/** owner_id — id устройства/ВМ/контейнера в зависимости от source_type (миграция 944bd490d967,
+ * см. backend/app/models.py:InformationSystemSource) — заменяет прежние три отдельные FK-поля
+ * (physical_device_id/virtual_machine_id/container_id), у которых реально было заполнено от силы
+ * одно; null при source_type='manual'. */
 export interface ISSource {
   id: string
   source_type: string
-  physical_device_id: string | null
-  virtual_machine_id: string | null
-  container_id: string | null
+  owner_id: string | null
   ips: IPAddress[]
   purpose: string | null
   role: string | null
@@ -324,14 +326,18 @@ export interface SourceIpDraftRow {
   ip_address: string
 }
 
-/** Черновая строка ISSourcesListEditor.vue — см. комментарий к InformationSystemDetails.sources
- * и ISSourcesListEditor.vue про порядок полей source_type/physical_device_id/virtual_machine_id. */
+/** Черновая строка ISSourcesListEditor.vue — см. комментарий к InformationSystemDetails.sources.
+ * owner_id — единственное отправляемое на backend поле-владелец (id устройства при source_type=
+ * 'device', ВМ при 'vm', контейнера при 'container'; пусто при 'manual'). vmHostHint — НЕ
+ * отправляется на backend (см. buildDetailsPayload в InformationSystemFormModal.vue): чисто
+ * клиентское состояние для UX выбора ВМ по её хосту (см. комментарий в ISSourcesListEditor.vue) —
+ * нужно только пока при source_type='vm' сама ВМ ещё не выбрана (owner_id пуст), после выбора ВМ
+ * её хост уже выводится из vmOptions по owner_id. */
 export interface ISSourceDraftRow {
   id?: string
   source_type: 'manual' | 'device' | 'vm' | 'container'
-  physical_device_id: string
-  virtual_machine_id: string
-  container_id: string
+  owner_id: string
+  vmHostHint: string
   ips: SourceIpDraftRow[]
   purpose: string
   role: string

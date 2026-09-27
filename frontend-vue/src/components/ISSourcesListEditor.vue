@@ -8,6 +8,11 @@
 // можно потом переопределить вручную (это сбросит выбранную ВМ). Сохранено как есть ради
 // точного паритета поведения, а не "исправлено" по собственной инициативе.
 //
+// Модель данных строки (миграция 944bd490d967): единое owner_id вместо прежних трёх отдельных
+// FK-полей — при source_type='vm' оно хранит id самой ВМ, а не её хоста, поэтому для описанного
+// выше "выбрали сервер, ещё не выбрали ВМ" состояния используется отдельное, НЕ отправляемое на
+// backend поле vmHostHint (см. api/types.ts и deviceSelectValue ниже).
+//
 // IP "ручного" источника — список отдельных полей (ips), а не одно текстовое поле через запятую
 // (миграция d8e35a1c7f60, вопрос 3/5 отчёта по анализу БД, согласовано с заказчиком). Список
 // рендерится отдельным блоком под основной 4-колоночной сеткой (.source-grid), а не внутри неё —
@@ -22,19 +27,31 @@ function deviceLabel(d: Device): string {
   return d.system_name || d.serial_number
 }
 
+// Значение, показываемое в селекте "физический сервер". При source_type='device' owner_id и есть
+// выбранный сервер. При source_type='vm' owner_id хранит id самой ВМ (не её хоста) — если ВМ уже
+// выбрана, хост выводится из vmOptions; если ещё нет, используется чисто клиентский vmHostHint
+// (см. комментарий у него в api/types.ts) — тот же приём, что раньше давало отдельное поле
+// physical_device_id на самой строке, просто теперь это состояние не отправляется на backend.
+function deviceSelectValue(row: ISSourceDraftRow): string {
+  if (row.source_type === 'device') return row.owner_id
+  if (row.source_type === 'vm') return props.vmOptions.find((v) => v.id === row.owner_id)?.physical_device_id ?? row.vmHostHint
+  return ''
+}
+
 // ВМ, чей текущий хост совпадает с уже выбранным физическим сервером строки, поднимаются
 // наверх списка — тот же приём, что в vanilla-версии, экономит прокрутку в частом случае
 // "сначала выбрали сервер, теперь выбираем его ВМ".
 function sortedVms(row: ISSourceDraftRow): VirtualMachine[] {
+  const hostId = deviceSelectValue(row)
   return [...props.vmOptions].sort((a, b) => {
-    const am = row.physical_device_id && a.physical_device_id === row.physical_device_id ? 0 : 1
-    const bm = row.physical_device_id && b.physical_device_id === row.physical_device_id ? 0 : 1
+    const am = hostId && a.physical_device_id === hostId ? 0 : 1
+    const bm = hostId && b.physical_device_id === hostId ? 0 : 1
     return am - bm
   })
 }
 
 function emptyRow(): ISSourceDraftRow {
-  return { source_type: 'manual', physical_device_id: '', virtual_machine_id: '', container_id: '', ips: [], purpose: '', role: '', external_interaction: false }
+  return { source_type: 'manual', owner_id: '', vmHostHint: '', ips: [], purpose: '', role: '', external_interaction: false }
 }
 
 function addRow() {
@@ -56,16 +73,19 @@ function updateRow(index: number, patch: Partial<ISSourceDraftRow>) {
 }
 
 function onTypeChange(index: number, sourceType: string) {
-  updateRow(index, { source_type: sourceType as ISSourceDraftRow['source_type'], physical_device_id: '', virtual_machine_id: '', container_id: '', ips: [] })
+  updateRow(index, { source_type: sourceType as ISSourceDraftRow['source_type'], owner_id: '', vmHostHint: '', ips: [] })
 }
 
 function onDeviceChange(index: number, deviceId: string) {
-  updateRow(index, { physical_device_id: deviceId, virtual_machine_id: '' })
+  const row = props.modelValue[index]
+  // При типе "ВМ" сервер — только фильтр для списка ВМ (см. deviceSelectValue), сам не
+  // сохраняется как owner_id; смена сервера сбрасывает уже выбранную ВМ, как и раньше.
+  if (row.source_type === 'vm') updateRow(index, { owner_id: '', vmHostHint: deviceId })
+  else updateRow(index, { owner_id: deviceId })
 }
 
 function onVmChange(index: number, vmId: string) {
-  const vm = props.vmOptions.find((v) => v.id === vmId)
-  updateRow(index, { virtual_machine_id: vmId, source_type: 'vm', physical_device_id: vm?.physical_device_id ?? '' })
+  updateRow(index, { owner_id: vmId, source_type: 'vm', vmHostHint: '' })
 }
 
 function addIp(rowIndex: number) {
@@ -103,21 +123,21 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
           <option value="container">Контейнер</option>
         </select>
         <select
-          :value="row.physical_device_id"
+          :value="deviceSelectValue(row)"
           :disabled="row.source_type !== 'device' && row.source_type !== 'vm'"
           @change="onDeviceChange(i, ($event.target as HTMLSelectElement).value)"
         >
           <option value="">— физический сервер —</option>
           <option v-for="d in deviceOptions" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
         </select>
-        <select :value="row.virtual_machine_id" :disabled="row.source_type !== 'vm'" @change="onVmChange(i, ($event.target as HTMLSelectElement).value)">
+        <select :value="row.source_type === 'vm' ? row.owner_id : ''" :disabled="row.source_type !== 'vm'" @change="onVmChange(i, ($event.target as HTMLSelectElement).value)">
           <option value="">— ВМ —</option>
           <option v-for="v in sortedVms(row)" :key="v.id" :value="v.id">{{ v.name }}</option>
         </select>
         <select
-          :value="row.container_id"
+          :value="row.source_type === 'container' ? row.owner_id : ''"
           :disabled="row.source_type !== 'container'"
-          @change="updateRow(i, { container_id: ($event.target as HTMLSelectElement).value })"
+          @change="updateRow(i, { owner_id: ($event.target as HTMLSelectElement).value })"
         >
           <option value="">— контейнер —</option>
           <option v-for="c in containerOptions" :key="c.id" :value="c.id">{{ c.name }}</option>

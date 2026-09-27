@@ -441,11 +441,38 @@ _POLYMORPHIC_OWNER_CLEANUP: dict[str, list[tuple[type, str]]] = {
     'is-sources': [(IPAddress, OwnerType.INFORMATION_SYSTEM_SOURCE)],
 }
 
+# Правка "переработка структуры БД" (п.5 отчёта по анализу БД): InformationSystemSource.owner_id
+# ссылается на устройство/ВМ/контейнер, но НЕ является настоящим FK (миграция 944bd490d967, см.
+# докстринг модели) — семантика здесь обратная _POLYMORPHIC_OWNER_CLEANUP выше: ИС ссылается на
+# оборудование, а не владеет им, поэтому при удалении оборудования нужна не тихая зачистка, а
+# БЛОКИРОВКА — то же поведение, которое раньше давал настоящий FK. resource_key → значение
+# source_type, которое соответствует этому типу владельца (source_type играет роль owner_type).
+_INFORMATION_SYSTEM_SOURCE_OWNER_TYPE_BY_RESOURCE: dict[str, str] = {
+    'devices': SourceType.DEVICE, 'vms': SourceType.VM, 'containers': SourceType.CONTAINER,
+}
+
+def _information_system_source_block_refs(resource: str, item_id: str, session: Session) -> list[tuple[str, int]]:
+    """Возвращает refs в том же формате (name, count), что и _find_referencing_counts(), для строк
+    InformationSystemSource, ссылающихся на удаляемую запись через owner_id/source_type. Не смешана
+    с самой _find_referencing_counts(), потому что та — общий, чисто reflection-based механизм по
+    настоящим FK (см. её докстринг) и структурно не видит полиморфные owner_id/source_type; здесь —
+    единственное явное, вручную сопровождаемое исключение. Возвращаемый список объединяется с
+    результатом _find_referencing_counts() в delete_resource(), поэтому сообщение об ошибке 409
+    получается в точности того же формата, что и для обычных FK-ссылок."""
+    source_type = _INFORMATION_SYSTEM_SOURCE_OWNER_TYPE_BY_RESOURCE.get(resource)
+    if source_type is None:
+        return []
+    count = session.scalar(
+        select(func.count()).select_from(InformationSystemSource)
+        .where(InformationSystemSource.source_type == source_type, InformationSystemSource.owner_id == item_id)
+    )
+    return [(DISPLAY_NAMES['is-sources'], count)] if count else []
+
 def delete_resource(resource: str, item_id: str, session: Session):
     ensure_writable(resource)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
-    refs = _find_referencing_counts(model, item_id, session)
+    refs = _find_referencing_counts(model, item_id, session) + _information_system_source_block_refs(resource, item_id, session)
     if refs:
         details = ', '.join(f'{name}: {count}' for name, count in refs)
         raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': f'Нельзя удалить: запись используется в других данных ({details}).'})
@@ -724,11 +751,11 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
         if obj is None: raise HTTPException(422, 'Источник не принадлежит выбранной ИС')
         is_new = not getattr(obj, 'id', None)
         if is_new: session.add(obj)
-        for k in ('source_type','physical_device_id','virtual_machine_id','container_id','purpose','role','external_interaction'):
+        for k in ('source_type','owner_id','purpose','role','external_interaction'):
             value = item.get(k)
-            # Same empty-string-vs-NULL issue as above: disabled selects for the fields that don't
-            # apply to the chosen source_type still submit '' rather than null.
-            if value == '' and k in ('physical_device_id','virtual_machine_id','container_id'): value = None
+            # Same empty-string-vs-NULL issue as above: a disabled select (когда выбранному
+            # source_type владелец не нужен, например 'manual') по-прежнему присылает '', а не null.
+            if value == '' and k == 'owner_id': value = None
             setattr(obj, k, value)
         if is_new: session.flush()  # нужен obj.id ниже — для владения вложенными IP этой строки
         seen.add(obj.id)

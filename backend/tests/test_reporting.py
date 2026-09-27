@@ -63,8 +63,8 @@ class Sheet1InformationSystems(ReportingTestCase):
         vm = C["VirtualMachine"](id="v1", name="VM1", physical_device_id="d1", purpose="")
         vm_ip = C["IPAddress"](id="vip1", owner_type="virtual_machine", owner_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True)
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
-        src_dev = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1")
-        src_vm = C["InformationSystemSource"](id="src2", information_system_id="is1", source_type="vm", virtual_machine_id="v1")
+        src_dev = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1")
+        src_vm = C["InformationSystemSource"](id="src2", information_system_id="is1", source_type="vm", owner_id="v1")
         self.table.update({
             "InformationSystem": [isys], "PhysicalDevice": [dev], "DeviceInterface": [iface],
             "IPAddress": [dev_ip, vm_ip], "VirtualMachine": [vm],
@@ -81,7 +81,7 @@ class Sheet1InformationSystems(ReportingTestCase):
         C = self.C
         dev = C["PhysicalDevice"](id="d1", serial_number="SN1", system_name="NEW-SRV")
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
-        src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1", role="server")
+        src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1", role="server")
         self.table.update({
             "InformationSystem": [isys], "PhysicalDevice": [dev],
             "InformationSystemSource": [src],
@@ -369,7 +369,7 @@ class Sheet4VirtualMachines(ReportingTestCase):
         sw = C["SoftwareAsset"](id="sw1", name="1С:Предприятие")
         link = C["DeployedSoftware"](id="l1", owner_type="physical_device", owner_id="d1", software_asset_id="sw1")
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
-        src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1")
+        src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1")
         self.table.update({
             "PhysicalDevice": [dev], "SoftwareAsset": [sw], "DeployedSoftware": [link],
             "InformationSystem": [isys], "InformationSystemSource": [src],
@@ -461,7 +461,7 @@ class StructuralUnitFiltering(ReportingTestCase):
         C = self.C
         dev1, dev2 = self._two_units_two_buildings_two_devices()
         isys = C["InformationSystem"](id="is1", name="ИС на оборудовании филиала А", crypto_protection_enabled=False)
-        link = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", physical_device_id="d1")
+        link = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1")
         self.table.update({"InformationSystem": [isys], "InformationSystemSource": [link]})
         wb_in = self.build(Path("/tmp/test_su_is_in"), structural_unit_ids=["su1"])
         self.assertEqual([r[1] for r in self.sheet_rows(wb_in, "Перечень ИС")[1:]], ["ИС на оборудовании филиала А"])
@@ -474,7 +474,7 @@ class StructuralUnitFiltering(ReportingTestCase):
         dev1, dev2 = self._two_units_two_buildings_two_devices()
         vm = C["VirtualMachine"](id="v1", name="VM-1", physical_device_id="d1", purpose="")
         isys = C["InformationSystem"](id="is1", name="ИС на ВМ филиала А", crypto_protection_enabled=False)
-        link = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="vm", virtual_machine_id="v1")
+        link = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="vm", owner_id="v1")
         self.table.update({"VirtualMachine": [vm], "InformationSystem": [isys], "InformationSystemSource": [link]})
         wb_in = self.build(Path("/tmp/test_su_isvm_in"), structural_unit_ids=["su1"])
         self.assertEqual([r[1] for r in self.sheet_rows(wb_in, "Перечень ИС")[1:]], ["ИС на ВМ филиала А"])

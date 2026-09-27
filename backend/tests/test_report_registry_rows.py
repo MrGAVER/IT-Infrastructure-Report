@@ -219,9 +219,9 @@ def _seed_rich_dataset(session):
     session.flush()
 
     session.add(InformationSystemSource(information_system_id=isys.id, source_type="device",
-                                         physical_device_id=dev1.id))
+                                         owner_id=dev1.id))
     src_vm = InformationSystemSource(information_system_id=isys.id, source_type="vm",
-                                      virtual_machine_id=vm1.id)
+                                      owner_id=vm1.id)
     session.add(src_vm)
     session.flush()
     session.add(IPAddress(owner_type="information_system_source", owner_id=src_vm.id, ip_address="203.0.113.5"))
