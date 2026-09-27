@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+import zipfile
 from urllib.parse import quote
 
 import pytest
@@ -272,6 +273,110 @@ def test_export_drawio_handles_empty_graph():
 # --------------------------------------------------------------------------------------
 # .vsdx
 # --------------------------------------------------------------------------------------
+
+def test_export_vsdx_embeds_category_icon_as_foreign_data(tmp_path):
+    """Находка №5 отчёта (Фаза 3, п.5, часть 2): иконка категории встраивается как отдельная
+    фигура-картинка (ForeignData/Rel — см. docstring _embed_vsdx_category_icons) поверх основной
+    фигуры узла. ВАЖНО: это проверяет структурную корректность пакета (открывается обратно самой
+    vsdx, содержит валидный PNG, связи и Content-Type на месте) — НЕ визуальную отрисовку;
+    сторонний инструмент проверки (headless LibreOffice) для этой конкретной фигуры недоступен
+    как оракул, см. learnings в памяти проекта."""
+    vsdx = pytest.importorskip("vsdx")
+    graph = _sample_graph()
+    data = export_vsdx(graph)
+    out_path = tmp_path / "diagram_icon.vsdx"
+    out_path.write_bytes(data)
+
+    # 1. Пакет остаётся валидным ZIP/XML и читается обратно самой vsdx без исключений.
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        page = vf.get_page(0)
+        shapes = list(page.child_shapes)
+        assert len(shapes) >= len(graph["nodes"])  # + отдельные фигуры-иконки поверх узлов
+    finally:
+        vf.close_vsdx()
+
+    # 2. ForeignData/Rel присутствует хотя бы у одной фигуры, PNG-часть существует и валидна.
+    with zipfile.ZipFile(out_path) as zf:
+        names = zf.namelist()
+        page1 = zf.read("visio/pages/page1.xml").decode("utf-8")
+        assert "<ForeignData" in page1
+        assert 'ForeignType="Bitmap"' in page1
+
+        media_names = [n for n in names if n.startswith("visio/media/image")]
+        assert media_names
+        png_bytes = zf.read(media_names[0])
+        assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n")  # сигнатура PNG
+
+        rels = zf.read("visio/pages/_rels/page1.xml.rels").decode("utf-8")
+        assert 'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"' in rels
+
+        content_types = zf.read("[Content_Types].xml").decode("utf-8")
+        assert 'Extension="png"' in content_types
+
+
+def test_export_vsdx_dedupes_identical_glyph_to_one_image(tmp_path):
+    """Два устройства одной категории (одинаковый icon["glyph"]) должны переиспользовать ОДНУ
+    картинку, а не плодить дубликаты — см. glyph_rel_ids в export_vsdx."""
+    pytest.importorskip("vsdx")
+    same_glyph = '<rect x="2" y="2" width="20" height="20"/>'
+    graph = {
+        "nodes": [
+            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0,
+             "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff", "glyph": same_glyph}},
+            {"id": "b", "type": "device", "label": "b", "x": 300, "y": 0,
+             "icon": {"mode": "generated", "shape": "server", "color": "#e67e22", "glyph": same_glyph}},
+        ],
+        "edges": [],
+    }
+    data = export_vsdx(graph)
+    out_path = tmp_path / "diagram_dedup.vsdx"
+    out_path.write_bytes(data)
+
+    with zipfile.ZipFile(out_path) as zf:
+        media_names = [n for n in zf.namelist() if n.startswith("visio/media/image")]
+        assert len(media_names) == 1
+
+
+def test_export_vsdx_without_glyphs_has_no_media(tmp_path):
+    """Custom-иконки (без glyph) и группы не должны создавать ни одной картинки-оверлея."""
+    pytest.importorskip("vsdx")
+    graph = {
+        "nodes": [
+            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0,
+             "icon": {"mode": "custom", "svg_markup": "<circle r='5'/>"}},
+            {"id": "g", "type": "group", "label": "group", "x": 300, "y": 0},
+        ],
+        "edges": [],
+    }
+    data = export_vsdx(graph)
+    out_path = tmp_path / "diagram_no_icons.vsdx"
+    out_path.write_bytes(data)
+
+    with zipfile.ZipFile(out_path) as zf:
+        media_names = [n for n in zf.namelist() if n.startswith("visio/media/")]
+        assert media_names == []
+
+
+def test_export_vsdx_icon_shape_has_no_leftover_template_text(tmp_path):
+    """Если ForeignData не распознаётся читателем, фигура откатывается на обычную геометрию —
+    без явной очистки показала бы унаследованный от шаблона текст "RECTANGLE" (см. docstring в
+    export_vsdx). Проверяем, что среди фигур нет ни одной с таким текстом."""
+    vsdx = pytest.importorskip("vsdx")
+    graph = _sample_graph()
+    data = export_vsdx(graph)
+    out_path = tmp_path / "diagram_icon_text.vsdx"
+    out_path.write_bytes(data)
+
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        page = vf.get_page(0)
+        texts = [(s.text or "").strip() for s in page.child_shapes]
+        assert "RECTANGLE" not in texts
+        assert "CONNECTED_SHAPE" not in texts
+    finally:
+        vf.close_vsdx()
+
 
 def test_export_vsdx_page_fits_content_bounding_box(tmp_path):
     """Находка №5 отчёта (Фаза 2, п.3): страница подгоняется под фактический охват графа
