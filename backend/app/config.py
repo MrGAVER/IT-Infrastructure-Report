@@ -14,7 +14,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_regi
 # файла (см. api/system.py:frontend_index), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-APP_VERSION = '2.83.0'
+APP_VERSION = '2.84.0'
 
 # Frontend is served from the same origin (StaticFiles mount below), and the app currently
 # does not use cookies/auth headers, so CORS is only relevant when a separate frontend origin
