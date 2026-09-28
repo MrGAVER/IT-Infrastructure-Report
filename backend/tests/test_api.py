@@ -1424,7 +1424,7 @@ class TestInformationSystemSourceBlocksOwnerDeletion:
     944bd490d967, см. docstring models.InformationSystemSource) — в отличие от
     TestPolymorphicOwnerCleanupOnDelete выше, здесь семантика владения ОБРАТНАЯ (ИС ссылается на
     оборудование, не владеет им), поэтому вместо тихой зачистки нужна блокировка удаления —
-    воссоздана вручную в crud.py (_information_system_source_block_refs), см. её docstring."""
+    воссоздана вручную: crud.assert_deletable() + services/integrity.py (before_delete, триггеры БД)."""
 
     def test_cannot_delete_device_referenced_by_is_source(self, client):
         dt = _create_device_type(client, "Сервер для блокировки удаления по источнику ИС")

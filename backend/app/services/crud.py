@@ -13,6 +13,7 @@ from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
 from .diagram_icons import validate_svg_markup
+from .integrity import format_referenced_message, source_reference_refs
 from .validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
 
 def model_for(resource: str):
@@ -441,41 +442,23 @@ _POLYMORPHIC_OWNER_CLEANUP: dict[str, list[tuple[type, str]]] = {
     'is-sources': [(IPAddress, OwnerType.INFORMATION_SYSTEM_SOURCE)],
 }
 
-# Правка "переработка структуры БД" (п.5 отчёта по анализу БД): InformationSystemSource.owner_id
-# ссылается на устройство/ВМ/контейнер, но НЕ является настоящим FK (миграция 944bd490d967, см.
-# докстринг модели) — семантика здесь обратная _POLYMORPHIC_OWNER_CLEANUP выше: ИС ссылается на
-# оборудование, а не владеет им, поэтому при удалении оборудования нужна не тихая зачистка, а
-# БЛОКИРОВКА — то же поведение, которое раньше давал настоящий FK. resource_key → значение
-# source_type, которое соответствует этому типу владельца (source_type играет роль owner_type).
-_INFORMATION_SYSTEM_SOURCE_OWNER_TYPE_BY_RESOURCE: dict[str, str] = {
-    'devices': SourceType.DEVICE, 'vms': SourceType.VM, 'containers': SourceType.CONTAINER,
-}
-
-def _information_system_source_block_refs(resource: str, item_id: str, session: Session) -> list[tuple[str, int]]:
-    """Возвращает refs в том же формате (name, count), что и _find_referencing_counts(), для строк
-    InformationSystemSource, ссылающихся на удаляемую запись через owner_id/source_type. Не смешана
-    с самой _find_referencing_counts(), потому что та — общий, чисто reflection-based механизм по
-    настоящим FK (см. её докстринг) и структурно не видит полиморфные owner_id/source_type; здесь —
-    единственное явное, вручную сопровождаемое исключение. Возвращаемый список объединяется с
-    результатом _find_referencing_counts() в delete_resource(), поэтому сообщение об ошибке 409
-    получается в точности того же формата, что и для обычных FK-ссылок."""
-    source_type = _INFORMATION_SYSTEM_SOURCE_OWNER_TYPE_BY_RESOURCE.get(resource)
-    if source_type is None:
-        return []
-    count = session.scalar(
-        select(func.count()).select_from(InformationSystemSource)
-        .where(InformationSystemSource.source_type == source_type, InformationSystemSource.owner_id == item_id)
-    )
-    return [(DISPLAY_NAMES['is-sources'], count)] if count else []
+def assert_deletable(resource: str, item_id: str, session: Session) -> None:
+    """Единая точка проверки «можно ли удалить запись»: настоящие FK-ссылки (reflection-based
+    _find_referencing_counts) + owner_id-ссылки источников ИС на устройство/ВМ/контейнер
+    (InformationSystemSource.owner_id — не FK, см. services/integrity.py). Кидает 409 в едином
+    формате. Любой новый путь удаления устройства/ВМ/контейнера ОБЯЗАН вызывать эту функцию
+    (delete_resource() уже вызывает); сама защита на этом не заканчивается — см. before_delete и
+    триггеры БД в integrity.py — но понятное сообщение пользователю даёт только этот уровень."""
+    model = model_for(resource)
+    refs = _find_referencing_counts(model, item_id, session) + source_reference_refs(resource, item_id, session)
+    if refs:
+        raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': format_referenced_message(refs)})
 
 def delete_resource(resource: str, item_id: str, session: Session):
     ensure_writable(resource)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
-    refs = _find_referencing_counts(model, item_id, session) + _information_system_source_block_refs(resource, item_id, session)
-    if refs:
-        details = ', '.join(f'{name}: {count}' for name, count in refs)
-        raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': f'Нельзя удалить: запись используется в других данных ({details}).'})
+    assert_deletable(resource, item_id, session)
     try:
         # Подтверждено эмпирически: DELETE /resources/interfaces/{id} в обход sync_interfaces
         # удалял интерфейс, но оставлял открытые порты/IP в БД с owner_id, указывающим на уже не

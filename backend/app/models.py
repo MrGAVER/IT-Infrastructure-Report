@@ -485,7 +485,7 @@ class InformationSystemSource(TimestampMixin, Base):
     ИС на уже не существующем оборудовании). Раньше это обеспечивал сам FK на уровне БД; owner_id
     настоящим FK не является (ссылается на одну из трёх разных таблиц в зависимости от source_type
     — единая FK-колонка не может ссылаться на разные таблицы), поэтому защита воссоздана вручную в
-    services/crud.py:delete_resource() через _BLOCK_DELETE_IF_REFERENCED_BY_SOURCE — решение
+    services/crud.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см. services/integrity.py) — решение
     заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
     точности отчёта)."""
     __tablename__ = "information_system_sources"

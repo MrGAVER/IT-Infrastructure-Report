@@ -2285,7 +2285,7 @@ Backend: 517 pytest (+20 новых: 8 на миграцию, 4 на очист�
 БД (нельзя удалить устройство/ВМ/контейнер, пока на него ссылается ИС) — важно для точности
 регуляторного отчёта. `owner_id` НЕ является настоящим FK (одна колонка не может физически
 ссылаться на три разные таблицы), поэтому защита воссоздана вручную в `crud.py:delete_resource()`
-(`_information_system_source_block_refs`, объединяется с `_find_referencing_counts()` — 409-ошибка
+(`source_reference_refs` из `services/integrity.py` внутри `assert_deletable`, объединяется с `_find_referencing_counts()` — 409-ошибка
 получается в точности того же формата, что и для обычных FK-ссылок) — решение заказчика по итогам
 рассмотрения архитектурной развилки: не откладывать защиту «на потом».
 
@@ -2300,3 +2300,40 @@ Frontend: `ISSourcesListEditor.vue` — единое `owner_id` вместо т�
 
 Backend: 529 pytest (+12 новых: 7 на миграцию, 5 на блокировку удаления, остальные — адаптация
 существующих), ruff check — зелёные. Frontend: 762 vitest, vue-tsc -b, vite build — зелёные.
+
+### 2.90.0 — защита ссылочной целостности для owner_id без FK: пять уровней, рабочий downgrade
+
+По итогам п.3 предложений после переработки БД (2.89.0): `InformationSystemSource.owner_id` (как
+и `owner_id` у `OpenPort`/`DeployedSoftware`/`IPAddress`) — не настоящий FK, а вся защита от
+удаления держалась на одном месте, `delete_resource()`. Любой новый путь удаления в обход него
+молча оставлял бы «висячие» ссылки. Добавлены все пять уровней защиты (`services/integrity.py`):
+
+1. `crud.assert_deletable()` — единая точка проверки «можно ли удалить» (FK-ссылки + `owner_id`-
+   ссылки источников ИС); `delete_resource()` теперь вызывает её. Единый текст 409 —
+   `format_referenced_message()`.
+2. `before_delete` на `PhysicalDevice`/`VirtualMachine`/`Container` — срабатывает на любое
+   ORM-удаление в обход `delete_resource()`; в HTTP-слое `ReferencedRecordError` превращается в
+   тот же 409 с тем же кодом (обработчик в `main.py`), а не в 500.
+3. Триггеры БД (миграция `5b1e7c94a2d8`) — `BEFORE DELETE` на `physical_devices`/`virtual_machines`/
+   `containers`: последний рубеж, ловит и прямой SQL. SQLite — `RAISE(ABORT)`, PostgreSQL — функция
+   на plpgsql с SQLSTATE 23503. Обе ветки проверены: SQLite — тестами, PostgreSQL 16 — реальным
+   прогоном upgrade → блокировка → downgrade → повторный upgrade.
+4. Диагностика: `find_orphaned_owner_references()` и `GET /api/v1/integrity` находят уже существующие
+   «висячие» ссылки во ВСЕХ четырёх моделях без FK (плюс записи с неизвестным `owner_type`);
+   только чтение.
+5. Статическая проверка исходников (`tests/test_deletion_guards.py`): любой новый путь прямого
+   удаления в `app/` (`session.delete`, `delete(...)`, `.query().delete()`, сырой `DELETE FROM`),
+   не внесённый в `ALLOWED_DELETIONS`, роняет тест; Core-удаление защищённых моделей запрещено
+   безусловно.
+
+**Downgrade теперь обязан работать** (требование проекта для всех новых миграций): `downgrade()`
+миграции `5b1e7c94a2d8` снимает триггеры и функцию, данных не меняет; проверен тестом (upgrade →
+downgrade → upgrade). Прежние миграции серии с заглушкой `RuntimeError` не менялись.
+
+Ограничения (описаны в `services/integrity.py`): `before_delete` не видит массовое Core-удаление
+(его ловят триггер БД и статический тест); если в одной транзакции удаляются источник ИС и его
+владелец, источник нужно удалить и сделать `flush()` раньше владельца. На SQLite пересборка
+защищённой таблицы в будущей миграции удалит её триггер — это ловит тест на `head`.
+
+Backend: 578 pytest (+32: 10 на миграцию с триггерами, 22 на защиты и диагностику), ruff check —
+зелёные. Frontend без изменений: 772 vitest, vue-tsc -b, vite build — зелёные.
