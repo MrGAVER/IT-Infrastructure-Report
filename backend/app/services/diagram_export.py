@@ -32,7 +32,9 @@ services.diagram_graph.build_graph) и воспроизводят одну и т
 """
 from __future__ import annotations
 
+import base64
 import io
+import logging
 import os
 import re
 import shutil
@@ -41,6 +43,8 @@ import zipfile
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
 from xml.sax.saxutils import escape
+
+logger = logging.getLogger(__name__)
 
 NODE_WIDTH = 160
 NODE_HEIGHT = 70
@@ -68,6 +72,27 @@ DIAGRAM_EDGE_FONT_SIZE = 9
 GLYPH_DISPLAY_SIZE = 32
 GLYPH_TOP_MARGIN = 4
 
+# Пользовательские (загруженные) иконки в .drawio/.vsdx (Фаза 3, п.5, «свои иконки»). На канвасе
+# custom-иконка занимает весь бокс узла (inset: 0) на тёмном фоне, а подпись рисуется поверх неё
+# белым цветом. В .drawio/.vsdx так повторить нельзя: цвет шрифта в .vsdx задать нечем (у
+# шаблонных фигур нет секции Character, см. README «Известные ограничения»), а картинка-оверлей
+# перекрывает подпись самой фигуры. Поэтому подпись всегда остаётся читаемой чёрным по светлой
+# заливке в полосе CUSTOM_ICON_LABEL_HEIGHT внизу узла, а иконка занимает всё остальное.
+CUSTOM_ICON_LABEL_HEIGHT = 24
+CUSTOM_ICON_TILE_HEIGHT = NODE_HEIGHT - CUSTOM_ICON_LABEL_HEIGHT
+CUSTOM_ICON_TILE_RADIUS = 8  # как rx у узла в .svg — скругляем верхние углы плитки
+CUSTOM_ICON_TILE_PADDING = 4
+CUSTOM_ICON_BACKGROUND_COLOR = "#1e2c3b"  # --surface-2 канваса (DiagramDeviceNode.vue)
+CUSTOM_ICON_PNG_SCALE = 4  # растр для .vsdx в 4x от размера в пикселях графа — иначе мыльно
+# svg_markup — пользовательский ввод без ограничения длины на уровне БД; в .drawio он попадает в
+# data URI стиля, в .vsdx — в растеризатор. Слишком большую разметку пропускаем (иконка узла
+# откатывается на серую заливку), а не раздуваем файл и не тратим на неё время.
+MAX_CUSTOM_ICON_SVG_LENGTH = 256 * 1024
+
+_SVG_NS_URI = "http://www.w3.org/2000/svg"
+_XLINK_NS_URI = "http://www.w3.org/1999/xlink"
+_SVG_ROOT_TAG = re.compile(r"<svg\b[^>]*>", re.IGNORECASE)
+
 
 def _vlan_label(edge: dict) -> str:
     return ", ".join(f"VLAN {v['vlan_id']}" for v in edge.get("vlans", []))
@@ -77,8 +102,10 @@ def _device_fill_color(icon: dict) -> str:
     """Общая для .drawio и .vsdx логика цвета узла-устройства (группы красятся отдельно, см.
     вызывающий код): цвет категории берём только у сгенерированных иконок — у custom-иконок
     (icon["mode"] == "custom") ключа "color" нет вовсе, там для внешнего вида отвечает
-    svg_markup (см. diagram_icons.build_device_icon), поэтому в .drawio/.vsdx, где произвольную
-    SVG-разметку не вставить, откатываемся на нейтральный CUSTOM_ICON_FALLBACK_COLOR."""
+    svg_markup (см. diagram_icons.build_device_icon). В .drawio/.vsdx иконка кладётся отдельной
+    картинкой-плиткой поверх верхней части узла (см. _custom_icon_tile_svg), а сама фигура узла
+    остаётся нейтральной CUSTOM_ICON_FALLBACK_COLOR — под подпись и как откат, если иконку не
+    удалось нарисовать (пустая/битая/слишком большая разметка)."""
     if icon.get("mode") == "generated":
         return icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
     return CUSTOM_ICON_FALLBACK_COLOR
@@ -147,6 +174,101 @@ def _rasterize_glyph_png(glyph: str) -> bytes:
         f'<g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
     )
     return bytes(resvg_py.svg_to_bytes(svg_string=svg, width=128, height=128))
+
+
+def _has_svg_attr(tag: str, name: str) -> bool:
+    """Есть ли у открывающего тега атрибут name. \\s перед именем — чтобы \"width\" не находился
+    внутри \"stroke-width\", а \"xmlns\" — внутри \"xmlns:xlink\"."""
+    return re.search(rf"\s{name}\s*=", tag, re.IGNORECASE) is not None
+
+
+def _standalone_custom_svg(icon: dict) -> str | None:
+    """Приводит svg_markup custom-иконки (icon[\"mode\"] == \"custom\") к самодостаточному SVG-
+    документу, который можно положить в data URI или отдать растеризатору; None — если рисовать
+    нечего (не custom-иконка, пустая или слишком длинная разметка).
+
+    В БД лежит как полный <svg>...</svg> (типичная иконка из внешнего редактора), так и голый
+    фрагмент (<circle .../>): .svg-экспорт вставляет разметку дословно со сдвигом на левый верхний
+    угол узла, то есть координаты фрагмента — пиксели бокса NODE_WIDTH x NODE_HEIGHT. Ту же
+    систему координат сохраняем и здесь: фрагмент оборачиваем в <svg viewBox=\"0 0 W H\">, а у
+    полного <svg> без viewBox и без width+height добавляем такой же viewBox. Без размера
+    вложенное изображение не отрисуется вовсе (нечего масштабировать). Недостающие xmlns/
+    xmlns:xlink добавляем — без них документ не разбирается вне HTML.
+    """
+    if icon.get("mode") != "custom":
+        return None
+    markup = (icon.get("svg_markup") or "").strip()
+    if not markup:
+        return None
+    if len(markup) > MAX_CUSTOM_ICON_SVG_LENGTH:
+        logger.warning("svg_markup custom-иконки слишком велик (%d символов) — иконка пропущена", len(markup))
+        return None
+
+    match = _SVG_ROOT_TAG.search(markup)
+    if match is None:
+        return f'<svg xmlns="{_SVG_NS_URI}" viewBox="0 0 {NODE_WIDTH} {NODE_HEIGHT}">{markup}</svg>'
+
+    root_tag = match.group(0)
+    extra_attrs = []
+    if not _has_svg_attr(root_tag, "xmlns"):
+        extra_attrs.append(f'xmlns="{_SVG_NS_URI}"')
+    if "xlink:" in markup and not _has_svg_attr(root_tag, "xmlns:xlink"):
+        extra_attrs.append(f'xmlns:xlink="{_XLINK_NS_URI}"')
+    if not _has_svg_attr(root_tag, "viewBox") and not (_has_svg_attr(root_tag, "width") and _has_svg_attr(root_tag, "height")):
+        extra_attrs.append(f'viewBox="0 0 {NODE_WIDTH} {NODE_HEIGHT}"')
+    if not extra_attrs:
+        return markup
+    patched_tag = re.sub(r"<svg\b", "<svg " + " ".join(extra_attrs), root_tag, count=1, flags=re.IGNORECASE)
+    return markup[: match.start()] + patched_tag + markup[match.end() :]
+
+
+def _custom_icon_tile_svg(standalone_svg: str) -> str:
+    """Плитка custom-иконки размером NODE_WIDTH x CUSTOM_ICON_TILE_HEIGHT: тёмный фон канваса со
+    скруглёнными верхними углами и сама иконка, вписанная с сохранением пропорций (как
+    max-width/max-height: 100% в .custom-icon канваса).
+
+    Пользовательская разметка кладётся ТОЛЬКО как вложенное <image href=\"data:image/svg+xml;
+    base64,...\"> — никогда на корень документа. Это принципиально: проверено напрямую — resvg на
+    корневом уровне читает локальные файлы по <image href=\"/абсолютный/путь\"> (содержимое попало
+    бы в PNG для .vsdx), а во вложенном SVG-изображении внешние ресурсы не загружаются. Браузеры и
+    draw.io обрабатывают такой data URI как изображение — без скриптов и без внешних запросов.
+    Проверка _FORBIDDEN_SVG_PATTERN (diagram_icons.py) этого класса атак не покрывает вовсе.
+    """
+    width, height, radius, pad = NODE_WIDTH, CUSTOM_ICON_TILE_HEIGHT, CUSTOM_ICON_TILE_RADIUS, CUSTOM_ICON_TILE_PADDING
+    encoded = base64.b64encode(standalone_svg.encode("utf-8")).decode("ascii")
+    return (
+        f'<svg xmlns="{_SVG_NS_URI}" xmlns:xlink="{_XLINK_NS_URI}" viewBox="0 0 {width} {height}" width="{width}" height="{height}">'
+        f'<path d="M0 {height}V{radius}a{radius} {radius} 0 0 1 {radius} -{radius}H{width - radius}'
+        f'a{radius} {radius} 0 0 1 {radius} {radius}V{height}z" fill="{CUSTOM_ICON_BACKGROUND_COLOR}"/>'
+        f'<image xlink:href="data:image/svg+xml;base64,{encoded}" x="{pad}" y="{pad}" '
+        f'width="{width - 2 * pad}" height="{height - 2 * pad}" preserveAspectRatio="xMidYMid meet"/></svg>'
+    )
+
+
+def _custom_icon_data_uri(standalone_svg: str) -> str:
+    """Плитка custom-иконки как data URI для .drawio — percent-encoding по той же причине, что и в
+    _glyph_data_uri (drawpyo режет значение стиля по первому \"=\", а base64 внутри плитки его
+    содержит: после quote() символа \"=\" (как и \";\") в строке не остаётся)."""
+    return f"data:image/svg+xml,{quote(_custom_icon_tile_svg(standalone_svg))}"
+
+
+def _rasterize_custom_icon_png(standalone_svg: str) -> bytes | None:
+    """Растрирует плитку custom-иконки в PNG для .vsdx. None — если resvg не смог разобрать
+    документ (битая разметка): такая иконка пропускается, а экспорт всей диаграммы не падает
+    из-за одного некорректного svg_markup в каталоге."""
+    import resvg_py
+
+    try:
+        return bytes(
+            resvg_py.svg_to_bytes(
+                svg_string=_custom_icon_tile_svg(standalone_svg),
+                width=NODE_WIDTH * CUSTOM_ICON_PNG_SCALE,
+                height=CUSTOM_ICON_TILE_HEIGHT * CUSTOM_ICON_PNG_SCALE,
+            )
+        )
+    except ValueError as exc:
+        logger.warning("Не удалось растрировать custom-иконку для .vsdx: %s", exc)
+        return None
 
 
 # --------------------------------------------------------------------------------------
@@ -295,6 +417,9 @@ def export_drawio(graph: dict) -> str:
         else:
             icon = node["icon"]
             obj.fillColor = _device_fill_color(icon)
+            # Подпись у нижнего края узла, как на канвасе/в .svg: по умолчанию draw.io ставит её
+            # по центру, где теперь иконка (32x32 у сгенерированных, плитка у custom-иконок).
+            obj.text_format.verticalAlign = "bottom"
             # Раньше — только icon["shape"].startswith("switch"), см. тот же комментарий у
             # _svg_node про рассинхронизацию с port_ticks, который backend считает для ЛЮБОЙ
             # сгенерированной иконки: без этого у остальных форм ребро (см. ниже exitX/entryX)
@@ -324,6 +449,19 @@ def export_drawio(graph: dict) -> str:
                         tick.width = 4
                         tick.height = 6
                         tick.fillColor = "#222222"
+            else:
+                custom_svg = _standalone_custom_svg(icon)
+                if custom_svg:
+                    # Пользовательская иконка — плитка над полосой подписи (см. константы
+                    # CUSTOM_ICON_*). Отдельный объект поверх узла, тем же приёмом, что и глиф
+                    # категории выше: shape=image + data URI, атрибуты — напрямую, а не через
+                    # apply_style_string (см. docstring _glyph_data_uri).
+                    tile_obj = drawpyo.diagram.Object(page=page, value="")
+                    tile_obj.position = (node["x"], node["y"])
+                    tile_obj.width = NODE_WIDTH
+                    tile_obj.height = CUSTOM_ICON_TILE_HEIGHT
+                    tile_obj._add_and_set_style_attrib("shape", "image")
+                    tile_obj._add_and_set_style_attrib("image", _custom_icon_data_uri(custom_svg))
         objects_by_node_id[node["id"]] = obj
 
     nodes_by_id = {n["id"]: n for n in graph["nodes"]}
@@ -568,6 +706,47 @@ def _vsdx_port_anchor(shape, fraction: float | None) -> tuple[float, float]:
     return (left + shape.width * fraction, bottom)
 
 
+def _set_vsdx_shape_size(shape, width: float, height: float) -> None:
+    """Задаёт размер фигуры (дюймы) и явно пересчитывает LocPinX/LocPinY.
+
+    vsdx не пересчитывает формульные ячейки при смене Width/Height: у скопированного шаблонного
+    прямоугольника LocPinX/LocPinY = Width*0.5/Height*0.5 остаются кэшированными значениями V от
+    шаблонного размера, а читатели (проверено в headless LibreOffice) берут именно V — фигура
+    после ресайза рисуется смещённой (левый край = PinX - устаревший LocPinX). Поэтому после
+    любого ресайза pin ставим в центр вручную. Вызывать ДО расчёта target_x/target_y, которые
+    опираются на shape.width/height.
+    """
+    shape.width = width
+    shape.height = height
+    shape.set_cell_value("LocPinX", str(width / 2))
+    shape.set_cell_value("LocPinY", str(height / 2))
+
+
+def _add_vsdx_image_overlay(rect_template, node_shape, rel_id: str, width: float, height: float, top_margin: float) -> None:
+    """Добавляет на страницу фигуру-оверлей с растровой картинкой (ForeignData/Rel на rId) размера
+    width x height (дюймы), по центру верхней части node_shape, с отступом top_margin от её верха.
+
+    Отдельная фигура, а не что-то в самой цветной фигуре узла: ForeignData делает фигуру
+    картинкой целиком — подмешивать её в уже закрашенный прямоугольник нельзя. Если читатель
+    ForeignData не распознаёт (headless LibreOffice, см. learnings), фигура откатывается на
+    обычную геометрию — унаследованный от шаблона текст \"RECTANGLE\" и заливку убираем явно,
+    иначе вместо аккуратной картинки останется белый прямоугольник с посторонним текстом.
+    """
+    from vsdx import namespace as visio_ns
+
+    overlay = rect_template.copy()
+    overlay.text = ""
+    overlay.fill_color = "#FFFFFF"
+    overlay.line_color = "#FFFFFF"
+    center_y = node_shape.y + node_shape.height / 2 - top_margin - height / 2
+    overlay.move(node_shape.x - overlay.x, center_y - overlay.y)
+    _set_vsdx_shape_size(overlay, width, height)
+    foreign_data = ET.SubElement(overlay.xml, f"{visio_ns}ForeignData")
+    foreign_data.set("ForeignType", "Bitmap")
+    rel_el = ET.SubElement(foreign_data, f"{visio_ns}Rel")
+    rel_el.set(f"{{{_R_NS_URI}}}id", rel_id)
+
+
 def _fit_vsdx_page_to_content(page, graph: dict) -> float:
     """Возвращает итоговую высоту страницы (дюймы) — используется вызывающим кодом для формулы
     target_y (находка №1, поправка на высоту страницы). Находка №5 отчёта (Фаза 2, п.3):
@@ -606,18 +785,34 @@ def export_vsdx(graph: dict) -> bytes:
             rect_template = next(s for s in template_shapes if "RECTANGLE" in (s.text or ""))
             connector_template = next(s for s in template_shapes if "STRAIGHT_CONNECTOR" in (s.text or ""))
 
-            # Находка №5 отчёта (Фаза 3, п.5, часть 2): один PNG на УНИКАЛЬНЫЙ глиф, а не на
-            # узел — картинка рисуется в нейтральном белом цвете (см. _rasterize_glyph_png) и
-            # ложится поверх любой заливки фигуры прозрачным фоном, так что один и тот же файл
-            # годится для всех узлов этой категории независимо от цвета. rId начинаются с 2,
-            # т.к. rId1 в page1.xml.rels уже занят связью на master (см. media.vsdx).
+            # Находка №5 отчёта (Фаза 3, п.5, часть 2): один PNG на УНИКАЛЬНУЮ иконку (глиф
+            # категории или custom-разметку), а не на узел — картинка одна и та же для всех
+            # узлов с этой иконкой (глиф рисуется нейтральным белым и ложится на любую заливку).
+            # rId начинаются с 2, т.к. rId1 в page1.xml.rels уже занят связью на master
+            # (см. media.vsdx). None в кэше — иконку растрировать не удалось: пропускаем её для
+            # всех узлов, не пробуя заново.
             icon_pngs: dict[str, bytes] = {}
-            glyph_rel_ids: dict[str, str] = {}
+            image_rel_ids: dict[tuple[str, str], str | None] = {}
+
+            def rel_id_for(key: tuple[str, str], make_png) -> str | None:
+                if key not in image_rel_ids:
+                    png = make_png()
+                    if png is None:
+                        image_rel_ids[key] = None
+                    else:
+                        rel_id = f"rId{len(icon_pngs) + 2}"
+                        icon_pngs[rel_id] = png
+                        image_rel_ids[key] = rel_id
+                return image_rel_ids[key]
 
             shapes_by_node_id = {}
             for node in graph["nodes"]:
                 shape = rect_template.copy()
                 shape.text = node["label"]
+                # Размер фигуры должен совпадать с тем, по которому считается страница
+                # (_fit_vsdx_page_to_content: NODE_WIDTH/NODE_HEIGHT / VSDX_SCALE) — иначе нижний
+                # ряд и правый край графа обрезаются страницей. Ставим ДО target_x/target_y ниже.
+                _set_vsdx_shape_size(shape, NODE_WIDTH / VSDX_SCALE, NODE_HEIGHT / VSDX_SCALE)
                 # PinX/PinY (shape.x/shape.y) — точка привязки ФИГУРЫ, а не левый верхний угол:
                 # у скопированного шаблонного прямоугольника LocPinX/LocPinY = Width*0.5/Height*0.5
                 # (см. media.vsdx), то есть это ЦЕНТР. node["x"]/node["y"] графа — левый верхний
@@ -644,40 +839,27 @@ def export_vsdx(graph: dict) -> bytes:
                     shape.fill_color = color
                     shape.line_color = color
 
-                    glyph = node["icon"].get("glyph")
-                    if glyph:
-                        rel_id = glyph_rel_ids.get(glyph)
-                        if rel_id is None:
-                            rel_id = f"rId{len(glyph_rel_ids) + 2}"
-                            glyph_rel_ids[glyph] = rel_id
-                            icon_pngs[rel_id] = _rasterize_glyph_png(glyph)
+                    # Подпись у нижнего края узла (0 — верх, 1 — середина, 2 — низ), как на канвасе/
+                    # в .svg: по умолчанию текст по центру, где теперь иконка.
+                    shape.set_cell_value("VerticalAlign", "2")
 
-                        # Находка №5 отчёта (Фаза 3, п.5): та же позиция/размер иконки, что и в
-                        # .svg (_svg_node) и .drawio (см. GLYPH_DISPLAY_SIZE/GLYPH_TOP_MARGIN) —
-                        # по центру верхней части узла, переведённые в дюймы Visio через тот же
-                        # VSDX_SCALE, что и позиционирование самих фигур. Отдельная фигура-оверлей
-                        # (а не что-то в самой цветной фигуре), т.к. ForeignData делает фигуру
-                        # картинкой целиком — подмешивать её в уже закрашенный прямоугольник со
-                        # своей геометрией нельзя.
-                        icon_size = GLYPH_DISPLAY_SIZE / VSDX_SCALE
-                        icon_shape = rect_template.copy()
-                        # Если ForeignData не распознаётся читателем (см. docstring выше — ни
-                        # один доступный инструмент проверки её не поддержал), фигура откатывается
-                        # на свою обычную геометрию — унаследованный от шаблона текст
-                        # "RECTANGLE" и заливку нужно убрать явно, иначе вместо аккуратной
-                        # картинки останется белый прямоугольник с посторонним текстом.
-                        icon_shape.text = ""
-                        icon_shape.fill_color = "#FFFFFF"
-                        icon_shape.line_color = "#FFFFFF"
-                        top_edge = shape.y + shape.height / 2
-                        icon_center_y = top_edge - GLYPH_TOP_MARGIN / VSDX_SCALE - icon_size / 2
-                        icon_shape.move(shape.x - icon_shape.x, icon_center_y - icon_shape.y)
-                        icon_shape.width = icon_size
-                        icon_shape.height = icon_size
-                        foreign_data = ET.SubElement(icon_shape.xml, f"{visio_ns}ForeignData")
-                        foreign_data.set("ForeignType", "Bitmap")
-                        rel_el = ET.SubElement(foreign_data, f"{visio_ns}Rel")
-                        rel_el.set(f"{{{_R_NS_URI}}}id", rel_id)
+                    icon = node["icon"]
+                    glyph = icon.get("glyph")
+                    if glyph:
+                        rel_id = rel_id_for(("glyph", glyph), lambda: _rasterize_glyph_png(glyph))
+                        if rel_id is not None:
+                            # Та же позиция/размер иконки, что и в .svg (_svg_node) и .drawio
+                            # (GLYPH_DISPLAY_SIZE/GLYPH_TOP_MARGIN), переведённые в дюймы Visio.
+                            icon_size = GLYPH_DISPLAY_SIZE / VSDX_SCALE
+                            _add_vsdx_image_overlay(rect_template, shape, rel_id, icon_size, icon_size, GLYPH_TOP_MARGIN / VSDX_SCALE)
+                    else:
+                        custom_svg = _standalone_custom_svg(icon)
+                        if custom_svg:
+                            rel_id = rel_id_for(("custom", custom_svg), lambda: _rasterize_custom_icon_png(custom_svg))
+                            if rel_id is not None:
+                                _add_vsdx_image_overlay(
+                                    rect_template, shape, rel_id, NODE_WIDTH / VSDX_SCALE, CUSTOM_ICON_TILE_HEIGHT / VSDX_SCALE, 0.0
+                                )
 
                 shapes_by_node_id[node["id"]] = shape
 
