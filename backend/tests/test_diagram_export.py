@@ -8,19 +8,27 @@
 """
 from __future__ import annotations
 
+import base64
+import logging
+import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import pytest
 
 from app.services.diagram_export import (
+    CUSTOM_ICON_TILE_HEIGHT,
     GROUP_FILL_COLOR,
     DIAGRAM_FONT_FAMILY,
+    MAX_CUSTOM_ICON_SVG_LENGTH,
     NODE_HEIGHT,
     NODE_WIDTH,
+    _custom_icon_tile_svg,
+    _rasterize_custom_icon_png,
+    _standalone_custom_svg,
     export_drawio,
     export_svg,
     export_vsdx,
@@ -339,12 +347,13 @@ def test_export_vsdx_dedupes_identical_glyph_to_one_image(tmp_path):
 
 
 def test_export_vsdx_without_glyphs_has_no_media(tmp_path):
-    """Custom-иконки (без glyph) и группы не должны создавать ни одной картинки-оверлея."""
+    """Сгенерированная иконка без glyph и группа не должны создавать ни одной картинки-оверлея.
+    (Custom-иконки картинку создают — см. test_export_vsdx_custom_icon_* ниже.)"""
     pytest.importorskip("vsdx")
     graph = {
         "nodes": [
             {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0,
-             "icon": {"mode": "custom", "svg_markup": "<circle r='5'/>"}},
+             "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
             {"id": "g", "type": "group", "label": "group", "x": 300, "y": 0},
         ],
         "edges": [],
@@ -605,3 +614,215 @@ def test_export_vsdx_opens_in_third_party_reader(tmp_path):
     # ~6 КБ против ~15-26 КБ для того же графа с фигурами). Порог с большим запасом ниже
     # наблюдавшегося "пустого" размера, чтобы не быть хрупким к мелким изменениям рендеринга.
     assert png_path.stat().st_size > 8_000
+
+
+# --------------------------------------------------------------------------------------
+# Пользовательские (custom) иконки в .drawio/.vsdx и размер узлов .vsdx (Фаза 3, п.5)
+# --------------------------------------------------------------------------------------
+
+CUSTOM_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+    '<circle cx="12" cy="12" r="9" fill="none" stroke="#33c9a7" stroke-width="2"/></svg>'
+)
+
+
+def _custom_graph(*markups: str, x_step: int = 220) -> dict:
+    return {
+        "nodes": [
+            {"id": f"c{i}", "type": "device", "label": f"c{i}", "x": i * x_step, "y": 0,
+             "icon": {"mode": "custom", "svg_markup": markup}}
+            for i, markup in enumerate(markups)
+        ],
+        "edges": [],
+    }
+
+
+def _vsdx_media(data: bytes, tmp_path) -> list[str]:
+    out_path = tmp_path / "custom.vsdx"
+    out_path.write_bytes(data)
+    with zipfile.ZipFile(out_path) as zf:
+        return [n for n in zf.namelist() if n.startswith("visio/media/image")]
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected_fragments", "forbidden_fragments"),
+    [
+        # голый фрагмент: координаты — пиксели бокса узла, как в .svg-экспорте
+        ('<circle r="5"/>', ['xmlns="http://www.w3.org/2000/svg"', f'viewBox="0 0 {NODE_WIDTH} {NODE_HEIGHT}"', '<circle r="5"/>'], []),
+        # полный <svg> без xmlns и без размера: добавляем и то и другое
+        ("<svg><rect/></svg>", ['xmlns="http://www.w3.org/2000/svg"', "viewBox="], []),
+        # уже самодостаточный документ не трогаем
+        (CUSTOM_SVG, [CUSTOM_SVG], []),
+        # width+height достаточно, чтобы вложенное изображение имело размер — viewBox не добавляем
+        ('<svg width="10" height="10"><rect/></svg>', ['xmlns='], ["viewBox"]),
+        # "stroke-width" — не "width": иначе размер бы посчитался заданным
+        ('<svg xmlns="http://www.w3.org/2000/svg" stroke-width="2" height="5"><rect/></svg>', ["viewBox="], []),
+        # xlink: без объявления пространства имён — объявляем
+        ('<svg><image xlink:href="#a"/></svg>', ['xmlns:xlink="http://www.w3.org/1999/xlink"'], []),
+    ],
+)
+def test_standalone_custom_svg_normalizes_markup(markup, expected_fragments, forbidden_fragments):
+    result = _standalone_custom_svg({"mode": "custom", "svg_markup": markup})
+    assert result is not None
+    for fragment in expected_fragments:
+        assert fragment in result
+    for fragment in forbidden_fragments:
+        assert fragment not in result
+    ET.fromstring(result)  # результат — well-formed XML
+
+
+@pytest.mark.parametrize(
+    "icon",
+    [
+        {"mode": "generated", "svg_markup": CUSTOM_SVG},  # не custom — рисовать нечего
+        {"mode": "custom", "svg_markup": ""},
+        {"mode": "custom", "svg_markup": "   \n "},
+        {"mode": "custom", "svg_markup": None},
+        {"mode": "custom"},
+        {"mode": "custom", "svg_markup": "<rect/>" * (MAX_CUSTOM_ICON_SVG_LENGTH // 7 + 1)},
+    ],
+)
+def test_standalone_custom_svg_returns_none_for_unusable_icon(icon):
+    assert _standalone_custom_svg(icon) is None
+
+
+def test_export_drawio_custom_icon_rendered_as_image_tile_with_bottom_label():
+    xml_text = export_drawio(_custom_graph(CUSTOM_SVG))
+    vertices = _drawio_vertex_cells(xml_text)
+
+    tiles = [v for v in vertices if "shape=image" in v.get("style", "")]
+    assert len(tiles) == 1
+    geometry = tiles[0].find("mxGeometry")
+    assert float(geometry.get("width")) == NODE_WIDTH
+    assert float(geometry.get("height")) == CUSTOM_ICON_TILE_HEIGHT
+
+    # data URI содержит плитку, а в ней — исходную иконку, вложенную как изображение
+    image_uri = re.search(r"image=(data:image/svg\+xml,[^;]+)", tiles[0].get("style", "")).group(1)
+    tile_svg = unquote(image_uri.split(",", 1)[1])
+    ET.fromstring(tile_svg)
+    embedded = re.search(r"base64,([A-Za-z0-9+/=]+)", tile_svg).group(1)
+    assert base64.b64decode(embedded).decode("utf-8") == CUSTOM_SVG
+
+    # подпись узла у нижнего края, под плиткой
+    named = [v for v in vertices if v.get("value")]
+    assert len(named) == 1
+    assert "verticalAlign=bottom" in named[0].get("style", "")
+
+
+def test_export_drawio_custom_icon_without_markup_draws_no_tile():
+    xml_text = export_drawio(_custom_graph(""))
+    vertices = _drawio_vertex_cells(xml_text)
+    assert [v for v in vertices if "shape=image" in v.get("style", "")] == []
+    assert len([v for v in vertices if v.get("value")]) == 1  # сам узел с подписью остаётся
+
+
+def test_export_vsdx_custom_icon_embedded_as_png(tmp_path):
+    pytest.importorskip("vsdx")
+    data = export_vsdx(_custom_graph(CUSTOM_SVG))
+    out_path = tmp_path / "custom_icon.vsdx"
+    out_path.write_bytes(data)
+
+    with zipfile.ZipFile(out_path) as zf:
+        media = [n for n in zf.namelist() if n.startswith("visio/media/image")]
+        assert len(media) == 1
+        assert zf.read(media[0]).startswith(b"\x89PNG\r\n\x1a\n")
+        assert "<ForeignData" in zf.read("visio/pages/page1.xml").decode("utf-8")
+
+
+def test_export_vsdx_custom_icons_dedupe_by_markup(tmp_path):
+    pytest.importorskip("vsdx")
+    other_svg = CUSTOM_SVG.replace("#33c9a7", "#ff0000")
+    assert len(_vsdx_media(export_vsdx(_custom_graph(CUSTOM_SVG, CUSTOM_SVG, CUSTOM_SVG)), tmp_path)) == 1
+    assert len(_vsdx_media(export_vsdx(_custom_graph(CUSTOM_SVG, other_svg, CUSTOM_SVG)), tmp_path)) == 2
+
+
+def test_export_vsdx_survives_custom_icon_rasterization_failure(tmp_path, monkeypatch, caplog):
+    """Один нерастрируемый svg_markup в каталоге не должен ронять экспорт всей диаграммы:
+    иконка пропускается (с предупреждением в логе), узел остаётся с нейтральной заливкой."""
+    vsdx = pytest.importorskip("vsdx")
+    import resvg_py
+
+    def _boom(**_kwargs):
+        raise ValueError("render failure")
+
+    monkeypatch.setattr(resvg_py, "svg_to_bytes", _boom)
+    with caplog.at_level(logging.WARNING):
+        data = export_vsdx(_custom_graph(CUSTOM_SVG, CUSTOM_SVG))
+
+    assert _vsdx_media(data, tmp_path) == []
+    assert "render failure" in caplog.text
+    out_path = tmp_path / "custom.vsdx"
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        labels = {(s.text or "").strip() for s in vf.get_page(0).child_shapes}
+    finally:
+        vf.close_vsdx()
+    assert {"c0", "c1"} <= labels
+
+
+def test_custom_icon_tile_does_not_read_local_files(tmp_path):
+    """Разметка иконки — пользовательский ввод, а _FORBIDDEN_SVG_PATTERN не ловит <image href>
+    на локальный путь. resvg на КОРНЕВОМ уровне такой файл читает (первое утверждение фиксирует
+    именно эту причину: если оно однажды упадёт — resvg изменился, пересмотреть защиту), а
+    вложенное SVG-изображение — нет: плитка с файлом и с несуществующим путём идентична."""
+    import resvg_py
+
+    red_pixel_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+    )
+    secret = tmp_path / "secret.png"
+    secret.write_bytes(red_pixel_png)
+
+    def markup(path: str) -> str:
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">'
+            f'<image xlink:href="{path}" width="10" height="10"/></svg>'
+        )
+
+    leaking = markup(str(secret))
+    missing = markup(str(tmp_path / "does-not-exist.png"))
+
+    root_level = [bytes(resvg_py.svg_to_bytes(svg_string=m, width=20, height=20)) for m in (leaking, missing)]
+    assert root_level[0] != root_level[1]  # контроль: на корне resvg файл действительно читает
+
+    tiles = [_rasterize_custom_icon_png(_standalone_custom_svg({"mode": "custom", "svg_markup": m})) for m in (leaking, missing)]
+    assert tiles[0] is not None
+    assert tiles[0] == tiles[1]
+    assert "secret" not in _custom_icon_tile_svg(leaking)  # путь не попадает в плитку открытым текстом
+
+
+def test_export_vsdx_node_shapes_have_graph_size_and_centered_pin(tmp_path):
+    """Регрессия: фигуры узлов оставались размера шаблона (2.17x1.57in), а страница считалась по
+    NODE_WIDTH/NODE_HEIGHT — нижний ряд и правый край большого графа обрезались. Кроме того, vsdx
+    не пересчитывает LocPinX/LocPinY при смене размера — pin обязан быть в центре новой фигуры."""
+    vsdx = pytest.importorskip("vsdx")
+    graph = {
+        "nodes": [
+            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {"id": "b", "type": "device", "label": "b", "x": 800, "y": 400, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+        ],
+        "edges": [],
+    }
+    out_path = tmp_path / "sizes.vsdx"
+    out_path.write_bytes(export_vsdx(graph))
+
+    expected_width, expected_height = NODE_WIDTH / 100.0, NODE_HEIGHT / 100.0
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        page = vf.get_page(0)
+        nodes = {(s.text or "").strip(): s for s in page.child_shapes if (s.text or "").strip() in ("a", "b")}
+        assert set(nodes) == {"a", "b"}
+        for shape in nodes.values():
+            assert shape.width == pytest.approx(expected_width)
+            assert shape.height == pytest.approx(expected_height)
+            assert float(shape.cell_value("LocPinX")) == pytest.approx(expected_width / 2)
+            assert float(shape.cell_value("LocPinY")) == pytest.approx(expected_height / 2)
+            # целиком внутри страницы — раньше нижний ряд уходил за нижний край
+            assert shape.x - shape.width / 2 >= -1e-6
+            assert shape.y - shape.height / 2 >= -1e-6
+            assert shape.x + shape.width / 2 <= page.width + 1e-6
+            assert shape.y + shape.height / 2 <= page.height + 1e-6
+            # подпись у нижнего края фигуры (0 — верх, 1 — середина, 2 — низ)
+            assert shape.cell_value("VerticalAlign") == "2"
+    finally:
+        vf.close_vsdx()
