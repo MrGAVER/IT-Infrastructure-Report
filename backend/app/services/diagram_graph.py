@@ -52,9 +52,10 @@ from sqlalchemy.orm import Session
 
 from ..models import (
     Building, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceType,
-    DiagramGroupState, DiagramIcon, InterfaceIP, InterfaceVLAN, Manufacturer, PhysicalDevice,
+    DiagramGroupState, DiagramIcon, IPAddress, InterfaceVLAN, Manufacturer, PhysicalDevice,
     PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN,
 )
+from ..constants import OwnerType
 from ..reporting import _expand_structural_unit_ids, device_label
 from ..services.computed import ip_label
 from .diagram_icons import MAX_PORT_TICKS, IconLookups, build_device_icon
@@ -106,9 +107,9 @@ class GraphContext:
             self.interfaces_by_device[iface.physical_device_id].append(iface)
         self.interfaces_by_id = {i.id: i for ifaces in self.interfaces_by_device.values() for i in ifaces}
 
-        self.interface_ips_by_interface: dict[str, list[InterfaceIP]] = defaultdict(list)
-        for ip in session.scalars(select(InterfaceIP)).all():
-            self.interface_ips_by_interface[ip.interface_id].append(ip)
+        self.interface_ips_by_interface: dict[str, list[IPAddress]] = defaultdict(list)
+        for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE)).all():
+            self.interface_ips_by_interface[ip.owner_id].append(ip)
 
         self.device_vlans_by_device: dict[str, list[PhysicalDeviceVLAN]] = defaultdict(list)
         for link in session.scalars(select(PhysicalDeviceVLAN)).all():
@@ -260,8 +261,8 @@ def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: 
 
 
 def _build_ip_addresses(device: PhysicalDevice, ctx: GraphContext) -> list[dict]:
-    """Раздел 4.4 ТЗ: объединение InterfaceIP всех интерфейсов устройства и
-    PhysicalDeviceVLAN.ip_address, без дублей (по итоговому отформатированному адресу)."""
+    """Раздел 4.4 ТЗ: объединение IPAddress (owner_type="device_interface") всех интерфейсов
+    устройства и PhysicalDeviceVLAN.ip_address, без дублей (по итоговому отформатированному адресу)."""
     addresses: list[dict] = []
     seen: set[str] = set()
     for iface in ctx.interfaces_by_device.get(device.id, []):

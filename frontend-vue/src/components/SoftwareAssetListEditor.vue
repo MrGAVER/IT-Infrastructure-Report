@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Редактор вложенного списка развёрнутых программных активов (1С, веб-сервер, файловый
 // сервер, AD и т.п. — Лист 4 отчёта требует это поле у ВМ, но то же самое поле есть и у
-// физического устройства, см. backend/app/models.py:DeviceSoftware/VMSoftware). Как и
+// физического устройства, см. backend/app/models.py:DeployedSoftware). Как и
 // VmIpListEditor/OpenPortListEditor — контролируемый компонент, не знает о владельце
 // (переиспользуется VMFormModal.vue и DeviceFormModal.vue без изменений).
 import type { CatalogItem, SoftwareAssetDraftRow } from '../api/types'

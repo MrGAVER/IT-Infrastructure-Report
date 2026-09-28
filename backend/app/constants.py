@@ -52,7 +52,10 @@ class SourceType:
 
 
 class OwnerType:
-    """Допустимые значения OpenPort.owner_type (полиморфная связь без FK на уровне БД)."""
+    """Допустимые значения owner_type для полиморфных связей без FK на уровне БД: OpenPort,
+    DeployedSoftware, IPAddress (см. их докстринги в models.py) — общий набор владельцев, но не
+    каждая модель использует все значения (например, у DeployedSoftware нет DEVICE_INTERFACE —
+    ПО разворачивается на устройстве целиком, а не на конкретном порту)."""
     PHYSICAL_DEVICE = "physical_device"
     VIRTUAL_MACHINE = "virtual_machine"
     # п.1.4 (батч4): открытые порты физического устройства переехали с уровня устройства на
@@ -61,3 +64,8 @@ class OwnerType:
     # мигрируем принудительно записи устройств с более чем одним интерфейсом — см. докстринг
     # миграции) — новые записи через новый UI создаются уже с DEVICE_INTERFACE.
     DEVICE_INTERFACE = "device_interface"
+    # Только для IPAddress (миграция d8e35a1c7f60) — IP-адрес(а) "ручного" источника ИС
+    # (InformationSystemSource.source_type == 'manual'), владелец — сама строка source, а не
+    # напрямую информационная система (у одной ИС может быть несколько source-строк, у каждой
+    # свой независимый список IP).
+    INFORMATION_SYSTEM_SOURCE = "information_system_source"
