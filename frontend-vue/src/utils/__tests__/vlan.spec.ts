@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeDomainVlansIntoDraft, removeDomainVlansFromDraft, vlanLabel } from '../vlan'
+import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, removeDomainVlansFromDraft, vlanLabel } from '../vlan'
 import type { DeviceVlanDraftRow, VLANDefinition } from '../../api/types'
 
 function vlan(overrides: Partial<VLANDefinition> = {}): VLANDefinition {
@@ -82,5 +82,33 @@ describe('removeDomainVlansFromDraft', () => {
     const joined = mergeDomainVlansIntoDraft(original, definitions, 'dom-1')
     expect(joined).toHaveLength(3)
     expect(removeDomainVlansFromDraft(joined, definitions, 'dom-1')).toEqual(original)
+  })
+})
+
+describe('filterVlansForDeviceDomains', () => {
+  const definitions = [
+    vlan({ id: 'v-1', vlan_id: 1, name: 'default', domain_id: null }),
+    vlan({ id: 'v-10', vlan_id: 10, name: 'Гостевой', domain_id: 'dom-1' }),
+    vlan({ id: 'v-20', vlan_id: 20, name: 'Серверы', domain_id: 'dom-1' }),
+    vlan({ id: 'v-99', vlan_id: 99, name: 'Чужой', domain_id: 'dom-2' }),
+    vlan({ id: 'v-50', vlan_id: 50, name: 'Другой', domain_id: 'dom-3' }),
+  ]
+
+  it('устройство не в домене — только VLAN без домена', () => {
+    expect(filterVlansForDeviceDomains(definitions, new Set()).map((d) => d.id)).toEqual(['v-1'])
+  })
+
+  it('устройство в домене — только VLAN этого домена, VLAN без домена и чужих доменов скрыты', () => {
+    expect(filterVlansForDeviceDomains(definitions, new Set(['dom-1'])).map((d) => d.id)).toEqual(['v-10', 'v-20'])
+  })
+
+  it('устройство в нескольких доменах — объединение их VLAN в исходном порядке', () => {
+    expect(filterVlansForDeviceDomains(definitions, new Set(['dom-2', 'dom-1'])).map((d) => d.id)).toEqual(['v-10', 'v-20', 'v-99'])
+  })
+
+  it('домен без VLAN даёт пустой список, входной массив не мутируется', () => {
+    const copy = [...definitions]
+    expect(filterVlansForDeviceDomains(definitions, new Set(['dom-unknown']))).toEqual([])
+    expect(definitions).toEqual(copy)
   })
 })

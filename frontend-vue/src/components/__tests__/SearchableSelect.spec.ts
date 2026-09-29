@@ -28,6 +28,17 @@ describe('SearchableSelect.vue (п.4)', () => {
     expect((wrapper.find('input').element as HTMLInputElement).value).toBe('Санкт-Петербург')
   })
 
+  it('подпись подтягивается, если опция с выбранным значением появилась в options позже самого значения', async () => {
+    // Значение выставлено раньше, чем родитель догрузил опцию (например, запись только что
+    // создана через "+", а стор ещё перечитывается) — поле не должно оставаться пустым навсегда.
+    const wrapper = mount(SearchableSelect, { props: { modelValue: 'kzn', options: OPTIONS } })
+    expect((wrapper.find('input').element as HTMLInputElement).value).toBe('')
+
+    await wrapper.setProps({ options: [...OPTIONS, { value: 'kzn', label: 'Казань' }] })
+
+    expect((wrapper.find('input').element as HTMLInputElement).value).toBe('Казань')
+  })
+
   it('клик по полю открывает список со всеми опциями', async () => {
     const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS } })
     await wrapper.find('input').trigger('focus')

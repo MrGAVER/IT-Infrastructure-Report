@@ -68,3 +68,26 @@ export function removeDomainVlansFromDraft(
   const kept = rows.filter((r) => r.id || !domainVlanIds.has(r.vlan_id))
   return kept.length === rows.length ? rows : kept
 }
+
+/**
+ * Список VLAN, доступных для назначения устройству в блоке "VLAN устройства". Правило зависит от
+ * того, состоит ли устройство в доменах VLAN (сохранённо или с отложенным до сохранения
+ * включением — вызывающий код передаёт объединение обоих множеств):
+ * - устройство НЕ в домене — только VLAN без домена (доменные чужие, показывать их нельзя: бэкенд
+ *   отклонит назначение 422 "Устройство не включено в домен этого VLAN");
+ * - устройство в одном или нескольких доменах — ТОЛЬКО VLAN этих доменов, VLAN без домена
+ *   скрываются (иначе список засоряется общими VLAN, хотя устройство работает в рамках домена).
+ *
+ * Чистая функция: порядок VLAN сохраняется как во входном массиве, сам массив не мутируется.
+ *
+ * @example
+ * filterVlansForDeviceDomains(definitions, new Set(['dom-1'])) // только VLAN домена dom-1
+ * filterVlansForDeviceDomains(definitions, new Set())          // только VLAN без домена
+ */
+export function filterVlansForDeviceDomains(
+  definitions: VLANDefinition[],
+  deviceDomainIds: ReadonlySet<string>,
+): VLANDefinition[] {
+  if (!deviceDomainIds.size) return definitions.filter((d) => !d.domain_id)
+  return definitions.filter((d) => !!d.domain_id && deviceDomainIds.has(d.domain_id))
+}

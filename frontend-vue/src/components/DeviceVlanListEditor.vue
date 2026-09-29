@@ -15,6 +15,8 @@ import type { CatalogItem, DeviceMemberDomain, DeviceVlanDraftRow, VLANDefinitio
 import { ref } from 'vue'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 // Фикс п.2.2: "если устройство уже использует домен vlan, добавляемый vlan также автоматически
 // должен быть в этом домене" — deviceDomainId передаётся родителем (DeviceFormModal.vue) только
@@ -34,6 +36,11 @@ import QuickAddButton from './QuickAddButton.vue'
 const props = defineProps<{
   modelValue: DeviceVlanDraftRow[]
   vlanOptions: VLANDefinition[]
+  // Полный справочник VLAN (без фильтра по домену устройства) — нужен только чтобы подписать УЖЕ
+  // выбранный в строке VLAN, который фильтр vlanOptions скрыл (например, VLAN без домена,
+  // назначенный до включения устройства в домен): иначе поле строки выглядело бы пустым, хотя
+  // значение в черновике осталось. Не расширяет список выбора — см. rowOptions().
+  allVlanDefinitions?: VLANDefinition[]
   deviceDomainId?: string | null
   joinableDomains?: VLANDomain[]
   memberDomains?: DeviceMemberDomain[]
@@ -66,6 +73,18 @@ function joinDomain() {
   if (!selectedJoinDomainId.value) return
   emit('join-domain', selectedJoinDomainId.value)
   selectedJoinDomainId.value = ''
+}
+
+/** Опции SearchableSelect для строки: vlanOptions (уже отфильтрованные по домену устройства) плюс
+ * сам выбранный в этой строке VLAN, если фильтр его скрыл — чтобы не терять видимость уже
+ * сделанного выбора. Другие строки такой "лишний" VLAN в своих опциях не получают. */
+function rowOptions(row: DeviceVlanDraftRow): SearchableSelectOption[] {
+  const options = props.vlanOptions.map((v) => ({ value: v.id, label: vlanLabel(v) }))
+  if (row.vlan_id && !options.some((o) => o.value === row.vlan_id)) {
+    const selected = props.allVlanDefinitions?.find((v) => v.id === row.vlan_id)
+    if (selected) options.unshift({ value: selected.id, label: vlanLabel(selected) })
+  }
+  return options
 }
 
 function emptyRow(): DeviceVlanDraftRow {
@@ -128,10 +147,12 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
       <div class="col-vlan lookup-row">
-        <select :value="row.vlan_id" @change="updateField(i, { vlan_id: ($event.target as HTMLSelectElement).value })">
-          <option value="">— VLAN —</option>
-          <option v-for="v in vlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
-        </select>
+        <SearchableSelect
+          :model-value="row.vlan_id"
+          :options="rowOptions(row)"
+          placeholder="— VLAN —"
+          @update:model-value="(value) => updateField(i, { vlan_id: value })"
+        />
         <QuickAddButton
           resource="vlans"
           title="VLAN"
@@ -269,7 +290,7 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
   gap: 6px;
   min-width: 0;
 }
-.col-vlan.lookup-row select {
+.col-vlan.lookup-row .searchable-select {
   flex: 1;
   min-width: 0;
 }

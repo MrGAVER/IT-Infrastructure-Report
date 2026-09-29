@@ -28,7 +28,7 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
-import { mergeDomainVlansIntoDraft, removeDomainVlansFromDraft } from '../utils/vlan'
+import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, removeDomainVlansFromDraft } from '../utils/vlan'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig } from '../utils/portConflicts'
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
@@ -107,21 +107,21 @@ const pendingSourceDomainIds = ref<Set<string>>(new Set())
 const deviceTypeVlanIds = ref<Set<string>>(new Set())
 const loadingNested = ref(false)
 
-// VLAN без домена доступны всем устройствам; доменные — только участникам домена (то же
-// правило, что loadDeviceVlanEditor() в frontend/static/device-interfaces.js). pendingDomainMemberships
-// объединяется с уже подтверждённым membership — см. комментарий к ней выше (фикс п.1.3.8).
-const availableVlans = computed(() =>
-  vlansStore.allDefinitions.filter((v) => !v.domain_id || memberDomainIds.value.has(v.domain_id) || pendingDomainMemberships.value.has(v.domain_id)),
-)
+// Домены VLAN, в которых устройство состоит: сохранённое членство (memberDomainIds) плюс домены,
+// добавленные в этой же сессии редактирования и ещё не сохранённые (pendingDomainMemberships,
+// фикс п.1.3.8 — устройство уже "фактически" их участник для целей этой формы).
+const deviceDomainIds = computed(() => new Set([...memberDomainIds.value, ...pendingDomainMemberships.value]))
+
+// Правка "VLAN устройства" (пункт 3): если устройство состоит в домене VLAN, в списке выбора
+// показываются ТОЛЬКО VLAN этого домена (доменов — если их несколько); если не состоит ни в одном —
+// только VLAN без домена (доменные для не-участника бэкенд всё равно отклонил бы 422). Само правило
+// вынесено в utils/vlan.ts:filterVlansForDeviceDomains — чистая функция, покрыта отдельными тестами.
+const availableVlans = computed(() => filterVlansForDeviceDomains(vlansStore.allDefinitions, deviceDomainIds.value))
 
 // Фикс п.2.2: единственный домен, к которому уже привязано устройство — только если он ровно
 // один (см. комментарий к deviceDomainId в DeviceVlanListEditor.vue). Учитывает и
-// pendingDomainMemberships (домен, добавленный в этой же сессии редактирования через фикс
-// п.1.3.8, ещё не сохранённый) — устройство уже "фактически" его участник для целей этой формы.
-const singleDeviceDomainId = computed(() => {
-  const ids = new Set([...memberDomainIds.value, ...pendingDomainMemberships.value])
-  return ids.size === 1 ? [...ids][0] : null
-})
+// pendingDomainMemberships через deviceDomainIds выше.
+const singleDeviceDomainId = computed(() => (deviceDomainIds.value.size === 1 ? [...deviceDomainIds.value][0] : null))
 
 // Пункты 1-2 правки "физическое устройство: расхождение с соседним портом": раньше здесь
 // считалась только ГОТОВАЯ строка-предупреждение (interfaceConflictWarnings, Record<string,
@@ -814,6 +814,7 @@ async function submit() {
           v-if="!loadingNested"
           v-model="deviceVlans"
           :vlan-options="availableVlans"
+          :all-vlan-definitions="vlansStore.allDefinitions"
           :device-domain-id="singleDeviceDomainId"
           :joinable-domains="joinableDomains"
           :member-domains="memberDomains"
@@ -934,7 +935,8 @@ async function submit() {
   gap: 6px;
   min-width: 0;
 }
-.lookup-row select {
+.lookup-row select,
+.lookup-row .searchable-select {
   flex: 1;
   min-width: 0;
 }
