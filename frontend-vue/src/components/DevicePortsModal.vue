@@ -16,9 +16,12 @@ import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfac
 import { computePortVlanOptions, loadAssignedDeviceVlanIds, loadDeviceTypeVlanIds } from '../api/portVlans'
 import type { Device, DeviceInterface, InterfaceDraftRow, VLANDefinition } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useConnectionsStore } from '../stores/connections'
 import { useVLANsStore } from '../stores/vlans'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useToast } from '../composables/useToast'
+import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig } from '../utils/portConflicts'
 
 const props = defineProps<{ deviceId: string; deviceLabel: string }>()
 const emit = defineEmits<{ close: []; saved: [deviceId: string, items: DeviceInterface[]] }>()
@@ -26,6 +29,12 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
+const connectionsStore = useConnectionsStore()
+const { notify } = useToast()
+// Конфигурация сохранённых портов на момент открытия — по ней после сохранения определяется, что порт
+// с расхождением относительно соседа сохраняется с НОВОЙ конфигурацией (см. utils/portConflicts.ts,
+// то же правило, что в DeviceFormModal.vue). Неизменяемый снимок, не состояние формы.
+let initialPortConfigs = new Map<string, PortConfig>()
 const interfaces = ref<InterfaceDraftRow[]>([])
 // Статический список (в отличие от DeviceFormModal.vue:portVlanOptions) — эта модалка не
 // редактирует "VLAN устройства", поэтому источник "уже назначенных" VLAN — то, что реально в
@@ -39,10 +48,11 @@ onMounted(async () => {
   // Каталоги (типы/скорости интерфейсов) почти наверняка уже загружены родительским экраном
   // (ConnectionsView.vue вызывает ensureLoaded() при монтировании), но модалка не должна на это
   // полагаться — ensureLoaded() сама не делает лишний запрос, если уже загружено или грузится.
-  await Promise.all([catalogs.ensureLoaded(), vlansStore.ensureLoaded()])
+  await Promise.all([catalogs.ensureLoaded(), vlansStore.ensureLoaded(), connectionsStore.ensureLoaded()])
   try {
     const [rows, device] = await Promise.all([loadDeviceInterfaceDraftRows(props.deviceId), api.get<Device>(`/resources/devices/${props.deviceId}`)])
     interfaces.value = rows
+    initialPortConfigs = snapshotPortConfigs(rows)
     const [typeVlanIds, assignedVlanIds] = await Promise.all([loadDeviceTypeVlanIds(device.device_type_id), loadAssignedDeviceVlanIds(props.deviceId)])
     portVlanOptions.value = computePortVlanOptions(vlansStore.allDefinitions, typeVlanIds, assignedVlanIds)
   } catch (err) {
@@ -63,6 +73,10 @@ async function submit() {
   try {
     const { items } = await persistDeviceInterfaces(props.deviceId, interfaces.value)
     catalogs.replaceDeviceInterfaces(props.deviceId, items)
+    // Порты этого устройства в каталоге уже заменены сохранёнными, порты соседей — как были загружены.
+    const conflicts = computePortConflicts(interfaces.value, connectionsStore.all, (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
+    const notice = buildPortConflictNotice(interfaces.value, conflicts, initialPortConfigs)
+    if (notice) notify(notice, 'warning')
     emit('saved', props.deviceId, items)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить порты устройства'

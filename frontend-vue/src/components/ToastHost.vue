@@ -45,6 +45,9 @@ const { toasts, dismiss } = useToast()
 .toast.error {
   border-left-color: var(--status-crit);
 }
+.toast.warning {
+  border-left-color: var(--status-warn);
+}
 .toast span {
   flex: 1;
   line-height: 1.5;
