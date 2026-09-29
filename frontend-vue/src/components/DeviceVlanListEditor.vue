@@ -11,7 +11,7 @@
 // таковые уже полностью управляются в новом UI через VLANDomainsPanel.vue (см. VLANsView.vue);
 // не перенесены только эти два узкоспециализированных сценария быстрого доступа прямо из формы
 // устройства, см. "Ещё не сделано" во frontend-vue/README.md.
-import type { CatalogItem, DeviceVlanDraftRow, VLANDefinition, VLANDomain } from '../api/types'
+import type { CatalogItem, DeviceMemberDomain, DeviceVlanDraftRow, VLANDefinition, VLANDomain } from '../api/types'
 import { ref } from 'vue'
 import { vlanLabel } from '../utils/vlan'
 import QuickAddButton from './QuickAddButton.vue'
@@ -26,7 +26,18 @@ import QuickAddButton from './QuickAddButton.vue'
 // сохранённым членством, ни уже отложенным до сохранения) — список уже отфильтрован родителем
 // (DeviceFormModal.vue:joinableDomains), этому компоненту не нужно знать о членстве вообще, он
 // только показывает то, что ему передали, и сообщает о выборе наружу.
-const props = defineProps<{ modelValue: DeviceVlanDraftRow[]; vlanOptions: VLANDefinition[]; deviceDomainId?: string | null; joinableDomains?: VLANDomain[] }>()
+//
+// memberDomains — пункт 3 правки "включение в домен VLAN": домены, в которые устройство уже входит
+// (pending: false) либо будет включено при сохранении формы (pending: true). Без этого списка после
+// нажатия "Включить" в блоке ничего не менялось: домен просто пропадал из выпадающего списка, а
+// факт включения виден был только после перезагрузки страницы (на экране доменов VLAN).
+const props = defineProps<{
+  modelValue: DeviceVlanDraftRow[]
+  vlanOptions: VLANDefinition[]
+  deviceDomainId?: string | null
+  joinableDomains?: VLANDomain[]
+  memberDomains?: DeviceMemberDomain[]
+}>()
 // vlan-created: полный список VLAN (vlanOptions) собирается родителем из useVLANsStore(), а не
 // из catalogs — generic QuickAddModal.vue пишет созданную запись только в catalogs.items['vlans'],
 // поэтому родителю нужно узнать о создании и перезагрузить vlansStore (см. DeviceFormModal.vue),
@@ -93,6 +104,14 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
     <div class="nested-head">
       <b>VLAN устройства</b>
       <span class="hint">VLAN может быть локальным для устройства или принадлежать общему домену. Один VLAN ID может иметь разные названия на разных устройствах.</span>
+    </div>
+
+    <div v-if="memberDomains && memberDomains.length" class="member-domains" data-testid="member-domains">
+      <span class="member-domains-label">Домены VLAN:</span>
+      <span v-for="d in memberDomains" :key="d.id" class="domain-chip" :class="{ pending: d.pending }" data-testid="member-domain">
+        {{ d.name }}
+        <em v-if="d.pending">— будет включено при сохранении</em>
+      </span>
     </div>
 
     <div v-if="!modelValue.length" class="empty">VLAN не назначены</div>
@@ -171,6 +190,32 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 .hint {
   font-size: 10.5px;
   color: var(--ink-muted);
+}
+.member-domains {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.member-domains-label {
+  color: var(--ink-muted);
+}
+.domain-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  color: var(--ink);
+}
+.domain-chip.pending {
+  border-style: dashed;
+  border-color: var(--brand);
+}
+.domain-chip em {
+  font-style: normal;
+  color: var(--ink-muted);
+  font-size: 10.5px;
 }
 .empty {
   font-size: 12px;

@@ -11,12 +11,13 @@ import { ApiError, createResource, deleteResource, listResource, updateResource,
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface, PortConflictInfo } from '../api/types'
+import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface, PortConflictInfo } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
 import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useToast } from '../composables/useToast'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
@@ -26,6 +27,8 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
+import { mergeDomainVlansIntoDraft } from '../utils/vlan'
+import { buildPortConflictNotice, snapshotPortConfigs, type PortConfig } from '../utils/portConflicts'
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -35,6 +38,7 @@ const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
 const vlanDomainsStore = useVLANDomainsStore()
 const connectionsStore = useConnectionsStore()
+const { notify } = useToast()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.device !== null)
@@ -74,6 +78,11 @@ const form = reactive(emptyForm())
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
+// Пункт 5: конфигурация (Управление/Передача данных/режим порта) уже сохранённых портов на момент
+// открытия формы — по ней при сохранении определяется, что конфигурация порта с расхождением
+// относительно соседа сохраняется ВПЕРВЫЕ (см. utils/portConflicts.ts). Не реактивна намеренно: это
+// неизменяемый снимок, а не состояние формы.
+let initialPortConfigs = new Map<string, PortConfig>()
 const memberDomainIds = ref<Set<string>>(new Set())
 // Фикс п.1.3.8: домены VLAN на форме устройства — read-only список (галочки участников
 // редактируются только в VLANDomainsPanel.vue, см. комментарий в DeviceVlanListEditor.vue), но
@@ -244,6 +253,7 @@ watch(
     pendingDomainMemberships.value = new Set()
     pendingSourceDomainIds.value = new Set()
     deviceTypeVlanIds.value = new Set()
+    initialPortConfigs = new Map()
     if (source) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = source[key as keyof Device]
@@ -297,6 +307,8 @@ watch(
       // его ips).
       softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
       interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports) })) : ifaceRows
+      // При копировании id стёрты — снимок пуст, а у копии всё равно нет подключений и соседей.
+      initialPortConfigs = snapshotPortConfigs(interfaces.value)
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
@@ -336,6 +348,11 @@ const filteredRacks = computed(() =>
 // select'ы в той же карточке, оставлять их нативными при уже поисковом "Помещении" рядом выглядело
 // бы непоследовательно). catalogs.items[key] уже отсортирован (фикс п.4.2) — SearchableSelect
 // сам ничего не пересортировывает, порядок options здесь и есть порядок в выпадающем списке.
+// Пункт 2: поиск вводом текста в "Операционная система" и "Встроенная ОС" — тот же SearchableSelect,
+// что у Здания/Помещения/Стойки выше. Подпись — catalogs.label() ("name version"), порядок — уже
+// отсортированный catalogs.items (см. sortCatalogItems в stores/catalogs.ts).
+const operatingSystemOptions = computed(() => (catalogs.items['operating-systems'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('operating-systems', os.id) })))
+const embeddedOsOptions = computed(() => (catalogs.items['embedded-os'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('embedded-os', os.id) })))
 const buildingOptions = computed(() => (catalogs.items['buildings'] ?? []).map((b) => ({ value: b.id, label: b.name })))
 const roomOptions = computed(() => filteredRooms.value.map((r) => ({ value: r.id, label: r.name })))
 const rackOptions = computed(() => filteredRacks.value.map((r) => ({ value: r.id, label: r.name })))
@@ -491,6 +508,8 @@ function onVlanCreated(record: CatalogItem) {
 // создаваемого устройства ещё может не быть id.
 function onVlanDomainCreated(record: CatalogItem) {
   pendingSourceDomainIds.value = new Set([...pendingSourceDomainIds.value, record.id])
+  // Новый домен ещё не в vlanDomainsStore — без перезагрузки его не было бы в списке memberDomains.
+  vlanDomainsStore.reload()
 }
 
 // Пункт 3 правки "домен VLAN": кнопка "Включить в домен" в блоке "VLAN устройства"
@@ -500,10 +519,34 @@ function onVlanDomainCreated(record: CatalogItem) {
 // см. onVlanCreated выше по файлу.
 const joinableDomains = computed(() => vlanDomainsStore.all.filter((d) => !memberDomainIds.value.has(d.id) && !pendingDomainMemberships.value.has(d.id)))
 
-function onJoinDomainRequested(domainId: string) {
-  if (!memberDomainIds.value.has(domainId)) {
-    pendingDomainMemberships.value = new Set([...pendingDomainMemberships.value, domainId])
+// Пункты 3-4 правки "включение в домен VLAN": домены, в которых устройство состоит (или будет
+// состоять после сохранения) — показываются в блоке "VLAN устройства", чтобы включение было видно
+// сразу, а не только после перезагрузки страницы. Домены, которых ещё нет в vlanDomainsStore (например,
+// только что созданный вложенным "+"), пропускаются — onVlanDomainCreated перезагружает стор, и они
+// появятся сразу после его ответа.
+const memberDomains = computed<DeviceMemberDomain[]>(() => {
+  const nameById = new Map(vlanDomainsStore.all.map((d) => [d.id, d.name]))
+  const result: DeviceMemberDomain[] = []
+  for (const id of memberDomainIds.value) {
+    if (nameById.has(id)) result.push({ id, name: nameById.get(id)!, pending: false })
   }
+  for (const id of pendingDomainMemberships.value) {
+    if (!memberDomainIds.value.has(id) && nameById.has(id)) result.push({ id, name: nameById.get(id)!, pending: true })
+  }
+  return result
+})
+
+async function onJoinDomainRequested(domainId: string) {
+  if (memberDomainIds.value.has(domainId) || pendingDomainMemberships.value.has(domainId)) return
+  pendingDomainMemberships.value = new Set([...pendingDomainMemberships.value, domainId])
+  // Пункт 4: VLAN выбранного домена сразу попадают в черновик "VLAN устройства". Это не только
+  // удобство: persistDeviceVlans() ниже сохраняет VLAN устройства по схеме delete-затем-recreate из
+  // черновика, так что VLAN, которые бэкенд сам назначит при создании членства
+  // (services/crud.py:assign_domain_vlans_to_device), но которых нет в черновике, были бы тут же
+  // удалены при этом же сохранении. Стор перезагружается (а не ensureLoaded), чтобы набор VLAN домена
+  // был актуален на момент нажатия, а не на момент первой загрузки экрана.
+  await vlansStore.reload()
+  deviceVlans.value = mergeDomainVlansIntoDraft(deviceVlans.value, vlansStore.allDefinitions, domainId)
 }
 
 async function persistSoftwareAssets(deviceId: string) {
@@ -624,6 +667,14 @@ async function submit() {
         // catalogs.reload() заново. DevicePortsModal.vue делает этот же вызов уже сейчас —
         // здесь его просто не было для основного пути создания/редактирования устройства.
         catalogs.replaceDeviceInterfaces(saved.id, savedInterfaces)
+        // Пункт 3: сторы VLAN и доменов читаются другими экранами (VLANsView, DevicesView) без
+        // повторной загрузки — без этого включение в домен и новые VLAN устройства были видны там
+        // только после перезагрузки страницы. reload() сам не бросает (ошибка пишется в store.error).
+        await Promise.all([vlansStore.reload(), pendingDomainMemberships.value.size || pendingSourceDomainIds.value.size ? vlanDomainsStore.reload() : Promise.resolve()])
+        // Пункт 5: interfaceConflicts считается по черновику interfaces — то есть ровно по тому, что
+        // только что сохранено.
+        const conflictNotice = buildPortConflictNotice(interfaces.value, interfaceConflicts.value, initialPortConfigs)
+        if (conflictNotice) notify(conflictNotice, 'info')
         emit('saved', saved)
         return
       } catch (err) {
@@ -670,11 +721,13 @@ async function submit() {
           <div class="lookup-row">
             <select v-model="typeModelSelection" required>
               <option value="">— выберите —</option>
-              <optgroup label="Тип устройства (без конкретной модели)">
-                <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="`type:${t.id}`">{{ t.name }}</option>
-              </optgroup>
+              <!-- Пункт 1: сначала модели, заведённые пользователем (по производителям), а "голые"
+                   стандартные типы без модели — в самом конце списка. -->
               <optgroup v-for="g in modelGroups" :key="g.manufacturerId" :label="g.manufacturerName">
                 <option v-for="m in g.models" :key="m.id" :value="`model:${m.id}`">{{ modelOptionLabel(g, m) }}</option>
+              </optgroup>
+              <optgroup label="Тип устройства (без конкретной модели)">
+                <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="`type:${t.id}`">{{ t.name }}</option>
               </optgroup>
             </select>
             <QuickAddButton resource="device-models" title="Модель устройства" @created="onModelCreated" />
@@ -694,12 +747,7 @@ async function submit() {
         <label class="field">
           <span>Операционная система</span>
           <div class="lookup-row">
-            <select v-model="form.operating_system_id">
-              <option value="">— не указана —</option>
-              <option v-for="os in catalogs.items['operating-systems'] ?? []" :key="os.id" :value="os.id">
-                {{ catalogs.label('operating-systems', os.id) }}
-              </option>
-            </select>
+            <SearchableSelect v-model="form.operating_system_id" :options="operatingSystemOptions" placeholder="— не указана —" />
             <QuickAddButton resource="operating-systems" title="Операционная система" @created="(r) => (form.operating_system_id = r.id)" />
           </div>
         </label>
@@ -707,12 +755,7 @@ async function submit() {
         <label class="field">
           <span>Встроенная ОС (для сетевого оборудования)</span>
           <div class="lookup-row">
-            <select v-model="form.embedded_os_id">
-              <option value="">— не указана —</option>
-              <option v-for="os in catalogs.items['embedded-os'] ?? []" :key="os.id" :value="os.id">
-                {{ catalogs.label('embedded-os', os.id) }}
-              </option>
-            </select>
+            <SearchableSelect v-model="form.embedded_os_id" :options="embeddedOsOptions" placeholder="— не указана —" />
             <QuickAddButton resource="embedded-os" title="Встроенная ОС" @created="(r) => (form.embedded_os_id = r.id)" />
           </div>
         </label>
@@ -799,6 +842,7 @@ async function submit() {
           :vlan-options="availableVlans"
           :device-domain-id="singleDeviceDomainId"
           :joinable-domains="joinableDomains"
+          :member-domains="memberDomains"
           @vlan-created="onVlanCreated"
           @vlan-domain-created="onVlanDomainCreated"
           @join-domain="onJoinDomainRequested"

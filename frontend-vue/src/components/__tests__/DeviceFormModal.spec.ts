@@ -7,6 +7,7 @@ import { useVLANsStore } from '../../stores/vlans'
 import { useVLANDomainsStore } from '../../stores/vlanDomains'
 import { useConnectionsStore } from '../../stores/connections'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
+import { useToast } from '../../composables/useToast'
 
 function stubCatalogsFetch() {
   vi.stubGlobal(
@@ -1467,6 +1468,213 @@ describe('DeviceFormModal.vue', () => {
 
       expect(fetchMock).not.toHaveBeenCalled()
       expect(wrapper.text()).toContain('Некорректный префикс')
+    })
+  })
+})
+
+describe('правки формы физического устройства: порядок типов, поиск ОС, домен VLAN, уведомление о портах', () => {
+  const emptyList = () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+
+  it('пункт 1: группы моделей (добавленные пользователем) идут первыми, а \"Тип устройства (без конкретной модели)\" — в самом конце', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['manufacturers'] = [
+      { id: 'mf-cisco', name: 'Cisco' },
+      { id: 'mf-hp', name: 'HP' },
+    ]
+    catalogs.items['device-models'] = [
+      { id: 'dm-1', name: 'C2960', manufacturer_id: 'mf-cisco', device_type_id: 'dt-net', model: 'C2960' },
+      { id: 'dm-2', name: 'DL380', manufacturer_id: 'mf-hp', device_type_id: 'dt-server', model: 'DL380' },
+    ]
+    await wrapper.vm.$nextTick()
+
+    const labels = wrapper.find('.form-grid .lookup-row select').findAll('optgroup').map((g) => g.attributes('label'))
+    expect(labels).toEqual(['Cisco', 'HP', 'Тип устройства (без конкретной модели)'])
+  })
+
+  it.each([
+    ['Операционная система', 'operating-systems', 'operating_system_id', 'Ubuntu 22.04'],
+    ['Встроенная ОС (для сетевого оборудования)', 'embedded-os', 'embedded_os_id', 'IOS 15.2'],
+  ] as const)('пункт 2: поле «%s» — SearchableSelect: фильтруется вводом текста, выбор попадает в payload', async (title, catalogKey, payloadKey, label) => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    const [name, version] = label.split(' ')
+    catalogs.items[catalogKey] = [
+      { id: 'os-other', name: 'Windows Server', version: '2019' },
+      { id: 'os-target', name, version },
+    ]
+    await wrapper.vm.$nextTick()
+
+    const field = wrapper.findAll('.field').find((f) => f.find('span').text() === title)!
+    expect(field.find('select').exists()).toBe(false)
+    const input = field.find('.searchable-select input')
+    await input.trigger('focus')
+    await input.setValue(name.slice(0, 3))
+
+    const options = field.findAll('.ss-option')
+    expect(options.map((o) => o.text())).toEqual([label])
+    await options[0].trigger('mousedown')
+
+    let body: Record<string, unknown> | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.includes('/resources/devices')) {
+          body = JSON.parse(init!.body as string)
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-OS' }), { status: 201 })
+        }
+        return emptyList()
+      }),
+    )
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-OS')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(body?.[payloadKey]).toBe('os-target')
+  })
+
+  it('пункты 3-4: «Включить в домен» сразу показывает домен и подтягивает его VLAN в блок, при сохранении они не теряются', async () => {
+    const vlanDomains = useVLANDomainsStore()
+    vlanDomains.all = [{ id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: null, auto_sync: false }]
+    vlanDomains.loaded = true
+    const vlans = useVLANsStore()
+    vlans.groups = []
+    vlans.loaded = true
+    const wrapper = await mountWithLoadedCatalogs()
+
+    const definition = (id: string, vlanId: number, domainId: string | null) => ({
+      id, vlan_id: vlanId, name: `VLAN ${vlanId}`, description: '', domain_id: domainId, domain_name: domainId ? 'Ядро сети' : '', devices: [],
+    })
+    const calls: Array<{ url: string; method: string; body?: Record<string, unknown> }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/vlan-dashboard')) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                { vlan_id: 10, definitions: [definition('v-10', 10, 'dom-1')] },
+                { vlan_id: 20, definitions: [definition('v-20', 20, 'dom-1')] },
+                { vlan_id: 30, definitions: [definition('v-30', 30, 'dom-other')] },
+              ],
+            }),
+          )
+        }
+        if (method === 'POST' && url.endsWith('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-DOM' }), { status: 201 })
+        if (method === 'POST') return new Response(JSON.stringify({ id: 'created' }), { status: 201 })
+        return emptyList()
+      }),
+    )
+
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    expect(vlanEditor.find('[data-testid="member-domain"]').exists()).toBe(false)
+
+    await vlanEditor.find('.join-domain-row select').setValue('dom-1')
+    await vlanEditor.find('.join-domain-row button').trigger('click')
+    await flushPromises()
+
+    // Пункт 3: включение видно сразу — без сохранения и перезагрузки страницы.
+    const chips = vlanEditor.findAll('[data-testid="member-domain"]')
+    expect(chips).toHaveLength(1)
+    expect(chips[0].text()).toContain('Ядро сети')
+    expect(chips[0].text()).toContain('будет включено при сохранении')
+    // Пункт 4: VLAN именно этого домена (не чужого) уже назначены устройству в форме.
+    const selectedVlanIds = vlanEditor.findAll('.nested-row select').map((s) => (s.element as HTMLSelectElement).value)
+    expect(selectedVlanIds).toEqual(['v-10', 'v-20'])
+    expect(vlanEditor.find('.join-domain-row').exists()).toBe(false) // единственный домен — больше не предлагается
+
+    calls.length = 0
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-DOM')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const created = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/resources/device-vlans')).map((c) => c.body?.vlan_id)
+    expect(created).toEqual(['v-10', 'v-20'])
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))).toBe(true)
+    // Сторы VLAN перечитаны после сохранения — другие экраны не показывают устаревшие данные.
+    expect(calls.filter((c) => c.url.includes('/vlan-dashboard')).length).toBeGreaterThan(0)
+  })
+
+  describe('пункт 5: уведомление о сохранении порта с расхождением относительно соседа', () => {
+    const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+
+    function mountWithNeighbour(thisIface: Record<string, unknown>, otherIface: Record<string, unknown>) {
+      useToast().toasts.splice(0)
+      const catalogs = useCatalogsStore()
+      catalogs.items['interfaces'] = [
+        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface },
+        { id: 'if-other', physical_device_id: 'dev-2', name: 'Gi0/2', ...otherIface },
+      ] as never
+      const connections = useConnectionsStore()
+      connections.all = [
+        {
+          id: 'c-1',
+          source_interface_id: 'if-this',
+          destination_interface_id: 'if-other',
+          is_active: true,
+          source_device_name: 'sw-01',
+          source_interface_name: 'Gi0/1',
+          destination_device_name: 'sw-02',
+          destination_interface_name: 'Gi0/2',
+        } as never,
+      ]
+      connections.loaded = true
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }] }))
+          if (method === 'PUT' && url.includes('/resources/devices/dev-1')) return new Response(JSON.stringify(device))
+          if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }))
+          }
+          return emptyList()
+        }),
+      )
+      return mount(DeviceFormModal, { props: { device } })
+    }
+
+    const matching = { is_management: false, is_data_transfer: true, vlan_mode: 'trunk' }
+
+    it('порт, сохраняемый с НОВОЙ конфигурацией, расходящейся с соседом, вызывает toast с именами портов', async () => {
+      const wrapper = mountWithNeighbour(matching, matching) // при открытии формы расхождения нет
+      await flushPromises()
+
+      await wrapper.find('tr:not(.bulk-edit-row) td.col-check input').setValue(true) // «Управление» включено только у этого порта
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const messages = useToast().toasts.map((t) => t.message)
+      expect(messages).toHaveLength(1)
+      expect(messages[0]).toContain('Gi0/1')
+      expect(messages[0]).toContain('sw-02')
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('расхождение уже существовало на момент открытия и порт не менялся — повторного уведомления нет', async () => {
+      const wrapper = mountWithNeighbour({ ...matching, is_management: true }, matching)
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(useToast().toasts).toHaveLength(0)
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('порт изменён, но совпадает с соседом — уведомления нет', async () => {
+      const wrapper = mountWithNeighbour({ ...matching, is_management: true }, matching) // изначально расходился
+      await flushPromises()
+
+      await wrapper.find('tr:not(.bulk-edit-row) td.col-check input').setValue(false) // привели к конфигурации соседа
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(useToast().toasts).toHaveLength(0)
     })
   })
 })

@@ -517,6 +517,13 @@ export interface DeviceVlanDraftRow {
   is_management: boolean
   description: string
 }
+/** Домен VLAN, в который устройство входит (pending: false) либо будет включено при сохранении
+ * формы (pending: true) — см. DeviceVlanListEditor.vue (memberDomains) и DeviceFormModal.vue. */
+export interface DeviceMemberDomain {
+  id: string
+  name: string
+  pending: boolean
+}
 export interface VLANDefinition {
   id: string
   vlan_id: number

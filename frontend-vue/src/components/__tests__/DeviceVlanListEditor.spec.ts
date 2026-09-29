@@ -201,4 +201,28 @@ describe('DeviceVlanListEditor.vue', () => {
       expect((select.element as HTMLSelectElement).value).toBe('')
     })
   })
+
+  describe('memberDomains: домены, в которые включено устройство', () => {
+    it('показывает сохранённые домены и помечает домены, которые будут включены при сохранении', () => {
+      const wrapper = mount(DeviceVlanListEditor, {
+        props: {
+          modelValue: [],
+          vlanOptions,
+          memberDomains: [
+            { id: 'dom-1', name: 'Ядро сети', pending: false },
+            { id: 'dom-2', name: 'Филиал', pending: true },
+          ],
+        },
+      })
+      const chips = wrapper.findAll('[data-testid="member-domain"]')
+      expect(chips.map((c) => c.text())).toEqual(['Ядро сети', 'Филиал — будет включено при сохранении'])
+      expect(chips[1].classes()).toContain('pending')
+      expect(chips[0].classes()).not.toContain('pending')
+    })
+
+    it('без доменов блок не рисуется', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [], vlanOptions, memberDomains: [] } })
+      expect(wrapper.find('[data-testid="member-domains"]').exists()).toBe(false)
+    })
+  })
 })
