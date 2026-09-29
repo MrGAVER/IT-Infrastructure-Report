@@ -58,6 +58,7 @@ const emit = defineEmits<{
   'vlan-created': [record: CatalogItem]
   'vlan-domain-created': [record: CatalogItem]
   'join-domain': [domainId: string]
+  'cancel-join-domain': [domainId: string]
 }>()
 
 const selectedJoinDomainId = ref('')
@@ -111,6 +112,15 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
       <span v-for="d in memberDomains" :key="d.id" class="domain-chip" :class="{ pending: d.pending }" data-testid="member-domain">
         {{ d.name }}
         <em v-if="d.pending">— будет включено при сохранении</em>
+        <button
+          v-if="d.pending"
+          type="button"
+          class="chip-cancel"
+          :aria-label="`Отменить включение в домен «${d.name}»`"
+          :title="`Отменить включение в домен «${d.name}»`"
+          data-testid="cancel-join-domain"
+          @click="emit('cancel-join-domain', d.id)"
+        >×</button>
       </span>
     </div>
 
@@ -211,6 +221,19 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 .domain-chip.pending {
   border-style: dashed;
   border-color: var(--brand);
+}
+.chip-cancel {
+  background: none;
+  border: none;
+  padding: 0 0 0 4px;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.chip-cancel:hover {
+  color: var(--status-crit);
 }
 .domain-chip em {
   font-style: normal;

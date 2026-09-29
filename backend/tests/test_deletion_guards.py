@@ -63,6 +63,9 @@ ALLOWED_DELETIONS = {
     ("app/services/crud.py", "sync_interfaces", "IPAddress"),
     ("app/services/crud.py", "sync_interfaces", "OpenPort"),
     ("app/services/crud.py", "sync_interfaces", "obj"),
+    # VLAN устройства (PhysicalDeviceVLAN) — дочерняя запись без входящих ссылок (ни FK, ни
+    # полиморфных: проверено reflection'ом по MODEL_MAP), поэтому assert_deletable() ей не нужен
+    ("app/services/crud.py", "sync_device_vlans", "obj"),
     ("app/services/crud.py", "_sync_linked_table", "obj"),
     ("app/services/crud.py", "_sync_source_ip_addresses", "old_ip"),
     ("app/services/crud.py", "_sync_information_system_sources", "IPAddress"),

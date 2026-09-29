@@ -8,12 +8,58 @@
 // порта в сохраняемой форме отличается от того, что было в БД при открытии формы. Если порт не
 // менялся (расхождение уже существовало и пользователь о нём знает), повторное сохранение
 // устройства уведомление не показывает — иначе оно повторялось бы при каждом сохранении.
-import type { InterfaceDraftRow, PortConflictInfo } from '../api/types'
+import type { Connection, DeviceInterface, InterfaceDraftRow, PortConflictInfo } from '../api/types'
 
 export interface PortConfig {
   is_management: boolean
   is_data_transfer: boolean
   vlan_mode: 'access' | 'trunk'
+}
+
+/**
+ * Расхождения конфигурации портов формы с портами на другом конце АКТИВНЫХ подключений (ключ —
+ * id порта, в результате только порты с расхождением). Общая логика DeviceFormModal.vue (подсветка
+ * в редакторе портов и уведомление после сохранения) и DevicePortsModal.vue (уведомление).
+ *
+ * Строки без id пропускаются: у ещё не сохранённого порта не может быть подключения. Индексы
+ * подключений и портов строятся один раз, а не поиском `.find` по всем спискам на каждую строку
+ * (было O(строки × (подключения + порты)) на каждый пересчёт computed при вводе в форме).
+ * Если у порта несколько активных подключений, берётся первое в порядке списка — как и раньше.
+ */
+export function computePortConflicts(
+  rows: InterfaceDraftRow[],
+  connections: Connection[],
+  allInterfaces: DeviceInterface[],
+): Record<string, PortConflictInfo> {
+  const conflicts: Record<string, PortConflictInfo> = {}
+  if (!rows.some((r) => r.id)) return conflicts
+  const activeByInterface = new Map<string, Connection>()
+  for (const c of connections) {
+    if (!c.is_active) continue
+    if (!activeByInterface.has(c.source_interface_id)) activeByInterface.set(c.source_interface_id, c)
+    if (!activeByInterface.has(c.destination_interface_id)) activeByInterface.set(c.destination_interface_id, c)
+  }
+  const interfaceById = new Map(allInterfaces.map((i) => [i.id, i]))
+  for (const row of rows) {
+    if (!row.id) continue
+    const connection = activeByInterface.get(row.id)
+    if (!connection) continue
+    const otherIsSource = connection.source_interface_id !== row.id
+    const other = interfaceById.get(otherIsSource ? connection.source_interface_id : connection.destination_interface_id)
+    if (!other) continue
+    const flagsDiffer = other.is_management !== row.is_management || other.is_data_transfer !== row.is_data_transfer
+    const vlanModeDiffer = other.vlan_mode !== row.vlan_mode
+    if (!flagsDiffer && !vlanModeDiffer) continue
+    conflicts[row.id] = {
+      otherInterfaceId: other.id,
+      otherDeviceName: otherIsSource ? connection.source_device_name : connection.destination_device_name,
+      otherInterfaceName: otherIsSource ? connection.source_interface_name : connection.destination_interface_name,
+      flagsDiffer,
+      vlanModeDiffer,
+      other: { is_management: other.is_management, is_data_transfer: other.is_data_transfer, vlan_mode: other.vlan_mode },
+    }
+  }
+  return conflicts
 }
 
 /** Максимум портов, перечисляемых в тексте одного уведомления; остальные сворачиваются в «и ещё N». */
@@ -63,7 +109,7 @@ function describeDifferences(row: InterfaceDraftRow, conflict: PortConflictInfo)
  *
  * @example
  * buildPortConflictNotice(rows, conflicts, initial)
- * // 'Устройство сохранено, но конфигурация портов расходится с соседними:\nпорт Gi0/1 ↔ Gi0/24 (SW-2) — режим порта: trunk / у соседа access'
+ * // 'Порты сохранены, но конфигурация расходится с соседними:\nпорт Gi0/1 ↔ Gi0/24 (SW-2) — режим порта: trunk / у соседа access'
  */
 export function buildPortConflictNotice(
   rows: InterfaceDraftRow[],
@@ -82,5 +128,5 @@ export function buildPortConflictNotice(
   if (!lines.length) return null
   const listed = lines.slice(0, MAX_LISTED_PORTS).join('\n')
   const rest = lines.length > MAX_LISTED_PORTS ? `\nи ещё ${lines.length - MAX_LISTED_PORTS}` : ''
-  return `Устройство сохранено, но конфигурация портов расходится с соседними:\n${listed}${rest}`
+  return `Порты сохранены, но конфигурация расходится с соседними:\n${listed}${rest}`
 }

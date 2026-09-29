@@ -502,10 +502,10 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     // Фикс п.1.3.8, часть 2: устройство реально закреплено за доменом на бэкенде — иначе
-    // backend/app/services/crud.py:_validate_physical_device_vlan откатил бы device-vlans
+    // backend/app/services/crud.py:_validate_physical_device_vlan откатил бы PUT /devices/{id}/vlans
     // с 422 "Устройство не включено в домен этого VLAN".
     const membershipIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
-    const deviceVlanIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/device-vlans'))
+    const deviceVlanIdx = calls.findIndex((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-8/vlans'))
     expect(membershipIdx).toBeGreaterThanOrEqual(0)
     expect(calls[membershipIdx].body).toEqual({ physical_device_id: 'dev-8', domain_id: 'domain-x' })
     expect(deviceVlanIdx).toBeGreaterThan(membershipIdx) // порядок важен — см. комментарий в submit()
@@ -737,7 +737,7 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const vlanCreateIndex = calls.findIndex((c) => c.method === 'POST' && c.url.includes('/resources/device-vlans'))
+    const vlanCreateIndex = calls.findIndex((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/vlans'))
     const interfacesSyncIndex = calls.findIndex((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
     expect(vlanCreateIndex).toBeGreaterThanOrEqual(0)
     expect(interfacesSyncIndex).toBeGreaterThan(vlanCreateIndex)
@@ -800,8 +800,8 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const vlanCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/device-vlans'))
-    expect(vlanCreate?.body).toMatchObject({ physical_device_id: 'dev-new', vlan_id: 'v-10' })
+    const vlanSync = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/vlans'))
+    expect(vlanSync?.body).toMatchObject({ vlans: [{ vlan_id: 'v-10' }] })
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
@@ -1592,11 +1592,71 @@ describe('правки формы физического устройства: �
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const created = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/resources/device-vlans')).map((c) => c.body?.vlan_id)
-    expect(created).toEqual(['v-10', 'v-20'])
+    // Один атомарный PUT со всеми VLAN устройства (а не delete + N×create) — и домен, и его VLAN.
+    const vlanSyncs = calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-new/vlans'))
+    expect(vlanSyncs).toHaveLength(1)
+    expect((vlanSyncs[0].body?.vlans as Array<{ vlan_id: string }>).map((v) => v.vlan_id)).toEqual(['v-10', 'v-20'])
+    expect(calls.some((c) => c.url.includes('/resources/device-vlans') && c.method !== 'GET')).toBe(false)
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))).toBe(true)
     // Сторы VLAN перечитаны после сохранения — другие экраны не показывают устаревшие данные.
     expect(calls.filter((c) => c.url.includes('/vlan-dashboard')).length).toBeGreaterThan(0)
+  })
+
+  it('отмена ещё не сохранённого включения в домен (×): чип исчезает, VLAN домена убираются, домен снова предлагается, членство не создаётся', async () => {
+    const vlanDomains = useVLANDomainsStore()
+    vlanDomains.all = [{ id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: null, auto_sync: false }]
+    vlanDomains.loaded = true
+    const definition = (id: string, vlanId: number, domainId: string | null) => ({
+      id, vlan_id: vlanId, name: `VLAN ${vlanId}`, description: '', domain_id: domainId, domain_name: domainId ? 'Ядро сети' : '', devices: [],
+    })
+    const vlans = useVLANsStore()
+    vlans.groups = [{ vlan_id: 30, definitions: [definition('v-30', 30, null)] }] // глобальный VLAN доступен сразу
+    vlans.loaded = true
+    const wrapper = await mountWithLoadedCatalogs()
+
+    const calls: Array<{ url: string; method: string; body?: Record<string, unknown> }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/vlan-dashboard')) {
+          return new Response(JSON.stringify({ items: [{ vlan_id: 10, definitions: [definition('v-10', 10, 'dom-1')] }, { vlan_id: 30, definitions: [definition('v-30', 30, null)] }] }))
+        }
+        if (method === 'POST' && url.endsWith('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-CANCEL' }), { status: 201 })
+        if (method === 'PUT' && url.includes('/devices/dev-new/vlans')) return new Response(JSON.stringify({ items: [] }))
+        return emptyList()
+      }),
+    )
+
+    const vlanEditor = () => wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    // VLAN без домена, назначенный вручную ДО включения, — не относится к домену и должен пережить отмену.
+    await vlanEditor().find('button.add-btn').trigger('click')
+    await wrapper.vm.$nextTick()
+    await vlanEditor().find('.nested-row select').setValue('v-30')
+
+    await vlanEditor().find('.join-domain-row select').setValue('dom-1')
+    await vlanEditor().find('.join-domain-row button').trigger('click')
+    await flushPromises()
+    expect(vlanEditor().findAll('[data-testid="member-domain"]')).toHaveLength(1)
+    expect(vlanEditor().findAll('.nested-row select').map((s) => (s.element as HTMLSelectElement).value)).toEqual(['v-30', 'v-10'])
+
+    await vlanEditor().find('[data-testid="cancel-join-domain"]').trigger('click')
+    await flushPromises()
+
+    expect(vlanEditor().find('[data-testid="member-domain"]').exists()).toBe(false)
+    expect(vlanEditor().findAll('.nested-row select').map((s) => (s.element as HTMLSelectElement).value)).toEqual(['v-30'])
+    expect(vlanEditor().find('.join-domain-row option[value="dom-1"]').exists()).toBe(true) // домен снова можно включить
+
+    calls.length = 0
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-CANCEL')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(calls.some((c) => c.url.endsWith('/resources/vlan-domain-devices'))).toBe(false)
+    const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-new/vlans'))
+    expect((sync?.body?.vlans as Array<{ vlan_id: string }>).map((v) => v.vlan_id)).toEqual(['v-30'])
   })
 
   describe('пункт 5: уведомление о сохранении порта с расхождением относительно соседа', () => {
@@ -1648,6 +1708,7 @@ describe('правки формы физического устройства: �
       await wrapper.find('form').trigger('submit')
       await flushPromises()
 
+      expect(useToast().toasts.map((t) => t.type)).toEqual(['warning']) // предупреждение, а не нейтральное «инфо»
       const messages = useToast().toasts.map((t) => t.message)
       expect(messages).toHaveLength(1)
       expect(messages[0]).toContain('Gi0/1')

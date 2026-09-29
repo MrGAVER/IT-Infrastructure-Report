@@ -45,11 +45,12 @@ const { toasts, dismiss } = useToast()
 .toast.error {
   border-left-color: var(--status-crit);
 }
+.toast.warning {
+  border-left-color: var(--status-warn);
+}
 .toast span {
   flex: 1;
   line-height: 1.5;
-  /* Многострочные уведомления (напр. список портов с расхождением, utils/portConflicts.ts). */
-  white-space: pre-line;
   white-space: pre-line;
 }
 .toast button {

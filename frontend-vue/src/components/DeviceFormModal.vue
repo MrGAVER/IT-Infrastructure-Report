@@ -8,6 +8,7 @@
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
+import { persistDeviceVlans } from '../api/deviceVlans'
 import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
@@ -27,8 +28,8 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
-import { mergeDomainVlansIntoDraft } from '../utils/vlan'
-import { buildPortConflictNotice, snapshotPortConfigs, type PortConfig } from '../utils/portConflicts'
+import { mergeDomainVlansIntoDraft, removeDomainVlansFromDraft } from '../utils/vlan'
+import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig } from '../utils/portConflicts'
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -130,31 +131,9 @@ const singleDeviceDomainId = computed(() => {
 // соседа — DeviceInterfacesEditor.vue сам решает, как их показать и что́ по каждой из двух
 // кнопок применить (пункт 1 — is_management/is_data_transfer, пункт 2 — vlan_mode; это два
 // НЕЗАВИСИМЫХ флага расхождения, у каждого своё место в интерфейсе редактора).
-const interfaceConflicts = computed<Record<string, PortConflictInfo>>(() => {
-  const conflicts: Record<string, PortConflictInfo> = {}
-  const allInterfaces = (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[]
-  for (const row of interfaces.value) {
-    if (!row.id) continue
-    const connection = connectionsStore.all.find((c) => c.is_active && (c.source_interface_id === row.id || c.destination_interface_id === row.id))
-    if (!connection) continue
-    const otherIsSource = connection.source_interface_id !== row.id
-    const otherId = otherIsSource ? connection.source_interface_id : connection.destination_interface_id
-    const other = allInterfaces.find((i) => i.id === otherId)
-    if (!other) continue
-    const flagsDiffer = other.is_management !== row.is_management || other.is_data_transfer !== row.is_data_transfer
-    const vlanModeDiffer = other.vlan_mode !== row.vlan_mode
-    if (!flagsDiffer && !vlanModeDiffer) continue
-    conflicts[row.id] = {
-      otherInterfaceId: other.id,
-      otherDeviceName: otherIsSource ? connection.source_device_name : connection.destination_device_name,
-      otherInterfaceName: otherIsSource ? connection.source_interface_name : connection.destination_interface_name,
-      flagsDiffer,
-      vlanModeDiffer,
-      other: { is_management: other.is_management, is_data_transfer: other.is_data_transfer, vlan_mode: other.vlan_mode },
-    }
-  }
-  return conflicts
-})
+const interfaceConflicts = computed<Record<string, PortConflictInfo>>(() =>
+  computePortConflicts(interfaces.value, connectionsStore.all, (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[]),
+)
 
 // Опции для чекбоксов "VLAN на порту" (DeviceInterfacesEditor.vue) — НЕ то же самое, что
 // availableVlans выше: тот отвечает "что можно НАЗНАЧИТЬ устройству" (фильтр по домену), этот —
@@ -540,13 +519,26 @@ async function onJoinDomainRequested(domainId: string) {
   if (memberDomainIds.value.has(domainId) || pendingDomainMemberships.value.has(domainId)) return
   pendingDomainMemberships.value = new Set([...pendingDomainMemberships.value, domainId])
   // Пункт 4: VLAN выбранного домена сразу попадают в черновик "VLAN устройства". Это не только
-  // удобство: persistDeviceVlans() ниже сохраняет VLAN устройства по схеме delete-затем-recreate из
-  // черновика, так что VLAN, которые бэкенд сам назначит при создании членства
-  // (services/crud.py:assign_domain_vlans_to_device), но которых нет в черновике, были бы тут же
-  // удалены при этом же сохранении. Стор перезагружается (а не ensureLoaded), чтобы набор VLAN домена
-  // был актуален на момент нажатия, а не на момент первой загрузки экрана.
+  // удобство: persistDeviceVlans() (PUT /devices/{id}/vlans) приводит VLAN устройства в БД ровно к
+  // черновику — записи, которых в нём нет, удаляются. Поэтому VLAN, которые бэкенд сам назначит при
+  // создании членства (services/crud.py:assign_domain_vlans_to_device), но которых нет в черновике,
+  // были бы тут же убраны при этом же сохранении. Стор перезагружается (а не ensureLoaded), чтобы набор
+  // VLAN домена был актуален на момент нажатия, а не на момент первой загрузки экрана.
   await vlansStore.reload()
   deviceVlans.value = mergeDomainVlansIntoDraft(deviceVlans.value, vlansStore.allDefinitions, domainId)
+}
+
+// Отмена ещё не сохранённого включения в домен (кнопка × на pending-чипе в DeviceVlanListEditor):
+// возвращает форму в состояние до «Включить» — домен снова предлагается в списке, а строки VLAN этого
+// домена (и добавленные автоматически, и выбранные вручную после этого) убираются из черновика, иначе
+// бэкенд отклонил бы их 422 (нет членства). Из pendingSourceDomainIds домен тоже исключается: если бы
+// он остался, устройство всё равно стало бы источником домена (persistPendingSourceDomains), в который
+// пользователь его включать передумал. Уже сохранённое членство (memberDomainIds) отменить нельзя.
+function onCancelJoinDomain(domainId: string) {
+  if (!pendingDomainMemberships.value.has(domainId)) return
+  pendingDomainMemberships.value = new Set([...pendingDomainMemberships.value].filter((id) => id !== domainId))
+  pendingSourceDomainIds.value = new Set([...pendingSourceDomainIds.value].filter((id) => id !== domainId))
+  deviceVlans.value = removeDomainVlansFromDraft(deviceVlans.value, vlansStore.allDefinitions, domainId)
 }
 
 async function persistSoftwareAssets(deviceId: string) {
@@ -586,24 +578,6 @@ async function persistPendingDomainMemberships(deviceId: string) {
 async function persistPendingSourceDomains(deviceId: string) {
   for (const domainId of pendingSourceDomainIds.value) {
     await updateResource('vlan-domains', domainId, { source_device_id: deviceId, auto_sync: true })
-  }
-}
-
-async function persistDeviceVlans(deviceId: string) {
-  const existing = await listResource<DeviceVLAN>('device-vlans', { physical_device_id: deviceId, limit: 1000 })
-  for (const old of existing.items) {
-    await deleteResource('device-vlans', old.id)
-  }
-  for (const row of deviceVlans.value) {
-    if (!row.vlan_id) continue
-    await createResource<DeviceVLAN>('device-vlans', {
-      physical_device_id: deviceId,
-      vlan_id: row.vlan_id,
-      ip_address: row.ip_address || null,
-      prefix_length: row.prefix_length === '' ? null : Number(row.prefix_length),
-      is_management: row.is_management,
-      description: row.description || null,
-    })
   }
 }
 
@@ -655,7 +629,7 @@ async function submit() {
         // allowed_vlans в backend/app/services/crud.py). Если VLAN только что добавлен в блок
         // "VLAN устройства" и тут же назначен порту в этом же сохранении, к моменту проверки он
         // должен уже быть в БД — иначе 422 "VLAN не разрешён" на ровном месте для пользователя.
-        await persistDeviceVlans(saved.id)
+        await persistDeviceVlans(saved.id, deviceVlans.value)
         // Атомарный PUT (не через generic createResource/deleteResource, как выше) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
         const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, interfaces.value)
@@ -674,7 +648,7 @@ async function submit() {
         // Пункт 5: interfaceConflicts считается по черновику interfaces — то есть ровно по тому, что
         // только что сохранено.
         const conflictNotice = buildPortConflictNotice(interfaces.value, interfaceConflicts.value, initialPortConfigs)
-        if (conflictNotice) notify(conflictNotice, 'info')
+        if (conflictNotice) notify(conflictNotice, 'warning')
         emit('saved', saved)
         return
       } catch (err) {
@@ -843,6 +817,7 @@ async function submit() {
           :device-domain-id="singleDeviceDomainId"
           :joinable-domains="joinableDomains"
           :member-domains="memberDomains"
+          @cancel-join-domain="onCancelJoinDomain"
           @vlan-created="onVlanCreated"
           @vlan-domain-created="onVlanDomainCreated"
           @join-domain="onJoinDomainRequested"

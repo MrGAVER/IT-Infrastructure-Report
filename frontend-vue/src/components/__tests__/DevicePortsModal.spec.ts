@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import DevicePortsModal from '../DevicePortsModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
+import { useConnectionsStore } from '../../stores/connections'
+import { useToast } from '../../composables/useToast'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
@@ -165,5 +167,84 @@ describe('DevicePortsModal.vue', () => {
       .map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
+  })
+
+  describe('уведомление о сохранении порта с расхождением относительно соседа', () => {
+    // Порт if-1 (dev-1) подключён активным кабелем к порту if-other (dev-2) с конфигурацией
+    // «управление: нет / передача данных: нет / trunk» — то есть той же, что у if-1 по умолчанию.
+    function mountWithNeighbour(thisPort: { is_management: boolean }) {
+      useToast().toasts.splice(0)
+      const catalogs = useCatalogsStore()
+      catalogs.loaded = true
+      catalogs.items['interfaces'] = [
+        { id: 'if-other', name: 'Gi0/2', physical_device_id: 'dev-2', is_management: false, is_data_transfer: false, vlan_mode: 'trunk' },
+      ]
+      const connections = useConnectionsStore()
+      connections.loaded = true
+      connections.all = [
+        {
+          id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-other', connection_type_id: 'ct', purpose: null, is_active: true, description: null,
+          source_device_name: 'srv-01', source_interface_name: 'eth0', destination_device_name: 'sw-02', destination_interface_name: 'Gi0/2', connection_type_name: 'UTP',
+        },
+      ]
+      const port = { ...existingInterfaceFixture, ...thisPort, vlan_mode: 'trunk' }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          if (url.includes('/resources/interfaces') && method === 'GET') return jsonResponse({ items: [port], total: 1, offset: 0, limit: 1000 })
+          if (url.includes('/resources/devices/dev-1') && method === 'GET') return jsonResponse(deviceFixture)
+          if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return jsonResponse({ items: [port] })
+          return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+        }),
+      )
+      return mount(DevicePortsModal, { props: { deviceId: 'dev-1', deviceLabel: 'srv-01' } })
+    }
+
+    it('порт сохранён с новой конфигурацией, расходящейся с соседом, — warning-toast с именами обоих портов', async () => {
+      const wrapper = mountWithNeighbour({ is_management: false })
+      await flushPromises()
+
+      await body().find('tr:not(.bulk-edit-row) td.col-check input').setValue(true) // «Управление» только у нашего порта
+      await body().find('.modal-foot button.btn-primary').trigger('click')
+      await flushPromises()
+
+      const toasts = useToast().toasts
+      expect(toasts).toHaveLength(1)
+      expect(toasts[0].type).toBe('warning')
+      expect(toasts[0].message).toContain('Порты сохранены')
+      expect(toasts[0].message).toContain('eth0')
+      expect(toasts[0].message).toContain('Gi0/2 (sw-02)')
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('расхождение существовало при открытии и порт не менялся — повторного уведомления нет', async () => {
+      const wrapper = mountWithNeighbour({ is_management: true })
+      await flushPromises()
+
+      await body().find('.modal-foot button.btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(useToast().toasts).toHaveLength(0)
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('сохранение не удалось — уведомления о портах нет', async () => {
+      const wrapper = mountWithNeighbour({ is_management: false })
+      await flushPromises()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init?: RequestInit) =>
+          (init?.method ?? 'GET') === 'PUT' ? jsonResponse({ detail: 'ошибка сервера' }, 409) : jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 }),
+        ),
+      )
+
+      await body().find('tr:not(.bulk-edit-row) td.col-check input').setValue(true)
+      await body().find('.modal-foot button.btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(useToast().toasts).toHaveLength(0)
+      expect(wrapper.emitted('saved')).toBeFalsy()
+    })
   })
 })

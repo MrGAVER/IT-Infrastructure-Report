@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildPortConflictNotice, snapshotPortConfigs } from '../portConflicts'
-import type { InterfaceDraftRow, PortConflictInfo } from '../../api/types'
+import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs } from '../portConflicts'
+import type { Connection, DeviceInterface, InterfaceDraftRow, PortConflictInfo } from '../../api/types'
 
 function row(overrides: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow {
   return {
@@ -75,5 +75,50 @@ describe('buildPortConflictNotice', () => {
     expect(text).toContain('Gi0/3')
     expect(text).not.toContain('Gi0/4')
     expect(text).toContain('и ещё 2')
+  })
+})
+
+describe('computePortConflicts', () => {
+  const iface = (id: string, overrides: Partial<DeviceInterface> = {}): DeviceInterface => ({
+    id, name: id, physical_device_id: 'dev', interface_type_id: null, mac_address: null, speed_id: null,
+    is_management: false, is_data_transfer: true, description: null, vlan_mode: 'trunk', ...overrides,
+  })
+  const connection = (id: string, source: string, destination: string, overrides: Partial<Connection> = {}): Connection => ({
+    id, source_interface_id: source, destination_interface_id: destination, connection_type_id: 'ct', purpose: null,
+    is_active: true, description: null, source_device_name: 'sw-src', source_interface_name: `${source}-name`,
+    destination_device_name: 'sw-dst', destination_interface_name: `${destination}-name`, connection_type_name: 'UTP', ...overrides,
+  })
+
+  it('порт — источник подключения: сосед берётся с destination-стороны, различия помечаются независимыми флагами', () => {
+    const rows = [row({ id: 'if-1', is_management: true, vlan_mode: 'trunk' })]
+    const result = computePortConflicts(rows, [connection('c1', 'if-1', 'if-2')], [iface('if-2', { vlan_mode: 'access' })])
+    expect(result['if-1']).toEqual({
+      otherInterfaceId: 'if-2',
+      otherDeviceName: 'sw-dst',
+      otherInterfaceName: 'if-2-name',
+      flagsDiffer: true,
+      vlanModeDiffer: true,
+      other: { is_management: false, is_data_transfer: true, vlan_mode: 'access' },
+    })
+  })
+
+  it('порт — приёмник подключения: сосед и его имена берутся с source-стороны', () => {
+    const rows = [row({ id: 'if-2', vlan_mode: 'trunk' })]
+    const result = computePortConflicts(rows, [connection('c1', 'if-1', 'if-2')], [iface('if-1', { vlan_mode: 'access' })])
+    expect(result['if-2']).toMatchObject({ otherInterfaceId: 'if-1', otherDeviceName: 'sw-src', otherInterfaceName: 'if-1-name', flagsDiffer: false, vlanModeDiffer: true })
+  })
+
+  it('неактивные подключения, совпадающие конфигурации, неизвестный сосед и строки без id — не конфликты', () => {
+    const same = iface('if-2', { is_management: false, is_data_transfer: true, vlan_mode: 'trunk' })
+    expect(computePortConflicts([row({ id: 'if-1' })], [connection('c1', 'if-1', 'if-2')], [same])).toEqual({})
+    expect(computePortConflicts([row({ id: 'if-1' })], [connection('c1', 'if-1', 'if-2', { is_active: false })], [iface('if-2', { vlan_mode: 'access' })])).toEqual({})
+    expect(computePortConflicts([row({ id: 'if-1' })], [connection('c1', 'if-1', 'if-2')], [])).toEqual({})
+    expect(computePortConflicts([row({ id: undefined })], [connection('c1', 'if-1', 'if-2')], [iface('if-2', { vlan_mode: 'access' })])).toEqual({})
+  })
+
+  it('несколько активных подключений у порта — берётся первое в порядке списка', () => {
+    const connections = [connection('c1', 'if-1', 'if-2'), connection('c2', 'if-1', 'if-3')]
+    const result = computePortConflicts([row({ id: 'if-1' })], connections, [iface('if-2', { vlan_mode: 'access' }), iface('if-3', { vlan_mode: 'access' })])
+    expect(result['if-1'].otherInterfaceId).toBe('if-2')
   })
 })

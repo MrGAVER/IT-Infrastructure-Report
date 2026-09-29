@@ -215,9 +215,30 @@ describe('DeviceVlanListEditor.vue', () => {
         },
       })
       const chips = wrapper.findAll('[data-testid="member-domain"]')
-      expect(chips.map((c) => c.text())).toEqual(['Ядро сети', 'Филиал — будет включено при сохранении'])
+      expect(chips[0].text()).toBe('Ядро сети')
+      expect(chips[1].text()).toContain('Филиал — будет включено при сохранении')
       expect(chips[1].classes()).toContain('pending')
       expect(chips[0].classes()).not.toContain('pending')
+    })
+
+    it('кнопка × есть только у pending-чипа и эмитит cancel-join-domain с id домена; у сохранённого членства отмены нет', async () => {
+      const wrapper = mount(DeviceVlanListEditor, {
+        props: {
+          modelValue: [],
+          vlanOptions,
+          memberDomains: [
+            { id: 'dom-1', name: 'Ядро сети', pending: false },
+            { id: 'dom-2', name: 'Филиал', pending: true },
+          ],
+        },
+      })
+      const chips = wrapper.findAll('[data-testid="member-domain"]')
+      expect(chips[0].find('[data-testid="cancel-join-domain"]').exists()).toBe(false)
+      const cancel = chips[1].find('[data-testid="cancel-join-domain"]')
+      expect(cancel.attributes('aria-label')).toBe('Отменить включение в домен «Филиал»')
+
+      await cancel.trigger('click')
+      expect(wrapper.emitted('cancel-join-domain')).toEqual([['dom-2']])
     })
 
     it('без доменов блок не рисуется', () => {
