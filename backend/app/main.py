@@ -1,9 +1,9 @@
 from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from .config import APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
@@ -16,6 +16,7 @@ from .api.system import router as system_router
 from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
 from .services.catalogs import seed_defaults
+from .services.integrity import ReferencedRecordError
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,13 @@ app.include_router(devices_router)
 app.include_router(resources_router)
 app.include_router(report_builder_router)
 app.include_router(diagrams_router)
+
+@app.exception_handler(ReferencedRecordError)
+async def referenced_record_handler(request: Request, exc: ReferencedRecordError) -> JSONResponse:
+    """Защита уровня ORM (before_delete, см. services/integrity.py) сработала в обход
+    delete_resource() — отдаём тот же 409 с тем же кодом и текстом, а не 500."""
+    return JSONResponse(status_code=409, content={'detail': {'code': exc.code, 'message': str(exc)}})
+
 
 def seed_catalogs_on_startup():
     session = SessionLocal()

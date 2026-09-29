@@ -41,7 +41,7 @@ def device_management_ports_and_ips(
     is_management=True и VLAN устройства (PhysicalDeviceVLAN) с is_management=True.
 
     management_interfaces: DeviceInterface-объекты устройства с is_management=True.
-    ips_by_interface: dict[interface_id] -> список InterfaceIP.
+    ips_by_interface: dict[interface_id] -> список IPAddress (owner_type="device_interface").
     management_vlan_links: PhysicalDeviceVLAN-объекты устройства с is_management=True.
     vlan_map: dict[vlan_id] -> VLAN (для получения номера/имени VLAN).
     vlan_label_with_name: включать ли имя VLAN в подпись порта ("VLAN 100 — Mgmt") или только

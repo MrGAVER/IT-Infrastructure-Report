@@ -663,40 +663,159 @@ class TestInformationSystemDetails:
         assert r.status_code == 200
         assert any(x["entity_id"] == info["id"] and x["action"] == "UPDATE" for x in r.json()["items"])
 
-    def test_sync_details_rejects_malformed_ip_in_ips(self, client):
-        """Код-ревью п.3.4: ISIP — единственная из связанных ("legacy") таблиц с ip_address;
-        generic-цикл _sync_linked_table пишет колонки как есть, без проверки формата."""
+    def test_sync_details_rejects_malformed_ip_in_sources(self, client):
+        """information_system_ips (legacy) удалена вместе с остальными устаревшими таблицами-
+        связками ИС (см. models.py, миграция b7f2c1e5a904) — IP теперь вводится через вложенный
+        список ips на строке sources (InformationSystemSource), по одному адресу на отдельное
+        поле (миграция d8e35a1c7f60), и валидация формата — там же (_sync_source_ip_addresses)."""
         info = client.post("/api/v1/resources/information-systems", json={"name": "ИС с плохим IP"}).json()
         r = client.put(
             f"/api/v1/resources/information-systems/{info['id']}/details",
-            json={"ips": [{"ip_address": "999.999.999.999"}]},
+            json={"sources": [{"source_type": "manual", "ips": [{"ip_address": "999.999.999.999"}]}]},
+        )
+        assert r.status_code == 422
+
+    def test_sync_details_rejects_non_string_ip_in_sources(self, client):
+        """Код-ревью (отчёт по рефакторингу и безопасности, находка 2): нестроковое значение
+        ip_address (валидный JSON: число, список) должно давать аккуратную 422, а не
+        необработанное исключение — validate_ipv4_field() сама проверяет isinstance(value, str)."""
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС с IP не строкой"}).json()
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"sources": [{"source_type": "manual", "ips": [{"ip_address": 12345}]}]},
+        )
+        assert r.status_code == 422
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"sources": [{"source_type": "manual", "ips": [{"ip_address": ["10.0.0.1"]}]}]},
+        )
+        assert r.status_code == 422
+
+    def test_sync_details_rejects_non_list_ips_field(self, client):
+        """Поле ips источника должно быть массивом (см. _sync_source_ip_addresses) — тот же класс
+        защиты, что и у поля sources самой ИС."""
+        info = client.post("/api/v1/resources/information-systems", json={"name": "ИС с ips не массивом"}).json()
+        r = client.put(
+            f"/api/v1/resources/information-systems/{info['id']}/details",
+            json={"sources": [{"source_type": "manual", "ips": "10.0.0.1"}]},
         )
         assert r.status_code == 422
 
 
 class TestVmIpValidation:
     def test_create_vm_ip_rejects_malformed_ip_address(self, client):
-        """Код-ревью п.3.4: VMIP — единственная из моделей с ip_address, идущая через
-        полностью generic create_resource (без выделенной sync-функции)."""
+        """Код-ревью п.3.4: IPAddress (владение виртуальной машиной) — единственный путь этой
+        модели, идущий через полностью generic create_resource (без выделенной sync-функции, в
+        отличие от владения интерфейсом и источником ИС, см. _validate_ip_address_entry)."""
         vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для теста IP"}).json()
-        r = client.post("/api/v1/resources/vm-ips", json={"virtual_machine_id": vm["id"], "ip_address": "не IP"})
+        r = client.post("/api/v1/resources/ip-addresses", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "ip_address": "не IP"})
         assert r.status_code == 422
 
     def test_create_vm_ip_rejects_out_of_range_prefix_length(self, client):
         vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для теста префикса"}).json()
         r = client.post(
-            "/api/v1/resources/vm-ips",
-            json={"virtual_machine_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": -1},
+            "/api/v1/resources/ip-addresses",
+            json={"owner_type": "virtual_machine", "owner_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": -1},
         )
         assert r.status_code == 422
 
     def test_create_vm_ip_accepts_valid_ip_and_prefix(self, client):
         vm = client.post("/api/v1/resources/vms", json={"name": "ВМ с корректным IP"}).json()
         r = client.post(
-            "/api/v1/resources/vm-ips",
-            json={"virtual_machine_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": 24},
+            "/api/v1/resources/ip-addresses",
+            json={"owner_type": "virtual_machine", "owner_id": vm["id"], "ip_address": "10.0.0.5", "prefix_length": 24},
         )
         assert r.status_code == 201, r.text
+
+
+class TestContainerHostExclusivity:
+    """Код-ревью (отчёт по анализу БД, вопрос 6): Container.physical_device_id/
+    virtual_machine_id — альтернативы по смыслу («размещается либо на ВМ, либо на физическом
+    устройстве, либо нигде конкретно»), но модель и БД допускали заполнение обоих одновременно —
+    это соблюдалось только на уровне формы (ContainerFormModal.vue). Прямой вызов API в обход
+    формы мог записать оба FK сразу."""
+
+    def test_create_rejects_both_host_fields_at_once(self, client):
+        dt = _create_device_type(client, "Хост для контейнера")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-CONTAINER"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера"}).json()
+        r = client.post(
+            "/api/v1/resources/containers",
+            json={"name": "container-both-hosts", "physical_device_id": dev["id"], "virtual_machine_id": vm["id"]},
+        )
+        assert r.status_code == 422
+
+    def test_create_accepts_single_host_field(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера 2"}).json()
+        r = client.post(
+            "/api/v1/resources/containers",
+            json={"name": "container-on-vm", "virtual_machine_id": vm["id"]},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_create_accepts_neither_host_field(self, client):
+        r = client.post("/api/v1/resources/containers", json={"name": "container-no-host"})
+        assert r.status_code == 201, r.text
+
+    def test_update_rejects_setting_both_host_fields(self, client):
+        dt = _create_device_type(client, "Хост для контейнера 2")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-CONTAINER-2"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для контейнера 3"}).json()
+        container = client.post("/api/v1/resources/containers", json={"name": "container-update", "virtual_machine_id": vm["id"]}).json()
+        r = client.put(f"/api/v1/resources/containers/{container['id']}", json={"physical_device_id": dev["id"]})
+        assert r.status_code == 422
+
+
+class TestDeployedSoftwareOwnerType:
+    """Код-ревью (отчёт по анализу БД, вопрос 2, подтверждено заказчиком: "в обеих может быть
+    одинаковое ПО"): device_software/vm_software объединены в deployed_software с owner_type/
+    owner_id — тот же паттерн, что уже применён к OpenPort. Проверяет, что генерик-ресурс
+    'deployed-software' действительно фильтруется по владельцу так, как ожидает фронтенд
+    (DeviceFormModal.vue/VMFormModal.vue: list_resource с owner_type+owner_id в filters)."""
+
+    def test_create_and_filter_by_device_owner(self, client):
+        dt = _create_device_type(client, "Хост для ПО")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-SOFTWARE"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "1С:Предприятие"}).json()
+        r = client.post(
+            "/api/v1/resources/deployed-software",
+            json={"owner_type": "physical_device", "owner_id": dev["id"], "software_asset_id": asset["id"], "version": "8.3"},
+        )
+        assert r.status_code == 201, r.text
+
+        listing = client.get(f"/api/v1/resources/deployed-software?owner_type=physical_device&owner_id={dev['id']}").json()
+        assert len(listing["items"]) == 1
+        assert listing["items"][0]["software_asset_id"] == asset["id"]
+        assert listing["items"][0]["version"] == "8.3"
+
+    def test_create_and_filter_by_vm_owner(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для ПО"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "Nginx"}).json()
+        r = client.post(
+            "/api/v1/resources/deployed-software",
+            json={"owner_type": "virtual_machine", "owner_id": vm["id"], "software_asset_id": asset["id"]},
+        )
+        assert r.status_code == 201, r.text
+
+        listing = client.get(f"/api/v1/resources/deployed-software?owner_type=virtual_machine&owner_id={vm['id']}").json()
+        assert len(listing["items"]) == 1
+        assert listing["items"][0]["software_asset_id"] == asset["id"]
+
+    def test_device_and_vm_software_do_not_leak_into_each_others_filter(self, client):
+        """Один и тот же software_asset_id может быть развёрнут и на устройстве, и на ВМ (это и
+        было основанием для объединения) — но список для устройства не должен включать запись ВМ,
+        и наоборот."""
+        dt = _create_device_type(client, "Хост для ПО 2")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SRV-SOFTWARE-2"}).json()
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для ПО 2"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "Общее ПО"}).json()
+        client.post("/api/v1/resources/deployed-software", json={"owner_type": "physical_device", "owner_id": dev["id"], "software_asset_id": asset["id"]})
+        client.post("/api/v1/resources/deployed-software", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "software_asset_id": asset["id"]})
+
+        device_listing = client.get(f"/api/v1/resources/deployed-software?owner_type=physical_device&owner_id={dev['id']}").json()
+        assert len(device_listing["items"]) == 1
+        vm_listing = client.get(f"/api/v1/resources/deployed-software?owner_type=virtual_machine&owner_id={vm['id']}").json()
+        assert len(vm_listing["items"]) == 1
 
 
 class TestNPlusOneRegressions:
@@ -1188,10 +1307,179 @@ class TestOpenPortCatalogIsSourceOfTruth:
         from app.models import OpenPort
         from sqlalchemy.exc import IntegrityError
 
-        legacy = OpenPort(owner_type="virtual_machine", owner_id="vm-legacy", port=8080, protocol=None)
+        legacy = OpenPort(owner_type="virtual_machine", owner_id="vm-legacy")
         db_session.add(legacy)
         with pytest.raises(IntegrityError):
             db_session.commit()
+
+
+class TestPolymorphicOwnerCleanupOnDelete:
+    """Код-ревью (отчёт по рефакторингу и безопасности, находка 1): open_ports.owner_id/
+    owner_type — полиморфная связь БЕЗ настоящего ForeignKey в БД (см. docstring models.OpenPort),
+    поэтому обычная проверка ссылок (_find_referencing_counts) её не видит. До правки
+    DELETE /resources/{interfaces,vms,devices}/{id} в обход sync_interfaces оставлял такие
+    open_ports в базе осиротевшими (owner_id указывал на уже не существующую запись). После
+    объединения DeployedSoftware/IPAddress в тот же паттерн (owner_type/owner_id) — тот же риск и
+    для них, поэтому _POLYMORPHIC_OWNER_CLEANUP покрывает обе модели тоже (см. crud.py)."""
+
+    def test_deleting_interface_removes_its_open_ports(self, client):
+        dt = _create_device_type(client, "Коммутатор для удаления порта")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEL-IF"}).json()
+        ssh_entry = _create_protocol_catalog_entry(client, 22, "SSH")
+        r = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ssh_entry["id"]}]}]},
+        )
+        iface = r.json()["items"][0]
+        port_id = iface["open_ports"][0]["id"]
+
+        r = client.delete(f"/api/v1/resources/interfaces/{iface['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/open-ports/{port_id}").status_code == 404
+
+    def test_deleting_vm_removes_its_open_ports(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для удаления порта"}).json()
+        rdp_entry = _create_protocol_catalog_entry(client, 3389, "RDP")
+        port = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "virtual_machine", "owner_id": vm["id"], "protocol_catalog_id": rdp_entry["id"]},
+        ).json()
+
+        r = client.delete(f"/api/v1/resources/vms/{vm['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/open-ports/{port['id']}").status_code == 404
+
+    def test_deleting_device_removes_its_legacy_open_ports(self, client):
+        """owner_type='physical_device' — устаревший паттерн (порт привязан к устройству
+        напрямую, без интерфейса, см. constants.OwnerType); устройство без интерфейсов не имеет
+        настоящих FK-ссылок, блокирующих удаление, поэтому такой порт осиротевал бы точно так же,
+        как и в двух тестах выше."""
+        dt = _create_device_type(client, "Коммутатор с портом на уровне устройства")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEL-DEV"}).json()
+        snmp_entry = _create_protocol_catalog_entry(client, 161, "SNMP")
+        port = client.post(
+            "/api/v1/resources/open-ports",
+            json={"owner_type": "physical_device", "owner_id": dev["id"], "protocol_catalog_id": snmp_entry["id"]},
+        ).json()
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/open-ports/{port['id']}").status_code == 404
+
+    def test_deleting_interface_removes_its_ip_addresses(self, client):
+        dt = _create_device_type(client, "Коммутатор для удаления IP")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEL-IP"}).json()
+        r = client.put(
+            f"/api/v1/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"name": "Gi0/1", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}]}]},
+        )
+        iface = r.json()["items"][0]
+        ip_id = iface["ips"][0]["id"]
+
+        r = client.delete(f"/api/v1/resources/interfaces/{iface['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/ip-addresses/{ip_id}").status_code == 404
+
+    def test_deleting_vm_removes_its_ip_addresses_and_software(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для удаления IP и ПО"}).json()
+        ip = client.post("/api/v1/resources/ip-addresses", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "ip_address": "10.0.0.9"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "ПО для удаления ВМ"}).json()
+        software = client.post("/api/v1/resources/deployed-software", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "software_asset_id": asset["id"]}).json()
+
+        r = client.delete(f"/api/v1/resources/vms/{vm['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/ip-addresses/{ip['id']}").status_code == 404
+        assert client.get(f"/api/v1/resources/deployed-software/{software['id']}").status_code == 404
+
+    def test_deleting_device_removes_its_deployed_software(self, client):
+        dt = _create_device_type(client, "Устройство для удаления ПО")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEL-SOFT"}).json()
+        asset = client.post("/api/v1/resources/software-assets", json={"name": "ПО для удаления устройства"}).json()
+        software = client.post("/api/v1/resources/deployed-software", json={"owner_type": "physical_device", "owner_id": dev["id"], "software_asset_id": asset["id"]}).json()
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/deployed-software/{software['id']}").status_code == 404
+
+    def test_deleting_is_source_removes_its_ip_addresses(self, client):
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС для удаления источника"}).json()
+        source = client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "manual"}).json()
+        ip = client.post("/api/v1/resources/ip-addresses", json={"owner_type": "information_system_source", "owner_id": source["id"], "ip_address": "10.5.5.5"}).json()
+
+        r = client.delete(f"/api/v1/resources/is-sources/{source['id']}")
+        assert r.status_code == 200, r.text
+
+        assert client.get(f"/api/v1/resources/ip-addresses/{ip['id']}").status_code == 404
+
+
+class TestInformationSystemSourceBlocksOwnerDeletion:
+    """Правка "переработка структуры БД", п.5 отчёта по анализу БД: information_system_sources.
+    owner_id ссылается на устройство/ВМ/контейнер, но НЕ является настоящим FK (миграция
+    944bd490d967, см. docstring models.InformationSystemSource) — в отличие от
+    TestPolymorphicOwnerCleanupOnDelete выше, здесь семантика владения ОБРАТНАЯ (ИС ссылается на
+    оборудование, не владеет им), поэтому вместо тихой зачистки нужна блокировка удаления —
+    воссоздана вручную: crud.assert_deletable() + services/integrity.py (before_delete, триггеры БД)."""
+
+    def test_cannot_delete_device_referenced_by_is_source(self, client):
+        dt = _create_device_type(client, "Сервер для блокировки удаления по источнику ИС")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-IS-SRC-DEV"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС на устройстве"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "device", "owner_id": dev["id"]})
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+
+    def test_cannot_delete_vm_referenced_by_is_source(self, client):
+        vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для блокировки удаления по источнику ИС"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС на ВМ"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "vm", "owner_id": vm["id"]})
+
+        r = client.delete(f"/api/v1/resources/vms/{vm['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+
+    def test_cannot_delete_container_referenced_by_is_source(self, client):
+        container = client.post("/api/v1/resources/containers", json={"name": "container-is-src"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС на контейнере"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "container", "owner_id": container["id"]})
+
+        r = client.delete(f"/api/v1/resources/containers/{container['id']}")
+        assert r.status_code == 409
+        assert r.json()["detail"]["code"] == "REFERENCED_BY_OTHER_RECORDS"
+
+    def test_device_deletable_again_after_referencing_source_removed(self, client):
+        dt = _create_device_type(client, "Сервер, источник ИС на котором потом удалили")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-IS-SRC-FREED"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС, источник которой удалили"}).json()
+        source = client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "device", "owner_id": dev["id"]}).json()
+
+        assert client.delete(f"/api/v1/resources/devices/{dev['id']}").status_code == 409
+        assert client.delete(f"/api/v1/resources/is-sources/{source['id']}").status_code == 200
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 200, r.text
+
+    def test_manual_source_never_blocks_any_owner_deletion(self, client):
+        """source_type='manual' не задействует блокировку ни для одного resource — owner_id у
+        такой строки всегда NULL, поэтому нет и не может быть записи, для удаления которой она
+        стала бы препятствием; тест лишь фиксирует это явно, а не проверяет отсутствие побочного
+        эффекта на всех resource-типах разом."""
+        dt = _create_device_type(client, "Сервер, не связанный ни с одним источником ИС")
+        dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-IS-SRC-MANUAL"}).json()
+        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС с ручным источником"}).json()
+        client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "manual"})
+
+        r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
+        assert r.status_code == 200, r.text
+
+
 class TestNewDomainVlanAutoAssignedToSourceDevice:
     """Пункт 2 правки "создание физического устройства": VLAN, заведённый в справочник (POST
     /resources/vlans) сразу с domain_id, должен появиться в «VLAN устройства» устройства-источника
@@ -1370,29 +1658,27 @@ class TestDeviceStacks:
 
 
 class TestGlobalSearchTextIndex:
-    """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 4 таблицах
-    (is-ips/is-sources/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
-    IP из этих таблиц приходилось искать вручную по разделам."""
+    """globalSearch() во фронтенде опирается на то, что q= находит IP-адрес в этих 3 таблицах
+    (ip-addresses/device-vlans/open-ports) — до этого сквозной поиск их не покрывал вовсе,
+    IP из этих таблиц приходилось искать вручную по разделам. is-sources была в этом списке до
+    объединения IP интерфейса/ВМ/источника ИС в единую ip-addresses (миграция d8e35a1c7f60,
+    owner_type/owner_id) — теперь IP-адрес источника ИС лежит там же, где и IP интерфейса/ВМ, см.
+    test_ip_address_searchable_by_address ниже."""
 
-    def test_is_ip_searchable_by_address(self, client):
-        is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС для поиска IP"}).json()
-        r = client.post(
-            "/api/v1/resources/is-ips",
-            json={"information_system_id": is_["id"], "ip_address": "10.20.30.40"},
-        )
-        assert r.status_code == 201, r.text
-        r = client.get("/api/v1/resources/is-ips?q=10.20.30.40")
-        assert r.status_code == 200
-        assert any(x["ip_address"] == "10.20.30.40" for x in r.json()["items"])
-
-    def test_is_source_searchable_by_address(self, client):
+    def test_ip_address_searchable_by_address(self, client):
+        """Один тест на все три owner_type сразу — IPAddress теперь единая таблица независимо от
+        владельца (интерфейс/ВМ/источник ИС), поэтому нет смысла дублировать тест на каждый."""
         is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС-источник для поиска"}).json()
-        r = client.post(
+        source = client.post(
             "/api/v1/resources/is-sources",
-            json={"information_system_id": is_["id"], "source_type": "manual", "ip_address": "10.20.30.41"},
+            json={"information_system_id": is_["id"], "source_type": "manual"},
+        ).json()
+        r = client.post(
+            "/api/v1/resources/ip-addresses",
+            json={"owner_type": "information_system_source", "owner_id": source["id"], "ip_address": "10.20.30.41"},
         )
         assert r.status_code == 201, r.text
-        r = client.get("/api/v1/resources/is-sources?q=10.20.30.41")
+        r = client.get("/api/v1/resources/ip-addresses?q=10.20.30.41")
         assert r.status_code == 200
         assert any(x["ip_address"] == "10.20.30.41" for x in r.json()["items"])
 

@@ -12,8 +12,7 @@ from ..models import (
 
 # Код-ревью п.3.4: формат IPv4/длина префикса проверялись только на клиенте
 # (frontend-vue/src/utils/ipValidation.ts) — прямой запрос к API мимо формы (или старый
-# кэшированный фронтенд-бандл) мог записать в InterfaceIP/VMIP/ISIP.ip_address произвольную
-# строку. Семантика зеркальна ipValidation.ts: пустая строка/None считаются валидными — это не
+# кэшированный фронтенд-бандл) мог записать в IPAddress.ip_address произвольную строку. Семантика зеркальна ipValidation.ts: пустая строка/None считаются валидными — это не
 # проверка на обязательность поля, а на "если что-то введено, это должно быть похоже на IP/
 # префикс".
 
@@ -100,6 +99,20 @@ def validate_hypervisor(data: dict[str, Any], session: Session) -> None:
     category = session.get(OperatingSystemCategory, hypervisor.category_id)
     if not category or not category.is_hypervisor:
         raise HTTPException(422, 'В поле гипервизора можно выбрать только ОС из категории «Гипервизор»')
+
+def validate_container_host(data: dict[str, Any]) -> None:
+    """Код-ревью (отчёт по анализу БД, вопрос 6): Container.physical_device_id и
+    .virtual_machine_id — по смыслу альтернативы («контейнер размещается либо на ВМ, либо
+    напрямую на физическом устройстве, либо нигде конкретно не указан», см. models.Container и
+    комментарий в ContainerFormModal.vue), но модель и БД допускают заполнение обоих сразу — это
+    соблюдалось только на уровне формы (поле hostType там не персистится), прямой вызов API мог
+    записать оба FK одновременно. Проверяется на уровне значений payload, а не через FK-констрейнт
+    в БД (в отличие от, например, protocol_catalog_id) — CHECK-констрейнт на «ровно один из двух
+    столбцов NULL» существующей миграцией без пересборки таблицы на SQLite не добавить (см. тот же
+    приём для open_ports/information_system_protocols в миграции b7f2c1e5a904), а для одной пары
+    nullable-колонок это несоразмерно тяжеловесно по сравнению с проверкой здесь."""
+    if data.get('physical_device_id') and data.get('virtual_machine_id'):
+        raise HTTPException(422, 'Контейнер можно разместить либо на физическом устройстве, либо на виртуальной машине, но не на обоих сразу')
 
 def duplicate_system_name(session: Session, value: str | None, current_id: str | None = None):
     if not value or not value.strip():

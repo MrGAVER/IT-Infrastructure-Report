@@ -242,17 +242,6 @@ class ISDepartment(TimestampMixin, Base):
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
 
-class ISIP(TimestampMixin, Base):
-    __tablename__ = "information_system_ips"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    ip_address: Mapped[str] = mapped_column(String(64))
-    purpose: Mapped[Optional[str]] = mapped_column(String(500))
-    protocol: Mapped[Optional[str]] = mapped_column(String(100))
-    external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)
-    physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    virtual_machine_id: Mapped[Optional[str]] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-
 class ProtocolPortCatalog(TimestampMixin, Base):
     __tablename__ = "protocol_port_catalogs"
     __table_args__ = (UniqueConstraint("port", "protocol_type", name="uq_protocol_port_catalog_port_type"),)
@@ -262,14 +251,21 @@ class ProtocolPortCatalog(TimestampMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
 
 class ISProtocol(TimestampMixin, Base):
+    """Протокол передачи данных ИС (Лист 1, колонка "Протокол передачи данных").
+
+    protocol/port больше не отдельные колонки (правка "справочник — единственный источник
+    правды для порта/протокола", по аналогии с OpenPort, см. миграцию
+    b7f2c1e5a904_isprotocol_catalog_required): значения ВСЕГДА читаются join'ом к
+    protocol_port_catalogs по protocol_catalog_id (обязателен, NOT NULL) — правка справочника
+    сразу отражается на уже сохранённых строках, без их отдельного пересохранения. description —
+    отдельное, СВОЁ поле записи (a не справочника): произвольный комментарий пользователя к
+    конкретному использованию протокола в этой ИС (см. ISProtocolsListEditor.vue), не путать с
+    ProtocolPortCatalog.description (общее техническое описание самого протокола) — reporting.py
+    показывает оба значения вместе, не выбирая одно вместо другого."""
     __tablename__ = "information_system_protocols"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    protocol: Mapped[str] = mapped_column(String(200))
-    port: Mapped[Optional[int]] = mapped_column(Integer)
-    protocol_catalog_id: Mapped[Optional[str]] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
-    version: Mapped[Optional[str]] = mapped_column(String(100))  # legacy, no longer shown in UI
-    direction: Mapped[Optional[str]] = mapped_column(String(50))  # legacy, no longer shown in UI
+    protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
 class DeviceInterface(TimestampMixin, Base):
@@ -303,10 +299,26 @@ class InterfaceSpeed(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
-class InterfaceIP(TimestampMixin, Base):
-    __tablename__ = "interface_ips"
+class IPAddress(TimestampMixin, Base):
+    """IP-адрес владельца — интерфейс устройства, ВМ или источник ИС (owner_type/owner_id, тот же
+    паттерн, что уже применён к OpenPort/DeployedSoftware). Объединяет прежние отдельные таблицы
+    interface_ips/vm_ips и IP-адрес(а) InformationSystemSource (миграция d8e35a1c7f60, вопросы
+    1/3/5 отчёта по анализу БД — согласовано с заказчиком): все три случая хранили идентичный по
+    смыслу набор данных «IP-адрес + необязательные префикс/назначение/признак IP администрирования
+    у конкретного владельца», отличаясь только именем FK-колонки владельца (для interface_ips/
+    vm_ips) или тем, что раньше несколько IP одного источника ИС хранились одной строкой через
+    запятую в единственном текстовом поле (для information_system_sources.ip_address) — теперь
+    каждый IP-адрес источника ИС тоже отдельная строка (owner_type="information_system_source",
+    owner_id=<id строки InformationSystemSource>), что вместе с этим и даёт заказчику несколько
+    отдельных полей ввода IP вместо одного текстового.
+
+    Container.management_ip НЕ перенесён сюда: подтверждено, что поле не редактировалось ни через
+    один UI (см. комментарий в ContainerFormModal.vue "у контейнера нет своего IP на уровне
+    отчёта") — мёртвая колонка, удалена той же миграцией, а не активирована задним числом."""
+    __tablename__ = "ip_addresses"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)
+    owner_type: Mapped[str] = mapped_column(String(50))
+    owner_id: Mapped[str] = mapped_column(String(36))
     ip_address: Mapped[str] = mapped_column(String(64), index=True)
     prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
     purpose: Mapped[Optional[str]] = mapped_column(String(255))
@@ -408,15 +420,6 @@ class VirtualMachine(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(50), default="active")
     description: Mapped[Optional[str]] = mapped_column(Text)
 
-class VMIP(TimestampMixin, Base):
-    __tablename__ = "vm_ips"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    virtual_machine_id: Mapped[str] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-    ip_address: Mapped[str] = mapped_column(String(64), index=True)
-    prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
-    purpose: Mapped[Optional[str]] = mapped_column(String(255))
-    is_management: Mapped[bool] = mapped_column(Boolean, default=False)
-
 class Container(TimestampMixin, Base):
     __tablename__ = "containers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -426,7 +429,6 @@ class Container(TimestampMixin, Base):
     runtime: Mapped[Optional[str]] = mapped_column(String(100))
     runtime_version: Mapped[Optional[str]] = mapped_column(String(100))
     purpose: Mapped[Optional[str]] = mapped_column(Text)
-    management_ip: Mapped[Optional[str]] = mapped_column(String(64))
 
 class SoftwareAsset(TimestampMixin, Base):
     __tablename__ = "software_assets"
@@ -437,71 +439,82 @@ class SoftwareAsset(TimestampMixin, Base):
     version: Mapped[Optional[str]] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
-class DeviceSoftware(TimestampMixin, Base):
-    __tablename__ = "device_software"
+class DeployedSoftware(TimestampMixin, Base):
+    """Развёрнутый программный актив на устройстве/ВМ (1С, веб-сервер, файловый сервер, AD и т.п.
+    — Лист 4 отчёта, столбец «Какие программные активы развёрнуты»). owner_type/owner_id вместо
+    прежних отдельных таблиц device_software/vm_software (миграция c4a91e6f2b83, объединены по той
+    же причине и тем же паттерном, что уже применён к OpenPort: логически идентичные данные —
+    связь «владелец (устройство или ВМ) ↔ запись каталога software_assets + версия» — вводились в
+    двух разных формах и хранились в двух отдельных таблицах, отличавшихся только именем FK-
+    колонки владельца."""
+    __tablename__ = "deployed_software"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    software_asset_id: Mapped[str] = mapped_column(ForeignKey("software_assets.id"))
-    version: Mapped[Optional[str]] = mapped_column(String(100))
-
-class VMSoftware(TimestampMixin, Base):
-    __tablename__ = "vm_software"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    virtual_machine_id: Mapped[str] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
+    owner_type: Mapped[str] = mapped_column(String(50))
+    owner_id: Mapped[str] = mapped_column(String(36))
     software_asset_id: Mapped[str] = mapped_column(ForeignKey("software_assets.id"))
     version: Mapped[Optional[str]] = mapped_column(String(100))
 
 class InformationSystemSource(TimestampMixin, Base):
+    """Связь ИС с оборудованием/ВМ/контейнером или произвольный IP-источник (source_type: manual,
+    device, vm, container) — Лист 1, столбцы "Оборудование..." и "IP-адрес...". Единственная и
+    обязательная модель этой связи: четыре прежние отдельные таблицы-связки (information_system_
+    devices/vms/containers/ips) удалены (миграция b7f2c1e5a904_isprotocol_catalog_required) вместе
+    со всем их поддерживающим кодом — до этого они существовали параллельно как исторический
+    fallback для записей ИС, ни разу не пересохранённых через актуальную форму.
+
+    ip_address (раньше — своя колонка, несколько адресов через запятую в одной строке) удалена
+    миграцией d8e35a1c7f60: IP-адреса источника (актуально только для source_type="manual" — для
+    остальных типов IP берётся из связанного оборудования/ВМ) теперь отдельные строки IPAddress
+    с owner_type="information_system_source", owner_id=<id этой записи> — по одному адресу на
+    строку, а не через запятую (вопрос 3/5 отчёта по анализу БД, согласовано с заказчиком: "можно
+    добавлять несколько полей IP вместо одного текстового поля").
+
+    owner_id (миграция 944bd490d967, п.5 отчёта по анализу БД) заменяет три прежние nullable FK-
+    колонки (physical_device_id/virtual_machine_id/container_id — у любой строки была заполнена от
+    силы одна, конкретно какая — определялась уже существующим source_type). Тот же приём, что и у
+    OpenPort/DeployedSoftware/IPAddress (owner_type/owner_id), только здесь роль owner_type играет
+    само поле source_type — заводить для него отдельную колонку было бы чистым дублированием, само
+    значение и так однозначно: 'device' → PhysicalDevice, 'vm' → VirtualMachine,
+    'container' → Container, 'manual' → owner_id всегда NULL.
+
+    ВАЖНО — семантика владения здесь ОБРАТНАЯ по отношению к тем трём моделям: там владелец
+    (устройство/ВМ) владеет дочерней записью и её осиротение при удалении владельца желательно
+    (см. _POLYMORPHIC_OWNER_CLEANUP в services/crud.py). Здесь ИС лишь ССЫЛАЕТСЯ на оборудование
+    как на место размещения — удаление устройства/ВМ/контейнера, на который ссылается хотя бы одна
+    строка source, должно быть ЗАБЛОКИРОВАНО (иначе регуляторный отчёт будет описывать размещение
+    ИС на уже не существующем оборудовании). Раньше это обеспечивал сам FK на уровне БД; owner_id
+    настоящим FK не является (ссылается на одну из трёх разных таблиц в зависимости от source_type
+    — единая FK-колонка не может ссылаться на разные таблицы), поэтому защита воссоздана вручную в
+    services/crud.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см. services/integrity.py) — решение
+    заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
+    точности отчёта)."""
     __tablename__ = "information_system_sources"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    source_type: Mapped[str] = mapped_column(String(30))  # manual, device, vm, container
-    physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    virtual_machine_id: Mapped[Optional[str]] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-    container_id: Mapped[Optional[str]] = mapped_column(ForeignKey("containers.id"), index=True)
-    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+    source_type: Mapped[str] = mapped_column(String(30))  # manual, device, vm, container — также играет роль owner_type
+    owner_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)  # id устройства/ВМ/контейнера по source_type; NULL при source_type='manual'. Не настоящий FK — см. докстринг класса
     purpose: Mapped[Optional[str]] = mapped_column(String(500))
     role: Mapped[Optional[str]] = mapped_column(String(255))
     external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)
-
-class ISDevice(TimestampMixin, Base):
-    __tablename__ = "information_system_devices"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
-    role: Mapped[Optional[str]] = mapped_column(String(255))
-
-class ISVM(TimestampMixin, Base):
-    __tablename__ = "information_system_vms"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    virtual_machine_id: Mapped[str] = mapped_column(ForeignKey("virtual_machines.id"), index=True)
-    role: Mapped[Optional[str]] = mapped_column(String(255))
-
-class ISContainer(TimestampMixin, Base):
-    __tablename__ = "information_system_containers"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
-    container_id: Mapped[str] = mapped_column(ForeignKey("containers.id"))
-    role: Mapped[Optional[str]] = mapped_column(String(255))
 
 class OpenPort(TimestampMixin, Base):
     """Открытый порт/протокол владельца (ВМ или интерфейс физ. устройства, см. owner_type/owner_id).
 
     port/protocol НЕ принимаются от клиента напрямую (правка "убрать текстовые поля Порт/Протокол,
-    эта информация уже есть в справочнике портов") — единственный вход для них — protocol_catalog_id,
-    сервер сам подставляет значения из ProtocolPortCatalog (см. services/crud.py:_apply_open_port_catalog).
-    protocol_catalog_id обязателен (NOT NULL, миграция a1b7c9d3e502 с бэкфиллом старых строк) — без
-    него неоткуда взять port/protocol при создании/обновлении. Колонки port/protocol сохранены как
-    есть (не через relationship) ради обратной совместимости отчёта (reporting.py) и уже
-    существующих запросов, читающих их напрямую с этой модели."""
+    эта информация уже есть в справочнике портов") — единственный вход для них — protocol_catalog_id.
+    port/protocol больше не отдельные колонки (правка "справочник — единственный источник правды
+    для порта/протокола", см. миграцию b7f2c1e5a904_isprotocol_catalog_required): значения ВСЕГДА
+    читаются join'ом к protocol_port_catalogs по protocol_catalog_id при каждом чтении (см.
+    services/serialization.py:enrich_open_port(s), reporting.py:_open_port_label) — правка записи
+    справочника сразу отражается на уже созданных портах, без их отдельного пересохранения (то,
+    чего не было до этой правки — старая версия хранила снимок port/protocol на самой записи и
+    актуализировала его только при пересохранении именно этой записи порта). protocol_catalog_id
+    обязателен (NOT NULL, миграция a1b7c9d3e502)."""
     __tablename__ = "open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
     owner_id: Mapped[str] = mapped_column(String(36))
     transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
-    port: Mapped[int] = mapped_column(Integer)
-    protocol: Mapped[Optional[str]] = mapped_column(String(100))
     protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     description: Mapped[Optional[str]] = mapped_column(Text)

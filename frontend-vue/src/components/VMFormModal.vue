@@ -9,7 +9,7 @@
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, deleteResource, listResource, updateResource } from '../api/client'
-import type { VirtualMachine, Device, VMIP, OpenPort, VMSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
+import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { filterHostDevices } from '../utils/deviceFilters'
@@ -51,7 +51,7 @@ const openPorts = ref<OpenPortDraftRow[]>([])
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const loadingNested = ref(false)
 
-function toIpDraftRow(x: VMIP): VmIpDraftRow {
+function toIpDraftRow(x: IPAddress): VmIpDraftRow {
   return {
     id: x.id,
     ip_address: x.ip_address,
@@ -70,7 +70,7 @@ function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
   }
 }
 
-function toSoftwareDraftRow(x: VMSoftware): SoftwareAssetDraftRow {
+function toSoftwareDraftRow(x: DeployedSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
 }
 
@@ -96,9 +96,9 @@ watch(
     loadingNested.value = true
     try {
       const [ips, ports, software] = await Promise.all([
-        listResource<VMIP>('vm-ips', { virtual_machine_id: source.id, limit: 1000 }),
+        listResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
         listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
-        listResource<VMSoftware>('vm-software', { virtual_machine_id: source.id, limit: 1000 }),
+        listResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
       ])
       vmIps.value = isCopy ? stripIds(ips.items.map(toIpDraftRow)) : ips.items.map(toIpDraftRow)
       openPorts.value = isCopy ? stripIds(ports.items.map(toOpenPortDraftRow)) : ports.items.map(toOpenPortDraftRow)
@@ -134,14 +134,15 @@ function toPayload() {
 // Списки маленькие (единицы-десятки строк на ВМ), поэтому цена лишних
 // запросов пренебрежимо мала по сравнению с простотой кода без diff-логики.
 async function persistVmIps(vmId: string) {
-  const existing = await listResource<VMIP>('vm-ips', { virtual_machine_id: vmId, limit: 1000 })
+  const existing = await listResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: vmId, limit: 1000 })
   for (const old of existing.items) {
-    await deleteResource('vm-ips', old.id)
+    await deleteResource('ip-addresses', old.id)
   }
   for (const row of vmIps.value) {
     if (!row.ip_address.trim()) continue
-    await createResource<VMIP>('vm-ips', {
-      virtual_machine_id: vmId,
+    await createResource<IPAddress>('ip-addresses', {
+      owner_type: 'virtual_machine',
+      owner_id: vmId,
       ip_address: row.ip_address.trim(),
       prefix_length: row.prefix_length === '' ? null : Number(row.prefix_length),
       purpose: row.purpose || null,
@@ -173,14 +174,15 @@ async function persistOpenPorts(vmId: string) {
 }
 
 async function persistSoftwareAssets(vmId: string) {
-  const existing = await listResource<VMSoftware>('vm-software', { virtual_machine_id: vmId, limit: 1000 })
+  const existing = await listResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: vmId, limit: 1000 })
   for (const old of existing.items) {
-    await deleteResource('vm-software', old.id)
+    await deleteResource('deployed-software', old.id)
   }
   for (const row of softwareAssets.value) {
     if (!row.software_asset_id) continue
-    await createResource<VMSoftware>('vm-software', {
-      virtual_machine_id: vmId,
+    await createResource<DeployedSoftware>('deployed-software', {
+      owner_type: 'virtual_machine',
+      owner_id: vmId,
       software_asset_id: row.software_asset_id,
       version: row.version || null,
     })

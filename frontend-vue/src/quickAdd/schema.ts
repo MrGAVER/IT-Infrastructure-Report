@@ -88,6 +88,13 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
       fkResource: 'device-categories',
       nestedQuickAdd: true,
     },
+    // Код-ревью (отчёт по анализу БД, вопрос 7): раньше allows_vm_hosting проставлялся только
+    // при первом запуске приложения для фиксированного списка стандартных названий типов
+    // устройств (services/catalogs.py:_seed_device_types) — у типа, заведённого администратором
+    // вручную, эту возможность нельзя было включить никак, кроме прямого запроса к API в обход
+    // интерфейса. Теперь редактируется как обычное поле — и для новых, и для уже существующих
+    // типов (форма CatalogRecordFormModal.vue общая для create/edit).
+    { name: 'allows_vm_hosting', label: 'Можно использовать как хост для ВМ', type: 'checkbox', required: false },
   ],
   manufacturers: [{ name: 'name', label: 'Наименование', type: 'text', required: true }],
   'device-models': [
@@ -117,6 +124,10 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
   'os-categories': [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
+    // Тот же случай, что allows_vm_hosting у device-types чуть выше — is_hypervisor раньше
+    // проставлялся только для стандартных названий категорий при первом запуске
+    // (services/catalogs.py:HYPERVISOR_CATEGORY_NAMES).
+    { name: 'is_hypervisor', label: 'Категория гипервизоров', type: 'checkbox', required: false },
   ],
   'operating-systems': [
     { name: 'category_id', label: 'Категория ОС', type: 'fk', required: true, fkResource: 'os-categories' },
@@ -182,7 +193,7 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     // каталога на продукт (напр. "1С:Предприятие"), поэтому версия ПРОДУКТА в каталоге в принципе
     // не может отражать реальность, если этот продукт установлен на разных устройствах/ВМ в
     // разных версиях. Версия по месту установки — это отдельное поле на самой связи
-    // (VMSoftware.version / DeviceSoftware.version), которое и редактируется в
+    // (DeployedSoftware.version, owner_type/owner_id — см. models.py), которое и редактируется в
     // SoftwareAssetListEditor.vue построчно. Колонка SoftwareAsset.version в БД сохранена
     // (не удалялась миграцией) — просто эта форма больше её не показывает и не пишет.
     { name: 'description', label: 'Описание', type: 'textarea', required: false },

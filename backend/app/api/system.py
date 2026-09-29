@@ -9,6 +9,7 @@ from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
 from ..services.crud import assign_domain_vlans_to_device, audit, validate_resource
+from ..services.integrity import find_orphaned_owner_references
 from ..constants import AuditAction
 from ..reporting import build_report
 
@@ -16,6 +17,14 @@ router = APIRouter(tags=['System'])
 
 @router.get('/api/v1/health')
 def health(): return {'status':'ok','service':'infra-registry','version':APP_VERSION}
+
+@router.get('/api/v1/integrity')
+def integrity_report(session: Session = Depends(get_db)):
+    """Диагностика ссылочной целостности связей без настоящего FK (owner_id у OpenPort/
+    DeployedSoftware/IPAddress/InformationSystemSource): находит записи, чей владелец уже не
+    существует. Только чтение. ok=True и пустой orphans — всё в порядке."""
+    orphans = find_orphaned_owner_references(session)
+    return {'ok': not orphans, 'total': len(orphans), 'orphans': orphans}
 
 @router.get('/api/v1/dashboard')
 def dashboard(session: Session = Depends(get_db)):

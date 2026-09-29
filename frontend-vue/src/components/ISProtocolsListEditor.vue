@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Протоколы передачи данных ИС. protocol/port не показаны отдельными полями — подставляются
-// из выбранной записи справочника (тот же protocol-port-catalog, что в OpenPortListEditor.vue),
-// но обязаны уйти в payload при сохранении: ISProtocol.protocol — обязательное поле на бэкенде
-// (см. комментарий к ISProtocolDraftRow в api/types.ts).
+// Протоколы передачи данных ИС. protocol_catalog_id — обязательная ссылка на справочник (тот же
+// protocol-port-catalog, что в OpenPortListEditor.vue); protocol/port больше не отдельные поля ни
+// в форме, ни в backend-модели (см. models.py, миграция b7f2c1e5a904) — их показывает
+// SearchableSelect из caталога, а бэкенд резолвит их join'ом на каждое чтение.
 import type { ISProtocolDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
@@ -17,7 +17,7 @@ const emit = defineEmits<{ 'update:modelValue': [rows: ISProtocolDraftRow[]] }>(
 const catalogOptions = (): SearchableSelectOption[] => props.catalogEntries.map((e) => ({ value: e.id, label: `${e.port} / ${e.protocol_type}` }))
 
 function addRow() {
-  emit('update:modelValue', [...props.modelValue, { protocol_catalog_id: '', protocol: '', port: null, description: '' }])
+  emit('update:modelValue', [...props.modelValue, { protocol_catalog_id: '', description: '' }])
 }
 
 function removeRow(index: number) {
@@ -35,19 +35,12 @@ function updateField(index: number, patch: Partial<ISProtocolDraftRow>) {
 }
 
 function onCatalogChange(index: number, catalogId: string) {
-  const entry = props.catalogEntries.find((e) => e.id === catalogId)
-  updateField(index, {
-    protocol_catalog_id: catalogId,
-    ...(entry ? { protocol: entry.protocol_type, port: entry.port } : {}),
-  })
+  updateField(index, { protocol_catalog_id: catalogId })
 }
 
-// Запись напрямую, без обхода через onCatalogChange/props.catalogEntries.find() — на момент
-// эмита 'created' обновлённый снизу проп catalogEntries ещё не обязательно успел
-// синхронизироваться (см. подробное обоснование в OpenPortListEditor.vue:onQuickAdded).
 function onQuickAdded(index: number, record: CatalogItem) {
   const entry = record as unknown as ProtocolPortCatalogEntry
-  updateField(index, { protocol_catalog_id: entry.id, protocol: entry.protocol_type, port: entry.port })
+  updateField(index, { protocol_catalog_id: entry.id })
 }
 </script>
 

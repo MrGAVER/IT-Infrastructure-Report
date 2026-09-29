@@ -35,13 +35,13 @@ describe('loadDeviceInterfaceDraftRows', () => {
           limit: 1000,
         })
       }
-      if (url.includes('/resources/interface-ips')) {
+      if (url.includes('/resources/ip-addresses')) {
         // Общий список по ВСЕМ устройствам — включает IP чужого интерфейса (if-2), который
         // не должен попасть в результат для if-1.
         return jsonResponse({
           items: [
-            { id: 'ip-1', interface_id: 'if-1', ip_address: '10.0.0.1', prefix_length: 24, purpose: 'Управление', is_management: true },
-            { id: 'ip-2', interface_id: 'if-2', ip_address: '10.0.0.2', prefix_length: 24, purpose: '', is_management: false },
+            { id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '10.0.0.1', prefix_length: 24, purpose: 'Управление', is_management: true },
+            { id: 'ip-2', owner_type: 'device_interface', owner_id: 'if-2', ip_address: '10.0.0.2', prefix_length: 24, purpose: '', is_management: false },
           ],
           total: 2,
           offset: 0,

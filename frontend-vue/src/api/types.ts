@@ -163,12 +163,16 @@ export interface VMsResponse {
   total: number
 }
 
-/** GET /api/v1/resources/vm-ips?virtual_machine_id=... — генерический ресурс, {items,total,offset,limit}
- * (см. PagedResponse в api/client.ts). Лист 4 требует "IP-адрес виртуальной машины/контейнера" —
- * у одной ВМ их может быть несколько, поэтому отдельная таблица, а не колонка на VirtualMachine. */
-export interface VMIP {
+/** GET /api/v1/resources/ip-addresses?owner_type=...&owner_id=... — единая модель вместо
+ * прежних отдельных InterfaceIP/VMIP и IP-адреса(ов) на строке InformationSystemSource
+ * (backend/app/models.py:IPAddress, миграция d8e35a1c7f60), тот же паттерн owner_type/owner_id,
+ * что уже применён к OpenPort/DeployedSoftware. Лист 4 требует "IP-адрес виртуальной
+ * машины/контейнера" — у одного владельца их может быть несколько, поэтому отдельная таблица, а
+ * не колонка на владельце. */
+export interface IPAddress {
   id: string
-  virtual_machine_id: string
+  owner_type: string
+  owner_id: string
   ip_address: string
   prefix_length: number | null
   purpose: string | null
@@ -204,8 +208,9 @@ export interface ProtocolPortCatalogEntry {
 
 /** Черновая строка редактора IP-адресов ВМ (VmIpListEditor.vue). Поля — строки для прямого
  * v-model на input'ах (в т.ч. числовое prefix_length: пустая строка — валидное "не задано",
- * что не выразить через number). Конвертируется в payload VMIP при сохранении, см.
- * VMFormModal.vue:persistVmIps. `id` присутствует только у строк, загруженных с бэкенда. */
+ * что не выразить через number). Конвертируется в payload IPAddress при сохранении (owner_type=
+ * 'virtual_machine'), см. VMFormModal.vue:persistSoftwareAssets и аналогичный persistVmIps.
+ * `id` присутствует только у строк, загруженных с бэкенда. */
 export interface VmIpDraftRow {
   id?: string
   ip_address: string
@@ -220,9 +225,10 @@ export interface VmIpDraftRow {
  * OpenPort — полиморфная таблица с одинаковым набором полей независимо от owner_type.
  *
  * Без port/protocol (правка "убрать текстовые поля Порт/Протокол — эта информация уже есть в
- * справочнике портов"): единственный вход теперь — protocol_catalog_id, сервер сам подставляет
- * порт/протокол из справочника при сохранении (см. backend/app/services/crud.py:
- * _apply_open_port_catalog) и возвращает их в ответе OpenPort ниже — черновику их хранить не нужно. */
+ * справочнике портов"): единственный вход теперь — protocol_catalog_id; port/protocol больше не
+ * колонки backend-модели вовсе (см. models.py, миграция b7f2c1e5a904) — сервер вычисляет их из
+ * справочника на КАЖДОЕ чтение (services/serialization.py:enrich_open_port(s)) и возвращает в
+ * ответе OpenPort ниже — черновику их хранить не нужно. */
 export interface OpenPortDraftRow {
   id?: string
   protocol_catalog_id: string
@@ -230,27 +236,19 @@ export interface OpenPortDraftRow {
   description: string
 }
 
-/** GET /api/v1/resources/vm-software?virtual_machine_id=... — в отличие от OpenPort НЕ
- * полиморфная: у ВМ и устройства отдельные таблицы (vm_software/device_software) с разным
- * именем FK-колонки владельца, но одинаковым набором остальных полей — поэтому общий
- * SoftwareAssetListEditor.vue не завязан ни на одну из них (как и OpenPortListEditor.vue). */
-export interface VMSoftware {
+/** GET /api/v1/resources/deployed-software?owner_type=...&owner_id=... — единая модель вместо
+ * прежних отдельных VMSoftware/DeviceSoftware (backend/app/models.py:DeployedSoftware,
+ * миграция c4a91e6f2b83), тот же паттерн owner_type/owner_id, что уже применён к OpenPort. */
+export interface DeployedSoftware {
   id: string
-  virtual_machine_id: string
-  software_asset_id: string
-  version: string | null
-}
-
-/** GET /api/v1/resources/device-software?physical_device_id=... — см. комментарий к VMSoftware. */
-export interface DeviceSoftware {
-  id: string
-  physical_device_id: string
+  owner_type: 'physical_device' | 'virtual_machine'
+  owner_id: string
   software_asset_id: string
   version: string | null
 }
 
 /** Черновая строка SoftwareAssetListEditor.vue — переиспользуется VMFormModal.vue и
- * DeviceFormModal.vue (маппится в VMSoftware или DeviceSoftware вызывающим кодом). */
+ * DeviceFormModal.vue (маппится в DeployedSoftware вызывающим кодом, с нужным owner_type). */
 export interface SoftwareAssetDraftRow {
   id?: string
   software_asset_id: string
@@ -275,29 +273,26 @@ export interface Container {
 /** GET /api/v1/resources/information-systems/{id}/details — атомарно синхронизируется через
  * PUT на тот же путь (backend/app/services/crud.py:sync_information_system_details), так же
  * как интерфейсы устройства (см. DeviceInterfacesEditor.vue), только эндпоинт лежит под
- * /resources/, а не /devices/. `ips`/`devices`/`vms`/`containers` — устаревшие таблицы,
- * сохраняемые только ради обратной совместимости отчёта; читаются лишь один раз при первом
- * открытии формы для миграции в единый `sources`, если он ещё пуст (см.
- * InformationSystemFormModal.vue) — при сохранении всегда отправляются пустыми, как и в
- * vanilla-версии (frontend/static/information-systems.js:saveInformationSystemForm). */
+ * /resources/, а не /devices/. sources — единственный (с миграции b7f2c1e5a904) механизм связи
+ * ИС с оборудованием/ВМ/контейнером и IP-адресом источника, не относящегося ни к одному из них
+ * ('manual'); устаревшие таблицы-связки (ips/devices/vms/containers) и клиентская миграция в
+ * sources удалены вместе с ними. */
 export interface InformationSystemDetails {
   departments: Array<{ id: string; department_id: string }>
-  ips: Array<{ id: string; ip_address: string; purpose: string | null; virtual_machine_id: string | null; physical_device_id: string | null; external_interaction: boolean }>
-  protocols: Array<{ id: string; protocol_catalog_id: string | null; protocol: string; port: number | null; description: string | null }>
-  devices: Array<{ id: string; physical_device_id: string; role: string | null }>
-  vms: Array<{ id: string; virtual_machine_id: string; role: string | null }>
-  containers: Array<{ id: string; container_id: string; role: string | null }>
+  protocols: Array<{ id: string; protocol_catalog_id: string; description: string | null }>
   sources: ISSource[]
   placement_assets: Array<{ id: string; placement_asset_id: string }>
 }
 
+/** owner_id — id устройства/ВМ/контейнера в зависимости от source_type (миграция 944bd490d967,
+ * см. backend/app/models.py:InformationSystemSource) — заменяет прежние три отдельные FK-поля
+ * (physical_device_id/virtual_machine_id/container_id), у которых реально было заполнено от силы
+ * одно; null при source_type='manual'. */
 export interface ISSource {
   id: string
   source_type: string
-  physical_device_id: string | null
-  virtual_machine_id: string | null
-  container_id: string | null
-  ip_address: string | null
+  owner_id: string | null
+  ips: IPAddress[]
   purpose: string | null
   role: string | null
   external_interaction: boolean
@@ -312,39 +307,41 @@ export interface CatalogPickerDraftRow {
   catalogId: string
 }
 
-/** Черновая строка ISProtocolsListEditor.vue. protocol/port не редактируются напрямую —
- * подставляются при выборе protocol_catalog_id (см. компонент), но обязаны уйти в payload:
- * ISProtocol.protocol — обязательное поле на бэкенде (backend/app/models.py). */
+/** Черновая строка ISProtocolsListEditor.vue. protocol/port больше не колонки backend-модели
+ * (см. models.py, миграция b7f2c1e5a904) — значения показываются read-only из выбранной записи
+ * справочника (protocol_catalog_id), обязательного поля. */
 export interface ISProtocolDraftRow {
   id?: string
   protocol_catalog_id: string
-  protocol: string
-  port: number | null
   description: string
 }
 
-/** Черновая строка ISSourcesListEditor.vue — см. комментарий к InformationSystemDetails.sources
- * и ISSourcesListEditor.vue про порядок полей source_type/physical_device_id/virtual_machine_id. */
+/** Черновая строка одного IP-адреса "ручного" источника ИС (ISSourcesListEditor.vue) — самый
+ * простой из трёх вариантов черновых IP-строк (см. VmIpDraftRow/InterfaceIpDraftRow): ни
+ * prefix_length, ни purpose, ни is_management источнику ИС не нужны, это просто список адресов
+ * (миграция d8e35a1c7f60, вопрос 3/5 отчёта по анализу БД — несколько отдельных полей вместо
+ * одного текстового через запятую). */
+export interface SourceIpDraftRow {
+  id?: string
+  ip_address: string
+}
+
+/** Черновая строка ISSourcesListEditor.vue — см. комментарий к InformationSystemDetails.sources.
+ * owner_id — единственное отправляемое на backend поле-владелец (id устройства при source_type=
+ * 'device', ВМ при 'vm', контейнера при 'container'; пусто при 'manual'). vmHostHint — НЕ
+ * отправляется на backend (см. buildDetailsPayload в InformationSystemFormModal.vue): чисто
+ * клиентское состояние для UX выбора ВМ по её хосту (см. комментарий в ISSourcesListEditor.vue) —
+ * нужно только пока при source_type='vm' сама ВМ ещё не выбрана (owner_id пуст), после выбора ВМ
+ * её хост уже выводится из vmOptions по owner_id. */
 export interface ISSourceDraftRow {
   id?: string
   source_type: 'manual' | 'device' | 'vm' | 'container'
-  physical_device_id: string
-  virtual_machine_id: string
-  container_id: string
-  ip_address: string
+  owner_id: string
+  vmHostHint: string
+  ips: SourceIpDraftRow[]
   purpose: string
   role: string
   external_interaction: boolean
-}
-
-/** GET /api/v1/resources/interface-ips?interface_id=... — см. комментарий к DeviceInterface. */
-export interface InterfaceIP {
-  id: string
-  interface_id: string
-  ip_address: string
-  prefix_length: number | null
-  purpose: string | null
-  is_management: boolean
 }
 
 /** GET /api/v1/resources/device-type-vlans?device_type_id=... — какие определения VLAN
@@ -369,7 +366,9 @@ export interface InterfaceVLAN {
   mode: string | null
 }
 
-/** Черновая строка IP-адреса интерфейса внутри DeviceInterfacesEditor.vue. */
+/** Черновая строка IP-адреса интерфейса внутри DeviceInterfacesEditor.vue. Конвертируется в
+ * payload IPAddress при сохранении (owner_type='device_interface', is_management наследуется от
+ * самого интерфейса — не редактируется на уровне отдельного IP, см. _sync_interface_ips). */
 export interface InterfaceIpDraftRow {
   id?: string
   ip_address: string

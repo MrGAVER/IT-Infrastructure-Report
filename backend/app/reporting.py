@@ -10,13 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .models import (
     Building, Connection, ConnectionType, Container, CryptoProtectionMeans, Department,
-    DeviceInterface, DeviceModel, DeviceSoftware, DeviceType, EmbeddedOperatingSystem,
-    ISContainer, ISDepartment, ISDevice, ISIP, ISPlacementAsset, ISProtocol, ISVM,
-    InformationSystem, InformationSystemSource, InterfaceIP, InterfaceType, InterfaceVLAN,
+    DeployedSoftware, DeviceInterface, DeviceModel, DeviceType, EmbeddedOperatingSystem,
+    IPAddress, ISDepartment, ISPlacementAsset, ISProtocol,
+    InformationSystem, InformationSystemSource, InterfaceType, InterfaceVLAN,
     Manufacturer, OpenPort, OperatingSystem, PhysicalDevice, PhysicalDeviceVLAN, PlacementAsset,
     ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, SupportMethod, SupportOrganization, VLAN,
-    VMIP, VMSoftware, VirtualMachine,
+    VirtualMachine,
 )
+from .constants import OwnerType
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix
 from .services.excel_safety import excel_safe_row
 
@@ -55,6 +56,18 @@ def os_label(obj):
 
 def device_label(d):
     return (d.system_name or d.serial_number) if d else ""
+
+def _open_port_label(p, d: SimpleNamespace) -> str:
+    """Текст одного открытого порта для отчёта: 'TCP/443 HTTPS Описание порта'. port/protocol_type
+    больше не колонки OpenPort (см. models.py, миграция b7f2c1e5a904) — резолвятся join'ом к
+    protocol_port_catalogs по protocol_catalog_id при каждом построении отчёта, поэтому правка
+    записи справочника отражается на уже созданных портах сразу. Общий хелпер для Листа 3
+    (_port_open_info в _connection_row_values_list) и Листа 4 (_vm_row_values), чтобы формат строки
+    не разъезжался между ними."""
+    cat = d.protocol_catalog.get(p.protocol_catalog_id)
+    port = cat.port if cat else None
+    proto = cat.protocol_type if cat else None
+    return join_values([f"{p.transport_protocol}/{port}" if port else p.transport_protocol, proto, p.description])
 
 def interface_port_count_label(ifaces, interface_types):
     """Return a compact count grouped by interface type, e.g. 10 RJ45 + 4 SFP."""
@@ -118,31 +131,24 @@ def _allowed_device_ids_for_structural_units(d: SimpleNamespace, structural_unit
 
 
 def _is_source_links(obj, d: SimpleNamespace) -> tuple:
-    """Возвращает (linked_devices, linked_vms, linked_containers) для одной ИС — выбор между
-    унифицированными source-записями и legacy-связями. Вынесено из _is_row_values(), чтобы эту же
-    логику мог переиспользовать _is_related_device_ids() (фильтр листа 'Перечень ИС' по структурной
-    единице) без дублирования и риска разойтись."""
-    source_rows = d.source_by_is[obj.id]
-    if source_rows:
-        # InformationSystemSource is the current, authoritative representation once an IS has
-        # been saved through the information-system form at least once.
-        linked_devices=[]; linked_vms=[]; linked_containers=[]
-        for src in source_rows:
-            if src.source_type=='device' and src.physical_device_id in d.device_map:
-                dev=d.device_map[src.physical_device_id]
-                if dev not in linked_devices: linked_devices.append(dev)
-            elif src.source_type=='vm' and src.virtual_machine_id in d.vm_map:
-                v=d.vm_map[src.virtual_machine_id]
-                if v not in linked_vms: linked_vms.append(v)
-            elif src.source_type=='container' and src.container_id in d.container_map:
-                c=d.container_map[src.container_id]
-                if c not in linked_containers: linked_containers.append(c)
-    else:
-        # Historical data predating the unified source model (IS never re-saved through the
-        # current form) — fall back to the legacy link tables, same as the form itself does.
-        linked_devices=[d.device_map[x.physical_device_id] for x in d.device_by_is[obj.id] if x.physical_device_id in d.device_map]
-        linked_vms=[d.vm_map[x.virtual_machine_id] for x in d.vm_by_is[obj.id] if x.virtual_machine_id in d.vm_map]
-        linked_containers=[d.container_map[x.container_id] for x in d.container_by_is[obj.id] if x.container_id in d.container_map]
+    """Возвращает (linked_devices, linked_vms, linked_containers) для одной ИС из унифицированных
+    source-записей (InformationSystemSource — единственный механизм этой связи с миграции
+    b7f2c1e5a904, см. models.py). Вынесено из _is_row_values(), чтобы эту же логику мог
+    переиспользовать _is_related_device_ids() (фильтр листа 'Перечень ИС' по структурной единице)
+    без дублирования и риска разойтись."""
+    linked_devices=[]; linked_vms=[]; linked_containers=[]
+    for src in d.source_by_is[obj.id]:
+        # owner_id хранит id устройства/ВМ/контейнера в зависимости от source_type (миграция
+        # 944bd490d967, см. models.InformationSystemSource) — раньше это были три отдельные колонки.
+        if src.source_type=='device' and src.owner_id in d.device_map:
+            dev=d.device_map[src.owner_id]
+            if dev not in linked_devices: linked_devices.append(dev)
+        elif src.source_type=='vm' and src.owner_id in d.vm_map:
+            v=d.vm_map[src.owner_id]
+            if v not in linked_vms: linked_vms.append(v)
+        elif src.source_type=='container' and src.owner_id in d.container_map:
+            c=d.container_map[src.owner_id]
+            if c not in linked_containers: linked_containers.append(c)
     return linked_devices, linked_vms, linked_containers
 
 
@@ -194,17 +200,19 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     for x in session.scalars(select(ISPlacementAsset)).all(): d.placement_by_is[x.information_system_id].append(x)
     d.interface_types={x.id:x for x in session.scalars(select(InterfaceType)).all()}
     d.interfaces=session.scalars(select(DeviceInterface).order_by(DeviceInterface.name)).all(); d.iface_map={x.id:x for x in d.interfaces}
-    d.interface_ips=session.scalars(select(InterfaceIP).order_by(InterfaceIP.ip_address)).all()
+    d.interface_ips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)).all()
     d.ips_by_iface=defaultdict(list)
-    for x in d.interface_ips: d.ips_by_iface[x.interface_id].append(x)
+    for x in d.interface_ips: d.ips_by_iface[x.owner_id].append(x)
     d.ifaces_by_device=defaultdict(list)
     for x in d.interfaces: d.ifaces_by_device[x.physical_device_id].append(x)
-    d.vmips=session.scalars(select(VMIP).order_by(VMIP.ip_address)).all(); d.vmips_by_vm=defaultdict(list)
-    for x in d.vmips: d.vmips_by_vm[x.virtual_machine_id].append(x)
+    d.vmips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all(); d.vmips_by_vm=defaultdict(list)
+    for x in d.vmips: d.vmips_by_vm[x.owner_id].append(x)
+    d.source_ips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.INFORMATION_SYSTEM_SOURCE)).all(); d.ips_by_source=defaultdict(list)
+    for x in d.source_ips: d.ips_by_source[x.owner_id].append(x)
     d.vms=session.scalars(select(VirtualMachine).order_by(VirtualMachine.name)).all(); d.vm_map={x.id:x for x in d.vms}
     d.containers=session.scalars(select(Container)).all(); d.container_map={x.id:x for x in d.containers}
     d.protocols=session.scalars(select(ProtocolPortCatalog)).all(); d.protocol_catalog={x.id:x for x in d.protocols}
-    d.is_deps=session.scalars(select(ISDepartment)).all(); d.is_ips=session.scalars(select(ISIP)).all(); d.is_protocols=session.scalars(select(ISProtocol)).all(); d.is_devices=session.scalars(select(ISDevice)).all(); d.is_vms=session.scalars(select(ISVM)).all(); d.is_containers=session.scalars(select(ISContainer)).all(); d.is_sources=session.scalars(select(InformationSystemSource)).all()
+    d.is_deps=session.scalars(select(ISDepartment)).all(); d.is_protocols=session.scalars(select(ISProtocol)).all(); d.is_sources=session.scalars(select(InformationSystemSource)).all()
     d.conns=session.scalars(select(Connection).order_by(Connection.created_at)).all(); d.connection_types={x.id:x for x in session.scalars(select(ConnectionType)).all()}
     d.open_ports=session.scalars(select(OpenPort)).all(); d.open_ports_by_owner=defaultdict(list)
     for x in d.open_ports: d.open_ports_by_owner[(x.owner_type,x.owner_id)].append(x)
@@ -212,19 +220,15 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     d.device_vlan_rows=session.scalars(select(PhysicalDeviceVLAN)).all(); d.device_vlan_by_device=defaultdict(list)
     for x in d.device_vlan_rows: d.device_vlan_by_device[x.physical_device_id].append(x)
     for x in d.iface_vlans: d.vlan_by_iface[x.interface_id].append(d.vlan_map.get(x.vlan_id))
-    d.vm_software=session.scalars(select(VMSoftware)).all(); d.software={x.id:x for x in session.scalars(select(SoftwareAsset)).all()}; d.software_by_vm=defaultdict(list)
-    for link in d.vm_software:
-        if link.software_asset_id in d.software: d.software_by_vm[link.virtual_machine_id].append(d.software[link.software_asset_id])
-    d.device_software=session.scalars(select(DeviceSoftware)).all(); d.software_by_device=defaultdict(list)
-    for link in d.device_software:
-        if link.software_asset_id in d.software: d.software_by_device[link.physical_device_id].append(d.software[link.software_asset_id])
-    d.dep_by_is=defaultdict(list); d.ip_by_is=defaultdict(list); d.protocol_by_is=defaultdict(list); d.device_by_is=defaultdict(list); d.vm_by_is=defaultdict(list); d.container_by_is=defaultdict(list); d.source_by_is=defaultdict(list)
+    d.deployed_software=session.scalars(select(DeployedSoftware)).all(); d.software={x.id:x for x in session.scalars(select(SoftwareAsset)).all()}
+    d.software_by_vm=defaultdict(list); d.software_by_device=defaultdict(list)
+    for link in d.deployed_software:
+        if link.software_asset_id not in d.software: continue
+        target = d.software_by_vm if link.owner_type=='virtual_machine' else d.software_by_device
+        target[link.owner_id].append(d.software[link.software_asset_id])
+    d.dep_by_is=defaultdict(list); d.protocol_by_is=defaultdict(list); d.source_by_is=defaultdict(list)
     for x in d.is_deps: d.dep_by_is[x.information_system_id].append(x)
-    for x in d.is_ips: d.ip_by_is[x.information_system_id].append(x)
     for x in d.is_protocols: d.protocol_by_is[x.information_system_id].append(x)
-    for x in d.is_devices: d.device_by_is[x.information_system_id].append(x)
-    for x in d.is_vms: d.vm_by_is[x.information_system_id].append(x)
-    for x in d.is_containers: d.container_by_is[x.information_system_id].append(x)
     for x in d.is_sources: d.source_by_is[x.information_system_id].append(x)
 
     # Фильтр по структурным единицам применяется В КОНЦЕ, когда все lookup-словари (device_map/
@@ -256,9 +260,9 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
     protocols_text=[]
     for p in d.protocol_by_is[obj.id]:
         cat=d.protocol_catalog.get(p.protocol_catalog_id)
-        proto=cat.protocol_type if cat else p.protocol
-        port=cat.port if cat else p.port
-        desc=cat.description if cat else p.description
+        proto=cat.protocol_type if cat else ""
+        port=cat.port if cat else None
+        desc=join_values([cat.description if cat else None, p.description])
         protocols_text.append(join_values([f"{proto}/{port}" if port else proto, desc]))
     physical_names=linked_devices[:]
     # Add hosts of linked VMs and their management IPs.
@@ -268,10 +272,9 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
     for dev in physical_names:
         physical_ips += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id,[]) if iface.is_management for ip in d.ips_by_iface.get(iface.id,[])]
     vm_names=[v.name for v in linked_vms] + [c.name for c in linked_containers]
-    vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])] + [c.management_ip for c in linked_containers if c.management_ip]
+    vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])]
     departments_text=join_values([d.dep_map[x.department_id].name for x in d.dep_by_is[obj.id] if x.department_id in d.dep_map])
-    legacy_ips=[x.ip_address for x in d.ip_by_is[obj.id]] if not source_rows else []
-    ips_text=join_values(legacy_ips + [x.ip_address for x in source_rows if x.ip_address] + vm_ips)
+    ips_text=join_values([x.ip_address for src in source_rows for x in d.ips_by_source.get(src.id,[])] + vm_ips)
     support=d.support_map.get(obj.support_organization_id)
     support_method_name=d.support_methods[obj.support_method_id].name if obj.support_method_id in d.support_methods else ""
     crypto_mean=d.crypto_means.get(obj.crypto_protection_description_id)
@@ -332,8 +335,8 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
         key=tuple(sorted(iface_ids))
         if key in _port_open_info_cache: return _port_open_info_cache[key]
         ports=[p for iid in iface_ids for p in d.open_ports_by_owner.get(('device_interface',iid),[])]
-        open_text=join_values([join_values([f"{p.transport_protocol}/{p.port}" if p.port else p.transport_protocol,p.protocol,p.description]) for p in ports])
-        proto_text=join_values([p.protocol for p in ports])
+        open_text=join_values([_open_port_label(p, d) for p in ports])
+        proto_text=join_values([d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports if p.protocol_catalog_id in d.protocol_catalog])
         _port_open_info_cache[key]=(open_text,proto_text)
         return open_text,proto_text
 
@@ -422,7 +425,7 @@ def _vm_row_values(v, d: SimpleNamespace) -> list:
     ips=d.vmips_by_vm.get(v.id,[]); containers_for_vm=[c for c in d.containers if c.virtual_machine_id==v.id]
     openp=d.open_ports_by_owner.get(('virtual_machine',v.id),[])
     admin_ips=join_values([ip_label(x) for x in ips if x.is_management])
-    return [v.name,os_label(d.operating_systems.get(v.operating_system_id)),join_values([c.name for c in containers_for_vm]),device_label(host),os_label(hyp),v.purpose or "",join_values([ip_label(x) for x in ips]),join_values([join_values([f"{p.transport_protocol}/{p.port}" if p.port else p.transport_protocol,p.protocol,p.description]) for p in openp]),admin_ips,join_values([s.name for s in d.software_by_vm.get(v.id,[])])]
+    return [v.name,os_label(d.operating_systems.get(v.operating_system_id)),join_values([c.name for c in containers_for_vm]),device_label(host),os_label(hyp),v.purpose or "",join_values([ip_label(x) for x in ips]),join_values([_open_port_label(p, d) for p in openp]),admin_ips,join_values([s.name for s in d.software_by_vm.get(v.id,[])])]
 
 
 def _populate_sheet4(ws4, d: SimpleNamespace) -> None:
