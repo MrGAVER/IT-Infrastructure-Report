@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useConnectionsStore } from '../stores/connections'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
+import { roleLabel } from '../utils/portConfig'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
+import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
 import DevicePortsModal from '../components/DevicePortsModal.vue'
 
 const connections = useConnectionsStore()
@@ -47,6 +49,33 @@ async function onPortsSaved() {
   // (source_interface_name/destination_interface_name резолвятся один раз при загрузке
   // подключений), поэтому перечитываем список — тот же принцип, что onSaved() ниже.
   await connections.reload()
+}
+
+// Проверка ролей портов-соседей (см. services/port_config.py): строка с расхождением/одобрением
+// открывает модалку, где расхождение одобряют или устраняют.
+const reviewing = ref<Connection | null>(null)
+const bulkApproving = ref(false)
+
+// Смена строки поиска или любого фильтра сбрасывает страницу: иначе на 3-й странице новый,
+// более короткий список показывал бы пустую таблицу.
+watch(
+  () => [connections.search, connections.activeFilter, connections.portConfigFilter],
+  () => connections.resetPageOnFilterChange(),
+)
+
+async function approveAllShown() {
+  const ids = connections.filtered.filter((c) => c.port_config_status === 'mismatch').map((c) => c.id)
+  if (!ids.length) return
+  if (!confirm(`Одобрить расхождение ролей портов у ${ids.length} подключ. как допустимое? Одобрение потеряет силу, если роль любого из портов изменится.`)) return
+  bulkApproving.value = true
+  try {
+    const { items } = await connections.approve(ids)
+    notify(`Одобрено расхождений: ${items.length}`, 'success')
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    bulkApproving.value = false
+  }
 }
 
 onMounted(async () => {
@@ -93,18 +122,52 @@ async function removeConnection(c: Connection) {
       <StatCard :value="connections.total" label="Всего подключений" />
       <StatCard :value="connections.all.filter((c) => c.is_active).length" label="Активные" />
       <StatCard :value="connections.all.filter((c) => !c.is_active).length" label="Неактивные" tone="warn" />
+      <StatCard :value="connections.mismatchCount" label="Расхождения портов" tone="warn" />
+    </div>
+
+    <div v-if="connections.mismatchCount > 0" class="mismatch-banner" role="status">
+      <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+      <span>Найдено подключений с различающимися ролями портов-соседей: {{ connections.mismatchCount }}.</span>
+      <button
+        v-if="connections.portConfigFilter !== 'mismatch'"
+        type="button"
+        class="btn btn-secondary"
+        data-action="show-mismatches"
+        @click="connections.portConfigFilter = 'mismatch'"
+      >
+        Показать
+      </button>
     </div>
 
     <div class="filter-bar">
       <div class="search-box">
         <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="connections.search" type="text" placeholder="Поиск по устройству, порту, назначению…" />
+        <input v-model="connections.search" type="text" placeholder="Поиск по устройству, порту, роли порта…" />
       </div>
       <div class="chip-group">
         <button :class="{ on: connections.activeFilter === 'all' }" @click="connections.activeFilter = 'all'">Все</button>
         <button :class="{ on: connections.activeFilter === 'yes' }" @click="connections.activeFilter = 'yes'">Активные</button>
         <button :class="{ on: connections.activeFilter === 'no' }" @click="connections.activeFilter = 'no'">Неактивные</button>
       </div>
+      <div class="chip-group" role="group" aria-label="Проверка ролей портов">
+        <button :class="{ on: connections.portConfigFilter === 'all' }" @click="connections.portConfigFilter = 'all'">Все порты</button>
+        <button :class="{ on: connections.portConfigFilter === 'mismatch' }" data-filter="mismatch" @click="connections.portConfigFilter = 'mismatch'">
+          Расхождения ({{ connections.mismatchCount }})
+        </button>
+        <button :class="{ on: connections.portConfigFilter === 'approved' }" data-filter="approved" @click="connections.portConfigFilter = 'approved'">
+          Одобренные ({{ connections.approvedCount }})
+        </button>
+      </div>
+      <button
+        v-if="connections.portConfigFilter === 'mismatch' && connections.filtered.length"
+        type="button"
+        class="btn btn-secondary"
+        data-action="approve-all"
+        :disabled="bulkApproving"
+        @click="approveAllShown"
+      >
+        Одобрить все показанные ({{ connections.filtered.length }})
+      </button>
       <div class="spacer"></div>
       <button class="btn btn-secondary" :disabled="connections.loading" @click="connections.reload()">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
@@ -134,7 +197,7 @@ async function removeConnection(c: Connection) {
               <th></th>
               <th>Назначение</th>
               <th>Тип линии связи</th>
-              <th>Назначение линии</th>
+              <th>Роли портов</th>
               <th>Статус</th>
               <th></th>
             </tr>
@@ -161,7 +224,22 @@ async function removeConnection(c: Connection) {
                 </span>
               </td>
               <td>{{ c.connection_type_name }}</td>
-              <td class="purpose-cell">{{ c.purpose || '—' }}</td>
+              <td class="roles-cell">
+                <template v-if="c.port_config_status === 'ok'">{{ roleLabel(c.source_port_role) }}</template>
+                <template v-else>
+                  <span class="role-line"><span class="mono">{{ c.source_interface_name }}</span>: {{ roleLabel(c.source_port_role) }}</span>
+                  <span class="role-line"><span class="mono">{{ c.destination_interface_name }}</span>: {{ roleLabel(c.destination_port_role) }}</span>
+                  <button
+                    type="button"
+                    class="port-badge"
+                    :class="c.port_config_status"
+                    :aria-label="`Проверить роли портов: ${c.source_device_name} — ${c.destination_device_name}`"
+                    @click="reviewing = c"
+                  >
+                    {{ c.port_config_status === 'mismatch' ? 'Расхождение — проверить' : 'Одобрено' }}
+                  </button>
+                </template>
+              </td>
               <td>
                 <span class="status" :class="c.is_active ? 'on' : 'off'">
                   <span class="status-dot"></span>{{ c.is_active ? 'Активно' : 'Неактивно' }}
@@ -196,6 +274,7 @@ async function removeConnection(c: Connection) {
 
     <ConnectionFormModal v-if="modalOpen" :connection="modalConnection" @close="closeModal" @saved="onSaved" />
     <ConnectionCanvasModal v-if="canvasOpen" @close="closeCanvas" />
+    <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" />
     <DevicePortsModal
       v-if="portsTarget"
       :device-id="portsTarget.deviceId"
@@ -209,9 +288,27 @@ async function removeConnection(c: Connection) {
 <style scoped>
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 18px;
+}
+.mismatch-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--status-warn);
+  border-radius: var(--r-m);
+  background: var(--status-warn-soft);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.mismatch-banner .icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
 }
 .filter-bar {
   display: flex;
@@ -344,9 +441,32 @@ tr:hover .port-manage-btn {
   width: 14px;
   height: 14px;
 }
-.purpose-cell {
+.roles-cell {
   color: var(--ink-muted);
-  max-width: 200px;
+  max-width: 260px;
+}
+.role-line {
+  display: block;
+  font-size: 11.8px;
+}
+.port-badge {
+  margin-top: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  background: var(--surface-2);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+.port-badge.mismatch {
+  border-color: var(--status-warn);
+  background: var(--status-warn-soft);
+  color: var(--ink);
+}
+.port-badge:hover {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 .empty-row {
   text-align: center;

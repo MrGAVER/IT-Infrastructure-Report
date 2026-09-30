@@ -84,9 +84,10 @@ describe('computePortConflicts', () => {
     is_management: false, is_data_transfer: true, description: null, vlan_mode: 'trunk', ...overrides,
   })
   const connection = (id: string, source: string, destination: string, overrides: Partial<Connection> = {}): Connection => ({
-    id, source_interface_id: source, destination_interface_id: destination, connection_type_id: 'ct', purpose: null,
+    id, source_interface_id: source, destination_interface_id: destination, connection_type_id: 'ct',
     is_active: true, description: null, source_device_name: 'sw-src', source_interface_name: `${source}-name`,
-    destination_device_name: 'sw-dst', destination_interface_name: `${destination}-name`, connection_type_name: 'UTP', ...overrides,
+    destination_device_name: 'sw-dst', destination_interface_name: `${destination}-name`, connection_type_name: 'UTP',
+    source_port_role: 'data', destination_port_role: 'data', port_config_status: 'ok', ...overrides,
   })
 
   it('порт — источник подключения: сосед берётся с destination-стороны, различия помечаются независимыми флагами', () => {

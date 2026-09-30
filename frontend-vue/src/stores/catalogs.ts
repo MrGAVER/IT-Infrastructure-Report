@@ -226,6 +226,15 @@ export const useCatalogsStore = defineStore('catalogs', {
       const current = this.items['interfaces'] ?? []
       this.items['interfaces'] = sortCatalogItems('interfaces', [...current.filter((i) => i.physical_device_id !== deviceId), ...items])
     },
+    /** Точечно заменяет ОДИН порт в уже загруженном каталоге 'interfaces' — после смены его роли
+     * (PUT /interfaces/{id}/port-role). В отличие от replaceDeviceInterfaces() не трогает остальные
+     * порты устройства. Если каталог ещё не загружен или порта в нём нет — ничего не делает: при
+     * следующей загрузке порт придёт уже с актуальными флагами. */
+    replaceInterface(item: CatalogItem) {
+      const current = this.items['interfaces']
+      if (!current || !current.some((i) => i.id === item.id)) return
+      this.items['interfaces'] = sortCatalogItems('interfaces', current.map((i) => (i.id === item.id ? item : i)))
+    },
     /** Точечно добавляет только что созданную запись каталога (QuickAddModal.vue) в уже
      * загруженный список, сохраняя сортировку — та же причина не звать полный reload(), что и в
      * replaceDeviceInterfaces() выше, плюс фикс п.4.2: без пересортировки здесь новая запись

@@ -102,6 +102,31 @@ describe('useCatalogsStore', () => {
     ])
   })
 
+  it('replaceInterface заменяет один порт по id, не трогая остальные порты того же устройства', () => {
+    const store = useCatalogsStore()
+    store.items['interfaces'] = [
+      { id: 'if-1', name: 'eth0', physical_device_id: 'dev-1', is_management: false },
+      { id: 'if-2', name: 'eth1', physical_device_id: 'dev-1', is_management: false },
+    ]
+
+    store.replaceInterface({ id: 'if-2', name: 'eth1', physical_device_id: 'dev-1', is_management: true })
+
+    expect(store.items['interfaces']).toEqual([
+      { id: 'if-1', name: 'eth0', physical_device_id: 'dev-1', is_management: false },
+      { id: 'if-2', name: 'eth1', physical_device_id: 'dev-1', is_management: true },
+    ])
+  })
+
+  it('replaceInterface не добавляет порт, которого нет в каталоге, и не падает на незагруженном каталоге', () => {
+    const store = useCatalogsStore()
+    expect(() => store.replaceInterface({ id: 'if-x', name: 'x', physical_device_id: 'dev-1' })).not.toThrow()
+    expect(store.items['interfaces']).toBeUndefined()
+
+    store.items['interfaces'] = [{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }]
+    store.replaceInterface({ id: 'if-x', name: 'x', physical_device_id: 'dev-1' })
+    expect(store.items['interfaces']).toEqual([{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }])
+  })
+
   it('replaceDeviceInterfaces на ещё не загруженный каталог просто ничего не показывает (без падения)', () => {
     const store = useCatalogsStore()
     expect(() => store.replaceDeviceInterfaces('dev-1', [{ id: 'if-1', name: 'eth0', physical_device_id: 'dev-1' }])).not.toThrow()

@@ -72,7 +72,6 @@ export interface Connection {
   source_interface_id: string
   destination_interface_id: string
   connection_type_id: string
-  purpose: string | null
   is_active: boolean
   description: string | null
   source_device_name: string
@@ -80,7 +79,19 @@ export interface Connection {
   destination_device_name: string
   destination_interface_name: string
   connection_type_name: string
+  /** Роли портов и статус их сверки считает бэкенд (services/port_config.py) — клиент их не
+   * пересчитывает, чтобы форма, дашборд и любой другой потребитель видели одно и то же. */
+  source_port_role: PortRole | null
+  destination_port_role: PortRole | null
+  port_config_status: PortConfigStatus
 }
+
+/** Роль порта: комбинация флагов DeviceInterface.is_management / is_data_transfer. */
+export type PortRole = 'none' | 'management' | 'data' | 'management_data'
+
+/** ok — роли портов совпадают (или подключение неактивно); mismatch — различаются, решения ещё
+ * нет; approved — различаются, но пользователь одобрил именно эту пару ролей. */
+export type PortConfigStatus = 'ok' | 'mismatch' | 'approved'
 
 export interface DeviceType extends CatalogItem {}
 export interface Manufacturer extends CatalogItem {}
