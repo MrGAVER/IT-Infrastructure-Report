@@ -34,6 +34,28 @@ beforeEach(() => {
   document.body.innerHTML = ''
 })
 
+// Поле VLAN в строке блока "VLAN устройства" — SearchableSelect (поиск вводом текста), а не
+// нативный <select>: значение выбирается фокусом на поле и mousedown по опции, а выбранный VLAN
+// виден только как подпись в поле. Хелперы ниже делают это так же, как пользователь.
+interface VlanScope {
+  findAll(selector: string): DOMWrapper<Element>[]
+}
+async function pickVlan(scope: VlanScope, labelPart: string, rowIndex = 0) {
+  const select = scope.findAll('.col-vlan .searchable-select')[rowIndex]
+  await select.find('input').trigger('focus')
+  const option = select.findAll('.ss-option').find((o) => o.text().includes(labelPart))
+  if (!option) throw new Error(`VLAN «${labelPart}» нет в списке выбора`)
+  await option.trigger('mousedown')
+}
+function vlanRowLabels(scope: VlanScope): string[] {
+  return scope.findAll('.col-vlan .searchable-select input').map((i) => (i.element as HTMLInputElement).value)
+}
+async function vlanChoices(scope: VlanScope, rowIndex = 0): Promise<string[]> {
+  const select = scope.findAll('.col-vlan .searchable-select')[rowIndex]
+  await select.find('input').trigger('focus')
+  return select.findAll('.ss-option').map((o) => o.text())
+}
+
 async function mountWithLoadedCatalogs() {
   stubCatalogsFetch()
   const catalogs = useCatalogsStore()
@@ -283,6 +305,89 @@ describe('DeviceFormModal.vue', () => {
     expect(wrapper.find('.ip-row input').element).toHaveProperty('value', '192.168.1.1')
   })
 
+  describe('группы портов (правка формы устройства, п.4)', () => {
+    const groupDto = {
+      id: 'g-1', physical_device_id: 'dev-g', name: 'Серверные', vlan_mode: null, vlan_ids: [],
+      ip_address: '10.0.0.5', prefix_length: 24, manage_open_ports: false, open_ports: [],
+    }
+    const ifaceDto = (id: string, name: string, groupId: string | null) => ({
+      id, physical_device_id: 'dev-g', name, interface_type_id: null, mac_address: null, speed_id: null,
+      is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access', group_id: groupId,
+    })
+    const device = { id: 'dev-g', device_type_id: 'dt-server', serial_number: 'SN-G' } as never
+
+    async function mountWithGroups(props: { device: never | null; copyFrom?: never | null }, calls: Array<{ url: string; method: string; body?: unknown }>) {
+      stubCatalogsFetch()
+      await useCatalogsStore().ensureLoaded()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.includes('/devices/dev-g/interface-groups')) return new Response(JSON.stringify({ items: [groupDto] }))
+          if (url.includes('/resources/interfaces') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [ifaceDto('if-1', 'Gi0/1', 'g-1'), ifaceDto('if-2', 'Gi0/2', null)], total: 2, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/ip-addresses') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (method === 'PUT' && url.includes('/devices/dev-g/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
+          if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
+          if (method === 'PUT' && url.includes('/resources/devices/dev-g')) return new Response(JSON.stringify({ id: 'dev-g', serial_number: 'SN-G' }))
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+      const wrapper = mount(DeviceFormModal, { props })
+      await flushPromises()
+      return wrapper
+    }
+
+    it('редактирование: группы загружаются, порт показывает свою группу, а при сохранении группы и group_key уходят одним PUT', async () => {
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      const wrapper = await mountWithGroups({ device }, calls)
+
+      expect(wrapper.find('.groups-panel').text()).toContain('Серверные')
+      expect(wrapper.findAll('.expand-toggle').map((b) => b.text())[0]).toContain('Группа «Серверные»')
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-g/interfaces'))
+      const body = put?.body as { groups: Array<Record<string, unknown>>; interfaces: Array<{ name: string; group_key: string | null }> }
+      expect(body.groups).toEqual([expect.objectContaining({ id: 'g-1', key: 'g-1', name: 'Серверные', ip_address: '10.0.0.5', prefix_length: 24, vlan_mode: null })])
+      expect(body.interfaces.map((i) => [i.name, i.group_key])).toEqual([['Gi0/1', 'g-1'], ['Gi0/2', null]])
+    })
+
+    it('копирование устройства: группы донора создаются заново без id, порты перевязываются на новые ключи', async () => {
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      const wrapper = await mountWithGroups({ device: null, copyFrom: device }, calls)
+
+      await wrapper.find('input[required][maxlength="255"]').setValue('SN-COPY')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-copy/interfaces'))
+      const body = put?.body as { groups: Array<{ id?: string; key: string; name: string }>; interfaces: Array<{ id?: string; name: string; group_key: string | null }> }
+      expect(body.groups).toHaveLength(1)
+      expect(body.groups[0].id).toBeUndefined()
+      expect(body.groups[0].key).not.toBe('g-1')
+      expect(body.interfaces.map((i) => [i.id, i.name, i.group_key])).toEqual([[undefined, 'Gi0/1', body.groups[0].key], [undefined, 'Gi0/2', null]])
+    })
+
+    it('группа с некорректным IP не применяется: окно группы остаётся открытым, запрос сохранения не уходит', async () => {
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      const wrapper = await mountWithGroups({ device }, calls)
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      await wrapper.find('input[aria-label="Общий IP-адрес группы"]').setValue('999.1.1.1')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      // Некорректный IP отсекается уже при применении группы — в форме остаётся прежнее значение.
+      expect(wrapper.find('.group-modal').exists()).toBe(true)
+      expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/interfaces'))).toBe(false)
+    })
+  })
+
   it('сохраняет добавленный интерфейс через PUT /devices/{id}/interfaces', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 
@@ -494,9 +599,12 @@ describe('DeviceFormModal.vue', () => {
     await body.find('.overlay form').trigger('submit')
     await flushPromises()
 
-    // Фикс п.1.3.8, часть 1: VLAN не выпал из options сразу после создания — есть совпадающий
-    // <option>, а не "висящий" vlan_id без него (что визуально выглядело бы как сброс выбора).
-    expect(wrapper.find('option[value="v-new"]').exists()).toBe(true)
+    // Фикс п.1.3.8, часть 1: VLAN не выпал из опций сразу после создания — он подставился в
+    // строку подписью, а не "висящим" vlan_id без неё (что визуально выглядело бы как сброс
+    // выбора), и доступен для выбора в другой (новой) строке — т.е. именно в списке опций.
+    expect(vlanRowLabels(wrapper)).toEqual(['55 — Гостевой-X [Домен X]'])
+    await vlanEditor.find('.add-btn').trigger('click')
+    expect(await vlanChoices(wrapper, 1)).toContain('55 — Гостевой-X [Домен X]')
 
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -717,7 +825,7 @@ describe('DeviceFormModal.vue', () => {
     vlans.loaded = true
     const wrapper = await mountWithLoadedCatalogs()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN устройства
-    await wrapper.find('.col-vlan select').setValue('v-new')
+    await pickVlan(wrapper, 'Новый')
 
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
@@ -767,10 +875,55 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
 
-    const options = wrapper.find('.col-vlan select').findAll('option')
-    const texts = options.map((o) => o.text())
+    const texts = await vlanChoices(wrapper)
     expect(texts.some((t) => t.includes('Мониторинг'))).toBe(true) // без домена — доступен всем
     expect(texts.some((t) => t.includes('Управление'))).toBe(false) // доменный, не участник — скрыт
+  })
+
+  it('пункт 3: если устройство состоит в домене VLAN, в списке «VLAN устройства» только VLAN этого домена; уже выбранный VLAN без домена остаётся виден в своей строке', async () => {
+    const vlans = useVLANsStore()
+    const definition = (id: string, vlanId: number, name: string, domainId: string | null, domainName: string) => ({
+      id, vlan_id: vlanId, name, description: '', domain_id: domainId, domain_name: domainName, devices: [],
+    })
+    vlans.groups = [
+      { vlan_id: 10, definitions: [definition('v-10', 10, 'Мониторинг', null, '')] },
+      { vlan_id: 20, definitions: [definition('v-20', 20, 'Управление', 'dom-1', 'Ядро сети')] },
+      { vlan_id: 30, definitions: [definition('v-30', 30, 'Гости', 'dom-2', 'Филиал')] },
+    ]
+    vlans.loaded = true
+
+    const device = { id: 'dev-dom', device_type_id: 'dt-server', serial_number: 'SN-DOM-1' } as never
+    stubCatalogsFetch()
+    const catalogs = useCatalogsStore()
+    await catalogs.ensureLoaded()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        // Устройство состоит в домене dom-1 и уже имеет VLAN без домена (v-10) — назначен до включения в домен.
+        if (url.includes('/resources/vlan-domain-devices')) {
+          return new Response(JSON.stringify({ items: [{ id: 'link-1', domain_id: 'dom-1', physical_device_id: 'dev-dom' }], total: 1, offset: 0, limit: 1000 }))
+        }
+        if (url.includes('/resources/device-vlans')) {
+          return new Response(
+            JSON.stringify({
+              items: [{ id: 'dv-1', physical_device_id: 'dev-dom', vlan_id: 'v-10', ip_address: null, prefix_length: null, is_management: false, description: null }],
+              total: 1, offset: 0, limit: 1000,
+            }),
+          )
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    // Выбранный ранее VLAN без домена не пропал из строки, хотя больше не предлагается для выбора.
+    expect(vlanRowLabels(vlanEditor)).toEqual(['10 — Мониторинг'])
+    await vlanEditor.find('.add-btn').trigger('click')
+    // В новой строке — только VLAN домена dom-1: без VLAN без домена и без VLAN чужого домена dom-2.
+    expect(await vlanChoices(vlanEditor, 1)).toEqual(['20 — Управление [Ядро сети]'])
   })
 
   it('сохраняет добавленный VLAN устройства под id нового устройства', async () => {
@@ -780,7 +933,7 @@ describe('DeviceFormModal.vue', () => {
 
     const wrapper = await mountWithLoadedCatalogs()
     await wrapper.find('.nested-editor:last-of-type button.add-btn').trigger('click') // + VLAN — последний редактор в форме
-    await wrapper.find('.col-vlan select').setValue('v-10')
+    await pickVlan(wrapper, 'Мониторинг')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -1197,7 +1350,8 @@ describe('DeviceFormModal.vue', () => {
       // добавляем пустую строку кнопкой "+ VLAN", как это сделал бы пользователь.
       const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
       await vlanEditor.find('.add-btn').trigger('click')
-      expect(wrapper.find('option[value="v-domain"]').exists()).toBe(true)
+      // Устройство (копия) состоит только в domain-x — в списке ровно VLAN этого домена.
+      expect(await vlanChoices(vlanEditor)).toEqual(['77 — Гостевой [Домен X]'])
 
       await wrapper.find('input[required][maxlength="255"]').setValue('SN-NEW')
       await wrapper.find('form').trigger('submit')
@@ -1582,8 +1736,7 @@ describe('правки формы физического устройства: �
     expect(chips[0].text()).toContain('Ядро сети')
     expect(chips[0].text()).toContain('будет включено при сохранении')
     // Пункт 4: VLAN именно этого домена (не чужого) уже назначены устройству в форме.
-    const selectedVlanIds = vlanEditor.findAll('.nested-row select').map((s) => (s.element as HTMLSelectElement).value)
-    expect(selectedVlanIds).toEqual(['v-10', 'v-20'])
+    expect(vlanRowLabels(vlanEditor)).toEqual(['10 — VLAN 10 [Ядро сети]', '20 — VLAN 20 [Ядро сети]'])
     expect(vlanEditor.find('.join-domain-row').exists()).toBe(false) // единственный домен — больше не предлагается
 
     calls.length = 0
@@ -1633,19 +1786,20 @@ describe('правки формы физического устройства: �
     // VLAN без домена, назначенный вручную ДО включения, — не относится к домену и должен пережить отмену.
     await vlanEditor().find('button.add-btn').trigger('click')
     await wrapper.vm.$nextTick()
-    await vlanEditor().find('.nested-row select').setValue('v-30')
+    await pickVlan(vlanEditor(), '30 — VLAN 30')
 
     await vlanEditor().find('.join-domain-row select').setValue('dom-1')
     await vlanEditor().find('.join-domain-row button').trigger('click')
     await flushPromises()
     expect(vlanEditor().findAll('[data-testid="member-domain"]')).toHaveLength(1)
-    expect(vlanEditor().findAll('.nested-row select').map((s) => (s.element as HTMLSelectElement).value)).toEqual(['v-30', 'v-10'])
+    // v-30 (без домена) скрыт фильтром по домену, но остаётся подписан в своей строке.
+    expect(vlanRowLabels(vlanEditor())).toEqual(['30 — VLAN 30', '10 — VLAN 10 [Ядро сети]'])
 
     await vlanEditor().find('[data-testid="cancel-join-domain"]').trigger('click')
     await flushPromises()
 
     expect(vlanEditor().find('[data-testid="member-domain"]').exists()).toBe(false)
-    expect(vlanEditor().findAll('.nested-row select').map((s) => (s.element as HTMLSelectElement).value)).toEqual(['v-30'])
+    expect(vlanRowLabels(vlanEditor())).toEqual(['30 — VLAN 30'])
     expect(vlanEditor().find('.join-domain-row option[value="dom-1"]').exists()).toBe(true) // домен снова можно включить
 
     calls.length = 0

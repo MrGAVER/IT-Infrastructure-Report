@@ -62,6 +62,40 @@ describe('DevicePortsModal.vue', () => {
     expect(body().find('.iface-table input.cell-input').element).toHaveProperty('value', 'eth0')
   })
 
+  it('группы портов: грузятся вместе с портами и уходят тем же PUT — правка портов здесь не отвязывает их от групп', async () => {
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/devices/dev-1/interface-groups')) {
+          return jsonResponse({ items: [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }] })
+        }
+        if (url.includes('/resources/interfaces') && method === 'GET') {
+          return jsonResponse({ items: [{ ...existingInterfaceFixture, group_id: 'g-1' }], total: 1, offset: 0, limit: 1000 })
+        }
+        if (url.includes('/resources/devices/dev-1') && method === 'GET') return jsonResponse(deviceFixture)
+        if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return jsonResponse({ items: [existingInterfaceFixture], groups: [] })
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+    const catalogs = useCatalogsStore()
+    catalogs.loaded = true
+
+    mount(DevicePortsModal, { props: { deviceId: 'dev-1', deviceLabel: 'srv-01' } })
+    await flushPromises()
+    expect(body().find('.groups-panel').text()).toContain('Серверные')
+
+    await body().find('.modal-foot .btn-primary, form .btn-primary, .btn-primary[type="submit"]').trigger('click')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
+    const payload = put?.body as { groups: Array<{ id: string; name: string }>; interfaces: Array<{ group_key: string | null }> }
+    expect(payload.groups.map((g) => [g.id, g.name])).toEqual([['g-1', 'Серверные']])
+    expect(payload.interfaces.map((i) => i.group_key)).toEqual(['g-1'])
+  })
+
   it('сохраняет через PUT /devices/{id}/interfaces, точечно обновляет каталог и эмитит saved', async () => {
     vi.stubGlobal('fetch', stubFetch())
     const catalogs = useCatalogsStore()

@@ -12,9 +12,10 @@
 // что и у остальных форм.
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'
-import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { validateInterfaceGroups } from '../utils/interfaceGroups'
 import { computePortVlanOptions, loadAssignedDeviceVlanIds, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceInterface, InterfaceDraftRow, VLANDefinition } from '../api/types'
+import type { Device, DeviceInterface, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsStore } from '../stores/connections'
 import { useVLANsStore } from '../stores/vlans'
@@ -36,6 +37,10 @@ const { notify } = useToast()
 // то же правило, что в DeviceFormModal.vue). Неизменяемый снимок, не состояние формы.
 let initialPortConfigs = new Map<string, PortConfig>()
 const interfaces = ref<InterfaceDraftRow[]>([])
+// Группы портов устройства (InterfaceGroupsPanel.vue внутри DeviceInterfacesEditor.vue): грузятся
+// и сохраняются вместе с портами одним атомарным PUT, иначе правка портов здесь молча отвязала бы
+// порты от групп.
+const interfaceGroups = ref<InterfaceGroupDraft[]>([])
 // Статический список (в отличие от DeviceFormModal.vue:portVlanOptions) — эта модалка не
 // редактирует "VLAN устройства", поэтому источник "уже назначенных" VLAN — то, что реально в
 // БД на момент открытия, без реактивного пересчёта. См. api/portVlans.ts.
@@ -50,8 +55,13 @@ onMounted(async () => {
   // полагаться — ensureLoaded() сама не делает лишний запрос, если уже загружено или грузится.
   await Promise.all([catalogs.ensureLoaded(), vlansStore.ensureLoaded(), connectionsStore.ensureLoaded()])
   try {
-    const [rows, device] = await Promise.all([loadDeviceInterfaceDraftRows(props.deviceId), api.get<Device>(`/resources/devices/${props.deviceId}`)])
+    const [rows, groups, device] = await Promise.all([
+      loadDeviceInterfaceDraftRows(props.deviceId),
+      loadDeviceInterfaceGroups(props.deviceId),
+      api.get<Device>(`/resources/devices/${props.deviceId}`),
+    ])
     interfaces.value = rows
+    interfaceGroups.value = groups
     initialPortConfigs = snapshotPortConfigs(rows)
     const [typeVlanIds, assignedVlanIds] = await Promise.all([loadDeviceTypeVlanIds(device.device_type_id), loadAssignedDeviceVlanIds(props.deviceId)])
     portVlanOptions.value = computePortVlanOptions(vlansStore.allDefinitions, typeVlanIds, assignedVlanIds)
@@ -64,14 +74,14 @@ onMounted(async () => {
 
 async function submit() {
   errorMessage.value = null
-  const interfaceError = validateInterfaceDraftRows(interfaces.value)
+  const interfaceError = validateInterfaceDraftRows(interfaces.value) ?? validateInterfaceGroups(interfaceGroups.value)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return
   }
   saving.value = true
   try {
-    const { items } = await persistDeviceInterfaces(props.deviceId, interfaces.value)
+    const { items } = await persistDeviceInterfaces(props.deviceId, interfaces.value, interfaceGroups.value)
     catalogs.replaceDeviceInterfaces(props.deviceId, items)
     // Порты этого устройства в каталоге уже заменены сохранёнными, порты соседей — как были загружены.
     const conflicts = computePortConflicts(interfaces.value, connectionsStore.all, (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
@@ -110,6 +120,7 @@ async function submit() {
         <DeviceInterfacesEditor
           v-else
           v-model="interfaces"
+          v-model:groups="interfaceGroups"
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"

@@ -38,9 +38,42 @@ describe('DeviceVlanListEditor.vue', () => {
     expect(emitted[0][0]).toEqual([{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }])
   })
 
-  it('показывает домен в подписи опции VLAN', () => {
+  it('показывает домен в подписи опции VLAN', async () => {
     const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }], vlanOptions } })
-    expect(wrapper.find('.col-vlan select').text()).toContain('20 — Управление [Ядро сети]')
+    // Поле VLAN — SearchableSelect (поиск вводом текста), список опций открывается фокусом на поле.
+    await wrapper.find('.col-vlan .searchable-select input').trigger('focus')
+    expect(wrapper.find('.col-vlan .ss-panel').text()).toContain('20 — Управление [Ядро сети]')
+  })
+
+  it('поле VLAN фильтруется вводом текста и эмитит id выбранного VLAN', async () => {
+    const rows: DeviceVlanDraftRow[] = [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+    const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions } })
+    const input = wrapper.find('.col-vlan .searchable-select input')
+
+    await input.trigger('focus')
+    await input.setValue('управл')
+    const options = wrapper.findAll('.col-vlan .ss-option')
+    expect(options.map((o) => o.text())).toEqual(['20 — Управление [Ядро сети]'])
+    await options[0].trigger('mousedown')
+
+    expect(wrapper.emitted('update:modelValue')![0][0]).toEqual([{ vlan_id: 'v-20', ip_address: '', prefix_length: '', is_management: false, description: '' }])
+  })
+
+  it('уже выбранный VLAN, скрытый фильтром по домену, остаётся подписан в своей строке, но не появляется в опциях других строк', async () => {
+    const hidden: VLANDefinition = { id: 'v-hidden', vlan_id: 5, name: 'Общий', description: '', domain_id: null, domain_name: '', devices: [] }
+    const rows: DeviceVlanDraftRow[] = [
+      { id: 'dv-1', vlan_id: 'v-hidden', ip_address: '', prefix_length: '', is_management: false, description: '' },
+      { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' },
+    ]
+    // vlanOptions — уже отфильтрованный родителем список (только VLAN домена устройства), в нём нет v-hidden.
+    const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions: [vlanOptions[1]], allVlanDefinitions: [...vlanOptions, hidden] } })
+
+    const inputs = wrapper.findAll('.col-vlan .searchable-select input')
+    expect((inputs[0].element as HTMLInputElement).value).toBe('5 — Общий')
+
+    await inputs[1].trigger('focus')
+    const secondRowOptions = wrapper.findAll('.col-vlan .searchable-select')[1].findAll('.ss-option').map((o) => o.text())
+    expect(secondRowOptions).toEqual(['20 — Управление [Ядро сети]'])
   })
 
   it('обновляет IP-адрес, не мутируя исходный проп', async () => {

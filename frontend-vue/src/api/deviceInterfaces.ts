@@ -8,7 +8,7 @@
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
 import { api, listResource } from './client'
-import type { DeviceInterface, IPAddress, InterfaceVLAN, InterfaceDraftRow, OpenPort } from './types'
+import type { DeviceInterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVLAN, InterfaceDraftRow, OpenPort } from './types'
 
 /**
  * Грузит интерфейсы одного устройства вместе с их IP и VLAN-привязками и приводит к формату
@@ -52,6 +52,8 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
       // перезагрузки формы. Теперь режим читается напрямую с самого интерфейса
       // (DeviceInterface.vlan_mode, backend/app/models.py) — источник истины, не вывод.
       vlan_mode: x.vlan_mode,
+      // Принадлежность порта группе: ключ группы = её id (см. InterfaceGroupDraft.key).
+      group_key: x.group_id ?? '',
       ips: allIps.items
         .filter((ip) => ip.owner_id === x.id)
         .map((ip) => ({
@@ -71,6 +73,33 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
         })),
     }
   })
+}
+
+/**
+ * Грузит группы портов устройства (GET /devices/{id}/interface-groups) в формате черновика
+ * InterfaceGroupDraft для DeviceInterfacesEditor.vue: ключ сохранённой группы равен её id, пустые
+ * необязательные значения превращаются в '' (как у остальных полей формы).
+ *
+ * @example
+ * const groups = await loadDeviceInterfaceGroups('dev-123')
+ */
+export async function loadDeviceInterfaceGroups(deviceId: string): Promise<InterfaceGroupDraft[]> {
+  const { items } = await api.get<{ items: InterfaceGroup[] }>(`/devices/${deviceId}/interface-groups`)
+  return items.map(toGroupDraft)
+}
+
+function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
+  return {
+    id: g.id,
+    key: g.id,
+    name: g.name,
+    vlan_mode: g.vlan_mode ?? '',
+    vlan_ids: [...g.vlan_ids],
+    ip_address: g.ip_address ?? '',
+    prefix_length: g.prefix_length == null ? '' : String(g.prefix_length),
+    manage_open_ports: g.manage_open_ports,
+    open_ports: g.open_ports.map((p) => ({ id: p.id, protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol, description: p.description ?? '' })),
+  }
 }
 
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
@@ -120,10 +149,37 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | 
  * const { items } = await persistDeviceInterfaces('dev-123', rows)
  * catalogs.replaceDeviceInterfaces('dev-123', items)
  */
-export async function persistDeviceInterfaces(deviceId: string, rows: InterfaceDraftRow[]): Promise<{ items: DeviceInterface[] }> {
-  return api.put<{ items: DeviceInterface[] }>(`/devices/${deviceId}/interfaces`, {
+export async function persistDeviceInterfaces(
+  deviceId: string,
+  rows: InterfaceDraftRow[],
+  groups?: InterfaceGroupDraft[],
+): Promise<{ items: DeviceInterface[]; groups: InterfaceGroup[] }> {
+  return api.put<{ items: DeviceInterface[]; groups: InterfaceGroup[] }>(`/devices/${deviceId}/interfaces`, {
+    // Группы портов: groups передаётся ТОЛЬКО вызывающей стороной, которая их редактирует, и тогда
+    // это полный список групп устройства (в т.ч. пустой — «групп нет», сервер удалит прежние).
+    // Без groups ключа в запросе нет вовсе — сервер не трогает ни группы, ни членство портов.
+    ...(groups
+      ? {
+          groups: groups.map((g) => ({
+            id: g.id,
+            key: g.key,
+            name: g.name.trim(),
+            vlan_mode: g.vlan_mode || null,
+            vlan_ids: g.vlan_mode ? g.vlan_ids : [],
+            ip_address: g.ip_address.trim() || null,
+            prefix_length: g.ip_address.trim() && g.prefix_length !== '' ? Number(g.prefix_length) : null,
+            manage_open_ports: g.manage_open_ports,
+            open_ports: g.manage_open_ports
+              ? g.open_ports
+                  .filter((p) => p.protocol_catalog_id)
+                  .map((p) => ({ id: p.id, protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description || null }))
+              : [],
+          })),
+        }
+      : {}),
     interfaces: rows.map((row) => ({
       id: row.id,
+      ...(groups ? { group_key: row.group_key || null } : {}),
       name: row.name.trim(),
       interface_type_id: row.interface_type_id || null,
       mac_address: row.mac_address || null,

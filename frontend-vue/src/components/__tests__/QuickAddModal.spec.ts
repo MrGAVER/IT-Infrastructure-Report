@@ -258,6 +258,27 @@ describe('QuickAddModal.vue', () => {
     expect((typeSearch.element as HTMLInputElement).value).toBe('Сетевой коммутатор')
   })
 
+  it('«Добавить: Стойка»: расширенное окно, поля «Помещение», «Наименование», «Высота» идут друг под другом в одну колонку', () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['rooms'] = [{ id: 'room-1', name: 'Серверная комната на третьем этаже главного корпуса' }]
+
+    mount(QuickAddModal, { props: { resource: 'racks' } })
+
+    expect(body().find('.modal').classes()).toContain('modal-wide')
+    expect(body().find('form').classes()).toContain('form-grid-single')
+    const labels = body().findAll('form > label.field').map((l) => l.find('span').text())
+    expect(labels).toEqual(['Помещение *', 'Наименование *', 'Высота, U'])
+    // Ни одно поле не растянуто на две колонки — раскладку задаёт единственная колонка самой формы.
+    expect(body().findAll('form > label.field-wide')).toHaveLength(0)
+  })
+
+  it('остальные формы быстрого добавления остаются в стандартном окне с двумя колонками', () => {
+    mount(QuickAddModal, { props: { resource: 'manufacturers' } })
+
+    expect(body().find('.modal').classes()).not.toContain('modal-wide')
+    expect(body().find('form').classes()).not.toContain('form-grid-single')
+  })
+
   it('показывает сообщение, если для ресурса схема не настроена', () => {
     mount(QuickAddModal, { props: { resource: 'unknown-resource' } })
     expect(body().text()).toContain('быстрое добавление не настроено')

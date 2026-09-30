@@ -7,7 +7,7 @@ import { computed, reactive, ref } from 'vue'
 import { createResource } from '../api/client'
 import { useCatalogsStore, RU_COLLATOR, sortProtocolPortCatalog } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
-import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
+import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS, QUICK_ADD_SINGLE_COLUMN } from '../quickAdd/schema'
 import type { QuickField } from '../quickAdd/schema'
 import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -41,6 +41,8 @@ const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
 const fields = QUICK_ADD_FIELDS[props.resource] ?? []
 const title = computed(() => QUICK_ADD_LABELS[props.resource] ?? props.resource)
+// Расширенное окно с полями друг под другом — см. QUICK_ADD_SINGLE_COLUMN в quickAdd/schema.ts.
+const singleColumn = QUICK_ADD_SINGLE_COLUMN.has(props.resource)
 
 // Фикс п.2.2: initialValues — предзаполнение поля значением, которое почти наверняка и так
 // нужно пользователю в текущем контексте (напр. domain_id уже известного домена устройства при
@@ -129,7 +131,7 @@ async function submit() {
        submit мог бы всплыть и отправить ВНЕШНЮЮ форму вместо этой). -->
   <Teleport to="body">
     <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" role="dialog" aria-modal="true">
+      <div class="modal card" :class="{ 'modal-wide': singleColumn }" role="dialog" aria-modal="true">
         <div class="modal-head">
           <h2>Добавить: {{ title }}</h2>
           <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
@@ -143,7 +145,7 @@ async function submit() {
         </div>
         <div v-if="!fields.length" class="form-error">Для «{{ resource }}» быстрое добавление не настроено.</div>
 
-        <form v-else class="form-grid" @submit.prevent="submit">
+        <form v-else class="form-grid" :class="{ 'form-grid-single': singleColumn }" @submit.prevent="submit">
           <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
             <!-- Правка "иконка вместо текстового блока в 'Добавить: Модель устройства'": та же
                  причина без <span>-подписи здесь, что и в аналогичном месте
@@ -215,6 +217,12 @@ async function submit() {
   max-width: clamp(460px, 34vw, 640px);
   padding: 20px 22px 18px;
 }
+/* Одноколоночные формы (QUICK_ADD_SINGLE_COLUMN): окно шире стандартного, чтобы длинные подписи
+   fk-полей (например, помещение в форме стойки) читались целиком. Объявлено после .modal — при
+   равной специфичности побеждает более поздний блок. */
+.modal-wide {
+  max-width: clamp(520px, 44vw, 760px);
+}
 .modal-head {
   display: flex;
   align-items: center;
@@ -241,6 +249,9 @@ async function submit() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px 14px;
+}
+.form-grid-single {
+  grid-template-columns: 1fr;
 }
 .field {
   /* min-width: 0 переопределяет дефолтный min-width: auto грид-элемента — без этого поле

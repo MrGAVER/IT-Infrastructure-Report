@@ -285,6 +285,65 @@ class DeviceInterface(TimestampMixin, Base):
     # этого поля access-порт без VLAN после сохранения и перезагрузки формы молча превращался в
     # trunk (см. миграцию 5b5ea0e81d32 для бэкфилла существующих данных).
     vlan_mode: Mapped[str] = mapped_column(String(10), default="trunk", server_default="trunk", nullable=False)
+    # Группа портов (InterfaceGroup): параметры группы (режим порта/VLAN, общий IP, открытые
+    # порты) записываются в сам порт при каждом сохранении (см. services/crud.py:
+    # _apply_group_to_interface), поэтому отчёты, диаграммы и подключения по-прежнему читают
+    # итоговые значения порта и о группах ничего не знают. SET NULL: удаление группы не удаляет
+    # порты и не стирает уже записанные в них значения.
+    group_id: Mapped[Optional[str]] = mapped_column(ForeignKey("interface_groups.id", ondelete="SET NULL"), index=True)
+
+
+class InterfaceGroup(TimestampMixin, Base):
+    """Группа портов одного физического устройства с общими параметрами, которые задаются один раз
+    и применяются ко всем портам группы (правка формы устройства, п.4: не дублировать одинаковые
+    режим порта, IP-адрес и открытые порты у десятков портов).
+
+    Каждый параметр «управляется» группой только если задан: vlan_mode IS NOT NULL — группа
+    задаёт режим порта и набор VLAN (interface_group_vlans); ip_address IS NOT NULL — общий IP
+    (на первом этапе один адрес на все порты, без диапазонов); manage_open_ports — группа задаёт
+    полный список открытых портов (interface_group_open_ports). Незаданные параметры порты
+    группы продолжают хранить каждый свои.
+
+    Значения материализуются в порты (VLAN-связи, IPAddress, OpenPort самого порта), а не
+    вычисляются на лету при чтении — так все существующие потребители данных порта (Лист 3
+    отчёта, диаграмма, экспорт) не нужно менять.
+
+    FK physical_device_id с ondelete CASCADE: у группы нет своего пути удаления через generic CRUD
+    (ресурс не зарегистрирован в MODEL_MAP), группы уходят вместе с устройством или через
+    PUT /devices/{id}/interfaces."""
+    __tablename__ = "interface_groups"
+    __table_args__ = (UniqueConstraint("physical_device_id", "name", name="uq_interface_groups_device_name"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    vlan_mode: Mapped[Optional[str]] = mapped_column(String(10))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+    prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
+    manage_open_ports: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class InterfaceGroupVLAN(TimestampMixin, Base):
+    """VLAN, которые группа портов назначает своим портам (используется, когда у группы задан
+    vlan_mode). CASCADE по vlan_id: удаление VLAN убирает его из определения группы; если VLAN
+    уже записан в порты группы, удаление и так блокируется существующими связями interface_vlans."""
+    __tablename__ = "interface_group_vlans"
+    __table_args__ = (UniqueConstraint("group_id", "vlan_id", name="uq_interface_group_vlans_group_vlan"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
+    vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id", ondelete="CASCADE"), index=True)
+
+
+class InterfaceGroupOpenPort(TimestampMixin, Base):
+    """Открытый порт/протокол, который группа портов (manage_open_ports) записывает в каждый свой
+    порт. Как и OpenPort, port/protocol берутся только из справочника «Протоколы и порты» по
+    protocol_catalog_id. Отдельная таблица с настоящим FK, а не полиморфный OpenPort: у группы нет
+    owner_type/owner_id, и защита от «висячих» ссылок (services/integrity.py) не требуется."""
+    __tablename__ = "interface_group_open_ports"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
+    protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id", ondelete="CASCADE"), index=True)
+    transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
+    description: Mapped[Optional[str]] = mapped_column(Text)
 
 
 class InterfaceType(TimestampMixin, Base):

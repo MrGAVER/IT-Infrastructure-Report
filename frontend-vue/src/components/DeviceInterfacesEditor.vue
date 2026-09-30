@@ -32,14 +32,16 @@
 import { computed, ref } from 'vue'
 import { updateResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
-import type { CatalogItem, InterfaceDraftRow, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
+import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
+import { findGroup, managedFields } from '../utils/interfaceGroups'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
+import InterfaceGroupsPanel from './InterfaceGroupsPanel.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -55,10 +57,13 @@ const props = withDefaults(
     // родителем (DeviceFormModal.vue: interfaceConflicts), т.к. только у него есть доступ к
     // стору подключений; этот компонент их только отображает и предлагает разрешить.
     conflicts?: Record<string, PortConflictInfo>
+    // Группы портов устройства (v-model:groups): параметры группы записываются в её порты, а у
+    // членов группы управляемые ею поля недоступны для правки в самой строке (см. rowManaged()).
+    groups?: InterfaceGroupDraft[]
   }>(),
-  { conflicts: () => ({}), protocolPortCatalog: () => [] },
+  { conflicts: () => ({}), protocolPortCatalog: () => [], groups: () => [] },
 )
-const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]] }>()
+const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]]; 'update:groups': [groups: InterfaceGroupDraft[]] }>()
 const { notify, notifyError } = useToast()
 const catalogs = useCatalogsStore()
 
@@ -83,6 +88,25 @@ const genStartAt = ref('')
 // разрушительный (replace) требует явного осознанного действия (поставить галочку) и всегда
 // показывает предупреждение, если есть что терять (см. generate() ниже).
 const replaceAllPorts = ref(false)
+
+// Группа порта и то, чем она управляет. Управляемые поля в строке заблокированы: чтобы задать
+// порту своё значение, его сначала выводят из группы (значения при этом остаются в порте).
+function rowGroup(row: InterfaceDraftRow): InterfaceGroupDraft | undefined {
+  return findGroup(row, props.groups)
+}
+function rowManaged(row: InterfaceDraftRow) {
+  return managedFields(rowGroup(row))
+}
+function groupLockNote(row: InterfaceDraftRow, what: string): string {
+  return `${what} задан группой «${rowGroup(row)?.name ?? ''}» — измените в группе или выведите порт из группы.`
+}
+
+// Панель групп отдаёт согласованное изменение порт+группа одним событием.
+function onGroupsChange(payload: { rows: InterfaceDraftRow[]; groups: InterfaceGroupDraft[] }) {
+  emit('update:modelValue', payload.rows)
+  emit('update:groups', payload.groups)
+  selectedIndices.value = new Set()
+}
 
 function emptyRow(): InterfaceDraftRow {
   return {
@@ -158,7 +182,10 @@ function applyNeighborConfig() {
   const conflict = rowConflict(row)
   if (!conflict) return
   if (kind === 'flags') updateRow(index, { is_management: conflict.other.is_management, is_data_transfer: conflict.other.is_data_transfer })
-  else setVlanMode(index, conflict.other.vlan_mode)
+  else if (rowManaged(row).vlan) {
+    notify(groupLockNote(row, `Режим порта «${row.name}»`), 'error')
+    return
+  } else setVlanMode(index, conflict.other.vlan_mode)
   closeConflict()
 }
 
@@ -356,6 +383,10 @@ function copyPortsTo(sourceIndex: number, targetIndex: number) {
   if (!source || !target || sourceIndex === targetIndex || !source.open_ports.length) return
   const sourceLabel = source.name || `#${sourceIndex + 1}`
   const targetLabel = target.name || `#${targetIndex + 1}`
+  if (rowManaged(target).openPorts) {
+    notify(groupLockNote(target, `Список открытых портов порта «${targetLabel}»`), 'error')
+    return
+  }
   if (target.open_ports.length) {
     const ok = confirm(`На порту «${targetLabel}» уже есть открытые порты (${target.open_ports.length} шт.) — заменить их копией с «${sourceLabel}» (${source.open_ports.length} шт.)?`)
     if (!ok) return
@@ -488,8 +519,10 @@ function applyBulkEdit() {
     'update:modelValue',
     props.modelValue.map((row, i) => {
       if (!selectedIndices.value.has(i)) return row
-      const vlan_mode = (bulkVlanMode.value || row.vlan_mode) as 'access' | 'trunk'
-      let vlan_ids = vlanIds.length ? Array.from(new Set([...row.vlan_ids, ...vlanIds])) : row.vlan_ids
+      // Режим порта и VLAN порта из группы, управляющей ими, массовое редактирование не меняет.
+      const vlanLocked = rowManaged(row).vlan
+      const vlan_mode = (vlanLocked ? row.vlan_mode : bulkVlanMode.value || row.vlan_mode) as 'access' | 'trunk'
+      let vlan_ids = vlanLocked ? row.vlan_ids : vlanIds.length ? Array.from(new Set([...row.vlan_ids, ...vlanIds])) : row.vlan_ids
       // access допускает не более одного VLAN — если массовое действие переключает режим в
       // access (или строка уже была в access, а панель добавляет VLAN), лишние отбрасываем,
       // чтобы не сохранить некорректную комбинацию (см. validateInterfaceDraftRows).
@@ -577,6 +610,15 @@ function applyBulkEdit() {
          col-actions — значения читаются по заголовкам <thead> таблицы ниже, отдельных подписей
          полей (бывший <span>Тип интерфейса</span> и т.п.) больше не нужно. -->
     <div v-if="modelValue.length" class="iface-panel">
+      <InterfaceGroupsPanel
+        :rows="modelValue"
+        :groups="groups"
+        :vlan-options="vlanOptions"
+        :protocol-port-catalog="protocolPortCatalog"
+        :selected-indices="[...selectedIndices]"
+        @change="onGroupsChange"
+      />
+
       <div class="iface-list-head">
         <b>Список интерфейсов</b>
         <button type="button" class="btn btn-secondary" @click="addRow">
@@ -720,7 +762,7 @@ function applyBulkEdit() {
               <td>
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
                   <svg v-if="rowConflict(row)?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
-                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP</span>
+                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
                 </button>
               </td>
@@ -741,6 +783,7 @@ function applyBulkEdit() {
                   <div class="vlan-block">
                     <div class="vlan-mode-row">
                       <b>Режим порта</b>
+                      <span v-if="rowManaged(row).vlan" class="group-lock">{{ groupLockNote(row, 'Режим порта и VLAN') }}</span>
                       <button
                         v-if="rowConflict(row)?.vlanModeDiffer"
                         type="button"
@@ -756,6 +799,7 @@ function applyBulkEdit() {
                           type="radio"
                           :name="`vlan-mode-${i}`"
                           :checked="row.vlan_mode !== 'access'"
+                          :disabled="rowManaged(row).vlan"
                           @change="setVlanMode(i, 'trunk')"
                         />
                         Trunk
@@ -765,6 +809,7 @@ function applyBulkEdit() {
                           type="radio"
                           :name="`vlan-mode-${i}`"
                           :checked="row.vlan_mode === 'access'"
+                          :disabled="rowManaged(row).vlan"
                           @change="setVlanMode(i, 'access')"
                         />
                         Access
@@ -774,7 +819,7 @@ function applyBulkEdit() {
                     <template v-if="row.vlan_mode === 'access'">
                       <div v-if="vlanOptions.length" class="field">
                         <span>VLAN порта (access — ровно один)</span>
-                        <select :value="row.vlan_ids[0] ?? ''" @change="setAccessVlan(i, ($event.target as HTMLSelectElement).value)">
+                        <select :value="row.vlan_ids[0] ?? ''" :disabled="rowManaged(row).vlan" @change="setAccessVlan(i, ($event.target as HTMLSelectElement).value)">
                           <option value="">— не выбрано —</option>
                           <option v-for="v in vlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
                         </select>
@@ -787,6 +832,7 @@ function applyBulkEdit() {
                           <input
                             type="checkbox"
                             :checked="isAllVlansSelected(row.vlan_ids)"
+                            :disabled="rowManaged(row).vlan"
                             @change="toggleAllVlans(i, ($event.target as HTMLInputElement).checked)"
                           />
                           <b>Все VLAN</b>
@@ -795,6 +841,7 @@ function applyBulkEdit() {
                           <input
                             type="checkbox"
                             :checked="row.vlan_ids.includes(v.id)"
+                            :disabled="rowManaged(row).vlan"
                             @change="toggleVlan(i, v.id, ($event.target as HTMLInputElement).checked)"
                           />
                           {{ vlanLabel(v) }}
@@ -807,24 +854,26 @@ function applyBulkEdit() {
                   <div class="ip-block">
                     <div class="ip-head">
                       <b>IP-адреса интерфейса</b>
-                      <button type="button" class="btn btn-secondary" @click="addIp(i)">
+                      <span v-if="rowManaged(row).ip" class="group-lock">{{ groupLockNote(row, 'IP-адрес') }}</span>
+                      <button v-else type="button" class="btn btn-secondary" @click="addIp(i)">
                         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
                         IP-адрес
                       </button>
                     </div>
                     <div v-if="!row.ips.length" class="empty">IP-адреса не добавлены</div>
                     <div v-for="(ip, j) in row.ips" :key="ip.id ?? j" class="ip-row">
-                      <input type="text" placeholder="IP-адрес" :value="ip.ip_address" @input="updateIp(i, j, { ip_address: ($event.target as HTMLInputElement).value })" />
+                      <input type="text" placeholder="IP-адрес" :value="ip.ip_address" :disabled="rowManaged(row).ip" @input="updateIp(i, j, { ip_address: ($event.target as HTMLInputElement).value })" />
                       <input
                         type="number"
                         min="0"
                         max="128"
                         placeholder="Префикс"
                         :value="ip.prefix_length"
+                        :disabled="rowManaged(row).ip"
                         @input="updateIp(i, j, { prefix_length: ($event.target as HTMLInputElement).value })"
                       />
                       <input type="text" placeholder="Назначение" :value="ip.purpose" @input="updateIp(i, j, { purpose: ($event.target as HTMLInputElement).value })" />
-                      <button type="button" class="icon-btn danger" aria-label="Удалить IP интерфейса" @click="removeIp(i, j)">
+                      <button v-if="!rowManaged(row).ip" type="button" class="icon-btn danger" aria-label="Удалить IP интерфейса" @click="removeIp(i, j)">
                         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                       </button>
                     </div>
@@ -838,7 +887,8 @@ function applyBulkEdit() {
                   <div class="ports-block">
                     <div class="ports-head">
                       <b>Открытые порты</b>
-                      <div v-if="modelValue.length > 1" class="copy-ports-row">
+                      <span v-if="rowManaged(row).openPorts" class="group-lock">{{ groupLockNote(row, 'Список открытых портов') }}</span>
+                      <div v-if="modelValue.length > 1 && !rowManaged(row).openPorts" class="copy-ports-row">
                         <select
                           class="copy-target-select"
                           :value="copyTargetIndex[i] ?? ''"
@@ -865,6 +915,7 @@ function applyBulkEdit() {
                     <OpenPortListEditor
                       :model-value="row.open_ports"
                       :catalog-entries="protocolPortCatalog"
+                      :readonly="rowManaged(row).openPorts"
                       @update:model-value="(v) => updateRow(i, { open_ports: v })"
                     />
                   </div>
@@ -1368,6 +1419,12 @@ function applyBulkEdit() {
     flex-wrap: wrap;
     width: 100%;
   }
+}
+
+/* Подсказка у заблокированных полей порта, чьи значения задаёт группа портов. */
+.group-lock {
+  font-size: 11px;
+  color: var(--ink-muted);
 }
 
 /* Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения
