@@ -4,6 +4,8 @@ import {
   applyGroupToRow,
   applyGroupsToRows,
   cloneGroupsForCopy,
+  copyValuesFromRow,
+  copyableFields,
   describeGroup,
   emptyGroup,
   eraseGroupValues,
@@ -164,5 +166,60 @@ describe('cloneGroupsForCopy', () => {
     expect(cloned.rows[0].group_key).toBe(cloned.groups[0].key)
     expect(cloned.rows[1].group_key).toBe('')
     expect(source.vlan_ids).toEqual(['v1'])
+  })
+})
+
+describe('copyableFields / copyValuesFromRow — копирование значений с порта в группу', () => {
+  const full = () =>
+    row('Gi0/1', {
+      vlan_mode: 'trunk',
+      vlan_ids: ['v10', 'v20'],
+      ips: [{ id: 'ip-1', ip_address: ' 10.0.0.5 ', prefix_length: '24', purpose: 'Управление' }],
+      open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }, { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }],
+    })
+  const all = { vlan: true, ip: true, openPorts: true }
+
+  it('копируемо только то, что на порту реально задано', () => {
+    expect(copyableFields(full())).toEqual(all)
+    expect(copyableFields(row('пустой'))).toEqual({ vlan: false, ip: false, openPorts: false })
+    // режим без VLAN, строка IP без адреса и строка открытых портов без протокола — значений нет
+    expect(copyableFields(row('заготовки', { ips: [{ ip_address: '  ', prefix_length: '', purpose: '' }], open_ports: [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }] }))).toEqual({ vlan: false, ip: false, openPorts: false })
+  })
+
+  it('копирует режим, VLAN, первый IP и открытые порты в черновик группы без id строк порта', () => {
+    const result = copyValuesFromRow(group(), full(), all)
+
+    expect(result).toMatchObject({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: true })
+    expect(result.open_ports).toEqual([{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }])
+    expect('id' in result.open_ports[0]).toBe(false)
+  })
+
+  it('копирует только отмеченное, остальные параметры группы не трогает', () => {
+    const base = group({ vlan_mode: 'access', vlan_ids: ['v99'], ip_address: '1.1.1.1', prefix_length: '8' })
+
+    const onlyIp = copyValuesFromRow(base, full(), { vlan: false, ip: true, openPorts: false })
+
+    expect(onlyIp).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v99'], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: false })
+  })
+
+  it('отмеченное, но отсутствующее на порту, не копируется — пустое значение не стирает параметры группы', () => {
+    const base = group({ vlan_mode: 'access', vlan_ids: ['v99'], ip_address: '1.1.1.1', prefix_length: '8', manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }] })
+
+    expect(copyValuesFromRow(base, row('пустой'), all)).toEqual(base)
+  })
+
+  it('режим access копирует не более одного VLAN; массивы порта не делятся с группой', () => {
+    const source = row('a', { vlan_mode: 'access', vlan_ids: ['v10', 'v20'] })
+    expect(copyValuesFromRow(group(), source, all).vlan_ids).toEqual(['v10'])
+
+    const trunk = row('t', { vlan_mode: 'trunk', vlan_ids: ['v10'] })
+    const copied = copyValuesFromRow(group(), trunk, all)
+    copied.vlan_ids.push('v30')
+    expect(trunk.vlan_ids).toEqual(['v10'])
+  })
+
+  it('у порта с несколькими IP берётся первый непустой', () => {
+    const source = row('a', { ips: [{ ip_address: '', prefix_length: '', purpose: '' }, { ip_address: '10.0.0.7', prefix_length: '25', purpose: '' }, { ip_address: '10.0.0.8', prefix_length: '26', purpose: '' }] })
+    expect(copyValuesFromRow(group(), source, all)).toMatchObject({ ip_address: '10.0.0.7', prefix_length: '25' })
   })
 })

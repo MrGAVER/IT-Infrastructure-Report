@@ -6,13 +6,15 @@
 // (правка формы устройства, п.4). Компонент сам ничего не сохраняет и не обращается к API: любое
 // изменение он отдаёт родителю событием change одним объектом { rows, groups } — состав портов и
 // значения в них меняются согласованно вместе с группой (см. utils/interfaceGroups.ts).
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vlanLabel } from '../utils/vlan'
 import {
   applyGroupsToRows,
+  copyValuesFromRow,
+  copyableFields,
   describeGroup,
   emptyGroup,
   eraseGroupValues,
@@ -20,6 +22,7 @@ import {
   memberIndices,
   setGroupMembers,
   validateInterfaceGroups,
+  type ManagedFields,
 } from '../utils/interfaceGroups'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SearchableSelect from './SearchableSelect.vue'
@@ -49,16 +52,52 @@ function openCreate() {
   draft.value = emptyGroup()
   draftIsNew.value = true
   members.value = new Set(props.selectedIndices.filter((i) => i < props.rows.length))
+  resetCopy()
 }
 
 function openEdit(group: InterfaceGroupDraft) {
   draft.value = { ...group, vlan_ids: [...group.vlan_ids], open_ports: group.open_ports.map((p) => ({ ...p })) }
   draftIsNew.value = false
   members.value = new Set(memberIndices(props.rows, group.key))
+  resetCopy()
 }
 
 function closeEdit() {
   draft.value = null
+}
+
+// --- Копирование значений с порта -------------------------------------------------------------
+// Порт-источник выбирается среди портов этого устройства (строки редактора). Копируются только
+// отмеченные параметры, у которых на порту есть значение (utils/interfaceGroups.ts:copyableFields);
+// копия попадает в черновик группы и применяется к портам, как и любое другое значение, при
+// сохранении группы.
+const copySource = ref('')
+const copyWhat = ref<ManagedFields>({ vlan: false, ip: false, openPorts: false })
+
+const copyPortOptions = computed(() => props.rows.map((row, i) => ({ value: String(i), label: row.name || `#${i + 1}` })))
+const copyRow = computed(() => (copySource.value === '' ? undefined : props.rows[Number(copySource.value)]))
+const copyAvailable = computed(() => (copyRow.value ? copyableFields(copyRow.value) : { vlan: false, ip: false, openPorts: false }))
+const copyNothingAvailable = computed(() => !!copyRow.value && !copyAvailable.value.vlan && !copyAvailable.value.ip && !copyAvailable.value.openPorts)
+const canCopy = computed(() => (copyWhat.value.vlan && copyAvailable.value.vlan) || (copyWhat.value.ip && copyAvailable.value.ip) || (copyWhat.value.openPorts && copyAvailable.value.openPorts))
+
+function resetCopy() {
+  copySource.value = ''
+  copyWhat.value = { vlan: false, ip: false, openPorts: false }
+}
+
+// Выбрали порт — сразу отмечаем всё, что с него можно скопировать.
+watch(copySource, () => {
+  copyWhat.value = { ...copyAvailable.value }
+})
+
+function copyFromPort() {
+  const row = copyRow.value
+  if (!draft.value || !row || !canCopy.value) return
+  draft.value = copyValuesFromRow(draft.value, row, copyWhat.value)
+  const label = row.name || `#${Number(copySource.value) + 1}`
+  const manyIps = copyWhat.value.ip && row.ips.filter((ip) => ip.ip_address.trim() !== '').length > 1
+  notify(manyIps ? `Значения скопированы с порта «${label}». У порта несколько IP-адресов — скопирован первый.` : `Значения скопированы с порта «${label}».`, 'success')
+  resetCopy()
 }
 
 function toggleMember(index: number, checked: boolean) {
@@ -190,84 +229,113 @@ function summary(group: InterfaceGroupDraft): string {
 
   <div v-if="draft" class="overlay" @mousedown="onEditPointerDown" @click="onEditClick">
     <div class="group-modal card" role="dialog" aria-modal="true" :aria-label="draftIsNew ? 'Новая группа портов' : 'Группа портов'">
-      <div class="group-modal-head">
-        <h3>{{ draftIsNew ? 'Новая группа портов' : 'Группа портов' }}</h3>
+      <div class="modal-head">
+        <h2>{{ draftIsNew ? 'Новая группа портов' : 'Группа портов' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="closeEdit">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
       </div>
 
-      <label class="field">
-        <span>Наименование *</span>
-        <input v-model="draft.name" type="text" maxlength="100" placeholder="напр. Серверные порты" />
-      </label>
-
-      <fieldset class="group-section">
-        <legend>Порты группы</legend>
-        <div v-if="!rows.length" class="empty">В списке нет портов.</div>
-        <label v-for="(row, i) in rows" :key="row.id ?? i" class="member-check">
-          <input type="checkbox" :checked="members.has(i)" @change="toggleMember(i, ($event.target as HTMLInputElement).checked)" />
-          <span>{{ row.name || `#${i + 1}` }}</span>
-          <span v-if="otherGroupName(i)" class="member-note">сейчас в группе «{{ otherGroupName(i) }}» — перейдёт в эту</span>
+      <div class="group-body">
+        <label class="field">
+          <span>Наименование *</span>
+          <input v-model="draft.name" type="text" maxlength="100" placeholder="напр. Серверные порты" />
         </label>
-      </fieldset>
 
-      <fieldset class="group-section">
-        <legend>Общие параметры (задаются только отмеченные)</legend>
-
-        <div class="param">
-          <div class="param-head"><b>Режим порта</b></div>
-          <div class="mode-row">
-            <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === ''" @change="setMode('')" /> Не задавать</label>
-            <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'access'" @change="setMode('access')" /> Access</label>
-            <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'trunk'" @change="setMode('trunk')" /> Trunk</label>
+        <section class="nested-editor">
+          <div class="nested-head">
+            <b>Порты группы</b>
+            <span class="hint">К отмеченным портам применяются общие параметры ниже.</span>
           </div>
-          <template v-if="draft.vlan_mode === 'access'">
+          <div v-if="!rows.length" class="empty">В списке нет портов.</div>
+          <div v-else class="member-grid">
+            <label v-for="(row, i) in rows" :key="row.id ?? i" class="member-check">
+              <input type="checkbox" :checked="members.has(i)" @change="toggleMember(i, ($event.target as HTMLInputElement).checked)" />
+              <span class="member-name">{{ row.name || `#${i + 1}` }}</span>
+              <span v-if="otherGroupName(i)" class="member-note">перейдёт из группы «{{ otherGroupName(i) }}»</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="nested-editor">
+          <div class="nested-head">
+            <b>Общие параметры</b>
+            <span class="hint">Группа управляет только теми параметрами, которые заданы ниже.</span>
+          </div>
+
+          <div class="copy-block">
+            <div class="param-head"><b>Скопировать значения с порта</b><span class="hint">заполнит параметры ниже значениями выбранного порта</span></div>
+            <div class="copy-row">
+              <SearchableSelect v-model="copySource" :options="copyPortOptions" placeholder="— порт устройства —" />
+              <button type="button" class="btn btn-secondary" :disabled="!canCopy" @click="copyFromPort">Скопировать</button>
+            </div>
+            <div v-if="copyRow" class="copy-what">
+              <label class="check-inline" :class="{ disabled: !copyAvailable.vlan }">
+                <input v-model="copyWhat.vlan" type="checkbox" :disabled="!copyAvailable.vlan" /> Режим порта и VLAN
+              </label>
+              <label class="check-inline" :class="{ disabled: !copyAvailable.ip }">
+                <input v-model="copyWhat.ip" type="checkbox" :disabled="!copyAvailable.ip" /> IP-адрес
+              </label>
+              <label class="check-inline" :class="{ disabled: !copyAvailable.openPorts }">
+                <input v-model="copyWhat.openPorts" type="checkbox" :disabled="!copyAvailable.openPorts" /> Открытые порты
+              </label>
+              <span v-if="copyNothingAvailable" class="hint">У порта нет значений, которые можно скопировать.</span>
+            </div>
+          </div>
+
+          <div class="param vlan-param">
+            <div class="param-head"><b>Режим порта</b></div>
+            <div class="mode-row">
+              <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === ''" @change="setMode('')" /> Не задавать</label>
+              <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'access'" @change="setMode('access')" /> Access</label>
+              <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'trunk'" @change="setMode('trunk')" /> Trunk</label>
+            </div>
             <SearchableSelect
+              v-if="draft.vlan_mode === 'access'"
               :model-value="draft.vlan_ids[0] ?? ''"
               :options="vlanSelectOptions"
               placeholder="— VLAN не выбран —"
               @update:model-value="(v) => (draft = { ...draft!, vlan_ids: v ? [v] : [] })"
             />
-          </template>
-          <div v-else-if="draft.vlan_mode === 'trunk'" class="vlan-checks">
-            <span v-if="!vlanOptions.length" class="empty">Для типа устройства VLAN не назначены</span>
-            <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-              <input type="checkbox" :checked="draft.vlan_ids.includes(v.id)" @change="toggleVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-              {{ vlanLabel(v) }}
+            <div v-else-if="draft.vlan_mode === 'trunk'" class="vlan-checks">
+              <span v-if="!vlanOptions.length" class="empty">Для типа устройства VLAN не назначены</span>
+              <label v-for="v in vlanOptions" :key="v.id" class="check-inline">
+                <input type="checkbox" :checked="draft.vlan_ids.includes(v.id)" @change="toggleVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+                {{ vlanLabel(v) }}
+              </label>
+            </div>
+          </div>
+
+          <div class="param">
+            <div class="param-head"><b>Общий IP-адрес</b><span class="hint">один адрес на все порты группы; заменит IP-адреса этих портов</span></div>
+            <div class="ip-row">
+              <input v-model="draft.ip_address" type="text" placeholder="IP-адрес (пусто — не задавать)" aria-label="Общий IP-адрес группы" />
+              <!-- Не v-model: на type="number" он записал бы в черновик число, а prefix_length везде в форме —
+                   строка (как у IP порта), и валидатор префикса вызывает у значения строковые методы. -->
+              <input
+                :value="draft.prefix_length"
+                type="number"
+                min="0"
+                max="32"
+                placeholder="Префикс"
+                aria-label="Префикс общего IP-адреса"
+                @input="draft = { ...draft!, prefix_length: ($event.target as HTMLInputElement).value }"
+              />
+            </div>
+          </div>
+
+          <div class="param ports-param">
+            <label class="param-head manage-check">
+              <input v-model="draft.manage_open_ports" type="checkbox" />
+              <b>Задать открытые порты / протоколы</b>
+              <span class="hint">заменит открытые порты этих портов</span>
             </label>
+            <OpenPortListEditor v-if="draft.manage_open_ports" v-model="draft.open_ports" :catalog-entries="protocolPortCatalog" />
           </div>
-        </div>
+        </section>
+      </div>
 
-        <div class="param">
-          <div class="param-head"><b>Общий IP-адрес</b><span class="hint">один адрес на все порты группы; заменит IP-адреса этих портов</span></div>
-          <div class="ip-row">
-            <input v-model="draft.ip_address" type="text" placeholder="IP-адрес (пусто — не задавать)" aria-label="Общий IP-адрес группы" />
-            <!-- Не v-model: на type="number" он записал бы в черновик число, а prefix_length везде в форме —
-               строка (как у IP порта), и валидатор префикса вызывает у значения строковые методы. -->
-          <input
-            :value="draft.prefix_length"
-            type="number"
-            min="0"
-            max="32"
-            placeholder="Префикс"
-            aria-label="Префикс общего IP-адреса"
-            @input="draft = { ...draft!, prefix_length: ($event.target as HTMLInputElement).value }"
-          />
-          </div>
-        </div>
-
-        <div class="param">
-          <label class="param-head manage-check">
-            <input v-model="draft.manage_open_ports" type="checkbox" />
-            <b>Задать открытые порты / протоколы</b>
-            <span class="hint">заменит открытые порты этих портов</span>
-          </label>
-          <OpenPortListEditor v-if="draft.manage_open_ports" v-model="draft.open_ports" :catalog-entries="protocolPortCatalog" />
-        </div>
-      </fieldset>
-
-      <div class="group-modal-actions">
+      <div class="modal-foot group-modal-actions">
         <button type="button" class="btn btn-secondary" @click="closeEdit">Отмена</button>
         <button type="button" class="btn btn-primary" @click="saveDraft">{{ draftIsNew ? 'Создать группу' : 'Применить' }}</button>
       </div>
@@ -276,8 +344,8 @@ function summary(group: InterfaceGroupDraft): string {
 
   <div v-if="deleting" class="overlay" @mousedown="onDeletePointerDown" @click="onDeleteClick">
     <div class="delete-modal card" role="dialog" aria-modal="true" aria-label="Удаление группы портов">
-      <div class="group-modal-head">
-        <h3>Удалить группу «{{ deleting.name }}»?</h3>
+      <div class="modal-head">
+        <h2>Удалить группу «{{ deleting.name }}»?</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="deleting = null">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
@@ -287,7 +355,7 @@ function summary(group: InterfaceGroupDraft): string {
       </p>
       <div class="delete-actions">
         <button type="button" class="btn btn-primary" @click="confirmDelete(deleting, 'keep')">Оставить значения в портах</button>
-        <button type="button" class="btn btn-secondary danger-btn" @click="confirmDelete(deleting, 'erase')">Стереть значения</button>
+        <button type="button" class="btn btn-danger danger-btn" @click="confirmDelete(deleting, 'erase')">Стереть значения</button>
         <button type="button" class="btn btn-secondary" @click="deleting = null">Отмена</button>
       </div>
     </div>
@@ -295,13 +363,16 @@ function summary(group: InterfaceGroupDraft): string {
 </template>
 
 <style scoped>
+/* Внешний вид приведён к остальным окнам приложения (QuickAddModal, DeviceInterfacesEditor):
+   в приложении нет глобальных стилей для полей ввода — каждый компонент красит их сам, поэтому
+   необъявленные здесь input/радио/чекбоксы оставались нативными (светлыми). */
 .groups-panel {
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  padding: 10px 12px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 .groups-head {
   display: flex;
@@ -315,11 +386,16 @@ function summary(group: InterfaceGroupDraft): string {
   gap: 2px;
 }
 .groups-title b {
-  font-size: 12px;
+  font-size: 12.5px;
 }
 .hint {
   font-size: 10.5px;
   color: var(--ink-muted);
+}
+.empty {
+  font-size: 12px;
+  color: var(--ink-muted);
+  padding: 4px 0;
 }
 .group-list {
   list-style: none;
@@ -333,9 +409,9 @@ function summary(group: InterfaceGroupDraft): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-s, 6px);
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-radius: var(--r-s);
 }
 .group-main {
   flex: 1;
@@ -358,6 +434,16 @@ function summary(group: InterfaceGroupDraft): string {
   color: var(--ink-muted);
   overflow-wrap: anywhere;
 }
+.icon-btn.danger {
+  color: var(--status-crit);
+  border-color: transparent;
+  background: transparent;
+}
+.icon-btn.danger:hover {
+  background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
+}
+
+/* --- модальные окна: та же база, что у QuickAddModal.vue --- */
 .overlay {
   position: fixed;
   inset: 0;
@@ -372,114 +458,210 @@ function summary(group: InterfaceGroupDraft): string {
 .group-modal,
 .delete-modal {
   width: 100%;
-  padding: 18px 20px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  padding: 20px 22px 18px;
 }
 .group-modal {
-  max-width: 640px;
+  max-width: 680px;
 }
 .delete-modal {
   max-width: 440px;
 }
-.group-modal-head {
+.modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
 }
-.group-modal-head h3 {
+.modal-head h2 {
   font-family: var(--font-display);
-  font-size: 14.5px;
+  font-size: 15px;
   margin: 0;
 }
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* --- поля: значения те же, что у .field в QuickAddModal.vue --- */
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  min-width: 0;
 }
-.field input {
+.group-modal input[type='text'],
+.group-modal input[type='number'] {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 8px 9px;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
 }
-.group-section {
+.group-modal input::placeholder {
+  color: var(--ink-muted);
+}
+
+/* --- вложенные блоки: как .nested-editor в DeviceInterfacesEditor.vue --- */
+.nested-editor {
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  padding: 8px 12px 12px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
 }
-.group-section legend {
-  font-size: 11px;
-  color: var(--ink-muted);
-  padding: 0 4px;
+.nested-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nested-head b {
+  font-size: 12.5px;
+}
+
+.member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 14px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 .member-check {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.member-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .member-note {
+  flex-basis: 100%;
+  padding-left: 20px;
   font-size: 10.5px;
-  color: var(--ink-muted);
+  color: var(--status-warn);
 }
+
 .param {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.param + .param,
+.copy-block + .param {
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
 }
 .param-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 8px;
-  font-size: 12px;
+  font-size: 11.5px;
+}
+.param-head b {
+  font-size: 11.5px;
 }
 .manage-check {
   align-items: center;
   cursor: pointer;
 }
+
+/* радио и чекбоксы — как .radio-inline / .vlan-check в DeviceInterfacesEditor.vue */
 .mode-row {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.radio-inline {
-  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12.5px;
+  flex-wrap: wrap;
+  gap: 14px;
 }
-.vlan-checks {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 180px;
-  overflow-y: auto;
-}
-.vlan-check {
+.radio-inline,
+.check-inline {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
 }
+.check-inline.disabled {
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+.radio-inline input,
+.check-inline input,
+.member-check input,
+.manage-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.vlan-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 .ip-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px;
+  grid-template-columns: minmax(0, 1fr) 120px;
   gap: 8px;
 }
-.group-modal-actions {
+
+/* копирование значений с порта */
+.copy-block {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--surface-2);
+  border-radius: var(--r-s);
 }
+.copy-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.copy-row .searchable-select {
+  flex: 1;
+  min-width: 0;
+}
+.copy-what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
 .delete-desc {
   font-size: 12px;
   color: var(--ink-muted);
-  margin: 0;
+  margin: 0 0 14px;
 }
 .delete-actions {
   display: flex;
@@ -490,7 +672,18 @@ function summary(group: InterfaceGroupDraft): string {
   width: 100%;
   justify-content: center;
 }
-.danger-btn {
-  color: var(--danger, #d64545);
+.btn-danger {
+  background: transparent;
+  border: 1px solid var(--status-crit);
+  color: var(--status-crit);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
+}
+
+@media (max-width: 520px) {
+  .ip-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

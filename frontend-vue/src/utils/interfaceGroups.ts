@@ -94,6 +94,45 @@ export function eraseGroupValues(row: InterfaceDraftRow, group: InterfaceGroupDr
   return next
 }
 
+/** Какие параметры группы можно скопировать с порта — только те, у которых на порту есть значение:
+ * режим порта копируется вместе с VLAN (режим без VLAN ничего не задаёт), IP — если есть хотя бы
+ * один непустой адрес, открытые порты — если выбран хотя бы один протокол справочника. Так
+ * «копирование» не может случайно превратиться в «стереть у всей группы». */
+export function copyableFields(row: InterfaceDraftRow): ManagedFields {
+  return {
+    vlan: row.vlan_ids.length > 0,
+    ip: row.ips.some((ip) => ip.ip_address.trim() !== ''),
+    openPorts: row.open_ports.some((p) => p.protocol_catalog_id !== ''),
+  }
+}
+
+/** Копирует значения порта в черновик группы — только отмеченные в `what` и реально имеющиеся на
+ * порту (см. copyableFields). Это правка черновика в окне группы: к портам она применяется, как и
+ * любое другое значение, только при сохранении группы. Строки открытых портов копируются без id —
+ * это новые строки группы, а не те же записи порта. У порта с несколькими IP берётся первый: группа
+ * задаёт один общий адрес. */
+export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraftRow, what: ManagedFields): InterfaceGroupDraft {
+  const available = copyableFields(row)
+  let next = group
+  if (what.vlan && available.vlan) {
+    next = { ...next, vlan_mode: row.vlan_mode, vlan_ids: row.vlan_mode === 'access' ? row.vlan_ids.slice(0, 1) : [...row.vlan_ids] }
+  }
+  if (what.ip && available.ip) {
+    const ip = row.ips.find((x) => x.ip_address.trim() !== '')!
+    next = { ...next, ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length }
+  }
+  if (what.openPorts && available.openPorts) {
+    next = {
+      ...next,
+      manage_open_ports: true,
+      open_ports: row.open_ports
+        .filter((p) => p.protocol_catalog_id !== '')
+        .map((p) => ({ protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })),
+    }
+  }
+  return next
+}
+
 /** Порт входит не более чем в одну группу: задаёт состав группы `groupKey` равным `members` —
  * добавленные порты переходят в неё из прежних групп, исключённые остаются без группы. */
 export function setGroupMembers(rows: InterfaceDraftRow[], groupKey: string, members: ReadonlySet<number>): InterfaceDraftRow[] {

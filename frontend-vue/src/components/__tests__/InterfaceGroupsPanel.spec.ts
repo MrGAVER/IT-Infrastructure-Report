@@ -51,7 +51,7 @@ describe('InterfaceGroupsPanel.vue', () => {
 
     await wrapper.find('.group-modal .field input').setValue('  Серверные  ')
     await wrapper.findAll('input[name="group-mode"]')[1].trigger('change') // Access
-    const vlanSelect = wrapper.find('.group-modal .searchable-select')
+    const vlanSelect = wrapper.find('.vlan-param .searchable-select')
     await vlanSelect.find('input').trigger('focus')
     await vlanSelect.findAll('.ss-option')[0].trigger('mousedown')
     await wrapper.find('input[aria-label="Общий IP-адрес группы"]').setValue('10.0.0.5')
@@ -107,6 +107,130 @@ describe('InterfaceGroupsPanel.vue', () => {
     expect(change.rows.map((r) => r.group_key)).toEqual(['g1', 'g1'])
     expect(change.rows.map((r) => r.ips[0].ip_address)).toEqual(['10.0.0.9', '10.0.0.9'])
     expect(change.groups.find((g) => g.key === 'g1')?.ip_address).toBe('10.0.0.9')
+  })
+
+  describe('копирование значений с порта', () => {
+    const sourceRow = () =>
+      row('Gi0/1', {
+        vlan_mode: 'trunk',
+        vlan_ids: ['v10', 'v20'],
+        ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }],
+        open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: 'админ' }],
+      })
+
+    async function openCreateAndPickSource(wrapper: ReturnType<typeof mountPanel>, label = 'Gi0/1') {
+      await wrapper.find('.groups-head button').trigger('click')
+      const select = wrapper.find('.copy-row .searchable-select')
+      await select.find('input').trigger('focus')
+      await select.findAll('.ss-option').find((o) => o.text() === label)!.trigger('mousedown')
+    }
+
+    it('без выбранного порта кнопка «Скопировать» недоступна, список вариантов — порты устройства', async () => {
+      const wrapper = mountPanel({ rows: [sourceRow(), row('Gi0/2')] })
+
+      await wrapper.find('.groups-head button').trigger('click')
+      expect(wrapper.find('.copy-row .btn').attributes('disabled')).toBeDefined()
+      expect(wrapper.find('.copy-what').exists()).toBe(false)
+
+      await wrapper.find('.copy-row .searchable-select input').trigger('focus')
+      expect(wrapper.findAll('.copy-row .ss-option').map((o) => o.text())).toEqual(['Gi0/1', 'Gi0/2'])
+    })
+
+    it('после выбора порта отмечено всё, что на нём задано; недоступное выключено', async () => {
+      const onlyIp = row('Gi0/2', { ips: [{ ip_address: '10.0.0.9', prefix_length: '24', purpose: '' }] })
+      const wrapper = mountPanel({ rows: [sourceRow(), onlyIp] })
+
+      await openCreateAndPickSource(wrapper, 'Gi0/2')
+
+      const boxes = wrapper.findAll('.copy-what input').map((c) => ({ checked: (c.element as HTMLInputElement).checked, disabled: c.attributes('disabled') !== undefined }))
+      expect(boxes).toEqual([
+        { checked: false, disabled: true }, // режим порта и VLAN — на порту нет VLAN
+        { checked: true, disabled: false }, // IP-адрес
+        { checked: false, disabled: true }, // открытые порты — не заданы
+      ])
+      expect(wrapper.find('.copy-row .btn').attributes('disabled')).toBeUndefined()
+    })
+
+    it('порт без значений: подсказка и недоступное копирование', async () => {
+      const wrapper = mountPanel({ rows: [sourceRow(), row('Gi0/2')] })
+
+      await openCreateAndPickSource(wrapper, 'Gi0/2')
+
+      expect(wrapper.find('.copy-what').text()).toContain('нет значений, которые можно скопировать')
+      expect(wrapper.find('.copy-row .btn').attributes('disabled')).toBeDefined()
+    })
+
+    it('«Скопировать» заполняет параметры группы значениями порта и сообщает об этом', async () => {
+      const wrapper = mountPanel({ rows: [sourceRow(), row('Gi0/2')] })
+
+      await openCreateAndPickSource(wrapper)
+      await wrapper.find('.copy-row .btn').trigger('click')
+
+      expect((wrapper.findAll('input[name="group-mode"]')[2].element as HTMLInputElement).checked).toBe(true) // Trunk
+      expect(wrapper.findAll('.vlan-param .check-inline input').map((c) => (c.element as HTMLInputElement).checked)).toEqual([true, true])
+      expect((wrapper.find('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
+      expect((wrapper.find('input[aria-label="Префикс общего IP-адреса"]').element as HTMLInputElement).value).toBe('24')
+      expect((wrapper.find('.ports-param .manage-check input').element as HTMLInputElement).checked).toBe(true)
+      expect(wrapper.findAll('.ports-param .nested-row').length).toBe(1)
+      expect(useToast().toasts.map((t) => t.message)).toEqual(['Значения скопированы с порта «Gi0/1».'])
+      // выбор порта сброшен — повторное копирование требует нового выбора
+      expect(wrapper.find('.copy-what').exists()).toBe(false)
+    })
+
+    it('копируется только отмеченное', async () => {
+      const wrapper = mountPanel({ rows: [sourceRow(), row('Gi0/2')] })
+
+      await openCreateAndPickSource(wrapper)
+      await wrapper.findAll('.copy-what input')[0].setValue(false) // без режима порта и VLAN
+      await wrapper.findAll('.copy-what input')[2].setValue(false) // без открытых портов
+      await wrapper.find('.copy-row .btn').trigger('click')
+
+      expect((wrapper.findAll('input[name="group-mode"]')[0].element as HTMLInputElement).checked).toBe(true) // «Не задавать»
+      expect((wrapper.find('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
+      expect((wrapper.find('.ports-param .manage-check input').element as HTMLInputElement).checked).toBe(false)
+    })
+
+    it('у порта несколько IP — в уведомлении сказано, что скопирован первый', async () => {
+      const many = row('Gi0/1', { ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }, { ip_address: '10.0.0.6', prefix_length: '24', purpose: '' }] })
+      const wrapper = mountPanel({ rows: [many] })
+
+      await openCreateAndPickSource(wrapper)
+      await wrapper.find('.copy-row .btn').trigger('click')
+
+      expect(useToast().toasts[0].message).toContain('скопирован первый')
+      expect((wrapper.find('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
+    })
+
+    it('скопированные значения записываются в порты группы только при сохранении группы', async () => {
+      const wrapper = mountPanel({ rows: [sourceRow(), row('Gi0/2'), row('Gi0/3')], selectedIndices: [1, 2] })
+
+      await openCreateAndPickSource(wrapper)
+      await wrapper.find('.copy-row .btn').trigger('click')
+      expect(wrapper.emitted('change')).toBeUndefined()
+
+      await wrapper.find('.group-modal .field input').setValue('Копия Gi0/1')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const { rows, groups } = lastChange(wrapper)
+      expect(groups[0]).toMatchObject({ name: 'Копия Gi0/1', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', manage_open_ports: true })
+      for (const i of [1, 2]) {
+        expect(rows[i]).toMatchObject({ group_key: groups[0].key, vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })
+        expect(rows[i].ips[0].ip_address).toBe('10.0.0.5')
+        expect(rows[i].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh'])
+      }
+      // порт-источник не менялся и в группу не вошёл
+      expect(rows[0]).toEqual(sourceRow())
+    })
+
+    it('при повторном открытии окна прежний выбор порта не сохраняется', async () => {
+      const wrapper = mountPanel({ rows: [sourceRow()] })
+
+      await openCreateAndPickSource(wrapper)
+      await wrapper.find('.group-modal .modal-head .icon-btn').trigger('click')
+      await wrapper.find('.groups-head button').trigger('click')
+
+      expect(wrapper.find('.copy-what').exists()).toBe(false)
+    })
   })
 
   describe('удаление группы', () => {
