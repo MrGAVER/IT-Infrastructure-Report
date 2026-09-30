@@ -14,11 +14,15 @@ from sqlalchemy.orm import Session
 
 from ..constants import AuditAction, OwnerType
 from ..models import Connection, DeviceInterface, IPAddress
+from .connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, select_connection_ids
 from .crud import audit
 from .port_config import PORT_ROLE_LABELS, PortConfigStatus, approval_signature, evaluate_port_config, port_role, role_from_flags
 from .serialization import enrich_connections, enrich_interfaces
 
 MAX_APPROVE_BATCH = 500
+# Сколько подключений обрабатывается за один проход при одобрении «всех найденных»: на каждый
+# проход порты подгружаются одним IN-запросом, а у SQLite/psycopg число параметров ограничено.
+_APPROVE_CHUNK = 400
 
 
 def _require_bool(payload: dict[str, Any], key: str) -> bool:
@@ -56,36 +60,20 @@ def set_port_role(interface_id: str, payload: dict[str, Any], session: Session) 
     return enrich_interfaces([iface], session)[0]
 
 
-def _load_connection_pair(connection: Connection, session: Session) -> tuple[DeviceInterface, DeviceInterface]:
-    source = session.get(DeviceInterface, connection.source_interface_id)
-    destination = session.get(DeviceInterface, connection.destination_interface_id)
-    if not source or not destination:
-        raise HTTPException(422, "У подключения отсутствует один из портов")
-    return source, destination
+def _approve_connections(connections: Sequence[Connection], session: Session) -> tuple[list[Connection], list[str], int]:
+    """Одобряет текущее расхождение у переданных подключений (без commit — его делает вызывающий).
 
-
-def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, Any]:
-    """Одобряет текущее расхождение ролей у перечисленных подключений.
-
-    Идемпотентно и безопасно к гонкам: подключение, у которого расхождения уже нет (роль порта
-    успели выровнять) или которое неактивно, пропускается и попадает в skipped_ids — одобрять
-    там нечего. Неизвестный id — 404 без каких-либо изменений."""
-    ids = payload.get("connection_ids")
-    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
-        raise HTTPException(422, "Поле connection_ids должно быть непустым массивом идентификаторов подключений")
-    if len(ids) > MAX_APPROVE_BATCH:
-        raise HTTPException(422, f"За один запрос можно одобрить не более {MAX_APPROVE_BATCH} подключений")
-    unique_ids = list(dict.fromkeys(ids))
-    connections = {c.id: c for c in session.scalars(select(Connection).where(Connection.id.in_(unique_ids))).all()}
-    missing = [i for i in unique_ids if i not in connections]
-    if missing:
-        raise HTTPException(404, f"Подключение не найдено: {missing[0]}")
-
-    approved: list[Connection] = []
+    Возвращает (подключения с расхождением, одобренным ранее или в этом вызове; id подключений, у
+    которых одобрять нечего; сколько одобрено именно сейчас). Порты подгружаются одним запросом."""
+    interface_ids = {i for c in connections for i in (c.source_interface_id, c.destination_interface_id)}
+    interfaces = {i.id: i for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(interface_ids))).all()} if interface_ids else {}
+    covered: list[Connection] = []
     skipped: list[str] = []
-    for conn_id in unique_ids:
-        conn = connections[conn_id]
-        source, destination = _load_connection_pair(conn, session)
+    newly_approved = 0
+    for conn in connections:
+        source, destination = interfaces.get(conn.source_interface_id), interfaces.get(conn.destination_interface_id)
+        if not source or not destination:
+            raise HTTPException(422, "У подключения отсутствует один из портов")
         status = evaluate_port_config(source, destination, conn.port_config_approved_signature, is_active=conn.is_active is not False)
         if status is PortConfigStatus.MISMATCH:
             conn.port_config_approved_signature = approval_signature(source, destination)
@@ -93,13 +81,67 @@ def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, 
                 session, "connections", conn.id, AuditAction.UPDATE,
                 f"Одобрено расхождение ролей портов: «{source.name}» — {PORT_ROLE_LABELS[port_role(source)]}, «{destination.name}» — {PORT_ROLE_LABELS[port_role(destination)]}",
             )
-            approved.append(conn)
+            covered.append(conn)
+            newly_approved += 1
         elif status is PortConfigStatus.OK:
-            skipped.append(conn_id)
+            skipped.append(conn.id)
         else:  # уже одобрено — состояние не меняем, но клиенту вернём актуальную запись
-            approved.append(conn)
+            covered.append(conn)
+    return covered, skipped, newly_approved
+
+
+def _parse_match(match: Any) -> ConnectionQuery:
+    """Условия «одобрить все найденные»: те же q / is_active, что у списка. Статус всегда
+    «расхождение» — одобрять есть смысл только их, поэтому клиент его не передаёт."""
+    if not isinstance(match, dict):
+        raise HTTPException(422, "Поле match должно быть объектом с необязательными q и is_active")
+    q, is_active = match.get("q"), match.get("is_active")
+    if q is not None and (not isinstance(q, str) or len(q) > MAX_SEARCH_LENGTH):
+        raise HTTPException(422, f"Поле match.q должно быть строкой не длиннее {MAX_SEARCH_LENGTH} символов")
+    if is_active is not None and not isinstance(is_active, bool):
+        raise HTTPException(422, "Поле match.is_active должно быть true, false или null")
+    return ConnectionQuery(q=q, is_active=is_active, status=PortConfigStatus.MISMATCH)
+
+
+def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """Одобряет текущее расхождение ролей портов у подключений — двумя способами:
+
+    * `{"connection_ids": [...]}` — у перечисленных (форма подключения и окно проверки одного
+      подключения; до MAX_APPROVE_BATCH за запрос). Неизвестный id — 404 без каких-либо изменений.
+      В ответе `items` — актуальные записи, чтобы клиент подставил их без перезагрузки.
+    * `{"match": {"q": ..., "is_active": ...}}` — у ВСЕХ подключений с расхождением под этими
+      условиями поиска, а не только у показанной страницы (клиент страницы видит по одной). `items`
+      в этом режиме пустой — записей может быть тысячи, клиент перечитывает страницу сам.
+
+    Идемпотентно и безопасно к гонкам: подключение, у которого расхождения уже нет (роль порта
+    успели выровнять) или которое неактивно, пропускается (`skipped_ids`). Всё — одной транзакцией:
+    при ошибке не одобряется ничего. `approved_count` — сколько расхождений одобрено именно сейчас."""
+    has_ids, has_match = "connection_ids" in payload, "match" in payload
+    if has_ids == has_match:
+        raise HTTPException(422, "Передайте ровно одно из полей: connection_ids или match")
+
+    if has_ids:
+        ids = payload["connection_ids"]
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+            raise HTTPException(422, "Поле connection_ids должно быть непустым массивом идентификаторов подключений")
+        if len(ids) > MAX_APPROVE_BATCH:
+            raise HTTPException(422, f"За один запрос можно одобрить не более {MAX_APPROVE_BATCH} подключений")
+        unique_ids = list(dict.fromkeys(ids))
+        by_id = {c.id: c for c in session.scalars(select(Connection).where(Connection.id.in_(unique_ids))).all()}
+        missing = [i for i in unique_ids if i not in by_id]
+        if missing:
+            raise HTTPException(404, f"Подключение не найдено: {missing[0]}")
+        covered, skipped, approved = _approve_connections([by_id[i] for i in unique_ids], session)
+        session.commit()
+        return {"items": enrich_connections(covered, session), "skipped_ids": skipped, "approved_count": approved}
+
+    ids = select_connection_ids(session, _parse_match(payload["match"]))
+    approved = 0
+    for start in range(0, len(ids), _APPROVE_CHUNK):
+        chunk = session.scalars(select(Connection).where(Connection.id.in_(ids[start:start + _APPROVE_CHUNK]))).all()
+        approved += _approve_connections(chunk, session)[2]
     session.commit()
-    return {"items": enrich_connections(approved, session), "skipped_ids": skipped}
+    return {"items": [], "skipped_ids": [], "approved_count": approved}
 
 
 def revoke_port_config_approval(connection_id: str, session: Session) -> dict[str, Any]:
@@ -111,13 +153,3 @@ def revoke_port_config_approval(connection_id: str, session: Session) -> dict[st
         audit(session, "connections", conn.id, AuditAction.UPDATE, "Отозвано одобрение расхождения ролей портов")
         session.commit()
     return enrich_connections([conn], session)[0]
-
-
-def find_port_config_mismatches(session: Session, *, statuses: Sequence[PortConfigStatus] = (PortConfigStatus.MISMATCH,)) -> list[dict[str, Any]]:
-    """Все подключения с указанным статусом сверки (по умолчанию — неодобренные расхождения).
-    Нужна не дашборду (он получает статус в каждой строке списка), а внешним потребителям, которым
-    достаточно одного запроса «что требует проверки»."""
-    rows = session.scalars(select(Connection).order_by(Connection.created_at)).all()
-    enriched = enrich_connections(rows, session)
-    wanted = {s.value for s in statuses}
-    return [c for c in enriched if c["port_config_status"] in wanted]

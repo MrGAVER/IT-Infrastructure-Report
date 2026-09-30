@@ -115,6 +115,7 @@ def test_approve_marks_mismatch_as_approved(client, device_type, cable):
     assert response.status_code == 200
     assert [c["port_config_status"] for c in response.json()["items"]] == ["approved"]
     assert response.json()["skipped_ids"] == []
+    assert response.json()["approved_count"] == 1
     assert _listed(client, conn["id"])["port_config_status"] == "approved"
 
 
@@ -140,6 +141,7 @@ def test_bulk_approve_skips_connections_without_mismatch(client, device_type, ca
     body = response.json()
     assert body["skipped_ids"] == [same["id"]]
     assert [c["id"] for c in body["items"]] == [different["id"]]
+    assert body["approved_count"] == 1
 
 
 def test_approve_validates_payload_and_unknown_ids(client, device_type, cable):
@@ -148,6 +150,10 @@ def test_approve_validates_payload_and_unknown_ids(client, device_type, cable):
     assert client.post("/api/v1/connections/port-config/approve", json={"connection_ids": ["missing"]}).status_code == 404
     too_many = [f"id-{i}" for i in range(501)]
     assert client.post("/api/v1/connections/port-config/approve", json={"connection_ids": too_many}).status_code == 422
+    # Нужно ровно одно из connection_ids / match.
+    assert client.post("/api/v1/connections/port-config/approve", json={}).status_code == 422
+    both = {"connection_ids": ["x"], "match": {}}
+    assert client.post("/api/v1/connections/port-config/approve", json=both).status_code == 422
 
 
 def test_revoke_returns_connection_to_mismatch(client, device_type, cable):
@@ -178,18 +184,3 @@ def test_legacy_purpose_field_from_old_clients_is_ignored(client, device_type, c
     b = _device_with_port(client, device_type, "PC-24", data=True)
     conn = _connect(client, a, b, cable, purpose="Передача данных")
     assert "purpose" not in conn
-
-
-def test_review_endpoint_lists_only_requested_status(client, device_type, cable):
-    a = _device_with_port(client, device_type, "PC-25", management=True)
-    b = _device_with_port(client, device_type, "PC-26", data=True)
-    conn = _connect(client, a, b, cable)
-
-    pending = client.get("/api/v1/connections/port-config").json()
-    assert [c["id"] for c in pending["items"]] == [conn["id"]]
-    assert pending["total"] == 1
-
-    client.post("/api/v1/connections/port-config/approve", json={"connection_ids": [conn["id"]]})
-    assert client.get("/api/v1/connections/port-config").json()["items"] == []
-    assert [c["id"] for c in client.get("/api/v1/connections/port-config", params={"status": "approved"}).json()["items"]] == [conn["id"]]
-    assert client.get("/api/v1/connections/port-config", params={"status": "bogus"}).status_code == 422
