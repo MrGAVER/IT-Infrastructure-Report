@@ -174,7 +174,7 @@ def _seed_rich_dataset(session):
     session.add(ctype)
     session.flush()
     session.add(Connection(source_interface_id=iface1.id, destination_interface_id=iface2.id,
-                            connection_type_id=ctype.id, purpose="Передача данных"))
+                            connection_type_id=ctype.id))
 
     vlan = VLAN(vlan_id=100, name="Servers")
     session.add(vlan)

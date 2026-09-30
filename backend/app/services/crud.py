@@ -61,6 +61,9 @@ def columns_for(model):
 def allowed_columns(model) -> set[str]:
     allowed = {c.key for c in inspect(model).columns if c.key not in {'id', 'created_at', 'updated_at'}}
     if model is InformationSystem: allowed.discard('number')
+    # Одобрение расхождения ролей портов пишется только эндпоинтами services/connection_review.py:
+    # иначе клиент мог бы «одобрить» подключение произвольной строкой в обход проверки статуса.
+    if model is Connection: allowed.discard('port_config_approved_signature')
     return allowed
 
 def audit(session: Session, entity_type: str, entity_id: str, action: str, details: str = '') -> None:

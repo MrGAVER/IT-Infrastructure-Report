@@ -10,6 +10,7 @@ from .config import APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DI
 from .api.auth import router as auth_router
 from .api.devices import router as devices_router
 from .api.diagrams import router as diagrams_router
+from .api.port_config import router as port_config_router
 from .api.report_builder import router as report_builder_router
 from .api.resources import router as resources_router
 from .api.system import router as system_router
@@ -42,6 +43,7 @@ app.include_router(auth_router)
 app.include_router(system_router)
 app.include_router(devices_router)
 app.include_router(resources_router)
+app.include_router(port_config_router)
 app.include_router(report_builder_router)
 app.include_router(diagrams_router)
 
