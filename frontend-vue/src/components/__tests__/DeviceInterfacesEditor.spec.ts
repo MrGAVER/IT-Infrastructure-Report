@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceInterfacesEditor from '../DeviceInterfacesEditor.vue'
-import type { CatalogItem, InterfaceDraftRow, VLANDefinition } from '../../api/types'
+import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
+import { useToast } from '../../composables/useToast'
 
 const typeOptions: CatalogItem[] = [{ id: 't-eth', name: 'Ethernet' }]
 const speedOptions: CatalogItem[] = [{ id: 's-1g', name: '1 Гбит/с' }]
@@ -908,5 +909,125 @@ describe('DeviceInterfacesEditor.vue', () => {
 
       expect(wrapper.find('.conflict-modal').exists()).toBe(true) // окно осталось открытым
     })
+  })
+})
+
+// Группы портов (правка формы устройства, п.4): у членов группы поля, которыми управляет группа,
+// недоступны для правки в строке — значения задаёт группа, иначе следующее сохранение перезаписало бы
+// ручную правку (сервер применяет параметры группы поверх значений порта).
+describe('DeviceInterfacesEditor.vue — группы портов', () => {
+  const groupVlans: VLANDefinition[] = [
+    { id: 'v10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] },
+    { id: 'v20', vlan_id: 20, name: 'Гости', description: '', domain_id: null, domain_name: '', devices: [] },
+  ]
+
+  function group(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
+    return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', manage_open_ports: false, open_ports: [], ...patch }
+  }
+
+  function member(name: string, patch: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow {
+    return { ...emptyRow(), name, group_key: 'g1', ...patch }
+  }
+
+  function mountEditor(rows: InterfaceDraftRow[], groups: InterfaceGroupDraft[]) {
+    return mount(DeviceInterfacesEditor, { props: { modelValue: rows, groups, typeOptions, speedOptions, vlanOptions: groupVlans } })
+  }
+
+  beforeEach(() => useToast().toasts.splice(0))
+
+  it('показывает панель групп и имя группы в строке её порта', () => {
+    const wrapper = mountEditor([member('Gi0/1'), { ...emptyRow(), name: 'Gi0/2' }], [group({ ip_address: '10.0.0.5' })])
+
+    expect(wrapper.find('.groups-panel').text()).toContain('Серверные')
+    const summaries = wrapper.findAll('.expand-toggle').map((b) => b.text())
+    expect(summaries[0]).toContain('Группа «Серверные»')
+    expect(summaries[1]).not.toContain('Группа')
+  })
+
+  it('у члена группы заблокированы управляемые ею режим порта, VLAN и IP; у порта вне группы — нет', async () => {
+    const rows = [
+      member('Gi0/1', { vlan_mode: 'access', vlan_ids: ['v10'], ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] }),
+      { ...emptyRow(), name: 'Gi0/2', ips: [{ ip_address: '192.168.0.1', prefix_length: '24', purpose: '' }] },
+    ]
+    const wrapper = mountEditor(rows, [group({ vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: '24' })])
+    await expandRow(wrapper, 0)
+    await expandRow(wrapper, 1)
+
+    const [locked, free] = wrapper.findAll('.iface-detail')
+    for (const radio of locked.findAll('input[type="radio"]')) expect(radio.attributes('disabled')).toBeDefined()
+    expect(locked.find('.vlan-block select').attributes('disabled')).toBeDefined()
+    expect(locked.find('.ip-row input[placeholder="IP-адрес"]').attributes('disabled')).toBeDefined()
+    expect(locked.find('.ip-row input[placeholder="Префикс"]').attributes('disabled')).toBeDefined()
+    expect(locked.find('button[aria-label="Удалить IP интерфейса"]').exists()).toBe(false)
+    expect(locked.text()).toContain('задан группой «Серверные»')
+
+    for (const radio of free.findAll('input[type="radio"]')) expect(radio.attributes('disabled')).toBeUndefined()
+    expect(free.find('.ip-row input[placeholder="IP-адрес"]').attributes('disabled')).toBeUndefined()
+    expect(free.find('button[aria-label="Удалить IP интерфейса"]').exists()).toBe(true)
+    expect(free.text()).not.toContain('задан группой')
+  })
+
+  it('параметры, которыми группа не управляет, в строке её порта остаются редактируемыми', async () => {
+    const wrapper = mountEditor([member('Gi0/1')], [group({ ip_address: '10.0.0.5', prefix_length: '24' })])
+    await expandRow(wrapper)
+
+    const detail = wrapper.find('.iface-detail')
+    for (const radio of detail.findAll('input[type="radio"]')) expect(radio.attributes('disabled')).toBeUndefined()
+    expect(detail.find('.ports-block .add-btn').exists()).toBe(true)
+  })
+
+  it('открытые порты порта, заданные группой, доступны только для чтения', async () => {
+    const rows = [member('Gi0/1', { open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }), { ...emptyRow(), name: 'Gi0/2' }]
+    const wrapper = mountEditor(rows, [group({ manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] })])
+    await expandRow(wrapper, 0)
+
+    const block = wrapper.find('.ports-block')
+    expect(block.find('.add-btn').exists()).toBe(false)
+    expect(block.find('.copy-ports-row').exists()).toBe(false)
+    expect(block.text()).toContain('Список открытых портов задан группой')
+  })
+
+  it('массовое редактирование не меняет режим порта и VLAN у портов, где их задаёт группа, но применяется к остальным', async () => {
+    const rows: InterfaceDraftRow[] = [member('Gi0/1', { vlan_mode: 'access', vlan_ids: ['v10'] }), { ...emptyRow(), name: 'Gi0/2', vlan_mode: 'access' }]
+    const wrapper = mountEditor(rows, [group({ vlan_mode: 'access', vlan_ids: ['v10'] })])
+
+    await wrapper.findAll('.iface-row input[aria-label="Выбрать интерфейс"]')[0].setValue(true)
+    await wrapper.findAll('.iface-row input[aria-label="Выбрать интерфейс"]')[1].setValue(true)
+    await wrapper.find('select[aria-label="Режим порта — массовое редактирование"]').setValue('trunk')
+    await wrapper.find('button[aria-label="Применить к выбранным"]').trigger('click')
+
+    const emitted = wrapper.emitted('update:modelValue') as InterfaceDraftRow[][][]
+    const result = emitted[emitted.length - 1][0]
+    expect(result[0]).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v10'] })
+    expect(result[1].vlan_mode).toBe('trunk')
+  })
+
+  it('открытые порты нельзя скопировать на порт, чей список задаёт группа', async () => {
+    const source = { ...emptyRow(), name: 'Gi0/1', open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }
+    const target = member('Gi0/2')
+    const wrapper = mountEditor([source, target], [group({ manage_open_ports: true })])
+    await expandRow(wrapper, 0)
+
+    await wrapper.find('.copy-target-select').setValue('1')
+    await wrapper.find('.copy-ports-row .btn').trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(useToast().toasts.map((t) => t.message).join(' ')).toContain('задан группой «Серверные»')
+  })
+
+  it('создание группы в панели отдаёт наружу и порты, и группы (v-model и v-model:groups)', async () => {
+    const wrapper = mountEditor([{ ...emptyRow(), name: 'Gi0/1' }], [])
+
+    await wrapper.find('.groups-head button').trigger('click')
+    await wrapper.find('.group-modal .field input').setValue('Новая')
+    await wrapper.findAll('.member-check input')[0].setValue(true)
+    await wrapper.find('input[aria-label="Общий IP-адрес группы"]').setValue('10.1.1.1')
+    await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+    const groups = (wrapper.emitted('update:groups') as InterfaceGroupDraft[][][])[0][0]
+    const rows = (wrapper.emitted('update:modelValue') as InterfaceDraftRow[][][])[0][0]
+    expect(groups[0]).toMatchObject({ name: 'Новая', ip_address: '10.1.1.1' })
+    expect(rows[0]).toMatchObject({ group_key: groups[0].key })
+    expect(rows[0].ips[0].ip_address).toBe('10.1.1.1')
   })
 })

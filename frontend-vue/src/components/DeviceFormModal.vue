@@ -9,10 +9,11 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
 import { persistDeviceVlans } from '../api/deviceVlans'
-import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { cloneGroupsForCopy, validateInterfaceGroups } from '../utils/interfaceGroups'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface, PortConflictInfo } from '../api/types'
+import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, InterfaceGroupDraft, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface, PortConflictInfo } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
@@ -78,6 +79,9 @@ const form = reactive(emptyForm())
 // types.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
+// Группы портов (InterfaceGroupsPanel.vue внутри DeviceInterfacesEditor.vue): общие режим порта/VLAN,
+// IP и открытые порты для нескольких портов. Грузятся с портами и сохраняются с ними одним PUT.
+const interfaceGroups = ref<InterfaceGroupDraft[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
 // Пункт 5: конфигурация (Управление/Передача данных/режим порта) уже сохранённых портов на момент
 // открытия формы — по ней при сохранении определяется, что конфигурация порта с расхождением
@@ -255,13 +259,14 @@ watch(
     if (!source) return
     loadingNested.value = true
     try {
-      const [software, ifaceRows, vlans, domainLinks, typeVlanIds] = await Promise.all([
+      const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds] = await Promise.all([
         listResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: source.id, limit: 1000 }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
         // помощник использует DevicePortsModal.vue (управление портами с экрана «Подключения»).
         // Открытые порты каждого интерфейса (фикс п.1.4, батч4) приходят уже вложенными в
         // ifaceRows[].open_ports — отдельно их грузить не нужно.
         loadDeviceInterfaceDraftRows(source.id),
+        loadDeviceInterfaceGroups(source.id),
         listResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id, limit: 1000 }),
         listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id, limit: 1000 }),
         // Загружается атомарно вместе с interfaces/deviceVlans (не через отдельный watch на
@@ -286,6 +291,14 @@ watch(
       // его ips).
       softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
       interfaces.value = isCopy ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports) })) : ifaceRows
+      interfaceGroups.value = ifaceGroups
+      // Копия: у нового устройства нет групп донора — группы создаются заново (без id, под новыми
+      // ключами), а порты перевязываются на них.
+      if (isCopy) {
+        const cloned = cloneGroupsForCopy(ifaceGroups, interfaces.value)
+        interfaceGroups.value = cloned.groups
+        interfaces.value = cloned.rows
+      }
       // При копировании id стёрты — снимок пуст, а у копии всё равно нет подключений и соседей.
       initialPortConfigs = snapshotPortConfigs(interfaces.value)
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
@@ -591,7 +604,7 @@ async function submit() {
     errorMessage.value = 'Укажите серийный номер.'
     return
   }
-  const interfaceError = validateInterfaceDraftRows(interfaces.value)
+  const interfaceError = validateInterfaceDraftRows(interfaces.value) ?? validateInterfaceGroups(interfaceGroups.value)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return
@@ -632,7 +645,7 @@ async function submit() {
         await persistDeviceVlans(saved.id, deviceVlans.value)
         // Атомарный PUT (не через generic createResource/deleteResource, как выше) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
-        const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, interfaces.value)
+        const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, interfaces.value, interfaceGroups.value)
         // Фикс п.3.1: без этого catalogs.items['interfaces'] не узнаёт о только что
         // сохранённых портах устройства (persistDeviceInterfaces — чистый API-вызов, сам кэш
         // каталогов не трогает по дизайну, см. её комментарий), и поле "Порт" в форме
@@ -804,6 +817,7 @@ async function submit() {
         <DeviceInterfacesEditor
           v-if="!loadingNested"
           v-model="interfaces"
+          v-model:groups="interfaceGroups"
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"

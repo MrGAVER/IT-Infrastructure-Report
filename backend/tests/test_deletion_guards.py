@@ -63,6 +63,20 @@ ALLOWED_DELETIONS = {
     ("app/services/crud.py", "sync_interfaces", "IPAddress"),
     ("app/services/crud.py", "sync_interfaces", "OpenPort"),
     ("app/services/crud.py", "sync_interfaces", "obj"),
+    # группы портов (InterfaceGroup, её VLAN и открытые порты): дочерние записи одного устройства, не
+    # входят в MODEL_MAP; входящие ссылки — только device_interfaces.group_id (ON DELETE SET NULL,
+    # порты отвязываются, но не удаляются) и собственные VLAN/открытые порты группы (CASCADE).
+    # Удаляются не защищённые модели (PhysicalDevice/VM/контейнер/интерфейс не затрагиваются);
+    # link/extra/row в _apply_group_to_interface — VLAN-связи, IP и открытые порты ПОРТА, которые
+    # группа приводит к своим значениям (то же, что уже делает _sync_single_interface для порта)
+    ("app/services/crud.py", "_sync_group_vlans", "row"),
+    ("app/services/crud.py", "_sync_group_open_ports", "row"),
+    ("app/services/crud.py", "_apply_group_to_interface", "link"),
+    ("app/services/crud.py", "_apply_group_to_interface", "extra"),
+    ("app/services/crud.py", "_apply_group_to_interface", "row"),
+    ("app/services/crud.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
+    ("app/services/crud.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
+    ("app/services/crud.py", "_delete_stale_groups", "group"),
     # VLAN устройства (PhysicalDeviceVLAN) — дочерняя запись без входящих ссылок (ни FK, ни
     # полиморфных: проверено reflection'ом по MODEL_MAP), поэтому assert_deletable() ей не нужен
     ("app/services/crud.py", "sync_device_vlans", "obj"),

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces, validateInterfaceDraftRows } from '../deviceInterfaces'
-import type { InterfaceDraftRow } from '../types'
+import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../deviceInterfaces'
+import type { InterfaceDraftRow, InterfaceGroupDraft } from '../types'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
@@ -281,5 +281,79 @@ describe('persistDeviceInterfaces', () => {
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
     expect(body.interfaces[0].vlan_mode).toBe('access')
+  })
+})
+
+describe('группы портов', () => {
+  function groupDraft(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
+    return { key: 'new-1', name: ' Серверные ', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: ' 10.0.0.5 ', prefix_length: '24', manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }, { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }], ...patch }
+  }
+
+  it('loadDeviceInterfaceGroups: ключ сохранённой группы равен её id, пустые значения превращаются в пустые строки формы', async () => {
+    const fetchMock = vi.fn(async (_url: string) =>
+      jsonResponse({
+        items: [
+          { id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: 24, manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: null }] },
+          { id: 'g-2', physical_device_id: 'dev-1', name: 'Пустая', vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] },
+        ],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const groups = await loadDeviceInterfaceGroups('dev-1')
+
+    expect(fetchMock.mock.calls[0][0]).toContain('/devices/dev-1/interface-groups')
+    expect(groups[0]).toEqual({ id: 'g-1', key: 'g-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }] })
+    expect(groups[1]).toMatchObject({ vlan_mode: '', ip_address: '', prefix_length: '', manage_open_ports: false })
+  })
+
+  it('loadDeviceInterfaceDraftRows: принадлежность порта группе приходит как group_key', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/resources/interfaces')) {
+          return jsonResponse({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access', group_id: 'g-1' }, { id: 'if-2', physical_device_id: 'dev-1', name: 'eth1', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access', group_id: null }], total: 2, offset: 0, limit: 1000 })
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    const rows = await loadDeviceInterfaceDraftRows('dev-1')
+
+    expect(rows.map((r) => r.group_key)).toEqual(['g-1', ''])
+  })
+
+  it('persist с группами отправляет полный список groups и group_key каждого порта', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ items: [], groups: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await persistDeviceInterfaces('dev-1', [{ ...emptyRow(), name: 'eth0', group_key: 'new-1' }, { ...emptyRow(), name: 'eth1' }], [groupDraft()])
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect(body.groups).toEqual([
+      { id: undefined, key: 'new-1', name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: 24, manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }] },
+    ].map((g) => JSON.parse(JSON.stringify(g))))
+    expect(body.interfaces.map((i: { group_key: string | null }) => i.group_key)).toEqual(['new-1', null])
+  })
+
+  it('persist: параметры, которыми группа не управляет, уходят пустыми (режим не задан — без VLAN, без IP, без открытых портов)', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ items: [], groups: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await persistDeviceInterfaces('dev-1', [], [groupDraft({ vlan_mode: '', vlan_ids: ['v10'], ip_address: '', prefix_length: '24', manage_open_ports: false })])
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect(body.groups[0]).toMatchObject({ vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] })
+  })
+
+  it('persist без groups (вызывающий код групп не знает) не шлёт ни groups, ни group_key — сервер группы не трогает', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ items: [], groups: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await persistDeviceInterfaces('dev-1', [{ ...emptyRow(), name: 'eth0', group_key: 'g-1' }])
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect('groups' in body).toBe(false)
+    expect('group_key' in body.interfaces[0]).toBe(false)
   })
 })

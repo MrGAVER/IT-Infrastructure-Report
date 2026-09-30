@@ -5,7 +5,7 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember)
+from ..models import (Connection, ConnectionType, DeviceInterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN)
 from ..constants import OwnerType, SourceType
 from .computed import device_management_ports_and_ips
 
@@ -117,6 +117,37 @@ def enrich_interfaces(items: Sequence[DeviceInterface], session: Session) -> lis
         )
         result.append(data)
     return result
+
+def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) -> list[dict[str, Any]]:
+    """Группы портов с вложенными VLAN (vlan_ids, по номеру VLAN) и открытыми портами группы
+    (open_ports — id, protocol_catalog_id, transport_protocol, description; подписи порта/протокола
+    клиент берёт из справочника «Протоколы и порты», как и для портов устройства). Два запроса на
+    все группы разом, а не по запросу на группу."""
+    if not groups:
+        return []
+    group_ids = [g.id for g in groups]
+    vlan_links = session.execute(
+        select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id)
+        .join(VLAN, VLAN.id == InterfaceGroupVLAN.vlan_id)
+        .where(InterfaceGroupVLAN.group_id.in_(group_ids))
+        .order_by(VLAN.vlan_id, InterfaceGroupVLAN.vlan_id)
+    ).all()
+    ports = session.scalars(
+        select(InterfaceGroupOpenPort)
+        .join(ProtocolPortCatalog, InterfaceGroupOpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+        .where(InterfaceGroupOpenPort.group_id.in_(group_ids))
+        .order_by(ProtocolPortCatalog.port, InterfaceGroupOpenPort.transport_protocol)
+    ).all()
+    vlans_by_group: dict[str, list[str]] = {}
+    for group_id, vlan_id in vlan_links:
+        vlans_by_group.setdefault(group_id, []).append(vlan_id)
+    ports_by_group: dict[str, list[dict[str, Any]]] = {}
+    for port in ports:
+        ports_by_group.setdefault(port.group_id, []).append(serialize(port))
+    return [
+        {**serialize(g), 'vlan_ids': vlans_by_group.get(g.id, []), 'open_ports': ports_by_group.get(g.id, [])}
+        for g in groups
+    ]
 
 def enrich_connections(items: Sequence[Connection], session: Session) -> list[dict[str, Any]]:
     if not items:

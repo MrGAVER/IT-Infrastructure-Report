@@ -24,6 +24,17 @@ beforeEach(() => {
 })
 
 describe('OpenPortListEditor.vue', () => {
+  it('readonly: поля выключены, добавления и удаления нет (значения задаёт группа портов)', () => {
+    const rows: OpenPortDraftRow[] = [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: 'админ' }]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: catalog, readonly: true } })
+
+    expect(wrapper.find('.col-catalog input').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('select.col-transport').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('input.col-desc').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.add-btn').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="Удалить открытый порт"]').exists()).toBe(false)
+  })
+
   it('показывает подсказку, если открытые порты не добавлены', () => {
     const wrapper = mount(OpenPortListEditor, { props: { modelValue: [], catalogEntries: catalog } })
     expect(wrapper.text()).toContain('Открытые порты не добавлены')

@@ -305,6 +305,89 @@ describe('DeviceFormModal.vue', () => {
     expect(wrapper.find('.ip-row input').element).toHaveProperty('value', '192.168.1.1')
   })
 
+  describe('группы портов (правка формы устройства, п.4)', () => {
+    const groupDto = {
+      id: 'g-1', physical_device_id: 'dev-g', name: 'Серверные', vlan_mode: null, vlan_ids: [],
+      ip_address: '10.0.0.5', prefix_length: 24, manage_open_ports: false, open_ports: [],
+    }
+    const ifaceDto = (id: string, name: string, groupId: string | null) => ({
+      id, physical_device_id: 'dev-g', name, interface_type_id: null, mac_address: null, speed_id: null,
+      is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access', group_id: groupId,
+    })
+    const device = { id: 'dev-g', device_type_id: 'dt-server', serial_number: 'SN-G' } as never
+
+    async function mountWithGroups(props: { device: never | null; copyFrom?: never | null }, calls: Array<{ url: string; method: string; body?: unknown }>) {
+      stubCatalogsFetch()
+      await useCatalogsStore().ensureLoaded()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.includes('/devices/dev-g/interface-groups')) return new Response(JSON.stringify({ items: [groupDto] }))
+          if (url.includes('/resources/interfaces') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [ifaceDto('if-1', 'Gi0/1', 'g-1'), ifaceDto('if-2', 'Gi0/2', null)], total: 2, offset: 0, limit: 1000 }))
+          }
+          if (url.includes('/resources/ip-addresses') && method === 'GET') {
+            return new Response(JSON.stringify({ items: [{ id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (method === 'PUT' && url.includes('/devices/dev-g/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
+          if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
+          if (method === 'PUT' && url.includes('/resources/devices/dev-g')) return new Response(JSON.stringify({ id: 'dev-g', serial_number: 'SN-G' }))
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+      const wrapper = mount(DeviceFormModal, { props })
+      await flushPromises()
+      return wrapper
+    }
+
+    it('редактирование: группы загружаются, порт показывает свою группу, а при сохранении группы и group_key уходят одним PUT', async () => {
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      const wrapper = await mountWithGroups({ device }, calls)
+
+      expect(wrapper.find('.groups-panel').text()).toContain('Серверные')
+      expect(wrapper.findAll('.expand-toggle').map((b) => b.text())[0]).toContain('Группа «Серверные»')
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-g/interfaces'))
+      const body = put?.body as { groups: Array<Record<string, unknown>>; interfaces: Array<{ name: string; group_key: string | null }> }
+      expect(body.groups).toEqual([expect.objectContaining({ id: 'g-1', key: 'g-1', name: 'Серверные', ip_address: '10.0.0.5', prefix_length: 24, vlan_mode: null })])
+      expect(body.interfaces.map((i) => [i.name, i.group_key])).toEqual([['Gi0/1', 'g-1'], ['Gi0/2', null]])
+    })
+
+    it('копирование устройства: группы донора создаются заново без id, порты перевязываются на новые ключи', async () => {
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      const wrapper = await mountWithGroups({ device: null, copyFrom: device }, calls)
+
+      await wrapper.find('input[required][maxlength="255"]').setValue('SN-COPY')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-copy/interfaces'))
+      const body = put?.body as { groups: Array<{ id?: string; key: string; name: string }>; interfaces: Array<{ id?: string; name: string; group_key: string | null }> }
+      expect(body.groups).toHaveLength(1)
+      expect(body.groups[0].id).toBeUndefined()
+      expect(body.groups[0].key).not.toBe('g-1')
+      expect(body.interfaces.map((i) => [i.id, i.name, i.group_key])).toEqual([[undefined, 'Gi0/1', body.groups[0].key], [undefined, 'Gi0/2', null]])
+    })
+
+    it('группа с некорректным IP не применяется: окно группы остаётся открытым, запрос сохранения не уходит', async () => {
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      const wrapper = await mountWithGroups({ device }, calls)
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      await wrapper.find('input[aria-label="Общий IP-адрес группы"]').setValue('999.1.1.1')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      // Некорректный IP отсекается уже при применении группы — в форме остаётся прежнее значение.
+      expect(wrapper.find('.group-modal').exists()).toBe(true)
+      expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/interfaces'))).toBe(false)
+    })
+  })
+
   it('сохраняет добавленный интерфейс через PUT /devices/{id}/interfaces', async () => {
     const wrapper = await mountWithLoadedCatalogs()
 

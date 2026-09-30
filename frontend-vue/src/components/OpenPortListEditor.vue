@@ -22,7 +22,9 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 
-const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[] }>()
+// readonly — значения задаются не здесь, а извне (например, группой портов, см.
+// utils/interfaceGroups.ts): все поля выключены, добавление/удаление скрыто.
+const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[]; readonly?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: OpenPortDraftRow[]] }>()
 
 const TRANSPORT_OPTIONS = ['TCP', 'UDP', 'TCP/UDP']
@@ -84,14 +86,16 @@ function onQuickAdded(index: number, record: CatalogItem) {
           :model-value="row.protocol_catalog_id"
           :options="catalogOptions()"
           placeholder="— справочник —"
+          :disabled="readonly"
           @update:model-value="(v) => onCatalogChange(i, v)"
         />
-        <QuickAddButton resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
+        <QuickAddButton v-if="!readonly" resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
       </div>
       <select
         class="col-transport"
         title="Транспортный протокол (TCP/UDP) — отдельно от прикладного протокола, который несёт запись справочника слева"
         :value="row.transport_protocol"
+        :disabled="readonly"
         @change="updateField(i, { transport_protocol: ($event.target as HTMLSelectElement).value })"
       >
         <option v-for="t in TRANSPORT_OPTIONS" :key="t" :value="t">{{ t }}</option>
@@ -101,14 +105,15 @@ function onQuickAdded(index: number, record: CatalogItem) {
         type="text"
         placeholder="Описание"
         :value="row.description"
+        :disabled="readonly"
         @input="updateField(i, { description: ($event.target as HTMLInputElement).value })"
       />
-      <button type="button" class="icon-btn danger" aria-label="Удалить открытый порт" @click="removeRow(i)">
+      <button v-if="!readonly" type="button" class="icon-btn danger" aria-label="Удалить открытый порт" @click="removeRow(i)">
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
       </button>
     </div>
 
-    <button type="button" class="btn btn-secondary add-btn" @click="addRow">
+    <button v-if="!readonly" type="button" class="btn btn-secondary add-btn" @click="addRow">
       <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
       Открытый порт
     </button>

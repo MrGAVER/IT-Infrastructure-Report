@@ -62,6 +62,8 @@ export interface DeviceInterface extends CatalogItem {
   is_data_transfer: boolean
   description: string | null
   vlan_mode: 'access' | 'trunk'
+  /** Группа портов (InterfaceGroup), в которую входит порт; null — вне групп. */
+  group_id?: string | null
 }
 
 /** GET /resources/connections — идёт через общий {items,total,offset,limit}, но
@@ -427,6 +429,42 @@ export interface InterfaceDraftRow {
    * интерфейса на другой. Персистится атомарно вместе с интерфейсом, см.
    * api/deviceInterfaces.ts:persistDeviceInterfaces. */
   open_ports: OpenPortDraftRow[]
+  /** Ключ группы портов (InterfaceGroupDraft.key), в которую входит порт; пусто/не задан — порт вне
+   * групп. У сохранённой группы ключ равен её id. Значения параметров, которыми управляет группа,
+   * уже записаны в поля этой строки (utils/interfaceGroups.ts:applyGroupToRow) — сервер их
+   * подтверждает при сохранении, а таблица и отчёты видят итоговые значения порта. */
+  group_key?: string
+}
+
+/** Черновик группы портов устройства (backend models.InterfaceGroup): параметры, заданные один
+ * раз и применяемые ко всем портам группы. Параметр «управляется» группой только если задан:
+ * vlan_mode !== '' — режим порта и VLAN; ip_address !== '' — общий IP (один адрес на все порты);
+ * manage_open_ports — полный список открытых портов. Незаданные параметры порты хранят свои. */
+export interface InterfaceGroupDraft {
+  id?: string
+  /** Сохранённая группа: её id. Новая: временный ключ (utils/interfaceGroups.ts:newGroupKey) —
+   * по нему порты ссылаются на группу, у которой id ещё нет. */
+  key: string
+  name: string
+  vlan_mode: '' | 'access' | 'trunk'
+  vlan_ids: string[]
+  ip_address: string
+  prefix_length: string
+  manage_open_ports: boolean
+  open_ports: OpenPortDraftRow[]
+}
+
+/** GET /api/v1/devices/{id}/interface-groups (и поле groups ответа PUT .../interfaces). */
+export interface InterfaceGroup {
+  id: string
+  physical_device_id: string
+  name: string
+  vlan_mode: 'access' | 'trunk' | null
+  vlan_ids: string[]
+  ip_address: string | null
+  prefix_length: number | null
+  manage_open_ports: boolean
+  open_ports: { id: string; protocol_catalog_id: string; transport_protocol: string; description: string | null }[]
 }
 
 /** GET /api/v1/vlan-dashboard — сгруппировано по vlan_id, т.к. один и тот же VLAN ID
