@@ -11,13 +11,27 @@ export function setPortRole(interfaceId: string, role: PortRole) {
 }
 
 export interface ApprovePortConfigResult {
+  /** Актуальные записи одобренных подключений; при одобрении «всех найденных» пустой. */
   items: Connection[]
   /** Подключения, у которых одобрять было нечего (расхождение уже устранено или подключение неактивно). */
   skipped_ids: string[]
+  /** Сколько расхождений одобрено именно этим запросом. */
+  approved_count: number
 }
 
 export function approvePortConfig(connectionIds: string[]) {
   return api.post<ApprovePortConfigResult>('/connections/port-config/approve', { connection_ids: connectionIds })
+}
+
+/** Условия «одобрить все найденные» — те же поиск и фильтр активности, что у списка. Одобряются
+ * ВСЕ подключения с расхождением под ними, а не только показанная страница. */
+export interface ApproveMatch {
+  q?: string | null
+  is_active?: boolean | null
+}
+
+export function approveMatchingPortConfig(match: ApproveMatch) {
+  return api.post<ApprovePortConfigResult>('/connections/port-config/approve', { match })
 }
 
 export function revokePortConfigApproval(connectionId: string) {

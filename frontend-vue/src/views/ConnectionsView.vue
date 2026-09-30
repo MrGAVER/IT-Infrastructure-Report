@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useConnectionsStore } from '../stores/connections'
+import { PAGE_SIZE, useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
 import { roleLabel } from '../utils/portConfig'
+import { debounce } from '../utils/debounce'
+import { pagerItems } from '../utils/pager'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
 import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
 import DevicePortsModal from '../components/DevicePortsModal.vue'
 
+// Таблица — постраничная выборка с сервера (connectionsDashboard); общий кэш (connections) нужен
+// формам и схеме — карта занятых портов, см. комментарии в обоих сторах.
+const dashboard = useConnectionsDashboardStore()
 const connections = useConnectionsStore()
 const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
@@ -27,7 +33,7 @@ const deletingId = ref<string | null>(null)
 const canvasOpen = ref(false)
 async function closeCanvas() {
   canvasOpen.value = false
-  await connections.reload() // подключения, созданные на схеме, должны сразу попасть в таблицу
+  await dashboard.refreshAfterChange() // подключения, созданные на схеме, должны сразу попасть в таблицу
 }
 
 // Прямое управление портами устройства из строки таблицы — без захода в форму подключения
@@ -48,7 +54,7 @@ async function onPortsSaved() {
   // Переименование/добавление порта могло изменить то, что показывает таблица
   // (source_interface_name/destination_interface_name резолвятся один раз при загрузке
   // подключений), поэтому перечитываем список — тот же принцип, что onSaved() ниже.
-  await connections.reload()
+  await dashboard.refreshAfterChange()
 }
 
 // Проверка ролей портов-соседей (см. services/port_config.py): строка с расхождением/одобрением
@@ -56,21 +62,28 @@ async function onPortsSaved() {
 const reviewing = ref<Connection | null>(null)
 const bulkApproving = ref(false)
 
-// Смена строки поиска или любого фильтра сбрасывает страницу: иначе на 3-й странице новый,
-// более короткий список показывал бы пустую таблицу.
+// Поиск уходит на сервер, поэтому не на каждую букву. Смена фильтра — сразу и отменяет
+// ещё не отправленный поиск: иначе после неё мог бы уйти лишний запрос со старой строкой.
+const SEARCH_DEBOUNCE_MS = 300
+const searchDebounced = debounce(() => void dashboard.applyFilters(), SEARCH_DEBOUNCE_MS)
+watch(() => dashboard.search, () => searchDebounced())
 watch(
-  () => [connections.search, connections.activeFilter, connections.portConfigFilter],
-  () => connections.resetPageOnFilterChange(),
+  () => [dashboard.activeFilter, dashboard.portConfigFilter],
+  () => {
+    searchDebounced.cancel()
+    void dashboard.applyFilters()
+  },
 )
+onBeforeUnmount(() => searchDebounced.cancel())
 
-async function approveAllShown() {
-  const ids = connections.filtered.filter((c) => c.port_config_status === 'mismatch').map((c) => c.id)
-  if (!ids.length) return
-  if (!confirm(`Одобрить расхождение ролей портов у ${ids.length} подключ. как допустимое? Одобрение потеряет силу, если роль любого из портов изменится.`)) return
+async function approveAllMatching() {
+  const count = dashboard.total
+  if (!count) return
+  if (!confirm(`Одобрить расхождение ролей портов у ${count} подключ. как допустимое? Одобрение потеряет силу, если роль любого из портов изменится.`)) return
   bulkApproving.value = true
   try {
-    const { items } = await connections.approve(ids)
-    notify(`Одобрено расхождений: ${items.length}`, 'success')
+    const { approved_count } = await dashboard.approveMatching()
+    notify(`Одобрено расхождений: ${approved_count}`, 'success')
   } catch (err) {
     notifyError(err)
   } finally {
@@ -79,7 +92,7 @@ async function approveAllShown() {
 }
 
 onMounted(async () => {
-  await Promise.all([connections.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
+  await Promise.all([dashboard.load(), connections.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
 })
 
 function openCreate() {
@@ -97,7 +110,7 @@ function closeModal() {
 async function onSaved() {
   const wasEdit = modalConnection.value !== null
   closeModal()
-  await connections.reload()
+  await dashboard.refreshAfterChange()
   notify(wasEdit ? 'Подключение обновлено' : 'Подключение добавлено', 'success')
 }
 
@@ -106,7 +119,7 @@ async function removeConnection(c: Connection) {
   deletingId.value = c.id
   try {
     await deleteResource('connections', c.id)
-    await connections.reload()
+    await dashboard.refreshAfterChange()
     notify('Подключение удалено', 'success')
   } catch (err) {
     notifyError(err)
@@ -119,21 +132,21 @@ async function removeConnection(c: Connection) {
 <template>
   <div class="connections-view">
     <div class="stat-row">
-      <StatCard :value="connections.total" label="Всего подключений" />
-      <StatCard :value="connections.all.filter((c) => c.is_active).length" label="Активные" />
-      <StatCard :value="connections.all.filter((c) => !c.is_active).length" label="Неактивные" tone="warn" />
-      <StatCard :value="connections.mismatchCount" label="Расхождения портов" tone="warn" />
+      <StatCard :value="dashboard.summary.total" label="Всего подключений" />
+      <StatCard :value="dashboard.summary.active" label="Активные" />
+      <StatCard :value="dashboard.summary.inactive" label="Неактивные" tone="warn" />
+      <StatCard :value="dashboard.summary.mismatch" label="Расхождения портов" tone="warn" />
     </div>
 
-    <div v-if="connections.mismatchCount > 0" class="mismatch-banner" role="status">
+    <div v-if="dashboard.summary.mismatch > 0" class="mismatch-banner" role="status">
       <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-      <span>Найдено подключений с различающимися ролями портов-соседей: {{ connections.mismatchCount }}.</span>
+      <span>Найдено подключений с различающимися ролями портов-соседей: {{ dashboard.summary.mismatch }}.</span>
       <button
-        v-if="connections.portConfigFilter !== 'mismatch'"
+        v-if="dashboard.portConfigFilter !== 'mismatch'"
         type="button"
         class="btn btn-secondary"
         data-action="show-mismatches"
-        @click="connections.portConfigFilter = 'mismatch'"
+        @click="dashboard.portConfigFilter = 'mismatch'"
       >
         Показать
       </button>
@@ -142,34 +155,34 @@ async function removeConnection(c: Connection) {
     <div class="filter-bar">
       <div class="search-box">
         <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="connections.search" type="text" placeholder="Поиск по устройству, порту, роли порта…" />
+        <input v-model="dashboard.search" type="text" placeholder="Поиск по устройству, порту, роли порта…" />
       </div>
       <div class="chip-group">
-        <button :class="{ on: connections.activeFilter === 'all' }" @click="connections.activeFilter = 'all'">Все</button>
-        <button :class="{ on: connections.activeFilter === 'yes' }" @click="connections.activeFilter = 'yes'">Активные</button>
-        <button :class="{ on: connections.activeFilter === 'no' }" @click="connections.activeFilter = 'no'">Неактивные</button>
+        <button :class="{ on: dashboard.activeFilter === 'all' }" @click="dashboard.activeFilter = 'all'">Все</button>
+        <button :class="{ on: dashboard.activeFilter === 'yes' }" @click="dashboard.activeFilter = 'yes'">Активные</button>
+        <button :class="{ on: dashboard.activeFilter === 'no' }" @click="dashboard.activeFilter = 'no'">Неактивные</button>
       </div>
       <div class="chip-group" role="group" aria-label="Проверка ролей портов">
-        <button :class="{ on: connections.portConfigFilter === 'all' }" @click="connections.portConfigFilter = 'all'">Все порты</button>
-        <button :class="{ on: connections.portConfigFilter === 'mismatch' }" data-filter="mismatch" @click="connections.portConfigFilter = 'mismatch'">
-          Расхождения ({{ connections.mismatchCount }})
+        <button :class="{ on: dashboard.portConfigFilter === 'all' }" @click="dashboard.portConfigFilter = 'all'">Все порты</button>
+        <button :class="{ on: dashboard.portConfigFilter === 'mismatch' }" data-filter="mismatch" @click="dashboard.portConfigFilter = 'mismatch'">
+          Расхождения ({{ dashboard.summary.mismatch }})
         </button>
-        <button :class="{ on: connections.portConfigFilter === 'approved' }" data-filter="approved" @click="connections.portConfigFilter = 'approved'">
-          Одобренные ({{ connections.approvedCount }})
+        <button :class="{ on: dashboard.portConfigFilter === 'approved' }" data-filter="approved" @click="dashboard.portConfigFilter = 'approved'">
+          Одобренные ({{ dashboard.summary.approved }})
         </button>
       </div>
       <button
-        v-if="connections.portConfigFilter === 'mismatch' && connections.filtered.length"
+        v-if="dashboard.portConfigFilter === 'mismatch' && dashboard.total"
         type="button"
         class="btn btn-secondary"
         data-action="approve-all"
         :disabled="bulkApproving"
-        @click="approveAllShown"
+        @click="approveAllMatching"
       >
-        Одобрить все показанные ({{ connections.filtered.length }})
+        Одобрить все найденные ({{ dashboard.total }})
       </button>
       <div class="spacer"></div>
-      <button class="btn btn-secondary" :disabled="connections.loading" @click="connections.reload()">
+      <button class="btn btn-secondary" :disabled="dashboard.loading" @click="dashboard.refreshAfterChange()">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
@@ -184,12 +197,12 @@ async function removeConnection(c: Connection) {
     </div>
 
     <div class="table-card card">
-      <div v-if="connections.error" class="error-banner">
+      <div v-if="dashboard.error" class="error-banner">
         <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-        {{ connections.error }}
+        {{ dashboard.error }}
       </div>
-      <div v-else-if="connections.loading && !connections.loaded" class="loading-banner">Загрузка реестра подключений…</div>
-      <div v-else class="table-wrap">
+      <div v-else-if="dashboard.loading && !dashboard.loaded" class="loading-banner">Загрузка реестра подключений…</div>
+      <div v-else class="table-wrap" :class="{ stale: dashboard.loading }">
         <table>
           <thead>
             <tr>
@@ -203,7 +216,7 @@ async function removeConnection(c: Connection) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in connections.pageItems" :key="c.id">
+            <tr v-for="c in dashboard.items" :key="c.id">
               <td>
                 <span class="devname">{{ c.source_device_name }}</span>
                 <span class="portname mono">
@@ -256,18 +269,21 @@ async function removeConnection(c: Connection) {
                 </div>
               </td>
             </tr>
-            <tr v-if="!connections.filtered.length">
+            <tr v-if="!dashboard.items.length">
               <td colspan="7" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
             </tr>
           </tbody>
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ connections.pageItems.length ? (connections.page - 1) * 8 + 1 : 0 }}–{{ (connections.page - 1) * 8 + connections.pageItems.length }} из {{ connections.filtered.length }}</span>
+        <span>Показано {{ dashboard.items.length ? (dashboard.page - 1) * PAGE_SIZE + 1 : 0 }}–{{ (dashboard.page - 1) * PAGE_SIZE + dashboard.items.length }} из {{ dashboard.total }}</span>
         <div class="pager">
-          <button :disabled="connections.page <= 1" @click="connections.setPage(connections.page - 1)">‹</button>
-          <button v-for="p in connections.pageCount" :key="p" :class="{ on: p === connections.page }" @click="connections.setPage(p)">{{ p }}</button>
-          <button :disabled="connections.page >= connections.pageCount" @click="connections.setPage(connections.page + 1)">›</button>
+          <button :disabled="dashboard.page <= 1" aria-label="Предыдущая страница" @click="dashboard.setPage(dashboard.page - 1)">‹</button>
+          <template v-for="(item, i) in pagerItems(dashboard.page, dashboard.pageCount)" :key="`${item}-${i}`">
+            <span v-if="item === '…'" class="pager-gap">…</span>
+            <button v-else :class="{ on: item === dashboard.page }" @click="dashboard.setPage(item)">{{ item }}</button>
+          </template>
+          <button :disabled="dashboard.page >= dashboard.pageCount" aria-label="Следующая страница" @click="dashboard.setPage(dashboard.page + 1)">›</button>
         </div>
       </div>
     </div>
@@ -367,6 +383,10 @@ async function removeConnection(c: Connection) {
 }
 .table-wrap {
   overflow-x: auto;
+  transition: opacity 0.12s;
+}
+.table-wrap.stale {
+  opacity: 0.6;
 }
 table {
   width: 100%;
@@ -540,6 +560,11 @@ tr:hover .port-manage-btn {
 }
 .pager button:disabled {
   opacity: 0.4;
+}
+.pager-gap {
+  align-self: center;
+  padding: 0 2px;
+  color: var(--ink-muted);
 }
 
 @media (max-width: 980px) {

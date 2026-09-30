@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PortConfigReviewModal from '../PortConfigReviewModal.vue'
-import { useConnectionsStore } from '../../stores/connections'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useToast } from '../../composables/useToast'
 import type { Connection } from '../../api/types'
@@ -41,18 +40,18 @@ function stubApi(handler: (call: Call) => Response | undefined = () => undefined
     vi.fn(async (url: string, init?: RequestInit) => {
       const call: Call = { url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(init.body as string) : undefined }
       calls.push(call)
-      return handler(call) ?? jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      return handler(call) ?? jsonResponse({ items: [], total: 0, offset: 0, limit: 1000, summary: { total: 0, active: 0, inactive: 0, mismatch: 0, approved: 0 } })
     }),
   )
 }
 
 function mountModal(conn: Connection) {
-  const store = useConnectionsStore()
-  store.all = [conn]
-  store.total = 1
-  store.loaded = true
   return mount(PortConfigReviewModal, { props: { connection: conn } })
 }
+
+// Страница дашборда (/api/v1/connections?…) и общий кэш (/api/v1/resources/connections?…) — разные запросы.
+const pageRequests = () => calls.filter((c) => c.method === 'GET' && /\/api\/v1\/connections\?/.test(c.url))
+const cacheRequests = () => calls.filter((c) => c.method === 'GET' && c.url.includes('/resources/connections'))
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -81,10 +80,10 @@ describe('PortConfigReviewModal.vue', () => {
     expect(wrapper.find('[data-action="revoke"]').exists()).toBe(false)
   })
 
-  it('«Одобрить» отправляет id подключения, обновляет статус в списке и закрывает модалку', async () => {
+  it('«Одобрить» отправляет id подключения, перечитывает страницу и кэш и закрывает модалку', async () => {
     stubApi((call) =>
       call.url.endsWith('/connections/port-config/approve')
-        ? jsonResponse({ items: [connection({ port_config_status: 'approved' })], skipped_ids: [] })
+        ? jsonResponse({ items: [connection({ port_config_status: 'approved' })], skipped_ids: [], approved_count: 1 })
         : undefined,
     )
     const wrapper = mountModal(connection())
@@ -93,12 +92,13 @@ describe('PortConfigReviewModal.vue', () => {
     await flushPromises()
 
     expect(calls.find((c) => c.url.endsWith('/connections/port-config/approve'))!.body).toEqual({ connection_ids: ['c-1'] })
-    expect(useConnectionsStore().all[0].port_config_status).toBe('approved')
+    expect(pageRequests()).toHaveLength(1)
+    expect(cacheRequests()).toHaveLength(1)
     expect(wrapper.emitted('close')).toHaveLength(1)
     expect(useToast().toasts.some((t) => t.type === 'success')).toBe(true)
   })
 
-  it('для одобренного расхождения показывает «Отозвать одобрение»; после отзыва снова предлагает одобрить', async () => {
+  it('для одобренного расхождения показывает «Отозвать одобрение»; после отзыва снова предлагает одобрить (даже если строки уже нет на странице)', async () => {
     stubApi((call) => (call.method === 'DELETE' ? jsonResponse(connection({ port_config_status: 'mismatch' })) : undefined))
     const wrapper = mountModal(connection({ port_config_status: 'approved' }))
 
@@ -109,6 +109,9 @@ describe('PortConfigReviewModal.vue', () => {
     await flushPromises()
 
     expect(calls.find((c) => c.method === 'DELETE')!.url).toContain('/connections/c-1/port-config/approval')
+    // Страница после отзыва перечитана пустой (строка не подходит под фильтр), но окно показывает
+    // актуальную запись из ответа сервера, а не стёртую строку.
+    expect(pageRequests()).toHaveLength(1)
     expect(wrapper.emitted('close')).toBeUndefined() // модалка остаётся открытой, статус обновился
     expect(wrapper.find('[data-action="approve"]').exists()).toBe(true)
   })
@@ -120,9 +123,6 @@ describe('PortConfigReviewModal.vue', () => {
       if (call.method === 'PUT' && call.url.includes('/interfaces/if-sw/port-role')) {
         return jsonResponse({ id: 'if-sw', name: 'Gi0/5', physical_device_id: 'dev-sw', is_management: true, is_data_transfer: false })
       }
-      if (call.url.includes('/resources/connections')) {
-        return jsonResponse({ items: [connection({ destination_port_role: 'management', port_config_status: 'ok' })], total: 1, offset: 0, limit: 1000 })
-      }
       return undefined
     })
     const wrapper = mountModal(connection())
@@ -133,7 +133,8 @@ describe('PortConfigReviewModal.vue', () => {
     const put = calls.find((c) => c.method === 'PUT')!
     expect(put.body).toEqual({ is_management: true, is_data_transfer: false })
     expect(catalogs.items['interfaces'][0]).toMatchObject({ is_management: true, is_data_transfer: false })
-    expect(useConnectionsStore().all[0].port_config_status).toBe('ok')
+    expect(pageRequests()).toHaveLength(1)
+    expect(cacheRequests()).toHaveLength(1)
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 

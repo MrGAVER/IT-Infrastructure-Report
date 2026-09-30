@@ -86,6 +86,25 @@ export interface Connection {
   port_config_status: PortConfigStatus
 }
 
+/** Итоги по ВСЕМ подключениям реестра (не зависят от поиска и фильтров) — GET /connections. */
+export interface ConnectionsSummary {
+  total: number
+  active: number
+  inactive: number
+  mismatch: number
+  approved: number
+}
+
+/** GET /connections — страница подключений: поиск, фильтры и статус сверки считает сервер.
+ * total — под теми же условиями, что и items; summary — по всему реестру. */
+export interface ConnectionsPage {
+  items: Connection[]
+  total: number
+  offset: number
+  limit: number
+  summary: ConnectionsSummary
+}
+
 /** Роль порта: комбинация флагов DeviceInterface.is_management / is_data_transfer. */
 export type PortRole = 'none' | 'management' | 'data' | 'management_data'
 

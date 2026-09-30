@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { approvePortConfig, revokePortConfigApproval, setPortRole } from '../portConfig'
+import { approveMatchingPortConfig, approvePortConfig, revokePortConfigApproval, setPortRole } from '../portConfig'
 
 function stubFetch(body: unknown = {}) {
   const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify(body), { status: 200 }))
@@ -38,5 +38,14 @@ describe('api/portConfig', () => {
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toContain('/connections/c-1/port-config/approval')
     expect(init?.method).toBe('DELETE')
+  })
+
+  it('approveMatchingPortConfig: POST с условиями match, без connection_ids', async () => {
+    const fetchMock = stubFetch({ items: [], skipped_ids: [], approved_count: 12 })
+    const result = await approveMatchingPortConfig({ q: 'ядро', is_active: true })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toContain('/connections/port-config/approve')
+    expect(JSON.parse(init!.body as string)).toEqual({ match: { q: 'ядро', is_active: true } })
+    expect(result.approved_count).toBe(12)
   })
 })

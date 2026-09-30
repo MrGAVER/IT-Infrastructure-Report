@@ -9,7 +9,7 @@ import { computed, ref } from 'vue'
 import { setPortRole } from '../api/portConfig'
 import type { Connection } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
-import { useConnectionsStore } from '../stores/connections'
+import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
 import { roleLabel } from '../utils/portConfig'
@@ -19,15 +19,16 @@ const emit = defineEmits<{ close: [] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
-const connections = useConnectionsStore()
+const dashboard = useConnectionsDashboardStore()
 const { notify } = useToast()
 
 const busy = ref(false)
 const errorMessage = ref<string | null>(null)
 
-// Берём строку из стора, а не props.connection: после одобрения/отзыва стор подставляет
-// обновлённую запись, и статус в модалке меняется сразу, без повторного открытия.
-const current = computed(() => connections.all.find((c) => c.id === props.connection.id) ?? props.connection)
+// Своя копия записи, а не строка из стора: список постраничный и с фильтрами, и после отзыва
+// одобрения строка может исчезнуть со страницы (например, при фильтре «Одобренные»), хотя окно
+// проверки ещё открыто. Копию обновляем ответом сервера.
+const current = ref<Connection>(props.connection)
 const isApproved = computed(() => current.value.port_config_status === 'approved')
 const isMismatch = computed(() => current.value.port_config_status === 'mismatch')
 
@@ -45,7 +46,7 @@ async function run(action: () => Promise<void>, fallbackError: string) {
 
 function approve() {
   return run(async () => {
-    await connections.approve([current.value.id])
+    await dashboard.approve([current.value.id])
     notify('Расхождение ролей портов одобрено', 'success')
     emit('close')
   }, 'Не удалось одобрить расхождение')
@@ -53,7 +54,7 @@ function approve() {
 
 function revoke() {
   return run(async () => {
-    await connections.revokeApproval(current.value.id)
+    current.value = await dashboard.revokeApproval(current.value.id)
     notify('Одобрение отозвано — расхождение снова требует проверки', 'info')
   }, 'Не удалось отозвать одобрение')
 }
@@ -66,7 +67,7 @@ function align(keepSource: boolean) {
   if (!role) return Promise.resolve()
   return run(async () => {
     catalogs.replaceInterface(await setPortRole(targetInterfaceId, role))
-    await connections.reload()
+    await dashboard.refreshAfterChange()
     notify('Роль порта обновлена — роли портов подключения совпадают', 'success')
     emit('close')
   }, 'Не удалось изменить роль порта')

@@ -166,7 +166,7 @@ export const connectionsFixture: import('../../api/client').PagedResponse<import
     connection({ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-2', is_active: true }),
     connection({
       id: 'c-2', source_interface_id: 'if-3', destination_interface_id: 'if-4',
-      source_port_role: 'management', destination_port_role: 'data', port_config_status: 'mismatch',
+      source_port_role: 'management', destination_port_role: 'data', // неактивное — в сверке не участвует (status ok)
       is_active: false, source_device_name: 'Коммутатор', destination_device_name: 'Файрвол',
     }),
   ],
