@@ -4,11 +4,18 @@
 // физического устройства, см. backend/app/models.py:DeployedSoftware). Как и
 // VmIpListEditor/OpenPortListEditor — контролируемый компонент, не знает о владельце
 // (переиспользуется VMFormModal.vue и DeviceFormModal.vue без изменений).
+import { computed } from 'vue'
 import type { CatalogItem, SoftwareAssetDraftRow } from '../api/types'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 const props = defineProps<{ modelValue: SoftwareAssetDraftRow[]; catalogEntries: CatalogItem[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: SoftwareAssetDraftRow[]] }>()
+
+// Плоский формат SearchableSelect (поиск вводом текста вместо нативного <select>, как у остальных
+// справочных полей, см. OpenPortListEditor.vue) — порядок записей каталога не меняется.
+const assetOptions = computed<SearchableSelectOption[]>(() => props.catalogEntries.map((entry) => ({ value: entry.id, label: entry.name })))
 
 function emptyRow(): SoftwareAssetDraftRow {
   return { software_asset_id: '', version: '' }
@@ -48,13 +55,12 @@ function onQuickAdded(index: number, record: CatalogItem) {
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
       <div class="col-asset lookup-row">
-        <select
-          :value="row.software_asset_id"
-          @change="updateField(i, { software_asset_id: ($event.target as HTMLSelectElement).value })"
-        >
-          <option value="">— выберите ПО —</option>
-          <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-        </select>
+        <SearchableSelect
+          :model-value="row.software_asset_id"
+          :options="assetOptions"
+          placeholder="— выберите ПО —"
+          @update:model-value="(v) => updateField(i, { software_asset_id: v })"
+        />
         <QuickAddButton resource="software-assets" title="Программный актив" @created="(r) => onQuickAdded(i, r)" />
       </div>
       <input
@@ -116,7 +122,7 @@ function onQuickAdded(index: number, record: CatalogItem) {
   align-items: center;
   gap: 6px;
 }
-.lookup-row select {
+.lookup-row .searchable-select {
   flex: 1;
   min-width: 0;
 }

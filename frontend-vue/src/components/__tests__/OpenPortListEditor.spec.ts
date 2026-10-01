@@ -132,3 +132,66 @@ describe('OpenPortListEditor.vue', () => {
     expect(lastRows[0].protocol_catalog_id).toBe('cat-new')
   })
 })
+
+const wideCatalog: ProtocolPortCatalogEntry[] = [
+  { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
+  { id: 'cat-http', port: 80, protocol_type: 'HTTP', description: null },
+  { id: 'cat-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+  { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
+]
+
+function openRow(protocol_catalog_id: string): OpenPortDraftRow {
+  return { protocol_catalog_id, transport_protocol: 'TCP', description: '' }
+}
+
+describe('OpenPortListEditor.vue — sorted-unique (форма ВМ)', () => {
+  async function pick(wrapper: ReturnType<typeof mount>, rowIndex: number, label: string) {
+    const input = wrapper.findAll('.col-catalog .searchable-select input')[rowIndex]
+    await input.trigger('focus')
+    const option = wrapper.findAll('.col-catalog .ss-option').find((o) => o.text() === label)!
+    await option.trigger('mousedown')
+  }
+
+  it('выбор порта переупорядочивает строки по возрастанию номера, пустые остаются в конце', async () => {
+    const rows = [openRow('cat-https'), openRow(''), openRow('')]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog, sortedUnique: true } })
+
+    await pick(wrapper, 1, '22 / SSH')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https', ''])
+  })
+
+  it('подсвечивает строки с повторяющимся номером порта и показывает сообщение', () => {
+    const rows = [openRow('cat-http'), openRow('cat-ssh'), openRow('cat-http-alt')]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog, sortedUnique: true } })
+
+    const flagged = wrapper.findAll('.nested-row').map((r) => r.classes().includes('row-duplicate'))
+    expect(flagged).toEqual([true, false, true])
+    expect(wrapper.find('.dup-error').text()).toContain('Порт 80')
+  })
+
+  it('без sortedUnique поведение прежнее: порядок не меняется, повторы не подсвечиваются', async () => {
+    const rows = [openRow('cat-https'), openRow('')]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog } })
+
+    await pick(wrapper, 1, '22 / SSH')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh'])
+
+    const dup = mount(OpenPortListEditor, { props: { modelValue: [openRow('cat-http'), openRow('cat-http-alt')], catalogEntries: wideCatalog } })
+    expect(dup.find('.dup-error').exists()).toBe(false)
+    expect(dup.find('.row-duplicate').exists()).toBe(false)
+  })
+
+  it('правка описания не переупорядочивает строки', async () => {
+    const rows = [openRow('cat-https'), openRow('cat-ssh')] // намеренно не по порядку
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog, sortedUnique: true } })
+
+    await wrapper.findAll('input.col-desc')[0].setValue('веб')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh'])
+  })
+})

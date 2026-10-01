@@ -17,14 +17,21 @@
 // stores/catalogs.ts:sortProtocolPortCatalog), а сервер сам подставляет порт/протокол из
 // справочника при сохранении (backend/app/services/crud.py:_apply_open_port_catalog) —
 // хранить их в черновике смысла больше нет, см. OpenPortDraftRow в api/types.ts.
+import { computed } from 'vue'
 import type { OpenPortDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
+import { duplicatePortNumbers, duplicateRowIndexes, sortOpenPortRows } from '../utils/openPorts'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 // readonly — значения задаются не здесь, а извне (например, группой портов, см.
 // utils/interfaceGroups.ts): все поля выключены, добавление/удаление скрыто.
-const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[]; readonly?: boolean }>()
+// sortedUnique — правило «номера портов не повторяются и список упорядочен по номеру порта»:
+// редактор переупорядочивает строки при выборе записи справочника и подсвечивает повторы (сам
+// сохранение не блокирует — это делает форма-владелец через utils/openPorts.ts:duplicatePortNumbers).
+// Выключено по умолчанию: включено только там, где правило согласовано (форма ВМ); редакторы
+// портов интерфейсов устройства и групп портов работают как раньше.
+const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[]; readonly?: boolean; sortedUnique?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: OpenPortDraftRow[]] }>()
 
 const TRANSPORT_OPTIONS = ['TCP', 'UDP', 'TCP/UDP']
@@ -42,9 +49,23 @@ function catalogLabel(entry: ProtocolPortCatalogEntry): string {
 // тем же принципом, что и у остальных select'ов, читающих catalogs.items[key] как есть.
 const catalogOptions = (): SearchableSelectOption[] => props.catalogEntries.map((e) => ({ value: e.id, label: catalogLabel(e) }))
 
+// Пустая строка всегда добавляется в конец — sortOpenPortRows и так ставит невыбранные строки
+// последними, поэтому пересортировка при добавлении не нужна.
 function addRow() {
   emit('update:modelValue', [...props.modelValue, emptyRow()])
 }
+
+// Строки меняются местами только в момент смены записи справочника (смена номера порта) — не при
+// правке описания/транспорта, иначе строка «уезжала» бы из-под курсора во время ввода.
+function emitRows(rows: OpenPortDraftRow[], extraCatalog: ProtocolPortCatalogEntry[] = []) {
+  emit('update:modelValue', props.sortedUnique ? sortOpenPortRows(rows, [...props.catalogEntries, ...extraCatalog]) : rows)
+}
+
+const duplicateIndexes = computed(() => (props.sortedUnique ? duplicateRowIndexes(props.modelValue, props.catalogEntries) : new Set<number>()))
+const duplicateMessage = computed(() => {
+  const numbers = props.sortedUnique ? duplicatePortNumbers(props.modelValue, props.catalogEntries) : []
+  return numbers.length ? `Порт ${numbers.join(', ')} указан несколько раз — каждый номер порта можно добавить только один раз.` : ''
+})
 
 function removeRow(index: number) {
   emit(
@@ -62,12 +83,17 @@ function updateField(index: number, patch: Partial<OpenPortDraftRow>) {
 // Явный сброс port/protocol здесь больше не нужен: их не осталось в OpenPortDraftRow вовсе —
 // достаточно записать сам protocol_catalog_id, сервер выведет из него порт/протокол при сохранении.
 function onCatalogChange(index: number, catalogId: string) {
-  updateField(index, { protocol_catalog_id: catalogId })
+  emitRows(props.modelValue.map((row, i) => (i === index ? { ...row, protocol_catalog_id: catalogId } : row)))
 }
 
+// Только что созданной записи может ещё не быть в props.catalogEntries (родитель обновит проп на
+// следующем тике) — передаём её в сортировку явно, иначе строка с новым портом ушла бы в конец.
 function onQuickAdded(index: number, record: CatalogItem) {
   const entry = record as unknown as ProtocolPortCatalogEntry
-  updateField(index, { protocol_catalog_id: entry.id })
+  emitRows(
+    props.modelValue.map((row, i) => (i === index ? { ...row, protocol_catalog_id: entry.id } : row)),
+    [entry],
+  )
 }
 </script>
 
@@ -80,7 +106,7 @@ function onQuickAdded(index: number, record: CatalogItem) {
 
     <div v-if="!modelValue.length" class="empty">Открытые порты не добавлены</div>
 
-    <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
+    <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row" :class="{ 'row-duplicate': duplicateIndexes.has(i) }">
       <div class="col-catalog lookup-row">
         <SearchableSelect
           :model-value="row.protocol_catalog_id"
@@ -112,6 +138,8 @@ function onQuickAdded(index: number, record: CatalogItem) {
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
       </button>
     </div>
+
+    <div v-if="duplicateMessage" class="dup-error" role="alert">{{ duplicateMessage }}</div>
 
     <button v-if="!readonly" type="button" class="btn btn-secondary add-btn" @click="addRow">
       <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
@@ -173,6 +201,13 @@ function onQuickAdded(index: number, record: CatalogItem) {
   color: var(--ink);
   width: 100%;
   font-family: inherit;
+}
+.row-duplicate :deep(.searchable-select input) {
+  border-color: var(--status-crit);
+}
+.dup-error {
+  font-size: 11.5px;
+  color: var(--status-crit);
 }
 .icon-btn.danger {
   color: var(--status-crit);
