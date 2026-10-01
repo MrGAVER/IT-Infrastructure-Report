@@ -15,7 +15,7 @@ from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interface_groups, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
 from .diagram_icons import validate_svg_markup
 from .integrity import format_referenced_message, source_reference_refs
-from .validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
+from .validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization, validate_unique_open_port_numbers
 
 def model_for(resource: str):
     try: return MODEL_MAP[resource]
@@ -347,6 +347,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     # protocol_catalog_id ссылается на существующую запись справочника.
     if model is OpenPort:
         _validate_open_port_catalog(data, session)
+        _validate_open_port_number_is_free(data, session)
     validate_resource(model, data, session, confirm_duplicate=bool(payload.get('confirm_system_name_duplicate')), confirm_rack_reassign=bool(payload.get('confirm_rack_position_reassign')))
     obj = model(**data); session.add(obj)
     try:
@@ -374,6 +375,11 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     # модели вовсе (см. create_resource выше) — здесь только валидация ссылки на справочник.
     if model is OpenPort:
         _validate_open_port_catalog(proposed, session)
+        # Только когда меняется сам порт или владелец: правка описания/транспорта строки, у которой
+        # дубликат появился ещё до этого правила, не должна блокироваться (дубли чинят отдельно —
+        # GET /integrity/open-port-duplicates показывает, где они есть).
+        if any(proposed.get(k) != before.get(k) for k in ('protocol_catalog_id', 'owner_type', 'owner_id')):
+            _validate_open_port_number_is_free(proposed, session, item_id)
     validate_resource(model, proposed, session, item_id, bool(payload.get('confirm_system_name_duplicate')), bool(payload.get('confirm_rack_position_reassign')))
     for key, value in payload.items():
         if key in allowed: setattr(obj, key, value)
@@ -487,6 +493,25 @@ def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> Protoc
     return entry
 
 
+_OPEN_PORT_OWNER_LABELS = {OwnerType.VIRTUAL_MACHINE: 'Виртуальная машина', OwnerType.DEVICE_INTERFACE: 'Порт устройства', OwnerType.PHYSICAL_DEVICE: 'Устройство'}
+
+
+def _validate_open_port_number_is_free(data: dict[str, Any], session: Session, current_id: str | None = None) -> None:
+    """Номер порта новой/изменяемой записи open-ports не должен совпадать с номером другой записи
+    ТОГО ЖЕ владельца (ВМ, порт устройства). Сверяется только эта запись с остальными, а не весь
+    список владельца: уже существовавшие дубли не мешают добавить корректный порт. Вызывать после
+    _validate_open_port_catalog() — он гарантирует, что запись справочника существует."""
+    owner_type, owner_id = data.get('owner_type'), data.get('owner_id')
+    if not owner_type or not owner_id: return
+    port = _resolve_protocol_catalog_entry(data.get('protocol_catalog_id'), session).port
+    stmt = (select(OpenPort.id).join(ProtocolPortCatalog, ProtocolPortCatalog.id == OpenPort.protocol_catalog_id)
+            .where(OpenPort.owner_type == owner_type, OpenPort.owner_id == owner_id, ProtocolPortCatalog.port == port).limit(1))
+    if current_id: stmt = stmt.where(OpenPort.id != current_id)
+    if session.scalar(stmt) is not None:
+        label = _OPEN_PORT_OWNER_LABELS.get(owner_type, 'Владелец')
+        raise HTTPException(422, f'{label}: порт {port} уже добавлен — номера открытых портов не должны повторяться')
+
+
 def _validate_open_port_catalog(data: dict[str, Any], session: Session) -> None:
     """Правка "справочник — единственный источник правды для порта/протокола": OpenPort.port/
     protocol больше не колонки этой модели вовсе (см. models.OpenPort) — значения читаются join'ом
@@ -563,6 +588,7 @@ def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: S
     это не позволяло корректно заполнить Лист 3 отчёта, где колонка "Перечень открытых портов"
     относится к КОНКРЕТНОМУ физическому/логическому порту (см. reporting.py:_port_open_info)."""
     if not isinstance(open_ports, list): raise HTTPException(422, 'Поле open_ports интерфейса должно быть массивом')
+    validate_unique_open_port_numbers((p.get('protocol_catalog_id') for p in open_ports if isinstance(p, dict)), session, f"Порт «{obj.name or 'без имени'}»")
     old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id)).all()
     old_map = {x.id: x for x in old_ports}; seen: set[str] = set()
     for port_data in open_ports:
@@ -705,6 +731,7 @@ def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) 
         if not manage_open_ports or not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
         _validate_open_port_catalog(port_data, session)
         open_ports.append({'id': port_data.get('id'), 'protocol_catalog_id': port_data['protocol_catalog_id'], 'transport_protocol': port_data.get('transport_protocol') or 'TCP', 'description': port_data.get('description') or None})
+    validate_unique_open_port_numbers((p['protocol_catalog_id'] for p in open_ports), session, f'Группа портов «{name}»')
     return {'name': name, 'vlan_mode': vlan_mode, 'vlan_ids': unique_vlan_ids, 'ip_address': ip_address, 'prefix_length': prefix_length, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports}
 
 

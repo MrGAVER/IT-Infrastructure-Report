@@ -9,7 +9,7 @@ from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
 from ..services.crud import assign_domain_vlans_to_device, audit, validate_resource
-from ..services.integrity import find_orphaned_owner_references
+from ..services.integrity import find_duplicate_open_port_numbers, find_orphaned_owner_references
 from ..constants import AuditAction
 from ..reporting import build_report
 
@@ -25,6 +25,14 @@ def integrity_report(session: Session = Depends(get_db)):
     существует. Только чтение. ok=True и пустой orphans — всё в порядке."""
     orphans = find_orphaned_owner_references(session)
     return {'ok': not orphans, 'total': len(orphans), 'orphans': orphans}
+
+@router.get('/api/v1/integrity/open-port-duplicates')
+def open_port_duplicates_report(session: Session = Depends(get_db)):
+    """Диагностика уже существующих повторов номеров открытых портов у одного владельца (ВМ, порт
+    устройства, группа портов) — данные, появившиеся до правила уникальности. Только чтение; новые
+    повторы API отклоняет с 422. ok=True и пустой duplicates — исправлять нечего."""
+    duplicates = find_duplicate_open_port_numbers(session)
+    return {'ok': not duplicates, 'total': len(duplicates), 'duplicates': duplicates}
 
 @router.get('/api/v1/dashboard')
 def dashboard(session: Session = Depends(get_db)):
