@@ -6,6 +6,7 @@ import { useVLANsStore } from '../stores/vlans'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Device, DeviceStack } from '../api/types'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
@@ -273,7 +274,8 @@ async function onStackSaved(stack: DeviceStack) {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ devices.pageItems.length ? (devices.page - 1) * 6 + 1 : 0 }}–{{ (devices.page - 1) * 6 + devices.pageItems.length }} из {{ devices.groupedFiltered.length }}</span>
+        <span>Показано {{ devices.pageItems.length ? (devices.page - 1) * devices.pageSize + 1 : 0 }}–{{ (devices.page - 1) * devices.pageSize + devices.pageItems.length }} из {{ devices.groupedFiltered.length }}</span>
+        <PageSizeSelect :model-value="devices.pageSize" :options="devices.pageSizeOptions" @update:model-value="devices.setPageSize" />
         <div class="pager">
           <button :disabled="devices.page <= 1" @click="devices.setPage(devices.page - 1)">‹</button>
           <button v-for="p in devices.pageCount" :key="p" :class="{ on: p === devices.page }" @click="devices.setPage(p)">{{ p }}</button>

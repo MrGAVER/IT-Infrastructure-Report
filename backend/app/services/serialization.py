@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ..models import (Connection, ConnectionType, DeviceInterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN)
+from .port_config import PortConfigStatus, evaluate_port_config, port_role
 from ..constants import OwnerType, SourceType
 from .computed import device_management_ports_and_ips
 
@@ -171,6 +172,13 @@ def enrich_connections(items: Sequence[Connection], session: Session) -> list[di
         data['destination_device_name']=dd.system_name or dd.serial_number if dd else ''
         data['destination_interface_name']=dst.name if dst else ''
         data['connection_type_name']=ct_by_id.get(conn.connection_type_id).name if ct_by_id.get(conn.connection_type_id) else ''
+        # Роли портов и статус сверки считаются здесь же, на сервере, чтобы дашборд, форма и
+        # любой другой клиент видели одно и то же (правила — в services/port_config.py). Сырая
+        # подпись одобрения — внутренняя деталь, наружу отдаётся только итоговый статус.
+        data['source_port_role']=port_role(src).value if src else None
+        data['destination_port_role']=port_role(dst).value if dst else None
+        data['port_config_status']=evaluate_port_config(src, dst, conn.port_config_approved_signature, is_active=conn.is_active is not False).value if src and dst else PortConfigStatus.OK.value
+        data.pop('port_config_approved_signature', None)
         result.append(data)
     return result
 

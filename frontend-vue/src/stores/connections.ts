@@ -1,13 +1,12 @@
-// Стор для экрана "Подключения" (Лист 3).
-// GET /resources/connections идёт через общий {items,total,offset,limit} (см.
-// listResource в api/client.ts), но enrich_connections() на бэкенде уже добавляет
-// резолвленные *_name поля — в отличие от /devices, здесь не нужен отдельный
-// каталог-стор для отображения таблицы.
+// Общий кэш подключений: карта занятых портов, схема «Визуальный режим», предупреждения о
+// конфликтах портов в формах устройства. Читает GET /resources/connections одним запросом
+// (до 1000 записей, как и каталоги — см. stores/catalogs.ts).
+//
+// Таблица дашборда «Подключения» этот кэш НЕ использует: она постраничная, с поиском, фильтрами и
+// статусом сверки ролей портов на сервере — см. stores/connectionsDashboard.ts.
 import { defineStore } from 'pinia'
 import { listResource } from '../api/client'
 import type { Connection } from '../api/types'
-
-const PAGE_SIZE = 8
 
 export const useConnectionsStore = defineStore('connections', {
   state: () => ({
@@ -16,34 +15,8 @@ export const useConnectionsStore = defineStore('connections', {
     loaded: false,
     loading: false,
     error: null as string | null,
-    search: '',
-    activeFilter: 'all' as 'all' | 'yes' | 'no',
-    page: 1,
   }),
   getters: {
-    filtered(state): Connection[] {
-      let rows = state.all
-      if (state.search.trim()) {
-        const q = state.search.trim().toLowerCase()
-        rows = rows.filter((c) =>
-          [c.source_device_name, c.source_interface_name, c.destination_device_name, c.destination_interface_name, c.purpose]
-            .filter(Boolean)
-            .some((v) => String(v).toLowerCase().includes(q)),
-        )
-      }
-      if (state.activeFilter !== 'all') {
-        const want = state.activeFilter === 'yes'
-        rows = rows.filter((c) => c.is_active === want)
-      }
-      return rows
-    },
-    pageCount(): number {
-      return Math.max(1, Math.ceil(this.filtered.length / PAGE_SIZE))
-    },
-    pageItems(): Connection[] {
-      const start = (this.page - 1) * PAGE_SIZE
-      return this.filtered.slice(start, start + PAGE_SIZE)
-    },
     /** id интерфейсов, уже занятых активным подключением — источник и назначение —
      * используется формой, чтобы не давать выбрать заведомо занятый порт (сервер
      * это и так отклонит 409-м, см. validate_connection, но лучше не доводить). */
@@ -75,12 +48,6 @@ export const useConnectionsStore = defineStore('connections', {
       } finally {
         this.loading = false
       }
-    },
-    setPage(p: number) {
-      this.page = Math.min(Math.max(1, p), this.pageCount)
-    },
-    resetPageOnFilterChange() {
-      this.page = 1
     },
   },
 })

@@ -8,9 +8,16 @@
 // При редактировании собственные текущие порты этого подключения не считаются
 // занятыми — иначе нельзя было бы просто поменять, например, тип линии связи, не
 // трогая порты.
+//
+// «Назначение линии связи» (управление / передача данных) в подключении больше не хранится и не
+// вводится: оно целиком определяется ролями двух портов (DeviceInterface.is_management /
+// is_data_transfer). Форма показывает роли обоих портов, а если они различаются (например, порт
+// сервера — управление, порт коммутатора — передача данных), НЕ даёт сохранить подключение, пока
+// пользователь явно не выберет решение: выровнять любой из портов или одобрить расхождение как
+// допустимое. Так проверка срабатывает каждый раз, а не только когда предупреждение заметили.
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
-import { loadDeviceInterfaceDraftRows, persistDeviceInterfaces } from '../api/deviceInterfaces'
+import { approvePortConfig, setPortRole } from '../api/portConfig'
 import type { Connection, Device, DeviceInterface } from '../api/types'
 import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -19,6 +26,8 @@ import QuickAddButton from './QuickAddButton.vue'
 import DevicePortsModal from './DevicePortsModal.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useToast } from '../composables/useToast'
+import { hasRoleMismatch, portRoleOf, roleLabel } from '../utils/portConfig'
 
 const props = defineProps<{
   connection: Connection | null
@@ -35,11 +44,10 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
 const connectionsStore = useConnectionsStore()
+const { notify } = useToast()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.connection !== null)
-
-const PURPOSE_PRESETS = ['Передача данных', 'Управление активами', 'Передача данных и управление активами']
 
 function emptyForm() {
   return {
@@ -48,7 +56,6 @@ function emptyForm() {
     destinationDeviceId: '',
     destination_interface_id: '',
     connection_type_id: '',
-    purpose: '',
     is_active: true,
     description: '',
   }
@@ -57,75 +64,34 @@ const form = reactive(emptyForm())
 
 const allInterfaces = computed(() => (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
 
-// Фикс п.3.3: "Назначение линии связи" — брать на основании данных на порту подключаемых
-// устройств (is_management/is_data_transfer на DeviceInterface), а не только вводить вручную.
-// Три преднастроенных значения (PURPOSE_PRESETS выше) как раз и соответствуют трём комбинациям
-// этих двух флагов — та же классификация, что и в структурной схеме приложения (см.
-// "Структурная схема - Приложение 1.docx": "управление активами" / "передача данных" /
-// "передача данных и управление активами").
-function purposeFromFlags(isManagement: boolean, isDataTransfer: boolean): string {
-  if (isManagement && isDataTransfer) return 'Передача данных и управление активами'
-  if (isManagement) return 'Управление активами'
-  if (isDataTransfer) return 'Передача данных'
-  return ''
-}
-
 const selectedSourceInterface = computed(() => allInterfaces.value.find((i) => i.id === form.source_interface_id) ?? null)
 const selectedDestinationInterface = computed(() => allInterfaces.value.find((i) => i.id === form.destination_interface_id) ?? null)
 
-// Расхождение — когда на портах указано РАЗНОЕ назначение (один "управление", другой "передача
-// данных" и т.п.). null, пока не выбраны оба порта — сравнивать пока нечего.
-const purposeMismatch = computed(() => {
+// Расхождение — когда роли портов РАЗНЫЕ (один "управление", другой "передача данных" и т.п.).
+// null, пока не выбраны оба порта — сравнивать пока нечего.
+const portRoleMismatch = computed(() => {
   const s = selectedSourceInterface.value
   const d = selectedDestinationInterface.value
   if (!s || !d) return null
-  if (s.is_management === d.is_management && s.is_data_transfer === d.is_data_transfer) return null
-  return { source: s, destination: d }
+  return hasRoleMismatch(s, d) ? { source: s, destination: d } : null
 })
+const sourceRoleLabel = computed(() => (selectedSourceInterface.value ? roleLabel(portRoleOf(selectedSourceInterface.value)) : ''))
+const destinationRoleLabel = computed(() => (selectedDestinationInterface.value ? roleLabel(portRoleOf(selectedDestinationInterface.value)) : ''))
 
-// Автоподстановка срабатывает только когда оба порта согласны (иначе непонятно, чьё значение
-// брать — см. purposeMismatch и предупреждение в шаблоне ниже) и только если текущее значение
-// поля не является ручным вводом пользователя, отличным от типовых пресетов: пустое поле или уже
-// один из PURPOSE_PRESETS перезаписываются, а вот что-то нестандартное, вписанное вручную (напр.
-// "резервный канал для репликации СХД"), молча не затирается при смене порта.
-watch([selectedSourceInterface, selectedDestinationInterface], ([s, d]) => {
-  if (!s || !d) return
-  if (s.is_management !== d.is_management || s.is_data_transfer !== d.is_data_transfer) return
-  if (form.purpose !== '' && !PURPOSE_PRESETS.includes(form.purpose)) return
-  form.purpose = purposeFromFlags(s.is_management, s.is_data_transfer)
+// При редактировании подключения, расхождение которого уже одобрено, повторно спрашивать не нужно —
+// пока пара ролей осталась той, что была одобрена (сервер сверяет ровно по этой паре, см.
+// services/port_config.py:approval_signature). Стоит любой роли измениться — решение нужно принять заново.
+const approvedRolePair = ref<string | null>(null)
+const currentRolePair = computed(() => {
+  const s = selectedSourceInterface.value
+  const d = selectedDestinationInterface.value
+  return s && d ? `${portRoleOf(s)}>${portRoleOf(d)}` : null
 })
+const mismatchAlreadyApproved = computed(() => portRoleMismatch.value !== null && approvedRolePair.value === currentRolePair.value)
 
-const aligningPorts = ref(false)
-
-// Фикс п.3.3: "выполнять автоматическую проверку и корректировку несовпадающих данных с запросом
-// у пользователя, на обоих подключаемых портах" — при расхождении пользователь явно выбирает,
-// чьё значение считать верным (keepSource), после подтверждения оно копируется на ВТОРОЙ порт.
-// sync_interfaces на бэкенде атомарный на всё устройство целиком (см. api/deviceInterfaces.ts) —
-// нельзя обновить один флаг одного интерфейса точечным PATCH, поэтому перечитываем полный список
-// интерфейсов устройства-"проигравшего", меняем в нём только эту одну строку и сохраняем весь
-// список обратно.
-async function alignPortFlags(keepSource: boolean) {
-  const mismatch = purposeMismatch.value
-  if (!mismatch) return
-  const winner = keepSource ? mismatch.source : mismatch.destination
-  const loser = keepSource ? mismatch.destination : mismatch.source
-  const winnerPurpose = purposeFromFlags(winner.is_management, winner.is_data_transfer) || '— ни управление, ни передача данных не отмечены —'
-  if (!confirm(`Порт «${loser.name}» получит то же назначение, что и «${winner.name}»: ${winnerPurpose}. Продолжить?`)) return
-
-  aligningPorts.value = true
-  errorMessage.value = null
-  try {
-    const rows = await loadDeviceInterfaceDraftRows(loser.physical_device_id)
-    const updatedRows = rows.map((r) => (r.id === loser.id ? { ...r, is_management: winner.is_management, is_data_transfer: winner.is_data_transfer } : r))
-    const { items } = await persistDeviceInterfaces(loser.physical_device_id, updatedRows)
-    catalogs.replaceDeviceInterfaces(loser.physical_device_id, items)
-    form.purpose = purposeFromFlags(winner.is_management, winner.is_data_transfer)
-  } catch (err) {
-    errorMessage.value = err instanceof Error ? err.message : 'Не удалось выровнять назначение портов'
-  } finally {
-    aligningPorts.value = false
-  }
-}
+type MismatchResolution = 'keep-source' | 'keep-destination' | 'approve'
+// true — показан выбор решения по расхождению вместо кнопок «Отмена/Сохранить».
+const resolving = ref(false)
 
 function deviceLabel(d: Device) {
   return d.system_name || d.serial_number
@@ -171,6 +137,11 @@ watch(
   () => props.connection,
   (c) => {
     Object.assign(form, emptyForm())
+    resolving.value = false
+    approvedRolePair.value =
+      c && c.port_config_status === 'approved' && c.source_port_role && c.destination_port_role
+        ? `${c.source_port_role}>${c.destination_port_role}`
+        : null
     if (c) {
       const src = allInterfaces.value.find((i) => i.id === c.source_interface_id)
       const dst = allInterfaces.value.find((i) => i.id === c.destination_interface_id)
@@ -179,7 +150,6 @@ watch(
       form.destinationDeviceId = dst?.physical_device_id ?? ''
       form.destination_interface_id = c.destination_interface_id
       form.connection_type_id = c.connection_type_id
-      form.purpose = c.purpose ?? ''
       form.is_active = c.is_active
       form.description = c.description ?? ''
     } else if (props.prefill) {
@@ -240,38 +210,79 @@ function onPortsSaved() {
   closePorts()
 }
 
-async function submit() {
-  errorMessage.value = null
+function validateForm(): boolean {
   if (!form.source_interface_id) {
     errorMessage.value = 'Выберите исходное устройство и его порт.'
-    return
+    return false
   }
   if (!form.destination_interface_id) {
     errorMessage.value = 'Выберите конечное устройство и его порт.'
-    return
+    return false
   }
   if (form.source_interface_id === form.destination_interface_id) {
     errorMessage.value = 'Исходный и конечный порт не могут совпадать.'
-    return
+    return false
   }
   if (!form.connection_type_id) {
     errorMessage.value = 'Выберите тип физической линии связи.'
+    return false
+  }
+  return true
+}
+
+async function submit() {
+  errorMessage.value = null
+  if (!validateForm()) return
+  // Расхождение ролей нельзя сохранить «молча»: сначала пользователь выбирает решение.
+  if (portRoleMismatch.value && !mismatchAlreadyApproved.value) {
+    resolving.value = true
     return
   }
+  await persist(null)
+}
 
+async function resolveAndSave(resolution: MismatchResolution) {
+  resolving.value = false
+  await persist(resolution)
+}
+
+/** Приводит роль одного порта к роли второго. Порт меняется отдельным точечным запросом (не
+ * синхронизацией устройства целиком) и сразу до сохранения подключения: если сохранение потом
+ * не удастся, выбранная пользователем роль порта остаётся, а повторная отправка формы уже не
+ * увидит расхождения. */
+async function alignPort(keepSource: boolean) {
+  const mismatch = portRoleMismatch.value
+  if (!mismatch) return
+  const winner = keepSource ? mismatch.source : mismatch.destination
+  const loser = keepSource ? mismatch.destination : mismatch.source
+  catalogs.replaceInterface(await setPortRole(loser.id, portRoleOf(winner)))
+}
+
+async function persist(resolution: MismatchResolution | null) {
   saving.value = true
   try {
+    if (resolution === 'keep-source' || resolution === 'keep-destination') {
+      await alignPort(resolution === 'keep-source')
+    }
     const payload = {
       source_interface_id: form.source_interface_id,
       destination_interface_id: form.destination_interface_id,
       connection_type_id: form.connection_type_id,
-      purpose: form.purpose || null,
       is_active: form.is_active,
       description: form.description || null,
     }
     const saved = isEdit.value
       ? await updateResource<Connection>('connections', props.connection!.id, payload)
       : await createResource<Connection>('connections', payload)
+    if (resolution === 'approve') {
+      try {
+        await approvePortConfig([saved.id])
+      } catch (err) {
+        // Подключение уже сохранено — форму закрываем как обычно, а о неудаче одобрения говорим
+        // отдельно: расхождение останется в списке «Расхождения» дашборда.
+        notify(`Подключение сохранено, но расхождение не одобрено: ${err instanceof Error ? err.message : 'ошибка'}`, 'warning')
+      }
+    }
     emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить подключение'
@@ -382,31 +393,16 @@ async function submit() {
             </div>
           </label>
 
-          <label class="field">
-            <span>Назначение линии связи</span>
-            <input v-model.trim="form.purpose" type="text" list="purpose-presets" maxlength="500" />
-            <datalist id="purpose-presets">
-              <option v-for="p in PURPOSE_PRESETS" :key="p" :value="p" />
-            </datalist>
-          </label>
-
-          <!-- Фикс п.3.3: расхождение в "Управление"/"Передача данных" между двумя портами —
-               предупреждаем и предлагаем выровнять, а не молча оставляем как есть. -->
-          <div v-if="purposeMismatch" class="field field-wide purpose-mismatch">
-            <span class="warning-text">
-              ⚠ На портах указано разное назначение: «{{ purposeMismatch.source.name }}» —
-              {{ purposeFromFlags(purposeMismatch.source.is_management, purposeMismatch.source.is_data_transfer) || 'ни управление, ни передача данных' }},
-              «{{ purposeMismatch.destination.name }}» —
-              {{ purposeFromFlags(purposeMismatch.destination.is_management, purposeMismatch.destination.is_data_transfer) || 'ни управление, ни передача данных' }}.
+          <!-- Роли портов: единственный источник «назначения линии связи» (см. комментарий вверху
+               файла). При расхождении сохранение потребует явного решения. -->
+          <div v-if="selectedSourceInterface && selectedDestinationInterface" class="field field-wide port-roles" :class="{ mismatch: portRoleMismatch }">
+            <span class="port-roles-title">Роли портов</span>
+            <span class="port-roles-row"><span class="mono">{{ selectedSourceInterface.name }}</span> — {{ sourceRoleLabel }}</span>
+            <span class="port-roles-row"><span class="mono">{{ selectedDestinationInterface.name }}</span> — {{ destinationRoleLabel }}</span>
+            <span v-if="portRoleMismatch && !mismatchAlreadyApproved" class="warning-text">
+              ⚠ Роли портов различаются. При сохранении нужно будет выбрать: выровнять порты или одобрить расхождение.
             </span>
-            <div class="purpose-mismatch-actions">
-              <button type="button" class="btn btn-secondary" :disabled="aligningPorts" @click="alignPortFlags(true)">
-                Взять как на «{{ purposeMismatch.source.name }}»
-              </button>
-              <button type="button" class="btn btn-secondary" :disabled="aligningPorts" @click="alignPortFlags(false)">
-                Взять как на «{{ purposeMismatch.destination.name }}»
-              </button>
-            </div>
+            <span v-else-if="mismatchAlreadyApproved" class="approved-text">✓ Расхождение ролей одобрено ранее.</span>
           </div>
 
           <label class="field checkbox-field">
@@ -421,7 +417,26 @@ async function submit() {
         </div>
       </form>
 
-      <div class="modal-foot">
+      <div v-if="resolving && portRoleMismatch" class="resolution" role="alertdialog" aria-label="Расхождение ролей портов">
+        <p class="warning-text">
+          ⚠ Роли портов различаются: «{{ portRoleMismatch.source.name }}» — {{ sourceRoleLabel }},
+          «{{ portRoleMismatch.destination.name }}» — {{ destinationRoleLabel }}. Что сделать перед сохранением?
+        </p>
+        <div class="resolution-actions">
+          <button type="button" class="btn btn-secondary" data-resolution="keep-source" @click="resolveAndSave('keep-source')">
+            Порту «{{ portRoleMismatch.destination.name }}» задать роль как у «{{ portRoleMismatch.source.name }}»
+          </button>
+          <button type="button" class="btn btn-secondary" data-resolution="keep-destination" @click="resolveAndSave('keep-destination')">
+            Порту «{{ portRoleMismatch.source.name }}» задать роль как у «{{ portRoleMismatch.destination.name }}»
+          </button>
+          <button type="button" class="btn btn-primary" data-resolution="approve" @click="resolveAndSave('approve')">
+            Оставить как есть — одобрить расхождение
+          </button>
+          <button type="button" class="btn btn-secondary" data-resolution="back" @click="resolving = false">Вернуться к правке</button>
+        </div>
+      </div>
+
+      <div v-else class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
         <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
@@ -529,23 +544,58 @@ async function submit() {
 .field-wide {
   grid-column: 1 / -1;
 }
-.purpose-mismatch {
+.port-roles {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   padding: 10px 12px;
-  border: 1px solid var(--status-warn);
+  border: 1px solid var(--border);
   border-radius: var(--r-s);
+  background: var(--surface-2);
+}
+.port-roles.mismatch {
+  border-color: var(--status-warn);
   background: var(--status-warn-soft);
 }
-.purpose-mismatch .warning-text {
+.port-roles-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.port-roles-row {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.port-roles .warning-text {
   font-size: 12px;
   color: var(--ink);
   line-height: 1.4;
 }
-.purpose-mismatch-actions {
+.port-roles .approved-text {
+  font-size: 12px;
+  color: var(--status-ok, var(--ink));
+}
+.resolution {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px;
+  border: 1px solid var(--status-warn);
+  border-radius: var(--r-s);
+  background: var(--status-warn-soft);
+}
+.resolution .warning-text {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.resolution-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
 }
 .lookup-row {

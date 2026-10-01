@@ -6,6 +6,7 @@ import { useDevicesStore } from '../stores/devices'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { VirtualMachine } from '../api/types'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import VMFormModal from '../components/VMFormModal.vue'
 
@@ -142,7 +143,8 @@ function hostLabel(id: string | null) {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ vms.pageItems.length ? (vms.page - 1) * 8 + 1 : 0 }}–{{ (vms.page - 1) * 8 + vms.pageItems.length }} из {{ vms.filtered.length }}</span>
+        <span>Показано {{ vms.pageItems.length ? (vms.page - 1) * vms.pageSize + 1 : 0 }}–{{ (vms.page - 1) * vms.pageSize + vms.pageItems.length }} из {{ vms.filtered.length }}</span>
+        <PageSizeSelect :model-value="vms.pageSize" :options="vms.pageSizeOptions" @update:model-value="vms.setPageSize" />
         <div class="pager">
           <button :disabled="vms.page <= 1" @click="vms.setPage(vms.page - 1)">‹</button>
           <button v-for="p in vms.pageCount" :key="p" :class="{ on: p === vms.page }" @click="vms.setPage(p)">{{ p }}</button>

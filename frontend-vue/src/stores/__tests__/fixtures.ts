@@ -141,13 +141,12 @@ export const vmsFixture: import('../../api/types').VMsResponse = {
   ],
 }
 
-function connection(overrides: Partial<import('../../api/types').Connection>) {
+function connection(overrides: Partial<import('../../api/types').Connection>): import('../../api/types').Connection {
   return {
     id: 'id-' + Math.random().toString(36).slice(2),
     source_interface_id: 'if-1',
     destination_interface_id: 'if-2',
     connection_type_id: 'ct-1',
-    purpose: null,
     is_active: true,
     description: null,
     source_device_name: 'Устройство А',
@@ -155,15 +154,19 @@ function connection(overrides: Partial<import('../../api/types').Connection>) {
     destination_device_name: 'Устройство Б',
     destination_interface_name: 'Gi0/1',
     connection_type_name: 'Витая пара',
+    source_port_role: 'data',
+    destination_port_role: 'data',
+    port_config_status: 'ok',
     ...overrides,
   }
 }
 
 export const connectionsFixture: import('../../api/client').PagedResponse<import('../../api/types').Connection> = {
   items: [
-    connection({ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-2', purpose: 'Передача данных', is_active: true }),
+    connection({ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-2', is_active: true }),
     connection({
-      id: 'c-2', source_interface_id: 'if-3', destination_interface_id: 'if-4', purpose: 'Управление активами',
+      id: 'c-2', source_interface_id: 'if-3', destination_interface_id: 'if-4',
+      source_port_role: 'management', destination_port_role: 'data', // неактивное — в сверке не участвует (status ok)
       is_active: false, source_device_name: 'Коммутатор', destination_device_name: 'Файрвол',
     }),
   ],

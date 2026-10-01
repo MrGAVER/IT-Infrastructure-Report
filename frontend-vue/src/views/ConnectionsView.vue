@@ -1,16 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useConnectionsStore } from '../stores/connections'
+import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
+import { roleLabel } from '../utils/portConfig'
+import { debounce } from '../utils/debounce'
+import { pagerItems } from '../utils/pager'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
+import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
 import DevicePortsModal from '../components/DevicePortsModal.vue'
 
+// Таблица — постраничная выборка с сервера (connectionsDashboard); общий кэш (connections) нужен
+// формам и схеме — карта занятых портов, см. комментарии в обоих сторах.
+const dashboard = useConnectionsDashboardStore()
 const connections = useConnectionsStore()
 const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
@@ -25,7 +34,7 @@ const deletingId = ref<string | null>(null)
 const canvasOpen = ref(false)
 async function closeCanvas() {
   canvasOpen.value = false
-  await connections.reload() // подключения, созданные на схеме, должны сразу попасть в таблицу
+  await dashboard.refreshAfterChange() // подключения, созданные на схеме, должны сразу попасть в таблицу
 }
 
 // Прямое управление портами устройства из строки таблицы — без захода в форму подключения
@@ -46,11 +55,45 @@ async function onPortsSaved() {
   // Переименование/добавление порта могло изменить то, что показывает таблица
   // (source_interface_name/destination_interface_name резолвятся один раз при загрузке
   // подключений), поэтому перечитываем список — тот же принцип, что onSaved() ниже.
-  await connections.reload()
+  await dashboard.refreshAfterChange()
+}
+
+// Проверка ролей портов-соседей (см. services/port_config.py): строка с расхождением/одобрением
+// открывает модалку, где расхождение одобряют или устраняют.
+const reviewing = ref<Connection | null>(null)
+const bulkApproving = ref(false)
+
+// Поиск уходит на сервер, поэтому не на каждую букву. Смена фильтра — сразу и отменяет
+// ещё не отправленный поиск: иначе после неё мог бы уйти лишний запрос со старой строкой.
+const SEARCH_DEBOUNCE_MS = 300
+const searchDebounced = debounce(() => void dashboard.applyFilters(), SEARCH_DEBOUNCE_MS)
+watch(() => dashboard.search, () => searchDebounced())
+watch(
+  () => [dashboard.activeFilter, dashboard.portConfigFilter],
+  () => {
+    searchDebounced.cancel()
+    void dashboard.applyFilters()
+  },
+)
+onBeforeUnmount(() => searchDebounced.cancel())
+
+async function approveAllMatching() {
+  const count = dashboard.total
+  if (!count) return
+  if (!confirm(`Одобрить расхождение ролей портов у ${count} подключ. как допустимое? Одобрение потеряет силу, если роль любого из портов изменится.`)) return
+  bulkApproving.value = true
+  try {
+    const { approved_count } = await dashboard.approveMatching()
+    notify(`Одобрено расхождений: ${approved_count}`, 'success')
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    bulkApproving.value = false
+  }
 }
 
 onMounted(async () => {
-  await Promise.all([connections.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
+  await Promise.all([dashboard.load(), connections.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
 })
 
 function openCreate() {
@@ -68,7 +111,7 @@ function closeModal() {
 async function onSaved() {
   const wasEdit = modalConnection.value !== null
   closeModal()
-  await connections.reload()
+  await dashboard.refreshAfterChange()
   notify(wasEdit ? 'Подключение обновлено' : 'Подключение добавлено', 'success')
 }
 
@@ -77,7 +120,7 @@ async function removeConnection(c: Connection) {
   deletingId.value = c.id
   try {
     await deleteResource('connections', c.id)
-    await connections.reload()
+    await dashboard.refreshAfterChange()
     notify('Подключение удалено', 'success')
   } catch (err) {
     notifyError(err)
@@ -90,23 +133,57 @@ async function removeConnection(c: Connection) {
 <template>
   <div class="connections-view">
     <div class="stat-row">
-      <StatCard :value="connections.total" label="Всего подключений" />
-      <StatCard :value="connections.all.filter((c) => c.is_active).length" label="Активные" />
-      <StatCard :value="connections.all.filter((c) => !c.is_active).length" label="Неактивные" tone="warn" />
+      <StatCard :value="dashboard.summary.total" label="Всего подключений" />
+      <StatCard :value="dashboard.summary.active" label="Активные" />
+      <StatCard :value="dashboard.summary.inactive" label="Неактивные" tone="warn" />
+      <StatCard :value="dashboard.summary.mismatch" label="Расхождения портов" tone="warn" />
+    </div>
+
+    <div v-if="dashboard.summary.mismatch > 0" class="mismatch-banner" role="status">
+      <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+      <span>Найдено подключений с различающимися ролями портов-соседей: {{ dashboard.summary.mismatch }}.</span>
+      <button
+        v-if="dashboard.portConfigFilter !== 'mismatch'"
+        type="button"
+        class="btn btn-secondary"
+        data-action="show-mismatches"
+        @click="dashboard.portConfigFilter = 'mismatch'"
+      >
+        Показать
+      </button>
     </div>
 
     <div class="filter-bar">
       <div class="search-box">
         <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="connections.search" type="text" placeholder="Поиск по устройству, порту, назначению…" />
+        <input v-model="dashboard.search" type="text" placeholder="Поиск по устройству, порту, роли порта…" />
       </div>
       <div class="chip-group">
-        <button :class="{ on: connections.activeFilter === 'all' }" @click="connections.activeFilter = 'all'">Все</button>
-        <button :class="{ on: connections.activeFilter === 'yes' }" @click="connections.activeFilter = 'yes'">Активные</button>
-        <button :class="{ on: connections.activeFilter === 'no' }" @click="connections.activeFilter = 'no'">Неактивные</button>
+        <button :class="{ on: dashboard.activeFilter === 'all' }" @click="dashboard.activeFilter = 'all'">Все</button>
+        <button :class="{ on: dashboard.activeFilter === 'yes' }" @click="dashboard.activeFilter = 'yes'">Активные</button>
+        <button :class="{ on: dashboard.activeFilter === 'no' }" @click="dashboard.activeFilter = 'no'">Неактивные</button>
       </div>
+      <div class="chip-group" role="group" aria-label="Проверка ролей портов">
+        <button :class="{ on: dashboard.portConfigFilter === 'all' }" @click="dashboard.portConfigFilter = 'all'">Все порты</button>
+        <button :class="{ on: dashboard.portConfigFilter === 'mismatch' }" data-filter="mismatch" @click="dashboard.portConfigFilter = 'mismatch'">
+          Расхождения ({{ dashboard.summary.mismatch }})
+        </button>
+        <button :class="{ on: dashboard.portConfigFilter === 'approved' }" data-filter="approved" @click="dashboard.portConfigFilter = 'approved'">
+          Одобренные ({{ dashboard.summary.approved }})
+        </button>
+      </div>
+      <button
+        v-if="dashboard.portConfigFilter === 'mismatch' && dashboard.total"
+        type="button"
+        class="btn btn-secondary"
+        data-action="approve-all"
+        :disabled="bulkApproving"
+        @click="approveAllMatching"
+      >
+        Одобрить все найденные ({{ dashboard.total }})
+      </button>
       <div class="spacer"></div>
-      <button class="btn btn-secondary" :disabled="connections.loading" @click="connections.reload()">
+      <button class="btn btn-secondary" :disabled="dashboard.loading" @click="dashboard.refreshAfterChange()">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
@@ -121,12 +198,12 @@ async function removeConnection(c: Connection) {
     </div>
 
     <div class="table-card card">
-      <div v-if="connections.error" class="error-banner">
+      <div v-if="dashboard.error" class="error-banner">
         <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-        {{ connections.error }}
+        {{ dashboard.error }}
       </div>
-      <div v-else-if="connections.loading && !connections.loaded" class="loading-banner">Загрузка реестра подключений…</div>
-      <div v-else class="table-wrap">
+      <div v-else-if="dashboard.loading && !dashboard.loaded" class="loading-banner">Загрузка реестра подключений…</div>
+      <div v-else class="table-wrap" :class="{ stale: dashboard.loading }">
         <table>
           <thead>
             <tr>
@@ -134,13 +211,13 @@ async function removeConnection(c: Connection) {
               <th></th>
               <th>Назначение</th>
               <th>Тип линии связи</th>
-              <th>Назначение линии</th>
+              <th>Роли портов</th>
               <th>Статус</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in connections.pageItems" :key="c.id">
+            <tr v-for="c in dashboard.items" :key="c.id">
               <td>
                 <span class="devname">{{ c.source_device_name }}</span>
                 <span class="portname mono">
@@ -161,7 +238,22 @@ async function removeConnection(c: Connection) {
                 </span>
               </td>
               <td>{{ c.connection_type_name }}</td>
-              <td class="purpose-cell">{{ c.purpose || '—' }}</td>
+              <td class="roles-cell">
+                <template v-if="c.port_config_status === 'ok'">{{ roleLabel(c.source_port_role) }}</template>
+                <template v-else>
+                  <span class="role-line"><span class="mono">{{ c.source_interface_name }}</span>: {{ roleLabel(c.source_port_role) }}</span>
+                  <span class="role-line"><span class="mono">{{ c.destination_interface_name }}</span>: {{ roleLabel(c.destination_port_role) }}</span>
+                  <button
+                    type="button"
+                    class="port-badge"
+                    :class="c.port_config_status"
+                    :aria-label="`Проверить роли портов: ${c.source_device_name} — ${c.destination_device_name}`"
+                    @click="reviewing = c"
+                  >
+                    {{ c.port_config_status === 'mismatch' ? 'Расхождение — проверить' : 'Одобрено' }}
+                  </button>
+                </template>
+              </td>
               <td>
                 <span class="status" :class="c.is_active ? 'on' : 'off'">
                   <span class="status-dot"></span>{{ c.is_active ? 'Активно' : 'Неактивно' }}
@@ -178,24 +270,29 @@ async function removeConnection(c: Connection) {
                 </div>
               </td>
             </tr>
-            <tr v-if="!connections.filtered.length">
+            <tr v-if="!dashboard.items.length">
               <td colspan="7" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
             </tr>
           </tbody>
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ connections.pageItems.length ? (connections.page - 1) * 8 + 1 : 0 }}–{{ (connections.page - 1) * 8 + connections.pageItems.length }} из {{ connections.filtered.length }}</span>
+        <span>Показано {{ dashboard.items.length ? (dashboard.page - 1) * dashboard.pageSize + 1 : 0 }}–{{ (dashboard.page - 1) * dashboard.pageSize + dashboard.items.length }} из {{ dashboard.total }}</span>
+        <PageSizeSelect :model-value="dashboard.pageSize" :options="dashboard.pageSizeOptions" @update:model-value="dashboard.setPageSize" />
         <div class="pager">
-          <button :disabled="connections.page <= 1" @click="connections.setPage(connections.page - 1)">‹</button>
-          <button v-for="p in connections.pageCount" :key="p" :class="{ on: p === connections.page }" @click="connections.setPage(p)">{{ p }}</button>
-          <button :disabled="connections.page >= connections.pageCount" @click="connections.setPage(connections.page + 1)">›</button>
+          <button :disabled="dashboard.page <= 1" aria-label="Предыдущая страница" @click="dashboard.setPage(dashboard.page - 1)">‹</button>
+          <template v-for="(item, i) in pagerItems(dashboard.page, dashboard.pageCount)" :key="`${item}-${i}`">
+            <span v-if="item === '…'" class="pager-gap">…</span>
+            <button v-else :class="{ on: item === dashboard.page }" @click="dashboard.setPage(item)">{{ item }}</button>
+          </template>
+          <button :disabled="dashboard.page >= dashboard.pageCount" aria-label="Следующая страница" @click="dashboard.setPage(dashboard.page + 1)">›</button>
         </div>
       </div>
     </div>
 
     <ConnectionFormModal v-if="modalOpen" :connection="modalConnection" @close="closeModal" @saved="onSaved" />
     <ConnectionCanvasModal v-if="canvasOpen" @close="closeCanvas" />
+    <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" />
     <DevicePortsModal
       v-if="portsTarget"
       :device-id="portsTarget.deviceId"
@@ -209,9 +306,27 @@ async function removeConnection(c: Connection) {
 <style scoped>
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 18px;
+}
+.mismatch-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--status-warn);
+  border-radius: var(--r-m);
+  background: var(--status-warn-soft);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.mismatch-banner .icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
 }
 .filter-bar {
   display: flex;
@@ -270,6 +385,10 @@ async function removeConnection(c: Connection) {
 }
 .table-wrap {
   overflow-x: auto;
+  transition: opacity 0.12s;
+}
+.table-wrap.stale {
+  opacity: 0.6;
 }
 table {
   width: 100%;
@@ -344,9 +463,32 @@ tr:hover .port-manage-btn {
   width: 14px;
   height: 14px;
 }
-.purpose-cell {
+.roles-cell {
   color: var(--ink-muted);
-  max-width: 200px;
+  max-width: 260px;
+}
+.role-line {
+  display: block;
+  font-size: 11.8px;
+}
+.port-badge {
+  margin-top: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  background: var(--surface-2);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+.port-badge.mismatch {
+  border-color: var(--status-warn);
+  background: var(--status-warn-soft);
+  color: var(--ink);
+}
+.port-badge:hover {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 .empty-row {
   text-align: center;
@@ -420,6 +562,11 @@ tr:hover .port-manage-btn {
 }
 .pager button:disabled {
   opacity: 0.4;
+}
+.pager-gap {
+  align-self: center;
+  padding: 0 2px;
+  color: var(--ink-muted);
 }
 
 @media (max-width: 980px) {

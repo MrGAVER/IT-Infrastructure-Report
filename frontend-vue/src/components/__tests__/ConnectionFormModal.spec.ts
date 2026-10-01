@@ -5,6 +5,7 @@ import ConnectionFormModal from '../ConnectionFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
 import { useConnectionsStore } from '../../stores/connections'
+import { useToast } from '../../composables/useToast'
 import type { DeviceInterface } from '../../api/types'
 
 // QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
@@ -217,13 +218,17 @@ describe('ConnectionFormModal.vue — поиск в полях "Устройст
   })
 })
 
-describe('ConnectionFormModal.vue — "Назначение линии связи" по данным портов (фикс п.3.3)', () => {
+describe('ConnectionFormModal.vue — роли портов и обязательное решение при расхождении', () => {
+  // «Назначение линии связи» из подключения удалено: его целиком определяют роли двух портов
+  // (is_management / is_data_transfer). При расхождении форма НЕ сохраняет подключение молча —
+  // сначала пользователь выбирает решение (выровнять любой порт или одобрить расхождение).
   function setupInterfaces(source: Partial<DeviceInterface>, destination: Partial<DeviceInterface>) {
     const catalogs = useCatalogsStore()
     catalogs.items['interfaces'] = [
       { id: 'if-src', name: 'Gi0/1', physical_device_id: 'dev-src', is_management: false, is_data_transfer: false, ...source },
       { id: 'if-dst', name: 'Gi0/2', physical_device_id: 'dev-dst', is_management: false, is_data_transfer: false, ...destination },
     ] as never
+    catalogs.items['connection-types'] = [{ id: 'ct-1', name: 'Медь' }]
     const devices = useDevicesStore()
     devices.all = [
       { id: 'dev-src', system_name: 'src-dev', serial_number: 'SN-1' } as never,
@@ -239,86 +244,229 @@ describe('ConnectionFormModal.vue — "Назначение линии связ�
     await chooseOption(destinationFieldset.findAll('.searchable-select')[1], 'Gi0/2')
   }
 
-  function purposeInput(wrapper: ReturnType<typeof mount>) {
-    return wrapper.find('input[list="purpose-presets"]')
+  async function fillCableType(wrapper: ReturnType<typeof mount>) {
+    await chooseOption(wrapper.find('.form-grid .searchable-select'), 'Медь')
   }
 
-  it('оба порта отмечены "Управление" — назначение подставляется автоматически', async () => {
-    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: true, is_data_transfer: false })
-    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+  async function fillAndSubmit(wrapper: ReturnType<typeof mount>) {
     await selectBothEndpoints(wrapper)
-    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Управление активами')
-  })
+    await fillCableType(wrapper)
+    await wrapper.find('.modal-foot .btn-primary').trigger('click')
+    await flushPromises()
+  }
 
-  it('оба порта отмечены "Передача данных" и "Управление" одновременно', async () => {
-    setupInterfaces({ is_management: true, is_data_transfer: true }, { is_management: true, is_data_transfer: true })
-    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
-    await selectBothEndpoints(wrapper)
-    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Передача данных и управление активами')
-  })
+  interface Call { url: string; method: string; body?: Record<string, unknown> }
 
-  it('порты расходятся — предупреждение показывается, поле не заполняется автоматически', async () => {
-    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: false, is_data_transfer: true })
-    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
-    await selectBothEndpoints(wrapper)
-
-    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('')
-    const warning = wrapper.find('.purpose-mismatch')
-    expect(warning.exists()).toBe(true)
-    expect(warning.text()).toContain('Gi0/1')
-    expect(warning.text()).toContain('Gi0/2')
-  })
-
-  it('ручной нестандартный текст назначения не затирается при смене порта', async () => {
-    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: false, is_data_transfer: false })
-    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
-    const [sourceFieldset] = wrapper.findAll('.endpoint')
-    await chooseOption(sourceFieldset.findAll('.searchable-select')[0], 'src-dev')
-    await chooseOption(sourceFieldset.findAll('.searchable-select')[1], 'Gi0/1')
-
-    await purposeInput(wrapper).setValue('Резервный канал для репликации СХД')
-
-    const [, destinationFieldset] = wrapper.findAll('.endpoint')
-    await chooseOption(destinationFieldset.findAll('.searchable-select')[0], 'dst-dev')
-    await chooseOption(destinationFieldset.findAll('.searchable-select')[1], 'Gi0/2')
-
-    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Резервный канал для репликации СХД')
-  })
-
-  it('кнопка выравнивания сохраняет флаги "проигравшего" порта и обновляет назначение', async () => {
-    setupInterfaces({ is_management: true, is_data_transfer: false }, { is_management: false, is_data_transfer: true })
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+  function stubApi(opts: { portRoleStatus?: number; approveStatus?: number } = {}) {
+    const calls: Call[] = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
-        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
-        if (url.includes('/resources/interfaces') && method === 'GET' && url.includes('dev-dst')) {
-          return new Response(JSON.stringify({ items: [{ id: 'if-dst', physical_device_id: 'dev-dst', name: 'Gi0/2', vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
+        const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : undefined
+        calls.push({ url, method, body })
+        if (method === 'PUT' && url.includes('/port-role')) {
+          if (opts.portRoleStatus) return jsonResponse({ detail: 'Порт не найден' }, opts.portRoleStatus)
+          const id = url.match(/interfaces\/([^/]+)\/port-role/)![1]
+          return jsonResponse({ id, name: id === 'if-dst' ? 'Gi0/2' : 'Gi0/1', physical_device_id: id === 'if-dst' ? 'dev-dst' : 'dev-src', ...body })
         }
-        if (method === 'PUT' && url.includes('/devices/dev-dst/interfaces')) {
-          return new Response(JSON.stringify({ items: [{ id: 'if-dst', physical_device_id: 'dev-dst', name: 'Gi0/2', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] }))
+        if (method === 'POST' && url.endsWith('/resources/connections')) return jsonResponse({ id: 'conn-new' }, 201)
+        if (method === 'PUT' && url.includes('/resources/connections/')) return jsonResponse({ id: 'conn-1' })
+        if (method === 'POST' && url.endsWith('/connections/port-config/approve')) {
+          if (opts.approveStatus) return jsonResponse({ detail: 'Сервер недоступен' }, opts.approveStatus)
+          return jsonResponse({ items: [], skipped_ids: [] })
         }
-        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
       }),
     )
+    return calls
+  }
 
+  const saveCalls = (calls: Call[]) => calls.filter((c) => c.url.includes('/resources/connections'))
+
+  it('поля «Назначение линии связи» в форме больше нет', async () => {
+    setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
     const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
     await selectBothEndpoints(wrapper)
 
-    // "Взять как на «Gi0/1»" — источник управляет, назначение должно перейти на порт назначения.
-    await wrapper.find('.purpose-mismatch-actions button').trigger('click')
+    expect(wrapper.find('input[list="purpose-presets"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Назначение линии связи')
+  })
+
+  it('после выбора обоих портов показывает роль каждого из них', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await selectBothEndpoints(wrapper)
+
+    const roles = wrapper.find('.port-roles')
+    expect(roles.exists()).toBe(true)
+    expect(roles.text()).toContain('Gi0/1 — Управление активами')
+    expect(roles.text()).toContain('Gi0/2 — Передача данных')
+    expect(roles.classes()).toContain('mismatch')
+  })
+
+  it('роли совпадают — предупреждения нет, подключение сохраняется сразу и без поля purpose', async () => {
+    setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
+    const calls = stubApi()
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+
+    await fillAndSubmit(wrapper)
+
+    expect(wrapper.find('.port-roles').classes()).not.toContain('mismatch')
+    expect(wrapper.find('.resolution').exists()).toBe(false)
+    const [create] = saveCalls(calls)
+    expect(create.method).toBe('POST')
+    expect(create.body).toEqual({ source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1', is_active: true, description: null })
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('роли расходятся — сохранение не выполняется, а спрашивает решение', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    const calls = stubApi()
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+
+    await fillAndSubmit(wrapper)
+
+    expect(saveCalls(calls)).toEqual([])
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    const resolution = wrapper.find('.resolution')
+    expect(resolution.exists()).toBe(true)
+    expect(resolution.text()).toContain('Gi0/1')
+    expect(resolution.text()).toContain('Gi0/2')
+    // Вместо «Отмена/Добавить» — четыре варианта решения.
+    expect(wrapper.find('.modal-foot').exists()).toBe(false)
+    expect(resolution.findAll('button')).toHaveLength(4)
+  })
+
+  it('«Вернуться к правке» закрывает вопрос, ничего не отправляя', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    const calls = stubApi()
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await fillAndSubmit(wrapper)
+
+    await wrapper.find('[data-resolution="back"]').trigger('click')
+
+    expect(wrapper.find('.resolution').exists()).toBe(false)
+    expect(wrapper.find('.modal-foot').exists()).toBe(true)
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+  })
+
+  it('«Порту назначения задать роль как у источника»: сначала меняется роль порта, затем сохраняется подключение', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    const calls = stubApi()
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await fillAndSubmit(wrapper)
+
+    await wrapper.find('[data-resolution="keep-source"]').trigger('click')
     await flushPromises()
 
-    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-dst/interfaces'))
-    expect((put!.body as { interfaces: Array<{ id: string; is_management: boolean; is_data_transfer: boolean }> }).interfaces[0]).toMatchObject({
-      id: 'if-dst',
-      is_management: true,
-      is_data_transfer: false,
+    const writes = calls.filter((c) => c.method !== 'GET')
+    expect(writes.map((c) => `${c.method} ${c.url.replace(/^.*\/api\/v1/, '')}`)).toEqual([
+      'PUT /interfaces/if-dst/port-role',
+      'POST /resources/connections',
+    ])
+    expect(writes[0].body).toEqual({ is_management: true, is_data_transfer: false })
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+    // Кэш портов обновлён — расхождения в форме больше нет.
+    const catalogs = useCatalogsStore()
+    expect(catalogs.items['interfaces'].find((i) => i.id === 'if-dst')).toMatchObject({ is_management: true, is_data_transfer: false })
+  })
+
+  it('«Порту источника задать роль как у назначения» меняет порт-источник', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    const calls = stubApi()
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await fillAndSubmit(wrapper)
+
+    await wrapper.find('[data-resolution="keep-destination"]').trigger('click')
+    await flushPromises()
+
+    const portRole = calls.find((c) => c.url.includes('/port-role'))!
+    expect(portRole.url).toContain('/interfaces/if-src/port-role')
+    expect(portRole.body).toEqual({ is_management: false, is_data_transfer: true })
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('«Оставить как есть»: подключение сохраняется, затем расхождение одобряется; роли портов не трогаются', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    const calls = stubApi()
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await fillAndSubmit(wrapper)
+
+    await wrapper.find('[data-resolution="approve"]').trigger('click')
+    await flushPromises()
+
+    const writes = calls.filter((c) => c.method !== 'GET')
+    expect(writes.map((c) => `${c.method} ${c.url.replace(/^.*\/api\/v1/, '')}`)).toEqual([
+      'POST /resources/connections',
+      'POST /connections/port-config/approve',
+    ])
+    expect(writes[1].body).toEqual({ connection_ids: ['conn-new'] })
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('не удалось одобрить: подключение всё равно сохранено, форма закрывается, пользователь получает предупреждение', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    stubApi({ approveStatus: 500 })
+    const toasts = useToast().toasts
+    toasts.splice(0)
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await fillAndSubmit(wrapper)
+
+    await wrapper.find('[data-resolution="approve"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+    expect(toasts.some((t) => t.type === 'warning' && t.message.includes('расхождение не одобрено'))).toBe(true)
+  })
+
+  it('не удалось изменить роль порта: подключение не создаётся, ошибка показана в форме', async () => {
+    setupInterfaces({ is_management: true }, { is_data_transfer: true })
+    const calls = stubApi({ portRoleStatus: 404 })
+    const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+    await fillAndSubmit(wrapper)
+
+    await wrapper.find('[data-resolution="keep-source"]').trigger('click')
+    await flushPromises()
+
+    expect(saveCalls(calls)).toEqual([])
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    expect(wrapper.find('.form-error').text()).toContain('Порт не найден')
+  })
+
+  describe('редактирование подключения с уже одобренным расхождением', () => {
+    const approvedConnection = {
+      id: 'conn-1', source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1',
+      is_active: true, description: null,
+      source_device_name: 'src-dev', source_interface_name: 'Gi0/1', destination_device_name: 'dst-dev', destination_interface_name: 'Gi0/2', connection_type_name: 'Медь',
+      source_port_role: 'management' as const, destination_port_role: 'data' as const, port_config_status: 'approved' as const,
+    }
+
+    it('роли те же, что были одобрены — повторно не спрашивает и сохраняет сразу', async () => {
+      setupInterfaces({ is_management: true }, { is_data_transfer: true })
+      const calls = stubApi()
+      const wrapper = mount(ConnectionFormModal, { props: { connection: approvedConnection } })
+
+      expect(wrapper.find('.port-roles').text()).toContain('одобрено ранее')
+      await wrapper.find('.modal-foot .btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.resolution').exists()).toBe(false)
+      expect(saveCalls(calls)[0].method).toBe('PUT')
+      expect(wrapper.emitted('saved')).toHaveLength(1)
     })
-    expect(wrapper.find('.purpose-mismatch').exists()).toBe(false) // расхождения больше нет
-    expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Управление активами')
+
+    it('роль порта изменилась после одобрения — решение нужно принять заново', async () => {
+      setupInterfaces({ is_management: true }, { is_management: true, is_data_transfer: true })
+      const calls = stubApi()
+      const wrapper = mount(ConnectionFormModal, { props: { connection: approvedConnection } })
+
+      await wrapper.find('.modal-foot .btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.resolution').exists()).toBe(true)
+      expect(saveCalls(calls)).toEqual([])
+    })
   })
 })
 
@@ -362,8 +510,9 @@ describe('ConnectionFormModal.vue — prefill (фикс п.3.4, визуальн
     ]
     const connection = {
       id: 'c1', source_interface_id: 'if-a', destination_interface_id: 'if-b', connection_type_id: 'ct-1',
-      purpose: null, is_active: true, description: null,
+      is_active: true, description: null,
       source_device_name: 'a', source_interface_name: 'eth0', destination_device_name: 'b', destination_interface_name: 'eth1', connection_type_name: 'Медь',
+      source_port_role: 'data' as const, destination_port_role: 'data' as const, port_config_status: 'ok' as const,
     }
 
     const wrapper = mount(ConnectionFormModal, { props: { connection, prefill: { sourceInterfaceId: 'if-a', destinationInterfaceId: 'if-c' } } })

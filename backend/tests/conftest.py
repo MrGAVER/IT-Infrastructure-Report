@@ -50,10 +50,11 @@ def db_session():
     )
 
     @event.listens_for(engine, "connect")
-    def _enable_fk(dbapi_connection, _record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    def _configure_sqlite(dbapi_connection, _record):
+        # Тот же набор настроек, что у боевого движка (FK + Unicode-aware LOWER, см. app/db.py).
+        from app.db import configure_sqlite_connection
+
+        configure_sqlite_connection(dbapi_connection)
 
     Base.metadata.create_all(engine)
     SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)

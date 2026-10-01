@@ -8,36 +8,22 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(connectionsFixture))))
 })
 
-describe('useConnectionsStore', () => {
+// Общий кэш подключений (карта занятых портов, схема, формы). Постраничная таблица дашборда —
+// отдельный стор, см. connectionsDashboard.spec.ts.
+describe('useConnectionsStore (общий кэш)', () => {
   it('загружает подключения через /resources/connections ({items,total,offset,limit})', async () => {
     const store = useConnectionsStore()
     await store.ensureLoaded()
     expect(store.total).toBe(2)
     expect(store.all).toHaveLength(2)
+    expect(store.loaded).toBe(true)
   })
 
-  it('фильтрует по подстроке (устройство/порт/назначение)', async () => {
+  it('ensureLoaded() не перезагружает уже загруженный кэш', async () => {
     const store = useConnectionsStore()
     await store.ensureLoaded()
-
-    store.search = 'Коммутатор'
-    expect(store.filtered.map((c) => c.id)).toEqual(['c-2'])
-
-    store.search = 'Передача'
-    expect(store.filtered.map((c) => c.id)).toEqual(['c-1'])
-
-    store.search = ''
-    expect(store.filtered).toHaveLength(2)
-  })
-
-  it('фильтрует по активности', async () => {
-    const store = useConnectionsStore()
     await store.ensureLoaded()
-
-    store.activeFilter = 'yes'
-    expect(store.filtered.map((c) => c.id)).toEqual(['c-1'])
-    store.activeFilter = 'no'
-    expect(store.filtered.map((c) => c.id)).toEqual(['c-2'])
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it('occupiedInterfaceIds включает порты только активных подключений', async () => {
@@ -50,5 +36,13 @@ describe('useConnectionsStore', () => {
     expect(occupied.has('if-2')).toBe(true)
     expect(occupied.has('if-3')).toBe(false)
     expect(occupied.has('if-4')).toBe(false)
+  })
+
+  it('ошибка загрузки попадает в error, а не в исключение', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })))
+    const store = useConnectionsStore()
+    await store.reload()
+    expect(store.error).toBe('Сервер недоступен')
+    expect(store.loading).toBe(false)
   })
 })

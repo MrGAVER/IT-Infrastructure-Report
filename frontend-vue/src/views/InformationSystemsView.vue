@@ -8,6 +8,7 @@ import { useContainersStore } from '../stores/containers'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { InformationSystem } from '../api/types'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import InformationSystemFormModal from '../components/InformationSystemFormModal.vue'
 
@@ -168,7 +169,8 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ systems.pageItems.length ? (systems.page - 1) * 8 + 1 : 0 }}–{{ (systems.page - 1) * 8 + systems.pageItems.length }} из {{ systems.filtered.length }}</span>
+        <span>Показано {{ systems.pageItems.length ? (systems.page - 1) * systems.pageSize + 1 : 0 }}–{{ (systems.page - 1) * systems.pageSize + systems.pageItems.length }} из {{ systems.filtered.length }}</span>
+        <PageSizeSelect :model-value="systems.pageSize" :options="systems.pageSizeOptions" @update:model-value="systems.setPageSize" />
         <div class="pager">
           <button :disabled="systems.page <= 1" @click="systems.setPage(systems.page - 1)">‹</button>
           <button v-for="p in systems.pageCount" :key="p" :class="{ on: p === systems.page }" @click="systems.setPage(p)">{{ p }}</button>

@@ -21,7 +21,6 @@ function connection(overrides: Partial<Connection> = {}): Connection {
     source_interface_id: 'if-a1',
     destination_interface_id: 'if-b1',
     connection_type_id: 'ct-1',
-    purpose: null,
     is_active: true,
     description: null,
     source_device_name: 'a',
@@ -29,6 +28,9 @@ function connection(overrides: Partial<Connection> = {}): Connection {
     destination_device_name: 'b',
     destination_interface_name: 'eth0',
     connection_type_name: 'Медь',
+    source_port_role: 'data',
+    destination_port_role: 'data',
+    port_config_status: 'ok',
     ...overrides,
   }
 }
