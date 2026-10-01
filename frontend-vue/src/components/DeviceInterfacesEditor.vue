@@ -854,7 +854,7 @@ function applyBulkEdit() {
                   <div class="ip-block">
                     <div class="ip-head">
                       <b>IP-адреса интерфейса</b>
-                      <span v-if="rowManaged(row).ip" class="group-lock">{{ groupLockNote(row, 'IP-адрес') }}</span>
+                      <span v-if="rowManaged(row).ip" class="group-lock">{{ groupLockNote(row, 'IP-адрес и его назначение') }}</span>
                       <button v-else type="button" class="btn btn-secondary" @click="addIp(i)">
                         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
                         IP-адрес
@@ -872,7 +872,13 @@ function applyBulkEdit() {
                         :disabled="rowManaged(row).ip"
                         @input="updateIp(i, j, { prefix_length: ($event.target as HTMLInputElement).value })"
                       />
-                      <input type="text" placeholder="Назначение" :value="ip.purpose" @input="updateIp(i, j, { purpose: ($event.target as HTMLInputElement).value })" />
+                      <input
+                        type="text"
+                        placeholder="Назначение"
+                        :value="ip.purpose"
+                        :disabled="rowManaged(row).ip"
+                        @input="updateIp(i, j, { purpose: ($event.target as HTMLInputElement).value })"
+                      />
                       <button v-if="!rowManaged(row).ip" type="button" class="icon-btn danger" aria-label="Удалить IP интерфейса" @click="removeIp(i, j)">
                         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                       </button>

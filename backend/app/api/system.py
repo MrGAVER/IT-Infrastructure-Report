@@ -207,7 +207,9 @@ def bulk_assign_vlan(payload: dict, session: Session = Depends(get_db)):
 
 @router.post('/api/v1/seed')
 def seed(session: Session = Depends(get_db)):
-    seed_defaults(session); return {'status':'seeded','message':'Стандартные значения добавлены; пользовательские записи сохранены'}
+    # force=True: явное действие «восстановить стандартные значения» — маркер однократного
+    # сидирования при запуске приложения (см. seed_defaults) здесь не применяется.
+    seed_defaults(session, force=True); return {'status':'seeded','message':'Стандартные значения добавлены; пользовательские записи сохранены'}
 
 @router.post('/api/v1/reports/inventory')
 def generate_report(information_system_id: str | None = None, payload: dict | None = None, session: Session = Depends(get_db)):

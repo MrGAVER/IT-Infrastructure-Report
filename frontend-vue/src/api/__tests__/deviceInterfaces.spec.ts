@@ -286,15 +286,15 @@ describe('persistDeviceInterfaces', () => {
 
 describe('группы портов', () => {
   function groupDraft(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
-    return { key: 'new-1', name: ' Серверные ', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: ' 10.0.0.5 ', prefix_length: '24', manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }, { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }], ...patch }
+    return { key: 'new-1', name: ' Серверные ', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: ' 10.0.0.5 ', prefix_length: '24', ip_purpose: ' Администрирование ', manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }, { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }], ...patch }
   }
 
   it('loadDeviceInterfaceGroups: ключ сохранённой группы равен её id, пустые значения превращаются в пустые строки формы', async () => {
     const fetchMock = vi.fn(async (_url: string) =>
       jsonResponse({
         items: [
-          { id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: 24, manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: null }] },
-          { id: 'g-2', physical_device_id: 'dev-1', name: 'Пустая', vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] },
+          { id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: 24, ip_purpose: 'Администрирование', manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: null }] },
+          { id: 'g-2', physical_device_id: 'dev-1', name: 'Пустая', vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, ip_purpose: null, manage_open_ports: false, open_ports: [] },
         ],
       }),
     )
@@ -303,8 +303,8 @@ describe('группы портов', () => {
     const groups = await loadDeviceInterfaceGroups('dev-1')
 
     expect(fetchMock.mock.calls[0][0]).toContain('/devices/dev-1/interface-groups')
-    expect(groups[0]).toEqual({ id: 'g-1', key: 'g-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }] })
-    expect(groups[1]).toMatchObject({ vlan_mode: '', ip_address: '', prefix_length: '', manage_open_ports: false })
+    expect(groups[0]).toEqual({ id: 'g-1', key: 'g-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'Администрирование', manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }] })
+    expect(groups[1]).toMatchObject({ vlan_mode: '', ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false })
   })
 
   it('loadDeviceInterfaceDraftRows: принадлежность порта группе приходит как group_key', async () => {
@@ -331,7 +331,7 @@ describe('группы портов', () => {
 
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
     expect(body.groups).toEqual([
-      { id: undefined, key: 'new-1', name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: 24, manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }] },
+      { id: undefined, key: 'new-1', name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: 24, ip_purpose: 'Администрирование', manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }] },
     ].map((g) => JSON.parse(JSON.stringify(g))))
     expect(body.interfaces.map((i: { group_key: string | null }) => i.group_key)).toEqual(['new-1', null])
   })
@@ -343,7 +343,18 @@ describe('группы портов', () => {
     await persistDeviceInterfaces('dev-1', [], [groupDraft({ vlan_mode: '', vlan_ids: ['v10'], ip_address: '', prefix_length: '24', manage_open_ports: false })])
 
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
-    expect(body.groups[0]).toMatchObject({ vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] })
+    expect(body.groups[0]).toMatchObject({ vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, ip_purpose: null, manage_open_ports: false, open_ports: [] })
+  })
+
+  it('persist отправляет назначение общего IP обрезанным, а без IP-адреса группы — не отправляет', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ items: [], groups: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await persistDeviceInterfaces('dev-1', [], [groupDraft(), groupDraft({ key: 'new-2', name: 'Без IP', ip_address: '', ip_purpose: 'Администрирование' })])
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect(body.groups[0].ip_purpose).toBe('Администрирование')
+    expect(body.groups[1].ip_purpose).toBeNull()
   })
 
   it('persist без groups (вызывающий код групп не знает) не шлёт ни groups, ни group_key — сервер группы не трогает', async () => {

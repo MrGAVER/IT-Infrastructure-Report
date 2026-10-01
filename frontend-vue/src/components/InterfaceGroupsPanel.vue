@@ -2,7 +2,7 @@
 // Панель «Группы портов» блока «Порты / интерфейсы»: список групп, окно создания/правки группы и
 // окно удаления с выбором — оставить значения в портах или стереть.
 //
-// Группа задаёт один раз режим порта + VLAN, общий IP-адрес и открытые порты для всех своих портов
+// Группа задаёт один раз режим порта + VLAN, общий IP-адрес (с префиксом и назначением) и открытые порты для всех своих портов
 // (правка формы устройства, п.4). Компонент сам ничего не сохраняет и не обращается к API: любое
 // изменение он отдаёт родителю событием change одним объектом { rows, groups } — состав портов и
 // значения в них меняются согласованно вместе с группой (см. utils/interfaceGroups.ts).
@@ -201,7 +201,7 @@ function summary(group: InterfaceGroupDraft): string {
     <div class="groups-head">
       <div class="groups-title">
         <b>Группы портов</b>
-        <span class="hint">Режим порта, IP-адрес и открытые порты задаются один раз для всех портов группы.</span>
+        <span class="hint">Режим порта, IP-адрес (с назначением) и открытые порты задаются один раз для всех портов группы.</span>
       </div>
       <button type="button" class="btn btn-secondary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
@@ -307,7 +307,7 @@ function summary(group: InterfaceGroupDraft): string {
           </div>
 
           <div class="param">
-            <div class="param-head"><b>Общий IP-адрес</b><span class="hint">один адрес на все порты группы; заменит IP-адреса этих портов</span></div>
+            <div class="param-head"><b>Общий IP-адрес</b><span class="hint">один адрес, префикс и назначение на все порты группы; заменят IP-адреса этих портов (пустое назначение очистит назначение у портов)</span></div>
             <div class="ip-row">
               <input v-model="draft.ip_address" type="text" placeholder="IP-адрес (пусто — не задавать)" aria-label="Общий IP-адрес группы" />
               <!-- Не v-model: на type="number" он записал бы в черновик число, а prefix_length везде в форме —
@@ -320,6 +320,15 @@ function summary(group: InterfaceGroupDraft): string {
                 placeholder="Префикс"
                 aria-label="Префикс общего IP-адреса"
                 @input="draft = { ...draft!, prefix_length: ($event.target as HTMLInputElement).value }"
+              />
+              <input
+                v-model="draft.ip_purpose"
+                type="text"
+                maxlength="255"
+                placeholder="Назначение"
+                aria-label="Назначение общего IP-адреса группы"
+                :disabled="!draft.ip_address.trim()"
+                :title="draft.ip_address.trim() ? undefined : 'Сначала укажите общий IP-адрес'"
               />
             </div>
           </div>
@@ -629,7 +638,7 @@ function summary(group: InterfaceGroupDraft): string {
 
 .ip-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
+  grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr);
   gap: 8px;
 }
 

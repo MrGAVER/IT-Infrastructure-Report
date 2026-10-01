@@ -922,7 +922,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
   ]
 
   function group(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
-    return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', manage_open_ports: false, open_ports: [], ...patch }
+    return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [], ...patch }
   }
 
   function member(name: string, patch: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow {
@@ -965,6 +965,40 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
     expect(free.find('.ip-row input[placeholder="IP-адрес"]').attributes('disabled')).toBeUndefined()
     expect(free.find('button[aria-label="Удалить IP интерфейса"]').exists()).toBe(true)
     expect(free.text()).not.toContain('задан группой')
+  })
+
+  it('у члена группы, задающей назначение IP, поле «Назначение» заблокировано вместе с адресом и префиксом; у порта вне группы — нет', async () => {
+    const ip = (purpose: string) => [{ ip_address: '10.0.0.5', prefix_length: '24', purpose }]
+    const rows = [member('Gi0/1', { ips: ip('Администрирование') }), { ...emptyRow(), name: 'Gi0/2', ips: ip('Своё') }]
+    const wrapper = mountEditor(rows, [group({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'Администрирование' })])
+    await expandRow(wrapper, 0)
+    await expandRow(wrapper, 1)
+
+    const [locked, free] = wrapper.findAll('.iface-detail')
+    expect(locked.find('.ip-row input[placeholder="Назначение"]').attributes('disabled')).toBeDefined()
+    expect(locked.find('.ip-row input[placeholder="IP-адрес"]').attributes('disabled')).toBeDefined()
+    expect(locked.text()).toContain('IP-адрес и его назначение задан группой «Серверные»')
+    expect(free.find('.ip-row input[placeholder="Назначение"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('поле «Назначение» заблокировано, как только группа задаёт IP, — даже если назначение в самой группе пустое', async () => {
+    const rows = [member('Gi0/1', { ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })]
+    const wrapper = mountEditor(rows, [group({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: '' })])
+    await expandRow(wrapper)
+
+    const detail = wrapper.find('.iface-detail')
+    for (const placeholder of ['IP-адрес', 'Префикс', 'Назначение']) {
+      expect(detail.find(`.ip-row input[placeholder="${placeholder}"]`).attributes('disabled')).toBeDefined()
+    }
+    expect(detail.text()).toContain('IP-адрес и его назначение задан группой «Серверные»')
+  })
+
+  it('если группа общего IP не задаёт, поле «Назначение» IP порта остаётся редактируемым', async () => {
+    const rows = [member('Gi0/1', { ips: [{ ip_address: '192.168.0.1', prefix_length: '24', purpose: 'Своё' }] })]
+    const wrapper = mountEditor(rows, [group({ vlan_mode: 'access', vlan_ids: ['v10'] })])
+    await expandRow(wrapper)
+
+    expect(wrapper.find('.iface-detail .ip-row input[placeholder="Назначение"]').attributes('disabled')).toBeUndefined()
   })
 
   it('параметры, которыми группа не управляет, в строке её порта остаются редактируемыми', async () => {
