@@ -454,6 +454,31 @@ describe('DeviceInterfacesEditor.vue', () => {
         expect(wrapper.find('.ports-block .dup-error').text()).toContain('Порт 80')
       })
 
+      it('на СВЁРНУТОЙ строке с повтором номера показан индикатор с номерами; без повтора его нет', async () => {
+        const rows: InterfaceDraftRow[] = [
+          { ...emptyRow(), name: 'eth0', open_ports: [port('cat-http'), port('cat-ssh'), port('cat-http-alt')] },
+          { ...emptyRow(), name: 'eth1', open_ports: [port('cat-http'), port('cat-ssh')] },
+        ]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
+
+        // Ни одна строка не развёрнута — индикатор должен быть виден без раскрытия.
+        const icons = wrapper.findAll('.expand-toggle').map((t) => t.find('.ports-dup-icon'))
+        expect(icons[0].exists()).toBe(true)
+        expect(icons[0].attributes('title')).toBe('Повторяются номера открытых портов: 80')
+        expect(icons[0].attributes('aria-label')).toBe('Повторяются номера открытых портов: 80')
+        expect(icons[1].exists()).toBe(false)
+      })
+
+      it('индикатор исчезает, когда повтор устранён (список меняет родитель через v-model)', async () => {
+        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [port('cat-http'), port('cat-http-alt')] }]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
+        expect(wrapper.find('.expand-toggle .ports-dup-icon').exists()).toBe(true)
+
+        await wrapper.setProps({ modelValue: [{ ...rows[0], open_ports: [port('cat-http'), port('cat-ssh')] }] })
+
+        expect(wrapper.find('.expand-toggle .ports-dup-icon').exists()).toBe(false)
+      })
+
       it('выбор порта в новой строке ставит её по возрастанию номера, а не в конец', async () => {
         const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [port('cat-https'), port('')] }]
         const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
