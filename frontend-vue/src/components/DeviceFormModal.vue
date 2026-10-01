@@ -604,7 +604,7 @@ async function submit() {
     errorMessage.value = 'Укажите серийный номер.'
     return
   }
-  const interfaceError = validateInterfaceDraftRows(interfaces.value) ?? validateInterfaceGroups(interfaceGroups.value)
+  const interfaceError = validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return

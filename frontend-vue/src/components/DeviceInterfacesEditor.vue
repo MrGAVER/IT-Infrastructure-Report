@@ -916,6 +916,7 @@ function applyBulkEdit() {
                       :model-value="row.open_ports"
                       :catalog-entries="protocolPortCatalog"
                       :readonly="rowManaged(row).openPorts"
+                      sorted-unique
                       @update:model-value="(v) => updateRow(i, { open_ports: v })"
                     />
                   </div>

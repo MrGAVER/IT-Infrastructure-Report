@@ -74,7 +74,7 @@ onMounted(async () => {
 
 async function submit() {
   errorMessage.value = null
-  const interfaceError = validateInterfaceDraftRows(interfaces.value) ?? validateInterfaceGroups(interfaceGroups.value)
+  const interfaceError = validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return

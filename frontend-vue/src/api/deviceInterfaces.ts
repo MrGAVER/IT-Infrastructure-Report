@@ -8,7 +8,7 @@
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
 import { api, listResource } from './client'
-import type { DeviceInterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVLAN, InterfaceDraftRow, OpenPort } from './types'
+import type { DeviceInterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVLAN, InterfaceDraftRow, OpenPort, ProtocolPortCatalogEntry } from './types'
 
 /**
  * Грузит интерфейсы одного устройства вместе с их IP и VLAN-привязками и приводит к формату
@@ -103,16 +103,18 @@ function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
 }
 
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
+import { duplicatePortNumbers } from '../utils/openPorts'
 
 /** У каждого интерфейса должно быть имя — бэкенд это тоже проверит (422), но лучше показать
  * понятную ошибку до запроса, чем ждать round-trip. UI (DeviceInterfacesEditor.vue) не даёт
  * набрать больше одного VLAN в режиме access, но проверка здесь — защита на случай данных,
  * загруженных из БД в уже несогласованном виде (см. комментарий к InterfaceDraftRow.vlan_mode).
- * Возвращает текст ошибки либо null.
+ * Возвращает текст ошибки либо null. portCatalog — справочник «порт + протокол» (catalogs.protocolPortCatalog),
+ * нужен для проверки повторов номеров открытых портов.
  *
  * Фикс п.2.1.3: IP-адреса/префиксы интерфейса (InterfaceDraftRow.ips) — та же причина, что и у
  * остальных проверок здесь: показать понятную ошибку сразу, а не ждать 422 с бэкенда. */
-export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | null {
+export function validateInterfaceDraftRows(rows: InterfaceDraftRow[], portCatalog: readonly ProtocolPortCatalogEntry[] = []): string | null {
   if (rows.some((row) => !row.name.trim())) return 'У каждого интерфейса должно быть имя.'
   if (rows.some((row) => row.vlan_mode === 'access' && row.vlan_ids.length > 1)) {
     return 'В режиме access у порта может быть не более одного VLAN.'
@@ -122,6 +124,11 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[]): string | 
       if (!isValidIPv4(ip.ip_address)) return `Некорректный IP-адрес «${ip.ip_address}» на порту «${row.name}».`
       if (!isValidPrefixLength(ip.prefix_length)) return `Некорректный префикс «${ip.prefix_length}» на порту «${row.name}» — допустимо 0-32.`
     }
+    // Номера открытых портов одного порта устройства не повторяются (то же правило, что в форме ВМ,
+    // см. utils/openPorts.ts). Без каталога (portCatalog не передан) номер не определить — проверка
+    // пропускается, остаётся серверная (backend/app/services/validation.py).
+    const duplicates = duplicatePortNumbers(row.open_ports, portCatalog)
+    if (duplicates.length) return `На порту «${row.name}» номера открытых портов повторяются: ${duplicates.join(', ')}.`
     // Фикс "убрать текстовые поля Порт/Протокол": раньше здесь же проверялся номер открытого
     // порта (свободный текст, введённый вручную) — с тех пор, как единственный вход стал
     // protocol_catalog_id (значение из справочника, а не текст), проверять на этом уровне

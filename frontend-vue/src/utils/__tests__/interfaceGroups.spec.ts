@@ -151,6 +151,30 @@ describe('validateInterfaceGroups', () => {
   it('отклоняет повтор наименования без учёта регистра', () => {
     expect(validateInterfaceGroups([group({ key: 'a', name: 'Одна' }), group({ key: 'b', name: 'одна' })])).toContain('уникальны')
   })
+
+  describe('повторяющиеся номера открытых портов группы', () => {
+    const portCatalog = [
+      { id: 'c-http', port: 80, protocol_type: 'HTTP', description: null },
+      { id: 'c-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+      { id: 'c-ssh', port: 22, protocol_type: 'SSH', description: null },
+    ]
+    const ports = (...ids: string[]) => ids.map((protocol_catalog_id) => ({ protocol_catalog_id, transport_protocol: 'TCP', description: '' }))
+
+    it('не пропускает повтор номера, когда группа управляет открытыми портами', () => {
+      const g = group({ manage_open_ports: true, open_ports: ports('c-http', 'c-ssh', 'c-http-alt') })
+      expect(validateInterfaceGroups([g], portCatalog)).toBe('В группе «Серверные» номера открытых портов повторяются: 80.')
+    })
+
+    it('список портов игнорируется, если группа ими не управляет', () => {
+      const g = group({ manage_open_ports: false, open_ports: ports('c-http', 'c-http-alt') })
+      expect(validateInterfaceGroups([g], portCatalog)).toBeNull()
+    })
+
+    it('без справочника портов проверка пропускается', () => {
+      const g = group({ manage_open_ports: true, open_ports: ports('c-http', 'c-http-alt') })
+      expect(validateInterfaceGroups([g])).toBeNull()
+    })
+  })
 })
 
 describe('cloneGroupsForCopy', () => {

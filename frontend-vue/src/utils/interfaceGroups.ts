@@ -7,8 +7,9 @@
 // правила ещё раз и является источником истины.
 //
 // Модуль не знает ни про Vue, ни про API — вся логика тестируется отдельно (см. __tests__).
-import type { InterfaceDraftRow, InterfaceGroupDraft, OpenPortDraftRow } from '../api/types'
+import type { InterfaceDraftRow, InterfaceGroupDraft, OpenPortDraftRow, ProtocolPortCatalogEntry } from '../api/types'
 import { isValidIPv4, isValidPrefixLength } from './ipValidation'
+import { duplicatePortNumbers } from './openPorts'
 
 let groupKeyCounter = 0
 
@@ -157,8 +158,9 @@ export function describeGroup(group: InterfaceGroupDraft, vlanLabel: (vlanDefini
   return parts.length ? parts.join(' · ') : 'Параметры не заданы'
 }
 
-/** Проверка групп перед сохранением: понятная ошибка сразу, а не 422 сервера. null — всё верно. */
-export function validateInterfaceGroups(groups: InterfaceGroupDraft[]): string | null {
+/** Проверка групп перед сохранением: понятная ошибка сразу, а не 422 сервера. null — всё верно.
+ * portCatalog — справочник «порт + протокол» для проверки повторов номеров открытых портов. */
+export function validateInterfaceGroups(groups: InterfaceGroupDraft[], portCatalog: readonly ProtocolPortCatalogEntry[] = []): string | null {
   const names = new Set<string>()
   for (const group of groups) {
     const name = group.name.trim()
@@ -168,6 +170,9 @@ export function validateInterfaceGroups(groups: InterfaceGroupDraft[]): string |
     if (group.vlan_mode === 'access' && group.vlan_ids.length > 1) return `В режиме access у группы «${name}» может быть не более одного VLAN.`
     if (!isValidIPv4(group.ip_address)) return `Некорректный IP-адрес «${group.ip_address}» группы «${name}».`
     if (!isValidPrefixLength(group.prefix_length)) return `Некорректный префикс «${group.prefix_length}» группы «${name}» — допустимо 0-32.`
+    // Открытые порты группы учитываются, только когда группа ими управляет (manage_open_ports); номера не повторяются.
+    const duplicates = group.manage_open_ports ? duplicatePortNumbers(group.open_ports, portCatalog) : []
+    if (duplicates.length) return `В группе «${name}» номера открытых портов повторяются: ${duplicates.join(', ')}.`
   }
   return null
 }
