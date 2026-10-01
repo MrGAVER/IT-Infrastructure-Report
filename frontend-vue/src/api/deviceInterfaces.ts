@@ -97,6 +97,7 @@ function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
     vlan_ids: [...g.vlan_ids],
     ip_address: g.ip_address ?? '',
     prefix_length: g.prefix_length == null ? '' : String(g.prefix_length),
+    ip_purpose: g.ip_purpose ?? '',
     manage_open_ports: g.manage_open_ports,
     open_ports: g.open_ports.map((p) => ({ id: p.id, protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol, description: p.description ?? '' })),
   }
@@ -168,6 +169,8 @@ export async function persistDeviceInterfaces(
             vlan_ids: g.vlan_mode ? g.vlan_ids : [],
             ip_address: g.ip_address.trim() || null,
             prefix_length: g.ip_address.trim() && g.prefix_length !== '' ? Number(g.prefix_length) : null,
+            // Назначение — часть общего IP: без адреса не уходит (как и префикс).
+            ip_purpose: g.ip_address.trim() && g.ip_purpose.trim() ? g.ip_purpose.trim() : null,
             manage_open_ports: g.manage_open_ports,
             open_ports: g.manage_open_ports
               ? g.open_ports

@@ -299,3 +299,116 @@ def test_group_vlan_definition_disappears_with_deleted_vlan(client):
 
     assert r.status_code == 200, r.text
     assert client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]["vlan_ids"] == []
+
+
+# --- Назначение общего IP-адреса в группе (поле «Назначение» рядом с «IP-адрес» и «Префикс») ------------
+
+
+def _ip_group(key: str = "g1", name: str = "Серверные", **extra) -> dict:
+    return {"key": key, "name": name, "ip_address": "10.0.0.5", "prefix_length": 24, "ip_purpose": "Доступ администраторов", **extra}
+
+
+def test_group_ip_purpose_is_written_into_ip_of_every_member_port(client):
+    dev = _device(client, serial="SW-IP-PURPOSE")
+
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1"), _port("Gi0/2", "g1"), _port("Gi0/3")], [_ip_group()])
+
+    assert r.status_code == 200, r.text
+    (group,) = r.json()["groups"]
+    assert (group["ip_address"], group["ip_purpose"]) == ("10.0.0.5", "Доступ администраторов")
+    stored = _stored_interfaces(client, dev["id"])
+    for name in ("Gi0/1", "Gi0/2"):
+        assert [(i["ip_address"], i["prefix_length"], i["purpose"]) for i in _ips(client, stored[name]["id"])] == [("10.0.0.5", 24, "Доступ администраторов")]
+    assert _ips(client, stored["Gi0/3"]["id"]) == []  # порт вне группы не затронут
+
+
+def test_group_ip_purpose_overrides_client_purpose_of_member_port(client):
+    """Назначение заданного группой IP — источник истины группа, что бы ни прислал клиент."""
+    dev = _device(client, serial="SW-IP-PURPOSE-OVR")
+    own_ip = [{"ip_address": "192.168.1.9", "prefix_length": 24, "purpose": "Своё назначение"}]
+
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1", ips=own_ip)], [_ip_group()])
+
+    assert r.status_code == 200, r.text
+    iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
+    assert [(i["ip_address"], i["purpose"]) for i in _ips(client, iface["id"])] == [("10.0.0.5", "Доступ администраторов")]
+
+
+def test_group_with_empty_ip_purpose_clears_purpose_of_member_ports(client):
+    """Назначение — часть общего IP, как адрес и префикс: группа записывает его безусловно, поэтому
+    пустое назначение группы очищает назначение, которое стояло у порта."""
+    dev = _device(client, serial="SW-IP-NO-PURPOSE")
+    own_ip = [{"ip_address": "192.168.1.9", "prefix_length": 24, "purpose": "Своё назначение"}]
+
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1", ips=own_ip), _port("Gi0/2", "g1")], [_ip_group(ip_purpose=None)])
+
+    assert r.status_code == 200, r.text
+    stored = _stored_interfaces(client, dev["id"])
+    for name in ("Gi0/1", "Gi0/2"):
+        assert [(i["ip_address"], i["purpose"]) for i in _ips(client, stored[name]["id"])] == [("10.0.0.5", None)]
+
+
+def test_group_without_ip_does_not_touch_purpose_of_member_port_ip(client):
+    """Пока группа общего IP не задаёт, IP порта (и его назначение) остаются как есть."""
+    dev = _device(client, serial="SW-NO-GROUP-IP")
+    own_ip = [{"ip_address": "192.168.1.9", "prefix_length": 24, "purpose": "Своё назначение"}]
+
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1", ips=own_ip)], [{"key": "g1", "name": "Без IP"}])
+
+    assert r.status_code == 200, r.text
+    iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
+    assert [(i["ip_address"], i["purpose"]) for i in _ips(client, iface["id"])] == [("192.168.1.9", "Своё назначение")]
+
+
+def test_group_ip_purpose_is_trimmed_and_blank_means_not_set(client):
+    dev = _device(client, serial="SW-IP-PURPOSE-TRIM")
+
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [_ip_group(ip_purpose="  Управление  ")])
+    assert r.status_code == 200, r.text
+    (group,) = r.json()["groups"]
+    assert group["ip_purpose"] == "Управление"
+
+    # Повторное сохранение ссылается на уже существующую группу по её id.
+    r = _sync(client, dev["id"], [_port("Gi0/1", group["id"])], [_ip_group(key=group["id"], id=group["id"], ip_purpose="   ")])
+    assert r.status_code == 200, r.text
+    assert r.json()["groups"][0]["ip_purpose"] is None
+
+
+def test_group_ip_purpose_is_not_stored_without_ip_address(client):
+    dev = _device(client, serial="SW-IP-PURPOSE-NOIP")
+
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Без IP", "ip_purpose": "Управление"}])
+
+    assert r.status_code == 200, r.text
+    assert r.json()["groups"][0]["ip_purpose"] is None
+    iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
+    assert _ips(client, iface["id"]) == []
+
+
+def test_group_ip_purpose_longer_than_column_is_rejected(client):
+    dev = _device(client, serial="SW-IP-PURPOSE-LONG")
+
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [_ip_group(ip_purpose="я" * 256)])
+
+    assert r.status_code == 422
+    assert "255" in r.json()["detail"]
+
+
+def test_group_ip_purpose_is_applied_to_existing_ip_in_place(client):
+    """Повторное сохранение с новым назначением обновляет ту же запись IP, а не пересоздаёт её."""
+    dev = _device(client, serial="SW-IP-PURPOSE-UPD")
+    _sync(client, dev["id"], [_port("Gi0/1", "g1")], [_ip_group()])
+    iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
+    (ip_before,) = _ips(client, iface["id"])
+    group_id = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]["id"]
+
+    r = _sync(
+        client,
+        dev["id"],
+        [{"id": iface["id"], "name": "Gi0/1", "group_key": group_id, "ips": [{"id": ip_before["id"], "ip_address": "10.0.0.5", "prefix_length": 24, "purpose": ip_before["purpose"]}]}],
+        [_ip_group(key=group_id, id=group_id, ip_purpose="Резервный канал")],
+    )
+
+    assert r.status_code == 200, r.text
+    (ip_after,) = _ips(client, iface["id"])
+    assert (ip_after["id"], ip_after["purpose"]) == (ip_before["id"], "Резервный канал")

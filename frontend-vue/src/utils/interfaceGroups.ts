@@ -1,6 +1,6 @@
 // Группы портов устройства: чистые функции над черновиками (InterfaceDraftRow / InterfaceGroupDraft).
 //
-// Группа хранит параметры, одинаковые у многих портов (режим порта + VLAN, общий IP, открытые порты),
+// Группа хранит параметры, одинаковые у многих портов (режим порта + VLAN, общий IP с назначением, открытые порты),
 // один раз. Значения МАТЕРИАЛИЗУЮТСЯ в строки портов — applyGroupToRow() записывает их прямо в поля
 // строки, поэтому таблица портов, валидация и сохранение работают с итоговыми значениями порта, как
 // и без групп, а сервер (backend services/crud.py:_apply_group_to_interface) применяет те же
@@ -19,7 +19,7 @@ export function newGroupKey(): string {
 }
 
 export function emptyGroup(name = ''): InterfaceGroupDraft {
-  return { key: newGroupKey(), name, vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', manage_open_ports: false, open_ports: [] }
+  return { key: newGroupKey(), name, vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }
 }
 
 export interface ManagedFields {
@@ -28,7 +28,8 @@ export interface ManagedFields {
   openPorts: boolean
 }
 
-/** Какими параметрами порта управляет группа (заданные в группе). */
+/** Какими параметрами порта управляет группа (заданные в группе). Общий IP управляется целиком —
+ * адрес, префикс и назначение (ip_purpose, пустое — тоже значение). */
 export function managedFields(group: InterfaceGroupDraft | undefined): ManagedFields {
   if (!group) return { vlan: false, ip: false, openPorts: false }
   return { vlan: group.vlan_mode !== '', ip: group.ip_address.trim() !== '', openPorts: group.manage_open_ports }
@@ -58,7 +59,8 @@ export function applyGroupToRow(row: InterfaceDraftRow, group: InterfaceGroupDra
   }
   if (managed.ip) {
     const first = row.ips[0]
-    next = { ...next, ips: [{ id: first?.id, ip_address: group.ip_address.trim(), prefix_length: group.prefix_length, purpose: first?.purpose ?? '' }] }
+    // Назначение — часть общего IP, как адрес и префикс: группа записывает его безусловно (пустое очищает).
+    next = { ...next, ips: [{ id: first?.id, ip_address: group.ip_address.trim(), prefix_length: group.prefix_length, purpose: group.ip_purpose.trim() }] }
   }
   if (managed.openPorts) {
     const reusable = new Map<string, string | undefined>()
@@ -96,7 +98,8 @@ export function eraseGroupValues(row: InterfaceDraftRow, group: InterfaceGroupDr
 
 /** Какие параметры группы можно скопировать с порта — только те, у которых на порту есть значение:
  * режим порта копируется вместе с VLAN (режим без VLAN ничего не задаёт), IP — если есть хотя бы
- * один непустой адрес, открытые порты — если выбран хотя бы один протокол справочника. Так
+ * один непустой адрес (копируется вместе с префиксом и назначением), открытые порты — если выбран
+ * хотя бы один протокол справочника. Так
  * «копирование» не может случайно превратиться в «стереть у всей группы». */
 export function copyableFields(row: InterfaceDraftRow): ManagedFields {
   return {
@@ -119,7 +122,7 @@ export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraf
   }
   if (what.ip && available.ip) {
     const ip = row.ips.find((x) => x.ip_address.trim() !== '')!
-    next = { ...next, ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length }
+    next = { ...next, ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length, ip_purpose: ip.purpose.trim() }
   }
   if (what.openPorts && available.openPorts) {
     next = {
@@ -149,7 +152,10 @@ export function describeGroup(group: InterfaceGroupDraft, vlanLabel: (vlanDefini
     const vlans = group.vlan_ids.map(vlanLabel).join(', ')
     parts.push(`${group.vlan_mode === 'access' ? 'Access' : 'Trunk'}${vlans ? ` · ${vlans}` : ''}`)
   }
-  if (group.ip_address.trim()) parts.push(`IP ${group.ip_address.trim()}${group.prefix_length !== '' ? `/${group.prefix_length}` : ''}`)
+  if (group.ip_address.trim()) {
+    const purpose = group.ip_purpose.trim()
+    parts.push(`IP ${group.ip_address.trim()}${group.prefix_length !== '' ? `/${group.prefix_length}` : ''}${purpose ? ` (${purpose})` : ''}`)
+  }
   if (group.manage_open_ports) {
     const labels = group.open_ports.filter((p) => p.protocol_catalog_id).map((p) => portLabel(p.protocol_catalog_id))
     parts.push(labels.length ? `Открытые порты: ${labels.join(', ')}` : 'Открытые порты: нет')

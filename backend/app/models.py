@@ -300,7 +300,8 @@ class InterfaceGroup(TimestampMixin, Base):
 
     Каждый параметр «управляется» группой только если задан: vlan_mode IS NOT NULL — группа
     задаёт режим порта и набор VLAN (interface_group_vlans); ip_address IS NOT NULL — общий IP
-    (на первом этапе один адрес на все порты, без диапазонов); manage_open_ports — группа задаёт
+    (на первом этапе один адрес на все порты, без диапазонов) вместе с префиксом и назначением IP
+    (ip_purpose); manage_open_ports — группа задаёт
     полный список открытых портов (interface_group_open_ports). Незаданные параметры порты
     группы продолжают хранить каждый свои.
 
@@ -320,6 +321,10 @@ class InterfaceGroup(TimestampMixin, Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
     manage_open_ports: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Назначение общего IP (IPAddress.purpose у каждого порта группы). Часть общего IP, как и
+    # prefix_length: хранится, только пока задан ip_address, и тогда безусловно записывается в IP
+    # каждого порта группы (пустое значение — очищает назначение).
+    ip_purpose: Mapped[Optional[str]] = mapped_column(String(255))
 
 
 class InterfaceGroupVLAN(TimestampMixin, Base):

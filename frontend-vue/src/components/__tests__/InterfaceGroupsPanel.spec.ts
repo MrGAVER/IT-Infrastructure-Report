@@ -16,7 +16,7 @@ function row(name: string, patch: Partial<InterfaceDraftRow> = {}): InterfaceDra
 }
 
 function savedGroup(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
-  return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: false, open_ports: [], ...patch }
+  return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: '', manage_open_ports: false, open_ports: [], ...patch }
 }
 
 type Change = { rows: InterfaceDraftRow[]; groups: InterfaceGroupDraft[] }
@@ -68,6 +68,87 @@ describe('InterfaceGroupsPanel.vue', () => {
     expect(rows[1].ips[0].ip_address).toBe('10.0.0.5')
     expect(rows[2].ips).toEqual([])
     expect(wrapper.find('.group-modal').exists()).toBe(false)
+  })
+
+  describe('назначение общего IP-адреса', () => {
+    const purposeInput = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('input[aria-label="Назначение общего IP-адреса группы"]')
+
+    it('в окне группы поле «Назначение» стоит рядом с IP-адресом и префиксом и недоступно, пока IP не указан', async () => {
+      const wrapper = mountPanel({ rows: [row('Gi0/1')] })
+
+      await wrapper.find('.groups-head button').trigger('click')
+
+      const inputs = wrapper.findAll('.ip-row input')
+      expect(inputs.map((i) => i.attributes('placeholder'))).toEqual(['IP-адрес (пусто — не задавать)', 'Префикс', 'Назначение'])
+      expect(purposeInput(wrapper).attributes('disabled')).toBeDefined()
+
+      await wrapper.find('input[aria-label="Общий IP-адрес группы"]').setValue('10.0.0.5')
+      expect(purposeInput(wrapper).attributes('disabled')).toBeUndefined()
+    })
+
+    it('создание группы с назначением записывает его в IP каждого порта группы', async () => {
+      const rows = [row('Gi0/1', { ips: [{ ip_address: '192.168.0.1', prefix_length: '24', purpose: 'Своё' }] }), row('Gi0/2'), row('Gi0/3')]
+      const wrapper = mountPanel({ rows, selectedIndices: [0, 1] })
+
+      await wrapper.find('.groups-head button').trigger('click')
+      await wrapper.find('.group-modal .field input').setValue('Управление')
+      await wrapper.find('input[aria-label="Общий IP-адрес группы"]').setValue('10.0.0.5')
+      await wrapper.find('input[aria-label="Префикс общего IP-адреса"]').setValue('24')
+      await purposeInput(wrapper).setValue('Администрирование')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const { rows: result, groups } = lastChange(wrapper)
+      expect(groups[0]).toMatchObject({ ip_address: '10.0.0.5', ip_purpose: 'Администрирование' })
+      expect(result[0].ips[0]).toMatchObject({ ip_address: '10.0.0.5', purpose: 'Администрирование' })
+      expect(result[1].ips[0]).toMatchObject({ ip_address: '10.0.0.5', purpose: 'Администрирование' })
+      expect(result[2].ips).toEqual([])
+    })
+
+    it('группа с IP, но с пустым назначением, очищает назначение у портов — оно управляется так же, как адрес и префикс', async () => {
+      const rows = [row('Gi0/1', { ips: [{ ip_address: '192.168.0.1', prefix_length: '24', purpose: 'Своё' }] })]
+      const wrapper = mountPanel({ rows, selectedIndices: [0] })
+
+      await wrapper.find('.groups-head button').trigger('click')
+      await wrapper.find('.group-modal .field input').setValue('Без назначения')
+      await wrapper.find('input[aria-label="Общий IP-адрес группы"]').setValue('10.0.0.5')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      expect(lastChange(wrapper).rows[0].ips[0]).toMatchObject({ ip_address: '10.0.0.5', purpose: '' })
+    })
+
+    it('копирование IP с порта подставляет и его назначение', async () => {
+      const source = row('Gi0/1', { ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' }] })
+      const wrapper = mountPanel({ rows: [source, row('Gi0/2')] })
+
+      await wrapper.find('.groups-head button').trigger('click')
+      const select = wrapper.find('.copy-row .searchable-select')
+      await select.find('input').trigger('focus')
+      await select.findAll('.ss-option').find((o) => o.text() === 'Gi0/1')!.trigger('mousedown')
+      await wrapper.find('.copy-row .btn').trigger('click')
+
+      expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Администрирование')
+    })
+
+    it('правка назначения у сохранённой группы обновляет IP во всех её портах', async () => {
+      const group = savedGroup({ ip_purpose: 'Старое' })
+      const rows = [row('Gi0/1', { group_key: 'g1', ips: [{ id: 'ip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Старое' }] })]
+      const wrapper = mountPanel({ rows, groups: [group] })
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect((purposeInput(wrapper).element as HTMLInputElement).value).toBe('Старое')
+      await purposeInput(wrapper).setValue('Новое')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const change = lastChange(wrapper)
+      expect(change.groups[0].ip_purpose).toBe('Новое')
+      expect(change.rows[0].ips[0]).toMatchObject({ id: 'ip-1', purpose: 'Новое' })
+    })
+
+    it('в списке групп назначение указано рядом с IP', () => {
+      const wrapper = mountPanel({ rows: [row('Gi0/1', { group_key: 'g1' })], groups: [savedGroup({ ip_purpose: 'Администрирование' })] })
+
+      expect(wrapper.find('.group-summary').text()).toBe('IP 10.0.0.5/24 (Администрирование)')
+    })
   })
 
   it('группа без наименования не создаётся: ошибка и окно остаётся открытым', async () => {

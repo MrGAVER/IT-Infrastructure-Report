@@ -469,7 +469,8 @@ export interface InterfaceDraftRow {
 /** Черновик группы портов устройства (backend models.InterfaceGroup): параметры, заданные один
  * раз и применяемые ко всем портам группы. Параметр «управляется» группой только если задан:
  * vlan_mode !== '' — режим порта и VLAN; ip_address !== '' — общий IP (один адрес на все порты);
- * manage_open_ports — полный список открытых портов. Незаданные параметры порты хранят свои. */
+ * ip_purpose !== '' (при заданном IP) — назначение этого IP; manage_open_ports — полный список
+ * открытых портов. Незаданные параметры порты хранят свои. */
 export interface InterfaceGroupDraft {
   id?: string
   /** Сохранённая группа: её id. Новая: временный ключ (utils/interfaceGroups.ts:newGroupKey) —
@@ -480,6 +481,8 @@ export interface InterfaceGroupDraft {
   vlan_ids: string[]
   ip_address: string
   prefix_length: string
+  /** Назначение общего IP («Назначение» рядом с «IP-адрес» и «Префикс»); хранится, только пока задан ip_address. */
+  ip_purpose: string
   manage_open_ports: boolean
   open_ports: OpenPortDraftRow[]
 }
@@ -493,6 +496,7 @@ export interface InterfaceGroup {
   vlan_ids: string[]
   ip_address: string | null
   prefix_length: number | null
+  ip_purpose: string | null
   manage_open_ports: boolean
   open_ports: { id: string; protocol_catalog_id: string; transport_protocol: string; description: string | null }[]
 }

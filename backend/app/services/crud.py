@@ -475,6 +475,8 @@ def delete_resource(resource: str, item_id: str, session: Session):
         session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
 
 _VLAN_MODES = frozenset({"access", "trunk"})
+# Длина колонки ip_addresses.purpose (models.IPAddress): назначение общего IP группы копируется в неё.
+_IP_PURPOSE_MAX_LENGTH = 255
 
 
 def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> ProtocolPortCatalog:
@@ -695,6 +697,10 @@ def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) 
     validate_ipv4_field(ip_address, 'IP-адрес группы портов')
     validate_prefix_length_field(prefix, 'Префикс IP-адреса группы портов')
     prefix_length = int(prefix) if ip_address and prefix not in (None, '') else None
+    # Назначение — часть общего IP: без адреса не хранится (как и префикс). Колонка IPAddress.purpose — 255 символов.
+    ip_purpose = (str(item.get('ip_purpose') or '').strip() or None) if ip_address else None
+    if ip_purpose is not None and len(ip_purpose) > _IP_PURPOSE_MAX_LENGTH:
+        raise HTTPException(422, f'Назначение IP-адреса группы портов не должно превышать {_IP_PURPOSE_MAX_LENGTH} символов')
     manage_open_ports = bool(item.get('manage_open_ports'))
     raw_ports = item.get('open_ports') or []
     if not isinstance(raw_ports, list): raise HTTPException(422, 'Поле open_ports группы портов должно быть массивом')
@@ -705,7 +711,7 @@ def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) 
         if not manage_open_ports or not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
         _validate_open_port_catalog(port_data, session)
         open_ports.append({'id': port_data.get('id'), 'protocol_catalog_id': port_data['protocol_catalog_id'], 'transport_protocol': port_data.get('transport_protocol') or 'TCP', 'description': port_data.get('description') or None})
-    return {'name': name, 'vlan_mode': vlan_mode, 'vlan_ids': unique_vlan_ids, 'ip_address': ip_address, 'prefix_length': prefix_length, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports}
+    return {'name': name, 'vlan_mode': vlan_mode, 'vlan_ids': unique_vlan_ids, 'ip_address': ip_address, 'prefix_length': prefix_length, 'ip_purpose': ip_purpose, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports}
 
 
 def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vlans: set[str], session: Session) -> dict[str, _GroupState]:
@@ -731,7 +737,7 @@ def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vl
         else:
             obj = InterfaceGroup(physical_device_id=device_id); session.add(obj)
         obj.name = norm['name']; obj.vlan_mode = norm['vlan_mode']; obj.ip_address = norm['ip_address']
-        obj.prefix_length = norm['prefix_length']; obj.manage_open_ports = norm['manage_open_ports']
+        obj.prefix_length = norm['prefix_length']; obj.ip_purpose = norm['ip_purpose']; obj.manage_open_ports = norm['manage_open_ports']
         session.flush()
         _sync_group_vlans(obj, norm['vlan_ids'], session)
         _sync_group_open_ports(obj, norm['open_ports'], session)
@@ -775,7 +781,8 @@ def _resolve_interface_group(item: dict[str, Any], states: dict[str, _GroupState
 
 def _apply_group_to_interface(iface: DeviceInterface, state: _GroupState, session: Session) -> None:
     """Записывает в порт значения тех параметров, которыми управляет его группа (заданы в группе):
-    режим порта + VLAN, единственный общий IP, полный список открытых портов. Повторный вызов с теми
+    режим порта + VLAN, единственный общий IP (адрес, префикс и назначение), полный список
+    открытых портов. Повторный вызов с теми
     же значениями ничего не меняет (строки порта обновляются на месте, лишние удаляются, id не
     пересоздаются). Незаданные группой параметры порта не трогаются."""
     group = state.obj
@@ -796,6 +803,9 @@ def _apply_group_to_interface(iface: DeviceInterface, state: _GroupState, sessio
         ip_obj = ips[0] if ips else IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=iface.id)
         if not ips: session.add(ip_obj)
         ip_obj.ip_address = group.ip_address; ip_obj.prefix_length = group.prefix_length; ip_obj.is_management = bool(iface.is_management)
+        # Назначение — часть общего IP, как адрес и префикс: группа записывает его безусловно
+        # (пустое значение очищает назначение, которое стояло у порта).
+        ip_obj.purpose = group.ip_purpose
         for extra in ips[1:]: session.delete(extra)
     if group.manage_open_ports:
         rows = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id)).all()
