@@ -670,6 +670,17 @@ class AuthSettings(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+class CatalogSeedMarker(Base):
+    """Отметка «стартовые значения справочников уже заведены» (см. services/catalogs.py:
+    seed_defaults). Без неё каждый запуск приложения заново добавлял стандартные записи, которые
+    администратор удалил или переименовал. name — идентификатор набора значений с версией
+    (например 'default_catalogs.v1'): новые стандартные значения вводятся новым набором с новым
+    именем, поэтому ранее удалённые записи старого набора не возвращаются."""
+    __tablename__ = "catalog_seed_markers"
+    name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class SavedDiagram(TimestampMixin, Base):
     """Независимая сохранённая диаграмма топологии сети (не синглтон — unique(name), может быть
     несколько диаграмм с разными фильтрами охвата, см. ТЗ раздел 6). scope_filter хранится как

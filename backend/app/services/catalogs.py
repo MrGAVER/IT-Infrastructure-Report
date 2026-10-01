@@ -1,7 +1,13 @@
 from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Building, Department, DeviceCategory, DeviceType, InterfaceSpeed, InterfaceType, ConnectionType, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, Manufacturer, SupportOrganization, ProtocolPortCatalog
+from ..models import Building, Department, DeviceCategory, DeviceType, InterfaceSpeed, InterfaceType, ConnectionType, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, Manufacturer, SupportOrganization, ProtocolPortCatalog, CatalogSeedMarker
+
+# Имя маркера «стартовые значения заведены» (models.CatalogSeedMarker). Версия в имени: новые
+# стандартные значения, которые появятся в будущих релизах, вводятся отдельным набором с новым
+# маркером (например 'default_catalogs_extra.v1'), чтобы не возвращать уже удалённые записи этого
+# набора. Значение продублировано в миграции alembic/versions/e4c8a1d7b350_* — проверяет тест.
+DEFAULT_CATALOGS_SEED_MARKER = 'default_catalogs.v1'
 
 DEFAULT_NAMES = {
     InterfaceSpeed: ['10 Mbps','100 Mbps','1 Gbps','2.5 Gbps','5 Gbps','10 Gbps','25 Gbps','40 Gbps','50 Gbps','100 Gbps','200 Gbps','400 Gbps','Auto'],
@@ -173,10 +179,20 @@ def _seed_singleton_records(session: Session) -> None:
     if not session.scalar(select(Department).limit(1)): session.add(Department(name='ИТ'))
 
 
-def seed_defaults(session: Session) -> None:
+def seed_defaults(session: Session, *, force: bool = False) -> bool:
     """Оркестратор: наполняет справочники значениями по умолчанию, идемпотентно (не дублирует
     уже существующие записи). Вынесено в отдельные функции по виду справочника — была одной
-    функцией сложности 17, логика по каждому блоку не изменена."""
+    функцией сложности 17, логика по каждому блоку не изменена.
+
+    Однократность: стартовое сидирование выполняется ровно один раз на базу и отмечается в
+    catalog_seed_markers (в той же транзакции, что и сами записи). Раньше оно срабатывало на каждом
+    запуске приложения и возвращало стандартные записи, которые администратор удалил или
+    переименовал. force=True — явное действие пользователя («восстановить стандартные значения»,
+    POST /api/v1/seed): добавляет все отсутствующие стандартные записи независимо от маркера.
+
+    Возвращает True, если сидирование выполнено, False — если пропущено из-за маркера."""
+    if not force and session.get(CatalogSeedMarker, DEFAULT_CATALOGS_SEED_MARKER) is not None:
+        return False
     _seed_name_only_catalogs(session)
     session.flush()
     _seed_device_categories(session)
@@ -189,4 +205,7 @@ def seed_defaults(session: Session) -> None:
     session.flush()
     _seed_manufacturers(session)
     _seed_singleton_records(session)
+    if session.get(CatalogSeedMarker, DEFAULT_CATALOGS_SEED_MARKER) is None:
+        session.add(CatalogSeedMarker(name=DEFAULT_CATALOGS_SEED_MARKER))
     session.commit()
+    return True
