@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { PAGE_SIZE, useConnectionsDashboardStore } from '../connectionsDashboard'
+import { DEFAULT_PAGE_SIZE, useConnectionsDashboardStore } from '../connectionsDashboard'
 import type { Connection, ConnectionsPage } from '../../api/types'
 
 function row(id: string, overrides: Partial<Connection> = {}): Connection {
@@ -26,7 +26,7 @@ function row(id: string, overrides: Partial<Connection> = {}): Connection {
 const SUMMARY = { total: 20, active: 18, inactive: 2, mismatch: 4, approved: 1 }
 
 function page(items: Connection[], total = items.length, summary = SUMMARY): ConnectionsPage {
-  return { items, total, offset: 0, limit: PAGE_SIZE, summary }
+  return { items, total, offset: 0, limit: DEFAULT_PAGE_SIZE, summary }
 }
 
 // Именно страница дашборда (/api/v1/connections?…), а не общий кэш (/api/v1/resources/connections?…).
@@ -55,6 +55,7 @@ function stubApi(pageHandler: (call: Call) => ConnectionsPage | Promise<Connecti
 }
 
 beforeEach(() => {
+  localStorage.clear()
   setActivePinia(createPinia())
   stubApi()
 })
@@ -68,13 +69,13 @@ describe('useConnectionsDashboardStore — серверная страница',
 
     const p = params(pageCalls()[0])
     expect(p.get('offset')).toBe('0')
-    expect(p.get('limit')).toBe(String(PAGE_SIZE))
+    expect(p.get('limit')).toBe(String(DEFAULT_PAGE_SIZE))
     expect(['q', 'is_active', 'port_config_status'].some((k) => p.has(k))).toBe(false)
     expect(store.items.map((c) => c.id)).toEqual(['c-1', 'c-2'])
     expect(store.total).toBe(20)
     expect(store.summary).toEqual(SUMMARY)
     expect(store.loaded).toBe(true)
-    expect(store.pageCount).toBe(Math.ceil(20 / PAGE_SIZE))
+    expect(store.pageCount).toBe(Math.ceil(20 / DEFAULT_PAGE_SIZE))
   })
 
   it('поиск и фильтры передаются серверу; пробелы по краям поиска отбрасываются', async () => {
@@ -104,7 +105,7 @@ describe('useConnectionsDashboardStore — серверная страница',
     await store.load()
 
     await store.setPage(3)
-    expect(params(pageCalls().at(-1)!).get('offset')).toBe(String(2 * PAGE_SIZE))
+    expect(params(pageCalls().at(-1)!).get('offset')).toBe(String(2 * DEFAULT_PAGE_SIZE))
 
     await store.setPage(999)
     expect(store.page).toBe(store.pageCount)
@@ -221,5 +222,68 @@ describe('useConnectionsDashboardStore — действия', () => {
     await store.refreshAfterChange()
     expect(pageCalls()).toHaveLength(1)
     expect(calls.filter((c) => c.url.includes('/resources/connections'))).toHaveLength(1)
+  })
+})
+
+describe('useConnectionsDashboardStore — количество строк на странице', () => {
+  it('по умолчанию 8; варианты — 8, 16, 32, 64', () => {
+    const store = useConnectionsDashboardStore()
+    expect(store.pageSize).toBe(DEFAULT_PAGE_SIZE)
+    expect(store.pageSizeOptions).toEqual([8, 16, 32, 64])
+  })
+
+  it('смена размера запрашивает у сервера новый limit и пересчитывает число страниц', async () => {
+    stubApi(() => page([row('c-1')], 100))
+    const store = useConnectionsDashboardStore()
+    await store.load()
+    expect(store.pageCount).toBe(13)
+
+    await store.setPageSize(32)
+
+    const p = params(pageCalls().at(-1)!)
+    expect(p.get('limit')).toBe('32')
+    expect(p.get('offset')).toBe('0')
+    expect(store.pageCount).toBe(4)
+  })
+
+  it('остаётся на странице с тем же первым подключением: 3-я страница по 8 (с 17-го) → 2-я по 16', async () => {
+    stubApi(() => page([row('c-1')], 100))
+    const store = useConnectionsDashboardStore()
+    await store.load()
+    await store.setPage(3)
+
+    await store.setPageSize(16)
+
+    expect(store.page).toBe(2)
+    const p = params(pageCalls().at(-1)!)
+    expect(p.get('offset')).toBe('16')
+    expect(p.get('limit')).toBe('16')
+  })
+
+  it('выбор запоминается и восстанавливается новым стором', async () => {
+    await useConnectionsDashboardStore().setPageSize(64)
+    expect(localStorage.getItem('itr.pageSize.connections')).toBe('64')
+
+    setActivePinia(createPinia())
+    expect(useConnectionsDashboardStore().pageSize).toBe(64)
+  })
+
+  it.each([0, 7, 100])('недопустимое значение %s не меняет размер и не делает запрос', async (bad) => {
+    const store = useConnectionsDashboardStore()
+    await store.load()
+    const before = pageCalls().length
+
+    await store.setPageSize(bad)
+
+    expect(store.pageSize).toBe(DEFAULT_PAGE_SIZE)
+    expect(pageCalls()).toHaveLength(before)
+  })
+
+  it('то же значение — без лишнего запроса', async () => {
+    const store = useConnectionsDashboardStore()
+    await store.load()
+    const before = pageCalls().length
+    await store.setPageSize(DEFAULT_PAGE_SIZE)
+    expect(pageCalls()).toHaveLength(before)
   })
 })

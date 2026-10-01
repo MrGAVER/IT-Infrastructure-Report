@@ -3,8 +3,10 @@
 import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import type { VirtualMachine, VMsResponse } from '../api/types'
+import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
 
-const PAGE_SIZE = 8
+const DEFAULT_PAGE_SIZE = 8
+const LIST_ID = 'vms'
 
 export const useVMsStore = defineStore('vms', {
   state: () => ({
@@ -15,6 +17,7 @@ export const useVMsStore = defineStore('vms', {
     error: null as string | null,
     search: '',
     page: 1,
+    pageSize: loadPageSize(LIST_ID, DEFAULT_PAGE_SIZE),
   }),
   getters: {
     filtered(state): VirtualMachine[] {
@@ -22,12 +25,15 @@ export const useVMsStore = defineStore('vms', {
       const q = state.search.trim().toLowerCase()
       return state.all.filter((vm) => [vm.name, vm.purpose, vm.description].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
     },
+    pageSizeOptions(): number[] {
+      return pageSizeOptionsFor(DEFAULT_PAGE_SIZE)
+    },
     pageCount(): number {
-      return Math.max(1, Math.ceil(this.filtered.length / PAGE_SIZE))
+      return Math.max(1, Math.ceil(this.filtered.length / this.pageSize))
     },
     pageItems(): VirtualMachine[] {
-      const start = (this.page - 1) * PAGE_SIZE
-      return this.filtered.slice(start, start + PAGE_SIZE)
+      const start = (this.page - 1) * this.pageSize
+      return this.filtered.slice(start, start + this.pageSize)
     },
   },
   actions: {
@@ -51,6 +57,14 @@ export const useVMsStore = defineStore('vms', {
     },
     setPage(p: number) {
       this.page = Math.min(Math.max(1, p), this.pageCount)
+    },
+    /** Смена количества строк на странице: остаёмся на странице с тем же первым видимым
+     * элементом, выбор запоминается для этого списка. Недопустимое значение игнорируется. */
+    setPageSize(size: number) {
+      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return
+      this.page = pageAfterSizeChange(this.page, this.pageSize, size)
+      this.pageSize = size
+      savePageSize(LIST_ID, size)
     },
     resetPageOnFilterChange() {
       this.page = 1

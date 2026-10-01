@@ -14,8 +14,10 @@ import { approveMatchingPortConfig, approvePortConfig, revokePortConfigApproval 
 import type { ApprovePortConfigResult } from '../api/portConfig'
 import type { Connection, ConnectionsSummary, PortConfigStatus } from '../api/types'
 import { useConnectionsStore } from './connections'
+import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
 
-export const PAGE_SIZE = 8
+export const DEFAULT_PAGE_SIZE = 8
+const LIST_ID = 'connections'
 
 export type ActiveFilter = 'all' | 'yes' | 'no'
 export type PortConfigFilter = 'all' | PortConfigStatus
@@ -34,6 +36,7 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
     /** Итоги по всему реестру — не зависят от поиска и фильтров. */
     summary: { ...EMPTY_SUMMARY } as ConnectionsSummary,
     page: 1,
+    pageSize: loadPageSize(LIST_ID, DEFAULT_PAGE_SIZE),
     search: '',
     activeFilter: 'all' as ActiveFilter,
     portConfigFilter: 'all' as PortConfigFilter,
@@ -42,7 +45,8 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
     error: null as string | null,
   }),
   getters: {
-    pageCount: (state): number => Math.max(1, Math.ceil(state.total / PAGE_SIZE)),
+    pageCount: (state): number => Math.max(1, Math.ceil(state.total / state.pageSize)),
+    pageSizeOptions: (): number[] => pageSizeOptionsFor(DEFAULT_PAGE_SIZE),
     /** Условия выборки в виде, общем для списка и для «одобрить все найденные». */
     isActiveParam: (state): boolean | undefined => (state.activeFilter === 'all' ? undefined : state.activeFilter === 'yes'),
     searchParam: (state): string | undefined => state.search.trim() || undefined,
@@ -60,12 +64,12 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
           q: this.searchParam,
           is_active: this.isActiveParam,
           port_config_status: this.portConfigFilter === 'all' ? undefined : this.portConfigFilter,
-          offset: (this.page - 1) * PAGE_SIZE,
-          limit: PAGE_SIZE,
+          offset: (this.page - 1) * this.pageSize,
+          limit: this.pageSize,
         })
         if (request !== latestRequest) return
         if (res.items.length === 0 && res.total > 0 && this.page > 1) {
-          this.page = Math.max(1, Math.ceil(res.total / PAGE_SIZE))
+          this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
           return this.load()
         }
         this.items = res.items
@@ -81,6 +85,15 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
     /** Смена поиска или фильтра — всегда с первой страницы. */
     applyFilters(): Promise<void> {
       this.page = 1
+      return this.load()
+    },
+    /** Смена количества строк: остаёмся на странице с тем же первым видимым подключением, выбор
+     * запоминается. Недопустимое значение игнорируется. */
+    setPageSize(size: number): Promise<void> {
+      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return Promise.resolve()
+      this.page = pageAfterSizeChange(this.page, this.pageSize, size)
+      this.pageSize = size
+      savePageSize(LIST_ID, size)
       return this.load()
     },
     setPage(p: number): Promise<void> {

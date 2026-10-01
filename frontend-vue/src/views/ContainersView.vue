@@ -6,6 +6,7 @@ import { useVMsStore } from '../stores/vms'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Container } from '../api/types'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ContainerFormModal from '../components/ContainerFormModal.vue'
 
@@ -151,7 +152,8 @@ function hostLabel(c: Container): string {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ containers.pageItems.length ? (containers.page - 1) * 8 + 1 : 0 }}–{{ (containers.page - 1) * 8 + containers.pageItems.length }} из {{ containers.filtered.length }}</span>
+        <span>Показано {{ containers.pageItems.length ? (containers.page - 1) * containers.pageSize + 1 : 0 }}–{{ (containers.page - 1) * containers.pageSize + containers.pageItems.length }} из {{ containers.filtered.length }}</span>
+        <PageSizeSelect :model-value="containers.pageSize" :options="containers.pageSizeOptions" @update:model-value="containers.setPageSize" />
         <div class="pager">
           <button :disabled="containers.page <= 1" @click="containers.setPage(containers.page - 1)">‹</button>
           <button v-for="p in containers.pageCount" :key="p" :class="{ on: p === containers.page }" @click="containers.setPage(p)">{{ p }}</button>

@@ -6,7 +6,7 @@ import ConnectionCanvasModal from '../../components/ConnectionCanvasModal.vue'
 import PortConfigReviewModal from '../../components/PortConfigReviewModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
-import { PAGE_SIZE } from '../../stores/connectionsDashboard'
+import { DEFAULT_PAGE_SIZE } from '../../stores/connectionsDashboard'
 import type { Connection, ConnectionsSummary } from '../../api/types'
 
 // DevicePortsModal.vue телепортируется в body (см. DevicePortsModal.spec.ts) — ищем там же.
@@ -81,7 +81,7 @@ function installServer(options: ServerOptions = {}) {
       if (custom) return custom
       if (call.method === 'GET' && PAGE_URL.test(url)) {
         if (options.pageError) return jsonResponse({ detail: options.pageError }, 500)
-        return jsonResponse({ items: rows, total: options.total ?? rows.length, offset: 0, limit: PAGE_SIZE, summary })
+        return jsonResponse({ items: rows, total: options.total ?? rows.length, offset: 0, limit: DEFAULT_PAGE_SIZE, summary })
       }
       if (call.method === 'POST' && url.endsWith('/connections/port-config/approve')) {
         return jsonResponse({ items: [], skipped_ids: [], approved_count: options.total ?? rows.length })
@@ -105,6 +105,7 @@ async function mountView(options: ServerOptions = {}) {
 const rowsText = (wrapper: Awaited<ReturnType<typeof mountView>>) => wrapper.findAll('tbody tr').map((r) => r.text())
 
 beforeEach(() => {
+  localStorage.clear()
   setActivePinia(createPinia())
   document.body.innerHTML = ''
   installServer()
@@ -195,7 +196,7 @@ describe('ConnectionsView.vue — постраничная выборка с с�
 
     const params = lastPageParams()
     expect(params.get('offset')).toBe('0')
-    expect(params.get('limit')).toBe(String(PAGE_SIZE))
+    expect(params.get('limit')).toBe(String(DEFAULT_PAGE_SIZE))
     expect(rowsText(wrapper)).toHaveLength(2)
     expect(wrapper.find('.table-foot').text()).toContain('Показано 1–2 из 1000')
   })
@@ -215,7 +216,7 @@ describe('ConnectionsView.vue — постраничная выборка с с�
   })
 
   it('пейджер не рисует кнопку на каждую страницу: при 1000 страниц — окно с многоточием', async () => {
-    const wrapper = await mountView({ rows: [connectionFixture], total: PAGE_SIZE * 1000 })
+    const wrapper = await mountView({ rows: [connectionFixture], total: DEFAULT_PAGE_SIZE * 1000 })
 
     const buttons = wrapper.findAll('.pager button')
     expect(buttons.length).toBeLessThanOrEqual(9) // «‹», первая, соседи, последняя, «›»
@@ -223,18 +224,49 @@ describe('ConnectionsView.vue — постраничная выборка с с�
     expect(buttons.map((b) => b.text())).toContain('1000')
   })
 
-  it('переход на следующую страницу запрашивает следующее смещение', async () => {
-    const wrapper = await mountView({ rows: [connectionFixture], total: PAGE_SIZE * 3 })
+  it('поле «Показывать по»: варианты 8/16/32/64; выбор запрашивает у сервера новый limit и запоминается', async () => {
+    localStorage.clear()
+    const wrapper = await mountView({ rows: [connectionFixture], total: 100 })
+    const select = wrapper.find('.table-foot select')
+
+    expect(select.findAll('option').map((o) => o.text())).toEqual(['8', '16', '32', '64'])
+    expect((select.element as HTMLSelectElement).value).toBe(String(DEFAULT_PAGE_SIZE))
+
+    await select.setValue('32')
+    await flushPromises()
+
+    expect(lastPageParams().get('limit')).toBe('32')
+    expect(lastPageParams().get('offset')).toBe('0')
+    expect(wrapper.find('.table-foot').text()).toContain('из 100')
+    expect(wrapper.findAll('.pager button').filter((b) => /^\d+$/.test(b.text()))).toHaveLength(4) // 100 / 32 → 4 страницы
+    expect(localStorage.getItem('itr.pageSize.connections')).toBe('32')
+  })
+
+  it('после смены размера следующая страница запрашивается со смещением от нового размера', async () => {
+    localStorage.clear()
+    const wrapper = await mountView({ rows: [connectionFixture], total: 100 })
+    await wrapper.find('.table-foot select').setValue('16')
+    await flushPromises()
 
     await wrapper.find('[aria-label="Следующая страница"]').trigger('click')
     await flushPromises()
 
-    expect(lastPageParams().get('offset')).toBe(String(PAGE_SIZE))
-    expect(wrapper.find('.table-foot').text()).toContain(`Показано ${PAGE_SIZE + 1}–${PAGE_SIZE + 1}`)
+    expect(lastPageParams().get('offset')).toBe('16')
+    expect(lastPageParams().get('limit')).toBe('16')
+  })
+
+  it('переход на следующую страницу запрашивает следующее смещение', async () => {
+    const wrapper = await mountView({ rows: [connectionFixture], total: DEFAULT_PAGE_SIZE * 3 })
+
+    await wrapper.find('[aria-label="Следующая страница"]').trigger('click')
+    await flushPromises()
+
+    expect(lastPageParams().get('offset')).toBe(String(DEFAULT_PAGE_SIZE))
+    expect(wrapper.find('.table-foot').text()).toContain(`Показано ${DEFAULT_PAGE_SIZE + 1}–${DEFAULT_PAGE_SIZE + 1}`)
   })
 
   it('смена фильтра возвращает на первую страницу', async () => {
-    const wrapper = await mountView({ rows: [connectionFixture], total: PAGE_SIZE * 3 })
+    const wrapper = await mountView({ rows: [connectionFixture], total: DEFAULT_PAGE_SIZE * 3 })
     await wrapper.find('[aria-label="Следующая страница"]').trigger('click')
     await flushPromises()
 

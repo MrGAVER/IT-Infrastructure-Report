@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useConnectionsStore } from '../stores/connections'
-import { PAGE_SIZE, useConnectionsDashboardStore } from '../stores/connectionsDashboard'
+import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { deleteResource } from '../api/client'
@@ -10,6 +10,7 @@ import type { Connection } from '../api/types'
 import { roleLabel } from '../utils/portConfig'
 import { debounce } from '../utils/debounce'
 import { pagerItems } from '../utils/pager'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
@@ -276,7 +277,8 @@ async function removeConnection(c: Connection) {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ dashboard.items.length ? (dashboard.page - 1) * PAGE_SIZE + 1 : 0 }}–{{ (dashboard.page - 1) * PAGE_SIZE + dashboard.items.length }} из {{ dashboard.total }}</span>
+        <span>Показано {{ dashboard.items.length ? (dashboard.page - 1) * dashboard.pageSize + 1 : 0 }}–{{ (dashboard.page - 1) * dashboard.pageSize + dashboard.items.length }} из {{ dashboard.total }}</span>
+        <PageSizeSelect :model-value="dashboard.pageSize" :options="dashboard.pageSizeOptions" @update:model-value="dashboard.setPageSize" />
         <div class="pager">
           <button :disabled="dashboard.page <= 1" aria-label="Предыдущая страница" @click="dashboard.setPage(dashboard.page - 1)">‹</button>
           <template v-for="(item, i) in pagerItems(dashboard.page, dashboard.pageCount)" :key="`${item}-${i}`">

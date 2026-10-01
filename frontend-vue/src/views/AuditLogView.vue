@@ -2,6 +2,7 @@
 import { onMounted, watch } from 'vue'
 import { useAuditLogStore, ACTION_LABELS } from '../stores/auditLog'
 import { useCatalogsStore } from '../stores/catalogs'
+import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 
 const log = useAuditLogStore()
@@ -88,7 +89,8 @@ function formatWhen(iso: string): string {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ log.pageItems.length ? (log.page - 1) * 12 + 1 : 0 }}–{{ (log.page - 1) * 12 + log.pageItems.length }} из {{ log.filtered.length }}</span>
+        <span>Показано {{ log.pageItems.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.pageItems.length }} из {{ log.filtered.length }}</span>
+        <PageSizeSelect :model-value="log.pageSize" :options="log.pageSizeOptions" @update:model-value="log.setPageSize" />
         <div class="pager">
           <button :disabled="log.page <= 1" @click="log.setPage(log.page - 1)">‹</button>
           <button v-for="p in log.pageCount" :key="p" :class="{ on: p === log.page }" @click="log.setPage(p)">{{ p }}</button>
