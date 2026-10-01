@@ -216,7 +216,8 @@ describe('VMFormModal.vue', () => {
 
     const addButtons = wrapper.findAll('button.add-btn')
     await addButtons[2].trigger('click') // + Программный актив
-    await wrapper.find('.col-asset select').setValue('sa-1c')
+    await wrapper.find('.col-asset .searchable-select input').trigger('focus')
+    await wrapper.find('.col-asset .ss-option').trigger('mousedown') // единственная опция — "1С:Предприятие"
     await wrapper.find('input.col-version').setValue('8.3.20')
 
     const calls: Array<{ url: string; method: string; body: unknown }> = []
@@ -341,5 +342,92 @@ describe('VMFormModal.vue', () => {
       // Копия создаёт НОВУЮ ВМ (POST), а не обновляет донора.
       expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/resources/vms/vm-src'))).toBe(false)
     })
+  })
+})
+
+describe('VMFormModal.vue — открытые порты: сортировка и уникальность', () => {
+  const portCatalog = [
+    { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
+    { id: 'cat-http', port: 80, protocol_type: 'HTTP', description: null },
+    { id: 'cat-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+    { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
+  ]
+  const existingVm: VirtualMachine = {
+    id: 'vm-1', name: 'app-server-01', operating_system_id: null, physical_device_id: null,
+    hypervisor_os_id: null, purpose: null, status: 'active', description: null,
+  }
+  const apiPort = (id: string, catalogId: string) => ({
+    id, owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', protocol_catalog_id: catalogId, ip_address: null, description: null,
+  })
+
+  type Call = { url: string; method: string; body: unknown }
+  function stubApi(openPortsFromServer: unknown[]): Call[] {
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'GET' && url.includes('/resources/open-ports')) return jsonResponse({ ...EMPTY_PAGE, items: openPortsFromServer })
+        if (method === 'POST' && url.endsWith('/resources/vms')) return jsonResponse({ ...existingVm, id: 'vm-new' }, 201)
+        if (method === 'PUT' && url.includes('/resources/vms/')) return jsonResponse(existingVm)
+        if (method === 'POST') return jsonResponse({ id: 'new' }, 201)
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+    return calls
+  }
+  const shownPorts = (wrapper: ReturnType<typeof mount>) =>
+    wrapper.findAll('.col-catalog .searchable-select input').map((i) => (i.element as HTMLInputElement).value)
+
+  it('ранее сохранённые порты открываются отсортированными по номеру порта', async () => {
+    useCatalogsStore().protocolPortCatalog = portCatalog
+    stubApi([apiPort('op-1', 'cat-https'), apiPort('op-2', 'cat-ssh'), apiPort('op-3', 'cat-http')])
+
+    const wrapper = mount(VMFormModal, { props: { vm: existingVm } })
+    await flushPromises()
+
+    expect(shownPorts(wrapper)).toEqual(['22 / SSH', '80 / HTTP', '443 / HTTPS'])
+  })
+
+  it('не сохраняет ВМ с повторяющимися номерами портов и объясняет причину', async () => {
+    useCatalogsStore().protocolPortCatalog = portCatalog
+    // Разные записи справочника, но один номер порта — 80.
+    const calls = stubApi([apiPort('op-1', 'cat-http'), apiPort('op-2', 'cat-http-alt')])
+
+    const wrapper = mount(VMFormModal, { props: { vm: existingVm } })
+    await flushPromises()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.form-error').text()).toContain('Номера открытых портов не должны повторяться: 80')
+    expect(calls.some((c) => c.method !== 'GET')).toBe(false) // ни PUT ВМ, ни пересоздания портов
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
+  it('порты, добавленные не по порядку, уходят на сервер по возрастанию номера', async () => {
+    useCatalogsStore().protocolPortCatalog = portCatalog
+    const calls = stubApi([])
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    await flushPromises()
+
+    const pick = async (rowIndex: number, label: string) => {
+      await wrapper.findAll('.col-catalog .searchable-select input')[rowIndex].trigger('focus')
+      await wrapper.findAll('.col-catalog .ss-option').find((o) => o.text() === label)!.trigger('mousedown')
+    }
+    await wrapper.findAll('button.add-btn')[1].trigger('click') // + Открытый порт
+    await pick(0, '443 / HTTPS')
+    await wrapper.findAll('button.add-btn')[1].trigger('click')
+    await pick(1, '22 / SSH')
+
+    expect(shownPorts(wrapper)).toEqual(['22 / SSH', '443 / HTTPS']) // порядок уже в форме
+
+    await wrapper.find('input[required]').setValue('new-vm')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const created = calls.filter((c) => c.method === 'POST' && c.url.includes('/resources/open-ports')).map((c) => (c.body as { protocol_catalog_id: string }).protocol_catalog_id)
+    expect(created).toEqual(['cat-ssh', 'cat-https'])
+    expect(wrapper.emitted('saved')).toBeTruthy()
   })
 })

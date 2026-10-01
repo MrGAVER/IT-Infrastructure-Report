@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useVMsStore } from '../stores/vms'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -24,6 +24,15 @@ const deletingId = ref<string | null>(null)
 onMounted(async () => {
   await Promise.all([vms.ensureLoaded(), catalogs.ensureLoaded(), devices.ensureLoaded()])
 })
+
+// Без сброса страницы поиск «ломался»: если пользователь был на 2-й странице и вводил запрос,
+// отфильтрованный список укорачивался, а store.page оставался прежним — pageItems выходил за
+// границы и таблица была пустой без сообщения «Ничего не найдено» (найденные ВМ лежали на
+// странице 1). Тот же приём, что в DevicesView/InformationSystemsView/AuditLogView.
+watch(
+  () => vms.search,
+  () => vms.resetPageOnFilterChange(),
+)
 
 function openCreate() {
   modalVM.value = null

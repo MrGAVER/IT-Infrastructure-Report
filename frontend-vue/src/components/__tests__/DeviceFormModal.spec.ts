@@ -244,7 +244,9 @@ describe('DeviceFormModal.vue', () => {
 
     const addButtons = wrapper.findAll('button.add-btn')
     await addButtons[0].trigger('click') // + Программный актив — единственная кнопка add-btn на пустой форме (открытые порты теперь внутри интерфейса, см. фикс п.1.4)
-    await wrapper.find('.col-asset select').setValue('sa-ad')
+    // Поле ПО — SearchableSelect: выбираем опцию по подписи, а не по порядку (в каталоге их может быть больше одной).
+    await wrapper.find('.col-asset .searchable-select input').trigger('focus')
+    await wrapper.findAll('.col-asset .ss-option').find((o) => o.text() === 'Active Directory')!.trigger('mousedown')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(

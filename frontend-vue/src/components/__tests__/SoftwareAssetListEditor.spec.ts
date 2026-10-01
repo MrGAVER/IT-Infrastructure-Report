@@ -41,10 +41,41 @@ describe('SoftwareAssetListEditor.vue', () => {
     const rows: SoftwareAssetDraftRow[] = [{ software_asset_id: '', version: '' }]
     const wrapper = mount(SoftwareAssetListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
 
-    await wrapper.find('.col-asset select').setValue('sa-ad')
+    // Поле ПО — SearchableSelect (поиск вводом текста), не нативный <select>.
+    expect(wrapper.find('.col-asset select').exists()).toBe(false)
+    const input = wrapper.find('.col-asset .searchable-select input')
+    expect(input.attributes('placeholder')).toBe('— выберите ПО —')
+    await input.trigger('focus')
+    const options = wrapper.findAll('.col-asset .ss-option')
+    expect(options.map((o) => o.text())).toEqual(['1С:Предприятие', 'Active Directory'])
+    await options[1].trigger('mousedown')
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect((emitted[0][0] as SoftwareAssetDraftRow[])[0].software_asset_id).toBe('sa-ad')
+  })
+
+  it('поиск вводом текста фильтрует список ПО без учёта регистра', async () => {
+    const rows: SoftwareAssetDraftRow[] = [{ software_asset_id: '', version: '' }]
+    const wrapper = mount(SoftwareAssetListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    const input = wrapper.find('.col-asset .searchable-select input')
+    await input.trigger('focus')
+    await input.setValue('active')
+
+    const options = wrapper.findAll('.col-asset .ss-option')
+    expect(options).toHaveLength(1)
+    expect(options[0].text()).toBe('Active Directory')
+  })
+
+  it('показывает название уже выбранного ПО и снимает выбор крестиком', async () => {
+    const rows: SoftwareAssetDraftRow[] = [{ id: 'sw-1', software_asset_id: 'sa-1c', version: '8.3' }]
+    const wrapper = mount(SoftwareAssetListEditor, { props: { modelValue: rows, catalogEntries: catalog } })
+
+    expect(wrapper.find('.col-asset .searchable-select input').element).toHaveProperty('value', '1С:Предприятие')
+    await wrapper.find('.col-asset .ss-clear').trigger('mousedown')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect(emitted[0][0]).toEqual([{ id: 'sw-1', software_asset_id: '', version: '8.3' }])
   })
 
   it('обновляет версию, не мутируя исходный проп', async () => {

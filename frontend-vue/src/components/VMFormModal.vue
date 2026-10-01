@@ -14,6 +14,7 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { filterHostDevices } from '../utils/deviceFilters'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
+import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
@@ -101,7 +102,10 @@ watch(
         listResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
       ])
       vmIps.value = isCopy ? stripIds(ips.items.map(toIpDraftRow)) : ips.items.map(toIpDraftRow)
-      openPorts.value = isCopy ? stripIds(ports.items.map(toOpenPortDraftRow)) : ports.items.map(toOpenPortDraftRow)
+      // Бэкенд отдаёт open-ports без сортировки по порту (list_resource) — упорядочиваем при загрузке,
+      // чтобы и ранее сохранённые ВМ открывались с портами по возрастанию.
+      const portRows = ports.items.map(toOpenPortDraftRow)
+      openPorts.value = sortOpenPortRows(isCopy ? stripIds(portRows) : portRows, catalogs.protocolPortCatalog)
       softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
     } catch (err) {
       errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить IP-адреса, открытые порты и ПО ВМ'
@@ -156,7 +160,9 @@ async function persistOpenPorts(vmId: string) {
   for (const old of existing.items) {
     await deleteResource('open-ports', old.id)
   }
-  for (const row of openPorts.value) {
+  // Сортировка и здесь: порядок создания записей = порядок по номеру порта, даже если справочник
+  // догрузился уже после открытия формы и порядок при загрузке не удалось выстроить.
+  for (const row of sortOpenPortRows(openPorts.value, catalogs.protocolPortCatalog)) {
     // Правка "убрать текстовые поля Порт/Протокол": protocol_catalog_id — единственный вход,
     // без него нечего сохранять (та же пустая строка-плейсхолдер, что раньше отсекалась по
     // пустому row.port). port/protocol в payload не отправляем вовсе — сервер сам выводит их
@@ -206,6 +212,11 @@ async function submit() {
       errorMessage.value = `Некорректный префикс «${row.prefix_length}» — допустимо 0-32.`
       return
     }
+  }
+  const duplicatePorts = duplicatePortNumbers(openPorts.value, catalogs.protocolPortCatalog)
+  if (duplicatePorts.length) {
+    errorMessage.value = `Номера открытых портов не должны повторяться: ${duplicatePorts.join(', ')}.`
+    return
   }
   saving.value = true
   try {
@@ -285,7 +296,7 @@ async function submit() {
 
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов и открытых портов…</p>
         <VmIpListEditor v-else v-model="vmIps" />
-        <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" />
+        <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" sorted-unique />
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
       </form>
 
