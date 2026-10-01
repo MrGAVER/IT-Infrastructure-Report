@@ -38,6 +38,7 @@ import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import { findGroup, managedFields } from '../utils/interfaceGroups'
+import { duplicatePortNumbers } from '../utils/openPorts'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
@@ -146,6 +147,15 @@ const TEMPLATE_HELP_TEXT =
 
 function applyTemplate(template: string, n: number): string {
   return template.replaceAll('{n}', String(n)).replaceAll('{n0}', String(n).padStart(2, '0'))
+}
+
+// Повторяющиеся номера открытых портов по строкам (индекс → номера). Показываются индикатором на
+// свёрнутой строке — иначе подсвеченную внутри раскрытого блока строку увидит только тот, кто его
+// раскроет; сохранение с повтором всё равно блокируется (validateInterfaceDraftRows).
+const duplicatePortsByRow = computed(() => props.modelValue.map((row) => duplicatePortNumbers(row.open_ports, props.protocolPortCatalog)))
+
+function duplicatePortsText(index: number): string {
+  return `Повторяются номера открытых портов: ${duplicatePortsByRow.value[index].join(', ')}`
 }
 
 function rowConflict(row: InterfaceDraftRow): PortConflictInfo | undefined {
@@ -761,6 +771,7 @@ function applyBulkEdit() {
               </td>
               <td>
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
+                  <svg v-if="duplicatePortsByRow[i]?.length" class="icon conflict-icon ports-dup-icon" :aria-label="duplicatePortsText(i)" :title="duplicatePortsText(i)"><use href="/icons.svg#i-alert" /></svg>
                   <svg v-if="rowConflict(row)?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
                   <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
@@ -922,6 +933,7 @@ function applyBulkEdit() {
                       :model-value="row.open_ports"
                       :catalog-entries="protocolPortCatalog"
                       :readonly="rowManaged(row).openPorts"
+                      sorted-unique
                       @update:model-value="(v) => updateRow(i, { open_ports: v })"
                     />
                   </div>

@@ -173,6 +173,43 @@ describe('InterfaceGroupsPanel.vue', () => {
     expect(useToast().toasts[0].message).toContain('уникальны')
   })
 
+  describe('открытые порты группы: номера не повторяются', () => {
+    const wideCatalog: ProtocolPortCatalogEntry[] = [
+      { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
+      { id: 'cat-http', port: 80, protocol_type: 'HTTP', description: null },
+      { id: 'cat-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+      { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
+    ]
+    const port = (protocol_catalog_id: string) => ({ protocol_catalog_id, transport_protocol: 'TCP', description: '' })
+
+    function mountWithPorts(ids: string[]) {
+      const group = savedGroup({ manage_open_ports: true, open_ports: ids.map(port) })
+      return mount(InterfaceGroupsPanel, { props: { rows: [row('Gi0/1', { group_key: 'g1' })], groups: [group], vlanOptions, protocolPortCatalog: wideCatalog } })
+    }
+
+    it('сохранение группы с повтором номера порта отклоняется, окно остаётся открытым', async () => {
+      const wrapper = mountWithPorts(['cat-http', 'cat-ssh', 'cat-http-alt'])
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect(wrapper.find('.group-modal .dup-error').text()).toContain('Порт 80')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      expect(wrapper.emitted('change')).toBeUndefined()
+      expect(wrapper.find('.group-modal').exists()).toBe(true)
+      expect(useToast().toasts.map((t) => t.message)).toEqual(['В группе «Серверные» номера открытых портов повторяются: 80.'])
+    })
+
+    it('без повторов группа сохраняется', async () => {
+      const wrapper = mountWithPorts(['cat-ssh', 'cat-https'])
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect(wrapper.find('.group-modal .dup-error').exists()).toBe(false)
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      expect(lastChange(wrapper).groups[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+    })
+  })
+
   it('правка группы обновляет значения во всех её портах и переносит порты из другой группы с предупреждением', async () => {
     const other = savedGroup({ id: 'g2', key: 'g2', name: 'Чужая', ip_address: '' })
     const rows = [row('Gi0/1', { group_key: 'g1' }), row('Gi0/2', { group_key: 'g2' })]
