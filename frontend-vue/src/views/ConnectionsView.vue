@@ -9,8 +9,8 @@ import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
 import { roleLabel } from '../utils/portConfig'
 import { debounce } from '../utils/debounce'
-import { pagerItems } from '../utils/pager'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
+import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
@@ -279,14 +279,7 @@ async function removeConnection(c: Connection) {
       <div class="table-foot">
         <span>Показано {{ dashboard.items.length ? (dashboard.page - 1) * dashboard.pageSize + 1 : 0 }}–{{ (dashboard.page - 1) * dashboard.pageSize + dashboard.items.length }} из {{ dashboard.total }}</span>
         <PageSizeSelect :model-value="dashboard.pageSize" :options="dashboard.pageSizeOptions" @update:model-value="dashboard.setPageSize" />
-        <div class="pager">
-          <button :disabled="dashboard.page <= 1" aria-label="Предыдущая страница" @click="dashboard.setPage(dashboard.page - 1)">‹</button>
-          <template v-for="(item, i) in pagerItems(dashboard.page, dashboard.pageCount)" :key="`${item}-${i}`">
-            <span v-if="item === '…'" class="pager-gap">…</span>
-            <button v-else :class="{ on: item === dashboard.page }" @click="dashboard.setPage(item)">{{ item }}</button>
-          </template>
-          <button :disabled="dashboard.page >= dashboard.pageCount" aria-label="Следующая страница" @click="dashboard.setPage(dashboard.page + 1)">›</button>
-        </div>
+        <PagerNav :page="dashboard.page" :page-count="dashboard.pageCount" @update:page="dashboard.setPage" />
       </div>
     </div>
 
@@ -543,32 +536,6 @@ tr:hover .port-manage-btn {
   gap: 12px;
   flex-wrap: wrap;
 }
-.pager {
-  display: flex;
-  gap: 4px;
-}
-.pager button {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: var(--r-s);
-  width: 26px;
-  height: 26px;
-  color: var(--ink-muted);
-}
-.pager button.on {
-  background: var(--brand);
-  color: #05161c;
-  border-color: var(--brand);
-}
-.pager button:disabled {
-  opacity: 0.4;
-}
-.pager-gap {
-  align-self: center;
-  padding: 0 2px;
-  color: var(--ink-muted);
-}
-
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
