@@ -823,6 +823,7 @@ async function submit() {
           :vlan-options="portVlanOptions"
           :conflicts="interfaceConflicts"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
+          :device-id="props.device?.id ?? null"
         />
         <DeviceVlanListEditor
           v-if="!loadingNested"
