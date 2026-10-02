@@ -7,10 +7,10 @@ import { useDevicesStore } from '../stores/devices'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
-import { roleLabel } from '../utils/portConfig'
+import { facetsLabel, formatVlans, modeAndVlansLabel, modeLabel, roleLabel } from '../utils/portConfig'
 import { debounce } from '../utils/debounce'
-import { pagerItems } from '../utils/pager'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
+import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
@@ -61,6 +61,21 @@ async function onPortsSaved() {
 // Проверка ролей портов-соседей (см. services/port_config.py): строка с расхождением/одобрением
 // открывает модалку, где расхождение одобряют или устраняют.
 const reviewing = ref<Connection | null>(null)
+
+/** Из окна проверки — к настройке режима и VLAN порта: окно проверки закрываем, открываем порты
+ * устройства; после их сохранения таблица перечитывается (onPortsSaved), и статус пересчитывает сервер. */
+function manageFromReview(target: { interfaceId: string; deviceLabel: string }) {
+  reviewing.value = null
+  openPortsForInterface(target.interfaceId, target.deviceLabel)
+}
+
+/** Обе стороны подключения для строки с расхождением: порт, роль, режим, VLAN. */
+function sidesOf(c: Connection) {
+  return [
+    { key: 'source', port: c.source_interface_name, role: c.source_port_role, mode: c.source_vlan_mode, vlans: c.source_vlans },
+    { key: 'destination', port: c.destination_interface_name, role: c.destination_port_role, mode: c.destination_vlan_mode, vlans: c.destination_vlans },
+  ]
+}
 const bulkApproving = ref(false)
 
 // Поиск уходит на сервер, поэтому не на каждую букву. Смена фильтра — сразу и отменяет
@@ -80,7 +95,7 @@ onBeforeUnmount(() => searchDebounced.cancel())
 async function approveAllMatching() {
   const count = dashboard.total
   if (!count) return
-  if (!confirm(`Одобрить расхождение ролей портов у ${count} подключ. как допустимое? Одобрение потеряет силу, если роль любого из портов изменится.`)) return
+  if (!confirm(`Одобрить расхождение конфигурации портов у ${count} подключ. как допустимое? Одобрение потеряет силу, если роль, режим или VLAN любого из портов изменятся.`)) return
   bulkApproving.value = true
   try {
     const { approved_count } = await dashboard.approveMatching()
@@ -141,7 +156,7 @@ async function removeConnection(c: Connection) {
 
     <div v-if="dashboard.summary.mismatch > 0" class="mismatch-banner" role="status">
       <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-      <span>Найдено подключений с различающимися ролями портов-соседей: {{ dashboard.summary.mismatch }}.</span>
+      <span>Найдено подключений с различающейся конфигурацией портов-соседей (роль, режим, VLAN): {{ dashboard.summary.mismatch }}.</span>
       <button
         v-if="dashboard.portConfigFilter !== 'mismatch'"
         type="button"
@@ -156,14 +171,14 @@ async function removeConnection(c: Connection) {
     <div class="filter-bar">
       <div class="search-box">
         <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="dashboard.search" type="text" placeholder="Поиск по устройству, порту, роли порта…" />
+        <input v-model="dashboard.search" type="text" placeholder="Поиск по устройству, порту, роли, режиму порта…" />
       </div>
       <div class="chip-group">
         <button :class="{ on: dashboard.activeFilter === 'all' }" @click="dashboard.activeFilter = 'all'">Все</button>
         <button :class="{ on: dashboard.activeFilter === 'yes' }" @click="dashboard.activeFilter = 'yes'">Активные</button>
         <button :class="{ on: dashboard.activeFilter === 'no' }" @click="dashboard.activeFilter = 'no'">Неактивные</button>
       </div>
-      <div class="chip-group" role="group" aria-label="Проверка ролей портов">
+      <div class="chip-group" role="group" aria-label="Проверка конфигурации портов">
         <button :class="{ on: dashboard.portConfigFilter === 'all' }" @click="dashboard.portConfigFilter = 'all'">Все порты</button>
         <button :class="{ on: dashboard.portConfigFilter === 'mismatch' }" data-filter="mismatch" @click="dashboard.portConfigFilter = 'mismatch'">
           Расхождения ({{ dashboard.summary.mismatch }})
@@ -211,7 +226,7 @@ async function removeConnection(c: Connection) {
               <th></th>
               <th>Назначение</th>
               <th>Тип линии связи</th>
-              <th>Роли портов</th>
+              <th>Конфигурация портов</th>
               <th>Статус</th>
               <th></th>
             </tr>
@@ -239,18 +254,25 @@ async function removeConnection(c: Connection) {
               </td>
               <td>{{ c.connection_type_name }}</td>
               <td class="roles-cell">
-                <template v-if="c.port_config_status === 'ok'">{{ roleLabel(c.source_port_role) }}</template>
+                <template v-if="c.port_config_status === 'ok'">
+                  {{ roleLabel(c.source_port_role) }}
+                  <span v-if="c.source_vlan_mode" class="role-line config-line">{{ modeAndVlansLabel(c.source_vlan_mode, c.source_vlans) }}</span>
+                </template>
                 <template v-else>
-                  <span class="role-line"><span class="mono">{{ c.source_interface_name }}</span>: {{ roleLabel(c.source_port_role) }}</span>
-                  <span class="role-line"><span class="mono">{{ c.destination_interface_name }}</span>: {{ roleLabel(c.destination_port_role) }}</span>
+                  <span v-for="side in sidesOf(c)" :key="side.key" class="role-line">
+                    <span class="mono">{{ side.port }}</span>:
+                    <span :class="{ diff: c.port_config_diff.includes('role') }">{{ roleLabel(side.role) }}</span> ·
+                    <span :class="{ diff: c.port_config_diff.includes('mode') }">{{ modeLabel(side.mode) }}</span> ·
+                    <span :class="{ diff: c.port_config_diff.includes('vlans') }">VLAN {{ formatVlans(side.vlans) }}</span>
+                  </span>
                   <button
                     type="button"
                     class="port-badge"
                     :class="c.port_config_status"
-                    :aria-label="`Проверить роли портов: ${c.source_device_name} — ${c.destination_device_name}`"
+                    :aria-label="`Проверить конфигурацию портов: ${c.source_device_name} — ${c.destination_device_name}`"
                     @click="reviewing = c"
                   >
-                    {{ c.port_config_status === 'mismatch' ? 'Расхождение — проверить' : 'Одобрено' }}
+                    {{ c.port_config_status === 'mismatch' ? 'Расхождение' : 'Одобрено' }}<template v-if="c.port_config_diff.length"> ({{ facetsLabel(c.port_config_diff) }})</template>{{ c.port_config_status === 'mismatch' ? ' — проверить' : '' }}
                   </button>
                 </template>
               </td>
@@ -279,20 +301,13 @@ async function removeConnection(c: Connection) {
       <div class="table-foot">
         <span>Показано {{ dashboard.items.length ? (dashboard.page - 1) * dashboard.pageSize + 1 : 0 }}–{{ (dashboard.page - 1) * dashboard.pageSize + dashboard.items.length }} из {{ dashboard.total }}</span>
         <PageSizeSelect :model-value="dashboard.pageSize" :options="dashboard.pageSizeOptions" @update:model-value="dashboard.setPageSize" />
-        <div class="pager">
-          <button :disabled="dashboard.page <= 1" aria-label="Предыдущая страница" @click="dashboard.setPage(dashboard.page - 1)">‹</button>
-          <template v-for="(item, i) in pagerItems(dashboard.page, dashboard.pageCount)" :key="`${item}-${i}`">
-            <span v-if="item === '…'" class="pager-gap">…</span>
-            <button v-else :class="{ on: item === dashboard.page }" @click="dashboard.setPage(item)">{{ item }}</button>
-          </template>
-          <button :disabled="dashboard.page >= dashboard.pageCount" aria-label="Следующая страница" @click="dashboard.setPage(dashboard.page + 1)">›</button>
-        </div>
+        <PagerNav :page="dashboard.page" :page-count="dashboard.pageCount" @update:page="dashboard.setPage" />
       </div>
     </div>
 
     <ConnectionFormModal v-if="modalOpen" :connection="modalConnection" @close="closeModal" @saved="onSaved" />
     <ConnectionCanvasModal v-if="canvasOpen" @close="closeCanvas" />
-    <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" />
+    <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" @manage-ports="manageFromReview" />
     <DevicePortsModal
       v-if="portsTarget"
       :device-id="portsTarget.deviceId"
@@ -465,11 +480,20 @@ tr:hover .port-manage-btn {
 }
 .roles-cell {
   color: var(--ink-muted);
-  max-width: 260px;
+  max-width: 320px;
 }
 .role-line {
   display: block;
   font-size: 11.8px;
+}
+.config-line {
+  font-size: 11px;
+}
+.role-line .diff {
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: underline dotted var(--status-warn);
+  text-underline-offset: 2px;
 }
 .port-badge {
   margin-top: 5px;
@@ -543,32 +567,6 @@ tr:hover .port-manage-btn {
   gap: 12px;
   flex-wrap: wrap;
 }
-.pager {
-  display: flex;
-  gap: 4px;
-}
-.pager button {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: var(--r-s);
-  width: 26px;
-  height: 26px;
-  color: var(--ink-muted);
-}
-.pager button.on {
-  background: var(--brand);
-  color: #05161c;
-  border-color: var(--brand);
-}
-.pager button:disabled {
-  opacity: 0.4;
-}
-.pager-gap {
-  align-self: center;
-  padding: 0 2px;
-  color: var(--ink-muted);
-}
-
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);

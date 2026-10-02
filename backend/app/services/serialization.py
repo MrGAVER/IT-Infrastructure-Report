@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ..models import (Connection, ConnectionType, DeviceInterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN)
-from .port_config import PortConfigStatus, evaluate_port_config, port_role
+from .port_config import PortConfigStatus, evaluate_port_config, config_differences
+from .port_config_db import load_port_configs
 from ..constants import OwnerType, SourceType
 from .computed import device_management_ports_and_ips
 
@@ -162,6 +163,7 @@ def enrich_connections(items: Sequence[Connection], session: Session) -> list[di
     ct_ids = list({x.connection_type_id for x in items})
     ctypes = session.scalars(select(ConnectionType).where(ConnectionType.id.in_(ct_ids))).all() if ct_ids else []
     ct_by_id = {x.id: x for x in ctypes}
+    configs = load_port_configs(session, interfaces)
     result=[]
     for conn in items:
         data=serialize(conn)
@@ -172,12 +174,20 @@ def enrich_connections(items: Sequence[Connection], session: Session) -> list[di
         data['destination_device_name']=dd.system_name or dd.serial_number if dd else ''
         data['destination_interface_name']=dst.name if dst else ''
         data['connection_type_name']=ct_by_id.get(conn.connection_type_id).name if ct_by_id.get(conn.connection_type_id) else ''
-        # Роли портов и статус сверки считаются здесь же, на сервере, чтобы дашборд, форма и
-        # любой другой клиент видели одно и то же (правила — в services/port_config.py). Сырая
-        # подпись одобрения — внутренняя деталь, наружу отдаётся только итоговый статус.
-        data['source_port_role']=port_role(src).value if src else None
-        data['destination_port_role']=port_role(dst).value if dst else None
-        data['port_config_status']=evaluate_port_config(src, dst, conn.port_config_approved_signature, is_active=conn.is_active is not False).value if src and dst else PortConfigStatus.OK.value
+        # Конфигурация портов (роль, режим, VLAN) и статус сверки считаются здесь же, на сервере,
+        # чтобы дашборд, форма и любой другой клиент видели одно и то же (правила — в
+        # services/port_config.py). Сырая подпись одобрения — внутренняя деталь, наружу отдаётся
+        # только итоговый статус и список различающихся граней.
+        src_cfg, dst_cfg = configs.get(conn.source_interface_id), configs.get(conn.destination_interface_id)
+        data['source_port_role']=src_cfg.role.value if src_cfg else None
+        data['destination_port_role']=dst_cfg.role.value if dst_cfg else None
+        data['source_vlan_mode']=src_cfg.mode if src_cfg else None
+        data['destination_vlan_mode']=dst_cfg.mode if dst_cfg else None
+        data['source_vlans']=sorted(src_cfg.vlans) if src_cfg else []
+        data['destination_vlans']=sorted(dst_cfg.vlans) if dst_cfg else []
+        paired = src_cfg is not None and dst_cfg is not None
+        data['port_config_diff']=[f.value for f in config_differences(src_cfg, dst_cfg)] if paired and conn.is_active is not False else []
+        data['port_config_status']=evaluate_port_config(src_cfg, dst_cfg, conn.port_config_approved_signature, is_active=conn.is_active is not False).value if paired else PortConfigStatus.OK.value
         data.pop('port_config_approved_signature', None)
         result.append(data)
     return result

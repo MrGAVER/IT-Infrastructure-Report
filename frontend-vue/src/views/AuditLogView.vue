@@ -3,6 +3,7 @@ import { onMounted, watch } from 'vue'
 import { useAuditLogStore, ACTION_LABELS } from '../stores/auditLog'
 import { useCatalogsStore } from '../stores/catalogs'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
+import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
 
 const log = useAuditLogStore()
@@ -91,11 +92,7 @@ function formatWhen(iso: string): string {
       <div class="table-foot">
         <span>Показано {{ log.pageItems.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.pageItems.length }} из {{ log.filtered.length }}</span>
         <PageSizeSelect :model-value="log.pageSize" :options="log.pageSizeOptions" @update:model-value="log.setPageSize" />
-        <div class="pager">
-          <button :disabled="log.page <= 1" @click="log.setPage(log.page - 1)">‹</button>
-          <button v-for="p in log.pageCount" :key="p" :class="{ on: p === log.page }" @click="log.setPage(p)">{{ p }}</button>
-          <button :disabled="log.page >= log.pageCount" @click="log.setPage(log.page + 1)">›</button>
-        </div>
+        <PagerNav :page="log.page" :page-count="log.pageCount" @update:page="log.setPage" />
       </div>
     </div>
   </div>
@@ -269,27 +266,6 @@ tbody tr:hover td {
   gap: 12px;
   flex-wrap: wrap;
 }
-.pager {
-  display: flex;
-  gap: 4px;
-}
-.pager button {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: var(--r-s);
-  width: 26px;
-  height: 26px;
-  color: var(--ink-muted);
-}
-.pager button.on {
-  background: var(--brand);
-  color: #05161c;
-  border-color: var(--brand);
-}
-.pager button:disabled {
-  opacity: 0.4;
-}
-
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);

@@ -1,7 +1,7 @@
 """Операции проверки конфигураций портов-соседей подключений (дашборд «Подключения»).
 
 Правила определения статуса — в services/port_config.py; здесь только изменяющие данные
-операции: задать роль порта, одобрить расхождение, отозвать одобрение. Каждая операция — одна
+операции: задать роль порта, одобрить расхождение (роли, режима порта, VLAN), отозвать одобрение. Каждая операция — одна
 транзакция с записью в журнал аудита.
 """
 from __future__ import annotations
@@ -16,8 +16,21 @@ from ..constants import AuditAction, OwnerType
 from ..models import Connection, DeviceInterface, IPAddress
 from .connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, select_connection_ids
 from .crud import audit
-from .port_config import PORT_ROLE_LABELS, PortConfigStatus, approval_signature, evaluate_port_config, port_role, role_from_flags
+from .port_config import (
+    ConfigFacet,
+    PORT_ROLE_LABELS,
+    PortConfig,
+    PortConfigStatus,
+    approval_signature,
+    config_differences,
+    evaluate_port_config,
+    port_role,
+    role_from_flags,
+)
+from .port_config_db import load_port_configs
 from .serialization import enrich_connections, enrich_interfaces
+
+_FACET_LABELS = {ConfigFacet.ROLE: "роль", ConfigFacet.MODE: "режим порта", ConfigFacet.VLANS: "VLAN"}
 
 MAX_APPROVE_BATCH = 500
 # Сколько подключений обрабатывается за один проход при одобрении «всех найденных»: на каждый
@@ -60,26 +73,35 @@ def set_port_role(interface_id: str, payload: dict[str, Any], session: Session) 
     return enrich_interfaces([iface], session)[0]
 
 
+def _describe(name: str, config: PortConfig) -> str:
+    vlans = ", ".join(str(n) for n in sorted(config.vlans)) or "нет"
+    return f"«{name}» — {PORT_ROLE_LABELS[config.role]}, режим {config.mode}, VLAN: {vlans}"
+
+
 def _approve_connections(connections: Sequence[Connection], session: Session) -> tuple[list[Connection], list[str], int]:
     """Одобряет текущее расхождение у переданных подключений (без commit — его делает вызывающий).
 
     Возвращает (подключения с расхождением, одобренным ранее или в этом вызове; id подключений, у
-    которых одобрять нечего; сколько одобрено именно сейчас). Порты подгружаются одним запросом."""
+    которых одобрять нечего; сколько одобрено именно сейчас). Порты и их VLAN подгружаются пакетом."""
     interface_ids = {i for c in connections for i in (c.source_interface_id, c.destination_interface_id)}
-    interfaces = {i.id: i for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(interface_ids))).all()} if interface_ids else {}
+    interfaces = list(session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(interface_ids))).all()) if interface_ids else []
+    names = {i.id: i.name for i in interfaces}
+    configs = load_port_configs(session, interfaces)
     covered: list[Connection] = []
     skipped: list[str] = []
     newly_approved = 0
     for conn in connections:
-        source, destination = interfaces.get(conn.source_interface_id), interfaces.get(conn.destination_interface_id)
+        source, destination = configs.get(conn.source_interface_id), configs.get(conn.destination_interface_id)
         if not source or not destination:
             raise HTTPException(422, "У подключения отсутствует один из портов")
         status = evaluate_port_config(source, destination, conn.port_config_approved_signature, is_active=conn.is_active is not False)
         if status is PortConfigStatus.MISMATCH:
             conn.port_config_approved_signature = approval_signature(source, destination)
+            facets = ", ".join(_FACET_LABELS[f] for f in config_differences(source, destination))
             audit(
                 session, "connections", conn.id, AuditAction.UPDATE,
-                f"Одобрено расхождение ролей портов: «{source.name}» — {PORT_ROLE_LABELS[port_role(source)]}, «{destination.name}» — {PORT_ROLE_LABELS[port_role(destination)]}",
+                f"Одобрено расхождение конфигурации портов ({facets}): "
+                f"{_describe(names[conn.source_interface_id], source)}; {_describe(names[conn.destination_interface_id], destination)}",
             )
             covered.append(conn)
             newly_approved += 1
@@ -104,7 +126,7 @@ def _parse_match(match: Any) -> ConnectionQuery:
 
 
 def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, Any]:
-    """Одобряет текущее расхождение ролей портов у подключений — двумя способами:
+    """Одобряет текущее расхождение конфигурации портов (роль, режим, VLAN) у подключений — двумя способами:
 
     * `{"connection_ids": [...]}` — у перечисленных (форма подключения и окно проверки одного
       подключения; до MAX_APPROVE_BATCH за запрос). Неизвестный id — 404 без каких-либо изменений.
@@ -150,6 +172,6 @@ def revoke_port_config_approval(connection_id: str, session: Session) -> dict[st
         raise HTTPException(404, "Подключение не найдено")
     if conn.port_config_approved_signature:
         conn.port_config_approved_signature = None
-        audit(session, "connections", conn.id, AuditAction.UPDATE, "Отозвано одобрение расхождения ролей портов")
+        audit(session, "connections", conn.id, AuditAction.UPDATE, "Отозвано одобрение расхождения конфигурации портов")
         session.commit()
     return enrich_connections([conn], session)[0]

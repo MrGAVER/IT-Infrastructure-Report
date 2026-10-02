@@ -1,11 +1,11 @@
-// Роли портов (управление / передача данных) и их сравнение для подключений.
+// Роли портов (управление / передача данных), режим и VLAN — подписи и сравнение для подключений.
 //
-// Источник данных — флаги самого порта (DeviceInterface.is_management / is_data_transfer). Итоговый
-// статус подключения (ok / mismatch / approved) считает БЭКЕНД и приходит в Connection
-// (port_config_status); здесь только то, что нужно клиенту ДО сохранения подключения — форма
-// сравнивает два ещё не сохранённых порта. Правило то же, что в backend/app/services/port_config.py:
-// любое различие пары флагов — расхождение.
-import type { DeviceInterface, PortRole } from '../api/types'
+// Источник данных — сам порт (DeviceInterface.is_management / is_data_transfer / vlan_mode и
+// связи с VLAN). Итоговый статус подключения (ok / mismatch / approved) и список различающихся
+// граней считает БЭКЕНД и приходит в Connection (port_config_status, port_config_diff); здесь
+// только подписи и то, что нужно клиенту ДО сохранения подключения: форма сравнивает роли двух ещё
+// не сохранённых портов (правило то же, что в backend/app/services/port_config.py).
+import type { DeviceInterface, PortConfigFacet, PortRole, VlanMode } from '../api/types'
 
 export const PORT_ROLE_LABELS: Record<PortRole, string> = {
   none: 'не задано',
@@ -40,4 +40,45 @@ export function roleLabel(role: PortRole | null | undefined): string {
 
 export function hasRoleMismatch(a: Partial<RoleFlags>, b: Partial<RoleFlags>): boolean {
   return portRoleOf(a) !== portRoleOf(b)
+}
+
+export const PORT_CONFIG_FACET_LABELS: Record<PortConfigFacet, string> = {
+  role: 'роль',
+  mode: 'режим',
+  vlans: 'VLAN',
+}
+
+/** «роль, режим» — для бейджей и подсказок; пустая строка, если различий нет. */
+export function facetsLabel(facets: readonly PortConfigFacet[]): string {
+  return facets.map((f) => PORT_CONFIG_FACET_LABELS[f]).join(', ')
+}
+
+export function modeLabel(mode: VlanMode | null | undefined): string {
+  return mode ?? '—'
+}
+
+/** Номера VLAN с диапазонами подряд идущих: [10, 11, 12, 20] → «10–12, 20». Транк может нести
+ * сотни VLAN — перечисление по одному не помещается в ячейку таблицы. Пустой набор — «нет». */
+export function formatVlans(vlans: readonly number[] | null | undefined): string {
+  const sorted = [...new Set(vlans ?? [])].sort((a, b) => a - b)
+  if (!sorted.length) return 'нет'
+  const parts: string[] = []
+  let start = sorted[0]
+  let end = start
+  const flush = () => parts.push(start === end ? String(start) : end - start === 1 ? `${start}, ${end}` : `${start}–${end}`)
+  for (const n of sorted.slice(1)) {
+    if (n === end + 1) {
+      end = n
+      continue
+    }
+    flush()
+    start = end = n
+  }
+  flush()
+  return parts.join(', ')
+}
+
+/** Режим и VLAN порта одной строкой: «trunk · VLAN 10–12, 20». */
+export function modeAndVlansLabel(mode: VlanMode | null | undefined, vlans: readonly number[] | null | undefined): string {
+  return `${modeLabel(mode)} · VLAN ${formatVlans(vlans)}`
 }

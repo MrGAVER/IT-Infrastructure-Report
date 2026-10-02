@@ -34,6 +34,7 @@ function connection(id: string, overrides: Partial<Connection> = {}): Connection
     source_port_role: 'data',
     destination_port_role: 'data',
     port_config_status: 'ok',
+    source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
     ...overrides,
   }
 }
@@ -353,21 +354,51 @@ describe('ConnectionsView.vue — поиск на сервере', () => {
   })
 })
 
-describe('ConnectionsView.vue — проверка ролей портов-соседей', () => {
+describe('ConnectionsView.vue — проверка конфигурации портов-соседей', () => {
   const mismatched = connection('conn-2', {
     source_device_name: 'srv-02', source_interface_name: 'idrac', destination_device_name: 'sw-02', destination_interface_name: 'gi0/7',
-    source_port_role: 'management', destination_port_role: 'data', port_config_status: 'mismatch',
+    source_port_role: 'management', destination_port_role: 'data', port_config_status: 'mismatch', port_config_diff: ['role'],
   })
   const approved = connection('conn-3', { ...mismatched, id: 'conn-3', source_device_name: 'srv-03', port_config_status: 'approved' })
 
-  it('без расхождений баннер не показывается, а колонка «Роли портов» содержит роль порта', async () => {
+  it('без расхождений баннер не показывается, а колонка «Конфигурация портов» содержит роль, режим и VLAN порта', async () => {
     const wrapper = await mountView({ rows: [connectionFixture] })
 
     expect(wrapper.find('.mismatch-banner').exists()).toBe(false)
-    expect(wrapper.find('thead').text()).toContain('Роли портов')
+    expect(wrapper.find('thead').text()).toContain('Конфигурация портов')
     expect(wrapper.find('thead').text()).not.toContain('Назначение линии')
     expect(wrapper.find('tbody').text()).toContain('Передача данных')
     expect(wrapper.find('.port-badge').exists()).toBe(false)
+  })
+
+  it('в строке без расхождений показывает режим и VLAN порта', async () => {
+    const row = connection('conn-v', { source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [10, 11, 12, 20], destination_vlans: [10, 11, 12, 20] })
+    const wrapper = await mountView({ rows: [row] })
+
+    expect(wrapper.find('.roles-cell').text()).toContain('trunk · VLAN 10–12, 20')
+  })
+
+  it('расхождение режима и VLAN: обе стороны с портом, режимом и VLAN, различающиеся значения выделены, бейдж называет грани', async () => {
+    const row = connection('conn-m', {
+      source_interface_name: 'eth0', destination_interface_name: 'gi0/1',
+      source_port_role: 'data', destination_port_role: 'data',
+      source_vlan_mode: 'trunk', destination_vlan_mode: 'access', source_vlans: [10, 20], destination_vlans: [10],
+      port_config_status: 'mismatch', port_config_diff: ['mode', 'vlans'],
+    })
+    const wrapper = await mountView({ rows: [row] })
+
+    const lines = wrapper.findAll('.roles-cell .role-line')
+    expect(lines.map((l) => l.text())).toEqual(['eth0: Передача данных · trunk · VLAN 10, 20', 'gi0/1: Передача данных · access · VLAN 10'])
+    const diffTexts = wrapper.findAll('.roles-cell .diff').map((d) => d.text())
+    expect(diffTexts).toEqual(['trunk', 'VLAN 10, 20', 'access', 'VLAN 10']) // роль совпадает — не выделена
+    expect(wrapper.find('.port-badge').text()).toBe('Расхождение (режим, VLAN) — проверить')
+  })
+
+  it('одобренное расхождение остаётся с бейджем «Одобрено» и перечнем граней', async () => {
+    const row = connection('conn-a', { port_config_status: 'approved', port_config_diff: ['vlans'], source_vlans: [10], destination_vlans: [20] })
+    const wrapper = await mountView({ rows: [row] })
+
+    expect(wrapper.find('.port-badge').text()).toBe('Одобрено (VLAN)')
   })
 
   it('баннер показывает число расхождений по всему реестру; «Показать» включает фильтр расхождений на сервере', async () => {

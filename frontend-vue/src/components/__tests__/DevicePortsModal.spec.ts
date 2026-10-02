@@ -220,6 +220,7 @@ describe('DevicePortsModal.vue', () => {
           id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-other', connection_type_id: 'ct', is_active: true, description: null,
           source_device_name: 'srv-01', source_interface_name: 'eth0', destination_device_name: 'sw-02', destination_interface_name: 'Gi0/2', connection_type_name: 'UTP',
           source_port_role: 'data', destination_port_role: 'data', port_config_status: 'ok',
+          source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
         },
       ]
       const port = { ...existingInterfaceFixture, ...thisPort, vlan_mode: 'trunk' }

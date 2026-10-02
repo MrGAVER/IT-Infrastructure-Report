@@ -61,7 +61,7 @@ export interface DeviceInterface extends CatalogItem {
   is_management: boolean
   is_data_transfer: boolean
   description: string | null
-  vlan_mode: 'access' | 'trunk'
+  vlan_mode: VlanMode
   /** Группа портов (InterfaceGroup), в которую входит порт; null — вне групп. */
   group_id?: string | null
 }
@@ -81,10 +81,18 @@ export interface Connection {
   destination_device_name: string
   destination_interface_name: string
   connection_type_name: string
-  /** Роли портов и статус их сверки считает бэкенд (services/port_config.py) — клиент их не
-   * пересчитывает, чтобы форма, дашборд и любой другой потребитель видели одно и то же. */
+  /** Конфигурацию портов (роль, режим, VLAN) и статус её сверки считает бэкенд
+   * (services/port_config.py) — клиент их не пересчитывает, чтобы форма, дашборд и любой другой
+   * потребитель видели одно и то же. Для «осиротевшего» подключения (порт удалён) — null / []. */
   source_port_role: PortRole | null
   destination_port_role: PortRole | null
+  source_vlan_mode: VlanMode | null
+  destination_vlan_mode: VlanMode | null
+  /** Номера VLAN (802.1Q-теги) порта по возрастанию. */
+  source_vlans: number[]
+  destination_vlans: number[]
+  /** Чем различаются порты; пусто, если конфигурации совпадают или подключение неактивно. */
+  port_config_diff: PortConfigFacet[]
   port_config_status: PortConfigStatus
 }
 
@@ -110,9 +118,16 @@ export interface ConnectionsPage {
 /** Роль порта: комбинация флагов DeviceInterface.is_management / is_data_transfer. */
 export type PortRole = 'none' | 'management' | 'data' | 'management_data'
 
-/** ok — роли портов совпадают (или подключение неактивно); mismatch — различаются, решения ещё
- * нет; approved — различаются, но пользователь одобрил именно эту пару ролей. */
+/** ok — роль, режим и набор VLAN портов совпадают (или подключение неактивно); mismatch —
+ * различаются, решения ещё нет; approved — различаются, но пользователь одобрил именно это
+ * расхождение. */
 export type PortConfigStatus = 'ok' | 'mismatch' | 'approved'
+
+/** Режим порта: access — один VLAN, trunk — набор VLAN. */
+export type VlanMode = 'access' | 'trunk'
+
+/** Грань конфигурации порта, по которой пара портов-соседей может различаться. */
+export type PortConfigFacet = 'role' | 'mode' | 'vlans'
 
 export interface DeviceType extends CatalogItem {}
 export interface Manufacturer extends CatalogItem {}
