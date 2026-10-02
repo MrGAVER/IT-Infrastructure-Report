@@ -1,21 +1,27 @@
 <script setup lang="ts">
-// Проверка расхождения ролей у пары портов-соседей одного подключения (дашборд «Подключения»).
-// Роль порта — управление / передача данных — хранится на самом порту; здесь пользователь видит
-// обе стороны рядом и решает: одобрить расхождение как допустимое (например, порт управления
-// сервера включён в порт коммутатора, настроенный на передачу данных), либо привести роль одного
-// порта к роли другого. Статус после любого действия пересчитывает сервер — клиент только
+// Проверка расхождения конфигурации у пары портов-соседей одного подключения (дашборд «Подключения»):
+// роль (управление / передача данных), режим порта (access / trunk) и назначенные VLAN. Всё это
+// хранится на самих портах; здесь пользователь видит обе стороны рядом, различающиеся значения
+// подсвечены, и решает: одобрить расхождение как допустимое (например, порт управления сервера
+// включён в порт коммутатора, настроенный на передачу данных), либо привести порты к одному виду.
+// Роль выравнивается здесь же одним запросом; режим и VLAN правятся в окне портов устройства
+// (событие manage-ports). Статус после любого действия пересчитывает сервер — клиент только
 // подставляет его в список.
 import { computed, ref } from 'vue'
 import { setPortRole } from '../api/portConfig'
-import type { Connection } from '../api/types'
+import type { Connection, PortConfigFacet } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
-import { roleLabel } from '../utils/portConfig'
+import { facetsLabel, formatVlans, modeLabel, roleLabel } from '../utils/portConfig'
 
 const props = defineProps<{ connection: Connection }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{
+  close: []
+  /** Открыть окно портов устройства, чтобы поправить режим порта и VLAN. */
+  'manage-ports': [target: { interfaceId: string; deviceLabel: string }]
+}>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
@@ -31,6 +37,9 @@ const errorMessage = ref<string | null>(null)
 const current = ref<Connection>(props.connection)
 const isApproved = computed(() => current.value.port_config_status === 'approved')
 const isMismatch = computed(() => current.value.port_config_status === 'mismatch')
+const diff = computed(() => current.value.port_config_diff ?? [])
+const differs = (facet: PortConfigFacet) => diff.value.includes(facet)
+const needsPortSetup = computed(() => differs('mode') || differs('vlans'))
 
 async function run(action: () => Promise<void>, fallbackError: string) {
   busy.value = true
@@ -57,6 +66,13 @@ function revoke() {
     current.value = await dashboard.revokeApproval(current.value.id)
     notify('Одобрение отозвано — расхождение снова требует проверки', 'info')
   }, 'Не удалось отозвать одобрение')
+}
+
+function managePorts(side: 'source' | 'destination') {
+  const c = current.value
+  emit('manage-ports', side === 'source'
+    ? { interfaceId: c.source_interface_id, deviceLabel: c.source_device_name }
+    : { interfaceId: c.destination_interface_id, deviceLabel: c.destination_device_name })
 }
 
 /** keepSource=true — порт назначения получает роль порта-источника, и наоборот. */
@@ -94,20 +110,26 @@ function align(keepSource: boolean) {
           <div class="side-title">Источник</div>
           <div class="devname">{{ current.source_device_name }}</div>
           <div class="portname mono">{{ current.source_interface_name }}</div>
-          <div class="role" data-side="source">{{ roleLabel(current.source_port_role) }}</div>
+          <div class="role cfg" :class="{ diff: differs('role') }" data-side="source">{{ roleLabel(current.source_port_role) }}</div>
+          <div class="cfg" :class="{ diff: differs('mode') }" data-mode-side="source">Режим: {{ modeLabel(current.source_vlan_mode) }}</div>
+          <div class="cfg" :class="{ diff: differs('vlans') }" data-vlans-side="source">VLAN: {{ formatVlans(current.source_vlans) }}</div>
         </div>
         <div class="link-icon"><svg class="icon"><use href="/icons.svg#i-network" /></svg></div>
         <div class="side">
           <div class="side-title">Назначение</div>
           <div class="devname">{{ current.destination_device_name }}</div>
           <div class="portname mono">{{ current.destination_interface_name }}</div>
-          <div class="role" data-side="destination">{{ roleLabel(current.destination_port_role) }}</div>
+          <div class="role cfg" :class="{ diff: differs('role') }" data-side="destination">{{ roleLabel(current.destination_port_role) }}</div>
+          <div class="cfg" :class="{ diff: differs('mode') }" data-mode-side="destination">Режим: {{ modeLabel(current.destination_vlan_mode) }}</div>
+          <div class="cfg" :class="{ diff: differs('vlans') }" data-vlans-side="destination">VLAN: {{ formatVlans(current.destination_vlans) }}</div>
         </div>
       </div>
 
-      <p v-if="isMismatch" class="status warn">⚠ Роли портов различаются, решение не принято.</p>
-      <p v-else-if="isApproved" class="status approved">✓ Расхождение одобрено — оно считается допустимым, пока роли портов не изменятся.</p>
-      <p v-else class="status">Роли портов совпадают.</p>
+      <p v-if="isMismatch" class="status warn">⚠ Конфигурации портов различаются ({{ facetsLabel(diff) }}), решение не принято.</p>
+      <p v-else-if="isApproved" class="status approved">
+        ✓ Расхождение ({{ facetsLabel(diff) }}) одобрено — оно считается допустимым, пока роль, режим и VLAN портов не изменятся.
+      </p>
+      <p v-else class="status">Конфигурации портов совпадают.</p>
 
       <div class="actions">
         <button v-if="isMismatch" type="button" class="btn btn-primary" data-action="approve" :disabled="busy" @click="approve">
@@ -117,12 +139,22 @@ function align(keepSource: boolean) {
           Отозвать одобрение
         </button>
         <template v-if="isMismatch || isApproved">
-          <button type="button" class="btn btn-secondary" data-action="keep-source" :disabled="busy" @click="align(true)">
-            Порту «{{ current.destination_interface_name }}» задать роль как у «{{ current.source_interface_name }}»
-          </button>
-          <button type="button" class="btn btn-secondary" data-action="keep-destination" :disabled="busy" @click="align(false)">
-            Порту «{{ current.source_interface_name }}» задать роль как у «{{ current.destination_interface_name }}»
-          </button>
+          <template v-if="differs('role')">
+            <button type="button" class="btn btn-secondary" data-action="keep-source" :disabled="busy" @click="align(true)">
+              Порту «{{ current.destination_interface_name }}» задать роль как у «{{ current.source_interface_name }}»
+            </button>
+            <button type="button" class="btn btn-secondary" data-action="keep-destination" :disabled="busy" @click="align(false)">
+              Порту «{{ current.source_interface_name }}» задать роль как у «{{ current.destination_interface_name }}»
+            </button>
+          </template>
+          <template v-if="needsPortSetup">
+            <button type="button" class="btn btn-secondary" data-action="manage-source" :disabled="busy" @click="managePorts('source')">
+              Настроить режим и VLAN: «{{ current.source_interface_name }}» ({{ current.source_device_name }})
+            </button>
+            <button type="button" class="btn btn-secondary" data-action="manage-destination" :disabled="busy" @click="managePorts('destination')">
+              Настроить режим и VLAN: «{{ current.destination_interface_name }}» ({{ current.destination_device_name }})
+            </button>
+          </template>
         </template>
       </div>
 
@@ -206,6 +238,17 @@ function align(keepSource: boolean) {
   margin-top: 6px;
   font-size: 12.5px;
   color: var(--ink);
+}
+.cfg {
+  font-size: 12.5px;
+  color: var(--ink);
+  border-radius: var(--r-s);
+  padding: 1px 4px;
+  margin: 0 -4px;
+}
+.cfg.diff {
+  background: var(--status-warn-soft);
+  font-weight: 600;
 }
 .link-icon {
   display: flex;

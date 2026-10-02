@@ -25,6 +25,11 @@ function connection(overrides: Partial<Connection> = {}): Connection {
     connection_type_name: 'Медь',
     source_port_role: 'management',
     destination_port_role: 'data',
+    source_vlan_mode: 'trunk',
+    destination_vlan_mode: 'trunk',
+    source_vlans: [],
+    destination_vlans: [],
+    port_config_diff: ['role'],
     port_config_status: 'mismatch',
     ...overrides,
   }
@@ -164,10 +169,51 @@ describe('PortConfigReviewModal.vue', () => {
     expect((wrapper.find('[data-action="approve"]').element as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('если роли уже совпадают, действий по расхождению нет — только сообщение', () => {
-    const wrapper = mountModal(connection({ destination_port_role: 'management', port_config_status: 'ok' }))
+  it('если конфигурации уже совпадают, действий по расхождению нет — только сообщение', () => {
+    const wrapper = mountModal(connection({ destination_port_role: 'management', port_config_status: 'ok', port_config_diff: [] }))
 
-    expect(wrapper.text()).toContain('Роли портов совпадают')
+    expect(wrapper.text()).toContain('Конфигурации портов совпадают')
     expect(wrapper.find('[data-action]').exists()).toBe(false)
+  })
+
+  it('расхождение режима и VLAN: подсвечивает различающиеся значения и предлагает настроить порты, а не выравнивать роль', () => {
+    const wrapper = mountModal(
+      connection({
+        source_port_role: 'data', destination_port_role: 'data',
+        source_vlan_mode: 'trunk', destination_vlan_mode: 'access',
+        source_vlans: [10, 11, 12, 20], destination_vlans: [10],
+        port_config_diff: ['mode', 'vlans'],
+      }),
+    )
+
+    expect(wrapper.find('[data-mode-side="source"]').text()).toBe('Режим: trunk')
+    expect(wrapper.find('[data-mode-side="destination"]').text()).toBe('Режим: access')
+    expect(wrapper.find('[data-vlans-side="source"]').text()).toBe('VLAN: 10–12, 20')
+    expect(wrapper.find('[data-vlans-side="destination"]').text()).toBe('VLAN: 10')
+    expect(wrapper.find('[data-mode-side="source"]').classes()).toContain('diff')
+    expect(wrapper.find('[data-vlans-side="destination"]').classes()).toContain('diff')
+    expect(wrapper.find('[data-side="source"]').classes()).not.toContain('diff') // роли совпадают
+    expect(wrapper.find('.status.warn').text()).toContain('режим, VLAN')
+    // Роль выравнивать нечего; режим и VLAN правятся в окне портов устройства.
+    expect(wrapper.find('[data-action="keep-source"]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="manage-source"]').exists()).toBe(true)
+    expect(wrapper.find('[data-action="manage-destination"]').exists()).toBe(true)
+    expect(wrapper.find('[data-action="approve"]').exists()).toBe(true)
+  })
+
+  it('«Настроить режим и VLAN» просит родителя открыть порты нужного устройства', async () => {
+    const wrapper = mountModal(connection({ source_vlan_mode: 'trunk', destination_vlan_mode: 'access', port_config_diff: ['mode'], source_port_role: 'data' }))
+
+    await wrapper.find('[data-action="manage-destination"]').trigger('click')
+
+    expect(wrapper.emitted('manage-ports')).toEqual([[{ interfaceId: 'if-sw', deviceLabel: 'sw-01' }]])
+  })
+
+  it('различие только в роли не предлагает настраивать режим и VLAN', () => {
+    const wrapper = mountModal(connection())
+
+    expect(wrapper.find('[data-action="manage-source"]').exists()).toBe(false)
+    expect(wrapper.find('[data-side="source"]').classes()).toContain('diff')
+    expect(wrapper.find('[data-mode-side="source"]').classes()).not.toContain('diff')
   })
 })

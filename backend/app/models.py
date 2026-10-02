@@ -445,13 +445,14 @@ class Connection(TimestampMixin, Base):
     connection_type_id: Mapped[str] = mapped_column(ForeignKey("connection_types.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
-    # Подпись расхождения ролей портов, которое пользователь одобрил как допустимое (см.
-    # services/port_config.py). Хранится не булевым флагом, а именно подписью «роль источника >
-    # роль назначения» на момент одобрения: стоит изменить роль любого из двух портов (или
-    # переставить их местами) — подпись перестаёт совпадать с текущей, и расхождение снова
-    # требует проверки. Пишется только эндпоинтами одобрения (services/connection_review.py) —
-    # из generic CRUD исключена, см. crud.allowed_columns.
-    port_config_approved_signature: Mapped[Optional[str]] = mapped_column(String(64))
+    # Подпись расхождения конфигурации портов (роль, режим, VLAN), которое пользователь одобрил как
+    # допустимое (см. services/port_config.py). Хранится не булевым флагом, а описанием того, чем
+    # именно различаются порты «источник > назначение», на момент одобрения: стоит изменить роль,
+    # режим или набор VLAN любого из двух портов (или переставить их местами) — подпись перестаёт
+    # совпадать с текущей, и расхождение снова требует проверки. Пишется только эндпоинтами
+    # одобрения (services/connection_review.py) — из generic CRUD исключена, см.
+    # crud.allowed_columns. Длина 255: подпись с режимом и отпечатками VLAN доходит до ~95 символов.
+    port_config_approved_signature: Mapped[Optional[str]] = mapped_column(String(255))
 
 
 class ConnectionType(TimestampMixin, Base):
