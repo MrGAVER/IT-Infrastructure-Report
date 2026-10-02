@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { flagsFromRole, hasRoleMismatch, portRoleOf, roleFromFlags, roleLabel } from '../portConfig'
+import { facetsLabel, flagsFromRole, formatVlans, hasRoleMismatch, modeAndVlansLabel, modeLabel, portRoleOf, roleFromFlags, roleLabel } from '../portConfig'
 import type { PortRole } from '../../api/types'
 
 describe('portConfig utils', () => {
@@ -32,5 +32,42 @@ describe('portConfig utils', () => {
   it('roleLabel: подпись роли и прочерк для неизвестной', () => {
     expect(roleLabel('management')).toBe('Управление активами')
     expect(roleLabel(null)).toBe('—')
+  })
+})
+
+describe('portConfig utils — режим и VLAN', () => {
+  it('formatVlans: пустой набор — «нет»', () => {
+    expect(formatVlans([])).toBe('нет')
+    expect(formatVlans(null)).toBe('нет')
+    expect(formatVlans(undefined)).toBe('нет')
+  })
+
+  it('formatVlans: сворачивает подряд идущие номера в диапазоны, пару соседних оставляет списком', () => {
+    expect(formatVlans([10])).toBe('10')
+    expect(formatVlans([10, 11])).toBe('10, 11')
+    expect(formatVlans([10, 11, 12])).toBe('10–12')
+    expect(formatVlans([10, 11, 12, 20, 30, 31])).toBe('10–12, 20, 30, 31')
+  })
+
+  it('formatVlans: сортирует и убирает дубликаты', () => {
+    expect(formatVlans([30, 10, 20, 10, 11])).toBe('10, 11, 20, 30')
+  })
+
+  it('formatVlans: транк на все VLAN умещается в короткую строку', () => {
+    const all = Array.from({ length: 4094 }, (_, i) => i + 1)
+    expect(formatVlans(all)).toBe('1–4094')
+  })
+
+  it('modeLabel / modeAndVlansLabel: режим и VLAN одной строкой, прочерк для отсутствующего порта', () => {
+    expect(modeLabel('access')).toBe('access')
+    expect(modeLabel(null)).toBe('—')
+    expect(modeAndVlansLabel('trunk', [10, 20])).toBe('trunk · VLAN 10, 20')
+    expect(modeAndVlansLabel('access', [])).toBe('access · VLAN нет')
+  })
+
+  it('facetsLabel: названия граней расхождения через запятую', () => {
+    expect(facetsLabel(['role', 'mode', 'vlans'])).toBe('роль, режим, VLAN')
+    expect(facetsLabel(['vlans'])).toBe('VLAN')
+    expect(facetsLabel([])).toBe('')
   })
 })

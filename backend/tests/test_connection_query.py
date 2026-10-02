@@ -7,12 +7,11 @@
 from __future__ import annotations
 
 from itertools import product
-from types import SimpleNamespace
 
 import pytest
 
-from app.models import Connection
-from app.services.port_config import PortConfigStatus, PortRole, approval_signature, evaluate_port_config, role_from_flags
+from app.models import Connection, DeviceInterface, InterfaceVLAN, VLAN
+from app.services.port_config import PortConfig, PortConfigStatus, PortRole, approval_signature, evaluate_port_config, role_from_flags
 
 ROLE_FLAGS = {
     PortRole.NONE: (False, False),
@@ -299,13 +298,12 @@ def test_sql_status_matches_python_status_for_all_combinations(client, db_sessio
 
     expected: dict[str, PortConfigStatus] = {}
     for (src_role, dst_role, sig_kind, active), src_id, dst_id in zip(combos, src_ports, dst_ports):
-        src_flags = SimpleNamespace(is_management=ROLE_FLAGS[src_role][0], is_data_transfer=ROLE_FLAGS[src_role][1])
-        dst_flags = SimpleNamespace(is_management=ROLE_FLAGS[dst_role][0], is_data_transfer=ROLE_FLAGS[dst_role][1])
-        signature = {"none": None, "right": approval_signature(src_flags, dst_flags), "wrong": "data>none"}[sig_kind]
+        src_cfg, dst_cfg = PortConfig(src_role), PortConfig(dst_role)
+        signature = {"none": None, "right": approval_signature(src_cfg, dst_cfg), "wrong": "data>none"}[sig_kind]
         conn = Connection(source_interface_id=src_id, destination_interface_id=dst_id, connection_type_id=cable, is_active=active, port_config_approved_signature=signature)
         db_session.add(conn)
         db_session.flush()
-        expected[conn.id] = evaluate_port_config(src_flags, dst_flags, signature, is_active=active)
+        expected[conn.id] = evaluate_port_config(src_cfg, dst_cfg, signature, is_active=active)
     db_session.commit()
     assert len(expected) == 96
 
@@ -323,3 +321,57 @@ def test_sql_status_matches_python_status_for_all_combinations(client, db_sessio
     # Роль порта в строке тоже совпадает с исходной.
     assert {c["source_port_role"] for c in everything["items"]} == {r.value for r in PortRole}
     assert role_from_flags(*ROLE_FLAGS[PortRole.DATA]) is PortRole.DATA
+
+
+VLAN_SETS = ((), (10,), (10, 20), (20, 10, 30))
+
+
+def test_sql_status_matches_python_status_for_roles_modes_vlans_and_approvals(client, db_session, device_type, cable):
+    """Те же гарантии для режима порта и набора VLAN: 2 роли × 2 роли × 2 режима × 2 режима ×
+    4 набора VLAN × 4 набора VLAN × 3 состояния подписи = 768 подключений. Статус из SQL (фильтр,
+    счётчики) и из Python (строка списка) обязан совпасть с evaluate_port_config() — в том числе
+    формат подписи: подпись, посчитанная Python, должна опознаваться SQL-выражением как «верная»."""
+    roles = (PortRole.NONE, PortRole.DATA)
+    modes = ("trunk", "access")
+    combos = list(product(roles, roles, modes, modes, VLAN_SETS, VLAN_SETS, ("none", "right", "wrong")))
+    # Порты не переиспользуются между подключениями, чтобы у каждого был свой набор настроек.
+    src_ports = _device(client, device_type, "PV-A", [_port(f"p{i}", c[0]) for i, c in enumerate(combos)], system_name="pv-a")
+    dst_ports = _device(client, device_type, "PV-B", [_port(f"p{i}", c[1]) for i, c in enumerate(combos)], system_name="pv-b")
+
+    vlan_rows = {n: VLAN(vlan_id=n, name=f"vlan{n}") for n in (10, 20, 30)}
+    db_session.add_all(vlan_rows.values())
+    db_session.flush()
+
+    def configure(interface_id: str, mode: str, vlans: tuple[int, ...]) -> None:
+        db_session.get(DeviceInterface, interface_id).vlan_mode = mode
+        db_session.add_all(InterfaceVLAN(interface_id=interface_id, vlan_id=vlan_rows[n].id, mode=mode) for n in vlans)
+
+    expected: dict[str, PortConfigStatus] = {}
+    for (src_role, dst_role, src_mode, dst_mode, src_vlans, dst_vlans, sig_kind), src_id, dst_id in zip(combos, src_ports, dst_ports):
+        configure(src_id, src_mode, src_vlans)
+        configure(dst_id, dst_mode, dst_vlans)
+        src_cfg, dst_cfg = PortConfig(src_role, src_mode, frozenset(src_vlans)), PortConfig(dst_role, dst_mode, frozenset(dst_vlans))
+        signature = {"none": None, "right": approval_signature(src_cfg, dst_cfg) or None, "wrong": "data>none|mode:trunk>access"}[sig_kind]
+        conn = Connection(source_interface_id=src_id, destination_interface_id=dst_id, connection_type_id=cable, port_config_approved_signature=signature)
+        db_session.add(conn)
+        db_session.flush()
+        expected[conn.id] = evaluate_port_config(src_cfg, dst_cfg, signature)
+    db_session.commit()
+    assert len(expected) == 768
+    assert {PortConfigStatus.OK, PortConfigStatus.MISMATCH, PortConfigStatus.APPROVED} == set(expected.values())
+
+    def fetch_all(**params) -> list[dict]:
+        items: list[dict] = []
+        while True:
+            page = _page(client, limit=200, offset=len(items), **params)
+            items += page["items"]
+            if len(items) >= page["total"]:
+                return items
+
+    assert {c["id"]: c["port_config_status"] for c in fetch_all()} == {k: v.value for k, v in expected.items()}
+    for status in PortConfigStatus:
+        wanted = sorted(k for k, v in expected.items() if v is status)
+        assert sorted(c["id"] for c in fetch_all(port_config_status=status.value)) == wanted, status
+    summary = _page(client)["summary"]
+    assert summary["mismatch"] == sum(v is PortConfigStatus.MISMATCH for v in expected.values())
+    assert summary["approved"] == sum(v is PortConfigStatus.APPROVED for v in expected.values())

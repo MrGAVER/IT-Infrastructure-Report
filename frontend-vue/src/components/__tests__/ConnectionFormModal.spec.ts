@@ -440,6 +440,7 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
       is_active: true, description: null,
       source_device_name: 'src-dev', source_interface_name: 'Gi0/1', destination_device_name: 'dst-dev', destination_interface_name: 'Gi0/2', connection_type_name: 'Медь',
       source_port_role: 'management' as const, destination_port_role: 'data' as const, port_config_status: 'approved' as const,
+      source_vlan_mode: 'trunk' as const, destination_vlan_mode: 'trunk' as const, source_vlans: [], destination_vlans: [], port_config_diff: ['role' as const],
     }
 
     it('роли те же, что были одобрены — повторно не спрашивает и сохраняет сразу', async () => {
@@ -513,6 +514,7 @@ describe('ConnectionFormModal.vue — prefill (фикс п.3.4, визуальн
       is_active: true, description: null,
       source_device_name: 'a', source_interface_name: 'eth0', destination_device_name: 'b', destination_interface_name: 'eth1', connection_type_name: 'Медь',
       source_port_role: 'data' as const, destination_port_role: 'data' as const, port_config_status: 'ok' as const,
+      source_vlan_mode: 'trunk' as const, destination_vlan_mode: 'trunk' as const, source_vlans: [], destination_vlans: [], port_config_diff: [],
     }
 
     const wrapper = mount(ConnectionFormModal, { props: { connection, prefill: { sourceInterfaceId: 'if-a', destinationInterfaceId: 'if-c' } } })

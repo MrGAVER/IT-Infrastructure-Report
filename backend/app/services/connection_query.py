@@ -1,12 +1,12 @@
-"""Серверная выборка подключений для дашборда «Подключения»: поиск, фильтры, статус сверки ролей
-портов, пагинация и итоговые счётчики.
+"""Серверная выборка подключений для дашборда «Подключения»: поиск, фильтры, статус сверки
+конфигурации портов (роль, режим, VLAN), пагинация и итоговые счётчики.
 
 Статус сверки (ok / mismatch / approved) вычисляется в SQL тем же правилом, что и
 `evaluate_port_config()` в services/port_config.py, — иначе фильтр по статусу, общее число
 записей и счётчики пришлось бы считать, вытянув в память ВСЕ подключения (раньше дашборд так и
 делал: один запрос на 1000 записей и фильтрация в браузере, а всё, что за пределом 1000, молча
 не попадало ни в таблицу, ни в счётчики). Соответствие SQL-выражения и Python-функции проверяет
-tests/test_connection_query.py (все комбинации ролей × одобрение × активность).
+tests/test_connection_query.py (роли × режимы × наборы VLAN × одобрение × активность).
 
 Пример:
     page = list_connections(session, ConnectionQuery(q="коммутатор", status=PortConfigStatus.MISMATCH), offset=0, limit=25)
@@ -17,11 +17,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import ColumnElement, String, and_, case, func, literal, or_, select
+from sqlalchemy import BigInteger, ColumnElement, String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from ..models import Connection, ConnectionType, DeviceInterface, PhysicalDevice
-from .port_config import PORT_ROLE_LABELS, PortConfigStatus, PortRole
+from ..models import Connection, ConnectionType, DeviceInterface, InterfaceVLAN, PhysicalDevice, VLAN
+from .port_config import (
+    DEFAULT_VLAN_MODE,
+    FINGERPRINT_AFFINE,
+    FINGERPRINT_COUNT_WEIGHT,
+    FINGERPRINT_MODULUS,
+    FINGERPRINT_SQUARE_ADDENDS,
+    PORT_ROLE_LABELS,
+    PortConfigStatus,
+    PortRole,
+)
 from .serialization import enrich_connections
 
 MAX_SEARCH_LENGTH = 200
@@ -53,6 +62,38 @@ def _role_sql(iface: Any) -> ColumnElement[str]:
     )
 
 
+def _mode_sql(iface: Any) -> ColumnElement[str]:
+    """SQL-аналог port_config_of(): пустой режим — trunk (как server_default колонки)."""
+    return func.coalesce(func.nullif(iface.vlan_mode, ""), _text(DEFAULT_VLAN_MODE))
+
+
+def _vlan_fingerprint_sql(iface: Any) -> ColumnElement[int]:
+    """SQL-аналог port_config.vlan_fingerprint() для порта `iface` — коррелированный скалярный
+    подзапрос по индексу interface_vlans.interface_id. Считается лениво: только там, где выражение
+    реально вычисляется (страница без фильтра по статусу его не касается). Формулу менять только
+    вместе с Python-версией."""
+    def big(value: int) -> ColumnElement[int]:
+        return literal(value, type_=BigInteger)  # явный BIGINT: без неявного приведения параметров в PostgreSQL
+
+    # Та же цепочка, что port_config.vlan_hash(). Дубликаты номеров (один тег в двух доменах)
+    # схлопывает DISTINCT: хеш инъективен на 1..4094, проверяет tests/test_port_config.py.
+    multiplier, offset = FINGERPRINT_AFFINE
+    number = VLAN.vlan_id
+    shuffled = (number * big(multiplier) + big(offset)) % big(FINGERPRINT_MODULUS)
+    for addend in FINGERPRINT_SQUARE_ADDENDS:
+        shuffled = (shuffled * shuffled + big(addend)) % big(FINGERPRINT_MODULUS)
+    return (
+        select(
+            func.coalesce(func.sum(shuffled.distinct()), 0)
+            + func.count(number.distinct()) * big(FINGERPRINT_COUNT_WEIGHT)
+        )
+        .select_from(InterfaceVLAN)
+        .join(VLAN, VLAN.id == InterfaceVLAN.vlan_id)
+        .where(InterfaceVLAN.interface_id == iface.id)
+        .scalar_subquery()
+    )
+
+
 class _Joined:
     """Подключение + оба порта + оба устройства + тип линии и выражения над ними. Соединения
     внешние (LEFT JOIN): «осиротевшая» запись (порт удалён в обход внешних ключей) остаётся в
@@ -66,10 +107,28 @@ class _Joined:
         self.dst_device = aliased(PhysicalDevice)
         self.src_role = _role_sql(self.src)
         self.dst_role = _role_sql(self.dst)
+        self.src_mode = _mode_sql(self.src)
+        self.dst_mode = _mode_sql(self.dst)
+        self.src_vlans = _vlan_fingerprint_sql(self.src)
+        self.dst_vlans = _vlan_fingerprint_sql(self.dst)
+        # Подпись расхождения — тот же формат, что port_config.approval_signature(): только
+        # различающиеся грани, «источник>назначение».
+        self.signature = (
+            case((self.src_role != self.dst_role, self.src_role + _text(">") + self.dst_role), else_=_text(""))
+            + case((self.src_mode != self.dst_mode, _text("|mode:") + self.src_mode + _text(">") + self.dst_mode), else_=_text(""))
+            + case(
+                (
+                    self.src_vlans != self.dst_vlans,
+                    _text("|vlan:") + cast(self.src_vlans, String) + _text(">") + cast(self.dst_vlans, String),
+                ),
+                else_=_text(""),
+            )
+        )
+        configs_match = and_(self.src_role == self.dst_role, self.src_mode == self.dst_mode, self.src_vlans == self.dst_vlans)
         self.status = case(
             (or_(Connection.is_active.is_(False), self.src.id.is_(None), self.dst.id.is_(None)), _text(PortConfigStatus.OK.value)),
-            (self.src_role == self.dst_role, _text(PortConfigStatus.OK.value)),
-            (Connection.port_config_approved_signature == self.src_role + _text(">") + self.dst_role, _text(PortConfigStatus.APPROVED.value)),
+            (configs_match, _text(PortConfigStatus.OK.value)),
+            (Connection.port_config_approved_signature == self.signature, _text(PortConfigStatus.APPROVED.value)),
             else_=_text(PortConfigStatus.MISMATCH.value),
         )
 
@@ -97,11 +156,12 @@ class _Joined:
                 return func.lower(column).contains(needle, autoescape=True)  # % и _ из поиска — обычные символы
 
             # Поиск идёт по тем же полям, что показывает таблица: устройства и порты обеих сторон,
-            # тип линии и подпись роли порта («управление», «передача данных»).
+            # тип линии, режим порта (trunk / access) и подпись роли порта («управление»,
+            # «передача данных»).
             matches = [
                 contains(self._device_label(self.src_device)), contains(self.src.name),
                 contains(self._device_label(self.dst_device)), contains(self.dst.name),
-                contains(ConnectionType.name),
+                contains(ConnectionType.name), contains(self.src_mode), contains(self.dst_mode),
             ]
             roles = [role.value for role in PortRole if needle in PORT_ROLE_LABELS[role].lower()]
             if roles:

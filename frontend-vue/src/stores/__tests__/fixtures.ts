@@ -157,6 +157,7 @@ function connection(overrides: Partial<import('../../api/types').Connection>): i
     source_port_role: 'data',
     destination_port_role: 'data',
     port_config_status: 'ok',
+    source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
     ...overrides,
   }
 }
