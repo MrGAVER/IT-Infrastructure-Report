@@ -438,6 +438,64 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect((wrapper.find('.ports-block .searchable-select input').element as HTMLInputElement).value).toBe('22 / SSH')
     })
 
+    describe('номера открытых портов интерфейса: порядок и повторы', () => {
+      const wideCatalog = [
+        { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
+        { id: 'cat-http', port: 80, protocol_type: 'HTTP', description: null },
+        { id: 'cat-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+        { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
+      ]
+      const port = (protocol_catalog_id: string) => ({ protocol_catalog_id, transport_protocol: 'TCP', description: '' })
+
+      it('повторяющийся номер подсвечивается и объясняется под списком портов интерфейса', async () => {
+        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [port('cat-http'), port('cat-ssh'), port('cat-http-alt')] }]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
+        await expandRow(wrapper)
+
+        const flagged = wrapper.findAll('.ports-block .nested-row').map((r) => r.classes().includes('row-duplicate'))
+        expect(flagged).toEqual([true, false, true])
+        expect(wrapper.find('.ports-block .dup-error').text()).toContain('Порт 80')
+      })
+
+      it('на СВЁРНУТОЙ строке с повтором номера показан индикатор с номерами; без повтора его нет', async () => {
+        const rows: InterfaceDraftRow[] = [
+          { ...emptyRow(), name: 'eth0', open_ports: [port('cat-http'), port('cat-ssh'), port('cat-http-alt')] },
+          { ...emptyRow(), name: 'eth1', open_ports: [port('cat-http'), port('cat-ssh')] },
+        ]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
+
+        // Ни одна строка не развёрнута — индикатор должен быть виден без раскрытия.
+        const icons = wrapper.findAll('.expand-toggle').map((t) => t.find('.ports-dup-icon'))
+        expect(icons[0].exists()).toBe(true)
+        expect(icons[0].attributes('title')).toBe('Повторяются номера открытых портов: 80')
+        expect(icons[0].attributes('aria-label')).toBe('Повторяются номера открытых портов: 80')
+        expect(icons[1].exists()).toBe(false)
+      })
+
+      it('индикатор исчезает, когда повтор устранён (список меняет родитель через v-model)', async () => {
+        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [port('cat-http'), port('cat-http-alt')] }]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
+        expect(wrapper.find('.expand-toggle .ports-dup-icon').exists()).toBe(true)
+
+        await wrapper.setProps({ modelValue: [{ ...rows[0], open_ports: [port('cat-http'), port('cat-ssh')] }] })
+
+        expect(wrapper.find('.expand-toggle .ports-dup-icon').exists()).toBe(false)
+      })
+
+      it('выбор порта в новой строке ставит её по возрастанию номера, а не в конец', async () => {
+        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [port('cat-https'), port('')] }]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
+        await expandRow(wrapper)
+
+        await wrapper.findAll('.ports-block .col-catalog .searchable-select input')[1].trigger('focus')
+        await wrapper.findAll('.ports-block .col-catalog .ss-option').find((o) => o.text() === '22 / SSH')!.trigger('mousedown')
+
+        const emitted = wrapper.emitted('update:modelValue')!
+        const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+        expect(result[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+      })
+    })
+
     it('добавление порта на одном интерфейсе не затрагивает open_ports другого', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }, { ...emptyRow(), name: 'eth1' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })

@@ -134,7 +134,7 @@ function saveDraft() {
   const group = draft.value
   if (!group) return
   const others = props.groups.filter((g) => g.key !== group.key)
-  const error = validateInterfaceGroups([...others, group])
+  const error = validateInterfaceGroups([...others, group], props.protocolPortCatalog)
   if (error) {
     notify(error, 'error')
     return
@@ -339,7 +339,7 @@ function summary(group: InterfaceGroupDraft): string {
               <b>Задать открытые порты / протоколы</b>
               <span class="hint">заменит открытые порты этих портов</span>
             </label>
-            <OpenPortListEditor v-if="draft.manage_open_ports" v-model="draft.open_ports" :catalog-entries="protocolPortCatalog" />
+            <OpenPortListEditor v-if="draft.manage_open_ports" v-model="draft.open_ports" :catalog-entries="protocolPortCatalog" sorted-unique />
           </div>
         </section>
       </div>

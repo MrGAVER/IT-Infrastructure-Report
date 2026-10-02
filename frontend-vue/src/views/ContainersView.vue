@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useContainersStore } from '../stores/containers'
 import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
@@ -24,6 +24,13 @@ const deletingId = ref<string | null>(null)
 onMounted(async () => {
   await Promise.all([containers.ensureLoaded(), devices.ensureLoaded(), vms.ensureLoaded()])
 })
+
+// Без сброса страницы поиск оставлял таблицу пустой: список после фильтра короче, а номер страницы
+// прежний (тот же дефект и тот же фикс, что в VMsView/DevicesView/InformationSystemsView).
+watch(
+  () => containers.search,
+  () => containers.resetPageOnFilterChange(),
+)
 
 function openCreate() {
   modalContainer.value = null

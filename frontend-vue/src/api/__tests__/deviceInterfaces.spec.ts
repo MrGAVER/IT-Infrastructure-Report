@@ -183,6 +183,35 @@ describe('validateInterfaceDraftRows', () => {
     expect(validateInterfaceDraftRows(ok)).toBeNull()
   })
 
+  describe('повторяющиеся номера открытых портов на порту', () => {
+    const portCatalog = [
+      { id: 'c-http', port: 80, protocol_type: 'HTTP', description: null },
+      { id: 'c-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+      { id: 'c-ssh', port: 22, protocol_type: 'SSH', description: null },
+    ]
+    const withPorts = (name: string, ids: string[]) => ({
+      ...emptyRow(),
+      name,
+      open_ports: ids.map((protocol_catalog_id) => ({ protocol_catalog_id, transport_protocol: 'TCP', description: '' })),
+    })
+
+    it('не пропускает повтор номера порта (в т.ч. из разных записей справочника) и называет порт', () => {
+      const rows = [withPorts('Gi0/1', ['c-http', 'c-ssh', 'c-http-alt'])]
+      expect(validateInterfaceDraftRows(rows, portCatalog)).toBe('На порту «Gi0/1» номера открытых портов повторяются: 80.')
+    })
+
+    it('один и тот же номер на РАЗНЫХ портах устройства — не повтор', () => {
+      const rows = [withPorts('Gi0/1', ['c-http']), withPorts('Gi0/2', ['c-http'])]
+      expect(validateInterfaceDraftRows(rows, portCatalog)).toBeNull()
+    })
+
+    it('без справочника портов проверка пропускается (номер не определить), остальные проверки работают', () => {
+      const rows = [withPorts('Gi0/1', ['c-http', 'c-http-alt'])]
+      expect(validateInterfaceDraftRows(rows)).toBeNull()
+      expect(validateInterfaceDraftRows([...rows, emptyRow()])).toBe('У каждого интерфейса должно быть имя.')
+    })
+  })
+
   describe('фикс п.2.1.3: IP-адрес и префикс на портах', () => {
     it('пропускает корректный IP и префикс', () => {
       const rows = [{ ...emptyRow(), name: 'eth0', ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }]

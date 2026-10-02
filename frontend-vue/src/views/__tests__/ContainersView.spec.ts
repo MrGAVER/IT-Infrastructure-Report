@@ -102,4 +102,32 @@ describe('ContainersView.vue', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].text()).toContain('redis-cache')
   })
+
+  it('ввод запроса на странице > 1 возвращает на первую страницу, найденный контейнер виден', async () => {
+    // 20 контейнеров → 3 страницы по 8; искомый «ct-03» лежит на 1-й странице.
+    const containers = Array.from({ length: 20 }, (_, i) => ({
+      id: `ct-${i + 1}`,
+      name: `ct-${String(i + 1).padStart(2, '0')}`,
+      virtual_machine_id: null,
+      physical_device_id: null,
+      runtime: null,
+      runtime_version: null,
+      purpose: null,
+    }))
+    const store = seedStores(containers)
+    store.pageSize = 8
+    const wrapper = mount(ContainersView)
+    await flushPromises()
+    store.setPage(3)
+    await flushPromises()
+
+    await wrapper.find('.search-box input').setValue('ct-03')
+    await flushPromises()
+
+    expect(store.page).toBe(1)
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('ct-03')
+    expect(wrapper.text()).not.toContain('Ничего не найдено')
+  })
 })

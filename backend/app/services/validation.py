@@ -1,5 +1,7 @@
 from __future__ import annotations
 import ipaddress
+from collections import Counter
+from collections.abc import Iterable
 from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -7,7 +9,7 @@ from fastapi import HTTPException
 from ..models import (
     DeviceModel, DeviceType, OperatingSystem, OperatingSystemCategory, PhysicalDevice,
     Rack, Room, DeviceInterface, Connection, EmbeddedOperatingSystem, SupportMethod,
-    DeviceStackMember,
+    DeviceStackMember, ProtocolPortCatalog,
 )
 
 # Код-ревью п.3.4: формат IPv4/длина префикса проверялись только на клиенте
@@ -209,3 +211,26 @@ def validate_connection(data: dict[str, Any], session: Session, current_connecti
     occupied = session.scalar(stmt)
     if occupied:
         raise HTTPException(409, 'Один из выбранных портов уже участвует в другом активном подключении. Выберите свободный порт.')
+
+
+def validate_unique_open_port_numbers(catalog_ids: Iterable[Any], session: Session, owner_label: str) -> None:
+    """Бросает HTTPException(422), если среди записей справочника «Протоколы и порты» есть две с
+    одинаковым НОМЕРОМ порта. Правило зеркально frontend-vue/src/utils/openPorts.ts: повтор — это
+    один номер порта, независимо от записи справочника (80/HTTP и 80/HTTP-Proxy) и транспорта
+    (TCP 53 и UDP 53 — для обоих выбирается «TCP/UDP»). Пустые значения (строки-плейсхолдеры) и id,
+    которых нет в справочнике, пропускаются — их ловит _validate_open_port_catalog().
+
+    Один запрос на весь список (а не по запросу на строку).
+
+    Пример вызова:
+        validate_unique_open_port_numbers([http.id, ssh.id], session, "Порт «Gi0/1»")       # не бросает
+        validate_unique_open_port_numbers([http.id, http_proxy.id], session, "Порт «Gi0/1»")  # 422: ... 80
+    """
+    ids = [i for i in catalog_ids if i]
+    if len(ids) < 2:
+        return
+    port_by_id = dict(session.execute(select(ProtocolPortCatalog.id, ProtocolPortCatalog.port).where(ProtocolPortCatalog.id.in_(set(ids)))).all())
+    counts = Counter(port_by_id[i] for i in ids if i in port_by_id)
+    duplicates = sorted(port for port, count in counts.items() if count > 1)
+    if duplicates:
+        raise HTTPException(422, f"{owner_label}: номера открытых портов не должны повторяться — {', '.join(map(str, duplicates))}")
