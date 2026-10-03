@@ -1,7 +1,9 @@
 """Операции проверки конфигураций портов-соседей подключений (дашборд «Подключения»).
 
 Правила определения статуса — в services/port_config.py; здесь только изменяющие данные
-операции: задать роль порта, одобрить расхождение (роли, режима порта, VLAN), отозвать одобрение. Каждая операция — одна
+операции: задать роль порта, одобрить расхождение (роли, режима порта, VLAN), отозвать одобрение.
+Единственная читающая функция — preview_port_config(): форма подключения спрашивает у сервера
+статус сверки пары портов ДО сохранения, чтобы правила не дублировались на клиенте. Каждая операция — одна
 транзакция с записью в журнал аудита.
 """
 from __future__ import annotations
@@ -71,6 +73,47 @@ def set_port_role(interface_id: str, payload: dict[str, Any], session: Session) 
     session.commit()
     session.refresh(iface)
     return enrich_interfaces([iface], session)[0]
+
+
+def _port_payload(interface_id: str, config: PortConfig) -> dict[str, Any]:
+    return {"interface_id": interface_id, "role": config.role.value, "mode": config.mode, "vlans": sorted(config.vlans)}
+
+
+def preview_port_config(
+    source_interface_id: str,
+    destination_interface_id: str,
+    session: Session,
+    *,
+    connection_id: str | None = None,
+    is_active: bool = True,
+) -> dict[str, Any]:
+    """Статус сверки для пары портов, которую форма ещё не сохранила: те же правила, что у
+    дашборда (services/port_config.py), поэтому предупреждение формы и итоговый статус на дашборде
+    не могут разойтись.
+
+    Если передан `connection_id` (правка существующего подключения), одобрение берётся с него:
+    пара с тем же расхождением, что было одобрено, остаётся «approved» и повторно не спрашивается.
+    Без него (новое подключение) возможны только «ok» и «mismatch». Для неактивного подключения —
+    всегда «ok», как и на дашборде."""
+    ids = [source_interface_id, destination_interface_id]
+    interfaces = list(session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(ids))).all())
+    configs = load_port_configs(session, interfaces)
+    source, destination = configs.get(source_interface_id), configs.get(destination_interface_id)
+    if source is None or destination is None:
+        raise HTTPException(404, "Порт не найден")
+    approved_signature = None
+    if connection_id is not None:
+        connection = session.get(Connection, connection_id)
+        if connection is None:
+            raise HTTPException(404, "Подключение не найдено")
+        approved_signature = connection.port_config_approved_signature
+    status = evaluate_port_config(source, destination, approved_signature, is_active=is_active)
+    return {
+        "status": status.value,
+        "diff": [f.value for f in config_differences(source, destination)] if is_active else [],
+        "source": _port_payload(source_interface_id, source),
+        "destination": _port_payload(destination_interface_id, destination),
+    }
 
 
 def _describe(name: str, config: PortConfig) -> str:
