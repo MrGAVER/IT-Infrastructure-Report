@@ -620,6 +620,40 @@ class ReportTemplateVersion(TimestampMixin, Base):
     format: Mapped[str] = mapped_column(String(10))
     config: Mapped[str] = mapped_column(Text)
 
+class PortSyncRule(TimestampMixin, Base):
+    """Правило автоматического согласования данных порта с портом на другом конце подключения
+    (services/port_sync_rules.py — логика, services/port_sync_store.py — хранение).
+
+    Правило — шаблон над парой «целевой порт ← порт-источник»: условия на каждый порт (роль, режим,
+    состояние VLAN), отношение между ними, действие (auto / manual / ignore) и то, что целевой порт
+    берёт у источника. Значения — короткие строки из фиксированных перечней, которые проверяет
+    rule_from_payload(); отдельных справочников под них нет.
+
+    code заполнен только у СТАНДАРТНЫХ правил (устойчивый идентификатор из DEFAULT_RULES): по нему
+    правило находится при сбросе к стандартному и не дублируется при стартовом заполнении.
+    Стандартное правило можно менять и отключать, но не удалять."""
+    __tablename__ = "port_sync_rules"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    code: Mapped[Optional[str]] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(10), default="auto", nullable=False)  # auto | manual | ignore
+    target_role: Mapped[str] = mapped_column(String(20), default="any", nullable=False)
+    target_mode: Mapped[str] = mapped_column(String(10), default="any", nullable=False)
+    target_vlans: Mapped[str] = mapped_column(String(10), default="any", nullable=False)  # any | none | set | all
+    source_role: Mapped[str] = mapped_column(String(20), default="any", nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(10), default="any", nullable=False)
+    source_vlans: Mapped[str] = mapped_column(String(10), default="any", nullable=False)
+    rel_role: Mapped[str] = mapped_column(String(10), default="any", nullable=False)  # any | same | differs
+    rel_mode: Mapped[str] = mapped_column(String(10), default="any", nullable=False)
+    rel_vlans: Mapped[str] = mapped_column(String(10), default="any", nullable=False)
+    apply_role: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    apply_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    vlan_policy: Mapped[str] = mapped_column(String(10), default="keep", nullable=False)  # keep | copy | adapt
+
+
 class AuditLog(TimestampMixin, Base):
     __tablename__ = "audit_log"
     # Журнал только растёт, а экран читает его страницами «новые сверху» (services/audit_query.py).
