@@ -11,14 +11,17 @@
 //
 // «Назначение линии связи» (управление / передача данных) в подключении больше не хранится и не
 // вводится: оно целиком определяется ролями двух портов (DeviceInterface.is_management /
-// is_data_transfer). Форма показывает роли обоих портов, а если они различаются (например, порт
-// сервера — управление, порт коммутатора — передача данных), НЕ даёт сохранить подключение, пока
-// пользователь явно не выберет решение: выровнять любой из портов или одобрить расхождение как
-// допустимое. Так проверка срабатывает каждый раз, а не только когда предупреждение заметили.
+// is_data_transfer). Форма показывает конфигурацию обоих портов — роль, режим (trunk / access) и
+// VLAN, а если она различается (например, порт сервера — управление, порт коммутатора — передача
+// данных, или один конец линии — trunk, другой — access, или наборы VLAN разные), НЕ даёт сохранить
+// подключение, пока пользователь явно не выберет решение: выровнять роль одного из портов (режим и
+// VLAN правятся в окне портов — «Управлять портами») или одобрить расхождение как допустимое. Так
+// проверка срабатывает каждый раз, а не только когда предупреждение заметили. Сверку делает сервер
+// (previewPortConfig) — теми же правилами, что дашборд «Подключения».
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
-import { approvePortConfig, setPortRole } from '../api/portConfig'
-import type { Connection, Device, DeviceInterface } from '../api/types'
+import { approvePortConfig, previewPortConfig, setPortRole } from '../api/portConfig'
+import type { Connection, Device, DeviceInterface, PortConfigFacet, PortConfigPreview, PortConfigStatus, PortRole, VlanMode } from '../api/types'
 import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
@@ -27,7 +30,7 @@ import DevicePortsModal from './DevicePortsModal.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
-import { hasRoleMismatch, portRoleOf, roleLabel } from '../utils/portConfig'
+import { facetsLabel, formatVlans, hasRoleMismatch, modeLabel, portRoleOf, roleLabel } from '../utils/portConfig'
 
 const props = defineProps<{
   connection: Connection | null
@@ -67,27 +70,88 @@ const allInterfaces = computed(() => (catalogs.items['interfaces'] ?? []) as unk
 const selectedSourceInterface = computed(() => allInterfaces.value.find((i) => i.id === form.source_interface_id) ?? null)
 const selectedDestinationInterface = computed(() => allInterfaces.value.find((i) => i.id === form.destination_interface_id) ?? null)
 
-// Расхождение — когда роли портов РАЗНЫЕ (один "управление", другой "передача данных" и т.п.).
-// null, пока не выбраны оба порта — сравнивать пока нечего.
-const portRoleMismatch = computed(() => {
+// Сверку конфигурации пары портов (роль, режим, VLAN) делает СЕРВЕР — GET /connections/port-config/
+// preview: те же правила и то же одобрение, что у дашборда «Подключения» (services/port_config.py),
+// поэтому предупреждение формы и статус после сохранения не могут разойтись, а клиент не дублирует
+// правила (VLAN портов в каталоге интерфейсов нет вовсе). Расхождение — когда различается роль,
+// режим порта или набор VLAN; неактивное подключение расхождением не считается. До ответа сервера
+// (или если запрос не удался) форма сверяет хотя бы роли по каталогу — чтобы не сохранять
+// расхождение ролей молча; режим и VLAN в таком случае не показываются.
+interface ConfigSide {
+  id: string
+  name: string
+  role: PortRole
+  /** null — ответа сервера нет, режим и VLAN неизвестны. */
+  mode: VlanMode | null
+  vlans: number[] | null
+}
+interface ConfigView {
+  status: PortConfigStatus
+  diff: PortConfigFacet[]
+  source: ConfigSide
+  destination: ConfigSide
+}
+
+const preview = ref<PortConfigPreview | null>(null)
+let previewSeq = 0
+// Последний запущенный запрос сверки: submit() дожидается его, чтобы решение принималось по
+// свежим данным, даже если пользователь нажал «Сохранить» сразу после выбора порта.
+let previewPending: Promise<void> = Promise.resolve()
+
+async function refreshPreview(): Promise<void> {
+  const s = selectedSourceInterface.value
+  const d = selectedDestinationInterface.value
+  const seq = ++previewSeq
+  if (!s || !d) {
+    preview.value = null
+    return
+  }
+  try {
+    const result = await previewPortConfig({
+      source_interface_id: s.id,
+      destination_interface_id: d.id,
+      connection_id: props.connection?.id,
+      is_active: form.is_active,
+    })
+    // Ответ без обеих сторон (не тот сервер, прокси) приравнивается к неудаче — ниже сработает сверка ролей по каталогу.
+    if (seq === previewSeq) preview.value = result?.source && result?.destination ? result : null
+  } catch {
+    if (seq === previewSeq) preview.value = null
+  }
+}
+
+const configView = computed<ConfigView | null>(() => {
   const s = selectedSourceInterface.value
   const d = selectedDestinationInterface.value
   if (!s || !d) return null
-  return hasRoleMismatch(s, d) ? { source: s, destination: d } : null
+  const p = preview.value
+  // Ответ относится именно к выбранной паре — иначе (выбрали другой порт) он устарел.
+  if (p && p.source.interface_id === s.id && p.destination.interface_id === d.id) {
+    return {
+      status: p.status,
+      diff: p.diff,
+      source: { id: s.id, name: s.name, role: p.source.role, mode: p.source.mode, vlans: p.source.vlans },
+      destination: { id: d.id, name: d.name, role: p.destination.role, mode: p.destination.mode, vlans: p.destination.vlans },
+    }
+  }
+  const rolesDiffer = hasRoleMismatch(s, d)
+  return {
+    status: rolesDiffer ? 'mismatch' : 'ok',
+    diff: rolesDiffer ? ['role'] : [],
+    source: { id: s.id, name: s.name, role: portRoleOf(s), mode: null, vlans: null },
+    destination: { id: d.id, name: d.name, role: portRoleOf(d), mode: null, vlans: null },
+  }
 })
-const sourceRoleLabel = computed(() => (selectedSourceInterface.value ? roleLabel(portRoleOf(selectedSourceInterface.value)) : ''))
-const destinationRoleLabel = computed(() => (selectedDestinationInterface.value ? roleLabel(portRoleOf(selectedDestinationInterface.value)) : ''))
+const portMismatch = computed(() => (configView.value && configView.value.status !== 'ok' ? configView.value : null))
+// При правке подключения, расхождение которого уже одобрено и не изменилось, повторно спрашивать не
+// нужно — сервер сверяет одобрение по ровно этому расхождению (approval_signature).
+const mismatchAlreadyApproved = computed(() => configView.value?.status === 'approved')
+const differs = (facet: PortConfigFacet) => portMismatch.value?.diff.includes(facet) ?? false
+const hasPortSetupDiff = computed(() => differs('mode') || differs('vlans'))
 
-// При редактировании подключения, расхождение которого уже одобрено, повторно спрашивать не нужно —
-// пока пара ролей осталась той, что была одобрена (сервер сверяет ровно по этой паре, см.
-// services/port_config.py:approval_signature). Стоит любой роли измениться — решение нужно принять заново.
-const approvedRolePair = ref<string | null>(null)
-const currentRolePair = computed(() => {
-  const s = selectedSourceInterface.value
-  const d = selectedDestinationInterface.value
-  return s && d ? `${portRoleOf(s)}>${portRoleOf(d)}` : null
-})
-const mismatchAlreadyApproved = computed(() => portRoleMismatch.value !== null && approvedRolePair.value === currentRolePair.value)
+function sideLabel(side: ConfigSide): string {
+  return [roleLabel(side.role), ...(side.mode ? [modeLabel(side.mode)] : []), ...(side.vlans ? [`VLAN ${formatVlans(side.vlans)}`] : [])].join(' · ')
+}
 
 type MismatchResolution = 'keep-source' | 'keep-destination' | 'approve'
 // true — показан выбор решения по расхождению вместо кнопок «Отмена/Сохранить».
@@ -138,10 +202,6 @@ watch(
   (c) => {
     Object.assign(form, emptyForm())
     resolving.value = false
-    approvedRolePair.value =
-      c && c.port_config_status === 'approved' && c.source_port_role && c.destination_port_role
-        ? `${c.source_port_role}>${c.destination_port_role}`
-        : null
     if (c) {
       const src = allInterfaces.value.find((i) => i.id === c.source_interface_id)
       const dst = allInterfaces.value.find((i) => i.id === c.destination_interface_id)
@@ -160,6 +220,23 @@ watch(
       form.destinationDeviceId = dst?.physical_device_id ?? ''
       form.destination_interface_id = props.prefill.destinationInterfaceId
     }
+  },
+  { immediate: true },
+)
+
+// Пересчёт сверки при смене пары портов, активности, роли или режима любого из них (в том числе
+// после «Управлять портами» и выравнивания роли). Ключ — только то, от чего зависит ответ.
+const previewKey = computed(() => {
+  const s = selectedSourceInterface.value
+  const d = selectedDestinationInterface.value
+  if (!s || !d) return null
+  const config = (i: DeviceInterface) => `${portRoleOf(i)}/${i.vlan_mode}`
+  return [s.id, d.id, form.is_active, props.connection?.id ?? '', config(s), config(d)].join('|')
+})
+watch(
+  previewKey,
+  () => {
+    previewPending = refreshPreview()
   },
   { immediate: true },
 )
@@ -208,6 +285,8 @@ function onPortsSaved() {
     form.destination_interface_id = ''
   }
   closePorts()
+  // VLAN порта могли измениться, а ключ пересчёта их не видит.
+  previewPending = refreshPreview()
 }
 
 function validateForm(): boolean {
@@ -233,8 +312,9 @@ function validateForm(): boolean {
 async function submit() {
   errorMessage.value = null
   if (!validateForm()) return
-  // Расхождение ролей нельзя сохранить «молча»: сначала пользователь выбирает решение.
-  if (portRoleMismatch.value && !mismatchAlreadyApproved.value) {
+  await previewPending // сверка могла ещё не вернуться
+  // Расхождение нельзя сохранить «молча»: сначала пользователь выбирает решение.
+  if (portMismatch.value && !mismatchAlreadyApproved.value) {
     resolving.value = true
     return
   }
@@ -243,7 +323,27 @@ async function submit() {
 
 async function resolveAndSave(resolution: MismatchResolution) {
   resolving.value = false
-  await persist(resolution)
+  if (resolution === 'approve') {
+    await persist('approve')
+    return
+  }
+  saving.value = true
+  try {
+    await alignPort(resolution === 'keep-source')
+  } catch (err) {
+    errorMessage.value = err instanceof Error ? err.message : 'Не удалось изменить роль порта'
+    return
+  } finally {
+    saving.value = false
+  }
+  previewPending = refreshPreview()
+  await previewPending
+  // Роль выровнена, но режим или VLAN всё ещё различаются: молча сохранять нельзя — спрашиваем про остаток.
+  if (portMismatch.value && !mismatchAlreadyApproved.value) {
+    resolving.value = true
+    return
+  }
+  await persist(null)
 }
 
 /** Приводит роль одного порта к роли второго. Порт меняется отдельным точечным запросом (не
@@ -251,19 +351,16 @@ async function resolveAndSave(resolution: MismatchResolution) {
  * не удастся, выбранная пользователем роль порта остаётся, а повторная отправка формы уже не
  * увидит расхождения. */
 async function alignPort(keepSource: boolean) {
-  const mismatch = portRoleMismatch.value
+  const mismatch = portMismatch.value
   if (!mismatch) return
   const winner = keepSource ? mismatch.source : mismatch.destination
   const loser = keepSource ? mismatch.destination : mismatch.source
-  catalogs.replaceInterface(await setPortRole(loser.id, portRoleOf(winner)))
+  catalogs.replaceInterface(await setPortRole(loser.id, winner.role))
 }
 
-async function persist(resolution: MismatchResolution | null) {
+async function persist(resolution: 'approve' | null) {
   saving.value = true
   try {
-    if (resolution === 'keep-source' || resolution === 'keep-destination') {
-      await alignPort(resolution === 'keep-source')
-    }
     const payload = {
       source_interface_id: form.source_interface_id,
       destination_interface_id: form.destination_interface_id,
@@ -393,16 +490,18 @@ async function persist(resolution: MismatchResolution | null) {
             </div>
           </label>
 
-          <!-- Роли портов: единственный источник «назначения линии связи» (см. комментарий вверху
-               файла). При расхождении сохранение потребует явного решения. -->
-          <div v-if="selectedSourceInterface && selectedDestinationInterface" class="field field-wide port-roles" :class="{ mismatch: portRoleMismatch }">
-            <span class="port-roles-title">Роли портов</span>
-            <span class="port-roles-row"><span class="mono">{{ selectedSourceInterface.name }}</span> — {{ sourceRoleLabel }}</span>
-            <span class="port-roles-row"><span class="mono">{{ selectedDestinationInterface.name }}</span> — {{ destinationRoleLabel }}</span>
-            <span v-if="portRoleMismatch && !mismatchAlreadyApproved" class="warning-text">
-              ⚠ Роли портов различаются. При сохранении нужно будет выбрать: выровнять порты или одобрить расхождение.
+          <!-- Конфигурация портов (роль, режим, VLAN): роли — единственный источник «назначения линии
+               связи» (см. комментарий вверху файла). При расхождении сохранение потребует явного
+               решения. Сверку делает сервер (см. previewPortConfig). -->
+          <div v-if="configView" class="field field-wide port-roles" :class="{ mismatch: portMismatch }">
+            <span class="port-roles-title">Конфигурация портов</span>
+            <span v-for="side in [configView.source, configView.destination]" :key="side.id" class="port-roles-row">
+              <span class="mono">{{ side.name }}</span> — {{ sideLabel(side) }}
             </span>
-            <span v-else-if="mismatchAlreadyApproved" class="approved-text">✓ Расхождение ролей одобрено ранее.</span>
+            <span v-if="portMismatch && !mismatchAlreadyApproved" class="warning-text">
+              ⚠ Конфигурации портов различаются ({{ facetsLabel(portMismatch.diff) }}). При сохранении нужно будет выбрать решение: выровнять порты или одобрить расхождение.
+            </span>
+            <span v-else-if="mismatchAlreadyApproved" class="approved-text">✓ Расхождение ({{ facetsLabel(portMismatch!.diff) }}) одобрено ранее.</span>
           </div>
 
           <label class="field checkbox-field">
@@ -417,18 +516,24 @@ async function persist(resolution: MismatchResolution | null) {
         </div>
       </form>
 
-      <div v-if="resolving && portRoleMismatch" class="resolution" role="alertdialog" aria-label="Расхождение ролей портов">
+      <div v-if="resolving && portMismatch" class="resolution" role="alertdialog" aria-label="Расхождение конфигурации портов">
         <p class="warning-text">
-          ⚠ Роли портов различаются: «{{ portRoleMismatch.source.name }}» — {{ sourceRoleLabel }},
-          «{{ portRoleMismatch.destination.name }}» — {{ destinationRoleLabel }}. Что сделать перед сохранением?
+          ⚠ Конфигурации портов различаются ({{ facetsLabel(portMismatch.diff) }}):
+          «{{ portMismatch.source.name }}» — {{ sideLabel(portMismatch.source) }},
+          «{{ portMismatch.destination.name }}» — {{ sideLabel(portMismatch.destination) }}. Что сделать перед сохранением?
         </p>
         <div class="resolution-actions">
-          <button type="button" class="btn btn-secondary" data-resolution="keep-source" @click="resolveAndSave('keep-source')">
-            Порту «{{ portRoleMismatch.destination.name }}» задать роль как у «{{ portRoleMismatch.source.name }}»
-          </button>
-          <button type="button" class="btn btn-secondary" data-resolution="keep-destination" @click="resolveAndSave('keep-destination')">
-            Порту «{{ portRoleMismatch.source.name }}» задать роль как у «{{ portRoleMismatch.destination.name }}»
-          </button>
+          <template v-if="differs('role')">
+            <button type="button" class="btn btn-secondary" data-resolution="keep-source" @click="resolveAndSave('keep-source')">
+              Порту «{{ portMismatch.destination.name }}» задать роль как у «{{ portMismatch.source.name }}»
+            </button>
+            <button type="button" class="btn btn-secondary" data-resolution="keep-destination" @click="resolveAndSave('keep-destination')">
+              Порту «{{ portMismatch.source.name }}» задать роль как у «{{ portMismatch.destination.name }}»
+            </button>
+          </template>
+          <p v-if="hasPortSetupDiff" class="resolution-hint" data-hint="port-setup">
+            Режим порта и VLAN меняются в окне портов устройства: вернитесь к правке и нажмите «Управлять портами» рядом с выбором порта.
+          </p>
           <button type="button" class="btn btn-primary" data-resolution="approve" @click="resolveAndSave('approve')">
             Оставить как есть — одобрить расхождение
           </button>
@@ -591,6 +696,11 @@ async function persist(resolution: MismatchResolution | null) {
   font-size: 12.5px;
   color: var(--ink);
   line-height: 1.45;
+}
+.resolution-hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-muted);
 }
 .resolution-actions {
   display: flex;

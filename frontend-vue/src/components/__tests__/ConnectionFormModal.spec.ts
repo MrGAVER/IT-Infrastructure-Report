@@ -6,7 +6,8 @@ import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
 import { useConnectionsStore } from '../../stores/connections'
 import { useToast } from '../../composables/useToast'
-import type { DeviceInterface } from '../../api/types'
+import { portRoleOf } from '../../utils/portConfig'
+import type { DeviceInterface, PortConfigFacet, PortConfigPreview, PortConfigPreviewSide } from '../../api/types'
 
 // QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
 function teleportedContent(): DOMWrapper<HTMLElement> {
@@ -218,6 +219,36 @@ describe('ConnectionFormModal.vue — поиск в полях "Устройст
   })
 })
 
+// Эмулятор GET /connections/port-config/preview над каталогом интерфейсов (роль и режим берутся
+// оттуда, VLAN — из карты `vlans`; одобрение — по полному «ключу» расхождения). Правила те же, что
+// у backend/app/services/port_config.py: различие роли, режима или набора VLAN; неактивное
+// подключение — всегда ok; одобрение действует, пока ключ расхождения тот же.
+interface PreviewWorld {
+  vlans?: Record<string, number[]>
+  approved?: Record<string, string>
+}
+const configKey = (s: PortConfigPreviewSide, d: PortConfigPreviewSide) =>
+  `${s.role}>${d.role}|${s.mode}>${d.mode}|${s.vlans.join(',')}>${d.vlans.join(',')}`
+
+function previewFor(url: string, world: PreviewWorld): PortConfigPreview {
+  const p = new URL(url, 'http://x').searchParams
+  const interfaces = useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]
+  const side = (id: string): PortConfigPreviewSide => {
+    const i = interfaces.find((x) => x.id === id)!
+    return { interface_id: id, role: portRoleOf(i), mode: i.vlan_mode ?? 'trunk', vlans: world.vlans?.[id] ?? [] }
+  }
+  const source = side(p.get('source_interface_id')!)
+  const destination = side(p.get('destination_interface_id')!)
+  const diff: PortConfigFacet[] = []
+  if (source.role !== destination.role) diff.push('role')
+  if (source.mode !== destination.mode) diff.push('mode')
+  if (source.vlans.join() !== destination.vlans.join()) diff.push('vlans')
+  const active = p.get('is_active') !== 'false'
+  const connectionId = p.get('connection_id')
+  const approved = connectionId !== null && world.approved?.[connectionId] === configKey(source, destination)
+  return { status: !active || !diff.length ? 'ok' : approved ? 'approved' : 'mismatch', diff: active ? diff : [], source, destination }
+}
+
 describe('ConnectionFormModal.vue — роли портов и обязательное решение при расхождении', () => {
   // «Назначение линии связи» из подключения удалено: его целиком определяют роли двух портов
   // (is_management / is_data_transfer). При расхождении форма НЕ сохраняет подключение молча —
@@ -257,7 +288,7 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
 
   interface Call { url: string; method: string; body?: Record<string, unknown> }
 
-  function stubApi(opts: { portRoleStatus?: number; approveStatus?: number } = {}) {
+  function stubApi(opts: { portRoleStatus?: number; approveStatus?: number; previewStatus?: number; world?: PreviewWorld } = {}) {
     const calls: Call[] = []
     vi.stubGlobal(
       'fetch',
@@ -265,10 +296,16 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
         const method = init?.method ?? 'GET'
         const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : undefined
         calls.push({ url, method, body })
+        if (method === 'GET' && url.includes('/connections/port-config/preview')) {
+          if (opts.previewStatus) return jsonResponse({ detail: 'Сервер недоступен' }, opts.previewStatus)
+          return jsonResponse(previewFor(url, opts.world ?? {}))
+        }
         if (method === 'PUT' && url.includes('/port-role')) {
           if (opts.portRoleStatus) return jsonResponse({ detail: 'Порт не найден' }, opts.portRoleStatus)
           const id = url.match(/interfaces\/([^/]+)\/port-role/)![1]
-          return jsonResponse({ id, name: id === 'if-dst' ? 'Gi0/2' : 'Gi0/1', physical_device_id: id === 'if-dst' ? 'dev-dst' : 'dev-src', ...body })
+          // Как настоящий сервер: порт целиком (с режимом и прочими полями), а не только роль.
+          const existing = (useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]).find((i) => i.id === id)
+          return jsonResponse({ ...existing, ...body })
         }
         if (method === 'POST' && url.endsWith('/resources/connections')) return jsonResponse({ id: 'conn-new' }, 201)
         if (method === 'PUT' && url.includes('/resources/connections/')) return jsonResponse({ id: 'conn-1' })
@@ -434,6 +471,248 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
     expect(wrapper.find('.form-error').text()).toContain('Порт не найден')
   })
 
+  describe('режим порта и VLAN (сверка делает сервер)', () => {
+    const previewCalls = (calls: Call[]) => calls.filter((c) => c.url.includes('/connections/port-config/preview'))
+    const lastPreviewParams = (calls: Call[]) => new URL(previewCalls(calls).at(-1)!.url, 'http://x').searchParams
+
+    it('после выбора обоих портов показывает у каждого роль, режим и VLAN и запрашивает сверку у сервера', async () => {
+      setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'trunk' })
+      const calls = stubApi({ world: { vlans: { 'if-src': [10, 11, 12, 20], 'if-dst': [10, 11, 12, 20] } } })
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+
+      await selectBothEndpoints(wrapper)
+      await flushPromises()
+
+      const roles = wrapper.find('.port-roles')
+      expect(roles.text()).toContain('Gi0/1 — Передача данных · trunk · VLAN 10–12, 20')
+      expect(roles.text()).toContain('Gi0/2 — Передача данных · trunk · VLAN 10–12, 20')
+      expect(roles.classes()).not.toContain('mismatch')
+      expect(previewCalls(calls)).toHaveLength(1)
+      const params = lastPreviewParams(calls)
+      expect([params.get('source_interface_id'), params.get('destination_interface_id'), params.get('is_active')]).toEqual(['if-src', 'if-dst', 'true'])
+      expect(params.has('connection_id')).toBe(false) // новое подключение
+    })
+
+    it('режимы различаются (роли и VLAN те же) — предупреждение называет режим, сохранение спрашивает решение без выравнивания роли', async () => {
+      setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
+      const calls = stubApi()
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+
+      await fillAndSubmit(wrapper)
+
+      expect(wrapper.find('.port-roles').classes()).toContain('mismatch')
+      expect(wrapper.find('.port-roles .warning-text').text()).toContain('(режим)')
+      expect(saveCalls(calls)).toEqual([])
+      const resolution = wrapper.find('.resolution')
+      expect(resolution.exists()).toBe(true)
+      expect(resolution.text()).toContain('«Gi0/1» — Передача данных · trunk')
+      expect(resolution.text()).toContain('«Gi0/2» — Передача данных · access')
+      expect(resolution.find('[data-resolution="keep-source"]').exists()).toBe(false) // роль выравнивать нечего
+      expect(resolution.find('[data-hint="port-setup"]').text()).toContain('Управлять портами')
+      expect(resolution.find('[data-resolution="approve"]').exists()).toBe(true)
+    })
+
+    it('наборы VLAN различаются — то же: решение обязательно, «одобрить» сохраняет подключение и одобряет расхождение', async () => {
+      setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
+      const calls = stubApi({ world: { vlans: { 'if-src': [10, 20], 'if-dst': [10, 30] } } })
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+
+      await fillAndSubmit(wrapper)
+      expect(wrapper.find('.port-roles .warning-text').text()).toContain('(VLAN)')
+      expect(saveCalls(calls)).toEqual([])
+
+      await wrapper.find('[data-resolution="approve"]').trigger('click')
+      await flushPromises()
+
+      expect(saveCalls(calls)[0].method).toBe('POST')
+      expect(calls.some((c) => c.url.endsWith('/connections/port-config/approve') && JSON.stringify(c.body) === '{"connection_ids":["conn-new"]}')).toBe(true)
+      expect(wrapper.emitted('saved')).toHaveLength(1)
+    })
+
+    it('различаются роль И режим: после выравнивания роли остаток (режим) снова требует решения — молча не сохраняется', async () => {
+      setupInterfaces({ is_management: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
+      const calls = stubApi()
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+      await fillAndSubmit(wrapper)
+      expect(wrapper.find('.port-roles .warning-text').text()).toContain('(роль, режим)')
+
+      await wrapper.find('[data-resolution="keep-source"]').trigger('click')
+      await flushPromises()
+
+      expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/interfaces/if-dst/port-role'))).toBe(true)
+      expect(saveCalls(calls)).toEqual([]) // подключение ещё не сохранено
+      const resolution = wrapper.find('.resolution')
+      expect(resolution.exists()).toBe(true)
+      expect(resolution.text()).toContain('(режим)')
+      expect(resolution.find('[data-resolution="keep-source"]').exists()).toBe(false) // роли уже совпадают
+
+      await resolution.find('[data-resolution="approve"]').trigger('click')
+      await flushPromises()
+
+      expect(saveCalls(calls)[0].method).toBe('POST')
+      expect(wrapper.emitted('saved')).toHaveLength(1)
+    })
+
+    it('различается только роль: после выравнивания подключение сохраняется сразу, без повторного вопроса', async () => {
+      setupInterfaces({ is_management: true }, { is_data_transfer: true })
+      const calls = stubApi()
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+      await fillAndSubmit(wrapper)
+
+      await wrapper.find('[data-resolution="keep-source"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.resolution').exists()).toBe(false)
+      expect(saveCalls(calls)[0].method).toBe('POST')
+      expect(wrapper.emitted('saved')).toHaveLength(1)
+    })
+
+    it('неактивное подключение расхождением не считается: предупреждения нет, сохраняется сразу', async () => {
+      setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
+      const calls = stubApi()
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+      await selectBothEndpoints(wrapper)
+      await flushPromises()
+      expect(wrapper.find('.port-roles').classes()).toContain('mismatch')
+
+      await wrapper.find('.checkbox-field input').setValue(false)
+      await flushPromises()
+
+      expect(lastPreviewParams(calls).get('is_active')).toBe('false')
+      expect(wrapper.find('.port-roles').classes()).not.toContain('mismatch')
+      await fillCableType(wrapper)
+      await wrapper.find('.modal-foot .btn-primary').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.resolution').exists()).toBe(false)
+      expect(saveCalls(calls)[0].method).toBe('POST')
+    })
+
+    it('«Сохранить» сразу после выбора порта дожидается ответа сервера и только потом решает, спрашивать ли', async () => {
+      setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
+      const calls = stubApi()
+      const respond = (globalThis.fetch as unknown as { getMockImplementation: () => (url: string, init?: RequestInit) => Promise<Response> }).getMockImplementation()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => (release = resolve))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (url.includes('/connections/port-config/preview')) await gate // ответ сверки «задерживается»
+          return respond(url, init)
+        }),
+      )
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+      await selectBothEndpoints(wrapper)
+      await fillCableType(wrapper)
+
+      await wrapper.find('.modal-foot .btn-primary').trigger('click')
+      await flushPromises()
+      expect(saveCalls(calls)).toEqual([]) // ушло бы сохранение «вслепую», не будь ожидания
+      expect(wrapper.find('.resolution').exists()).toBe(false) // решение ещё не принято — ответа нет
+
+      release()
+      await flushPromises()
+
+      expect(wrapper.find('.resolution').exists()).toBe(true)
+      expect(saveCalls(calls)).toEqual([])
+    })
+
+    it('после «Управлять портами» сверка пересчитывается — VLAN порта могли измениться без смены роли и режима', async () => {
+      setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
+      useCatalogsStore().loaded = true // иначе DevicePortsModal.onMounted перезатрёт items['interfaces'] через reload()
+      const calls = stubApi({ world: { vlans: { 'if-src': [10], 'if-dst': [10] } } })
+      const respond = (globalThis.fetch as unknown as { getMockImplementation: () => (url: string, init?: RequestInit) => Promise<Response> }).getMockImplementation()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          // Сохранение портов в модалке возвращает порты устройства как есть (роль и режим те же).
+          if ((init?.method ?? 'GET') === 'PUT' && url.includes('/devices/dev-src/interfaces')) {
+            const ports = (useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]).filter((i) => i.physical_device_id === 'dev-src')
+            return jsonResponse({ items: ports })
+          }
+          return respond(url, init)
+        }),
+      )
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+      await selectBothEndpoints(wrapper)
+      await flushPromises()
+      const before = previewCalls(calls).length
+      expect(before).toBe(1)
+
+      await wrapper.find('[aria-label="Управлять портами исходного устройства"]').trigger('click')
+      await flushPromises()
+      await new DOMWrapper(document.body).find('.modal-foot button.btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(previewCalls(calls)).toHaveLength(before + 1)
+    })
+
+    it('сервер недоступен: роли по-прежнему сверяются по каталогу, режим и VLAN не показываются', async () => {
+      setupInterfaces({ is_management: true }, { is_data_transfer: true })
+      const calls = stubApi({ previewStatus: 500 })
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+
+      await fillAndSubmit(wrapper)
+
+      expect(wrapper.find('.port-roles').text()).toContain('Gi0/1 — Управление активами')
+      expect(wrapper.find('.port-roles').text()).not.toContain('VLAN')
+      expect(wrapper.find('.resolution').exists()).toBe(true) // молча не сохраняется
+      expect(saveCalls(calls)).toEqual([])
+    })
+
+    it('сервер недоступен и роли совпадают: форма не блокирует сохранение', async () => {
+      setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
+      const calls = stubApi({ previewStatus: 500 })
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+
+      await fillAndSubmit(wrapper)
+
+      expect(wrapper.find('.resolution').exists()).toBe(false)
+      expect(saveCalls(calls)[0].method).toBe('POST')
+    })
+
+    it('при правке подключения сервер получает его id — чтобы учесть одобрение', async () => {
+      setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
+      const calls = stubApi()
+      mount(ConnectionFormModal, {
+        props: {
+          connection: {
+            id: 'conn-7', source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1', is_active: true, description: null,
+          } as never,
+        },
+      })
+      await flushPromises()
+
+      expect(lastPreviewParams(calls).get('connection_id')).toBe('conn-7')
+    })
+
+    it('одобренное расхождение режима и VLAN не спрашивается повторно, пока оно не изменилось; изменилось — спрашивается заново', async () => {
+      const connection = {
+        id: 'conn-1', source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1', is_active: true, description: null,
+        port_config_status: 'approved' as const,
+      }
+      setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
+      const approvedKey = 'data>data|trunk>access|10,20>10'
+
+      const calls = stubApi({ world: { vlans: { 'if-src': [10, 20], 'if-dst': [10] }, approved: { 'conn-1': approvedKey } } })
+      const same = mount(ConnectionFormModal, { props: { connection: connection as never } })
+      await flushPromises()
+      expect(same.find('.port-roles .approved-text').text()).toContain('(режим, VLAN) одобрено ранее')
+      await same.find('.modal-foot .btn-primary').trigger('click')
+      await flushPromises()
+      expect(same.find('.resolution').exists()).toBe(false)
+      expect(saveCalls(calls)[0].method).toBe('PUT')
+
+      // VLAN приёмника изменили после одобрения — подпись уже другая.
+      const changedCalls = stubApi({ world: { vlans: { 'if-src': [10, 20], 'if-dst': [10, 30] }, approved: { 'conn-1': approvedKey } } })
+      const changed = mount(ConnectionFormModal, { props: { connection: connection as never } })
+      await flushPromises()
+      await changed.find('.modal-foot .btn-primary').trigger('click')
+      await flushPromises()
+      expect(changed.find('.resolution').exists()).toBe(true)
+      expect(saveCalls(changedCalls)).toEqual([])
+    })
+  })
+
   describe('редактирование подключения с уже одобренным расхождением', () => {
     const approvedConnection = {
       id: 'conn-1', source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1',
@@ -445,8 +724,9 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
 
     it('роли те же, что были одобрены — повторно не спрашивает и сохраняет сразу', async () => {
       setupInterfaces({ is_management: true }, { is_data_transfer: true })
-      const calls = stubApi()
+      const calls = stubApi({ world: { approved: { 'conn-1': 'management>data|trunk>trunk|>' } } })
       const wrapper = mount(ConnectionFormModal, { props: { connection: approvedConnection } })
+      await flushPromises()
 
       expect(wrapper.find('.port-roles').text()).toContain('одобрено ранее')
       await wrapper.find('.modal-foot .btn-primary').trigger('click')
@@ -459,8 +739,9 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
 
     it('роль порта изменилась после одобрения — решение нужно принять заново', async () => {
       setupInterfaces({ is_management: true }, { is_management: true, is_data_transfer: true })
-      const calls = stubApi()
+      const calls = stubApi({ world: { approved: { 'conn-1': 'management>data|trunk>trunk|>' } } })
       const wrapper = mount(ConnectionFormModal, { props: { connection: approvedConnection } })
+      await flushPromises()
 
       await wrapper.find('.modal-foot .btn-primary').trigger('click')
       await flushPromises()

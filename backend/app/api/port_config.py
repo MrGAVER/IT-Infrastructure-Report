@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..services.connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, list_connections
-from ..services.connection_review import approve_port_config, revoke_port_config_approval, set_port_role
+from ..services.connection_review import approve_port_config, preview_port_config, revoke_port_config_approval, set_port_role
 from ..services.port_config import PortConfigStatus
 from ..services.vlan_mode_cascade import apply_vlan_mode_cascade, preview_vlan_mode_cascade
 
@@ -51,6 +51,19 @@ def vlan_mode_cascade_apply(interface_id: str, payload: dict, session: Session =
     """Применяет план из предпросмотра: тело {mode, edited?, plan_hash, confirm: true} (mode и edited
     те же, что при предпросмотре). Если данные изменились после предпросмотра — 409."""
     return apply_vlan_mode_cascade(interface_id, payload, session)
+
+
+@router.get('/connections/port-config/preview')
+def preview(
+    source_interface_id: str = Query(..., max_length=64),
+    destination_interface_id: str = Query(..., max_length=64),
+    connection_id: str | None = Query(None, max_length=64),
+    is_active: bool = True,
+    session: Session = Depends(get_db),
+):
+    """Статус сверки конфигурации пары портов (роль, режим, VLAN) до сохранения подключения — для
+    предупреждения в форме. С `connection_id` учитывает одобрение этого подключения."""
+    return preview_port_config(source_interface_id, destination_interface_id, session, connection_id=connection_id, is_active=is_active)
 
 
 @router.post('/connections/port-config/approve')

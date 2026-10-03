@@ -1,5 +1,6 @@
 // Поле «Показывать по N» на страницах со списками: устройства, ВМ, контейнеры, информационные
-// системы, журнал аудита. Подключения (серверная страница) — в ConnectionsView.spec.ts.
+// системы. Подключения и журнал аудита (серверные страницы) — в ConnectionsView.spec.ts и
+// AuditLogView.spec.ts.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -7,12 +8,10 @@ import DevicesView from '../DevicesView.vue'
 import VMsView from '../VMsView.vue'
 import ContainersView from '../ContainersView.vue'
 import InformationSystemsView from '../InformationSystemsView.vue'
-import AuditLogView from '../AuditLogView.vue'
 import { useDevicesStore } from '../../stores/devices'
 import { useVMsStore } from '../../stores/vms'
 import { useContainersStore } from '../../stores/containers'
 import { useInformationSystemsStore } from '../../stores/informationSystems'
-import { useAuditLogStore } from '../../stores/auditLog'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
 
@@ -27,7 +26,7 @@ beforeEach(() => {
   catalogs.loaded = true
   catalogs.items['device-types'] = [{ id: 'dt-1', name: 'Коммутатор' }]
   useVLANsStore().loaded = true
-  for (const store of [useDevicesStore(), useVMsStore(), useContainersStore(), useInformationSystemsStore(), useAuditLogStore()]) {
+  for (const store of [useDevicesStore(), useVMsStore(), useContainersStore(), useInformationSystemsStore()]) {
     store.loaded = true
   }
 })
@@ -48,10 +47,6 @@ const LISTS = [
   {
     name: 'информационные системы', component: InformationSystemsView, defaultSize: 8,
     seed: () => { useInformationSystemsStore().all = range(TOTAL).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never },
-  },
-  {
-    name: 'журнал аудита', component: AuditLogView, defaultSize: 12,
-    seed: () => { useAuditLogStore().all = range(TOTAL).map((i) => ({ id: `a${i}`, entity_type: 'devices', entity_id: `e${i}`, action: 'CREATE', details: 'x', created_at: '2026-08-20T10:00:00Z' })) as never },
   },
 ]
 
@@ -102,7 +97,7 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
     first.unmount()
 
     setActivePinia(createPinia()) // «перезагрузка»: сторы создаются заново и читают localStorage
-    for (const store of [useDevicesStore(), useVMsStore(), useContainersStore(), useInformationSystemsStore(), useAuditLogStore()]) store.loaded = true
+    for (const store of [useDevicesStore(), useVMsStore(), useContainersStore(), useInformationSystemsStore()]) store.loaded = true
     useCatalogsStore().loaded = true
     useCatalogsStore().items['device-types'] = [{ id: 'dt-1', name: 'Коммутатор' }]
     useVLANsStore().loaded = true

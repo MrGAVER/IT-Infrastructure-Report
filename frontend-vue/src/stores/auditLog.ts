@@ -1,12 +1,18 @@
-// Стор для экрана "Журнал аудита" — только чтение (аудиторский след, редактирование
-// или удаление записей через UI не предусмотрено и не должно быть, даже если
+// Стор экрана «Журнал аудита» — постраничная выборка с сервера, только чтение (аудиторский след:
+// редактирование или удаление записей через UI не предусмотрено и не должно быть, даже если
 // технически /resources/audit-log поддерживает generic CRUD).
+//
+// Поиск, фильтры (действие, раздел), порядок «новые сверху» и пагинация выполняются на сервере —
+// GET /api/v1/audit-log. Раньше экран читал последние 1000 записей и фильтровал их в браузере:
+// журнал только растёт, поэтому всё старше тысячи последних записей было недоступно ни в
+// таблице, ни в поиске, ни в счётчиках. Теперь клиент держит одну страницу, а счётчики
+// (`summary`) и список разделов (`entityTypes`) приходят по всему журналу независимо от фильтров.
 import { defineStore } from 'pinia'
-import { listResource } from '../api/client'
-import type { AuditLogEntry } from '../api/types'
+import { fetchAuditLogPage } from '../api/auditLogPage'
+import type { AuditLogEntry, AuditLogSummary } from '../api/types'
 import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
 
-const DEFAULT_PAGE_SIZE = 12
+export const DEFAULT_PAGE_SIZE = 12
 const LIST_ID = 'auditLog'
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -16,10 +22,22 @@ export const ACTION_LABELS: Record<string, string> = {
   SYNC: 'Синхронизация',
 }
 
+const EMPTY_SUMMARY: AuditLogSummary = { total: 0, by_action: {} }
+
+// Номер последнего отправленного запроса страницы: пользователь печатает быстрее, чем отвечает
+// сервер, и ответ на более ранний запрос не должен затереть ответ на более поздний.
+let latestRequest = 0
+
 export const useAuditLogStore = defineStore('auditLog', {
   state: () => ({
-    all: [] as AuditLogEntry[],
+    /** Записи текущей страницы. */
+    items: [] as AuditLogEntry[],
+    /** Сколько записей под текущими поиском и фильтрами (а не на странице). */
     total: 0,
+    /** Итоги по всему журналу — не зависят от поиска и фильтров. */
+    summary: { ...EMPTY_SUMMARY, by_action: {} } as AuditLogSummary,
+    /** Разделы, реально встречающиеся в журнале, — для фильтра «Раздел». */
+    entityTypes: [] as string[],
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -30,71 +48,64 @@ export const useAuditLogStore = defineStore('auditLog', {
     pageSize: loadPageSize(LIST_ID, DEFAULT_PAGE_SIZE),
   }),
   getters: {
-    filtered(state): AuditLogEntry[] {
-      let rows = state.all
-      if (state.search.trim()) {
-        const q = state.search.trim().toLowerCase()
-        rows = rows.filter((e) => [e.details, e.entity_id].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
-      }
-      if (state.actionFilter !== 'all') {
-        rows = rows.filter((e) => e.action === state.actionFilter)
-      }
-      if (state.entityTypeFilter) {
-        rows = rows.filter((e) => e.entity_type === state.entityTypeFilter)
-      }
-      return rows
-    },
-    /** Уникальные entity_type, реально встречающиеся в журнале — для наполнения
-     * фильтра, вместо показа всех ~30 типов ресурсов, из которых в логе будет
-     * от силы десяток. */
-    entityTypesInUse(state): string[] {
-      return Array.from(new Set(state.all.map((e) => e.entity_type))).sort()
-    },
-    pageSizeOptions(): number[] {
-      return pageSizeOptionsFor(DEFAULT_PAGE_SIZE)
-    },
-    pageCount(): number {
-      return Math.max(1, Math.ceil(this.filtered.length / this.pageSize))
-    },
-    pageItems(): AuditLogEntry[] {
-      const start = (this.page - 1) * this.pageSize
-      return this.filtered.slice(start, start + this.pageSize)
-    },
+    pageSizeOptions: (): number[] => pageSizeOptionsFor(DEFAULT_PAGE_SIZE),
+    pageCount: (state): number => Math.max(1, Math.ceil(state.total / state.pageSize)),
+    /** Число записей журнала с данным действием — по всему журналу. */
+    countByAction: (state) => (action: string): number => state.summary.by_action[action] ?? 0,
   },
   actions: {
-    async ensureLoaded() {
-      if (this.loaded || this.loading) return
-      await this.reload()
-    },
-    async reload() {
+    /** Загружает текущую страницу с текущими условиями. Устаревший ответ (пришёл после более
+     * позднего запроса) отбрасывается. Если страница вышла за конец (журнал сузили фильтром),
+     * переходим на последнюю существующую. */
+    async load(): Promise<void> {
+      const request = ++latestRequest
       this.loading = true
       this.error = null
       try {
-        const res = await listResource<AuditLogEntry>('audit-log', { limit: 1000 })
-        // Новые записи — сверху; created_at приходит ISO-строкой, лексикографическое
-        // сравнение работает корректно без парсинга в Date.
-        this.all = [...res.items].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+        const res = await fetchAuditLogPage({
+          q: this.search.trim() || undefined,
+          action: this.actionFilter === 'all' ? undefined : this.actionFilter,
+          entity_type: this.entityTypeFilter || undefined,
+          offset: (this.page - 1) * this.pageSize,
+          limit: this.pageSize,
+        })
+        if (request !== latestRequest) return
+        if (res.items.length === 0 && res.total > 0 && this.page > 1) {
+          this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
+          return this.load()
+        }
+        this.items = res.items
         this.total = res.total
+        this.summary = res.summary
+        this.entityTypes = res.entity_types
         this.loaded = true
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось загрузить журнал аудита'
+        if (request === latestRequest) this.error = e instanceof Error ? e.message : 'Не удалось загрузить журнал аудита'
       } finally {
-        this.loading = false
+        if (request === latestRequest) this.loading = false
       }
     },
-    setPage(p: number) {
-      this.page = Math.min(Math.max(1, p), this.pageCount)
+    /** Кнопка «Обновить»: перечитать текущую страницу (в журнале могли появиться новые записи). */
+    reload(): Promise<void> {
+      return this.load()
     },
-    /** Смена количества строк на странице: остаёмся на странице с тем же первым видимым
-     * элементом, выбор запоминается для этого списка. Недопустимое значение игнорируется. */
-    setPageSize(size: number) {
-      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return
+    /** Смена поиска или фильтра — всегда с первой страницы. */
+    applyFilters(): Promise<void> {
+      this.page = 1
+      return this.load()
+    },
+    setPage(p: number): Promise<void> {
+      this.page = Math.min(Math.max(1, p), this.pageCount)
+      return this.load()
+    },
+    /** Смена количества строк: остаёмся на странице с тем же первым видимым элементом, выбор
+     * запоминается для этого списка. Недопустимое значение игнорируется. */
+    setPageSize(size: number): Promise<void> {
+      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return Promise.resolve()
       this.page = pageAfterSizeChange(this.page, this.pageSize, size)
       this.pageSize = size
       savePageSize(LIST_ID, size)
-    },
-    resetPageOnFilterChange() {
-      this.page = 1
+      return this.load()
     },
   },
 })

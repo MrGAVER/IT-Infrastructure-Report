@@ -1,22 +1,33 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
 import { useAuditLogStore, ACTION_LABELS } from '../stores/auditLog'
 import { useCatalogsStore } from '../stores/catalogs'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
+import { debounce } from '../utils/debounce'
 
 const log = useAuditLogStore()
 const catalogs = useCatalogsStore()
 
 onMounted(async () => {
-  await Promise.all([log.ensureLoaded(), catalogs.ensureLoaded()])
+  // Журнал только растёт, поэтому при каждом открытии экрана читаем актуальную страницу, а не кэш.
+  await Promise.all([log.load(), catalogs.ensureLoaded()])
 })
 
+// Поиск уходит на сервер, поэтому не на каждую букву. Смена фильтра — сразу и отменяет ещё не
+// отправленный поиск: иначе после неё мог бы уйти лишний запрос со старой строкой.
+const SEARCH_DEBOUNCE_MS = 300
+const searchDebounced = debounce(() => void log.applyFilters(), SEARCH_DEBOUNCE_MS)
+watch(() => log.search, () => searchDebounced())
 watch(
-  () => [log.search, log.actionFilter, log.entityTypeFilter],
-  () => log.resetPageOnFilterChange(),
+  () => [log.actionFilter, log.entityTypeFilter],
+  () => {
+    searchDebounced.cancel()
+    void log.applyFilters()
+  },
 )
+onBeforeUnmount(() => searchDebounced.cancel())
 
 function formatWhen(iso: string): string {
   const d = new Date(iso)
@@ -28,10 +39,10 @@ function formatWhen(iso: string): string {
 <template>
   <div class="audit-view">
     <div class="stat-row">
-      <StatCard :value="log.total" label="Всего записей" />
-      <StatCard :value="log.all.filter((e) => e.action === 'CREATE').length" label="Создано" />
-      <StatCard :value="log.all.filter((e) => e.action === 'UPDATE').length" label="Изменено" />
-      <StatCard :value="log.all.filter((e) => e.action === 'DELETE').length" label="Удалено" tone="warn" />
+      <StatCard :value="log.summary.total" label="Всего записей" />
+      <StatCard :value="log.countByAction('CREATE')" label="Создано" />
+      <StatCard :value="log.countByAction('UPDATE')" label="Изменено" />
+      <StatCard :value="log.countByAction('DELETE')" label="Удалено" tone="warn" />
     </div>
 
     <div class="filter-bar">
@@ -41,7 +52,7 @@ function formatWhen(iso: string): string {
       </div>
       <select v-model="log.entityTypeFilter" class="fbtn">
         <option value="">Раздел: все</option>
-        <option v-for="key in log.entityTypesInUse" :key="key" :value="key">{{ catalogs.resourceLabel(key) }}</option>
+        <option v-for="key in log.entityTypes" :key="key" :value="key">{{ catalogs.resourceLabel(key) }}</option>
       </select>
       <div class="chip-group">
         <button :class="{ on: log.actionFilter === 'all' }" @click="log.actionFilter = 'all'">Все</button>
@@ -74,7 +85,7 @@ function formatWhen(iso: string): string {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in log.pageItems" :key="e.id">
+            <tr v-for="e in log.items" :key="e.id">
               <td class="mono when-cell">{{ formatWhen(e.created_at) }}</td>
               <td>{{ catalogs.resourceLabel(e.entity_type) }}</td>
               <td>
@@ -83,14 +94,14 @@ function formatWhen(iso: string): string {
               <td class="mono id-cell" :title="e.entity_id">{{ e.entity_id.slice(0, 8) }}…</td>
               <td class="details-cell">{{ e.details || '—' }}</td>
             </tr>
-            <tr v-if="!log.filtered.length">
+            <tr v-if="!log.items.length">
               <td colspan="5" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
             </tr>
           </tbody>
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ log.pageItems.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.pageItems.length }} из {{ log.filtered.length }}</span>
+        <span>Показано {{ log.items.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.items.length }} из {{ log.total }}</span>
         <PageSizeSelect :model-value="log.pageSize" :options="log.pageSizeOptions" @update:model-value="log.setPageSize" />
         <PagerNav :page="log.page" :page-count="log.pageCount" @update:page="log.setPage" />
       </div>

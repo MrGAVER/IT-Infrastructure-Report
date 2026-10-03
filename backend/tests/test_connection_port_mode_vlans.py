@@ -229,3 +229,102 @@ def test_orphan_connection_has_empty_mode_and_vlans(lab, db_session):
 
     assert row["port_config_status"] == "ok" and row["port_config_diff"] == []
     assert row["destination_vlan_mode"] is None and row["destination_vlans"] == []
+
+
+# --- предпросмотр сверки пары портов для формы подключения ---------------------------------
+
+def _preview(lab: Lab, **params) -> dict:
+    query = {"source_interface_id": lab.src, "destination_interface_id": lab.dst, **params}
+    response = lab.client.get("/api/v1/connections/port-config/preview", params=query)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_preview_of_matching_ports_is_ok_and_describes_both_sides(lab):
+    lab.configure(lab.src, "trunk", (lab.vlan(20), lab.vlan(10)))
+    lab.configure(lab.dst, "trunk", (lab.vlan(10), lab.vlan(20)))
+
+    result = _preview(lab)
+
+    assert result["status"] == "ok" and result["diff"] == []
+    assert result["source"] == {"interface_id": lab.src, "role": "data", "mode": "trunk", "vlans": [10, 20]}
+    assert result["destination"] == {"interface_id": lab.dst, "role": "data", "mode": "trunk", "vlans": [10, 20]}
+
+
+def test_preview_reports_mode_and_vlan_differences_before_anything_is_saved(lab):
+    lab.configure(lab.src, "trunk", (lab.vlan(10), lab.vlan(20)))
+    lab.configure(lab.dst, "access", (lab.vlan(10),))
+
+    result = _preview(lab)
+
+    assert result["status"] == "mismatch"
+    assert result["diff"] == ["mode", "vlans"]
+    assert (result["source"]["vlans"], result["destination"]["vlans"]) == ([10, 20], [10])
+
+
+def test_preview_agrees_with_the_dashboard_row_for_the_same_pair(lab):
+    """Предупреждение формы и статус на дашборде считаются одними правилами — расходиться не могут."""
+    lab.configure(lab.src, "access", (lab.vlan(10),))
+    lab.configure(lab.dst, "trunk", (lab.vlan(10), lab.vlan(30)))
+
+    result = _preview(lab, connection_id=lab.connection_id)
+    row = lab.row()
+
+    assert (result["status"], result["diff"]) == (row["port_config_status"], row["port_config_diff"])
+
+
+def test_preview_for_an_existing_connection_honours_its_approval(lab):
+    lab.configure(lab.src, "trunk")
+    lab.configure(lab.dst, "access")
+    assert _preview(lab, connection_id=lab.connection_id)["status"] == "mismatch"
+
+    lab.approve()
+
+    assert _preview(lab, connection_id=lab.connection_id)["status"] == "approved"
+    assert _preview(lab)["status"] == "mismatch"  # новое подключение с такой же парой одобрения не наследует
+
+
+def test_preview_drops_the_approval_when_the_pair_changed_since(lab):
+    lab.configure(lab.src, "trunk", (lab.vlan(10),))
+    lab.configure(lab.dst, "trunk", (lab.vlan(20),))
+    lab.approve()
+
+    lab.configure(lab.dst, vlans=(lab.vlan(20), lab.vlan(30)))
+
+    assert _preview(lab, connection_id=lab.connection_id)["status"] == "mismatch"
+
+
+def test_preview_of_an_inactive_connection_is_ok_with_no_differences(lab):
+    lab.configure(lab.src, "trunk")
+    lab.configure(lab.dst, "access")
+
+    result = _preview(lab, is_active="false")
+
+    assert result["status"] == "ok" and result["diff"] == []
+    assert (result["source"]["mode"], result["destination"]["mode"]) == ("trunk", "access")  # значения всё равно показываются
+
+
+def test_preview_does_not_write_anything(lab, db_session):
+    lab.configure(lab.src, "trunk")
+    lab.configure(lab.dst, "access")
+
+    _preview(lab, connection_id=lab.connection_id)
+    db_session.expire_all()
+
+    assert db_session.get(Connection, lab.connection_id).port_config_approved_signature is None
+    entries = lab.client.get("/api/v1/resources/audit-log", params={"limit": 1000}).json()["items"]
+    assert not any(e["details"].startswith("Одобрено") for e in entries)
+
+
+def test_preview_with_unknown_port_or_connection_is_404(lab):
+    base = {"source_interface_id": lab.src, "destination_interface_id": lab.dst}
+    get = lab.client.get
+
+    assert get("/api/v1/connections/port-config/preview", params={**base, "source_interface_id": "nope"}).status_code == 404
+    assert get("/api/v1/connections/port-config/preview", params={**base, "destination_interface_id": "nope"}).status_code == 404
+    assert get("/api/v1/connections/port-config/preview", params={**base, "connection_id": "nope"}).status_code == 404
+
+
+def test_preview_requires_both_ports(lab):
+    assert lab.client.get("/api/v1/connections/port-config/preview", params={"source_interface_id": lab.src}).status_code == 422
+    assert lab.client.get("/api/v1/connections/port-config/preview").status_code == 422

@@ -129,6 +129,24 @@ export type VlanMode = 'access' | 'trunk'
 /** Грань конфигурации порта, по которой пара портов-соседей может различаться. */
 export type PortConfigFacet = 'role' | 'mode' | 'vlans'
 
+/** Один конец пары портов в предпросмотре сверки (GET /connections/port-config/preview). */
+export interface PortConfigPreviewSide {
+  interface_id: string
+  role: PortRole
+  mode: VlanMode
+  /** Номера VLAN (802.1Q-теги) порта по возрастанию. */
+  vlans: number[]
+}
+
+/** Статус сверки пары портов ДО сохранения подключения — те же правила, что у дашборда. status
+ * для неактивного подключения всегда ok (diff пуст), для существующего учитывает его одобрение. */
+export interface PortConfigPreview {
+  status: PortConfigStatus
+  diff: PortConfigFacet[]
+  source: PortConfigPreviewSide
+  destination: PortConfigPreviewSide
+}
+
 export interface DeviceType extends CatalogItem {}
 export interface Manufacturer extends CatalogItem {}
 export interface OperatingSystem extends CatalogItem {
@@ -825,9 +843,8 @@ export interface VLANDashboardResponse {
   items: VLANDashboardGroup[]
 }
 
-/** GET /resources/audit-log — общий {items,total,offset,limit}, как большинство
- * ресурсов. Приложение пока без auth (см. README проекта), поэтому "кто сделал" в
- * записи нет — только что/когда/как. */
+/** Запись журнала аудита (GET /api/v1/audit-log). Приложение пока без auth (см. README проекта),
+ * поэтому "кто сделал" в записи нет — только что/когда/как. */
 export interface AuditLogEntry {
   id: string
   entity_type: string
@@ -835,6 +852,25 @@ export interface AuditLogEntry {
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SYNC' | string
   details: string | null
   created_at: string
+}
+
+/** Счётчики журнала по ВСЕМУ журналу — не зависят от поиска и фильтров. by_action: число записей
+ * по каждому действию (CREATE, UPDATE, DELETE, SYNC, LOGIN…); действия без записей отсутствуют. */
+export interface AuditLogSummary {
+  total: number
+  by_action: Record<string, number>
+}
+
+/** GET /api/v1/audit-log — страница журнала: поиск, фильтры и порядок «новые сверху» считает
+ * сервер. total — под теми же условиями, что и items; summary и entity_types — по всему журналу
+ * (entity_types — разделы, реально встречающиеся в журнале, для фильтра «Раздел»). */
+export interface AuditLogPage {
+  items: AuditLogEntry[]
+  total: number
+  offset: number
+  limit: number
+  summary: AuditLogSummary
+  entity_types: string[]
 }
 
 /** GET /api/v1/resources — список всех CRUD-ресурсов с человекочитаемым именем

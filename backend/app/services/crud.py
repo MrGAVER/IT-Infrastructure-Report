@@ -245,7 +245,7 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         # Without explicit ordering, "limit" returns whatever order the DB happens to store rows
         # in (insertion order for SQLite) — i.e. the OLDEST entries, not the most recent ones the
         # UI labels "Последние N действий". Audit log is the one resource where recency matters.
-        stmt = stmt.order_by(AuditLog.created_at.desc())
+        stmt = stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())  # id — чтобы записи с равным временем не «переезжали» между страницами
     if q:
         text_cols = [c for c in inspect(model).columns if str(c.type).upper().startswith(('VARCHAR', 'TEXT', 'CHAR'))]
         if text_cols: stmt = stmt.where(or_(*[func.lower(c).contains(q.lower()) for c in text_cols]))

@@ -1,13 +1,13 @@
-// Выбор количества строк на странице — общее поведение пяти клиентских списков
-// (устройства, ВМ, контейнеры, информационные системы, журнал аудита). Подключения — постраничная
-// выборка с сервера, их проверяет connectionsDashboard.spec.ts.
+// Выбор количества строк на странице — общее поведение четырёх клиентских списков (устройства,
+// ВМ, контейнеры, информационные системы). Подключения и журнал аудита — постраничная выборка с
+// сервера, их проверяют connectionsDashboard.spec.ts и auditLog.spec.ts.
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useDevicesStore } from '../devices'
+import { useAuditLogStore } from '../auditLog'
 import { useVMsStore } from '../vms'
 import { useContainersStore } from '../containers'
 import { useInformationSystemsStore } from '../informationSystems'
-import { useAuditLogStore } from '../auditLog'
 
 interface PagedStore {
   page: number
@@ -51,14 +51,6 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
     make: () => {
       const s = useInformationSystemsStore()
       s.all = range(200).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never
-      return s as unknown as PagedStore
-    },
-  },
-  {
-    name: 'журнал аудита', listId: 'auditLog', defaultSize: 12,
-    make: () => {
-      const s = useAuditLogStore()
-      s.all = range(200).map((i) => ({ id: `a${i}`, entity_type: 'devices', entity_id: `e${i}`, action: 'CREATE', details: 'x', created_at: '2026-08-20T10:00:00Z' })) as never
       return s as unknown as PagedStore
     },
   },
