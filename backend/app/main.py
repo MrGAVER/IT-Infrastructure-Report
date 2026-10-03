@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from .config import APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
+from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.devices import router as devices_router
 from .api.diagrams import router as diagrams_router
@@ -44,6 +45,7 @@ app.include_router(system_router)
 app.include_router(devices_router)
 app.include_router(resources_router)
 app.include_router(port_config_router)
+app.include_router(audit_log_router)
 app.include_router(report_builder_router)
 app.include_router(diagrams_router)
 
