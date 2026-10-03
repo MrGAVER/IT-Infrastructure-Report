@@ -6,7 +6,11 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
 }
 
-const edited: EditedDeviceState = { device_id: 'dev-1', ports: { 'if-1': 'access' }, groups: { g1: '' } }
+const edited: EditedDeviceState = {
+  device_id: 'dev-1',
+  ports: { 'if-1': { name: 'Gi0/1', mode: 'access', group: 'new-group-1', vlan_ids: ['v10'] } },
+  groups: { g1: { name: 'Серверные', mode: '', vlan_ids: [] }, 'new-group-1': { name: 'Новая', mode: 'access', vlan_ids: ['v10'] } },
+}
 
 describe('api/vlanModeCascade', () => {
   beforeEach(() => {

@@ -38,9 +38,11 @@ def vlan_mode_cascade_preview(interface_id: str, payload: dict, session: Session
     """Предпросмотр каскадной смены режима порта (access/trunk): затронутые группы и порты, VLAN,
     которые будут сняты, предупреждения о последствиях и hash плана. Ничего не записывает.
 
-    Тело: {mode, edited?}; edited = {device_id, ports: {id: режим}, groups: {id: режим}} — устройство с
-    открытой формой и режимы его портов/групп в черновике: его порты и группы только возвращаются в
-    плане (deferred), но не записываются. POST, а не GET — состояние формы не помещается в query."""
+    Тело: {mode, edited?}. edited — снимок формы устройства с открытой формой: {device_id,
+    ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}} — режим,
+    группа (ключ; null — вне групп), VLAN и имя порта и группы в ЧЕРНОВИКЕ, включая новые несохранённые
+    группы (временный ключ). Порты и группы этого устройства только возвращаются в плане (deferred), но
+    не записываются; не переданное берётся из БД. POST, а не GET — состояние формы не помещается в query."""
     return preview_vlan_mode_cascade(interface_id, payload, session)
 
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { InterfaceDraftRow, InterfaceGroupDraft } from '../../api/types'
-import { applyCascadeToDraft, buildEditedState, isTrivialPlan, modeLabel, vlansForMode } from '../vlanModeCascade'
+import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan, isTrivialPlan, modeLabel, vlansForMode } from '../vlanModeCascade'
 import { groupChange, makePlan, portChange, vlanRef } from './cascadePlanFixture'
 
 function row(name: string, patch: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow {
@@ -25,11 +25,28 @@ function group(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
 }
 
 describe('buildEditedState', () => {
-  it('режимы сохранённых портов и групп из черновика; новые строки и группы без id пропускаются', () => {
-    const rows = [row('a', { id: 'if-1', vlan_mode: 'access' }), row('b', { id: 'if-2', vlan_mode: 'trunk' }), row('новый', { vlan_mode: 'access' })]
-    const groups = [group({ id: 'g1', vlan_mode: 'trunk' }), group({ id: 'g2', key: 'g2', vlan_mode: '' }), group({ id: undefined, key: 'new-1', vlan_mode: 'access' })]
+  it('режим, группа, VLAN и имя сохранённых портов и ВСЕ группы (в т.ч. новые — по временному ключу) из черновика', () => {
+    const rows = [
+      row('a', { id: 'if-1', vlan_mode: 'access', vlan_ids: ['v10'], group_key: 'g1' }),
+      row('b', { id: 'if-2', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] }),
+      row('в новой группе', { id: 'if-3', group_key: 'new-1' }),
+      row('новая строка', { vlan_mode: 'access' }),
+    ]
+    const groups = [group({ id: 'g1', vlan_mode: 'trunk' }), group({ id: 'g2', key: 'g2', vlan_mode: '', vlan_ids: [] }), group({ id: undefined, key: 'new-1', name: 'Новая', vlan_mode: 'access', vlan_ids: ['v10'] })]
 
-    expect(buildEditedState('dev-1', rows, groups)).toEqual({ device_id: 'dev-1', ports: { 'if-1': 'access', 'if-2': 'trunk' }, groups: { g1: 'trunk', g2: '' } })
+    expect(buildEditedState('dev-1', rows, groups)).toEqual({
+      device_id: 'dev-1',
+      ports: {
+        'if-1': { name: 'a', mode: 'access', group: 'g1', vlan_ids: ['v10'] },
+        'if-2': { name: 'b', mode: 'trunk', group: null, vlan_ids: ['v10', 'v20'] },
+        'if-3': { name: 'в новой группе', mode: 'trunk', group: 'new-1', vlan_ids: [] },
+      },
+      groups: {
+        g1: { name: 'Серверные', mode: 'trunk', vlan_ids: ['v10', 'v20'] },
+        g2: { name: 'Серверные', mode: '', vlan_ids: [] },
+        'new-1': { name: 'Новая', mode: 'access', vlan_ids: ['v10'] },
+      },
+    })
   })
 
   it('без устройства (создание нового) состояния нет', () => {
@@ -37,8 +54,18 @@ describe('buildEditedState', () => {
     expect(buildEditedState(undefined, [], [])).toBeNull()
   })
 
-  it('отражает именно текущий черновик: переключённый в форме режим попадает как есть', () => {
-    expect(buildEditedState('dev-1', [row('a', { id: 'if-1', vlan_mode: 'access' })], [])?.ports).toEqual({ 'if-1': 'access' })
+  it('отражает именно текущий черновик: переключённый в форме режим и перенесённый в другую группу порт попадают как есть', () => {
+    const state = buildEditedState('dev-1', [row('a', { id: 'if-1', vlan_mode: 'access', group_key: '' })], [])
+    expect(state?.ports['if-1']).toMatchObject({ mode: 'access', group: null })
+  })
+
+  it('копирует списки VLAN: дальнейшие правки черновика не меняют уже собранный снимок', () => {
+    const rows = [row('a', { id: 'if-1', vlan_ids: ['v10'] })]
+    const state = buildEditedState('dev-1', rows, [])!
+
+    rows[0].vlan_ids.push('v20')
+
+    expect(state.ports['if-1'].vlan_ids).toEqual(['v10'])
   })
 })
 
@@ -116,27 +143,49 @@ describe('applyCascadeToDraft', () => {
     expect(result.changedPorts).toBe(0)
   })
 
-  it('порт группы по БД, выведенный из неё в черновике, всё равно получает режим как одиночный', () => {
+  it('новая (несохранённая) группа формы: группа находится по ключу, строки без id тоже получают режим', () => {
+    const rows = [row('Gi0/1', { id: 'if-1', group_key: 'new-1', vlan_ids: ['v10', 'v20'] }), row('новая', { group_key: 'new-1', vlan_ids: ['v10', 'v20'] })]
+    const draftGroup = group({ id: undefined, key: 'new-1', name: 'Новая' })
+    const plan = makePlan({
+      groups: [groupChange({ id: 'new-1', deferred: true, vlans_after: [vlanRef(10)], dropped_vlans: [vlanRef(20)], ports: [{ id: 'if-1', name: 'Gi0/1' }] })],
+      ports: [],
+    })
+
+    const result = applyCascadeToDraft(rows, [draftGroup], plan)
+
+    expect(result.groups[0]).toMatchObject({ key: 'new-1', vlan_mode: 'access', vlan_ids: ['v10'] })
+    expect(result.rows.map((r) => [r.vlan_mode, r.vlan_ids])).toEqual([['access', ['v10']], ['access', ['v10']]])
+    expect(result.changedPorts).toBe(1) // считаются только сохранённые порты (с id)
+  })
+
+  it('порт, выведенный из группы в черновике, режим группы не получает: состав группы — по черновику', () => {
     const rows = [row('Gi0/1', { id: 'if-1', vlan_ids: ['v10', 'v20'] })] // group_key пуст — вышел из группы без сохранения
     const plan = makePlan({
-      groups: [groupChange({ id: 'g1', deferred: true, vlans_after: [vlanRef(10)], dropped_vlans: [vlanRef(20)], ports: [{ id: 'if-1', name: 'Gi0/1' }] })],
+      groups: [groupChange({ id: 'g1', deferred: true, vlans_after: [vlanRef(10)], dropped_vlans: [vlanRef(20)], ports: [] })],
       ports: [],
     })
 
     const result = applyCascadeToDraft(rows, [group()], plan)
 
-    expect(result.rows[0]).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v10'] })
-    expect(result.changedPorts).toBe(1)
+    expect(result.groups[0]).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v10'] })
+    expect(result.rows[0]).toMatchObject({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] }) // не тронут
+    expect(result.changedPorts).toBe(0)
   })
 })
 
-describe('isTrivialPlan и modeLabel', () => {
-  it('тривиален только план из одного порта без групп, снимаемых VLAN и изменений в форме', () => {
+describe('isTrivialPlan, isFormOnlyPlan и modeLabel', () => {
+  it('тривиален только план из одного порта без групп и снимаемых VLAN', () => {
     expect(isTrivialPlan(makePlan())).toBe(true)
     expect(isTrivialPlan(makePlan({ groups: [groupChange()], totals: { ...makePlan().totals, groups: 1 } }))).toBe(false)
     expect(isTrivialPlan(makePlan({ totals: { ...makePlan().totals, ports: 2 } }))).toBe(false)
     expect(isTrivialPlan(makePlan({ totals: { ...makePlan().totals, dropped_vlans: 1 } }))).toBe(false)
-    expect(isTrivialPlan(makePlan({ totals: { ...makePlan().totals, deferred_ports: 1 } }))).toBe(false)
+  })
+
+  it('«только форма» — тривиальный план, в котором на других устройствах ничего не пишется', () => {
+    const own = makePlan({ ports: [portChange({ deferred: true })], totals: { ...makePlan().totals, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0 } })
+    expect(isFormOnlyPlan(own)).toBe(true)
+    expect(isFormOnlyPlan(makePlan())).toBe(false) // единственный порт на другом устройстве
+    expect(isFormOnlyPlan(makePlan({ totals: { ...makePlan().totals, ports: 2, deferred_ports: 1, immediate_ports: 1 } }))).toBe(false)
   })
 
   it('modeLabel подписывает режим', () => {
