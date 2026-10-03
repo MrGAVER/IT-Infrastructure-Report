@@ -129,6 +129,24 @@ export type VlanMode = 'access' | 'trunk'
 /** Грань конфигурации порта, по которой пара портов-соседей может различаться. */
 export type PortConfigFacet = 'role' | 'mode' | 'vlans'
 
+/** Один конец пары портов в предпросмотре сверки (GET /connections/port-config/preview). */
+export interface PortConfigPreviewSide {
+  interface_id: string
+  role: PortRole
+  mode: VlanMode
+  /** Номера VLAN (802.1Q-теги) порта по возрастанию. */
+  vlans: number[]
+}
+
+/** Статус сверки пары портов ДО сохранения подключения — те же правила, что у дашборда. status
+ * для неактивного подключения всегда ok (diff пуст), для существующего учитывает его одобрение. */
+export interface PortConfigPreview {
+  status: PortConfigStatus
+  diff: PortConfigFacet[]
+  source: PortConfigPreviewSide
+  destination: PortConfigPreviewSide
+}
+
 export interface DeviceType extends CatalogItem {}
 export interface Manufacturer extends CatalogItem {}
 export interface OperatingSystem extends CatalogItem {
