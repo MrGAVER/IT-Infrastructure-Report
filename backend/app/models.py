@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -622,6 +622,14 @@ class ReportTemplateVersion(TimestampMixin, Base):
 
 class AuditLog(TimestampMixin, Base):
     __tablename__ = "audit_log"
+    # Журнал только растёт, а экран читает его страницами «новые сверху» (services/audit_query.py).
+    # Без индекса по (created_at, id) каждая страница сортировала бы всю таблицу; индексы по
+    # action и entity_type обслуживают фильтры, счётчики по действию и список разделов.
+    __table_args__ = (
+        Index("ix_audit_log_created_at_id", "created_at", "id"),
+        Index("ix_audit_log_action", "action"),
+        Index("ix_audit_log_entity_type", "entity_type"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     entity_type: Mapped[str] = mapped_column(String(100))
     entity_id: Mapped[str] = mapped_column(String(36))

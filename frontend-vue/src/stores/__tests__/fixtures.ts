@@ -176,15 +176,46 @@ export const connectionsFixture: import('../../api/client').PagedResponse<import
   limit: 1000,
 }
 
-export const auditLogFixture: import('../../api/client').PagedResponse<import('../../api/types').AuditLogEntry> = {
-  items: [
-    { id: 'a-1', entity_type: 'devices', entity_id: 'dev-1', action: 'CREATE', details: 'Создание записи', created_at: '2026-08-20T10:00:00Z' },
-    { id: 'a-2', entity_type: 'devices', entity_id: 'dev-1', action: 'UPDATE', details: 'Изменено описание', created_at: '2026-08-21T11:00:00Z' },
-    { id: 'a-3', entity_type: 'information-systems', entity_id: 'is-1', action: 'DELETE', details: null, created_at: '2026-08-22T12:00:00Z' },
-  ],
-  total: 3,
-  offset: 0,
-  limit: 1000,
+/** Журнал из `count` записей, новые сверху: запись 0 — самая новая. Действие, раздел и текст
+ * детерминированы: действие циклически CREATE/UPDATE/DELETE, каждая 4-я запись — раздел «vms». */
+export function auditJournal(count: number): import('../../api/types').AuditLogEntry[] {
+  const actions = ['CREATE', 'UPDATE', 'DELETE']
+  return Array.from({ length: count }, (_, i) => ({
+    id: `a-${i}`,
+    entity_type: i % 4 === 0 ? 'vms' : 'devices',
+    entity_id: `ent-${i}-xxxxxxxx`,
+    action: actions[i % 3],
+    details: `Запись ${i}`,
+    created_at: new Date(Date.UTC(2026, 7, 1) + (count - i) * 60_000).toISOString(),
+  }))
+}
+
+/** Эмулятор GET /api/v1/audit-log над данным журналом: поиск (подстрока без регистра в деталях
+ * или id), фильтры по действию и разделу, offset/limit; summary и entity_types — по всему журналу.
+ * Те же правила, что у backend/app/services/audit_query.py. */
+export function auditServer(journal: import('../../api/types').AuditLogEntry[]) {
+  return (url: string): import('../../api/types').AuditLogPage => {
+    const p = new URL(url, 'http://x').searchParams
+    const q = (p.get('q') ?? '').trim().toLowerCase()
+    const matching = journal.filter(
+      (e) =>
+        (!q || [e.details, e.entity_id].some((v) => (v ?? '').toLowerCase().includes(q))) &&
+        (!p.get('action') || e.action === p.get('action')) &&
+        (!p.get('entity_type') || e.entity_type === p.get('entity_type')),
+    )
+    const offset = Number(p.get('offset') ?? 0)
+    const limit = Number(p.get('limit') ?? 24)
+    const by_action: Record<string, number> = {}
+    for (const e of journal) by_action[e.action] = (by_action[e.action] ?? 0) + 1
+    return {
+      items: matching.slice(offset, offset + limit),
+      total: matching.length,
+      offset,
+      limit,
+      summary: { total: journal.length, by_action },
+      entity_types: [...new Set(journal.map((e) => e.entity_type))].sort(),
+    }
+  }
 }
 
 export const vlanDashboardFixture: import('../../api/types').VLANDashboardResponse = {
