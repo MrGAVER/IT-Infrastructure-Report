@@ -8,6 +8,8 @@ import { useConnectionsStore } from '../../stores/connections'
 import { useToast } from '../../composables/useToast'
 import { portRoleOf } from '../../utils/portConfig'
 import type { DeviceInterface, PortConfigFacet, PortConfigPreview, PortConfigPreviewSide } from '../../api/types'
+import type { VlanModeCascadePlan } from '../../api/vlanModeCascade'
+import { groupChange, makePlan, portChange } from '../../utils/__tests__/cascadePlanFixture'
 
 // QuickAddModal.vue телепортируется в document.body — см. QuickAddModal.spec.ts.
 function teleportedContent(): DOMWrapper<HTMLElement> {
@@ -288,7 +290,7 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
 
   interface Call { url: string; method: string; body?: Record<string, unknown> }
 
-  function stubApi(opts: { portRoleStatus?: number; approveStatus?: number; previewStatus?: number; world?: PreviewWorld } = {}) {
+  function stubApi(opts: { portRoleStatus?: number; approveStatus?: number; previewStatus?: number; world?: PreviewWorld; cascade?: { plan: VlanModeCascadePlan; previewStatus?: number } } = {}) {
     const calls: Call[] = []
     vi.stubGlobal(
       'fetch',
@@ -296,6 +298,17 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
         const method = init?.method ?? 'GET'
         const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : undefined
         calls.push({ url, method, body })
+        if (method === 'POST' && url.includes('/vlan-mode-cascade')) {
+          // Каскад: предпросмотр отдаёт заданный план, применение «записывает» режим порта-инициатора в каталог ответа.
+          const cascade = opts.cascade
+          if (!cascade) return jsonResponse({ detail: 'Каскад не ожидался' }, 500)
+          if (url.endsWith('/preview')) {
+            return cascade.previewStatus ? jsonResponse({ detail: 'Область изменения превышает 1000 портов' }, cascade.previewStatus) : jsonResponse(cascade.plan)
+          }
+          const id = url.match(/interfaces\/([^/]+)\/vlan-mode-cascade/)![1]
+          const existing = (useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]).find((i) => i.id === id)
+          return jsonResponse({ plan: cascade.plan, applied: { ports: 1, groups: 0, devices: 1 }, interfaces: [{ ...existing, vlan_mode: cascade.plan.target_mode }] })
+        }
         if (method === 'GET' && url.includes('/connections/port-config/preview')) {
           if (opts.previewStatus) return jsonResponse({ detail: 'Сервер недоступен' }, opts.previewStatus)
           return jsonResponse(previewFor(url, opts.world ?? {}))
@@ -508,8 +521,170 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
       expect(resolution.text()).toContain('«Gi0/1» — Передача данных · trunk')
       expect(resolution.text()).toContain('«Gi0/2» — Передача данных · access')
       expect(resolution.find('[data-resolution="keep-source"]').exists()).toBe(false) // роль выравнивать нечего
-      expect(resolution.find('[data-hint="port-setup"]').text()).toContain('Управлять портами')
+      expect(resolution.find('[data-resolution="mode-keep-source"]').text()).toContain('Порту «Gi0/2» задать режим как у «Gi0/1» (trunk)')
+      expect(resolution.find('[data-resolution="mode-keep-destination"]').text()).toContain('Порту «Gi0/1» задать режим как у «Gi0/2» (access)')
+      expect(resolution.find('[data-hint="mode-cascade"]').exists()).toBe(true)
+      expect(resolution.find('[data-hint="port-setup"]').exists()).toBe(false) // VLAN те же — окно портов не нужно
       expect(resolution.find('[data-resolution="approve"]').exists()).toBe(true)
+    })
+
+    // --- Режим порта выравнивается каскадом (а не окном портов) ---
+    describe('выравнивание режима каскадом', () => {
+      const modeMismatch = () => setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
+      // Порту «Gi0/2» (if-dst) задаём режим «Gi0/1» (trunk): единственный порт на другом устройстве.
+      const trivialPlan = () =>
+        makePlan({
+          target_mode: 'trunk',
+          start_interface_id: 'if-dst',
+          ports: [portChange({ id: 'if-dst', name: 'Gi0/2', device_id: 'dev-dst', device_name: 'dst-dev', from_mode: 'access', to_mode: 'trunk' })],
+        })
+      const groupPlan = () =>
+        makePlan({
+          target_mode: 'trunk',
+          start_interface_id: 'if-dst',
+          groups: [groupChange({ id: 'g-dst', name: 'Магистраль', device_id: 'dev-dst', device_name: 'dst-dev', from_mode: 'access', to_mode: 'trunk', ports: [{ id: 'if-dst', name: 'Gi0/2' }, { id: 'if-x', name: 'Gi0/3' }] })],
+          ports: [],
+          devices: [{ id: 'dev-dst', name: 'dst-dev', deferred: false, port_count: 2, group_count: 1 }],
+          totals: { ports: 2, devices: 1, groups: 1, deferred_ports: 0, immediate_ports: 2, immediate_devices: 1, dropped_vlans: 0 },
+          hash: 'hash-form',
+        })
+      const cascadeCalls = (calls: Call[]) => calls.filter((c) => c.url.includes('/vlan-mode-cascade'))
+
+      it('простой случай: каскад от порта, которому задаём режим, затем режим сверяется и подключение сохраняется', async () => {
+        modeMismatch()
+        const calls = stubApi({ cascade: { plan: trivialPlan() } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+
+        await wrapper.find('[data-resolution="mode-keep-source"]').trigger('click')
+        await flushPromises()
+
+        const [preview, apply] = cascadeCalls(calls)
+        expect(preview.url).toContain('/interfaces/if-dst/vlan-mode-cascade/preview')
+        expect(preview.body).toEqual({ mode: 'trunk', edited: null }) // формы устройства нет — всё пишется сразу
+        expect(apply).toMatchObject({ method: 'POST', body: { mode: 'trunk', edited: null, plan_hash: 'hash-1', confirm: true } })
+        expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+        expect(wrapper.find('.resolution').exists()).toBe(false)
+        expect(saveCalls(calls)[0].method).toBe('POST') // режимы совпали — подключение сохранено
+        expect(wrapper.emitted('saved')).toHaveLength(1)
+        expect((useCatalogsStore().items['interfaces'][1] as unknown as DeviceInterface).vlan_mode).toBe('trunk')
+      })
+
+      it('в обратную сторону: порту источника задаём режим назначения', async () => {
+        modeMismatch()
+        const plan = makePlan({ target_mode: 'access', start_interface_id: 'if-src', ports: [portChange({ id: 'if-src', name: 'Gi0/1', device_id: 'dev-src', device_name: 'src-dev', from_mode: 'trunk', to_mode: 'access' })] })
+        const calls = stubApi({ cascade: { plan } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+
+        await wrapper.find('[data-resolution="mode-keep-destination"]').trigger('click')
+        await flushPromises()
+
+        expect(cascadeCalls(calls)[0].url).toContain('/interfaces/if-src/vlan-mode-cascade/preview')
+        expect(cascadeCalls(calls)[0].body).toMatchObject({ mode: 'access' })
+        expect(wrapper.emitted('saved')).toHaveLength(1)
+      })
+
+      it('группа и связанные порты: окно последствий; пока не подтверждено — ни записи режима, ни сохранения подключения; подтверждение применяет и сохраняет', async () => {
+        modeMismatch()
+        const calls = stubApi({ cascade: { plan: groupPlan() } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+
+        await wrapper.find('[data-resolution="mode-keep-source"]').trigger('click')
+        await flushPromises()
+
+        expect(wrapper.find('.cascade-modal').exists()).toBe(true)
+        expect(wrapper.find('.cascade-item-title').text()).toContain('Группа «Магистраль»')
+        expect(wrapper.find('.cascade-desc').text()).toContain('«Gi0/2» (dst-dev)')
+        expect(cascadeCalls(calls).filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
+        expect(saveCalls(calls)).toEqual([])
+
+        await wrapper.find('.cascade-ack input').setValue(true)
+        await wrapper.find('.cascade-actions .btn-primary').trigger('click')
+        await flushPromises()
+
+        expect(cascadeCalls(calls).filter((c) => !c.url.endsWith('/preview'))).toHaveLength(1)
+        expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+        expect(saveCalls(calls)[0].method).toBe('POST')
+        expect(wrapper.emitted('saved')).toHaveLength(1)
+      })
+
+      it('«Отмена» в окне последствий: ничего не записано, форма возвращается к выбору решения', async () => {
+        modeMismatch()
+        const calls = stubApi({ cascade: { plan: groupPlan() } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+        await wrapper.find('[data-resolution="mode-keep-source"]').trigger('click')
+        await flushPromises()
+
+        await wrapper.find('.cascade-actions .btn-secondary').trigger('click')
+        await flushPromises()
+
+        expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+        expect(wrapper.find('.resolution').exists()).toBe(true)
+        expect(cascadeCalls(calls).filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
+        expect(saveCalls(calls)).toEqual([])
+        expect(wrapper.emitted('saved')).toBeUndefined()
+      })
+
+      it('режим выровнен, но VLAN различаются: подключение молча не сохраняется — снова решение, теперь про VLAN', async () => {
+        setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
+        const calls = stubApi({ cascade: { plan: trivialPlan() }, world: { vlans: { 'if-src': [10, 20], 'if-dst': [10, 30] } } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+
+        await wrapper.find('[data-resolution="mode-keep-source"]').trigger('click')
+        await flushPromises()
+
+        const resolution = wrapper.find('.resolution')
+        expect(resolution.exists()).toBe(true)
+        expect(resolution.text()).toContain('(VLAN)')
+        expect(resolution.find('[data-resolution="mode-keep-source"]').exists()).toBe(false) // режимы уже совпадают
+        expect(resolution.find('[data-hint="port-setup"]').text()).toContain('Управлять портами')
+        expect(saveCalls(calls)).toEqual([])
+      })
+
+      it('различаются только VLAN: кнопок выравнивания режима нет, подсказка про окно портов есть', async () => {
+        setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
+        stubApi({ world: { vlans: { 'if-src': [10, 20], 'if-dst': [10, 30] } } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+
+        const resolution = wrapper.find('.resolution')
+        expect(resolution.find('[data-resolution="mode-keep-source"]').exists()).toBe(false)
+        expect(resolution.find('[data-hint="mode-cascade"]').exists()).toBe(false)
+        expect(resolution.find('[data-hint="port-setup"]').exists()).toBe(true)
+      })
+
+      it('ошибка предпросмотра (область слишком большая): сообщение в форме, подключение не сохраняется', async () => {
+        modeMismatch()
+        const calls = stubApi({ cascade: { plan: trivialPlan(), previewStatus: 422 } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+
+        await wrapper.find('[data-resolution="mode-keep-source"]').trigger('click')
+        await flushPromises()
+
+        expect(wrapper.find('.form-error').text()).toContain('Область изменения превышает 1000 портов')
+        expect(saveCalls(calls)).toEqual([])
+        expect(wrapper.emitted('saved')).toBeUndefined()
+      })
+
+      it('режим уже совпадает (пустой план): сверка пересчитывается и подключение сохраняется', async () => {
+        modeMismatch()
+        const calls = stubApi({ cascade: { plan: makePlan({ empty: true, groups: [], ports: [], devices: [], totals: { ...makePlan().totals, ports: 0 } }) } })
+        const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
+        await fillAndSubmit(wrapper)
+        // в БД порты уже выровнены кем-то другим, а каталог формы об этом ещё не знает
+        useCatalogsStore().items['interfaces'] = (useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]).map((i) => ({ ...i, vlan_mode: 'trunk' })) as never
+
+        await wrapper.find('[data-resolution="mode-keep-source"]').trigger('click')
+        await flushPromises()
+
+        expect(cascadeCalls(calls).filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
+        expect(saveCalls(calls)[0].method).toBe('POST')
+      })
     })
 
     it('наборы VLAN различаются — то же: решение обязательно, «одобрить» сохраняет подключение и одобряет расхождение', async () => {
