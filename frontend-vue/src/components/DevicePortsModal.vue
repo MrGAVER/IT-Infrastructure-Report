@@ -125,6 +125,7 @@ async function submit() {
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
+          :device-id="props.deviceId"
         />
 
         <div class="modal-foot">
