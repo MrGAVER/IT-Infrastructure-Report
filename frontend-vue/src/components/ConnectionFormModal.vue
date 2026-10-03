@@ -14,10 +14,12 @@
 // is_data_transfer). Форма показывает конфигурацию обоих портов — роль, режим (trunk / access) и
 // VLAN, а если она различается (например, порт сервера — управление, порт коммутатора — передача
 // данных, или один конец линии — trunk, другой — access, или наборы VLAN разные), НЕ даёт сохранить
-// подключение, пока пользователь явно не выберет решение: выровнять роль одного из портов (режим и
-// VLAN правятся в окне портов — «Управлять портами») или одобрить расхождение как допустимое. Так
-// проверка срабатывает каждый раз, а не только когда предупреждение заметили. Сверку делает сервер
-// (previewPortConfig) — теми же правилами, что дашборд «Подключения».
+// подключение, пока пользователь явно не выберет решение: выровнять роль одного из портов, выровнять
+// режим порта (каскадом — composables/useVlanModeCascade.ts: режим могут задавать группы портов, и он
+// должен совпасть у связанных портов; перед применением показываются все последствия), поправить VLAN
+// в окне портов («Управлять портами») или одобрить расхождение как допустимое. Так проверка срабатывает
+// каждый раз, а не только когда предупреждение заметили. Сверку делает сервер (previewPortConfig) —
+// теми же правилами, что дашборд «Подключения».
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
 import { approvePortConfig, previewPortConfig, setPortRole } from '../api/portConfig'
@@ -27,9 +29,11 @@ import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import QuickAddButton from './QuickAddButton.vue'
 import DevicePortsModal from './DevicePortsModal.vue'
+import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
+import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { facetsLabel, formatVlans, hasRoleMismatch, modeLabel, portRoleOf, roleLabel } from '../utils/portConfig'
 
 const props = defineProps<{
@@ -147,13 +151,15 @@ const portMismatch = computed(() => (configView.value && configView.value.status
 // нужно — сервер сверяет одобрение по ровно этому расхождению (approval_signature).
 const mismatchAlreadyApproved = computed(() => configView.value?.status === 'approved')
 const differs = (facet: PortConfigFacet) => portMismatch.value?.diff.includes(facet) ?? false
-const hasPortSetupDiff = computed(() => differs('mode') || differs('vlans'))
+// Режим выравнивается каскадом; окно портов («Управлять портами») нужно только для VLAN.
+const canAlignMode = computed(() => differs('mode') && !!portMismatch.value?.source.mode && !!portMismatch.value?.destination.mode)
+const hasVlanDiff = computed(() => differs('vlans'))
 
 function sideLabel(side: ConfigSide): string {
   return [roleLabel(side.role), ...(side.mode ? [modeLabel(side.mode)] : []), ...(side.vlans ? [`VLAN ${formatVlans(side.vlans)}`] : [])].join(' · ')
 }
 
-type MismatchResolution = 'keep-source' | 'keep-destination' | 'approve'
+type MismatchResolution = 'keep-source' | 'keep-destination' | 'mode-keep-source' | 'mode-keep-destination' | 'approve'
 // true — показан выбор решения по расхождению вместо кнопок «Отмена/Сохранить».
 const resolving = ref(false)
 
@@ -327,6 +333,10 @@ async function resolveAndSave(resolution: MismatchResolution) {
     await persist('approve')
     return
   }
+  if (resolution === 'mode-keep-source' || resolution === 'mode-keep-destination') {
+    await alignMode(resolution === 'mode-keep-source')
+    return
+  }
   saving.value = true
   try {
     await alignPort(resolution === 'keep-source')
@@ -356,6 +366,60 @@ async function alignPort(keepSource: boolean) {
   const winner = keepSource ? mismatch.source : mismatch.destination
   const loser = keepSource ? mismatch.destination : mismatch.source
   catalogs.replaceInterface(await setPortRole(loser.id, winner.role))
+}
+
+// Формы устройства здесь нет (edited = null): изменения всех портов записываются сразу. Режим выровнен
+// (или уже совпадал) — как после выравнивания роли: сверка пересчитывается, остаток (VLAN) снова
+// требует решения, иначе подключение сохраняется.
+const {
+  pending: cascadePending,
+  applying: cascadeApplying,
+  start: cascadeStart,
+  confirm: cascadeConfirm,
+  cancel: cascadeCancelRaw,
+} = useVlanModeCascade({
+  edited: () => null,
+  async onFinished() {
+    previewPending = refreshPreview()
+    await previewPending
+    if (portMismatch.value && !mismatchAlreadyApproved.value) {
+      resolving.value = true
+      return
+    }
+    await persist(null)
+  },
+})
+
+/** Приводит режим одного порта к режиму второго — каскадом: режим могут задавать группы портов, и он
+ * должен совпасть у связанных портов, поэтому сервер считает всю область изменения, а при необходимости
+ * окно показывает последствия до применения. Как и роль, режим записывается сразу, до сохранения
+ * подключения. Продолжение (пересчёт сверки и сохранение) — в onFinished каскада. */
+async function alignMode(keepSource: boolean) {
+  const mismatch = portMismatch.value
+  if (!mismatch) return
+  const winner = keepSource ? mismatch.source : mismatch.destination
+  const loser = keepSource ? mismatch.destination : mismatch.source
+  if (!winner.mode) return
+  saving.value = true
+  try {
+    await cascadeStart(loser.id, winner.mode, `«${loser.name}» (${endpointDeviceLabel(keepSource ? 'destination' : 'source')})`)
+  } catch (err) {
+    errorMessage.value = err instanceof Error ? err.message : 'Не удалось изменить режим порта'
+  } finally {
+    saving.value = false
+  }
+}
+
+function endpointDeviceLabel(endpoint: 'source' | 'destination'): string {
+  const id = endpoint === 'source' ? form.sourceDeviceId : form.destinationDeviceId
+  const device = devicesStore.all.find((d) => d.id === id)
+  return device ? deviceLabel(device) : ''
+}
+
+/** «Отмена» в окне последствий: ничего не записано — возвращаемся к выбору решения. */
+function cancelCascade() {
+  cascadeCancelRaw()
+  resolving.value = true
 }
 
 async function persist(resolution: 'approve' | null) {
@@ -531,8 +595,20 @@ async function persist(resolution: 'approve' | null) {
               Порту «{{ portMismatch.source.name }}» задать роль как у «{{ portMismatch.destination.name }}»
             </button>
           </template>
-          <p v-if="hasPortSetupDiff" class="resolution-hint" data-hint="port-setup">
-            Режим порта и VLAN меняются в окне портов устройства: вернитесь к правке и нажмите «Управлять портами» рядом с выбором порта.
+          <template v-if="canAlignMode">
+            <button type="button" class="btn btn-secondary" data-resolution="mode-keep-source" @click="resolveAndSave('mode-keep-source')">
+              Порту «{{ portMismatch.destination.name }}» задать режим как у «{{ portMismatch.source.name }}» ({{ modeLabel(portMismatch.source.mode) }})
+            </button>
+            <button type="button" class="btn btn-secondary" data-resolution="mode-keep-destination" @click="resolveAndSave('mode-keep-destination')">
+              Порту «{{ portMismatch.source.name }}» задать режим как у «{{ portMismatch.destination.name }}» ({{ modeLabel(portMismatch.destination.mode) }})
+            </button>
+            <p class="resolution-hint" data-hint="mode-cascade">
+              Режим порта может задаваться группой и должен совпасть у связанных портов: при необходимости он сменится у всей группы и у связанных с ней
+              портов — перед применением покажем список последствий.
+            </p>
+          </template>
+          <p v-if="hasVlanDiff" class="resolution-hint" data-hint="port-setup">
+            VLAN меняются в окне портов устройства: вернитесь к правке и нажмите «Управлять портами» рядом с выбором порта.
           </p>
           <button type="button" class="btn btn-primary" data-resolution="approve" @click="resolveAndSave('approve')">
             Оставить как есть — одобрить расхождение
@@ -555,6 +631,15 @@ async function persist(resolution: 'approve' | null) {
       :device-label="portsDeviceLabel"
       @close="closePorts"
       @saved="onPortsSaved"
+    />
+
+    <VlanModeCascadeModal
+      v-if="cascadePending"
+      :plan="cascadePending.plan"
+      :applying="cascadeApplying"
+      :port-label="cascadePending.portLabel"
+      @confirm="cascadeConfirm"
+      @cancel="cancelCascade"
     />
   </div>
 </template>
