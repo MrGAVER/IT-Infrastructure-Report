@@ -946,19 +946,6 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
     })
 
-    it('пункт 2: "Применить конфигурацию соседа" по расхождению режима порта меняет только vlan_mode строки', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', vlan_mode: 'access' }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': vlanModeConflict } } })
-      await wrapper.find('.expand-toggle').trigger('click')
-
-      await wrapper.find('.vlan-mode-row .conflict-icon-btn').trigger('click')
-      await wrapper.find('.conflict-modal-actions .btn-secondary').trigger('click')
-
-      const emitted = wrapper.emitted('update:modelValue')!
-      const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
-      expect(result[0].vlan_mode).toBe('trunk')
-    })
-
     // --- Каскадная смена режима порта (вариант C): «Применить текущую конфигурацию» по режиму порта ---
     describe('режим порта: каскад по группам и связанным портам', () => {
       const CASCADE_URL = '/vlan-mode-cascade'
@@ -1023,9 +1010,9 @@ describe('DeviceInterfacesEditor.vue', () => {
         // предпросмотр получает целевой режим и СОСТОЯНИЕ ФОРМЫ (режимы портов и групп в черновике), а не только id устройства
         expect(calls[0].method).toBe('POST')
         expect(calls[0].url).toContain('/interfaces/if-3/vlan-mode-cascade/preview')
-        expect(calls[0].body).toEqual({ mode: 'access', edited: { device_id: 'dev-1', ports: { 'if-1': 'access' }, groups: {} } })
+        expect(calls[0].body).toEqual({ mode: 'access', edited: { device_id: 'dev-1', ports: { 'if-1': { name: 'Gi0/1', mode: 'access', group: null, vlan_ids: [] } }, groups: {} } })
         // применение — тот же снимок формы + hash показанного плана
-        expect(calls[1]).toMatchObject({ method: 'POST', body: { mode: 'access', edited: { device_id: 'dev-1', ports: { 'if-1': 'access' }, groups: {} }, plan_hash: 'hash-1', confirm: true } })
+        expect(calls[1]).toMatchObject({ method: 'POST', body: { mode: 'access', edited: { device_id: 'dev-1', ports: { 'if-1': { name: 'Gi0/1', mode: 'access', group: null, vlan_ids: [] } }, groups: {} }, plan_hash: 'hash-1', confirm: true } })
         expect(wrapper.find('.cascade-modal').exists()).toBe(false)
         expect(wrapper.find('.conflict-modal').exists()).toBe(false)
         expect((catalogs.items['interfaces'][0] as unknown as { vlan_mode: string }).vlan_mode).toBe('access') // кэш соседа обновлён — значок расхождения исчезнет
@@ -1096,7 +1083,15 @@ describe('DeviceInterfacesEditor.vue', () => {
         const post = calls.find((c) => c.method === 'POST' && !c.url.endsWith('/preview'))!
         expect(post.body).toEqual({
           mode: 'access',
-          edited: { device_id: 'dev-1', ports: { 'if-1': 'access', 'if-3': 'trunk', 'if-4': 'trunk' }, groups: { g1: 'trunk' } },
+          edited: {
+            device_id: 'dev-1',
+            ports: {
+              'if-1': { name: 'Gi0/1', mode: 'access', group: null, vlan_ids: [] },
+              'if-3': { name: 'Gi0/3', mode: 'trunk', group: 'g1', vlan_ids: ['v10', 'v20'] },
+              'if-4': { name: 'Gi0/4', mode: 'trunk', group: null, vlan_ids: ['v20'] },
+            },
+            groups: { g1: { name: 'Серверные', mode: 'trunk', vlan_ids: ['v10', 'v20'] } },
+          },
           plan_hash: 'hash-7',
           confirm: true,
         })
@@ -1114,6 +1109,146 @@ describe('DeviceInterfacesEditor.vue', () => {
         const toast = useToast().toasts.at(-1)!
         expect(toast.type).toBe('success')
         expect(toast.message).toContain('в этой форме изменено портов: 2 — сохраните форму')
+      })
+
+      // --- «Применить конфигурацию соседа»: режим соседа берёт себе этот порт, в т.ч. порт из группы ---
+      async function clickApplyNeighbor(wrapper: ReturnType<typeof mount>) {
+        await wrapper.find('.expand-toggle').trigger('click')
+        await wrapper.find('.vlan-mode-row .conflict-icon-btn').trigger('click')
+        await wrapper.find('.conflict-modal-actions .btn-secondary').trigger('click')
+        await flushPromises()
+      }
+
+      // Порт формы if-1 (access) и его сосед if-3 (trunk): режим соседа должен получить if-1.
+      const ownPortPlan = () =>
+        makePlan({
+          target_mode: 'trunk',
+          start_interface_id: 'if-1',
+          edited_device_id: 'dev-1',
+          ports: [portChange({ id: 'if-1', name: 'Gi0/1', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, from_mode: 'access', to_mode: 'trunk' })],
+          devices: [{ id: 'dev-1', name: 'esxi-01', deferred: true, port_count: 1, group_count: 0 }],
+          totals: { ports: 1, devices: 1, groups: 0, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0, dropped_vlans: 0 },
+        })
+
+      it('взять режим соседа, затрагивается только эта строка: предпросмотр от СВОЕГО порта, правка черновика, запись на сервер не нужна', async () => {
+        const calls = stubCascadeApi({ preview: () => jsonResponse(ownPortPlan()) })
+        const wrapper = mountConflict()
+
+        await clickApplyNeighbor(wrapper)
+
+        expect(calls).toHaveLength(1)
+        expect(calls[0].url).toContain('/interfaces/if-1/vlan-mode-cascade/preview')
+        expect(calls[0].body).toMatchObject({ mode: 'trunk', edited: { device_id: 'dev-1' } })
+        expect(lastEmit<InterfaceDraftRow[]>(wrapper, 'update:modelValue')[0].vlan_mode).toBe('trunk')
+        expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+        expect(wrapper.find('.conflict-modal').exists()).toBe(false)
+      })
+
+      describe('порт состоит в группе, которая задаёт режим (раньше — отказ «измените в группе»)', () => {
+        const groupRows = (): InterfaceDraftRow[] => [
+          { ...emptyRow(), id: 'if-1', name: 'Gi0/1', vlan_mode: 'access', vlan_ids: ['v10'], group_key: 'g1' },
+          { ...emptyRow(), id: 'if-2', name: 'Gi0/2', vlan_mode: 'access', vlan_ids: ['v10'], group_key: 'g1' },
+        ]
+        const groupDraft = (): InterfaceGroupDraft[] => [
+          { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] },
+        ]
+        const groupPlan = () =>
+          makePlan({
+            target_mode: 'trunk',
+            start_interface_id: 'if-1',
+            edited_device_id: 'dev-1',
+            groups: [
+              groupChange({
+                id: 'g1', name: 'Серверные', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, from_mode: 'access', to_mode: 'trunk',
+                vlans_before: [vlanRef(10)], vlans_after: [vlanRef(10)], ports: [{ id: 'if-1', name: 'Gi0/1' }, { id: 'if-2', name: 'Gi0/2' }],
+              }),
+            ],
+            ports: [portChange({ id: 'if-9', name: 'Gi0/9', device_id: 'dev-9', device_name: 'sw-09', from_mode: 'access', to_mode: 'trunk' })],
+            devices: [
+              { id: 'dev-1', name: 'esxi-01', deferred: true, port_count: 2, group_count: 1 },
+              { id: 'dev-9', name: 'sw-09', deferred: false, port_count: 1, group_count: 0 },
+            ],
+            totals: { ports: 3, devices: 2, groups: 1, deferred_ports: 2, immediate_ports: 1, immediate_devices: 1, dropped_vlans: 0 },
+            hash: 'hash-g',
+          })
+
+        it('запускает каскад от своего порта: окно последствий с группой, отказа и ошибки нет', async () => {
+          const calls = stubCascadeApi({ preview: () => jsonResponse(groupPlan()) })
+          const wrapper = mountConflict({}, groupRows(), groupDraft())
+
+          await clickApplyNeighbor(wrapper)
+
+          expect(calls[0].url).toContain('/interfaces/if-1/vlan-mode-cascade/preview')
+          // состав группы и режимы — из ЧЕРНОВИКА формы
+          expect(calls[0].body).toMatchObject({
+            mode: 'trunk',
+            edited: {
+              ports: { 'if-1': { mode: 'access', group: 'g1', vlan_ids: ['v10'] }, 'if-2': { mode: 'access', group: 'g1' } },
+              groups: { g1: { name: 'Серверные', mode: 'access', vlan_ids: ['v10'] } },
+            },
+          })
+          expect(wrapper.find('.cascade-modal').exists()).toBe(true)
+          expect(wrapper.find('.cascade-item-title').text()).toContain('Группа «Серверные»')
+          expect(wrapper.find('.cascade-desc').text()).toContain('«Gi0/1» (это устройство)')
+          expect(useToast().toasts.filter((t) => t.type === 'error')).toHaveLength(0)
+          expect(wrapper.emitted('update:modelValue')).toBeFalsy() // до подтверждения черновик не менялся
+        })
+
+        it('подтверждение: группа и все её порты получают режим соседа в черновике, остальные порты пишет сервер', async () => {
+          const calls = stubCascadeApi({ preview: () => jsonResponse(groupPlan()), apply: () => jsonResponse(cascadeResult(groupPlan(), { ports: 1, groups: 0, devices: 1 })) })
+          const wrapper = mountConflict({}, groupRows(), groupDraft())
+          await clickApplyNeighbor(wrapper)
+
+          await wrapper.find('.cascade-ack input').setValue(true)
+          await wrapper.find('.cascade-actions .btn-primary').trigger('click')
+          await flushPromises()
+
+          const post = calls.find((c) => c.method === 'POST' && !c.url.endsWith('/preview'))!
+          expect(post.url).toContain('/interfaces/if-1/vlan-mode-cascade')
+          expect(post.body).toMatchObject({ mode: 'trunk', plan_hash: 'hash-g', confirm: true, edited: { ports: { 'if-1': { group: 'g1' } } } })
+          expect(lastEmit<InterfaceGroupDraft[]>(wrapper, 'update:groups')[0]).toMatchObject({ vlan_mode: 'trunk', vlan_ids: ['v10'] })
+          expect(lastEmit<InterfaceDraftRow[]>(wrapper, 'update:modelValue').map((r) => [r.name, r.vlan_mode, r.vlan_ids])).toEqual([
+            ['Gi0/1', 'trunk', ['v10']],
+            ['Gi0/2', 'trunk', ['v10']],
+          ])
+          expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+          expect(wrapper.find('.conflict-modal').exists()).toBe(false)
+          expect(useToast().toasts.at(-1)?.message).toContain('в этой форме изменено портов: 2 — сохраните форму')
+        })
+
+        it('«Отмена» в окне: ни запись на сервер, ни правка черновика не выполняются', async () => {
+          const calls = stubCascadeApi({ preview: () => jsonResponse(groupPlan()) })
+          const wrapper = mountConflict({}, groupRows(), groupDraft())
+          await clickApplyNeighbor(wrapper)
+
+          await wrapper.find('.cascade-actions .btn-secondary').trigger('click')
+
+          expect(calls.filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
+          expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+          expect(wrapper.find('.conflict-modal').exists()).toBe(true)
+        })
+      })
+
+      it('взять режим соседа: режим уже совпадает (пустой план) — сообщение, окно закрывается, черновик не меняется', async () => {
+        stubCascadeApi({ preview: () => jsonResponse(makePlan({ empty: true, groups: [], ports: [], devices: [], totals: { ...makePlan().totals, ports: 0 } })) })
+        const wrapper = mountConflict()
+
+        await clickApplyNeighbor(wrapper)
+
+        expect(wrapper.find('.conflict-modal').exists()).toBe(false)
+        expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+        expect(useToast().toasts.at(-1)).toMatchObject({ type: 'info' })
+      })
+
+      it('взять режим соседа: ошибка предпросмотра сообщается через notify, окно расхождения остаётся', async () => {
+        stubCascadeApi({ preview: () => jsonResponse({ detail: 'Область изменения превышает 1000 портов' }, 422) })
+        const wrapper = mountConflict()
+
+        await clickApplyNeighbor(wrapper)
+
+        expect(wrapper.find('.conflict-modal').exists()).toBe(true)
+        expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+        expect(useToast().toasts.at(-1)).toMatchObject({ type: 'error' })
       })
 
       it('«Отмена» в окне последствий ничего не применяет и оставляет окно расхождения', async () => {

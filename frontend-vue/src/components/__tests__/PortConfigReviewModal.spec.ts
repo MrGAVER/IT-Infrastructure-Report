@@ -5,6 +5,8 @@ import PortConfigReviewModal from '../PortConfigReviewModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useToast } from '../../composables/useToast'
 import type { Connection } from '../../api/types'
+import type { VlanModeCascadePlan } from '../../api/vlanModeCascade'
+import { groupChange, makePlan, portChange } from '../../utils/__tests__/cascadePlanFixture'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
@@ -194,25 +196,152 @@ describe('PortConfigReviewModal.vue', () => {
     expect(wrapper.find('[data-vlans-side="destination"]').classes()).toContain('diff')
     expect(wrapper.find('[data-side="source"]').classes()).not.toContain('diff') // роли совпадают
     expect(wrapper.find('.status.warn').text()).toContain('режим, VLAN')
-    // Роль выравнивать нечего; режим и VLAN правятся в окне портов устройства.
+    // Роль выравнивать нечего; режим выравнивается каскадом, VLAN правятся в окне портов устройства.
     expect(wrapper.find('[data-action="keep-source"]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="mode-to-source"]').exists()).toBe(true)
+    expect(wrapper.find('[data-action="mode-to-destination"]').exists()).toBe(true)
     expect(wrapper.find('[data-action="manage-source"]').exists()).toBe(true)
     expect(wrapper.find('[data-action="manage-destination"]').exists()).toBe(true)
     expect(wrapper.find('[data-action="approve"]').exists()).toBe(true)
   })
 
-  it('«Настроить режим и VLAN» просит родителя открыть порты нужного устройства', async () => {
-    const wrapper = mountModal(connection({ source_vlan_mode: 'trunk', destination_vlan_mode: 'access', port_config_diff: ['mode'], source_port_role: 'data' }))
+  it('«Настроить VLAN» просит родителя открыть порты нужного устройства', async () => {
+    const wrapper = mountModal(connection({ source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', port_config_diff: ['vlans'], source_port_role: 'data' }))
 
     await wrapper.find('[data-action="manage-destination"]').trigger('click')
 
     expect(wrapper.emitted('manage-ports')).toEqual([[{ interfaceId: 'if-sw', deviceLabel: 'sw-01' }]])
   })
 
+  it('различие только в режиме: режим выравнивается каскадом, а окно портов (VLAN) не предлагается', () => {
+    const wrapper = mountModal(connection({ source_vlan_mode: 'trunk', destination_vlan_mode: 'access', port_config_diff: ['mode'], source_port_role: 'data' }))
+
+    expect(wrapper.find('[data-action="mode-to-destination"]').text()).toContain('Порту «Gi0/5» задать режим как у «idrac» (trunk)')
+    expect(wrapper.find('[data-action="mode-to-source"]').text()).toContain('Порту «idrac» задать режим как у «Gi0/5» (access)')
+    expect(wrapper.find('[data-action="manage-source"]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="manage-destination"]').exists()).toBe(false)
+  })
+
+  // --- Режим порта: каскад вместо окна портов ---
+  describe('выравнивание режима каскадом', () => {
+    const CASCADE_URL = '/vlan-mode-cascade'
+    const modeMismatch = () => connection({ source_vlan_mode: 'trunk', destination_vlan_mode: 'access', port_config_diff: ['mode'], source_port_role: 'data' })
+
+    function cascadeApi(plan: VlanModeCascadePlan, apply: () => Response = () => jsonResponse({ plan, applied: { ports: 1, groups: 0, devices: 1 }, interfaces: [{ id: 'if-sw', name: 'Gi0/5', physical_device_id: 'dev-sw', vlan_mode: plan.target_mode }] })) {
+      stubApi((call) => {
+        if (!call.url.includes(CASCADE_URL)) return undefined
+        return call.url.endsWith('/preview') ? jsonResponse(plan) : apply()
+      })
+    }
+    const cascadeCalls = () => calls.filter((c) => c.url.includes(CASCADE_URL))
+    const groupPlan = () =>
+      makePlan({
+        target_mode: 'trunk',
+        start_interface_id: 'if-sw',
+        groups: [groupChange({ id: 'g9', name: 'Магистраль', device_id: 'dev-sw', device_name: 'sw-01', from_mode: 'access', to_mode: 'trunk', ports: [{ id: 'if-sw', name: 'Gi0/5' }, { id: 'if-sw2', name: 'Gi0/6' }] })],
+        ports: [portChange({ id: 'if-x', name: 'Gi0/1', device_id: 'dev-x', device_name: 'sw-02', from_mode: 'access', to_mode: 'trunk' })],
+        devices: [{ id: 'dev-sw', name: 'sw-01', deferred: false, port_count: 2, group_count: 1 }, { id: 'dev-x', name: 'sw-02', deferred: false, port_count: 1, group_count: 0 }],
+        totals: { ports: 3, devices: 2, groups: 1, deferred_ports: 0, immediate_ports: 3, immediate_devices: 2, dropped_vlans: 0 },
+        hash: 'hash-dash',
+      })
+
+    it('простой случай: предпросмотр без формы (edited: null), затем сразу применение; таблица перечитывается, окно закрывается', async () => {
+      const plan = makePlan({ target_mode: 'trunk', start_interface_id: 'if-sw', ports: [portChange({ id: 'if-sw', name: 'Gi0/5', device_name: 'sw-01', from_mode: 'access', to_mode: 'trunk' })] })
+      cascadeApi(plan)
+      const catalogs = useCatalogsStore()
+      catalogs.items['interfaces'] = [{ id: 'if-sw', name: 'Gi0/5', physical_device_id: 'dev-sw', vlan_mode: 'access' }]
+      const wrapper = mountModal(modeMismatch())
+
+      await wrapper.find('[data-action="mode-to-destination"]').trigger('click')
+      await flushPromises()
+
+      const [preview, apply] = cascadeCalls()
+      expect(preview).toMatchObject({ method: 'POST', body: { mode: 'trunk', edited: null } })
+      expect(preview.url).toContain('/interfaces/if-sw/vlan-mode-cascade/preview')
+      expect(apply).toMatchObject({ method: 'POST', body: { mode: 'trunk', edited: null, plan_hash: 'hash-1', confirm: true } })
+      expect(catalogs.items['interfaces'][0]).toMatchObject({ vlan_mode: 'trunk' }) // кэш портов обновлён
+      expect(pageRequests().length).toBeGreaterThan(0) // таблица перечитана: статус сверки считает сервер
+      expect(wrapper.emitted('close')).toHaveLength(1)
+      expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+    })
+
+    it('«как у соседа» в обратную сторону: целевой порт — источник, режим — назначения', async () => {
+      const plan = makePlan({ target_mode: 'access', start_interface_id: 'if-srv' })
+      cascadeApi(plan)
+      const wrapper = mountModal(modeMismatch())
+
+      await wrapper.find('[data-action="mode-to-source"]').trigger('click')
+      await flushPromises()
+
+      expect(cascadeCalls()[0].url).toContain('/interfaces/if-srv/vlan-mode-cascade/preview')
+      expect(cascadeCalls()[0].body).toMatchObject({ mode: 'access', edited: null })
+    })
+
+    it('группа и связанные порты: окно последствий; без подтверждения ничего не записывается, подтверждение применяет и закрывает', async () => {
+      cascadeApi(groupPlan())
+      const wrapper = mountModal(modeMismatch())
+
+      await wrapper.find('[data-action="mode-to-destination"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.cascade-modal').exists()).toBe(true)
+      expect(wrapper.find('.cascade-item-title').text()).toContain('Группа «Магистраль»')
+      expect(wrapper.find('.cascade-desc').text()).toContain('«Gi0/5» (sw-01)') // изменяемый порт — сторона назначения
+      expect(cascadeCalls().filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
+      expect(wrapper.emitted('close')).toBeUndefined()
+
+      await wrapper.find('.cascade-ack input').setValue(true)
+      await wrapper.find('.cascade-actions .btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(cascadeCalls().filter((c) => !c.url.endsWith('/preview'))).toHaveLength(1)
+      expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+      expect(wrapper.emitted('close')).toHaveLength(1)
+    })
+
+    it('«Отмена» в окне последствий: ничего не записано, окно проверки остаётся открытым', async () => {
+      cascadeApi(groupPlan())
+      const wrapper = mountModal(modeMismatch())
+      await wrapper.find('[data-action="mode-to-destination"]').trigger('click')
+      await flushPromises()
+
+      await wrapper.find('.cascade-actions .btn-secondary').trigger('click')
+
+      expect(wrapper.find('.cascade-modal').exists()).toBe(false)
+      expect(cascadeCalls().filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
+      expect(wrapper.emitted('close')).toBeUndefined()
+    })
+
+    it('режим уже совпадает (пустой план): сообщение, таблица перечитывается, окно закрывается', async () => {
+      cascadeApi(makePlan({ empty: true, groups: [], ports: [], devices: [], totals: { ...makePlan().totals, ports: 0 } }))
+      const wrapper = mountModal(modeMismatch())
+
+      await wrapper.find('[data-action="mode-to-destination"]').trigger('click')
+      await flushPromises()
+
+      expect(cascadeCalls()).toHaveLength(1)
+      expect(useToast().toasts.at(-1)).toMatchObject({ type: 'info' })
+      expect(wrapper.emitted('close')).toHaveLength(1)
+    })
+
+    it('ошибка предпросмотра (например, слишком большая область) показывается в окне проверки, кнопки снова доступны', async () => {
+      stubApi((call) => (call.url.includes(CASCADE_URL) ? jsonResponse({ detail: 'Область изменения превышает 1000 портов' }, 422) : undefined))
+      const wrapper = mountModal(modeMismatch())
+
+      await wrapper.find('[data-action="mode-to-destination"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.form-error').text()).toContain('Область изменения превышает 1000 портов')
+      expect(wrapper.emitted('close')).toBeUndefined()
+      expect((wrapper.find('[data-action="mode-to-destination"]').element as HTMLButtonElement).disabled).toBe(false)
+    })
+  })
+
   it('различие только в роли не предлагает настраивать режим и VLAN', () => {
     const wrapper = mountModal(connection())
 
     expect(wrapper.find('[data-action="manage-source"]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="mode-to-source"]').exists()).toBe(false)
     expect(wrapper.find('[data-side="source"]').classes()).toContain('diff')
     expect(wrapper.find('[data-mode-side="source"]').classes()).not.toContain('diff')
   })

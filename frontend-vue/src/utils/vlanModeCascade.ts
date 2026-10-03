@@ -8,15 +8,17 @@ import type { InterfaceDraftRow, InterfaceGroupDraft } from '../api/types'
 import type { CascadeGroupChange, EditedDeviceState, VlanMode, VlanModeCascadePlan } from '../api/vlanModeCascade'
 import { applyGroupToRow } from './interfaceGroups'
 
-/** Состояние формы для запросов каскада: режимы сохранённых портов и групп (у новых нет id — в БД их
- * нет, и в области изменения они оказаться не могут). null — форма без устройства (создание). */
+/** Состояние формы для запросов каскада: режим, группа, VLAN и имя сохранённых портов и всех групп
+ * (в т.ч. новых — по временному ключу) ИЗ ЧЕРНОВИКА. null — форма без устройства (создание). */
 export function buildEditedState(deviceId: string | null | undefined, rows: InterfaceDraftRow[], groups: InterfaceGroupDraft[]): EditedDeviceState | null {
   if (!deviceId) return null
   const ports: EditedDeviceState['ports'] = {}
-  for (const row of rows) if (row.id) ports[row.id] = row.vlan_mode
-  const groupModes: EditedDeviceState['groups'] = {}
-  for (const group of groups) if (group.id) groupModes[group.id] = group.vlan_mode
-  return { device_id: deviceId, ports, groups: groupModes }
+  for (const row of rows) {
+    if (row.id) ports[row.id] = { name: row.name, mode: row.vlan_mode, group: row.group_key || null, vlan_ids: [...row.vlan_ids] }
+  }
+  const groupStates: EditedDeviceState['groups'] = {}
+  for (const group of groups) groupStates[group.key] = { name: group.name, mode: group.vlan_mode, vlan_ids: [...group.vlan_ids] }
+  return { device_id: deviceId, ports, groups: groupStates }
 }
 
 /** Правило access: не более одного VLAN. Остаётся тот, что выбрал сервер (наименьший номер), а если
@@ -35,8 +37,9 @@ function setGroupMode(group: InterfaceGroupDraft, plan: CascadeGroupChange, mode
   return { ...group, vlan_mode: mode, vlan_ids: vlansForMode(group.vlan_ids, mode, plan.vlans_after.map((v) => v.id)) }
 }
 
-/** Применяет к черновику формы изменения плана, помеченные deferred. Строки без id (ещё не
- * сохранённые) и группы без id в плане быть не могут и не затрагиваются. */
+/** Применяет к черновику формы изменения плана, помеченные deferred. Группа в плане задана ключом (у
+ * сохранённой группы он равен id, у новой — временный). Строки без id (ещё не сохранённые) в плане быть
+ * не могут, но получают режим группы, если входят в неё в черновике. */
 export function applyCascadeToDraft(
   rows: InterfaceDraftRow[],
   groups: InterfaceGroupDraft[],
@@ -48,23 +51,16 @@ export function applyCascadeToDraft(
   const touched = new Set<string>()
 
   for (const change of plan.groups.filter((g) => g.deferred)) {
-    const index = nextGroups.findIndex((g) => g.id === change.id)
+    const index = nextGroups.findIndex((g) => g.key === change.id)
     if (index < 0) continue
     const updated = setGroupMode(nextGroups[index], change, mode)
     nextGroups = nextGroups.map((g, i) => (i === index ? updated : g))
-    // Члены группы по ЧЕРНОВИКУ: порт мог быть переведён в другую группу или выведен из неё без сохранения.
+    // Члены группы — по ЧЕРНОВИКУ (сервер считал состав по нему же); строки без id тоже получают режим группы.
     nextRows = nextRows.map((row) => {
       if (row.group_key !== updated.key) return row
       if (row.id) touched.add(row.id)
       return applyGroupToRow(row, updated)
     })
-    // Порты группы по БД, которых в группе черновика уже нет, всё равно должны получить режим.
-    for (const member of change.ports) {
-      const rowIndex = nextRows.findIndex((r) => r.id === member.id)
-      if (rowIndex < 0 || nextRows[rowIndex].group_key === updated.key) continue
-      touched.add(member.id)
-      nextRows = nextRows.map((r, i) => (i === rowIndex ? setRowMode(r, mode, change.vlans_after.map((v) => v.id)) : r))
-    }
   }
 
   for (const change of plan.ports.filter((p) => p.deferred)) {
@@ -76,10 +72,17 @@ export function applyCascadeToDraft(
   return { rows: nextRows, groups: nextGroups, changedPorts: touched.size }
 }
 
-/** Тривиальный план — один порт, без групп, без снимаемых VLAN и без изменений в форме: применяется
- * сразу, как раньше «Применить текущую конфигурацию», без отдельного окна подтверждения. */
+/** Тривиальный план — один порт без групп и без снимаемых VLAN: применяется сразу, без отдельного окна
+ * подтверждения (как раньше «Применить текущую конфигурацию»). Если этот порт — порт самой формы, он
+ * просто меняется в черновике. */
 export function isTrivialPlan(plan: VlanModeCascadePlan): boolean {
-  return plan.totals.ports === 1 && plan.groups.length === 0 && plan.totals.dropped_vlans === 0 && plan.totals.deferred_ports === 0
+  return plan.totals.ports === 1 && plan.groups.length === 0 && plan.totals.dropped_vlans === 0
+}
+
+/** План меняет только порт самой формы (один порт, без групп и снимаемых VLAN, на других устройствах
+ * ничего): достаточно правки черновика, запрос на запись не нужен. */
+export function isFormOnlyPlan(plan: VlanModeCascadePlan): boolean {
+  return isTrivialPlan(plan) && plan.totals.immediate_ports === 0
 }
 
 export function modeLabel(mode: VlanMode): string {

@@ -65,9 +65,17 @@ def _connect(client, cable_id: str, a: dict, b: dict, **extra) -> None:
     assert r.status_code == 201, r.text
 
 
-def _edited(device_id: str | None, ports: dict[str, str] | None = None, groups: dict[str, str] | None = None) -> dict | None:
-    """Состояние формы редактируемого устройства; без ports/groups сервер берёт режимы из БД."""
-    return {"device_id": device_id, "ports": ports or {}, "groups": groups or {}} if device_id else None
+def _edited(device_id: str | None, ports: dict[str, str | dict] | None = None, groups: dict[str, str | dict] | None = None) -> dict | None:
+    """Состояние формы редактируемого устройства. ports: {id: режим | поля порта}, groups: {ключ: режим | поля
+    группы}; без ports/groups сервер берёт всё из БД."""
+    if not device_id:
+        return None
+    wrap = lambda value: {"mode": value} if isinstance(value, str) else value  # noqa: E731
+    return {
+        "device_id": device_id,
+        "ports": {k: wrap(v) for k, v in (ports or {}).items()},
+        "groups": {k: wrap(v) for k, v in (groups or {}).items()},
+    }
 
 
 def _preview(client, port: dict, mode: str, edited: str | dict | None = None):
@@ -352,6 +360,13 @@ def test_invalid_mode_and_unknown_port(client):
         {"device_id": "d", "ports": {"p": "hybrid"}},
         {"device_id": "d", "ports": []},  # список вместо объекта
         {"device_id": "d", "groups": {"g": "hybrid"}},
+        {"device_id": "d", "ports": {"p": {"mode": "hybrid"}}},
+        {"device_id": "d", "ports": {"p": {"mode": "access", "group": 5}}},  # ключ группы — строка или null
+        {"device_id": "d", "ports": {"p": {"mode": "access", "vlan_ids": "v1"}}},  # VLAN — список строк
+        {"device_id": "d", "ports": {"p": {"mode": "access", "name": 5}}},
+        {"device_id": "d", "groups": {"g": {"mode": "hybrid"}}},
+        {"device_id": "d", "groups": {"": {"mode": "access"}}},  # пустой ключ группы
+        {"device_id": "d", "groups": {"g": {"mode": "access", "vlan_ids": [1]}}},
     ],
 )
 def test_malformed_edited_state_is_rejected(client, edited):
@@ -443,3 +458,162 @@ def test_apply_uses_the_same_form_state_as_preview(client, cable):
     stale = _preview(client, pw, "trunk", _edited(s["id"], ports={ps["id"]: "access"})).json()["hash"]
     r = client.post(f"{API}/interfaces/{pw['id']}/vlan-mode-cascade", json={"mode": "trunk", "edited": _edited(s["id"], ports={ps["id"]: "trunk"}), "plan_hash": stale, "confirm": True})
     assert r.status_code == 409
+
+
+# --- Состав групп и VLAN берутся из черновика, а не из БД -----------------------------------------
+
+
+def _trunk_pair_of_ports(client, cable, prefix: str):
+    """Редактируемое устройство A (a1..a3, trunk, без групп в БД) и коммутатор B: a1-b1, a2-b2 (все trunk)."""
+    a, b = _device(client, f"{prefix}-A"), _device(client, f"{prefix}-B")
+    _sync(client, a["id"], [{"name": "a1", "vlan_mode": "trunk"}, {"name": "a2", "vlan_mode": "trunk"}, {"name": "a3", "vlan_mode": "trunk"}])
+    _sync(client, b["id"], [{"name": "b1", "vlan_mode": "trunk"}, {"name": "b2", "vlan_mode": "trunk"}])
+    pa, pb = _ports(client, a["id"]), _ports(client, b["id"])
+    _connect(client, cable, pa["a1"], pb["b1"])
+    _connect(client, cable, pa["a2"], pb["b2"])
+    return a, b, pa, pb
+
+
+def test_new_unsaved_group_of_the_form_is_followed_with_all_its_draft_members(client, cable):
+    """В форме создана группа (ключа нет в БД) из a1 и a2. «Взять режим соседа» для a1 должен сменить режим
+    у всей группы формы и у соседей обоих портов — по БД a1 и a2 не связаны ничем."""
+    a, b, pa, pb = _trunk_pair_of_ports(client, cable, "CAS-NEWG")
+    members = {pa["a1"]["id"]: {"mode": "trunk", "group": "new-group-1"}, pa["a2"]["id"]: {"mode": "trunk", "group": "new-group-1"}}
+    form = _edited(a["id"], ports=members, groups={"new-group-1": {"mode": "trunk", "name": "Новая"}})
+
+    by_db = _preview(client, pa["a1"], "access", a["id"]).json()
+    by_form = _preview(client, pa["a1"], "access", form).json()
+
+    assert by_db["groups"] == [] and by_db["totals"]["ports"] == 2  # a1 и b1: a2 по БД с a1 никак не связан
+    assert [(g["id"], g["name"], g["deferred"], [p["name"] for p in g["ports"]]) for g in by_form["groups"]] == [("new-group-1", "Новая", True, ["a1", "a2"])]
+    assert sorted((p["name"], p["deferred"]) for p in by_form["ports"]) == [("b1", False), ("b2", False)]
+    assert by_form["totals"] == {**by_form["totals"], "ports": 4, "groups": 1, "deferred_ports": 2, "immediate_ports": 2}
+    assert "groups" in _codes(by_form) and "cascade" in _codes(by_form)
+
+
+def test_apply_with_new_form_group_writes_only_the_other_devices(client, cable):
+    a, b, pa, pb = _trunk_pair_of_ports(client, cable, "CAS-NEWG-APPLY")
+    members = {pa["a1"]["id"]: {"mode": "trunk", "group": "k"}, pa["a2"]["id"]: {"mode": "trunk", "group": "k"}}
+    form = _edited(a["id"], ports=members, groups={"k": {"mode": "trunk"}})
+
+    r = _apply(client, pa["a1"], "access", form)
+
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"] == {"ports": 2, "groups": 0, "devices": 1}
+    assert _modes(client, b["id"]) == {"b1": "access", "b2": "access"}
+    assert _modes(client, a["id"]) == {"a1": "trunk", "a2": "trunk", "a3": "trunk"}  # устройство формы — только в черновик
+    assert _groups(client, a["id"]) == {}  # новая группа формы в БД не появилась
+
+
+def test_port_moved_out_of_a_group_in_the_draft_is_a_single_port(client, cable):
+    a, b, pa, pb, _ = _group_pair(client, cable)  # группа A (a1, a2) в БД
+    group_a = next(iter(_groups(client, a["id"]).values()))
+    # в форме a1 выведен из группы, a2 остался в ней
+    form = _edited(
+        a["id"],
+        ports={pa["a1"]["id"]: {"mode": "trunk", "group": None}, pa["a2"]["id"]: {"mode": "trunk", "group": group_a["id"]}},
+        groups={group_a["id"]: {"mode": "trunk", "vlan_ids": group_a["vlan_ids"]}},
+    )
+
+    by_db = _preview(client, pb["b1"], "access", a["id"]).json()
+    by_form = _preview(client, pb["b1"], "access", form).json()
+
+    group_in_db = next(g for g in by_db["groups"] if g["name"] == "Группа A")
+    group_in_form = next(g for g in by_form["groups"] if g["name"] == "Группа A")
+    assert [p["name"] for p in group_in_db["ports"]] == ["a1", "a2"]
+    assert [p["name"] for p in group_in_form["ports"]] == ["a2"]  # состав группы — по форме
+    assert [(p["name"], p["deferred"]) for p in by_form["ports"] if p["device_id"] == a["id"]] == [("a1", True)]  # a1 — одиночный порт
+
+
+def test_saved_port_moved_into_another_saved_group_in_the_draft(client, cable):
+    a, b, pa, pb, _ = _group_pair(client, cable)
+    group_a = next(iter(_groups(client, a["id"]).values()))
+    # в форме a3 (в БД вне групп) добавлен в группу A
+    form = _edited(
+        a["id"],
+        ports={pa["a3"]["id"]: {"mode": "trunk", "group": group_a["id"]}},
+        groups={group_a["id"]: {"mode": "trunk"}},
+    )
+
+    plan = _preview(client, pb["b1"], "access", form).json()
+
+    group_in_form = next(g for g in plan["groups"] if g["name"] == "Группа A")
+    assert [p["name"] for p in group_in_form["ports"]] == ["a1", "a2", "a3"]  # a1, a2 (не переданы — по БД) и a3 (по форме)
+
+
+def test_group_name_and_vlans_come_from_the_draft(client, cable):
+    a, b, pa, pb, (v10, v20) = _group_pair(client, cable)  # в БД у группы A VLAN 10 и 20
+    group_a = next(iter(_groups(client, a["id"]).values()))
+    form = _edited(a["id"], groups={group_a["id"]: {"mode": "trunk", "name": "Переименована", "vlan_ids": [v10["id"]]}})
+
+    plan = _preview(client, pb["b1"], "access", form).json()
+
+    group = next(g for g in plan["groups"] if g["deferred"])
+    assert group["name"] == "Переименована"
+    assert [v["vlan_id"] for v in group["vlans_before"]] == [10]  # в форме у группы один VLAN — снимать нечего
+    assert group["dropped_vlans"] == []
+    other = next(g for g in plan["groups"] if not g["deferred"])
+    assert [v["vlan_id"] for v in other["dropped_vlans"]] == [20]  # группа другого устройства — по БД
+
+
+def test_single_port_vlans_and_name_come_from_the_draft(client, cable):
+    v10, v30 = _vlan(client, 10), _vlan(client, 30)
+    s, w = _device(client, "CAS-DRV-SRV", (v10, v30)), _device(client, "CAS-DRV-SW", (v10, v30))
+    _sync(client, s["id"], [{"name": "s1", "vlan_mode": "trunk"}])
+    _sync(client, w["id"], [{"name": "w1", "vlan_mode": "trunk"}])
+    ps, pw = _ports(client, s["id"])["s1"], _ports(client, w["id"])["w1"]
+    _connect(client, cable, ps, pw)
+    form = _edited(s["id"], ports={ps["id"]: {"mode": "trunk", "name": "s1-новое", "vlan_ids": [v30["id"], v10["id"]]}})
+
+    plan = _preview(client, pw, "access", form).json()
+
+    port = next(p for p in plan["ports"] if p["deferred"])
+    assert port["name"] == "s1-новое"
+    assert [v["vlan_id"] for v in port["vlans_before"]] == [10, 30]
+    assert [v["vlan_id"] for v in port["dropped_vlans"]] == [30]  # снимается то, чего нет в БД, но есть в форме
+
+
+def test_unknown_group_key_and_group_of_another_device_mean_no_group(client, cable):
+    a, b, pa, pb, _ = _group_pair(client, cable)
+    group_b = next(iter(_groups(client, b["id"]).values()))
+    form = _edited(
+        a["id"],
+        ports={pa["a1"]["id"]: {"mode": "trunk", "group": "no-such-group"}, pa["a2"]["id"]: {"mode": "trunk", "group": group_b["id"]}},
+    )
+
+    plan = _preview(client, pb["b1"], "access", form).json()
+
+    assert {g["name"] for g in plan["groups"]} == {"Группа B"}  # группы A для этих портов нет
+    assert sorted(p["name"] for p in plan["ports"] if p["device_id"] == a["id"]) == ["a1", "a2"]
+
+
+def test_bogus_draft_reference_to_a_foreign_group_does_not_pull_that_group_into_the_area(client, cable):
+    """Порт формы ссылается на группу чужого устройства (ошибка клиента): группа не должна попасть в область
+    через этот порт — её порты никак не связаны с изменяемыми."""
+    a, b, c = _device(client, "CAS-FOR-A"), _device(client, "CAS-FOR-B"), _device(client, "CAS-FOR-C")
+    _sync(client, a["id"], [{"name": "a1", "vlan_mode": "trunk"}])
+    _sync(client, b["id"], [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}], [{"key": "g", "name": "Чужая", "vlan_mode": "trunk"}])
+    _sync(client, c["id"], [{"name": "c1", "vlan_mode": "trunk"}])
+    pa, pc = _ports(client, a["id"])["a1"], _ports(client, c["id"])["c1"]
+    foreign_group = next(iter(_groups(client, b["id"]).values()))
+    _connect(client, cable, pa, pc)
+    form = _edited(a["id"], ports={pa["id"]: {"mode": "trunk", "group": foreign_group["id"]}})
+
+    plan = _preview(client, pc, "access", form).json()
+
+    assert plan["groups"] == []
+    assert sorted((p["name"], p["deferred"]) for p in plan["ports"]) == [("a1", True), ("c1", False)]
+
+
+def test_inactive_warning_uses_the_draft_mode_of_a_form_port(client, cable):
+    s, w = _device(client, "CAS-INA-SRV"), _device(client, "CAS-INA-SW")
+    _sync(client, s["id"], [{"name": "s1", "vlan_mode": "access"}])
+    _sync(client, w["id"], [{"name": "w1", "vlan_mode": "trunk"}])
+    ps, pw = _ports(client, s["id"])["s1"], _ports(client, w["id"])["w1"]
+    _connect(client, cable, ps, pw, is_active=False)
+
+    differs_in_form = _preview(client, pw, "access", _edited(s["id"], ports={ps["id"]: "trunk"})).json()  # в форме s1 вернули в trunk
+    same_in_form = _preview(client, pw, "access", _edited(s["id"], ports={ps["id"]: "access"})).json()
+
+    assert "inactive" in _codes(differs_in_form)
+    assert "inactive" not in _codes(same_in_form)

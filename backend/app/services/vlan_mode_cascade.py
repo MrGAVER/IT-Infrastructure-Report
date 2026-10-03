@@ -25,11 +25,13 @@
 порты и группы входят в план с пометкой deferred: сервер их НЕ пишет, клиент вносит изменения в
 черновик формы, и они сохраняются вместе с формой. Всё остальное применяется сразу, одной транзакцией.
 
-Состояние формы. Для портов и групп редактируемого устройства «текущий режим» — тот, что в ЧЕРНОВИКЕ
-формы (клиент присылает его в edited.ports / edited.groups), а не в БД: пользователь мог уже
-переключить режим в форме, и именно из-за этого возникло расхождение. Порты и группы, у которых в
-черновике уже целевой режим, в область не входят и дальше не распространяют — иначе план называл бы
-«изменяемыми» порты, у которых в форме всё верно. Принадлежность портов группам берётся из БД.
+Состояние формы. Для портов и групп редактируемого устройства «текущее состояние» — то, что в
+ЧЕРНОВИКЕ формы (клиент присылает его в edited.ports / edited.groups), а не в БД: пользователь мог уже
+переключить режим, перенести порт в другую группу или поменять VLAN группы, и именно из-за этого
+возникло расхождение. Из черновика берутся режим и VLAN порта/группы, ЧЛЕНСТВО портов в группах
+(в т.ч. в новой, ещё не сохранённой группе — её ключ временный), а также имена для показа в плане.
+Порты и группы, у которых в черновике уже целевой режим, в область не входят и дальше не
+распространяют. То, чего в edited нет (порт или группа не переданы, поле опущено), берётся из БД.
 
 Двухшаговый протокол: preview возвращает план и его hash; apply требует confirm=true и тот же hash —
 если данные изменились между предпросмотром и применением, операция отклоняется (409), а не
@@ -68,22 +70,61 @@ def _chunks(items: list[str]) -> Iterable[list[str]]:
 
 
 @dataclass(frozen=True)
+class _EditedPort:
+    """Порт редактируемого устройства в черновике формы. Опущенные поля (None / group_given=False)
+    означают «как в БД»."""
+    mode: str
+    group_given: bool = False
+    group: str | None = None  # ключ группы: id сохранённой или временный ключ новой; None — порт вне групп
+    vlan_ids: tuple[str, ...] | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class _EditedGroup:
+    """Группа редактируемого устройства в черновике формы (в т.ч. новая, ещё без записи в БД)."""
+    mode: str  # '' — группа режимом не управляет
+    vlan_ids: tuple[str, ...] | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
 class _Edited:
-    """Редактируемое устройство и режимы его портов/групп в черновике формы (id -> режим; у группы
-    пустая строка — группа режимом не управляет)."""
+    """Редактируемое устройство и его порты/группы в черновике формы (порты — по id, группы — по ключу)."""
     device_id: str | None = None
-    ports: dict[str, str] = field(default_factory=dict)
-    groups: dict[str, str] = field(default_factory=dict)
+    ports: dict[str, _EditedPort] = field(default_factory=dict)
+    groups: dict[str, _EditedGroup] = field(default_factory=dict)
+
+    def owns(self, port: DeviceInterface) -> bool:
+        return bool(self.device_id) and port.physical_device_id == self.device_id
+
+    def port_state(self, port: DeviceInterface) -> _EditedPort | None:
+        return self.ports.get(port.id) if self.owns(port) else None
 
     def port_mode(self, port: DeviceInterface) -> str:
-        if self.device_id and port.physical_device_id == self.device_id and port.id in self.ports:
-            return self.ports[port.id]
-        return port.vlan_mode
+        state = self.port_state(port)
+        return state.mode if state else port.vlan_mode
 
-    def group_mode(self, group: InterfaceGroup) -> str | None:
-        if self.device_id and group.physical_device_id == self.device_id and group.id in self.groups:
-            return self.groups[group.id] or None
-        return group.vlan_mode or None
+    def port_name(self, port: DeviceInterface) -> str:
+        state = self.port_state(port)
+        return state.name if state and state.name is not None else port.name
+
+    def port_group_key(self, port: DeviceInterface) -> str | None:
+        """Ключ группы порта: у порта формы — по черновику (если передан), иначе — по БД."""
+        state = self.port_state(port)
+        return state.group if state is not None and state.group_given else port.group_id
+
+
+@dataclass
+class _GroupInfo:
+    """Группа в том виде, в каком её видит каскад: из БД, а у редактируемого устройства — из черновика."""
+    key: str  # id группы; у новой группы формы — её временный ключ
+    name: str
+    device_id: str
+    mode: str  # '' — группа режимом не управляет
+    vlan_ids: list[str] | None  # None — взять из БД (подгрузится в _load_details)
+    deferred: bool  # группа редактируемого устройства: сервер её не пишет
+    members: list[str] = field(default_factory=list)
 
 
 class _Loader:
@@ -93,10 +134,13 @@ class _Loader:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.ports: dict[str, DeviceInterface] = {}
-        self.groups: dict[str, InterfaceGroup] = {}
+        self.groups: dict[str, InterfaceGroup] = {}  # группы из БД
+        self.infos: dict[str, _GroupInfo | None] = {}
         self.members: dict[str, list[str]] = {}
         self.active: dict[str, list[str]] = {}
         self.inactive: dict[str, list[str]] = {}
+        self._probed_groups: set[str] = set()
+        self._db_members: dict[str, list[str]] = {}
 
     def load_ports(self, ids: Iterable[str]) -> None:
         missing = [i for i in dict.fromkeys(ids) if i not in self.ports]
@@ -104,20 +148,68 @@ class _Loader:
             for port in self.session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(chunk))).all():
                 self.ports[port.id] = port
 
-    def load_groups(self, ids: Iterable[str]) -> None:
-        missing = [i for i in dict.fromkeys(ids) if i not in self.groups]
+    def load_groups(self, keys: Iterable[str]) -> None:
+        """Ключ — id группы из БД либо временный ключ новой группы формы (его в БД нет, это не ошибка)."""
+        missing = [k for k in dict.fromkeys(keys) if k not in self._probed_groups]
+        self._probed_groups.update(missing)
         for chunk in _chunks(missing):
             for group in self.session.scalars(select(InterfaceGroup).where(InterfaceGroup.id.in_(chunk))).all():
                 self.groups[group.id] = group
 
-    def load_members(self, group_ids: Iterable[str]) -> None:
-        wanted = [g for g in dict.fromkeys(group_ids) if g not in self.members]
-        for chunk in _chunks(wanted):
-            found: dict[str, list[str]] = {g: [] for g in chunk}
+    def _build_info(self, edited: _Edited, key: str) -> _GroupInfo | None:
+        group = self.groups.get(key)
+        draft = edited.groups.get(key) if edited.device_id else None
+        if group is not None and group.physical_device_id != edited.device_id:
+            draft = None  # группа другого устройства: форма о ней ничего не знает
+        if group is None and draft is None:
+            return None
+        device_id = group.physical_device_id if group is not None else str(edited.device_id)
+        if draft is None:
+            assert group is not None  # проверено выше: нет ни группы, ни черновика — вернули None
+            mode, name, vlan_ids = group.vlan_mode or "", group.name, None
+        else:
+            mode = draft.mode
+            name = draft.name if draft.name is not None else (group.name if group is not None else "")
+            # VLAN не переданы: у сохранённой группы берутся из БД, у новой их ещё нет.
+            vlan_ids = list(draft.vlan_ids) if draft.vlan_ids is not None else ([] if group is None else None)
+        return _GroupInfo(key=key, name=name, device_id=device_id, mode=mode, vlan_ids=vlan_ids, deferred=device_id == edited.device_id)
+
+    def managing_group(self, edited: _Edited, port: DeviceInterface) -> _GroupInfo | None:
+        """Группа порта, если она ЗАДАЁТ режим; иначе None. Группы должны быть подгружены (load_groups)."""
+        key = edited.port_group_key(port)
+        if not key:
+            return None
+        if key not in self.infos:
+            self.infos[key] = self._build_info(edited, key)
+        info = self.infos[key]
+        if info is None or not info.mode:
+            return None
+        if edited.owns(port) != info.deferred:
+            return None  # порт формы ссылается на группу другого устройства (или наоборот) — такой группы для него нет
+        return info
+
+    def load_members(self, edited: _Edited, keys: Iterable[str]) -> None:
+        """Участники групп: у группы из БД — её порты; у группы редактируемого устройства порты, переданные
+        в форме, определяет черновик, остальные — БД."""
+        wanted = [k for k in dict.fromkeys(keys) if k not in self.members]
+        db_keys = [k for k in wanted if k in self.groups and k not in self._db_members]
+        for chunk in _chunks(db_keys):
+            found: dict[str, list[str]] = {k: [] for k in chunk}
             for port in self.session.scalars(select(DeviceInterface).where(DeviceInterface.group_id.in_(chunk)).order_by(DeviceInterface.name)).all():
                 self.ports[port.id] = port
                 found[port.group_id].append(port.id)
-            self.members.update(found)
+            self._db_members.update(found)
+        for key in wanted:
+            info = self.infos[key]
+            assert info is not None
+            ids = list(self._db_members.get(key, []))
+            if info.deferred:
+                ids = [p for p in ids if p not in edited.ports or not edited.ports[p].group_given]
+                ids += [p for p, state in edited.ports.items() if state.group_given and state.group == key]
+                self.load_ports(ids)
+                ids = [p for p in dict.fromkeys(ids) if p in self.ports and self.ports[p].physical_device_id == edited.device_id]
+                ids.sort(key=lambda p: (edited.port_name(self.ports[p]), p))
+            self.members[key] = ids
 
     def load_links(self, port_ids: Iterable[str]) -> None:
         wanted = [p for p in dict.fromkeys(port_ids) if p not in self.active]
@@ -144,8 +236,9 @@ class _Change:
     edited: _Edited
     loader: _Loader
     changed_ports: dict[str, str] = field(default_factory=dict)  # id порта -> прежний режим
-    changed_groups: dict[str, str] = field(default_factory=dict)  # id группы -> прежний режим
-    group_vlans: dict[str, list[str]] = field(default_factory=dict)  # id группы -> id VLAN (до изменения)
+    changed_groups: dict[str, str] = field(default_factory=dict)  # ключ группы -> прежний режим
+    group_of_port: dict[str, str] = field(default_factory=dict)  # id порта -> ключ меняемой группы, в запись которой он входит
+    group_vlans: dict[str, list[str]] = field(default_factory=dict)  # ключ группы -> id VLAN (до изменения)
     port_vlans: dict[str, list[str]] = field(default_factory=dict)  # id порта -> id VLAN (до изменения), только одиночные порты
     vlans: dict[str, VLAN] = field(default_factory=dict)
     devices: dict[str, PhysicalDevice] = field(default_factory=dict)
@@ -153,19 +246,12 @@ class _Change:
     plan: dict[str, Any] = field(default_factory=dict)
 
 
-def _managed_group(loader: _Loader, edited: _Edited, port: DeviceInterface) -> tuple[InterfaceGroup | None, str | None]:
-    """(группа, её режим), если порт состоит в группе, которая задаёт режим; иначе (None, None)."""
-    group = loader.groups.get(port.group_id) if port.group_id else None
-    mode = edited.group_mode(group) if group is not None else None
-    return (group, mode) if mode else (None, None)
-
-
 def _collect_area(loader: _Loader, edited: _Edited, start_id: str, target: str) -> tuple[dict[str, str], dict[str, str]]:
-    """Обход по уровням. Возвращает (меняемые порты, меняемые группы) — id -> прежний режим.
+    """Обход по уровням. Возвращает (меняемые порты, меняемые группы) — id/ключ -> прежний режим.
 
     Все участники меняемой группы попадают в область сами: группа отмечается на первом же
     обработанном порту из неё, а её участники ставятся в очередь и оцениваются уже с учётом этой
-    отметки (port.vlan_mode != target или группа меняется)."""
+    отметки (режим порта != target или группа меняется)."""
     changed_ports: dict[str, str] = {}
     changed_groups: dict[str, str] = {}
     done: set[str] = set()
@@ -178,20 +264,20 @@ def _collect_area(loader: _Loader, edited: _Edited, start_id: str, target: str) 
         if len(done) > MAX_CASCADE_PORTS:
             raise HTTPException(422, f"Область изменения превышает {MAX_CASCADE_PORTS} портов — смените режим по частям: в самой группе или у отдельных устройств")
         loader.load_ports(batch)
-        loader.load_groups(loader.ports[p].group_id for p in batch if loader.ports[p].group_id)
+        loader.load_groups(key for p in batch if (key := edited.port_group_key(loader.ports[p])))
         new_groups: list[str] = []
         for port_id in batch:
-            group, group_mode = _managed_group(loader, edited, loader.ports[port_id])
-            if group is not None and group_mode != target and group.id not in changed_groups:
-                changed_groups[group.id] = group_mode or target
-                new_groups.append(group.id)
-        loader.load_members(new_groups)
-        next_frontier: list[str] = [member for gid in new_groups for member in loader.members[gid]]
+            group = loader.managing_group(edited, loader.ports[port_id])
+            if group is not None and group.mode != target and group.key not in changed_groups:
+                changed_groups[group.key] = group.mode
+                new_groups.append(group.key)
+        loader.load_members(edited, new_groups)
+        next_frontier: list[str] = [member for key in new_groups for member in loader.members[key]]
         propagate: list[str] = []
         for port_id in batch:
             port = loader.ports[port_id]
-            group, _ = _managed_group(loader, edited, port)
-            if edited.port_mode(port) != target or (group is not None and group.id in changed_groups):
+            group = loader.managing_group(edited, port)
+            if edited.port_mode(port) != target or (group is not None and group.key in changed_groups):
                 changed_ports[port_id] = edited.port_mode(port)
                 propagate.append(port_id)
         loader.load_links(propagate)
@@ -201,9 +287,14 @@ def _collect_area(loader: _Loader, edited: _Edited, start_id: str, target: str) 
     return changed_ports, changed_groups
 
 
+def _vlans_sorted(vlan_ids: list[str], vlans: dict[str, VLAN]) -> list[str]:
+    """По номеру VLAN; VLAN, которого нет в справочнике (id из черновика устарел), — в начало."""
+    return sorted(vlan_ids, key=lambda v: (vlans[v].vlan_id if v in vlans else 0, v))
+
+
 def _split_vlans(vlan_ids: list[str], vlans: dict[str, VLAN], target: str) -> tuple[list[str], list[str]]:
     """(остаются, снимаются). access: один VLAN с наименьшим номером; trunk: без изменений."""
-    ordered = sorted(vlan_ids, key=lambda v: (vlans[v].vlan_id if v in vlans else 0, v))
+    ordered = _vlans_sorted(vlan_ids, vlans)
     if target == "access" and len(ordered) > 1:
         return ordered[:1], ordered[1:]
     return ordered, []
@@ -224,15 +315,34 @@ def _short_list(names: list[str]) -> str:
 
 
 def _load_details(change: _Change) -> None:
-    """Подгружает VLAN, устройства и неактивные подключения для уже посчитанной области."""
-    loader = change.loader
+    """Подгружает VLAN, устройства и неактивные подключения для уже посчитанной области. VLAN и
+    имена у портов и групп редактируемого устройства берутся из черновика формы, у остальных — из БД."""
+    loader, edited = change.loader, change.edited
     session = loader.session
-    group_ids = list(change.changed_groups)
-    for chunk in _chunks(group_ids):
+    for key in change.changed_groups:
+        for member in loader.members[key]:
+            change.group_of_port[member] = key
+    stored_groups: list[str] = []
+    for key in change.changed_groups:
+        info = loader.infos[key]
+        assert info is not None
+        if info.vlan_ids is not None:
+            change.group_vlans[key] = list(dict.fromkeys(info.vlan_ids))
+        else:
+            stored_groups.append(key)
+    for chunk in _chunks(stored_groups):
         for row in session.scalars(select(InterfaceGroupVLAN).where(InterfaceGroupVLAN.group_id.in_(chunk))).all():
             change.group_vlans.setdefault(row.group_id, []).append(row.vlan_id)
-    single_ports = [p for p in change.changed_ports if loader.ports[p].group_id not in change.changed_groups]
-    for chunk in _chunks(single_ports):
+    stored_ports: list[str] = []
+    for port_id in change.changed_ports:
+        if port_id in change.group_of_port:
+            continue
+        state = edited.port_state(loader.ports[port_id])
+        if state is not None and state.vlan_ids is not None:
+            change.port_vlans[port_id] = list(dict.fromkeys(state.vlan_ids))
+        else:
+            stored_ports.append(port_id)
+    for chunk in _chunks(stored_ports):
         for row in session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id.in_(chunk))).all():
             change.port_vlans.setdefault(row.interface_id, []).append(row.vlan_id)
     vlan_ids = {v for ids in change.group_vlans.values() for v in ids} | {v for ids in change.port_vlans.values() for v in ids}
@@ -249,36 +359,36 @@ def _load_details(change: _Change) -> None:
     ports_to_check = {there for p in changed for there in loader.inactive[p]}
     loader.load_ports(ports_to_check)
     for port_id in changed:
-        if any(loader.ports[o].vlan_mode != change.target for o in loader.inactive[port_id] if o in loader.ports):
+        if any(edited.port_mode(loader.ports[o]) != change.target for o in loader.inactive[port_id] if o in loader.ports):
             change.inactive_ports.add(port_id)
 
 
 def _build_plan(change: _Change) -> dict[str, Any]:
-    loader, target, edited = change.loader, change.target, change.edited.device_id
+    loader, target, edited = change.loader, change.target, change.edited
     groups_out: list[dict[str, Any]] = []
-    for gid, from_mode in change.changed_groups.items():
-        group = loader.groups[gid]
-        before = change.group_vlans.get(gid, [])
+    for key, from_mode in change.changed_groups.items():
+        info = loader.infos[key]
+        assert info is not None
+        before = change.group_vlans.get(key, [])
         after, dropped = _split_vlans(before, change.vlans, target)
-        members = loader.members.get(gid, [])
         groups_out.append({
-            "id": gid, "name": group.name, "device_id": group.physical_device_id, "device_name": _device_name(change.devices.get(group.physical_device_id)),
-            "deferred": group.physical_device_id == edited, "from_mode": from_mode, "to_mode": target,
-            "ports": [{"id": m, "name": loader.ports[m].name} for m in members],
-            "vlans_before": [_vlan_ref(v, change.vlans) for v in sorted(before, key=lambda v: (change.vlans[v].vlan_id if v in change.vlans else 0, v))],
+            "id": key, "name": info.name, "device_id": info.device_id, "device_name": _device_name(change.devices.get(info.device_id)),
+            "deferred": info.deferred, "from_mode": from_mode, "to_mode": target,
+            "ports": [{"id": m, "name": edited.port_name(loader.ports[m])} for m in loader.members[key]],
+            "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
             "vlans_after": [_vlan_ref(v, change.vlans) for v in after], "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
         })
     ports_out: list[dict[str, Any]] = []
     for pid, from_mode in change.changed_ports.items():
-        port = loader.ports[pid]
-        if port.group_id in change.changed_groups:
+        if pid in change.group_of_port:
             continue  # входит в запись своей группы
+        port = loader.ports[pid]
         before = change.port_vlans.get(pid, [])
         after, dropped = _split_vlans(before, change.vlans, target)
         ports_out.append({
-            "id": pid, "name": port.name, "device_id": port.physical_device_id, "device_name": _device_name(change.devices.get(port.physical_device_id)),
-            "deferred": port.physical_device_id == edited, "from_mode": from_mode, "to_mode": target,
-            "vlans_before": [_vlan_ref(v, change.vlans) for v in sorted(before, key=lambda v: (change.vlans[v].vlan_id if v in change.vlans else 0, v))],
+            "id": pid, "name": edited.port_name(port), "device_id": port.physical_device_id, "device_name": _device_name(change.devices.get(port.physical_device_id)),
+            "deferred": edited.owns(port), "from_mode": from_mode, "to_mode": target,
+            "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
             "vlans_after": [_vlan_ref(v, change.vlans) for v in after], "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
         })
     groups_out.sort(key=lambda g: (g["device_name"], g["name"]))
@@ -288,7 +398,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
         port = loader.ports[pid]
         entry = devices_out.setdefault(port.physical_device_id, {
             "id": port.physical_device_id, "name": _device_name(change.devices.get(port.physical_device_id)),
-            "deferred": port.physical_device_id == edited, "port_count": 0, "group_count": 0,
+            "deferred": edited.owns(port), "port_count": 0, "group_count": 0,
         })
         entry["port_count"] += 1
     for group in groups_out:
@@ -296,7 +406,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
     devices = sorted(devices_out.values(), key=lambda d: d["name"])
     deferred_ports = sum(d["port_count"] for d in devices if d["deferred"])
     plan: dict[str, Any] = {
-        "target_mode": target, "start_interface_id": change.start_id, "edited_device_id": edited, "empty": not change.changed_ports,
+        "target_mode": target, "start_interface_id": change.start_id, "edited_device_id": edited.device_id, "empty": not change.changed_ports,
         "groups": groups_out, "ports": ports_out, "devices": devices,
         "totals": {
             "ports": len(change.changed_ports), "devices": len(devices), "groups": len(groups_out),
@@ -337,8 +447,8 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
     if plan["groups"]:
         listed = _short_list([f"«{g['name']}» ({len(g['ports'])} портов, {g['device_name']})" for g in plan["groups"]])
         result.append(_warning("groups", "warning", f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}."))
-    start = change.loader.ports[change.start_id]
-    start_scope = {start.id} | (set(change.loader.members.get(start.group_id, [])) if start.group_id in change.changed_groups else set())
+    start_group = change.group_of_port.get(change.start_id)
+    start_scope = {change.start_id} | (set(change.loader.members[start_group]) if start_group else set())
     beyond = [p for p in change.changed_ports if p not in start_scope]
     if beyond:
         beyond_devices = {change.loader.ports[p].physical_device_id for p in beyond}
@@ -362,8 +472,48 @@ def _parse_mode(mode: Any) -> str:
     return mode
 
 
+def _vlan_id_list(raw: Any, where: str) -> tuple[str, ...] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or any(not isinstance(v, str) for v in raw):
+        raise HTTPException(422, f"{where}: vlan_ids должен быть списком строк")
+    return tuple(raw)
+
+
+def _optional_text(raw: Any, where: str, field_name: str) -> str | None:
+    if raw is not None and not isinstance(raw, str):
+        raise HTTPException(422, f"{where}: {field_name} должно быть строкой")
+    return raw
+
+
+def _parse_edited_port(port_id: Any, raw: Any) -> _EditedPort:
+    where = f"edited.ports[{port_id!r}]"
+    if not isinstance(port_id, str) or not isinstance(raw, dict):
+        raise HTTPException(422, f"{where} должен быть объектом {{mode, group?, vlan_ids?, name?}}")
+    if raw.get("mode") not in VLAN_MODES:
+        raise HTTPException(422, f"{where}: режим порта должен быть 'access' или 'trunk'")
+    group = raw.get("group")
+    if group is not None and not isinstance(group, str):
+        raise HTTPException(422, f"{where}: group должна быть ключом группы или null")
+    return _EditedPort(
+        mode=raw["mode"], group_given="group" in raw, group=group or None,
+        vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name"),
+    )
+
+
+def _parse_edited_group(key: Any, raw: Any) -> _EditedGroup:
+    where = f"edited.groups[{key!r}]"
+    if not isinstance(key, str) or not key or not isinstance(raw, dict):
+        raise HTTPException(422, f"{where} должен быть объектом {{mode, vlan_ids?, name?}} с непустым ключом группы")
+    if raw.get("mode") not in (*VLAN_MODES, ""):
+        raise HTTPException(422, f"{where}: режим группы должен быть 'access', 'trunk' или пустым")
+    return _EditedGroup(mode=raw["mode"], vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name"))
+
+
 def _parse_edited(raw: Any) -> _Edited:
-    """edited = {device_id, ports: {id: режим}, groups: {id: режим | ''}} или null/отсутствует."""
+    """edited = {device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}}
+    или null/отсутствует. group у порта — ключ группы формы (null — порт вне групп); группы формы — и
+    сохранённые (ключ = id), и новые (временный ключ)."""
     if raw is None:
         return _Edited()
     if not isinstance(raw, dict) or not isinstance(raw.get("device_id"), str) or not raw["device_id"]:
@@ -372,12 +522,12 @@ def _parse_edited(raw: Any) -> _Edited:
     ports = {} if raw.get("ports") is None else raw["ports"]
     groups = {} if raw.get("groups") is None else raw["groups"]
     if not isinstance(ports, dict) or not isinstance(groups, dict):
-        raise HTTPException(422, "Поля edited.ports и edited.groups должны быть объектами «id -> режим»")
-    if any(not isinstance(k, str) or v not in VLAN_MODES for k, v in ports.items()):
-        raise HTTPException(422, "Режим порта в edited.ports должен быть 'access' или 'trunk'")
-    if any(not isinstance(k, str) or v not in (*VLAN_MODES, "") for k, v in groups.items()):
-        raise HTTPException(422, "Режим группы в edited.groups должен быть 'access', 'trunk' или пустым")
-    return _Edited(device_id=raw["device_id"], ports=dict(ports), groups=dict(groups))
+        raise HTTPException(422, "Поля edited.ports и edited.groups должны быть объектами")
+    return _Edited(
+        device_id=raw["device_id"],
+        ports={port_id: _parse_edited_port(port_id, state) for port_id, state in ports.items()},
+        groups={key: _parse_edited_group(key, state) for key, state in groups.items()},
+    )
 
 
 def _compute(start_id: str, mode: str, edited: _Edited, session: Session) -> _Change:
@@ -472,7 +622,7 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
         _write_port(port, mode, [v["id"] for v in p["vlans_after"]], session)
         written_ports.append(port)
     start = loader.ports[interface_id]
-    start_label = f"порт «{start.name}» устройства «{_device_name(change.devices.get(start.physical_device_id))}»"
+    start_label = f"порт «{change.edited.port_name(start)}» устройства «{_device_name(change.devices.get(start.physical_device_id))}»"
     for device in plan["devices"]:
         if not device["deferred"]:
             audit(session, "interfaces", device["id"], AuditAction.UPDATE, _audit_text(plan, device["id"], start_label))

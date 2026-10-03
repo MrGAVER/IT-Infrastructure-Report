@@ -11,8 +11,8 @@ import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 const props = defineProps<{
   plan: VlanModeCascadePlan
   applying: boolean
-  /** Порт соседа, с которого начинается смена, и его устройство: «b1» (CAS-GB). */
-  neighborLabel: string
+  /** Порт, с которого начинается смена, и его устройство: «b1» (CAS-GB). */
+  portLabel: string
 }>()
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
 
@@ -69,7 +69,7 @@ const portsText = (count: number) => plural(count, 'порт', 'порта', 'п
       </div>
 
       <p class="cascade-desc">
-        Режим порта должен совпадать у обеих сторон подключения. Чтобы после смены режима порта {{ neighborLabel }} на {{ target }} не осталось
+        Режим порта должен совпадать у обеих сторон подключения. Чтобы после смены режима порта {{ portLabel }} на {{ target }} не осталось
         расхождений, режим {{ target }} будет установлен у всех связанных портов. Всего изменится: портов — <b>{{ plan.totals.ports }}</b>, устройств —
         <b>{{ plan.totals.devices }}</b
         ><template v-if="plan.totals.groups">, групп — <b>{{ plan.totals.groups }}</b></template>.
