@@ -397,3 +397,41 @@ describe('группы портов', () => {
     expect('group_key' in body.interfaces[0]).toBe(false)
   })
 })
+
+describe('persistDeviceInterfaces: подключения портов (ключ connection)', () => {
+  const peerDraft = { peer_device_id: 'dev-2', peer_interface_id: 'if-peer', connection_type_id: 'ct-1', description: ' патч-корд ' }
+
+  async function sentInterfaces(rows: InterfaceDraftRow[], baseline?: Parameters<typeof persistDeviceInterfaces>[3]) {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ items: [], groups: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    await persistDeviceInterfaces('dev-1', rows, undefined, baseline)
+    return JSON.parse(fetchMock.mock.calls[0][1]!.body as string).interfaces as Array<Record<string, unknown>>
+  }
+
+  it('без снимка подключений (окно «Управлять портами») ключ connection не отправляется вовсе', async () => {
+    const sent = await sentInterfaces([{ ...emptyRow(), id: 'if-1', name: 'eth0', connection: peerDraft }])
+    expect(sent[0]).not.toHaveProperty('connection')
+  })
+
+  it('новый порт с подключением отправляет объект без служебного peer_device_id; порт без подключения — без ключа', async () => {
+    const sent = await sentInterfaces([{ ...emptyRow(), name: 'eth0', connection: peerDraft }, { ...emptyRow(), name: 'eth1', connection: null }], new Map())
+    expect(sent[0].connection).toEqual({ peer_interface_id: 'if-peer', connection_type_id: 'ct-1', description: 'патч-корд' })
+    expect(sent[1]).not.toHaveProperty('connection')
+  })
+
+  it('уже сохранённое неизменённое подключение не отправляется, снятое — отправляется как null', async () => {
+    const baseline = new Map([
+      ['if-1', { ...peerDraft, description: 'патч-корд' }],
+      ['if-2', { ...peerDraft, peer_interface_id: 'if-peer-2' }],
+    ])
+    const sent = await sentInterfaces(
+      [
+        { ...emptyRow(), id: 'if-1', name: 'eth0', connection: { ...peerDraft } },
+        { ...emptyRow(), id: 'if-2', name: 'eth1', connection: null },
+      ],
+      baseline,
+    )
+    expect(sent[0]).not.toHaveProperty('connection')
+    expect(sent[1].connection).toBeNull()
+  })
+})

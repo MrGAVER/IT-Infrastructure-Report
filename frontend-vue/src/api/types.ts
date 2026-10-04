@@ -472,6 +472,17 @@ export interface PortConflictInfo {
   other: { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk' }
 }
 
+/** Черновик подключения порта в блоке «Порты / интерфейсы» формы устройства (см.
+ * components/InterfaceConnectionEditor.vue). Хранится в InterfaceDraftRow.connection. Подключение
+ * активное; направление (источник/назначение) задаёт сервер: новый порт — источник. peer_device_id
+ * нужен только интерфейсу формы (каскад «устройство → порт»), на сервер не отправляется. */
+export interface InterfaceConnectionDraft {
+  peer_device_id: string
+  peer_interface_id: string
+  connection_type_id: string
+  description: string
+}
+
 export interface InterfaceDraftRow {
   id?: string
   name: string
@@ -497,6 +508,11 @@ export interface InterfaceDraftRow {
    * уже записаны в поля этой строки (utils/interfaceGroups.ts:applyGroupToRow) — сервер их
    * подтверждает при сохранении, а таблица и отчёты видят итоговые значения порта. */
   group_key?: string
+  /** Подключение порта к порту другого устройства: null — порт не подключён (или не загружен),
+   * не задано — форма подключения не редактируется (окно «Управлять портами»). Сохраняется тем же
+   * PUT, что и порт (api/deviceInterfaces.ts:persistDeviceInterfaces, backend
+   * services/interface_connections.py), поэтому доступно и для ещё не сохранённых портов. */
+  connection?: InterfaceConnectionDraft | null
 }
 
 /** Черновик группы портов устройства (backend models.InterfaceGroup): параметры, заданные один
