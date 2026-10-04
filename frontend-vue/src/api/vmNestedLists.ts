@@ -68,14 +68,14 @@ export async function syncVmIpAddresses(vmId: string, rows: readonly VmIpDraftRo
  * const saved = await syncVmDeployedSoftware('vm-123', [{ id: 'sw-1', software_asset_id: 'asset-nginx', version: '1.25' }])
  */
 export async function syncVmDeployedSoftware(vmId: string, rows: readonly SoftwareAssetDraftRow[]): Promise<DeployedSoftware[]> {
-  const { items } = await api.put<{ items: DeployedSoftware[] }>(`/vms/${vmId}/deployed-software`, {
-    deployed_software: rows
-      .filter((row) => row.software_asset_id)
-      .map((row) => ({
-        id: row.id,
-        software_asset_id: row.software_asset_id,
-        version: row.version || null,
-      })),
-  })
+  const { items } = await api.put<{ items: DeployedSoftware[] }>(`/vms/${vmId}/deployed-software`, { deployed_software: toDeployedSoftwarePayload(rows) })
   return items
+}
+
+/** Строки редактора ПО → payload синхронизации (общий для ВМ и физических устройств, см.
+ * api/deviceDeployedSoftware.ts): строки без выбранного актива отбрасываются, пустая версия → null. */
+export function toDeployedSoftwarePayload(rows: readonly SoftwareAssetDraftRow[]) {
+  return rows
+    .filter((row) => row.software_asset_id)
+    .map((row) => ({ id: row.id, software_asset_id: row.software_asset_id, version: row.version || null }))
 }

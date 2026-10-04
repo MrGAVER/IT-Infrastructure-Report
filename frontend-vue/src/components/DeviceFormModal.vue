@@ -7,7 +7,8 @@
 // подтверждение через window.confirm() и повторную отправку с флагом, вместо
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { computed, reactive, ref, watch } from 'vue'
-import { ApiError, createResource, deleteResource, listResource, updateResource, ErrorCode } from '../api/client'
+import { ApiError, createResource, listResource, updateResource, ErrorCode } from '../api/client'
+import { syncDeviceDeployedSoftware } from '../api/deviceDeployedSoftware'
 import { persistDeviceVlans } from '../api/deviceVlans'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { cloneGroupsForCopy, validateInterfaceGroups } from '../utils/interfaceGroups'
@@ -554,24 +555,17 @@ function onCancelJoinDomain(domainId: string) {
   deviceVlans.value = removeDomainVlansFromDraft(deviceVlans.value, vlansStore.allDefinitions, domainId)
 }
 
+// Программные активы устройства — один атомарный PUT /devices/{id}/deployed-software (см.
+// api/deviceDeployedSoftware.ts): сервер сравнивает список с БД по id, записи с id обновляются на
+// месте, новые создаются, убранные в форме удаляются — без пересоздания всего ПО при каждом
+// сохранении. Новому устройству (создание или копия) без заполненных строк синхронизировать нечего —
+// запрос не отправляется; для существующего пустой список отправляется всегда, чтобы снять ПО,
+// убранное пользователем.
 async function persistSoftwareAssets(deviceId: string) {
-  const existing = await listResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: deviceId, limit: 1000 })
-  for (const old of existing.items) {
-    await deleteResource('deployed-software', old.id)
-  }
-  for (const row of softwareAssets.value) {
-    if (!row.software_asset_id) continue
-    await createResource<DeployedSoftware>('deployed-software', {
-      owner_type: 'physical_device',
-      owner_id: deviceId,
-      software_asset_id: row.software_asset_id,
-      version: row.version || null,
-    })
-  }
+  if (!isEdit.value && !softwareAssets.value.some((row) => row.software_asset_id)) return
+  await syncDeviceDeployedSoftware(deviceId, softwareAssets.value)
 }
 
-// Delete-затем-recreate (НЕ через атомарный PUT, в отличие от persistInterfaces ниже) — тем же
-// приёмом, что и в vanilla-версии (saveDeviceVlans в frontend/static/device-interfaces.js).
 // Фикс п.1.3.8: закрепляет на бэкенде членство устройства в доменах, добавленных локально через
 // onVlanCreated() выше (см. её комментарий и комментарий к pendingDomainMemberships). ДО
 // persistDeviceVlans() ниже — _validate_physical_device_vlan в backend/app/services/crud.py
@@ -643,7 +637,7 @@ async function submit() {
         // "VLAN устройства" и тут же назначен порту в этом же сохранении, к моменту проверки он
         // должен уже быть в БД — иначе 422 "VLAN не разрешён" на ровном месте для пользователя.
         await persistDeviceVlans(saved.id, deviceVlans.value)
-        // Атомарный PUT (не через generic createResource/deleteResource, как выше) — см.
+        // Атомарный PUT (не через generic createResource/deleteResource) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
         const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, interfaces.value, interfaceGroups.value)
         // Фикс п.3.1: без этого catalogs.items['interfaces'] не узнаёт о только что

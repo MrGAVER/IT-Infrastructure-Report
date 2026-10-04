@@ -279,6 +279,49 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         items = [serialize(row) for row in rows]
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
+def _domain_device_ids(domain_id: str, session: Session) -> set[str]:
+    """Все устройства домена VLAN: участники (VLANDomainDevice) и устройство-источник, который может
+    не числиться участником."""
+    device_ids = set(session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain_id)).all())
+    source_device_id = session.scalar(select(VLANDomain.source_device_id).where(VLANDomain.id == domain_id))
+    if source_device_id:
+        device_ids.add(source_device_id)
+    return device_ids
+
+
+def _unassign_moved_vlan_from_former_domain_devices(vlan: 'VLAN', old_domain_id: str | None, session: Session) -> int:
+    """VLAN, перенесённый из одного домена в другой, снимается с устройств прежнего домена, которых нет
+    в новом (ни участник, ни источник): VLAN чужого для них домена нельзя оставить в «VLAN устройства» —
+    _validate_physical_device_vlan отклонял бы следующее же сохранение такого устройства (422 «Устройство
+    не включено в домен этого VLAN»), а порты и группы портов с этим VLAN не проходили бы проверку
+    разрешённых VLAN в sync_interfaces.
+
+    Вместе с назначением на устройстве убираются и связи этого VLAN с портами и группами портов того же
+    устройства — кроме устройств, чей тип разрешает VLAN каталогом типа (DeviceTypeVLAN): там порт вправе
+    использовать VLAN и без назначения на устройстве. Устройства, оставшиеся в новом домене, и все
+    остальные VLAN не затрагиваются. Перенос в «без домена» (локальный VLAN) и из «без домена» в домен
+    сюда не относится: у прежних локальных назначений нет «прежнего домена».
+
+    Возвращает число устройств, с которых VLAN снят. Все запросы — по наборам устройств, не по одному."""
+    if not old_domain_id or not vlan.domain_id or old_domain_id == vlan.domain_id:
+        return 0
+    left_behind = _domain_device_ids(old_domain_id, session) - _domain_device_ids(vlan.domain_id, session)
+    if not left_behind:
+        return 0
+    assigned = set(session.scalars(select(PhysicalDeviceVLAN.physical_device_id).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(left_behind))).all())
+    if not assigned:
+        return 0
+    type_allowed = set(session.scalars(select(DeviceTypeVLAN.device_type_id).where(DeviceTypeVLAN.vlan_id == vlan.id)).all())
+    strip_ports_of = {device_id for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))).all() if type_id not in type_allowed}
+    session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(assigned)))
+    if strip_ports_of:
+        port_ids = select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(strip_ports_of))
+        session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.vlan_id == vlan.id, InterfaceVLAN.interface_id.in_(port_ids)))
+        group_ids = select(InterfaceGroup.id).where(InterfaceGroup.physical_device_id.in_(strip_ports_of))
+        session.execute(delete(InterfaceGroupVLAN).where(InterfaceGroupVLAN.vlan_id == vlan.id, InterfaceGroupVLAN.group_id.in_(group_ids)))
+    return len(assigned)
+
+
 def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:
     """Правка "VLAN домена": VLAN, заведённый в «справочник VLAN» (VLANFormModal.vue) сразу с
     привязкой к домену — или привязанный к домену позже обновлением domain_id — должен появиться в
@@ -300,9 +343,7 @@ def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Sessio
     domain = session.get(VLANDomain, vlan.domain_id)
     if not domain:
         return
-    device_ids = set(session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain.id)).all())
-    if domain.source_device_id:
-        device_ids.add(domain.source_device_id)
+    device_ids = _domain_device_ids(domain.id, session)
     if not device_ids:
         return
     already_assigned = set(session.scalars(
@@ -398,9 +439,16 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         # менялся в этом запросе — иначе безобидное редактирование ДРУГОГО поля VLAN (например,
         # описания) на каждый сохранение заново бы проверяло/дублировало привязку к
         # устройствам домена, в котором этот VLAN и так уже давно значится.
+        # Перенос VLAN в другой домен: сначала снимаем его с устройств прежнего домена, которых нет в
+        # новом, потом назначаем устройствам нового (_unassign_moved_vlan_from_former_domain_devices).
+        unassigned_devices = 0
         if model is VLAN and 'domain_id' in payload:
+            unassigned_devices = _unassign_moved_vlan_from_former_domain_devices(obj, before.get('domain_id'), session)
             _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
-        audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit()
+        audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed))
+        if unassigned_devices:
+            audit(session, resource, str(obj.id), AuditAction.UPDATE, f'VLAN снят с устройств прежнего домена: {unassigned_devices}')
+        session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
@@ -707,23 +755,29 @@ def sync_owner_deployed_software(owner_type: str, owner_id: str, deployed_softwa
     return _sync_owned_rows(DeployedSoftware, owner_type, owner_id, deployed_software, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
 
 
-def _sync_vm_collection(vm_id: str, session: Session, *, label: str, sync: Callable[[VirtualMachine], tuple[int, int, int]], load: Callable[[VirtualMachine], list[dict[str, Any]]]) -> dict[str, Any]:
-    """Общий каркас атомарной синхронизации одного вложенного списка ВМ (порты, IP-адреса, ПО): ВМ
-    существует (404), список применяется одной транзакцией (любая ошибка откатывает весь запрос),
-    запись в журнал аудита пишется только если что-то реально изменилось. Ответ: {'items': [...]} —
-    сохранённые записи списка."""
-    vm = session.get(VirtualMachine, vm_id)
-    if not vm: raise HTTPException(404, 'Виртуальная машина не найдена')
+def _sync_owner_collection(owner_model: type, entity: str, not_found: str, owner_id: str, session: Session, *, label: str, sync: Callable[[Any], tuple[int, int, int]], load: Callable[[Any], list[dict[str, Any]]]) -> dict[str, Any]:
+    """Общий каркас атомарной синхронизации одного вложенного списка владельца (ВМ или физического
+    устройства: порты, IP-адреса, ПО): владелец существует (404 с текстом not_found), список
+    применяется одной транзакцией (любая ошибка откатывает весь запрос), запись в журнал аудита
+    (сущность entity — слаг ресурса) пишется только если что-то реально изменилось. Ответ:
+    {'items': [...]} — сохранённые записи списка."""
+    owner = session.get(owner_model, owner_id)
+    if not owner: raise HTTPException(404, not_found)
     try:
-        created, updated, removed = sync(vm)
+        created, updated, removed = sync(owner)
         if created or updated or removed:
-            audit(session, 'vms', vm.id, AuditAction.UPDATE, f'{label}: добавлено {created}, изменено {updated}, удалено {removed}')
+            audit(session, entity, owner.id, AuditAction.UPDATE, f'{label}: добавлено {created}, изменено {updated}, удалено {removed}')
         session.commit()
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
         session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
-    return {'items': load(vm)}
+    return {'items': load(owner)}
+
+
+def _sync_vm_collection(vm_id: str, session: Session, *, label: str, sync: Callable[[VirtualMachine], tuple[int, int, int]], load: Callable[[VirtualMachine], list[dict[str, Any]]]) -> dict[str, Any]:
+    """Список ВМ (порты, IP-адреса, ПО) — см. _sync_owner_collection."""
+    return _sync_owner_collection(VirtualMachine, 'vms', 'Виртуальная машина не найдена', vm_id, session, label=label, sync=sync, load=load)
 
 
 def sync_vm_open_ports(vm_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
@@ -783,6 +837,26 @@ def sync_vm_deployed_software(vm_id: str, payload: dict[str, Any], session: Sess
             OwnerType.VIRTUAL_MACHINE, vm.id, payload.get('deployed_software'), session,
             array_error='Поле deployed_software должно быть массивом',
             foreign_id_error='Запись о ПО не принадлежит выбранной виртуальной машине',
+        ),
+    )
+
+
+def sync_device_deployed_software(device_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """PUT /api/v1/devices/{device_id}/deployed-software — атомарная синхронизация программных активов
+    физического устройства (форма устройства, DeviceFormModal.vue) тем же способом, что и у ВМ (см.
+    sync_vm_deployed_software): записи с id обновляются, без id создаются, отсутствующие в списке
+    удаляются. Ключ deployed_software обязателен: его отсутствие — 422, а не молчаливое удаление всего ПО.
+    Ответ: {'items': [...]} — записи ПО устройства."""
+    def load(device: PhysicalDevice) -> list[dict[str, Any]]:
+        rows = session.scalars(select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.PHYSICAL_DEVICE, DeployedSoftware.owner_id == device.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)).all()
+        return [serialize(row) for row in rows]
+
+    return _sync_owner_collection(
+        PhysicalDevice, 'devices', 'Физическое устройство не найдено', device_id, session, label='Программные активы', load=load,
+        sync=lambda device: sync_owner_deployed_software(
+            OwnerType.PHYSICAL_DEVICE, device.id, payload.get('deployed_software'), session,
+            array_error='Поле deployed_software должно быть массивом',
+            foreign_id_error='Запись о ПО не принадлежит выбранному физическому устройству',
         ),
     )
 

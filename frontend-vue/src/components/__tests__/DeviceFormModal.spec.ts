@@ -266,9 +266,94 @@ describe('DeviceFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/deployed-software'))
-    expect(softwareCreate?.body).toMatchObject({ owner_type: 'physical_device', owner_id: 'dev-new', software_asset_id: 'sa-ad' })
+    // ПО уходит одним PUT под id нового устройства, а не отдельными POST /resources/deployed-software.
+    const softwareSync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-new/deployed-software'))
+    expect(softwareSync?.body).toEqual({ deployed_software: [{ software_asset_id: 'sa-ad', version: null }] })
+    expect(calls.some((c) => c.method !== 'GET' && c.url.includes('/resources/deployed-software'))).toBe(false)
     expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  it('новое устройство без заполненного ПО: запросов к deployed-software нет вовсе', async () => {
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    const wrapper = mount(DeviceFormModal, { props: { device: null } })
+    await wrapper.findAll('button.add-btn')[0].trigger('click') // + Программный актив, оставляем пустым
+
+    const calls: Array<{ url: string; method: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method })
+        if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-6' }), { status: 201 })
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-6')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(calls.some((c) => c.method !== 'GET' && c.url.includes('deployed-software'))).toBe(false)
+    expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  describe('ПО существующего устройства сохраняется без удаления и пересоздания', () => {
+    const device = { id: 'dev-sw', device_type_id: 'dt-server', serial_number: 'SN-SW' } as never
+    const apiSoftware = (id: string, assetId: string, version: string | null) => ({ id, owner_type: 'physical_device', owner_id: 'dev-sw', software_asset_id: assetId, version })
+
+    async function mountWithSoftware(software: unknown[]) {
+      stubCatalogsFetch()
+      await useCatalogsStore().ensureLoaded()
+      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (method === 'GET' && url.includes('/resources/deployed-software')) return new Response(JSON.stringify({ items: software, total: software.length, offset: 0, limit: 1000 }))
+          if (method === 'PUT' && url.endsWith('/devices/dev-sw/deployed-software')) return new Response(JSON.stringify({ items: [] }))
+          if (method === 'PUT' && url.includes('/resources/devices/dev-sw')) return new Response(JSON.stringify({ id: 'dev-sw', serial_number: 'SN-SW' }))
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+      return { wrapper, calls }
+    }
+
+    it('один PUT с id сохранённой записи, без DELETE и POST', async () => {
+      const { wrapper, calls } = await mountWithSoftware([apiSoftware('sw-old', 'sa-ad', '2022')])
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-sw/deployed-software'))
+      expect(sync?.body).toEqual({ deployed_software: [{ id: 'sw-old', software_asset_id: 'sa-ad', version: '2022' }] })
+      expect(calls.some((c) => c.method === 'DELETE' || (c.method === 'POST' && c.url.includes('/resources/deployed-software')))).toBe(false)
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('ПО, убранное в форме, в запрос не попадает; пустой список снимает всё ПО', async () => {
+      const { wrapper, calls } = await mountWithSoftware([apiSoftware('sw-1', 'sa-ad', null), apiSoftware('sw-2', 'sa-nginx', '1.25')])
+
+      await wrapper.findAll('button[aria-label="Удалить программный актив"]')[0].trigger('click')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+      expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-sw/deployed-software'))?.body).toEqual({ deployed_software: [{ id: 'sw-2', software_asset_id: 'sa-nginx', version: '1.25' }] })
+      expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    })
+
+    it('все строки убраны: PUT с пустым списком', async () => {
+      const { wrapper, calls } = await mountWithSoftware([apiSoftware('sw-1', 'sa-ad', null)])
+
+      await wrapper.find('button[aria-label="Удалить программный актив"]').trigger('click')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-sw/deployed-software'))?.body).toEqual({ deployed_software: [] })
+    })
   })
 
   it('при редактировании подгружает существующие интерфейсы устройства с их IP', async () => {
