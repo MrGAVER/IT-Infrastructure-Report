@@ -21,6 +21,7 @@ const titles: Record<string, { title: string; crumb: string }> = {
   'report-templates': { title: 'Шаблоны отчётов', crumb: 'Система · Отчёты · Шаблоны' },
   'report-template-editor': { title: 'Редактор шаблона', crumb: 'Система · Отчёты · Шаблоны · Редактор' },
   'report-template-editor-docx': { title: 'Редактор шаблона', crumb: 'Система · Отчёты · Шаблоны · Редактор' },
+  'port-sync-rules': { title: 'Правила согласования портов', crumb: 'Система · Правила согласования портов' },
   'audit-log': { title: 'Журнал аудита', crumb: 'Система · Журнал аудита' },
   settings: { title: 'Настройки', crumb: 'Система › Настройки' },
 }

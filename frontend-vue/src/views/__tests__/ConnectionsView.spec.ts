@@ -515,3 +515,55 @@ describe('ConnectionsView.vue — проверка конфигурации по
     })
   })
 })
+
+describe('ConnectionsView.vue — согласование портов по правилам', () => {
+  const syncPlan = {
+    items: [],
+    summary: { connections: 0, applicable: 0, shown: 0, total_items: 0, auto: 0, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0 },
+    plan_hash: 'h',
+  }
+  const syncCalls = (suffix: string) => calls.filter((c) => c.method === 'POST' && c.url.endsWith(suffix))
+
+  it('кнопка «Согласовать по правилам…» видна только при наличии расхождений в реестре', async () => {
+    const withMismatch = await mountView({ rows: [connection('c-1', { port_config_status: 'mismatch', port_config_diff: ['role'] })] })
+    expect(withMismatch.find('[data-action="sync-by-rules"]').exists()).toBe(true)
+
+    const clean = await mountView({ rows: [connection('c-2')] })
+    expect(clean.find('[data-action="sync-by-rules"]').exists()).toBe(false)
+  })
+
+  it('кнопка видна, даже если текущий фильтр скрыл все расхождения: счётчик — по всему реестру', async () => {
+    const wrapper = await mountView({ rows: [], summary: { mismatch: 3 } })
+
+    expect(wrapper.find('[data-action="sync-by-rules"]').exists()).toBe(true)
+  })
+
+  it('открывает план по всем подключениям с расхождением (без списка), а применение перечитывает страницу', async () => {
+    const wrapper = await mountView({
+      rows: [connection('c-1', { port_config_status: 'mismatch', port_config_diff: ['role'] })],
+      extra: (call) => {
+        if (call.method === 'POST' && call.url.endsWith('/port-sync/preview')) {
+          return jsonResponse({ ...syncPlan, summary: { ...syncPlan.summary, connections: 1, applicable: 1, auto: 1 }, items: [] })
+        }
+        if (call.method === 'POST' && call.url.endsWith('/port-sync/apply')) {
+          return jsonResponse({ applied: { ports: 1, connections: 1 }, connection_ids: ['c-1'], summary: syncPlan.summary })
+        }
+        return undefined
+      },
+    })
+    const pagesBefore = pageRequests().length
+
+    await wrapper.find('[data-action="sync-by-rules"]').trigger('click')
+    await flushPromises()
+    expect(syncCalls('/port-sync/preview')[0].body).toEqual({})
+    expect(wrapper.text()).toContain('Согласование портов по правилам')
+
+    await wrapper.find('[data-field="confirm"]').setValue(true)
+    await wrapper.find('[data-action="apply"]').trigger('click')
+    await flushPromises()
+
+    expect(syncCalls('/port-sync/apply')[0].body).toEqual({ plan_hash: 'h', confirm: true })
+    expect(pageRequests().length).toBeGreaterThan(pagesBefore)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+})

@@ -12,6 +12,7 @@ from .api.auth import router as auth_router
 from .api.devices import router as devices_router
 from .api.diagrams import router as diagrams_router
 from .api.port_config import router as port_config_router
+from .api.port_sync import router as port_sync_router
 from .api.report_builder import router as report_builder_router
 from .api.resources import router as resources_router
 from .api.system import router as system_router
@@ -19,6 +20,7 @@ from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
 from .services.catalogs import seed_defaults
 from .services.integrity import ReferencedRecordError
+from .services.port_sync_store import ensure_default_rules
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,7 @@ app.include_router(system_router)
 app.include_router(devices_router)
 app.include_router(resources_router)
 app.include_router(port_config_router)
+app.include_router(port_sync_router)
 app.include_router(audit_log_router)
 app.include_router(report_builder_router)
 app.include_router(diagrams_router)
@@ -60,6 +63,9 @@ def seed_catalogs_on_startup():
     session = SessionLocal()
     try:
         seed_defaults(session)
+        # Стандартные правила согласования портов: добавляются по устойчивому коду, существующие (в том
+        # числе изменённые администратором) не перезаписываются.
+        ensure_default_rules(session)
         auth_settings = get_or_create_auth_settings(session)
         _warn_if_insecure_server_config(auth_settings.enabled)
     finally:

@@ -9,9 +9,11 @@
 // область изменения, а окно показывает последствия до применения. VLAN правятся в окне портов
 // устройства (событие manage-ports). Статус после любого действия пересчитывает сервер — клиент только
 // подставляет его в список.
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { setPortRole } from '../api/portConfig'
-import type { Connection, PortConfigFacet } from '../api/types'
+import { previewPortSync } from '../api/portSync'
+import type { Connection, PortConfigFacet, PortSyncPlanItem } from '../api/types'
+import PortSyncPlanModal from './PortSyncPlanModal.vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -19,6 +21,7 @@ import { useToast } from '../composables/useToast'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import type { VlanMode } from '../api/vlanModeCascade'
 import { facetsLabel, formatVlans, modeLabel, roleLabel } from '../utils/portConfig'
+import { changeLines, optionLine, targetPort } from '../utils/portSyncRules'
 import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
 
 const props = defineProps<{ connection: Connection }>()
@@ -45,6 +48,39 @@ const isMismatch = computed(() => current.value.port_config_status === 'mismatch
 const diff = computed(() => current.value.port_config_diff ?? [])
 const differs = (facet: PortConfigFacet) => diff.value.includes(facet)
 const needsVlanSetup = computed(() => differs('vlans'))
+
+// Рекомендация по правилам согласования (страница «Правила согласования портов»): что сделает
+// подходящее правило для этого подключения. Запрашивается у сервера при открытии окна и после
+// каждого изменения статуса; сбой запроса рекомендацию просто не показывает — окно проверки от неё
+// не зависит. Само согласование — через окно плана: изменения применяются только после подтверждения.
+const recommendation = ref<PortSyncPlanItem | null>(null)
+const planOpen = ref(false)
+let recommendationSeq = 0
+
+async function loadRecommendation() {
+  const seq = ++recommendationSeq
+  if (!isMismatch.value) {
+    recommendation.value = null
+    return
+  }
+  try {
+    const plan = await previewPortSync({ connection_ids: [current.value.id] })
+    const item = plan?.items?.find((i) => i.connection_id === current.value.id) ?? null
+    if (seq === recommendationSeq) recommendation.value = item?.rule ? item : null
+  } catch {
+    if (seq === recommendationSeq) recommendation.value = null
+  }
+}
+
+onMounted(loadRecommendation)
+watch(() => current.value.port_config_status, loadRecommendation)
+
+async function onPlanApplied() {
+  await dashboard.refreshAfterChange()
+  emit('close')
+}
+
+const recommendedPort = computed(() => (recommendation.value ? targetPort(recommendation.value) : null))
 
 async function run(action: () => Promise<void>, fallbackError: string) {
   busy.value = true
@@ -165,6 +201,28 @@ function alignMode(keepSource: boolean) {
       </p>
       <p v-else class="status">Конфигурации портов совпадают.</p>
 
+      <div v-if="recommendation" class="recommendation" :class="recommendation.outcome" data-recommendation>
+        <div class="recommendation-title">По правилам согласования: «{{ recommendation.rule!.name }}»</div>
+        <template v-if="recommendation.outcome === 'auto'">
+          <div v-if="recommendedPort">Порту «{{ recommendedPort.name }}» ({{ recommendedPort.device_name }}) будет применено:</div>
+          <ul class="recommendation-lines">
+            <li v-for="line in changeLines(recommendation.changes)" :key="line">{{ line }}</li>
+          </ul>
+          <p v-for="warning in recommendation.warnings" :key="warning" class="recommendation-note" data-recommendation-warning>⚠ {{ warning }}</p>
+          <button type="button" class="btn btn-secondary" data-action="plan" :disabled="busy" @click="planOpen = true">Согласовать по правилу…</button>
+        </template>
+        <template v-else-if="recommendation.outcome === 'blocked'">
+          <p class="recommendation-note bad" data-recommendation-reason>{{ recommendation.reason }}</p>
+        </template>
+        <template v-else-if="recommendation.outcome === 'manual'">
+          <p class="recommendation-note">Какой порт менять, решает человек — выберите действие ниже.</p>
+          <ul v-if="recommendation.options.length" class="recommendation-lines">
+            <li v-for="option in recommendation.options" :key="option.target">Можно применить к {{ optionLine(option, recommendation) }}</li>
+          </ul>
+        </template>
+        <p v-else class="recommendation-note">{{ recommendation.rule!.action === 'ignore' ? 'Правило исключает эту пару из согласования.' : '' }}</p>
+      </div>
+
       <div class="actions">
         <button v-if="isMismatch" type="button" class="btn btn-primary" data-action="approve" :disabled="busy" @click="approve">
           Одобрить расхождение
@@ -209,6 +267,13 @@ function alignMode(keepSource: boolean) {
         <button type="button" class="btn btn-secondary" @click="$emit('close')">Закрыть</button>
       </div>
     </div>
+    <PortSyncPlanModal
+      v-if="planOpen"
+      :scope="{ connection_ids: [current.id] }"
+      title="Согласование портов по правилу"
+      @close="planOpen = false"
+      @applied="onPlanApplied"
+    />
   </div>
 
   <VlanModeCascadeModal
@@ -329,6 +394,32 @@ function alignMode(keepSource: boolean) {
 }
 .status.approved {
   color: var(--status-ok, var(--ink));
+}
+.recommendation {
+  border: 1px solid var(--brand);
+  background: var(--brand-soft);
+  border-radius: var(--r-m);
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+}
+.recommendation.blocked {
+  border-color: var(--status-warn);
+  background: var(--status-warn-soft);
+}
+.recommendation-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.recommendation-lines {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+.recommendation-note {
+  margin: 4px 0 8px;
+}
+.recommendation-note.bad {
+  font-weight: 600;
 }
 .actions {
   display: flex;

@@ -83,6 +83,14 @@ ALLOWED_DELETIONS = {
     # (то же, что _sync_single_interface делает при правке порта в форме)
     ("app/services/vlan_mode_cascade.py", "_write_port", "link"),
     ("app/services/vlan_mode_cascade.py", "apply_vlan_mode_cascade", "row"),
+    # согласование портов по правилам (services/port_sync_reconcile.py): при смене режима/VLAN порта по
+    # правилу снимаются лишние назначения VLAN (InterfaceVLAN) — дочерние записи порта без входящих
+    # ссылок; сам порт и VLAN не удаляются, план с перечнем изменений пользователь подтверждает
+    # (то же, что vlan_mode_cascade._write_port и _sync_single_interface)
+    ("app/services/port_sync_reconcile.py", "_write_vlans", "link"),
+    # удаление ПОЛЬЗОВАТЕЛЬСКОГО правила согласования (services/port_sync_store.py): на port_sync_rules
+    # нет ни FK, ни полиморфных ссылок; стандартное правило (code задан) код удалять отказывается (409)
+    ("app/services/port_sync_store.py", "delete_rule", "row"),
     ("app/services/crud.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
     ("app/services/crud.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
     ("app/services/crud.py", "_delete_stale_groups", "group"),

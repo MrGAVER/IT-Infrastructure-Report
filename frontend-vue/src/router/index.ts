@@ -90,6 +90,11 @@ const routes = [
     component: () => import('../views/DiagramView.vue'),
   },
   {
+    path: '/port-sync-rules',
+    name: 'port-sync-rules',
+    component: () => import('../views/PortSyncRulesView.vue'),
+  },
+  {
     path: '/audit-log',
     name: 'audit-log',
     component: () => import('../views/AuditLogView.vue'),
