@@ -35,6 +35,7 @@ const catalogNav = [
 const systemNav = [
   { to: '/reports', icon: 'i-file', label: 'Отчёты' },
   { to: '/report-templates', icon: 'i-layers', label: 'Шаблоны отчётов' },
+  { to: '/port-sync-rules', icon: 'i-network', label: 'Правила согласования портов' },
   { to: '/audit-log', icon: 'i-activity', label: 'Журнал аудита' },
 ]
 </script>

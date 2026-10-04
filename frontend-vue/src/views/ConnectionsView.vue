@@ -11,6 +11,7 @@ import { facetsLabel, formatVlans, modeAndVlansLabel, modeLabel, roleLabel } fro
 import { debounce } from '../utils/debounce'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
+import PortSyncPlanModal from '../components/PortSyncPlanModal.vue'
 import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
@@ -61,6 +62,8 @@ async function onPortsSaved() {
 // Проверка ролей портов-соседей (см. services/port_config.py): строка с расхождением/одобрением
 // открывает модалку, где расхождение одобряют или устраняют.
 const reviewing = ref<Connection | null>(null)
+// Окно плана «Согласовать по правилам» для всех подключений с неодобренным расхождением.
+const syncPlanOpen = ref(false)
 
 /** Из окна проверки — к настройке режима и VLAN порта: окно проверки закрываем, открываем порты
  * устройства; после их сохранения таблица перечитывается (onPortsSaved), и статус пересчитывает сервер. */
@@ -197,6 +200,15 @@ async function removeConnection(c: Connection) {
       >
         Одобрить все найденные ({{ dashboard.total }})
       </button>
+      <button
+        v-if="dashboard.summary.mismatch"
+        type="button"
+        class="btn btn-secondary"
+        data-action="sync-by-rules"
+        @click="syncPlanOpen = true"
+      >
+        Согласовать по правилам…
+      </button>
       <div class="spacer"></div>
       <button class="btn btn-secondary" :disabled="dashboard.loading" @click="dashboard.refreshAfterChange()">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
@@ -307,6 +319,13 @@ async function removeConnection(c: Connection) {
 
     <ConnectionFormModal v-if="modalOpen" :connection="modalConnection" @close="closeModal" @saved="onSaved" />
     <ConnectionCanvasModal v-if="canvasOpen" @close="closeCanvas" />
+    <PortSyncPlanModal
+      v-if="syncPlanOpen"
+      :scope="{}"
+      title="Согласование портов по правилам"
+      @close="syncPlanOpen = false"
+      @applied="dashboard.refreshAfterChange()"
+    />
     <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" @manage-ports="manageFromReview" />
     <DevicePortsModal
       v-if="portsTarget"

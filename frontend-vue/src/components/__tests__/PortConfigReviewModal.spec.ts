@@ -217,3 +217,131 @@ describe('PortConfigReviewModal.vue', () => {
     expect(wrapper.find('[data-mode-side="source"]').classes()).not.toContain('diff')
   })
 })
+
+// --- рекомендация по правилам согласования ---------------------------------------------------------
+
+const syncPreviewCalls = () => calls.filter((c) => c.method === 'POST' && c.url.endsWith('/port-sync/preview'))
+
+function planFor(item: Record<string, unknown> | null, summary: Record<string, unknown> = {}) {
+  const base = {
+    connection_id: 'c-1', outcome: 'auto', reason: null, target: 'source', warnings: [], options: [],
+    rule: { id: 'r-1', code: 'empty_trunk_takes_neighbor_vlans', name: 'Пустой trunk получает VLAN соседа', action: 'auto' },
+    source: { interface_id: 'if-srv', name: 'idrac', device_id: 'dev-1', device_name: 'srv-01', role: 'management', mode: 'trunk', vlans: [] },
+    destination: { interface_id: 'if-sw', name: 'Gi0/5', device_id: 'dev-2', device_name: 'sw-01', role: 'data', mode: 'trunk', vlans: [10, 20] },
+    changes: { role: null, mode: null, vlans: { from: [], to: [10, 20], skipped: [] } },
+  }
+  return {
+    items: item ? [{ ...base, ...item }] : [],
+    summary: { connections: 1, applicable: 1, shown: 1, total_items: 1, auto: 1, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0, ...summary },
+    plan_hash: 'hash-1',
+  }
+}
+
+function stubWithPlan(plan: unknown, extra: (call: Call) => Response | undefined = () => undefined) {
+  stubApi((call) => {
+    if (call.method === 'POST' && call.url.endsWith('/port-sync/preview')) return jsonResponse(plan)
+    return extra(call)
+  })
+}
+
+describe('PortConfigReviewModal.vue — рекомендация по правилам согласования', () => {
+  it('для расхождения запрашивает у сервера план по этому подключению и показывает, что сделает правило', async () => {
+    stubWithPlan(planFor({}))
+    const wrapper = mountModal(connection())
+    await flushPromises()
+
+    expect(syncPreviewCalls()).toHaveLength(1)
+    expect(syncPreviewCalls()[0].body).toEqual({ connection_ids: ['c-1'] })
+    const block = wrapper.find('[data-recommendation]')
+    expect(block.text()).toContain('«Пустой trunk получает VLAN соседа»')
+    expect(block.text()).toContain('Порту «idrac» (srv-01) будет применено')
+    expect(block.text()).toContain('VLAN: нет → 10, 20')
+    expect(block.find('[data-action="plan"]').exists()).toBe(true)
+  })
+
+  it('для подключения без расхождения рекомендацию не запрашивает', async () => {
+    stubWithPlan(planFor({}))
+    const wrapper = mountModal(connection({ port_config_status: 'ok', destination_port_role: 'management', port_config_diff: [] }))
+    await flushPromises()
+
+    expect(syncPreviewCalls()).toEqual([])
+    expect(wrapper.find('[data-recommendation]').exists()).toBe(false)
+  })
+
+  it('заблокированное правило показывает причину и не предлагает применить', async () => {
+    stubWithPlan(planFor({ outcome: 'blocked', reason: 'Порт входит в группу «Серверные», которая задаёт режим и VLAN — измените группу' }, { applicable: 0, blocked: 1, auto: 0 }))
+    const wrapper = mountModal(connection())
+    await flushPromises()
+
+    expect(wrapper.find('[data-recommendation-reason]').text()).toContain('Серверные')
+    expect(wrapper.find('[data-action="plan"]').exists()).toBe(false)
+  })
+
+  it('ручное правило: решает человек, варианты перечислены, применить автоматически нельзя', async () => {
+    stubWithPlan(
+      planFor({
+        outcome: 'manual', target: null, changes: null,
+        rule: { id: 'r-2', code: 'role_match', name: 'Роль порта совпадает с ролью соседа', action: 'manual' },
+        options: [{ target: 'source', changes: { role: 'data', mode: null, vlans: null } }],
+      }, { applicable: 0, manual: 1, auto: 0 }),
+    )
+    const wrapper = mountModal(connection())
+    await flushPromises()
+
+    const block = wrapper.find('[data-recommendation]')
+    expect(block.text()).toContain('Роль порта совпадает с ролью соседа')
+    expect(block.text()).toContain('решает человек')
+    expect(block.text()).toContain('«idrac» (srv-01): роль → Передача данных')
+    expect(block.find('[data-action="plan"]').exists()).toBe(false)
+  })
+
+  it('предупреждения правила показываются рядом с рекомендацией', async () => {
+    stubWithPlan(planFor({ warnings: ['Не назначены VLAN, которых нет у устройства порта: 30'] }))
+    const wrapper = mountModal(connection())
+    await flushPromises()
+
+    expect(wrapper.find('[data-recommendation-warning]').text()).toContain('30')
+  })
+
+  it('если подходящего правила нет, блок не показывается', async () => {
+    stubWithPlan(planFor({ outcome: 'none', rule: null, target: null, changes: null }, { applicable: 0, none: 1, auto: 0 }))
+    const wrapper = mountModal(connection())
+    await flushPromises()
+
+    expect(wrapper.find('[data-recommendation]').exists()).toBe(false)
+  })
+
+  it('сбой запроса рекомендации не мешает окну проверки: действия доступны, блока нет', async () => {
+    stubApi((call) => (call.url.endsWith('/port-sync/preview') ? jsonResponse({ detail: 'Сервер недоступен' }, 500) : undefined))
+    const wrapper = mountModal(connection())
+    await flushPromises()
+
+    expect(wrapper.find('[data-recommendation]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="approve"]').exists()).toBe(true)
+  })
+
+  it('«Согласовать по правилу…» открывает план по этому подключению; применение перечитывает дашборд и закрывает окно проверки', async () => {
+    stubWithPlan(planFor({}), (call) => {
+      if (call.method === 'POST' && call.url.endsWith('/port-sync/apply')) {
+        return jsonResponse({ applied: { ports: 1, connections: 1 }, connection_ids: ['c-1'], summary: planFor(null).summary })
+      }
+      return undefined
+    })
+    const wrapper = mountModal(connection())
+    await flushPromises()
+
+    await wrapper.find('[data-action="plan"]').trigger('click')
+    await flushPromises()
+    expect(syncPreviewCalls()).toHaveLength(2) // рекомендация + окно плана
+    expect(syncPreviewCalls()[1].body).toEqual({ connection_ids: ['c-1'] })
+    expect(wrapper.text()).toContain('Согласование портов по правилу')
+
+    await wrapper.find('[data-field="confirm"]').setValue(true)
+    await wrapper.find('[data-action="apply"]').trigger('click')
+    await flushPromises()
+
+    expect(calls.find((c) => c.url.endsWith('/port-sync/apply'))!.body).toEqual({ connection_ids: ['c-1'], plan_hash: 'hash-1', confirm: true })
+    expect(pageRequests()).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeTruthy()
+  })
+})

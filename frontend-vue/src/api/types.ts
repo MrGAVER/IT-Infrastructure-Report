@@ -854,6 +854,119 @@ export interface AuditLogEntry {
   created_at: string
 }
 
+// --- Правила автоматического согласования данных порта (backend/app/services/port_sync_rules.py) ---
+
+/** auto — применяется автоматически (после предпросмотра и подтверждения); manual — расхождение
+ * известного вида, направление выбирает человек; ignore — пару не трогать. */
+export type PortSyncAction = 'auto' | 'manual' | 'ignore'
+/** Условие на роль порта; any — любая. */
+export type PortSyncRoleCondition = 'any' | PortRole
+export type PortSyncModeCondition = 'any' | VlanMode
+/** Состояние VLAN порта: none — не назначены совсем; set — назначен хотя бы один (в том числе все);
+ * all — назначены ВСЕ VLAN, доступные устройству («Все VLAN»). */
+export type PortSyncVlanCondition = 'any' | 'none' | 'set' | 'all'
+/** Отношение значений целевого порта и порта-источника. */
+export type PortSyncRelation = 'any' | 'same' | 'differs'
+/** Что делать с VLAN: keep — не менять; copy — взять набор соседа; adapt — привести к режиму
+ * (в access остаётся один VLAN с наименьшим номером). */
+export type PortSyncVlanPolicy = 'keep' | 'copy' | 'adapt'
+
+export interface PortSyncCondition<V> {
+  role: PortSyncRoleCondition
+  mode: PortSyncModeCondition
+  vlans: V
+}
+
+export interface PortSyncRule {
+  id: string
+  /** Устойчивый идентификатор стандартного правила; у пользовательского null. */
+  code: string | null
+  builtin: boolean
+  /** Стандартное правило изменено относительно исходного (порядок и «включено» не считаются). */
+  modified: boolean
+  name: string
+  description: string
+  enabled: boolean
+  /** Порядок проверки: меньше — раньше. */
+  priority: number
+  action: PortSyncAction
+  /** Условия на порт, которому применяются изменения. */
+  target: PortSyncCondition<PortSyncVlanCondition>
+  /** Условия на порт на другом конце подключения, чьи значения берутся. */
+  source: PortSyncCondition<PortSyncVlanCondition>
+  relation: { role: PortSyncRelation; mode: PortSyncRelation; vlans: PortSyncRelation }
+  apply: { role: boolean; mode: boolean; vlans: PortSyncVlanPolicy }
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+/** Тело POST/PUT /port-sync/rules: без служебных полей. */
+export type PortSyncRuleInput = Omit<PortSyncRule, 'id' | 'code' | 'builtin' | 'modified' | 'created_at' | 'updated_at'>
+
+export type PortSyncOutcome = 'auto' | 'blocked' | 'manual' | 'ignored' | 'none' | 'skipped'
+
+export interface PortSyncPortView {
+  interface_id: string
+  name: string
+  device_id: string | null
+  device_name: string
+  role: PortRole | null
+  mode: VlanMode | null
+  vlans: number[]
+}
+
+export interface PortSyncChanges {
+  role: { from: PortRole; to: PortRole } | null
+  mode: { from: VlanMode; to: VlanMode } | null
+  /** skipped — номера VLAN соседа, которых нет у устройства порта: они не назначаются. */
+  vlans: { from: number[]; to: number[]; skipped: number[] } | null
+}
+
+export interface PortSyncOption {
+  target: 'source' | 'destination'
+  changes: { role: PortRole | null; mode: VlanMode | null; vlans: number[] | null }
+}
+
+export interface PortSyncPlanItem {
+  connection_id: string
+  outcome: PortSyncOutcome
+  reason: string | null
+  rule: { id: string | null; code: string | null; name: string; action: PortSyncAction } | null
+  /** Какой порт подключения меняется (для auto и blocked). */
+  target: 'source' | 'destination' | null
+  source: PortSyncPortView
+  destination: PortSyncPortView
+  changes: PortSyncChanges | null
+  options: PortSyncOption[]
+  warnings: string[]
+}
+
+export interface PortSyncSummary {
+  connections: number
+  /** Сколько подключений будет изменено при применении. */
+  applicable: number
+  shown: number
+  total_items: number
+  auto: number
+  blocked: number
+  manual: number
+  ignored: number
+  none: number
+  skipped: number
+}
+
+export interface PortSyncPlan {
+  items: PortSyncPlanItem[]
+  summary: PortSyncSummary
+  plan_hash: string
+}
+
+export interface PortSyncApplyResult {
+  applied: { ports: number; connections: number }
+  connection_ids: string[]
+  summary: PortSyncSummary
+}
+
 /** Счётчики журнала по ВСЕМУ журналу — не зависят от поиска и фильтров. by_action: число записей
  * по каждому действию (CREATE, UPDATE, DELETE, SYNC, LOGIN…); действия без записей отсутствуют. */
 export interface AuditLogSummary {
