@@ -83,14 +83,18 @@
 отклонит остальные типы с 422 — фильтр только для UX), а `hypervisor_os_id`
 не редактируется — бэкенд всегда пересчитывает его сам из ОС выбранного хоста,
 форма показывает это как read-only предпросмотр. Форма также редактирует
-IP-адреса ВМ (`VmIpListEditor.vue`, ресурс `/resources/vm-ips`), её открытые
-порты (`OpenPortListEditor.vue`, `/resources/open-ports?owner_type=virtual_machine`)
+IP-адреса ВМ (`VmIpListEditor.vue`, `/resources/ip-addresses?owner_type=virtual_machine`),
+её открытые порты (`OpenPortListEditor.vue`, `/resources/open-ports?owner_type=virtual_machine`)
 и развёрнутые программные активы (`SoftwareAssetListEditor.vue`,
-`/resources/vm-software`) — строки staged локально (можно заполнить ещё до
-сохранения новой ВМ, когда её id ещё не существует) и персистятся после
-сохранения самой ВМ по схеме delete-затем-recreate, аналогично
-`saveVMIPs()`/`saveVMOpenPorts()`/`saveVMSoftware()` в vanilla-версии
-(`frontend/static/vm-editors.js`). `OpenPortListEditor.vue` и
+`/resources/deployed-software?owner_type=virtual_machine`) — строки staged
+локально (можно заполнить ещё до сохранения новой ВМ, когда её id ещё не
+существует) и после сохранения самой ВМ уходят тремя атомарными запросами
+`PUT /vms/{id}/ip-addresses | open-ports | deployed-software`
+(`src/api/vmNestedLists.ts`): сервер сравнивает список с БД по id — записи с id
+обновляются на месте, без id создаются, убранные в форме удаляются. Это
+заменило схему delete-затем-recreate из vanilla-версии
+(`saveVMIPs()`/`saveVMOpenPorts()`/`saveVMSoftware()` в
+`frontend/static/vm-editors.js`). `OpenPortListEditor.vue` и
 `SoftwareAssetListEditor.vue` не завязаны на владельца (принимают готовые
 строки и справочник через props) — переиспользованы без изменений на экране
 устройств ниже.
