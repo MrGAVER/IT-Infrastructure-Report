@@ -482,7 +482,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         expect(wrapper.find('.expand-toggle .ports-dup-icon').exists()).toBe(false)
       })
 
-      it('выбор порта в новой строке ставит её по возрастанию номера, а не в конец', async () => {
+      it('выбор порта в новой строке не переставляет строку — её удобно дозаполнять на месте', async () => {
         const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [port('cat-https'), port('')] }]
         const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
         await expandRow(wrapper)
@@ -492,7 +492,19 @@ describe('DeviceInterfacesEditor.vue', () => {
 
         const emitted = wrapper.emitted('update:modelValue')!
         const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
-        expect(result[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+        expect(result[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh'])
+      })
+
+      it('добавление следующего порта упорядочивает список по возрастанию номера, новая строка — в конец', async () => {
+        const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [port('cat-https'), port('cat-ssh')] }]
+        const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: wideCatalog } })
+        await expandRow(wrapper)
+
+        await wrapper.find('.ports-block button.add-btn').trigger('click')
+
+        const emitted = wrapper.emitted('update:modelValue')!
+        const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+        expect(result[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https', ''])
       })
     })
 

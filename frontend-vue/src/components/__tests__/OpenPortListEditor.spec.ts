@@ -152,14 +152,45 @@ describe('OpenPortListEditor.vue — sorted-unique (форма ВМ)', () => {
     await option.trigger('mousedown')
   }
 
-  it('выбор порта переупорядочивает строки по возрастанию номера, пустые остаются в конце', async () => {
+  it('выбор записи справочника не переставляет строки: только что заполняемая строка остаётся на месте', async () => {
     const rows = [openRow('cat-https'), openRow(''), openRow('')]
     const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog, sortedUnique: true } })
 
     await pick(wrapper, 1, '22 / SSH')
 
+    // 22 меньше 443, но строка не «уезжает» наверх: пользователю ещё заполнять транспорт и описание.
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh', ''])
+  })
+
+  it('«+ Открытый порт» сортирует заполненные строки по номеру и добавляет пустую строку в конец', async () => {
+    const rows = [openRow('cat-https'), openRow('cat-ssh')] // намеренно не по порядку
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog, sortedUnique: true } })
+
+    await wrapper.find('button.add-btn').trigger('click')
+
     const emitted = wrapper.emitted('update:modelValue')!
     expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https', ''])
+  })
+
+  it('«+ Открытый порт»: строка, не заполненная к этому моменту, остаётся после заполненных', async () => {
+    const rows = [openRow('cat-https'), openRow(''), openRow('cat-http')]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog, sortedUnique: true } })
+
+    await wrapper.find('button.add-btn').trigger('click')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-http', 'cat-https', '', ''])
+  })
+
+  it('без sortedUnique «+ Открытый порт» порядок существующих строк не меняет', async () => {
+    const rows = [openRow('cat-https'), openRow('cat-ssh')]
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: wideCatalog } })
+
+    await wrapper.find('button.add-btn').trigger('click')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh', ''])
   })
 
   it('подсвечивает строки с повторяющимся номером порта и показывает сообщение', () => {

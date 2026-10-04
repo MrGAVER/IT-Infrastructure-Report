@@ -9,6 +9,7 @@
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch } from 'vue'
 import { createResource, deleteResource, listResource, updateResource } from '../api/client'
+import { syncVmOpenPorts } from '../api/vmOpenPorts'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -133,10 +134,10 @@ function toPayload() {
   return payload
 }
 
-// Delete-затем-recreate, а не диффинг по id — ровно тот же подход, что
-// saveVMIPs()/saveVMOpenPorts() в vanilla-версии (frontend/static/vm-editors.js).
-// Списки маленькие (единицы-десятки строк на ВМ), поэтому цена лишних
-// запросов пренебрежимо мала по сравнению с простотой кода без diff-логики.
+// IP-адреса и программные активы по-прежнему удаляются и создаются заново, как
+// saveVMIPs() в vanilla-версии (frontend/static/vm-editors.js): списки маленькие (единицы-десятки
+// строк на ВМ), цена лишних запросов пренебрежимо мала. Открытые порты так больше не сохраняются —
+// см. persistOpenPorts ниже.
 async function persistVmIps(vmId: string) {
   const existing = await listResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: vmId, limit: 1000 })
   for (const old of existing.items) {
@@ -155,28 +156,16 @@ async function persistVmIps(vmId: string) {
   }
 }
 
+// Открытые порты, в отличие от IP и ПО выше, не удаляются и не создаются заново: один атомарный
+// PUT /vms/{id}/open-ports, сервер сравнивает список с БД по id (см. api/vmOpenPorts.ts). Порты с
+// id обновляются на месте, новые создаются, убранные в форме удаляются — id и дата создания
+// сохранённых портов не меняются, в журнал аудита попадает только реальное изменение. Порядок строк
+// в запросе значения не имеет: сервер отдаёт и хранит порты независимо от него, при следующем
+// открытии формы список сортируется загрузчиком (см. watch выше).
 async function persistOpenPorts(vmId: string) {
-  const existing = await listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: vmId, limit: 1000 })
-  for (const old of existing.items) {
-    await deleteResource('open-ports', old.id)
-  }
-  // Сортировка и здесь: порядок создания записей = порядок по номеру порта, даже если справочник
-  // догрузился уже после открытия формы и порядок при загрузке не удалось выстроить.
-  for (const row of sortOpenPortRows(openPorts.value, catalogs.protocolPortCatalog)) {
-    // Правка "убрать текстовые поля Порт/Протокол": protocol_catalog_id — единственный вход,
-    // без него нечего сохранять (та же пустая строка-плейсхолдер, что раньше отсекалась по
-    // пустому row.port). port/protocol в payload не отправляем вовсе — сервер сам выводит их
-    // из справочника (backend/app/services/crud.py:_apply_open_port_catalog) и вернёт 422 с
-    // понятным текстом, если protocol_catalog_id всё же окажется невалидным.
-    if (!row.protocol_catalog_id) continue
-    await createResource<OpenPort>('open-ports', {
-      owner_type: 'virtual_machine',
-      owner_id: vmId,
-      protocol_catalog_id: row.protocol_catalog_id,
-      transport_protocol: row.transport_protocol || 'TCP',
-      description: row.description || null,
-    })
-  }
+  // Новой ВМ (создание или копия) синхронизировать нечего, если ни одна строка не заполнена.
+  if (!isEdit.value && !openPorts.value.some((row) => row.protocol_catalog_id)) return
+  await syncVmOpenPorts(vmId, openPorts.value)
 }
 
 async function persistSoftwareAssets(vmId: string) {

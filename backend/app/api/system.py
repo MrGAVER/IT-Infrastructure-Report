@@ -8,7 +8,7 @@ from ..models import (Connection, Container, DeviceInterface, DeviceStack, Devic
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
-from ..services.crud import assign_domain_vlans_to_device, audit, validate_resource
+from ..services.crud import assign_domain_vlans_to_device, audit, sync_vm_open_ports, validate_resource
 from ..services.integrity import find_duplicate_open_port_numbers, find_orphaned_owner_references
 from ..constants import AuditAction
 from ..reporting import build_report
@@ -54,6 +54,13 @@ def list_devices(session: Session = Depends(get_db)):
 def list_vms(session: Session = Depends(get_db)):
     rows = session.scalars(select(VirtualMachine).order_by(VirtualMachine.name)).all()
     return {'items':[serialize(x) for x in rows], 'total':len(rows)}
+
+@router.put('/api/v1/vms/{vm_id}/open-ports')
+def sync_vm_ports(vm_id: str, payload: dict, session: Session = Depends(get_db)):
+    """Атомарная синхронизация открытых портов ВМ: тело {open_ports: [{id?, protocol_catalog_id,
+    transport_protocol, description}]} — полный список портов ВМ, diff по id (см.
+    services/crud.py:sync_vm_open_ports)."""
+    return sync_vm_open_ports(vm_id, payload, session)
 
 
 @router.get('/api/v1/vlan-dashboard')
