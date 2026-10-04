@@ -1235,8 +1235,10 @@ class TestVlanDomainReplaceSync:
         client.post(f"/api/v1/vlan-domains/{other_domain['id']}/members", json={"physical_device_id": member["id"]})
         foreign_vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 99, "name": "Чужой домен", "domain_id": other_domain["id"]}).json()
         local_vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 100, "name": "Локальный, без домена"}).json()
-        r1 = client.post("/api/v1/resources/device-vlans", json={"physical_device_id": member["id"], "vlan_id": foreign_vlan["id"]})
-        assert r1.status_code == 201, r1.text
+        # VLAN другого домена уже назначен устройству-участнику этого домена автоматически (см.
+        # _auto_assign_new_domain_vlan_to_domain_devices в services/crud.py), вручную — только локальный.
+        before = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
+        assert foreign_vlan["id"] in {row["vlan_id"] for row in before}
         r2 = client.post("/api/v1/resources/device-vlans", json={"physical_device_id": member["id"], "vlan_id": local_vlan["id"]})
         assert r2.status_code == 201, r2.text
 
@@ -1554,6 +1556,96 @@ class TestNewDomainVlanAutoAssignedToSourceDevice:
         assert r.status_code == 200, r.text
         r = client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}")
         assert len(r.json()["items"]) == 1
+
+
+class TestNewDomainVlanAssignedToAllDomainDevices:
+    """Правка "VLAN домена": новый VLAN домена появляется в «VLAN устройства» ВСЕХ устройств этого
+    домена (участников и источника), а не только у источника — без ручного «Синхронизировать»
+    (см. _auto_assign_new_domain_vlan_to_domain_devices в services/crud.py)."""
+
+    def _device(self, client, dt, serial):
+        return client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": serial}).json()
+
+    def _join(self, client, domain, device):
+        r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": device["id"]})
+        assert r.status_code == 200, r.text
+
+    def _assigned(self, client, device):
+        return [row["vlan_id"] for row in client.get(f"/api/v1/resources/device-vlans?physical_device_id={device['id']}").json()["items"]]
+
+    def test_new_vlan_reaches_source_and_every_member(self, client):
+        dt = _create_device_type(client, "Коммутатор домена")
+        source = self._device(client, dt, "DOM-ALL-SRC")
+        member1, member2 = self._device(client, dt, "DOM-ALL-M1"), self._device(client, dt, "DOM-ALL-M2")
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен для всех", "source_device_id": source["id"]}).json()
+        self._join(client, domain, member1)
+        self._join(client, domain, member2)
+
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 201, "name": "Для всех", "domain_id": domain["id"]}).json()
+
+        for device in (source, member1, member2):
+            assert self._assigned(client, device) == [vlan["id"]], device["serial_number"]
+
+    def test_domain_without_source_device_still_assigns_to_members(self, client):
+        dt = _create_device_type(client, "Коммутатор домена без источника")
+        member = self._device(client, dt, "DOM-NOSRC-M1")
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без источника, с участником"}).json()
+        self._join(client, domain, member)
+
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 202, "name": "Без источника", "domain_id": domain["id"]}).json()
+
+        assert self._assigned(client, member) == [vlan["id"]]
+
+    def test_devices_outside_the_domain_are_not_touched(self, client):
+        dt = _create_device_type(client, "Коммутатор вне домена")
+        member, outsider = self._device(client, dt, "DOM-OUT-M1"), self._device(client, dt, "DOM-OUT-X1")
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без посторонних"}).json()
+        self._join(client, domain, member)
+
+        client.post("/api/v1/resources/vlans", json={"vlan_id": 203, "name": "Только домену", "domain_id": domain["id"]})
+
+        assert self._assigned(client, outsider) == []
+
+    def test_assigning_domain_via_update_reaches_every_member(self, client):
+        dt = _create_device_type(client, "Коммутатор отложенной привязки к домену")
+        member1, member2 = self._device(client, dt, "DOM-UPD-M1"), self._device(client, dt, "DOM-UPD-M2")
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен для PUT всем"}).json()
+        self._join(client, domain, member1)
+        self._join(client, domain, member2)
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 204, "name": "Позже в домене всем"}).json()
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+
+        assert r.status_code == 200, r.text
+        assert self._assigned(client, member1) == [vlan["id"]]
+        assert self._assigned(client, member2) == [vlan["id"]]
+
+    def test_member_that_already_has_the_vlan_is_not_duplicated(self, client):
+        dt = _create_device_type(client, "Коммутатор с уже назначенным VLAN")
+        member, other = self._device(client, dt, "DOM-DUP-M1"), self._device(client, dt, "DOM-DUP-M2")
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен без дублей у участников"}).json()
+        self._join(client, domain, member)
+        self._join(client, domain, other)
+        vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 205, "name": "Уже у участника"}).json()
+        client.post("/api/v1/resources/device-vlans", json={"physical_device_id": member["id"], "vlan_id": vlan["id"]})
+
+        r = client.put(f"/api/v1/resources/vlans/{vlan['id']}", json={"domain_id": domain["id"]})
+
+        assert r.status_code == 200, r.text  # не 409 на uq_physical_device_vlan
+        assert self._assigned(client, member) == [vlan["id"]]
+        assert self._assigned(client, other) == [vlan["id"]]
+
+    def test_assignment_cost_does_not_grow_with_number_of_domain_devices(self, client, sql_log):
+        dt = _create_device_type(client, "Коммутатор для подсчёта запросов домена")
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен для подсчёта запросов"}).json()
+        for i in range(6):
+            self._join(client, domain, self._device(client, dt, f"DOM-N1-{i}"))
+        sql_log.clear()
+
+        client.post("/api/v1/resources/vlans", json={"vlan_id": 206, "name": "Подсчёт", "domain_id": domain["id"]})
+
+        selects = [s for s in sql_log if s.lstrip().upper().startswith("SELECT") and "physical_device_vlans" in s]
+        assert len(selects) <= 2, selects  # один запрос на уже назначенное, не по запросу на устройство
 
 
 class TestDeviceStacks:

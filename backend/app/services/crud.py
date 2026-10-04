@@ -279,33 +279,40 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         items = [serialize(row) for row in rows]
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
-def _auto_assign_new_domain_vlan_to_source_device(vlan: 'VLAN', session: Session) -> None:
-    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в «справочник VLAN»
-    (VLANFormModal.vue) сразу с привязкой к домену, должен появиться в блоке «VLAN устройства»
-    без отдельного ручного шага. До этой правки требовалось отдельно зайти в форму
-    устройства-источника и добавить VLAN там вручную — sync_vlan_domain (см. api/system.py) не
-    помогает, т.к. он реплицирует набор VLAN устройства-источника НА остальных участников,
-    отталкиваясь от уже существующих у источника PhysicalDeviceVLAN, а только что созданный VLAN
-    там ещё не значится.
+def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:
+    """Правка "VLAN домена": VLAN, заведённый в «справочник VLAN» (VLANFormModal.vue) сразу с
+    привязкой к домену — или привязанный к домену позже обновлением domain_id — должен появиться в
+    блоке «VLAN устройства» ВСЕХ физических устройств этого домена (участников VLANDomainDevice и
+    устройства-источника) без ручного шага «Синхронизировать».
 
-    Единственный однозначный получатель — устройство-источник домена (если оно задано):
-    остальные участники получат этот VLAN штатной синхронизацией, когда источник его уже будет
-    иметь. Если у домена источник не задан, или VLAN не привязан ни к какому домену — делать
-    нечего, тихо выходим (это не ошибка, а обычный локальный/пока-не-синхронизируемый VLAN)."""
+    Раньше (п.2 правки "создание физического устройства") VLAN назначался только устройству-
+    источнику, а остальные участники получали его лишь при ручной синхронизации (sync_vlan_domain
+    реплицирует набор VLAN источника на участников), из-за чего новый VLAN не появлялся на
+    устройствах домена. Источник учитывается отдельно от участников: он может не числиться в
+    VLANDomainDevice.
+
+    Уже назначенное не дублируется (uq_physical_device_vlan), поэтому вызов безопасно повторять.
+    Если VLAN не привязан к домену или у домена нет ни участников, ни источника — тихо выходим:
+    это не ошибка, а обычный локальный или пока пустой домен. Два запроса на весь домен, а не по
+    запросу на устройство."""
     if not vlan.domain_id:
         return
     domain = session.get(VLANDomain, vlan.domain_id)
-    if not domain or not domain.source_device_id:
+    if not domain:
         return
-    exists = session.scalar(
-        select(PhysicalDeviceVLAN).where(
-            PhysicalDeviceVLAN.physical_device_id == domain.source_device_id,
+    device_ids = set(session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain.id)).all())
+    if domain.source_device_id:
+        device_ids.add(domain.source_device_id)
+    if not device_ids:
+        return
+    already_assigned = set(session.scalars(
+        select(PhysicalDeviceVLAN.physical_device_id).where(
             PhysicalDeviceVLAN.vlan_id == vlan.id,
+            PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
         )
-    )
-    if exists:
-        return
-    session.add(PhysicalDeviceVLAN(physical_device_id=domain.source_device_id, vlan_id=vlan.id, description=vlan.description))
+    ).all())
+    for device_id in sorted(device_ids - already_assigned):
+        session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan.id, description=vlan.description))
 
 
 def assign_domain_vlans_to_device(domain_id: str | None, physical_device_id: str | None, session: Session) -> None:
@@ -353,7 +360,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     try:
         session.flush()
         if model is VLAN:
-            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+            _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
         if model is VLANDomainDevice:
             assign_domain_vlans_to_device(obj.domain_id, obj.physical_device_id, session)
         audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
@@ -390,9 +397,9 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         # Пункт 2 правки "создание физического устройства": только когда domain_id реально
         # менялся в этом запросе — иначе безобидное редактирование ДРУГОГО поля VLAN (например,
         # описания) на каждый сохранение заново бы проверяло/дублировало привязку к
-        # устройству-источнику домена, в котором этот VLAN и так уже давно значится.
+        # устройствам домена, в котором этот VLAN и так уже давно значится.
         if model is VLAN and 'domain_id' in payload:
-            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+            _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
         audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
@@ -582,35 +589,96 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     _sync_interface_open_ports(obj, item.get('open_ports') or [], session)
 
 
-def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: Session) -> None:
-    """п.1.4 (батч4): "Открытые порты" — теперь свойство конкретного интерфейса, а не всего
-    устройства (полиморфный OpenPort.owner_type=DEVICE_INTERFACE, owner_id=интерфейс), той же
-    delete-diff-create схемой, что и IP интерфейса чуть выше (см. её комментарий). Раньше один
-    список открытых портов относился ко всему устройству разом (owner_type=PHYSICAL_DEVICE) —
-    это не позволяло корректно заполнить Лист 3 отчёта, где колонка "Перечень открытых портов"
-    относится к КОНКРЕТНОМУ физическому/логическому порту (см. reporting.py:_port_open_info)."""
-    if not isinstance(open_ports, list): raise HTTPException(422, 'Поле open_ports интерфейса должно быть массивом')
-    validate_unique_open_port_numbers((p.get('protocol_catalog_id') for p in open_ports if isinstance(p, dict)), session, f"Порт «{obj.name or 'без имени'}»")
-    old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id)).all()
+def sync_owner_open_ports(owner_type: str, owner_id: str, open_ports: Any, session: Session, *, owner_label: str, array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+    """Приводит открытые порты владельца (ВМ или порт устройства — полиморфный OpenPort.owner_type/
+    owner_id) к присланному списку по id: строка с id обновляет существующую запись, строка без id
+    создаёт новую, записи владельца, которых в списке нет, удаляются.
+
+    Записи не пересоздаются: id и created_at сохраняются, а в журнал и в БД попадает только реальное
+    изменение. Уникальность номеров проверяется по присланному списку целиком
+    (validate_unique_open_port_numbers), а не по записям в БД поочерёдно, поэтому обмен номерами
+    между двумя строками за один запрос допустим.
+
+    Строка без выбранной записи справочника (пустой плейсхолдер формы) пропускается. Транзакцию
+    функция не коммитит — это делает вызывающий. Возвращает (создано, изменено, удалено)."""
+    if not isinstance(open_ports, list): raise HTTPException(422, array_error)
+    validate_unique_open_port_numbers((p.get('protocol_catalog_id') for p in open_ports if isinstance(p, dict)), session, owner_label)
+    old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == owner_type, OpenPort.owner_id == owner_id)).all()
     old_map = {x.id: x for x in old_ports}; seen: set[str] = set()
+    created = updated = 0
     for port_data in open_ports:
         # Пустая строка без выбранной записи справочника — незаполненная строка-плейсхолдер
-        # (пользователь нажал "+ Открытый порт", но ещё не выбрал запись) — как и раньше с
-        # пустым 'port', тихо пропускаем, а не 422 (см. addRow() в OpenPortListEditor.vue).
+        # (пользователь нажал "+ Открытый порт", но ещё ничего не выбрал), тихо пропускаем, а не 422
+        # (см. addRow() в OpenPortListEditor.vue).
         if not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
         _validate_open_port_catalog(port_data, session)
+        new_values = {
+            'protocol_catalog_id': port_data['protocol_catalog_id'],
+            'transport_protocol': port_data.get('transport_protocol') or 'TCP',
+            'description': port_data.get('description') or None,
+        }
         port_id = port_data.get('id')
         if port_id:
             port_obj = old_map.get(port_id)
-            if not port_obj: raise HTTPException(422, 'Открытый порт не принадлежит выбранному интерфейсу')
+            if not port_obj: raise HTTPException(422, foreign_id_error)
+            if port_id in seen: raise HTTPException(422, 'Один и тот же открытый порт указан в списке несколько раз')
             seen.add(port_id)
+            if any(getattr(port_obj, key) != value for key, value in new_values.items()): updated += 1
         else:
-            port_obj = OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(port_obj)
-        port_obj.protocol_catalog_id = port_data['protocol_catalog_id']
-        port_obj.transport_protocol = port_data.get('transport_protocol') or 'TCP'
-        port_obj.description = port_data.get('description') or None
-    for old_port in old_ports:
-        if old_port.id not in seen: session.delete(old_port)
+            port_obj = OpenPort(owner_type=owner_type, owner_id=owner_id); session.add(port_obj); created += 1
+        for key, value in new_values.items(): setattr(port_obj, key, value)
+    stale_ports = [old_port for old_port in old_ports if old_port.id not in seen]
+    for old_port in stale_ports: session.delete(old_port)
+    return created, updated, len(stale_ports)
+
+
+def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: Session) -> None:
+    """п.1.4 (батч4): "Открытые порты" — теперь свойство конкретного интерфейса, а не всего
+    устройства (полиморфный OpenPort.owner_type=DEVICE_INTERFACE, owner_id=интерфейс), той же
+    diff-схемой по id, что и IP интерфейса чуть выше (см. sync_owner_open_ports). Раньше один
+    список открытых портов относился ко всему устройству разом (owner_type=PHYSICAL_DEVICE) —
+    это не позволяло корректно заполнить Лист 3 отчёта, где колонка "Перечень открытых портов"
+    относится к КОНКРЕТНОМУ физическому/логическому порту (см. reporting.py:_port_open_info)."""
+    sync_owner_open_ports(
+        OwnerType.DEVICE_INTERFACE, obj.id, open_ports, session,
+        owner_label=f"Порт «{obj.name or 'без имени'}»",
+        array_error='Поле open_ports интерфейса должно быть массивом',
+        foreign_id_error='Открытый порт не принадлежит выбранному интерфейсу',
+    )
+
+
+def sync_vm_open_ports(vm_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """PUT /api/v1/vms/{vm_id}/open-ports — атомарная синхронизация открытых портов ВМ (форма ВМ,
+    VMFormModal.vue). Раньше форма при каждом сохранении удаляла все порты ВМ и создавала их заново
+    (2N+1 запросов, новые id, лишние записи в журнале аудита, а при сбое посередине — потерянные
+    порты). Теперь одна транзакция: порты с id обновляются, без id создаются, отсутствующие в
+    списке удаляются (см. sync_owner_open_ports). Ключ open_ports обязателен: его отсутствие — 422, а не
+    молчаливое удаление всех портов. В журнал пишется запись только если что-то изменилось.
+
+    Ответ: {'items': [...]} — порты ВМ по возрастанию номера порта."""
+    vm = session.get(VirtualMachine, vm_id)
+    if not vm: raise HTTPException(404, 'Виртуальная машина не найдена')
+    try:
+        created, updated, removed = sync_owner_open_ports(
+            OwnerType.VIRTUAL_MACHINE, vm.id, payload.get('open_ports'), session,
+            owner_label=f'ВМ «{vm.name}»',
+            array_error='Поле open_ports должно быть массивом',
+            foreign_id_error='Открытый порт не принадлежит выбранной виртуальной машине',
+        )
+        if created or updated or removed:
+            audit(session, 'vms', vm.id, AuditAction.UPDATE, f'Открытые порты: добавлено {created}, изменено {updated}, удалено {removed}')
+        session.commit()
+    except HTTPException:
+        session.rollback(); raise
+    except IntegrityError as exc:
+        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+    rows = session.scalars(
+        select(OpenPort)
+        .join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+        .where(OpenPort.owner_type == OwnerType.VIRTUAL_MACHINE, OpenPort.owner_id == vm.id)
+        .order_by(ProtocolPortCatalog.port, OpenPort.transport_protocol)
+    ).all()
+    return {'items': enrich_open_ports(rows, session)}
 
 
 def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
