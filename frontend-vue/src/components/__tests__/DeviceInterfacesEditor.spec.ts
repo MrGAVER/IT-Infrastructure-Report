@@ -5,6 +5,7 @@ import DeviceInterfacesEditor from '../DeviceInterfacesEditor.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
 import { useCatalogsStore } from '../../stores/catalogs'
+import { useDevicesStore } from '../../stores/devices'
 import { groupChange, makePlan, portChange, vlanRef } from '../../utils/__tests__/cascadePlanFixture'
 import type { VlanModeCascadePlan } from '../../api/vlanModeCascade'
 
@@ -1487,5 +1488,67 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
     expect(groups[0]).toMatchObject({ name: 'Новая', ip_address: '10.1.1.1' })
     expect(rows[0]).toMatchObject({ group_key: groups[0].key })
     expect(rows[0].ips[0].ip_address).toBe('10.1.1.1')
+  })
+})
+
+describe('DeviceInterfacesEditor.vue — блок «Подключение» порта', () => {
+  const connected = { peer_device_id: 'dev-b', peer_interface_id: 'b-1', connection_type_id: 'ct-1', description: '' }
+
+  function mountWith(rows: InterfaceDraftRow[], editConnections?: boolean) {
+    useDevicesStore().all = [{ id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' }] as never
+    useCatalogsStore().items['interfaces'] = [{ id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'access' }] as never
+    return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: 'dev-1', ...(editConnections === undefined ? {} : { editConnections }) } })
+  }
+
+  it('по умолчанию (окно «Управлять портами») блока «Подключение» нет — подключения там не сохраняются', async () => {
+    const wrapper = mountWith([{ ...emptyRow(), id: 'if-1', name: 'eth0' }])
+    await expandRow(wrapper)
+    expect(wrapper.find('.connection-block').exists()).toBe(false)
+  })
+
+  it('с editConnections блок показан в раскрытой строке; «Подключить» кладёт черновик в connection строки', async () => {
+    const wrapper = mountWith([{ ...emptyRow(), id: 'if-1', name: 'eth0' }], true)
+    expect(wrapper.find('.connection-block').exists()).toBe(false) // свёрнутая строка — деталей нет
+    await expandRow(wrapper)
+
+    await wrapper.find('.connection-connect-btn').trigger('click')
+
+    const rows = wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]
+    expect(rows[0].connection).toEqual({ peer_device_id: '', peer_interface_id: '', connection_type_id: '', description: '' })
+  })
+
+  it('свёрнутая строка подписана подключением: «↔ устройство · порт»; незаконченное — «порт не выбран»; без подключения подписи нет', () => {
+    const wrapper = mountWith(
+      [
+        { ...emptyRow(), id: 'if-1', name: 'eth0', connection: connected },
+        { ...emptyRow(), id: 'if-2', name: 'eth1', connection: { ...connected, peer_interface_id: '' } },
+        { ...emptyRow(), id: 'if-3', name: 'eth2', connection: null },
+      ],
+      true,
+    )
+    const toggles = wrapper.findAll('.expand-toggle').map((t) => t.text())
+    expect(toggles[0]).toContain('↔ sw-b · Gi0/1')
+    expect(toggles[1]).toContain('↔ порт не выбран')
+    expect(toggles[2]).not.toContain('↔')
+  })
+
+  it('порт соседа, выбранный в другой строке, не предлагается в этой', async () => {
+    useCatalogsStore().items['interfaces'] = [] as never
+    const wrapper = mountWith(
+      [
+        { ...emptyRow(), id: 'if-1', name: 'eth0', connection: connected },
+        { ...emptyRow(), id: 'if-2', name: 'eth1', connection: { ...connected, peer_interface_id: '' } },
+      ],
+      true,
+    )
+    useCatalogsStore().items['interfaces'] = [
+      { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'access' },
+      { id: 'b-2', physical_device_id: 'dev-b', name: 'Gi0/2', is_management: false, is_data_transfer: false, vlan_mode: 'access' },
+    ] as never
+    await wrapper.findAll('.expand-toggle')[1].trigger('click')
+
+    const select = wrapper.find('.iface-detail-row .connection-peer-port .searchable-select')
+    await select.find('input').trigger('focus')
+    expect(select.findAll('.ss-option').map((o) => o.text())).toEqual(['Gi0/2'])
   })
 })
