@@ -6,6 +6,7 @@ import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
 import { useVLANDomainsStore } from '../../stores/vlanDomains'
 import { useConnectionsStore } from '../../stores/connections'
+import { useDevicesStore } from '../../stores/devices'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
 import { useToast } from '../../composables/useToast'
 
@@ -1978,5 +1979,193 @@ describe('правки формы физического устройства: �
 
       expect(useToast().toasts).toHaveLength(0)
     })
+  })
+})
+
+describe('подключения портов в блоке «Порты / интерфейсы» формы устройства', () => {
+  const emptyList = () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+  type Call = { url: string; method: string; body?: Record<string, unknown> }
+
+  // Соседнее устройство sw-b с портом Gi0/1 (у него включено «Управление»), тип линии «Витая пара».
+  function seedStores(connections: Array<Record<string, unknown>> = []) {
+    useToast().toasts.splice(0)
+    const devices = useDevicesStore()
+    devices.all = [
+      { id: 'dev-1', system_name: 'srv-1', serial_number: 'SN-1' },
+      { id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' },
+    ] as never
+    devices.loaded = true
+    const catalogs = useCatalogsStore()
+    catalogs.items['interfaces'] = [{ id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] as never
+    catalogs.items['connection-types'] = [{ id: 'ct-1', name: 'Витая пара' }] as never
+    const store = useConnectionsStore()
+    store.all = connections as never
+    store.loaded = true
+  }
+
+  function recordingFetch(handlers: (url: string, method: string) => Response | undefined) {
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        return handlers(url, method) ?? emptyList()
+      }),
+    )
+    return calls
+  }
+
+  async function pick(wrapper: ReturnType<typeof mount>, block: string, label: string) {
+    const select = wrapper.find(`${block} .searchable-select`)
+    await select.find('input').trigger('focus')
+    const option = select.findAll('.ss-option').find((o) => o.text() === label)
+    if (!option) throw new Error(`«${label}» нет в списке выбора ${block}`)
+    await option.trigger('mousedown')
+  }
+
+  async function mountNewDeviceWithPort() {
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    seedStores()
+    const wrapper = mount(DeviceFormModal, { props: { device: null } })
+    await flushPromises()
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-NEW')
+    await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
+    await wrapper.find('.iface-table input.cell-input').setValue('eth0')
+    await wrapper.find('.expand-toggle').trigger('click')
+    return wrapper
+  }
+
+  it('новое устройство: подключение нового порта уходит в тот же PUT, что и порт; после сохранения — предупреждение о расхождении с соседом', async () => {
+    const wrapper = await mountNewDeviceWithPort()
+    const calls = recordingFetch((url, method) => {
+      if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+      if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
+        return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: false, is_data_transfer: false, vlan_mode: 'access' }], groups: [] }))
+      }
+      if (method === 'GET' && url.includes('/resources/connections')) {
+        const connection = { id: 'c-new', source_interface_id: 'if-new', destination_interface_id: 'b-1', is_active: true, source_device_name: 'srv-new', source_interface_name: 'eth0', destination_device_name: 'sw-b', destination_interface_name: 'Gi0/1' }
+        return new Response(JSON.stringify({ items: [connection], total: 1, offset: 0, limit: 1000 }))
+      }
+      return undefined
+    })
+
+    await wrapper.find('.connection-connect-btn').trigger('click')
+    await pick(wrapper, '.connection-peer-device', 'sw-b')
+    await pick(wrapper, '.connection-peer-port', 'Gi0/1')
+    await pick(wrapper, '.connection-type', 'Витая пара')
+    await wrapper.find('.connection-description input').setValue('патч-корд №5')
+    expect(wrapper.find('.connection-diffs').text()).toContain('«Управление»: нет / у соседа да') // видно ещё до сохранения
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
+    expect(put?.body).toMatchObject({ interfaces: [{ name: 'eth0', connection: { peer_interface_id: 'b-1', connection_type_id: 'ct-1', description: 'патч-корд №5' } }] })
+    expect(calls.some((c) => c.method === 'GET' && c.url.includes('/resources/connections'))).toBe(true) // стор подключений обновлён
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    const toasts = useToast().toasts
+    expect(toasts.map((t) => t.type)).toEqual(['warning'])
+    expect(toasts[0].message).toContain('eth0')
+    expect(toasts[0].message).toContain('sw-b')
+  })
+
+  it('«Подключить» без выбора порта соседа и типа линии не отправляет запросов и показывает ошибку', async () => {
+    const wrapper = await mountNewDeviceWithPort()
+    const calls = recordingFetch(() => undefined)
+
+    await wrapper.find('.connection-connect-btn').trigger('click')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Для порта «eth0» выберите устройство и порт')
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
+  describe('редактирование устройства с уже подключённым портом', () => {
+    const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+    const existing = { id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'b-1', connection_type_id: 'ct-1', is_active: true, description: null, source_device_name: 'srv-1', source_interface_name: 'eth0', destination_device_name: 'sw-b', destination_interface_name: 'Gi0/1' }
+    const port = { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }
+
+    function mountEdit() {
+      seedStores([existing])
+      useCatalogsStore().items['interfaces'] = [port, { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] as never
+      const calls = recordingFetch((url, method) => {
+        if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return new Response(JSON.stringify({ items: [port], groups: [] }))
+        if (method === 'PUT' && url.includes('/resources/devices/dev-1')) return new Response(JSON.stringify(device))
+        if (method === 'GET' && url.includes('/resources/interfaces')) return new Response(JSON.stringify({ items: [port], total: 1, offset: 0, limit: 1000 }))
+        return undefined
+      })
+      return { wrapper: mount(DeviceFormModal, { props: { device } }), calls }
+    }
+
+    it('показывает текущее подключение в строке порта; без правок подключения ключ connection не отправляется и стор не перезагружается', async () => {
+      const { wrapper, calls } = mountEdit()
+      await flushPromises()
+      expect(wrapper.find('.expand-toggle').text()).toContain('↔ sw-b · Gi0/1')
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
+      expect(put?.body?.interfaces).toHaveLength(1)
+      expect((put?.body?.interfaces as Array<Record<string, unknown>>)[0]).not.toHaveProperty('connection')
+      expect(calls.some((c) => c.url.includes('/resources/connections'))).toBe(false)
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('«Отключить» отправляет connection: null, сохранение обновляет стор подключений', async () => {
+      const { wrapper, calls } = mountEdit()
+      await flushPromises()
+      await wrapper.find('.expand-toggle').trigger('click')
+
+      await wrapper.find('.connection-disconnect-btn').trigger('click')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
+      expect((put?.body?.interfaces as Array<Record<string, unknown>>)[0]).toMatchObject({ id: 'if-1', connection: null })
+      expect(calls.some((c) => c.method === 'GET' && c.url.includes('/resources/connections'))).toBe(true)
+    })
+
+    it('изменение типа линии отправляет обновлённое подключение с тем же соседом', async () => {
+      const { wrapper, calls } = mountEdit()
+      useCatalogsStore().items['connection-types'] = [{ id: 'ct-1', name: 'Витая пара' }, { id: 'ct-2', name: 'Оптическое волокно' }] as never
+      await flushPromises()
+      await wrapper.find('.expand-toggle').trigger('click')
+
+      await pick(wrapper, '.connection-type', 'Оптическое волокно')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
+      expect((put?.body?.interfaces as Array<Record<string, unknown>>)[0].connection).toEqual({ peer_interface_id: 'b-1', connection_type_id: 'ct-2', description: null })
+    })
+  })
+
+  it('копия устройства не наследует подключения донора: порты копии сохраняются без connection', async () => {
+    const donor = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+    const port = { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }
+    seedStores([{ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'b-1', connection_type_id: 'ct-1', is_active: true, description: null }])
+    useCatalogsStore().items['interfaces'] = [port, { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] as never
+    const calls = recordingFetch((url, method) => {
+      if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
+      if (method === 'PUT' && url.includes('/devices/dev-copy/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
+      if (method === 'GET' && url.includes('/resources/interfaces')) return new Response(JSON.stringify({ items: [port], total: 1, offset: 0, limit: 1000 }))
+      return undefined
+    })
+
+    const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: donor } })
+    await flushPromises()
+    expect(wrapper.find('.expand-toggle').text()).not.toContain('↔')
+    await wrapper.find('input[type="text"]').setValue('SN-COPY')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-copy/interfaces'))
+    expect((put?.body?.interfaces as Array<Record<string, unknown>>)[0]).not.toHaveProperty('connection')
   })
 })

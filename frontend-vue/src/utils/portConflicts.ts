@@ -16,6 +16,10 @@ export interface PortConfig {
   vlan_mode: 'access' | 'trunk'
 }
 
+/** То, что нужно от строки порта для сверки с соседом: подходит и черновая строка формы, и уже
+ * сохранённый порт из ответа сервера (после сохранения у нового порта появляется id). */
+export type PortRowLike = Pick<InterfaceDraftRow, 'id' | 'name' | 'is_management' | 'is_data_transfer' | 'vlan_mode'>
+
 /**
  * Расхождения конфигурации портов формы с портами на другом конце АКТИВНЫХ подключений (ключ —
  * id порта, в результате только порты с расхождением). Общая логика DeviceFormModal.vue (подсветка
@@ -27,7 +31,7 @@ export interface PortConfig {
  * Если у порта несколько активных подключений, берётся первое в порядке списка — как и раньше.
  */
 export function computePortConflicts(
-  rows: InterfaceDraftRow[],
+  rows: PortRowLike[],
   connections: Connection[],
   allInterfaces: DeviceInterface[],
 ): Record<string, PortConflictInfo> {
@@ -85,7 +89,7 @@ function sameConfig(a: PortConfig, b: PortConfig): boolean {
 
 const yesNo = (v: boolean) => (v ? 'да' : 'нет')
 
-function describeDifferences(row: InterfaceDraftRow, conflict: PortConflictInfo): string {
+function describeDifferences(row: PortRowLike, conflict: PortConflictInfo): string {
   const parts: string[] = []
   if (conflict.flagsDiffer) {
     if (row.is_management !== conflict.other.is_management) {
@@ -106,15 +110,18 @@ function describeDifferences(row: InterfaceDraftRow, conflict: PortConflictInfo)
  * @param rows        строки портов из формы (то, что только что сохранено)
  * @param conflicts   interfaceConflicts из DeviceFormModal.vue — ключ id порта, только порты с расхождением
  * @param initial     снимок snapshotPortConfigs() на момент загрузки формы
+ * @param alwaysInclude  id портов, чьё подключение создано или заменено в этой же форме: расхождение с НОВЫМ
+ *                    соседом — новость, даже если конфигурация самого порта не менялась
  *
  * @example
  * buildPortConflictNotice(rows, conflicts, initial)
  * // 'Порты сохранены, но конфигурация расходится с соседними:\nпорт Gi0/1 ↔ Gi0/24 (SW-2) — режим порта: trunk / у соседа access'
  */
 export function buildPortConflictNotice(
-  rows: InterfaceDraftRow[],
+  rows: PortRowLike[],
   conflicts: Record<string, PortConflictInfo>,
   initial: Map<string, PortConfig>,
+  alwaysInclude: ReadonlySet<string> = new Set(),
 ): string | null {
   const lines: string[] = []
   for (const row of rows) {
@@ -122,7 +129,7 @@ export function buildPortConflictNotice(
     const conflict = conflicts[row.id]
     if (!conflict) continue
     const before = initial.get(row.id)
-    if (before && sameConfig(before, portConfigOf(row))) continue
+    if (before && sameConfig(before, portConfigOf(row)) && !alwaysInclude.has(row.id)) continue
     lines.push(`порт ${row.name} ↔ ${conflict.otherInterfaceName} (${conflict.otherDeviceName}) — ${describeDifferences(row, conflict)}`)
   }
   if (!lines.length) return null
