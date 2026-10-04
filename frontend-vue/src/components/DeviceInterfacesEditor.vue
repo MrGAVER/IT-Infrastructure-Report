@@ -30,8 +30,7 @@
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
 import { computed, ref } from 'vue'
-import { ApiError, updateResource } from '../api/client'
-import { applyVlanModeCascade, previewVlanModeCascade, type EditedDeviceState, type VlanModeCascadePlan } from '../api/vlanModeCascade'
+import { updateResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
@@ -39,7 +38,8 @@ import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import { findGroup, managedFields } from '../utils/interfaceGroups'
-import { applyCascadeToDraft, buildEditedState, isTrivialPlan, modeLabel } from '../utils/vlanModeCascade'
+import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
+import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers } from '../utils/openPorts'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
@@ -189,36 +189,73 @@ function closeConflict() {
 }
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(closeConflict)
 
-// "Применить конфигурацию соседа [ко мне]" — меняет только ЭТУ строку черновика, сохраняется
-// вместе с остальной формой при её отправке (тот же принцип отложенного сохранения, что и у
-// всех прочих полей этого редактора) — отдельного запроса к API не требует.
-function applyNeighborConfig() {
+// Каскадная смена режима порта (composables/useVlanModeCascade.ts, backend services/vlan_mode_cascade.py):
+// режим могут задавать группы, и у связанных портов он тоже должен совпасть, иначе расхождения просто
+// переедут дальше. Сервер считает область изменения по СОСТОЯНИЮ ЭТОЙ ФОРМЫ (режим, группа, VLAN портов
+// в черновике), порты и группы формы не пишет, а отдаёт как deferred — applyDeferred вносит их в черновик,
+// и они сохраняются вместе с формой. Остальные устройства записываются сразу.
+const {
+  pending: cascadePending,
+  applying: cascadeApplying,
+  preview: cascadePreview,
+  review: cascadeReview,
+  start: cascadeStart,
+  confirm: cascadeConfirm,
+  cancel: cascadeCancel,
+} = useVlanModeCascade({
+  edited: () => buildEditedState(props.deviceId, props.modelValue, props.groups),
+  applyDeferred(plan) {
+    const draft = applyCascadeToDraft(props.modelValue, props.groups, plan)
+    if (draft.changedPorts > 0) {
+      emit('update:modelValue', draft.rows)
+      emit('update:groups', draft.groups)
+    }
+    return draft.changedPorts
+  },
+  onFinished: closeConflict,
+})
+
+// "Применить конфигурацию соседа [ко мне]":
+//  * Назначение порта (flags) — меняет только ЭТУ строку черновика, сохраняется вместе с остальной формой.
+//  * Режим порта (vlan_mode) — каскад от СВОЕГО порта с режимом соседа: если режим этого порта задан его
+//    группой, меняется вся группа (и связанные с ней порты, чтобы не осталось расхождений). Когда
+//    затрагивается только эта строка — правится черновик, как раньше; иначе открывается окно последствий.
+async function applyNeighborConfig() {
   if (!activeConflict.value) return
   const { index, kind } = activeConflict.value
   const row = props.modelValue[index]
   const conflict = rowConflict(row)
   if (!conflict) return
-  if (kind === 'flags') updateRow(index, { is_management: conflict.other.is_management, is_data_transfer: conflict.other.is_data_transfer })
-  else if (rowManaged(row).vlan) {
-    notify(groupLockNote(row, `Режим порта «${row.name}»`), 'error')
+  if (kind === 'flags') {
+    updateRow(index, { is_management: conflict.other.is_management, is_data_transfer: conflict.other.is_data_transfer })
+    closeConflict()
     return
-  } else setVlanMode(index, conflict.other.vlan_mode)
-  closeConflict()
+  }
+  if (!row.id) return // расхождение бывает только у сохранённого порта
+  applyingConflict.value = true
+  try {
+    const current = await cascadePreview(row.id, conflict.other.vlan_mode, `«${row.name}» (это устройство)`)
+    if (!current) return
+    if (isFormOnlyPlan(current.plan)) {
+      setVlanMode(index, conflict.other.vlan_mode)
+      closeConflict()
+    } else {
+      cascadeReview(current)
+    }
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    applyingConflict.value = false
+  }
 }
 
 // "Применить текущую конфигурацию [соседу]" — сам сосед принадлежит ДРУГОМУ устройству, не
 // входящему в modelValue этой формы, поэтому это не черновик, а немедленный запрос.
 //  * Назначение порта (flags): точечный PUT generic-ресурса 'interfaces'; группы флажки не задают.
-//  * Режим порта (vlan_mode): каскад (services/vlan_mode_cascade.py). Режим могут задавать группы,
-//    и у связанных портов он тоже должен совпасть, иначе расхождения просто переедут дальше. Сервер
-//    считает область изменения; тривиальный случай (один порт, без групп и снимаемых VLAN) применяется
-//    сразу, остальное — через окно подтверждения со всеми последствиями.
+//  * Режим порта (vlan_mode): каскад от порта соседа с режимом этой строки. Тривиальный случай (один
+//    порт, без групп и снимаемых VLAN) применяется сразу, остальное — через окно подтверждения.
 // После успешного ответа правим локальный кэш catalogs.items['interfaces'] на месте — иначе значок
 // расхождения пропал бы только после полной перезагрузки каталогов, а не сразу.
-// edited — снимок состояния формы на момент предпросмотра: тот же уходит и при применении, иначе hash плана не сойдётся.
-const cascade = ref<{ plan: VlanModeCascadePlan; interfaceId: string; neighborLabel: string; edited: EditedDeviceState | null } | null>(null)
-const cascadeApplying = ref(false)
-
 async function applyCurrentConfigToNeighbor() {
   if (!activeConflict.value) return
   const { index, kind } = activeConflict.value
@@ -228,7 +265,7 @@ async function applyCurrentConfigToNeighbor() {
   applyingConflict.value = true
   try {
     if (kind === 'vlan_mode') {
-      await startVlanModeCascade(row, conflict)
+      await cascadeStart(conflict.otherInterfaceId, row.vlan_mode, `«${conflict.otherInterfaceName}» (${conflict.otherDeviceName})`)
       return
     }
     const payload = { is_management: row.is_management, is_data_transfer: row.is_data_transfer }
@@ -241,71 +278,6 @@ async function applyCurrentConfigToNeighbor() {
     notifyError(err)
   } finally {
     applyingConflict.value = false
-  }
-}
-
-async function startVlanModeCascade(row: InterfaceDraftRow, conflict: PortConflictInfo) {
-  const edited = buildEditedState(props.deviceId, props.modelValue, props.groups)
-  const plan = await previewVlanModeCascade(conflict.otherInterfaceId, row.vlan_mode, edited)
-  if (plan.empty) {
-    notify('Режим порта у соседа уже совпадает', 'info')
-    closeConflict()
-    return
-  }
-  const neighborLabel = `«${conflict.otherInterfaceName}» (${conflict.otherDeviceName})`
-  if (isTrivialPlan(plan)) {
-    await commitVlanModeCascade(plan, conflict.otherInterfaceId, edited)
-    return
-  }
-  cascade.value = { plan, interfaceId: conflict.otherInterfaceId, neighborLabel, edited }
-}
-
-// Применяет подтверждённый план: сервер записывает всё, кроме устройства этой формы, а его порты и
-// группы вносятся в черновик — они сохранятся вместе с формой.
-async function commitVlanModeCascade(plan: VlanModeCascadePlan, interfaceId: string, edited: EditedDeviceState | null) {
-  const result = await applyVlanModeCascade(interfaceId, plan, edited)
-  for (const item of result.interfaces) catalogs.replaceInterface(item as unknown as CatalogItem)
-  const draft = applyCascadeToDraft(props.modelValue, props.groups, plan)
-  if (draft.changedPorts > 0) {
-    emit('update:modelValue', draft.rows)
-    emit('update:groups', draft.groups)
-  }
-  const target = modeLabel(plan.target_mode)
-  const parts = [`Режим ${target} установлен у портов на других устройствах: ${result.applied.ports}`]
-  if (draft.changedPorts > 0) parts.push(`в этой форме изменено портов: ${draft.changedPorts} — сохраните форму`)
-  notify(parts.join('; '), 'success')
-  cascade.value = null
-  closeConflict()
-}
-
-async function confirmVlanModeCascade() {
-  const current = cascade.value
-  if (!current) return
-  cascadeApplying.value = true
-  try {
-    await commitVlanModeCascade(current.plan, current.interfaceId, current.edited)
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 409) {
-      // Данные изменились после предпросмотра: показываем новый план и просим подтвердить его заново.
-      try {
-        const edited = buildEditedState(props.deviceId, props.modelValue, props.groups)
-        const fresh = await previewVlanModeCascade(current.interfaceId, current.plan.target_mode, edited)
-        if (fresh.empty) {
-          notify('Расхождение уже устранено — изменять нечего', 'info')
-          cascade.value = null
-          closeConflict()
-        } else {
-          cascade.value = { ...current, plan: fresh, edited }
-          notify('Данные изменились после предпросмотра — план обновлён, проверьте его ещё раз', 'warning')
-        }
-      } catch (refreshError) {
-        notifyError(refreshError)
-      }
-    } else {
-      notifyError(err)
-    }
-  } finally {
-    cascadeApplying.value = false
   }
 }
 
@@ -1115,19 +1087,19 @@ function applyBulkEdit() {
         <button type="button" class="btn btn-primary" :disabled="applyingConflict" @click="applyCurrentConfigToNeighbor">Применить текущую конфигурацию</button>
       </div>
       <p v-if="activeConflict.kind === 'vlan_mode'" class="conflict-modal-hint">
-        Если порт соседа входит в группу или связан с другими портами, режим сменится у всей группы и у связанных портов, чтобы расхождения не появились
+        Если порт (свой или соседа) входит в группу или связан с другими портами, режим сменится у всей группы и у связанных портов, чтобы расхождения не появились
         в другом месте. Перед применением будет показан список всех последствий.
       </p>
     </div>
   </div>
 
   <VlanModeCascadeModal
-    v-if="cascade"
-    :plan="cascade.plan"
+    v-if="cascadePending"
+    :plan="cascadePending.plan"
     :applying="cascadeApplying"
-    :neighbor-label="cascade.neighborLabel"
-    @confirm="confirmVlanModeCascade"
-    @cancel="cascade = null"
+    :port-label="cascadePending.portLabel"
+    @confirm="cascadeConfirm"
+    @cancel="cascadeCancel"
   />
 </template>
 

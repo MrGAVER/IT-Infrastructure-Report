@@ -27,10 +27,13 @@ import type { SearchableSelectOption } from './SearchableSelect.vue'
 // readonly — значения задаются не здесь, а извне (например, группой портов, см.
 // utils/interfaceGroups.ts): все поля выключены, добавление/удаление скрыто.
 // sortedUnique — правило «номера портов не повторяются и список упорядочен по номеру порта»:
-// редактор переупорядочивает строки при выборе записи справочника и подсвечивает повторы (сам
-// сохранение не блокирует — это делает форма-владелец через utils/openPorts.ts:duplicatePortNumbers).
-// Выключено по умолчанию: включено только там, где правило согласовано (форма ВМ); редакторы
-// портов интерфейсов устройства и групп портов работают как раньше.
+// редактор подсвечивает повторы (само сохранение не блокирует — это делает форма-владелец через
+// utils/openPorts.ts:duplicatePortNumbers) и упорядочивает строки по номеру порта, но НЕ в момент
+// правки строки, а только когда пользователь добавляет следующий порт (кнопка «+ Открытый порт»,
+// см. addRow) или заново открывает форму (загрузчики данных отдают уже отсортированный список).
+// Иначе только что добавленная строка «уезжала» бы из-под курсора сразу после выбора записи
+// справочника, и пользователю было бы неудобно заполнять её транспорт и описание.
+// Выключено по умолчанию: порядок строк остаётся как ввёл пользователь.
 const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[]; readonly?: boolean; sortedUnique?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: OpenPortDraftRow[]] }>()
 
@@ -49,16 +52,13 @@ function catalogLabel(entry: ProtocolPortCatalogEntry): string {
 // тем же принципом, что и у остальных select'ов, читающих catalogs.items[key] как есть.
 const catalogOptions = (): SearchableSelectOption[] => props.catalogEntries.map((e) => ({ value: e.id, label: catalogLabel(e) }))
 
-// Пустая строка всегда добавляется в конец — sortOpenPortRows и так ставит невыбранные строки
-// последними, поэтому пересортировка при добавлении не нужна.
+// Единственный момент, когда список упорядочивается по номеру порта: пользователь добавляет
+// очередной порт. Уже заполненные строки встают по возрастанию, а новая пустая строка — в конец
+// и остаётся там, пока пользователь её заполняет (выбор записи справочника, транспорт, описание
+// порядок не меняют). sortOpenPortRows ставит строки без выбранной записи после выбранных.
 function addRow() {
-  emit('update:modelValue', [...props.modelValue, emptyRow()])
-}
-
-// Строки меняются местами только в момент смены записи справочника (смена номера порта) — не при
-// правке описания/транспорта, иначе строка «уезжала» бы из-под курсора во время ввода.
-function emitRows(rows: OpenPortDraftRow[], extraCatalog: ProtocolPortCatalogEntry[] = []) {
-  emit('update:modelValue', props.sortedUnique ? sortOpenPortRows(rows, [...props.catalogEntries, ...extraCatalog]) : rows)
+  const rows = props.sortedUnique ? sortOpenPortRows(props.modelValue, props.catalogEntries) : props.modelValue
+  emit('update:modelValue', [...rows, emptyRow()])
 }
 
 const duplicateIndexes = computed(() => (props.sortedUnique ? duplicateRowIndexes(props.modelValue, props.catalogEntries) : new Set<number>()))
@@ -82,18 +82,15 @@ function updateField(index: number, patch: Partial<OpenPortDraftRow>) {
 // Выбор (или снятие — catalogId === '', крестик очистки SearchableSelect) записи справочника.
 // Явный сброс port/protocol здесь больше не нужен: их не осталось в OpenPortDraftRow вовсе —
 // достаточно записать сам protocol_catalog_id, сервер выведет из него порт/протокол при сохранении.
+// Порядок строк не меняется (см. addRow).
 function onCatalogChange(index: number, catalogId: string) {
-  emitRows(props.modelValue.map((row, i) => (i === index ? { ...row, protocol_catalog_id: catalogId } : row)))
+  updateField(index, { protocol_catalog_id: catalogId })
 }
 
-// Только что созданной записи может ещё не быть в props.catalogEntries (родитель обновит проп на
-// следующем тике) — передаём её в сортировку явно, иначе строка с новым портом ушла бы в конец.
+// Запись, только что созданная через быстрое добавление, подставляется в ту же строку, из которой
+// вызвано добавление; порядок строк, как и при обычном выборе, не меняется.
 function onQuickAdded(index: number, record: CatalogItem) {
-  const entry = record as unknown as ProtocolPortCatalogEntry
-  emitRows(
-    props.modelValue.map((row, i) => (i === index ? { ...row, protocol_catalog_id: entry.id } : row)),
-    [entry],
-  )
+  updateField(index, { protocol_catalog_id: record.id })
 }
 </script>
 

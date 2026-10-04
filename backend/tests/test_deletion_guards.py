@@ -59,7 +59,9 @@ ALLOWED_DELETIONS = {
     # дочерние строки и сама подчищает их полиморфных потомков
     ("app/services/crud.py", "_sync_single_interface", "InterfaceVLAN"),
     ("app/services/crud.py", "_sync_single_interface", "old_ip"),
-    ("app/services/crud.py", "_sync_interface_open_ports", "old_port"),
+    # Открытые порты, IP-адреса и ПО — листовые записи (на них никто не ссылается), удаляются diff'ом по
+    # id общей _sync_owned_rows: у порта устройства (sync_owner_open_ports) и у ВМ (sync_vm_*)
+    ("app/services/crud.py", "_sync_owned_rows", "stale_row"),
     ("app/services/crud.py", "sync_interfaces", "IPAddress"),
     ("app/services/crud.py", "sync_interfaces", "OpenPort"),
     ("app/services/crud.py", "sync_interfaces", "obj"),

@@ -4,8 +4,10 @@
 // хранится на самих портах; здесь пользователь видит обе стороны рядом, различающиеся значения
 // подсвечены, и решает: одобрить расхождение как допустимое (например, порт управления сервера
 // включён в порт коммутатора, настроенный на передачу данных), либо привести порты к одному виду.
-// Роль выравнивается здесь же одним запросом; режим и VLAN правятся в окне портов устройства
-// (событие manage-ports). Статус после любого действия пересчитывает сервер — клиент только
+// Роль выравнивается здесь же одним запросом. Режим порта — каскадом (composables/useVlanModeCascade.ts):
+// режим могут задавать группы портов, и он должен совпасть у связанных портов, поэтому сервер считает всю
+// область изменения, а окно показывает последствия до применения. VLAN правятся в окне портов
+// устройства (событие manage-ports). Статус после любого действия пересчитывает сервер — клиент только
 // подставляет его в список.
 import { computed, onMounted, ref, watch } from 'vue'
 import { setPortRole } from '../api/portConfig'
@@ -16,8 +18,11 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
+import { useVlanModeCascade } from '../composables/useVlanModeCascade'
+import type { VlanMode } from '../api/vlanModeCascade'
 import { facetsLabel, formatVlans, modeLabel, roleLabel } from '../utils/portConfig'
 import { changeLines, optionLine, targetPort } from '../utils/portSyncRules'
+import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
 
 const props = defineProps<{ connection: Connection }>()
 const emit = defineEmits<{
@@ -42,7 +47,7 @@ const isApproved = computed(() => current.value.port_config_status === 'approved
 const isMismatch = computed(() => current.value.port_config_status === 'mismatch')
 const diff = computed(() => current.value.port_config_diff ?? [])
 const differs = (facet: PortConfigFacet) => diff.value.includes(facet)
-const needsPortSetup = computed(() => differs('mode') || differs('vlans'))
+const needsVlanSetup = computed(() => differs('vlans'))
 
 // Рекомендация по правилам согласования (страница «Правила согласования портов»): что сделает
 // подходящее правило для этого подключения. Запрашивается у сервера при открытии окна и после
@@ -123,6 +128,35 @@ function align(keepSource: boolean) {
     notify('Роль порта обновлена — роли портов подключения совпадают', 'success')
     emit('close')
   }, 'Не удалось изменить роль порта')
+}
+
+// Дашборд — не форма устройства: edited = null, изменения всех портов записываются сразу. После
+// применения таблица и общий кэш перечитываются (статус сверки пересчитывает сервер), окно закрывается.
+const {
+  pending: cascadePending,
+  applying: cascadeApplying,
+  start: cascadeStart,
+  confirm: cascadeConfirm,
+  cancel: cascadeCancel,
+} = useVlanModeCascade({
+  edited: () => null,
+  async onFinished() {
+    await dashboard.refreshAfterChange()
+    emit('close')
+  },
+})
+
+/** keepSource=true — порт назначения получает режим порта-источника, и наоборот. Сервер сам расширит
+ * область: группы портов, которые задают режим, и порты, связанные с изменяемыми. */
+function alignMode(keepSource: boolean) {
+  const c = current.value
+  const mode: VlanMode | null = keepSource ? c.source_vlan_mode : c.destination_vlan_mode
+  if (!mode) return Promise.resolve()
+  const targetId = keepSource ? c.destination_interface_id : c.source_interface_id
+  const label = keepSource ? `«${c.destination_interface_name}» (${c.destination_device_name})` : `«${c.source_interface_name}» (${c.source_device_name})`
+  return run(async () => {
+    await cascadeStart(targetId, mode, label)
+  }, 'Не удалось изменить режим порта')
 }
 </script>
 
@@ -205,16 +239,29 @@ function align(keepSource: boolean) {
               Порту «{{ current.source_interface_name }}» задать роль как у «{{ current.destination_interface_name }}»
             </button>
           </template>
-          <template v-if="needsPortSetup">
+          <template v-if="differs('mode')">
+            <button type="button" class="btn btn-secondary" data-action="mode-to-destination" :disabled="busy" @click="alignMode(true)">
+              Порту «{{ current.destination_interface_name }}» задать режим как у «{{ current.source_interface_name }}» ({{ modeLabel(current.source_vlan_mode) }})
+            </button>
+            <button type="button" class="btn btn-secondary" data-action="mode-to-source" :disabled="busy" @click="alignMode(false)">
+              Порту «{{ current.source_interface_name }}» задать режим как у «{{ current.destination_interface_name }}» ({{ modeLabel(current.destination_vlan_mode) }})
+            </button>
+          </template>
+          <template v-if="needsVlanSetup">
             <button type="button" class="btn btn-secondary" data-action="manage-source" :disabled="busy" @click="managePorts('source')">
-              Настроить режим и VLAN: «{{ current.source_interface_name }}» ({{ current.source_device_name }})
+              Настроить VLAN: «{{ current.source_interface_name }}» ({{ current.source_device_name }})
             </button>
             <button type="button" class="btn btn-secondary" data-action="manage-destination" :disabled="busy" @click="managePorts('destination')">
-              Настроить режим и VLAN: «{{ current.destination_interface_name }}» ({{ current.destination_device_name }})
+              Настроить VLAN: «{{ current.destination_interface_name }}» ({{ current.destination_device_name }})
             </button>
           </template>
         </template>
       </div>
+
+      <p v-if="differs('mode')" class="hint">
+        Режим порта может задаваться группой портов, и он должен совпасть у связанных портов — при необходимости режим сменится у всей группы и у связанных
+        с ней портов. Перед применением покажем список всех последствий.
+      </p>
 
       <div class="modal-foot">
         <button type="button" class="btn btn-secondary" @click="$emit('close')">Закрыть</button>
@@ -228,6 +275,15 @@ function align(keepSource: boolean) {
       @applied="onPlanApplied"
     />
   </div>
+
+  <VlanModeCascadeModal
+    v-if="cascadePending"
+    :plan="cascadePending.plan"
+    :applying="cascadeApplying"
+    :port-label="cascadePending.portLabel"
+    @confirm="cascadeConfirm"
+    @cancel="cascadeCancel"
+  />
 </template>
 
 <style scoped>
@@ -370,6 +426,11 @@ function align(keepSource: boolean) {
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
+}
+.hint {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
 }
 .modal-foot {
   display: flex;

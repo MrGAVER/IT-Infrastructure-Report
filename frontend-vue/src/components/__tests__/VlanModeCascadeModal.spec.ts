@@ -27,7 +27,7 @@ function bigPlan(patch: Partial<VlanModeCascadePlan> = {}): VlanModeCascadePlan 
 }
 
 function mountModal(plan: VlanModeCascadePlan, applying = false) {
-  return mount(VlanModeCascadeModal, { props: { plan, applying, neighborLabel: '«Gi0/2» (sw-02)' } })
+  return mount(VlanModeCascadeModal, { props: { plan, applying, portLabel: '«Gi0/2» (sw-02)' } })
 }
 
 describe('VlanModeCascadeModal.vue', () => {

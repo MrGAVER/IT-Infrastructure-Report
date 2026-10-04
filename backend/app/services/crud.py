@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, literal, or_, select, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import AuditLog, Connection, Container, DeployedSoftware, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN
+from ..models import AuditLog, Connection, Container, DeployedSoftware, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN, SoftwareAsset
 from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
@@ -279,33 +279,40 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         items = [serialize(row) for row in rows]
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
-def _auto_assign_new_domain_vlan_to_source_device(vlan: 'VLAN', session: Session) -> None:
-    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в «справочник VLAN»
-    (VLANFormModal.vue) сразу с привязкой к домену, должен появиться в блоке «VLAN устройства»
-    без отдельного ручного шага. До этой правки требовалось отдельно зайти в форму
-    устройства-источника и добавить VLAN там вручную — sync_vlan_domain (см. api/system.py) не
-    помогает, т.к. он реплицирует набор VLAN устройства-источника НА остальных участников,
-    отталкиваясь от уже существующих у источника PhysicalDeviceVLAN, а только что созданный VLAN
-    там ещё не значится.
+def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:
+    """Правка "VLAN домена": VLAN, заведённый в «справочник VLAN» (VLANFormModal.vue) сразу с
+    привязкой к домену — или привязанный к домену позже обновлением domain_id — должен появиться в
+    блоке «VLAN устройства» ВСЕХ физических устройств этого домена (участников VLANDomainDevice и
+    устройства-источника) без ручного шага «Синхронизировать».
 
-    Единственный однозначный получатель — устройство-источник домена (если оно задано):
-    остальные участники получат этот VLAN штатной синхронизацией, когда источник его уже будет
-    иметь. Если у домена источник не задан, или VLAN не привязан ни к какому домену — делать
-    нечего, тихо выходим (это не ошибка, а обычный локальный/пока-не-синхронизируемый VLAN)."""
+    Раньше (п.2 правки "создание физического устройства") VLAN назначался только устройству-
+    источнику, а остальные участники получали его лишь при ручной синхронизации (sync_vlan_domain
+    реплицирует набор VLAN источника на участников), из-за чего новый VLAN не появлялся на
+    устройствах домена. Источник учитывается отдельно от участников: он может не числиться в
+    VLANDomainDevice.
+
+    Уже назначенное не дублируется (uq_physical_device_vlan), поэтому вызов безопасно повторять.
+    Если VLAN не привязан к домену или у домена нет ни участников, ни источника — тихо выходим:
+    это не ошибка, а обычный локальный или пока пустой домен. Два запроса на весь домен, а не по
+    запросу на устройство."""
     if not vlan.domain_id:
         return
     domain = session.get(VLANDomain, vlan.domain_id)
-    if not domain or not domain.source_device_id:
+    if not domain:
         return
-    exists = session.scalar(
-        select(PhysicalDeviceVLAN).where(
-            PhysicalDeviceVLAN.physical_device_id == domain.source_device_id,
+    device_ids = set(session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain.id)).all())
+    if domain.source_device_id:
+        device_ids.add(domain.source_device_id)
+    if not device_ids:
+        return
+    already_assigned = set(session.scalars(
+        select(PhysicalDeviceVLAN.physical_device_id).where(
             PhysicalDeviceVLAN.vlan_id == vlan.id,
+            PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
         )
-    )
-    if exists:
-        return
-    session.add(PhysicalDeviceVLAN(physical_device_id=domain.source_device_id, vlan_id=vlan.id, description=vlan.description))
+    ).all())
+    for device_id in sorted(device_ids - already_assigned):
+        session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan.id, description=vlan.description))
 
 
 def assign_domain_vlans_to_device(domain_id: str | None, physical_device_id: str | None, session: Session) -> None:
@@ -353,7 +360,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     try:
         session.flush()
         if model is VLAN:
-            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+            _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
         if model is VLANDomainDevice:
             assign_domain_vlans_to_device(obj.domain_id, obj.physical_device_id, session)
         audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
@@ -390,9 +397,9 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         # Пункт 2 правки "создание физического устройства": только когда domain_id реально
         # менялся в этом запросе — иначе безобидное редактирование ДРУГОГО поля VLAN (например,
         # описания) на каждый сохранение заново бы проверяло/дублировало привязку к
-        # устройству-источнику домена, в котором этот VLAN и так уже давно значится.
+        # устройствам домена, в котором этот VLAN и так уже давно значится.
         if model is VLAN and 'domain_id' in payload:
-            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+            _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
         audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
@@ -483,6 +490,8 @@ def delete_resource(resource: str, item_id: str, session: Session):
 _VLAN_MODES = frozenset({"access", "trunk"})
 # Длина колонки ip_addresses.purpose (models.IPAddress): назначение общего IP группы копируется в неё.
 _IP_PURPOSE_MAX_LENGTH = 255
+# Длина колонки deployed_software.version (models.DeployedSoftware).
+_SOFTWARE_VERSION_MAX_LENGTH = 100
 
 
 def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> ProtocolPortCatalog:
@@ -582,35 +591,200 @@ def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: P
     _sync_interface_open_ports(obj, item.get('open_ports') or [], session)
 
 
+def _sync_owned_rows(model: type, owner_type: str, owner_id: str, items: Any, session: Session, *, normalize: Callable[[dict[str, Any]], dict[str, Any] | None], array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+    """Общая diff-синхронизация вложенных записей с полиморфным владельцем (OpenPort, IPAddress,
+    DeployedSoftware: owner_type/owner_id) по присланному списку: элемент с id обновляет существующую
+    запись владельца, без id создаёт новую, записи владельца, которых в списке нет, удаляются.
+
+    normalize(item) приводит элемент к значениям колонок (и валидирует их — бросает HTTPException 422)
+    либо возвращает None для пустой строки-плейсхолдера формы, которая тихо пропускается.
+
+    Записи не пересоздаются: id и created_at сохраняются, а изменённой считается только запись, у
+    которой реально поменялось значение колонки. Транзакцию функция не коммитит — это делает
+    вызывающий. Список — полное желаемое состояние, поэтому повтор запроса идемпотентен: записи,
+    созданные неудавшейся попыткой и не известные форме по id, при повторе удалятся как лишние.
+    Возвращает (создано, изменено, удалено)."""
+    if not isinstance(items, list): raise HTTPException(422, array_error)
+    old_rows = session.scalars(select(model).where(model.owner_type == owner_type, model.owner_id == owner_id)).all()
+    old_map = {x.id: x for x in old_rows}; seen: set[str] = set()
+    created = updated = 0
+    for item in items:
+        if not isinstance(item, dict): continue
+        new_values = normalize(item)
+        if new_values is None: continue
+        row_id = item.get('id')
+        if row_id:
+            row = old_map.get(row_id)
+            if not row: raise HTTPException(422, foreign_id_error)
+            if row_id in seen: raise HTTPException(422, 'Одна и та же запись указана в списке несколько раз')
+            seen.add(row_id)
+            if any(getattr(row, key) != value for key, value in new_values.items()): updated += 1
+        else:
+            row = model(owner_type=owner_type, owner_id=owner_id); session.add(row); created += 1
+        for key, value in new_values.items(): setattr(row, key, value)
+    stale_rows = [row for row in old_rows if row.id not in seen]
+    for stale_row in stale_rows: session.delete(stale_row)
+    return created, updated, len(stale_rows)
+
+
+def sync_owner_open_ports(owner_type: str, owner_id: str, open_ports: Any, session: Session, *, owner_label: str, array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+    """Открытые порты владельца (ВМ или порт устройства) по присланному списку, см. _sync_owned_rows.
+    Уникальность номеров проверяется по списку целиком (validate_unique_open_port_numbers), а не по
+    записям в БД поочерёдно, поэтому обмен номерами между двумя строками за один запрос допустим.
+    Строка без выбранной записи справочника (пустой плейсхолдер формы) пропускается."""
+    if not isinstance(open_ports, list): raise HTTPException(422, array_error)
+    validate_unique_open_port_numbers((p.get('protocol_catalog_id') for p in open_ports if isinstance(p, dict)), session, owner_label)
+
+    def normalize(port_data: dict[str, Any]) -> dict[str, Any] | None:
+        # Пользователь нажал "+ Открытый порт", но ещё ничего не выбрал (см. addRow() в OpenPortListEditor.vue).
+        if not port_data.get('protocol_catalog_id'): return None
+        _validate_open_port_catalog(port_data, session)
+        return {
+            'protocol_catalog_id': port_data['protocol_catalog_id'],
+            'transport_protocol': port_data.get('transport_protocol') or 'TCP',
+            'description': port_data.get('description') or None,
+        }
+
+    return _sync_owned_rows(OpenPort, owner_type, owner_id, open_ports, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
+
+
 def _sync_interface_open_ports(obj: DeviceInterface, open_ports: Any, session: Session) -> None:
     """п.1.4 (батч4): "Открытые порты" — теперь свойство конкретного интерфейса, а не всего
     устройства (полиморфный OpenPort.owner_type=DEVICE_INTERFACE, owner_id=интерфейс), той же
-    delete-diff-create схемой, что и IP интерфейса чуть выше (см. её комментарий). Раньше один
+    diff-схемой по id, что и IP интерфейса чуть выше (см. sync_owner_open_ports). Раньше один
     список открытых портов относился ко всему устройству разом (owner_type=PHYSICAL_DEVICE) —
     это не позволяло корректно заполнить Лист 3 отчёта, где колонка "Перечень открытых портов"
     относится к КОНКРЕТНОМУ физическому/логическому порту (см. reporting.py:_port_open_info)."""
-    if not isinstance(open_ports, list): raise HTTPException(422, 'Поле open_ports интерфейса должно быть массивом')
-    validate_unique_open_port_numbers((p.get('protocol_catalog_id') for p in open_ports if isinstance(p, dict)), session, f"Порт «{obj.name or 'без имени'}»")
-    old_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id)).all()
-    old_map = {x.id: x for x in old_ports}; seen: set[str] = set()
-    for port_data in open_ports:
-        # Пустая строка без выбранной записи справочника — незаполненная строка-плейсхолдер
-        # (пользователь нажал "+ Открытый порт", но ещё не выбрал запись) — как и раньше с
-        # пустым 'port', тихо пропускаем, а не 422 (см. addRow() в OpenPortListEditor.vue).
-        if not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
-        _validate_open_port_catalog(port_data, session)
-        port_id = port_data.get('id')
-        if port_id:
-            port_obj = old_map.get(port_id)
-            if not port_obj: raise HTTPException(422, 'Открытый порт не принадлежит выбранному интерфейсу')
-            seen.add(port_id)
-        else:
-            port_obj = OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=obj.id); session.add(port_obj)
-        port_obj.protocol_catalog_id = port_data['protocol_catalog_id']
-        port_obj.transport_protocol = port_data.get('transport_protocol') or 'TCP'
-        port_obj.description = port_data.get('description') or None
-    for old_port in old_ports:
-        if old_port.id not in seen: session.delete(old_port)
+    sync_owner_open_ports(
+        OwnerType.DEVICE_INTERFACE, obj.id, open_ports, session,
+        owner_label=f"Порт «{obj.name or 'без имени'}»",
+        array_error='Поле open_ports интерфейса должно быть массивом',
+        foreign_id_error='Открытый порт не принадлежит выбранному интерфейсу',
+    )
+
+
+def sync_owner_ip_addresses(owner_type: str, owner_id: str, ip_addresses: Any, session: Session, *, array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+    """IP-адреса владельца (ВМ) по присланному списку, см. _sync_owned_rows. Те же проверки, что у
+    generic create/update ресурса ip-addresses (_validate_ip_address_entry): формат IPv4 и префикс
+    0-32 — плюс длина назначения (колонка ограничена _IP_PURPOSE_MAX_LENGTH). Строка без адреса
+    (пустой плейсхолдер формы) пропускается."""
+    def normalize(ip_data: dict[str, Any]) -> dict[str, Any] | None:
+        ip_address = str(ip_data.get('ip_address') or '').strip()
+        if not ip_address: return None
+        validate_ipv4_field(ip_address, 'IP-адрес')
+        prefix_length = ip_data.get('prefix_length')
+        validate_prefix_length_field(prefix_length, 'Префикс IP-адреса')
+        purpose = ip_data.get('purpose') or None
+        if purpose is not None and len(str(purpose)) > _IP_PURPOSE_MAX_LENGTH:
+            raise HTTPException(422, f'Назначение IP-адреса не должно превышать {_IP_PURPOSE_MAX_LENGTH} символов')
+        return {
+            'ip_address': ip_address,
+            'prefix_length': None if prefix_length in (None, '') else int(prefix_length),
+            'purpose': purpose,
+            'is_management': bool(ip_data.get('is_management')),
+        }
+
+    return _sync_owned_rows(IPAddress, owner_type, owner_id, ip_addresses, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
+
+
+def sync_owner_deployed_software(owner_type: str, owner_id: str, deployed_software: Any, session: Session, *, array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+    """Развёрнутое ПО владельца (ВМ) по присланному списку, см. _sync_owned_rows. Записи каталога
+    программных активов проверяются одним запросом на весь список: несуществующий актив — понятный
+    422, а не IntegrityError по внешнему ключу. Строка без выбранного актива (пустой плейсхолдер
+    формы) пропускается."""
+    if not isinstance(deployed_software, list): raise HTTPException(422, array_error)
+    asset_ids = {i['software_asset_id'] for i in deployed_software if isinstance(i, dict) and i.get('software_asset_id')}
+    known_ids = set(session.scalars(select(SoftwareAsset.id).where(SoftwareAsset.id.in_(asset_ids))).all()) if asset_ids else set()
+    if asset_ids - known_ids: raise HTTPException(422, 'Программный актив не найден в справочнике')
+
+    def normalize(software_data: dict[str, Any]) -> dict[str, Any] | None:
+        if not software_data.get('software_asset_id'): return None
+        version = software_data.get('version') or None
+        if version is not None and len(str(version)) > _SOFTWARE_VERSION_MAX_LENGTH:
+            raise HTTPException(422, f'Версия ПО не должна превышать {_SOFTWARE_VERSION_MAX_LENGTH} символов')
+        return {'software_asset_id': software_data['software_asset_id'], 'version': version}
+
+    return _sync_owned_rows(DeployedSoftware, owner_type, owner_id, deployed_software, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
+
+
+def _sync_vm_collection(vm_id: str, session: Session, *, label: str, sync: Callable[[VirtualMachine], tuple[int, int, int]], load: Callable[[VirtualMachine], list[dict[str, Any]]]) -> dict[str, Any]:
+    """Общий каркас атомарной синхронизации одного вложенного списка ВМ (порты, IP-адреса, ПО): ВМ
+    существует (404), список применяется одной транзакцией (любая ошибка откатывает весь запрос),
+    запись в журнал аудита пишется только если что-то реально изменилось. Ответ: {'items': [...]} —
+    сохранённые записи списка."""
+    vm = session.get(VirtualMachine, vm_id)
+    if not vm: raise HTTPException(404, 'Виртуальная машина не найдена')
+    try:
+        created, updated, removed = sync(vm)
+        if created or updated or removed:
+            audit(session, 'vms', vm.id, AuditAction.UPDATE, f'{label}: добавлено {created}, изменено {updated}, удалено {removed}')
+        session.commit()
+    except HTTPException:
+        session.rollback(); raise
+    except IntegrityError as exc:
+        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+    return {'items': load(vm)}
+
+
+def sync_vm_open_ports(vm_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """PUT /api/v1/vms/{vm_id}/open-ports — атомарная синхронизация открытых портов ВМ (форма ВМ,
+    VMFormModal.vue): порты с id обновляются, без id создаются, отсутствующие в списке удаляются (см.
+    sync_owner_open_ports) — вместо прежнего «удалить все и создать заново» при каждом сохранении.
+    Ключ open_ports обязателен: его отсутствие — 422, а не молчаливое удаление всех портов.
+
+    Ответ: {'items': [...]} — порты ВМ по возрастанию номера порта."""
+    def load(vm: VirtualMachine) -> list[dict[str, Any]]:
+        rows = session.scalars(
+            select(OpenPort)
+            .join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+            .where(OpenPort.owner_type == OwnerType.VIRTUAL_MACHINE, OpenPort.owner_id == vm.id)
+            .order_by(ProtocolPortCatalog.port, OpenPort.transport_protocol)
+        ).all()
+        return enrich_open_ports(rows, session)
+
+    return _sync_vm_collection(
+        vm_id, session, label='Открытые порты', load=load,
+        sync=lambda vm: sync_owner_open_ports(
+            OwnerType.VIRTUAL_MACHINE, vm.id, payload.get('open_ports'), session,
+            owner_label=f'ВМ «{vm.name}»',
+            array_error='Поле open_ports должно быть массивом',
+            foreign_id_error='Открытый порт не принадлежит выбранной виртуальной машине',
+        ),
+    )
+
+
+def sync_vm_ip_addresses(vm_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """PUT /api/v1/vms/{vm_id}/ip-addresses — то же для IP-адресов ВМ (ключ ip_addresses, см.
+    sync_owner_ip_addresses). Ответ: {'items': [...]} — IP-адреса ВМ по возрастанию адреса."""
+    def load(vm: VirtualMachine) -> list[dict[str, Any]]:
+        rows = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id == vm.id).order_by(IPAddress.ip_address, IPAddress.id)).all()
+        return [serialize(row) for row in rows]
+
+    return _sync_vm_collection(
+        vm_id, session, label='IP-адреса', load=load,
+        sync=lambda vm: sync_owner_ip_addresses(
+            OwnerType.VIRTUAL_MACHINE, vm.id, payload.get('ip_addresses'), session,
+            array_error='Поле ip_addresses должно быть массивом',
+            foreign_id_error='IP-адрес не принадлежит выбранной виртуальной машине',
+        ),
+    )
+
+
+def sync_vm_deployed_software(vm_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """PUT /api/v1/vms/{vm_id}/deployed-software — то же для программных активов ВМ (ключ
+    deployed_software, см. sync_owner_deployed_software). Ответ: {'items': [...]} — записи ПО ВМ."""
+    def load(vm: VirtualMachine) -> list[dict[str, Any]]:
+        rows = session.scalars(select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.VIRTUAL_MACHINE, DeployedSoftware.owner_id == vm.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)).all()
+        return [serialize(row) for row in rows]
+
+    return _sync_vm_collection(
+        vm_id, session, label='Программные активы', load=load,
+        sync=lambda vm: sync_owner_deployed_software(
+            OwnerType.VIRTUAL_MACHINE, vm.id, payload.get('deployed_software'), session,
+            array_error='Поле deployed_software должно быть массивом',
+            foreign_id_error='Запись о ПО не принадлежит выбранной виртуальной машине',
+        ),
+    )
 
 
 def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):

@@ -69,6 +69,16 @@ def _open_port_label(p, d: SimpleNamespace) -> str:
     proto = cat.protocol_type if cat else None
     return join_values([f"{p.transport_protocol}/{port}" if port else p.transport_protocol, proto, p.description])
 
+def _open_ports_by_number(ports, d: SimpleNamespace) -> list:
+    """Открытые порты владельца по возрастанию номера порта (при равенстве — по транспорту), порты
+    без записи справочника — в конце. Порядок записей в БД для этого использовать нельзя: порты ВМ
+    обновляются на месте (sync_vm_open_ports), а не пересоздаются при каждом сохранении формы, так
+    что порядок вставки перестал совпадать с порядком номеров."""
+    def sort_key(p):
+        cat = d.protocol_catalog.get(p.protocol_catalog_id)
+        return (cat is None, cat.port if cat else 0, p.transport_protocol or "")
+    return sorted(ports, key=sort_key)
+
 def interface_port_count_label(ifaces, interface_types):
     """Return a compact count grouped by interface type, e.g. 10 RJ45 + 4 SFP."""
     counts = Counter()
@@ -423,7 +433,7 @@ def _vm_row_values(v, d: SimpleNamespace) -> list:
     IP администрирования — все management-IP ВМ."""
     host=d.device_map.get(v.physical_device_id); hyp=d.operating_systems.get(host.operating_system_id) if host and host.operating_system_id else d.operating_systems.get(v.hypervisor_os_id)
     ips=d.vmips_by_vm.get(v.id,[]); containers_for_vm=[c for c in d.containers if c.virtual_machine_id==v.id]
-    openp=d.open_ports_by_owner.get(('virtual_machine',v.id),[])
+    openp=_open_ports_by_number(d.open_ports_by_owner.get(('virtual_machine',v.id),[]), d)
     admin_ips=join_values([ip_label(x) for x in ips if x.is_management])
     return [v.name,os_label(d.operating_systems.get(v.operating_system_id)),join_values([c.name for c in containers_for_vm]),device_label(host),os_label(hyp),v.purpose or "",join_values([ip_label(x) for x in ips]),join_values([_open_port_label(p, d) for p in openp]),admin_ips,join_values([s.name for s in d.software_by_vm.get(v.id,[])])]
 
