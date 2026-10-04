@@ -8,7 +8,7 @@ from ..models import (Connection, Container, DeviceInterface, DeviceStack, Devic
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
-from ..services.crud import assign_domain_vlans_to_device, audit, sync_vm_open_ports, validate_resource
+from ..services.crud import assign_domain_vlans_to_device, audit, sync_vm_deployed_software, sync_vm_ip_addresses, sync_vm_open_ports, validate_resource
 from ..services.integrity import find_duplicate_open_port_numbers, find_orphaned_owner_references
 from ..constants import AuditAction
 from ..reporting import build_report
@@ -61,6 +61,20 @@ def sync_vm_ports(vm_id: str, payload: dict, session: Session = Depends(get_db))
     transport_protocol, description}]} — полный список портов ВМ, diff по id (см.
     services/crud.py:sync_vm_open_ports)."""
     return sync_vm_open_ports(vm_id, payload, session)
+
+@router.put('/api/v1/vms/{vm_id}/ip-addresses')
+def sync_vm_ips(vm_id: str, payload: dict, session: Session = Depends(get_db)):
+    """Атомарная синхронизация IP-адресов ВМ: тело {ip_addresses: [{id?, ip_address, prefix_length,
+    purpose, is_management}]} — полный список IP-адресов ВМ, diff по id (см.
+    services/crud.py:sync_vm_ip_addresses)."""
+    return sync_vm_ip_addresses(vm_id, payload, session)
+
+@router.put('/api/v1/vms/{vm_id}/deployed-software')
+def sync_vm_software(vm_id: str, payload: dict, session: Session = Depends(get_db)):
+    """Атомарная синхронизация программных активов ВМ: тело {deployed_software: [{id?,
+    software_asset_id, version}]} — полный список ПО ВМ, diff по id (см.
+    services/crud.py:sync_vm_deployed_software)."""
+    return sync_vm_deployed_software(vm_id, payload, session)
 
 
 @router.get('/api/v1/vlan-dashboard')

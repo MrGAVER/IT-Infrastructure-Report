@@ -8,8 +8,8 @@
 // типы с 422) — фильтрация здесь не замена серверной проверке, а просто не даёт
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch } from 'vue'
-import { createResource, deleteResource, listResource, updateResource } from '../api/client'
-import { syncVmOpenPorts } from '../api/vmOpenPorts'
+import { createResource, listResource, updateResource } from '../api/client'
+import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -134,54 +134,29 @@ function toPayload() {
   return payload
 }
 
-// IP-адреса и программные активы по-прежнему удаляются и создаются заново, как
-// saveVMIPs() в vanilla-версии (frontend/static/vm-editors.js): списки маленькие (единицы-десятки
-// строк на ВМ), цена лишних запросов пренебрежимо мала. Открытые порты так больше не сохраняются —
-// см. persistOpenPorts ниже.
+// IP-адреса, открытые порты и программные активы сохраняются одинаково: один атомарный PUT на
+// список (/vms/{id}/ip-addresses | /open-ports | /deployed-software, см. api/vmNestedLists.ts).
+// Сервер сравнивает список с БД по id: строки с id обновляются на месте, новые создаются, убранные в
+// форме удаляются — id и дата создания сохранённых записей не меняются, в журнал аудита попадает
+// только реальное изменение, а ошибка в любой строке откатывает весь список. Порядок строк в запросе
+// значения не имеет: при следующем открытии формы список упорядочивает загрузчик (см. watch выше).
+//
+// Новой ВМ (создание или копия) синхронизировать нечего, если ни одна строка не заполнена, —
+// лишний запрос не отправляется. Для существующей ВМ пустой список отправляется всегда: так
+// удаляются записи, которые пользователь убрал из формы.
 async function persistVmIps(vmId: string) {
-  const existing = await listResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: vmId, limit: 1000 })
-  for (const old of existing.items) {
-    await deleteResource('ip-addresses', old.id)
-  }
-  for (const row of vmIps.value) {
-    if (!row.ip_address.trim()) continue
-    await createResource<IPAddress>('ip-addresses', {
-      owner_type: 'virtual_machine',
-      owner_id: vmId,
-      ip_address: row.ip_address.trim(),
-      prefix_length: row.prefix_length === '' ? null : Number(row.prefix_length),
-      purpose: row.purpose || null,
-      is_management: row.is_management,
-    })
-  }
+  if (!isEdit.value && !vmIps.value.some((row) => row.ip_address.trim())) return
+  await syncVmIpAddresses(vmId, vmIps.value)
 }
 
-// Открытые порты, в отличие от IP и ПО выше, не удаляются и не создаются заново: один атомарный
-// PUT /vms/{id}/open-ports, сервер сравнивает список с БД по id (см. api/vmOpenPorts.ts). Порты с
-// id обновляются на месте, новые создаются, убранные в форме удаляются — id и дата создания
-// сохранённых портов не меняются, в журнал аудита попадает только реальное изменение. Порядок строк
-// в запросе значения не имеет: сервер отдаёт и хранит порты независимо от него, при следующем
-// открытии формы список сортируется загрузчиком (см. watch выше).
 async function persistOpenPorts(vmId: string) {
-  // Новой ВМ (создание или копия) синхронизировать нечего, если ни одна строка не заполнена.
   if (!isEdit.value && !openPorts.value.some((row) => row.protocol_catalog_id)) return
   await syncVmOpenPorts(vmId, openPorts.value)
 }
 
 async function persistSoftwareAssets(vmId: string) {
-  const existing = await listResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: vmId, limit: 1000 })
-  for (const old of existing.items) {
-    await deleteResource('deployed-software', old.id)
-  }
-  for (const row of softwareAssets.value) {
-    if (!row.software_asset_id) continue
-    await createResource<DeployedSoftware>('deployed-software', {
-      owner_type: 'virtual_machine',
-      owner_id: vmId,
-      software_asset_id: row.software_asset_id,
-      version: row.version || null,
-    })
-  }
+  if (!isEdit.value && !softwareAssets.value.some((row) => row.software_asset_id)) return
+  await syncVmDeployedSoftware(vmId, softwareAssets.value)
 }
 
 async function submit() {

@@ -88,8 +88,8 @@ describe('VMFormModal.vue', () => {
         if (method === 'GET' && (url.includes('/resources/ip-addresses') || url.includes('/resources/open-ports'))) {
           return jsonResponse(EMPTY_PAGE)
         }
-        if (method === 'POST' && url.includes('/resources/ip-addresses')) {
-          return jsonResponse({ id: 'ip-new' }, 201)
+        if (method === 'PUT' && url.endsWith('/vms/vm-new/ip-addresses')) {
+          return jsonResponse({ items: [{ id: 'ip-new' }] })
         }
         if (method === 'PUT' && url.endsWith('/vms/vm-new/open-ports')) {
           return jsonResponse({ items: [{ id: 'port-new' }] })
@@ -102,14 +102,13 @@ describe('VMFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const vmIpCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/ip-addresses'))
-    expect(vmIpCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', ip_address: '192.168.1.10' })
-
-    // Порты уходят одним PUT под id новой ВМ, а не отдельными POST /resources/open-ports.
+    // IP-адреса и порты уходят одним PUT на список под id новой ВМ, а не отдельными POST /resources/*.
+    const ipSync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-new/ip-addresses'))
+    expect(ipSync?.body).toEqual({ ip_addresses: [{ ip_address: '192.168.1.10', prefix_length: null, purpose: null, is_management: false }] })
     const portSync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-new/open-ports'))
     // port/protocol больше не отправляются — сервер сам выводит их из protocol_catalog_id.
     expect(portSync?.body).toEqual({ open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: null }] })
-    expect(calls.some((c) => c.url.includes('/resources/open-ports') && c.method !== 'GET')).toBe(false)
+    expect(calls.some((c) => /\/resources\/(ip-addresses|open-ports)/.test(c.url) && c.method !== 'GET')).toBe(false)
 
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
@@ -170,12 +169,11 @@ describe('VMFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/ip-addresses'))).toBe(false)
-    // Новой ВМ без заполненных портов синхронизировать нечего — запроса к портам нет вовсе.
-    expect(calls.some((c) => c.method !== 'GET' && c.url.includes('/open-ports'))).toBe(false)
+    // Новой ВМ без заполненных строк синхронизировать нечего — запросов к спискам нет вовсе.
+    expect(calls.some((c) => c.method !== 'GET' && /ip-addresses|open-ports|deployed-software/.test(c.url))).toBe(false)
   })
 
-  it('перед повторной вставкой удаляет ранее сохранённые IP-адреса ВМ', async () => {
+  describe('IP-адреса и программные активы существующей ВМ сохраняются без удаления и пересоздания', () => {
     const vm: VirtualMachine = {
       id: 'vm-1',
       name: 'app-server-01',
@@ -186,28 +184,97 @@ describe('VMFormModal.vue', () => {
       status: 'active',
       description: null,
     }
-    const calls: Array<{ url: string; method: string }> = []
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string, init?: RequestInit) => {
-        const method = init?.method ?? 'GET'
-        calls.push({ url, method })
-        if (method === 'GET' && url.includes('/resources/ip-addresses')) {
-          return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-old', owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: '10.0.0.1', prefix_length: null, purpose: null, is_management: false }] })
-        }
-        if (method === 'PUT' && url.includes('/resources/vms/vm-1')) {
-          return jsonResponse({ ...vm })
-        }
-        return jsonResponse(EMPTY_PAGE)
-      }),
-    )
+    const apiIp = (id: string, ip: string) => ({ id, owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: ip, prefix_length: null, purpose: null, is_management: false })
+    const apiSoftware = (id: string, assetId: string, version: string | null) => ({ id, owner_type: 'virtual_machine', owner_id: 'vm-1', software_asset_id: assetId, version })
 
-    const wrapper = mount(VMFormModal, { props: { vm } })
-    await flushPromises()
-    await wrapper.find('form').trigger('submit')
-    await flushPromises()
+    type Call = { url: string; method: string; body: unknown }
+    function stubApi(ips: unknown[], software: unknown[]): Call[] {
+      const calls: Call[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (method === 'GET' && url.includes('/resources/ip-addresses')) return jsonResponse({ ...EMPTY_PAGE, items: ips })
+          if (method === 'GET' && url.includes('/resources/deployed-software')) return jsonResponse({ ...EMPTY_PAGE, items: software })
+          if (method === 'PUT' && /\/vms\/vm-1\/(ip-addresses|open-ports|deployed-software)$/.test(url)) return jsonResponse({ items: [] })
+          if (method === 'PUT' && url.includes('/resources/vms/vm-1')) return jsonResponse({ ...vm })
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+      return calls
+    }
+    const writes = (calls: Call[]) => calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.url}`)
 
-    expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/resources/ip-addresses/ip-old'))).toBe(true)
+    it('IP-адреса: один PUT с id сохранённого адреса, без DELETE и POST', async () => {
+      const calls = stubApi([apiIp('ip-old', '10.0.0.1')], [])
+      const wrapper = mount(VMFormModal, { props: { vm } })
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(writes(calls)).toContain('PUT /api/v1/vms/vm-1/ip-addresses')
+      expect(writes(calls).some((w) => /^(DELETE|POST) .*\/resources\/ip-addresses/.test(w))).toBe(false)
+      const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-1/ip-addresses'))
+      expect(sync?.body).toEqual({ ip_addresses: [{ id: 'ip-old', ip_address: '10.0.0.1', prefix_length: null, purpose: null, is_management: false }] })
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('IP-адрес, убранный в форме, в запрос не попадает — сервер его удалит', async () => {
+      const calls = stubApi([apiIp('ip-1', '10.0.0.1'), apiIp('ip-2', '10.0.0.2')], [])
+      const wrapper = mount(VMFormModal, { props: { vm } })
+      await flushPromises()
+
+      await wrapper.findAll('button[aria-label="Удалить IP-адрес"]')[0].trigger('click')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-1/ip-addresses'))
+      expect(sync?.body).toEqual({ ip_addresses: [{ id: 'ip-2', ip_address: '10.0.0.2', prefix_length: null, purpose: null, is_management: false }] })
+      expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    })
+
+    it('ВМ без IP-адресов в форме: PUT с пустым списком снимает ранее сохранённые адреса', async () => {
+      const calls = stubApi([apiIp('ip-1', '10.0.0.1')], [])
+      const wrapper = mount(VMFormModal, { props: { vm } })
+      await flushPromises()
+
+      await wrapper.find('button[aria-label="Удалить IP-адрес"]').trigger('click')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-1/ip-addresses'))
+      expect(sync?.body).toEqual({ ip_addresses: [] })
+    })
+
+    it('программные активы: один PUT с id сохранённой записи, без DELETE и POST', async () => {
+      const calls = stubApi([], [apiSoftware('sw-old', 'sa-1c', '8.3.20')])
+      const wrapper = mount(VMFormModal, { props: { vm } })
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(writes(calls).some((w) => /^(DELETE|POST) .*\/resources\/deployed-software/.test(w))).toBe(false)
+      const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-1/deployed-software'))
+      expect(sync?.body).toEqual({ deployed_software: [{ id: 'sw-old', software_asset_id: 'sa-1c', version: '8.3.20' }] })
+      expect(wrapper.emitted('saved')).toBeTruthy()
+    })
+
+    it('ПО, убранное в форме, в запрос не попадает — сервер его удалит', async () => {
+      const calls = stubApi([], [apiSoftware('sw-1', 'sa-1c', null), apiSoftware('sw-2', 'sa-nginx', '1.25')])
+      const wrapper = mount(VMFormModal, { props: { vm } })
+      await flushPromises()
+
+      await wrapper.findAll('button[aria-label="Удалить программный актив"]')[0].trigger('click')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-1/deployed-software'))
+      expect(sync?.body).toEqual({ deployed_software: [{ id: 'sw-2', software_asset_id: 'sa-nginx', version: '1.25' }] })
+      expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    })
   })
 
   it('сохраняет добавленный программный актив под id новой ВМ', async () => {
@@ -230,8 +297,8 @@ describe('VMFormModal.vue', () => {
         if (method === 'POST' && url.endsWith('/resources/vms')) {
           return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }, 201)
         }
-        if (method === 'POST' && url.includes('/resources/deployed-software')) {
-          return jsonResponse({ id: 'sw-new' }, 201)
+        if (method === 'PUT' && url.endsWith('/vms/vm-new/deployed-software')) {
+          return jsonResponse({ items: [{ id: 'sw-new' }] })
         }
         return jsonResponse(EMPTY_PAGE)
       }),
@@ -241,8 +308,9 @@ describe('VMFormModal.vue', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    const softwareCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/deployed-software'))
-    expect(softwareCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', software_asset_id: 'sa-1c', version: '8.3.20' })
+    const softwareSync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-new/deployed-software'))
+    expect(softwareSync?.body).toEqual({ deployed_software: [{ software_asset_id: 'sa-1c', version: '8.3.20' }] })
+    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/resources/deployed-software'))).toBe(false)
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
@@ -338,8 +406,10 @@ describe('VMFormModal.vue', () => {
       await wrapper.find('form').trigger('submit')
       await flushPromises()
 
-      const ipCreate = calls.find((c) => c.method === 'POST' && c.url.includes('/resources/ip-addresses'))
-      expect(ipCreate?.body).toMatchObject({ owner_type: 'virtual_machine', owner_id: 'vm-new', ip_address: '10.20.30.5' })
+      // Адрес донора уходит под новой ВМ и без id донора — иначе сервер принял бы его за чужую запись (422).
+      const ipSync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-new/ip-addresses'))
+      expect(ipSync?.body).toEqual({ ip_addresses: [{ ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }] })
+      expect(JSON.stringify(calls.map((c) => c.body))).not.toContain('ip-src')
       // Копия создаёт НОВУЮ ВМ (POST), а не обновляет донора.
       expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/resources/vms/vm-src'))).toBe(false)
     })
