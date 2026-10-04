@@ -89,6 +89,11 @@ ALLOWED_DELETIONS = {
     # VLAN устройства (PhysicalDeviceVLAN) — дочерняя запись без входящих ссылок (ни FK, ни
     # полиморфных: проверено reflection'ом по MODEL_MAP), поэтому assert_deletable() ей не нужен
     ("app/services/crud.py", "sync_device_vlans", "obj"),
+    # VLAN, перенесённый в другой домен, снимается с устройств прежнего домена (назначение на устройстве
+    # и связи с портами/группами этих устройств) — дочерние записи без входящих ссылок
+    ("app/services/crud.py", "_unassign_moved_vlan_from_former_domain_devices", "PhysicalDeviceVLAN"),
+    ("app/services/crud.py", "_unassign_moved_vlan_from_former_domain_devices", "InterfaceVLAN"),
+    ("app/services/crud.py", "_unassign_moved_vlan_from_former_domain_devices", "InterfaceGroupVLAN"),
     ("app/services/crud.py", "_sync_linked_table", "obj"),
     ("app/services/crud.py", "_sync_source_ip_addresses", "old_ip"),
     ("app/services/crud.py", "_sync_information_system_sources", "IPAddress"),
