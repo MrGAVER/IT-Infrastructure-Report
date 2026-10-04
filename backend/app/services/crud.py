@@ -279,33 +279,40 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         items = [serialize(row) for row in rows]
     return {'items': items, 'total': total, 'offset': offset, 'limit': limit}
 
-def _auto_assign_new_domain_vlan_to_source_device(vlan: 'VLAN', session: Session) -> None:
-    """Пункт 2 правки "создание физического устройства": VLAN, заведённый в «справочник VLAN»
-    (VLANFormModal.vue) сразу с привязкой к домену, должен появиться в блоке «VLAN устройства»
-    без отдельного ручного шага. До этой правки требовалось отдельно зайти в форму
-    устройства-источника и добавить VLAN там вручную — sync_vlan_domain (см. api/system.py) не
-    помогает, т.к. он реплицирует набор VLAN устройства-источника НА остальных участников,
-    отталкиваясь от уже существующих у источника PhysicalDeviceVLAN, а только что созданный VLAN
-    там ещё не значится.
+def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:
+    """Правка "VLAN домена": VLAN, заведённый в «справочник VLAN» (VLANFormModal.vue) сразу с
+    привязкой к домену — или привязанный к домену позже обновлением domain_id — должен появиться в
+    блоке «VLAN устройства» ВСЕХ физических устройств этого домена (участников VLANDomainDevice и
+    устройства-источника) без ручного шага «Синхронизировать».
 
-    Единственный однозначный получатель — устройство-источник домена (если оно задано):
-    остальные участники получат этот VLAN штатной синхронизацией, когда источник его уже будет
-    иметь. Если у домена источник не задан, или VLAN не привязан ни к какому домену — делать
-    нечего, тихо выходим (это не ошибка, а обычный локальный/пока-не-синхронизируемый VLAN)."""
+    Раньше (п.2 правки "создание физического устройства") VLAN назначался только устройству-
+    источнику, а остальные участники получали его лишь при ручной синхронизации (sync_vlan_domain
+    реплицирует набор VLAN источника на участников), из-за чего новый VLAN не появлялся на
+    устройствах домена. Источник учитывается отдельно от участников: он может не числиться в
+    VLANDomainDevice.
+
+    Уже назначенное не дублируется (uq_physical_device_vlan), поэтому вызов безопасно повторять.
+    Если VLAN не привязан к домену или у домена нет ни участников, ни источника — тихо выходим:
+    это не ошибка, а обычный локальный или пока пустой домен. Два запроса на весь домен, а не по
+    запросу на устройство."""
     if not vlan.domain_id:
         return
     domain = session.get(VLANDomain, vlan.domain_id)
-    if not domain or not domain.source_device_id:
+    if not domain:
         return
-    exists = session.scalar(
-        select(PhysicalDeviceVLAN).where(
-            PhysicalDeviceVLAN.physical_device_id == domain.source_device_id,
+    device_ids = set(session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain.id)).all())
+    if domain.source_device_id:
+        device_ids.add(domain.source_device_id)
+    if not device_ids:
+        return
+    already_assigned = set(session.scalars(
+        select(PhysicalDeviceVLAN.physical_device_id).where(
             PhysicalDeviceVLAN.vlan_id == vlan.id,
+            PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
         )
-    )
-    if exists:
-        return
-    session.add(PhysicalDeviceVLAN(physical_device_id=domain.source_device_id, vlan_id=vlan.id, description=vlan.description))
+    ).all())
+    for device_id in sorted(device_ids - already_assigned):
+        session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan.id, description=vlan.description))
 
 
 def assign_domain_vlans_to_device(domain_id: str | None, physical_device_id: str | None, session: Session) -> None:
@@ -353,7 +360,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     try:
         session.flush()
         if model is VLAN:
-            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+            _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
         if model is VLANDomainDevice:
             assign_domain_vlans_to_device(obj.domain_id, obj.physical_device_id, session)
         audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
@@ -390,9 +397,9 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         # Пункт 2 правки "создание физического устройства": только когда domain_id реально
         # менялся в этом запросе — иначе безобидное редактирование ДРУГОГО поля VLAN (например,
         # описания) на каждый сохранение заново бы проверяло/дублировало привязку к
-        # устройству-источнику домена, в котором этот VLAN и так уже давно значится.
+        # устройствам домена, в котором этот VLAN и так уже давно значится.
         if model is VLAN and 'domain_id' in payload:
-            _auto_assign_new_domain_vlan_to_source_device(obj, session)
+            _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
         audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed)); session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
