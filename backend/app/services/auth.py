@@ -22,6 +22,7 @@ import base64
 import hashlib
 import hmac
 import math
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -546,6 +547,24 @@ def _is_role_check_exempt(path: str) -> bool:
     return path in ROLE_CHECK_EXEMPT_PATHS or path.startswith(ROLE_CHECK_EXEMPT_PREFIXES)
 
 
+# POST-запросы, которые данных реестра не меняют: они только формируют файл отчёта или предпросмотр, а
+# метод POST выбран из-за тела запроса (параметры, выбор структурных единиц). Роль viewer («только чтение»)
+# должна уметь формировать отчёты — иначе просмотр без выгрузки теряет смысл. Допускаются точные пути:
+# создание, правка, удаление и дублирование шаблонов, как и /seed, остаются только для администратора.
+READ_ONLY_POST_PATHS = frozenset({
+    "/api/v1/reports/inventory",
+    "/api/v1/reports/audit-log",
+    "/api/v1/report-builder/preview",
+})
+_TEMPLATE_GENERATE_PATH = re.compile(r"^/api/v1/report-templates/[^/]+/generate$")
+
+
+def _is_read_only_post(method: str, path: str) -> bool:
+    if method != "POST":
+        return False
+    return path in READ_ONLY_POST_PATHS or _TEMPLATE_GENERATE_PATH.match(path) is not None
+
+
 def _extract_bearer_token(header_value: Optional[str]) -> Optional[str]:
     if not header_value or not header_value.startswith("Bearer "):
         return None
@@ -622,7 +641,12 @@ async def _gate_api_request(request: Request, call_next):
         request.state.user = user
         current_actor.set(Actor(user.id, user.username, _client_ip(request)))
 
-        if user.role != UserRole.ADMIN and request.method in WRITE_METHODS and not _is_role_check_exempt(path):
+        if (
+            user.role != UserRole.ADMIN
+            and request.method in WRITE_METHODS
+            and not _is_role_check_exempt(path)
+            and not _is_read_only_post(request.method, path)
+        ):
             return JSONResponse({"detail": "Недостаточно прав: требуется роль администратора."}, status_code=403)
     finally:
         db_session.close()

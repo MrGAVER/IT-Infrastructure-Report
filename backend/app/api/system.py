@@ -8,6 +8,7 @@ from ..models import (Connection, Container, DeviceInterface, DeviceStack, Devic
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_connections, enrich_devices, serialize
 from ..services.audit_export import build_audit_log_report
+from ..services.report_cleanup import cleanup_old_reports
 from ..services.crud import assign_domain_vlans_to_device, audit, sync_vm_deployed_software, sync_vm_ip_addresses, sync_vm_open_ports, validate_resource
 from ..services.integrity import find_duplicate_open_port_numbers, find_orphaned_owner_references
 from ..constants import AuditAction
@@ -189,15 +190,26 @@ def copy_device_vlans(device_id: str, payload: dict, session: Session = Depends(
     source = session.get(PhysicalDevice, source_id) if source_id else None
     if not target or not source: raise HTTPException(404, 'Исходное или целевое устройство не найдено')
     source_assignments = session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == source.id)).all()
-    created=0; assigned=0
+    # Определения VLAN источника — одним запросом (раньше session.get на каждое назначение).
+    source_vlan_ids = [a.vlan_id for a in source_assignments]
+    source_vlans = {v.id: v for v in session.scalars(select(VLAN).where(VLAN.id.in_(source_vlan_ids)))} if source_vlan_ids else {}
+    # Идемпотентность: VLAN с тем же номером и именем, что уже назначен целевому устройству, второй раз не
+    # создаётся — повторный вызов раньше плодил дубли определений VLAN и назначений.
+    already_on_target = {(v.vlan_id, v.name) for v in session.scalars(
+        select(VLAN).join(PhysicalDeviceVLAN, PhysicalDeviceVLAN.vlan_id == VLAN.id).where(PhysicalDeviceVLAN.physical_device_id == target.id)
+    )}
+    created=0; assigned=0; skipped=0
     for a in source_assignments:
-        sv=session.get(VLAN,a.vlan_id)
+        sv=source_vlans.get(a.vlan_id)
         if not sv: continue
+        if (sv.vlan_id, sv.name) in already_on_target:
+            skipped+=1; continue
+        already_on_target.add((sv.vlan_id, sv.name))
         # Copy creates a device-local definition so same ID/name can diverge later.
         v=VLAN(vlan_id=sv.vlan_id,name=sv.name,description=sv.description,domain_id=None)
         session.add(v); session.flush(); created+=1
         session.add(PhysicalDeviceVLAN(physical_device_id=target.id,vlan_id=v.id,ip_address=None,prefix_length=None,is_management=False,description=sv.description)); assigned+=1
-    audit(session, 'devices', target.id, AuditAction.SYNC, f'Скопированы VLAN с устройства «{source.system_name or source.serial_number}»: определений {created}, назначено {assigned}')
+    audit(session, 'devices', target.id, AuditAction.SYNC, f'Скопированы VLAN с устройства «{source.system_name or source.serial_number}»: определений {created}, назначено {assigned}' + (f', уже были на устройстве {skipped}' if skipped else ''))
     session.commit()
     return {'status':'ok','created_definitions':created,'assigned':assigned}
 
@@ -216,7 +228,8 @@ def bulk_assign_vlan(payload: dict, session: Session = Depends(get_db)):
         raise HTTPException(422, 'Укажите хотя бы одно устройство')
     if not vlan_id or not session.get(VLAN, vlan_id):
         raise HTTPException(404, 'VLAN не найден')
-    missing = [d for d in device_ids if not session.get(PhysicalDevice, d)]
+    found_ids = set(session.scalars(select(PhysicalDevice.id).where(PhysicalDevice.id.in_(device_ids))).all())  # одним запросом, а не session.get на каждое устройство
+    missing = [d for d in device_ids if d not in found_ids]
     if missing:
         raise HTTPException(404, f'Устройства не найдены: {", ".join(missing)}')
     existing = set(session.scalars(
@@ -243,11 +256,13 @@ def seed(session: Session = Depends(get_db)):
 @router.post('/api/v1/reports/inventory')
 def generate_report(information_system_id: str | None = None, payload: dict | None = None, session: Session = Depends(get_db)):
     structural_unit_ids = (payload or {}).get('structural_unit_ids') or None
+    cleanup_old_reports(REPORT_DIR)
     path = build_report(session, REPORT_DIR, information_system_id, structural_unit_ids)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
 @router.post('/api/v1/reports/audit-log')
 def generate_audit_log_report(date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None, session: Session = Depends(get_db)):
+    cleanup_old_reports(REPORT_DIR)
     path = build_audit_log_report(session, REPORT_DIR, date_from, date_to, entity_type)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 

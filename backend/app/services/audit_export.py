@@ -8,7 +8,6 @@ setup_sheet/finalize_sheet из reporting.py, чтобы оформление л
 """
 from __future__ import annotations
 from pathlib import Path
-from uuid import uuid4
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 from ..registry import DISPLAY_NAMES
@@ -49,8 +48,6 @@ def build_audit_log_report(session: Session, report_dir: Path, date_from: str | 
     finalize_sheet(ws)
 
     report_dir.mkdir(parents=True, exist_ok=True)
-    # uuid-суффикс: метка времени с точностью до секунды совпала бы у двух одновременных выгрузок, и
-    # один пользователь перезаписал бы файл другого.
-    path = report_dir / f"Журнал_аудита_{local_timestamp_suffix()}_{uuid4().hex[:8]}.xlsx"
+    path = report_dir / f"Журнал_аудита_{local_timestamp_suffix()}.xlsx"
     wb.save(path)
     return path

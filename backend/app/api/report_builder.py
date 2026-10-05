@@ -10,6 +10,7 @@ from ..config import REPORT_DIR
 from ..constants import AuditAction
 from ..db import get_db
 from ..models import ReportTemplate, ReportTemplateVersion
+from ..services.report_cleanup import cleanup_old_reports
 from ..services.crud import audit
 from ..services.report_engine import ReportBuilderError, validate_config
 from ..services.report_grid import preview_grid, validate_grid_config
@@ -215,6 +216,7 @@ def generate_template_report(template_id: str, payload: dict | None = None, sess
         raise HTTPException(404, "Шаблон отчёта не найден")
     params = (payload or {}).get("params") or {}
     structural_unit_ids = (payload or {}).get("structural_unit_ids") or None
+    cleanup_old_reports(REPORT_DIR)
     try:
         path = build_report_from_template(session, t, REPORT_DIR, params=params, structural_unit_ids=structural_unit_ids)
     except ReportBuilderError as e:
