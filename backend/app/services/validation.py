@@ -181,7 +181,11 @@ def validate_support_method_organization(data: dict[str, Any], session: Session)
         raise HTTPException(422, 'Выбранный способ оказания техподдержки принадлежит другой организации технической поддержки')
 
 
-def validate_connection(data: dict[str, Any], session: Session, current_connection_id: str | None = None) -> None:
+def validate_connection(data: dict[str, Any], session: Session, current_connection_id: str | None = None, ignore_connection_ids: Iterable[str] = ()) -> None:
+    """Проверяет пару портов подключения. ``current_connection_id`` — редактируемое подключение
+    (его занятость не считается). ``ignore_connection_ids`` — дополнительные подключения, которые
+    тот же запрос переставляет на другие порты (форма устройства: обмен соседями между портами) —
+    их прежние порты на момент проверки считаются свободными."""
     source_id, destination_id = data.get('source_interface_id'), data.get('destination_interface_id')
     if not source_id:
         raise HTTPException(422, 'Необходимо выбрать исходное устройство и его порт')
@@ -208,6 +212,9 @@ def validate_connection(data: dict[str, Any], session: Session, current_connecti
     )
     if current_connection_id:
         stmt = stmt.where(Connection.id != current_connection_id)
+    ignored = {cid for cid in ignore_connection_ids if cid}
+    if ignored:
+        stmt = stmt.where(Connection.id.not_in(ignored))
     occupied = session.scalar(stmt)
     if occupied:
         raise HTTPException(409, 'Один из выбранных портов уже участвует в другом активном подключении. Выберите свободный порт.')

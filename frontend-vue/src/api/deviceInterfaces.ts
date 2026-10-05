@@ -198,7 +198,7 @@ export async function persistDeviceInterfaces(
     interfaces: rows.map((row) => ({
       id: row.id,
       ...(groups ? { group_key: row.group_key || null } : {}),
-      ...connectionEntry(row, connectionBaseline),
+      ...connectionEntry(row, connectionBaseline, rows),
       name: row.name.trim(),
       interface_type_id: row.interface_type_id || null,
       mac_address: row.mac_address || null,
@@ -235,8 +235,8 @@ export async function persistDeviceInterfaces(
 }
 
 /** Ключ `connection` элемента payload: пусто, если подключения не редактируются или порт не менялся. */
-function connectionEntry(row: InterfaceDraftRow, baseline?: ConnectionBaseline): { connection?: ReturnType<typeof connectionPayload> } {
+function connectionEntry(row: InterfaceDraftRow, baseline: ConnectionBaseline | undefined, rows: readonly InterfaceDraftRow[]): { connection?: ReturnType<typeof connectionPayload> } {
   if (!baseline) return {}
-  const value = connectionPayload(row, baseline)
+  const value = connectionPayload(row, baseline, rows)
   return value === undefined ? {} : { connection: value }
 }

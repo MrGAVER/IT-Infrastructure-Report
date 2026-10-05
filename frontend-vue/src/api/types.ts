@@ -475,12 +475,20 @@ export interface PortConflictInfo {
 /** Черновик подключения порта в блоке «Порты / интерфейсы» формы устройства (см.
  * components/InterfaceConnectionEditor.vue). Хранится в InterfaceDraftRow.connection. Подключение
  * активное; направление (источник/назначение) задаёт сервер: новый порт — источник. peer_device_id
- * нужен только интерфейсу формы (каскад «устройство → порт»), на сервер не отправляется. */
+ * нужен только интерфейсу формы (каскад «устройство → порт»), на сервер не отправляется.
+ *
+ * Сосед — ровно одно из двух: peer_interface_id (сохранённый порт, в том числе другой порт ЭТОГО же
+ * устройства) либо peer_row_key (ещё не сохранённая строка этой же формы, InterfaceDraftRow.key: у
+ * неё нет id). При отправке peer_row_key превращается в номер элемента массива interfaces (peer_row). */
 export interface InterfaceConnectionDraft {
   peer_device_id: string
   peer_interface_id: string
   connection_type_id: string
   description: string
+  peer_row_key?: string
+  /** Имя порта соседа для подписи в свёрнутой строке (только отображение, на сервер не уходит). Задаётся при
+   * загрузке подключения с сервера и при выборе порта соседа на другом устройстве. */
+  peer_interface_name?: string
 }
 
 export interface InterfaceDraftRow {
@@ -513,6 +521,11 @@ export interface InterfaceDraftRow {
    * PUT, что и порт (api/deviceInterfaces.ts:persistDeviceInterfaces, backend
    * services/interface_connections.py), поэтому доступно и для ещё не сохранённых портов. */
   connection?: InterfaceConnectionDraft | null
+  /** Стабильный ключ строки в пределах формы (в отличие от индекса не меняется при добавлении и
+   * удалении строк). Нужен только строкам без id, на которые ссылается подключение другого порта
+   * этой же формы (InterfaceConnectionDraft.peer_row_key). Задаёт редактор портов при создании
+   * строки (только если включено редактирование подключений); на сервер не отправляется. */
+  key?: string
 }
 
 /** Черновик группы портов устройства (backend models.InterfaceGroup): параметры, заданные один

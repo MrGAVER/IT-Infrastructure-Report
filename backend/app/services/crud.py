@@ -889,6 +889,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     # Подключения портов (необязательный ключ connection в элементе interfaces, см.
     # services/interface_connections.py): применяются после записи всех портов — у новых уже есть id.
     connection_requests: list[tuple[DeviceInterface, Any]] = []
+    row_objects: list[DeviceInterface] = []  # порты всех элементов payload по порядку — на них ссылается connection.peer_row
     try:
         group_states = _sync_interface_groups(device_id, groups_payload, allowed_vlans, session) if manage_groups else {}
         for item in items:
@@ -905,6 +906,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             # Параметры группы применяются ПОСЛЕ значений из payload и перекрывают их: группа —
             # источник истины для заданных ею параметров, что бы ни прислал клиент.
             if group_state: _apply_group_to_interface(obj, group_state, session)
+            row_objects.append(obj)
             if 'connection' in item: connection_requests.append((obj, item['connection']))
         stale = [obj for obj in existing if obj.id not in incoming_ids]
         assert_interfaces_not_connected(stale, session)
@@ -917,7 +919,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
                 session.delete(obj)
         session.flush()
         if manage_groups: _delete_stale_groups(device_id, {state.obj.id for state in group_states.values()}, session)
-        connections_changed = sync_interface_connections(connection_requests, session) if connection_requests else 0
+        connections_changed = sync_interface_connections(connection_requests, session, row_objects) if connection_requests else 0
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces: session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).values(is_management=bool(iface.is_management)))
         audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}' + (f', групп: {len(groups_payload)}' if manage_groups else '') + (f', подключений изменено: {connections_changed}' if connections_changed else '')); session.commit()

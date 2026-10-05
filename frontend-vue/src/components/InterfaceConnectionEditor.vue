@@ -4,26 +4,29 @@
 // «Подключения». Выбор в два шага (устройство → порт), как в ConnectionFormModal.vue, плюс тип физической
 // линии связи и описание.
 //
-// Компонент только редактирует черновик (v-model: InterfaceConnectionDraft | null) и ничего не сохраняет
-// и не загружает: подключение уходит на сервер вместе с портами одним PUT (см. api/deviceInterfaces.ts:
-// persistDeviceInterfaces), а сторы устройств, подключений и каталог портов загружает форма устройства.
+// Компонент только редактирует черновик (v-model: InterfaceConnectionDraft | null) и ничего не сохраняет:
+// подключение уходит на сервер вместе с портами одним PUT (см. api/deviceInterfaces.ts:persistDeviceInterfaces).
 // Это нужно, потому что у нового порта ещё нет id — отдельным запросом подключение создать нельзя.
+// Единственное, что компонент загружает сам, — свободные порты выбранного устройства-соседа: их и занятость
+// считает сервер (api/deviceConnectivity.ts), а не клиент по общим спискам с потолком в 1000 записей.
 //
-// Соседний порт можно выбрать только на ДРУГОМ устройстве и только из уже сохранённых портов: порт этого
-// же устройства, ещё не сохранённый, не имеет id, на который можно сослаться (подключение между портами
-// одного устройства создаётся на экране «Подключения»). Из списка исключены порты, уже занятые активным
-// подключением, и порты, выбранные в соседних строках этой же формы; порт, выбранный в этой строке,
-// остаётся доступным, чтобы подключение можно было открыть и изменить его тип или описание.
+// Соседний порт — порт другого устройства (из сохранённых) или, если родитель передал selfPorts, ДРУГОЙ порт
+// этого же устройства, в том числе ещё не сохранённый: у него нет id, поэтому на строку формы ссылаются по
+// стабильному ключу (peer_row_key), а сервер получает номер элемента массива interfaces (peer_row). Из списка
+// исключены порты, уже занятые активным подключением, и порты, выбранные в соседних строках этой же формы;
+// порт, выбранный в этой строке, остаётся доступным, чтобы подключение можно было открыть и изменить его тип
+// или описание. Порт, подключение которого переставляется или снимается в этой же форме (freedPeerIds),
+// считается свободным: так порты можно поменять местами, не сохраняя форму между шагами.
 //
 // Расхождение конфигурации (Управление / Передача данных / режим порта) с портом соседа показывается
 // сразу — до сохранения. Сохранению оно не мешает: как и у подключения, созданного на экране
 // «Подключения», расхождение отображается там со статусом «расхождение» до решения или одобрения.
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { fetchAllFreeInterfaces, type FreeInterface } from '../api/deviceConnectivity'
 import type { DeviceInterface, InterfaceConnectionDraft } from '../api/types'
 import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
-import { useConnectionsStore } from '../stores/connections'
 import { useDevicesStore } from '../stores/devices'
-import { connectionConfigDiffs, emptyConnectionDraft } from '../utils/interfaceConnections'
+import { SELF_DEVICE, connectionConfigDiffs, emptyConnectionDraft, peerRef, type SelfPortCandidate } from '../utils/interfaceConnections'
 import SearchableSelect from './SearchableSelect.vue'
 
 const props = withDefaults(
@@ -33,50 +36,107 @@ const props = withDefaults(
     deviceId: string | null
     /** Текущая конфигурация порта этой строки — для сравнения с портом соседа. */
     config: Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'>
-    /** Порты соседей, уже выбранные в ДРУГИХ строках формы. */
+    /** Порты соседей, уже выбранные в ДРУГИХ строках формы (peerRef: id порта или `row:<key>`). */
     takenPeerIds?: ReadonlySet<string>
+    /** Другие порты этого же устройства, доступные в роли соседа. Не задано — выбрать сосед на этом же
+     * устройстве нельзя (его нет в списке устройств). */
+    selfPorts?: readonly SelfPortCandidate[]
+    /** Порты других устройств, которые этой формой освобождаются (подключение снято или переставлено). */
+    freedPeerIds?: ReadonlySet<string>
   }>(),
-  { takenPeerIds: () => new Set<string>() },
+  { takenPeerIds: () => new Set<string>(), selfPorts: undefined, freedPeerIds: () => new Set<string>() },
 )
 const emit = defineEmits<{ 'update:modelValue': [value: InterfaceConnectionDraft | null] }>()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
-const connectionsStore = useConnectionsStore()
 
-const allInterfaces = computed(() => (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
+const selfValue = computed(() => props.deviceId ?? SELF_DEVICE)
+const selfSelected = computed(() => !!props.selfPorts && props.modelValue?.peer_device_id === selfValue.value)
 
-const deviceOptions = computed(() =>
-  devicesStore.all
+const deviceOptions = computed(() => {
+  const others = devicesStore.all
     .filter((d) => d.id !== props.deviceId)
     .map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))
-    .sort((a, b) => RU_COLLATOR.compare(a.label, b.label)),
-)
+    .sort((a, b) => RU_COLLATOR.compare(a.label, b.label))
+  if (!props.selfPorts) return others
+  const own = props.deviceId ? devicesStore.all.find((d) => d.id === props.deviceId) : undefined
+  const ownLabel = own ? `${own.system_name || own.serial_number} (это устройство)` : 'Это устройство (новое)'
+  return [{ value: selfValue.value, label: ownLabel }, ...others]
+})
+
+// Порты выбранного устройства-соседа с сервера: свободные плюс запрошенные явно (текущий сосед этой строки и
+// порты, которые эта форма освобождает, — на сервере они ещё заняты). Обновляется при смене устройства и когда
+// форма освобождает новые порты; ответ устаревшего запроса отбрасывается (loadSeq).
+const peerPorts = ref<FreeInterface[]>([])
+const peersLoading = ref(false)
+const peersError = ref<string | null>(null)
+let loadSeq = 0
+
+async function loadPeerPorts() {
+  const draft = props.modelValue
+  const seq = ++loadSeq
+  peersError.value = null
+  if (!draft?.peer_device_id || selfSelected.value) {
+    peerPorts.value = []
+    peersLoading.value = false
+    return
+  }
+  peersLoading.value = true
+  try {
+    const include = [...new Set([draft.peer_interface_id, ...props.freedPeerIds].filter(Boolean))]
+    const ports = await fetchAllFreeInterfaces(draft.peer_device_id, include)
+    if (seq === loadSeq) peerPorts.value = ports
+  } catch (err) {
+    if (seq !== loadSeq) return
+    peerPorts.value = []
+    peersError.value = err instanceof Error ? err.message : 'неизвестная ошибка'
+  } finally {
+    if (seq === loadSeq) peersLoading.value = false
+  }
+}
+watch(() => [props.modelValue?.peer_device_id ?? '', selfSelected.value, [...props.freedPeerIds].sort().join(',')], loadPeerPorts, { immediate: true })
 
 const peerInterfaces = computed(() => {
   const draft = props.modelValue
-  if (!draft?.peer_device_id) return []
-  const occupied = connectionsStore.occupiedInterfaceIds
-  return allInterfaces.value.filter(
-    (i) => i.physical_device_id === draft.peer_device_id && (i.id === draft.peer_interface_id || (!occupied.has(i.id) && !props.takenPeerIds.has(i.id))),
-  )
+  if (!draft?.peer_device_id || selfSelected.value) return []
+  return peerPorts.value.filter((p) => p.id === draft.peer_interface_id || ((!p.occupied || props.freedPeerIds.has(p.id)) && !props.takenPeerIds.has(p.id)))
 })
-const portOptions = computed(() => peerInterfaces.value.map((i) => ({ value: i.id, label: i.name })))
+const portOptions = computed(() => (selfSelected.value ? (props.selfPorts ?? []).map((c) => ({ value: c.value, label: c.label })) : peerInterfaces.value.map((p) => ({ value: p.id, label: p.name }))))
 const typeOptions = computed(() => (catalogs.items['connection-types'] ?? []).map((t) => ({ value: t.id, label: t.name })))
 
-const peerHasNoFreePorts = computed(() => !!props.modelValue?.peer_device_id && portOptions.value.length === 0)
+const noFreePortsHint = computed(() => {
+  if (!props.modelValue?.peer_device_id || peersLoading.value || peersError.value || portOptions.value.length) return ''
+  return selfSelected.value
+    ? 'В этом устройстве нет свободных портов, кроме редактируемого: добавьте ещё один порт или освободите существующий.'
+    : 'У выбранного устройства нет свободных сохранённых портов: все заняты активными подключениями или ещё не созданы.'
+})
 
 const configDiffs = computed(() => {
-  const peer = allInterfaces.value.find((i) => i.id === props.modelValue?.peer_interface_id)
+  const draft = props.modelValue
+  if (!draft) return []
+  // Порт этого же устройства сверяем по текущим значениям строки формы, а не по сохранённым данным.
+  const peer = selfSelected.value ? props.selfPorts?.find((c) => c.value === peerRef(draft))?.config : peerPorts.value.find((p) => p.id === draft.peer_interface_id)
   return peer ? connectionConfigDiffs(props.config, peer) : []
 })
 
 function patch(change: Partial<InterfaceConnectionDraft>) {
-  if (props.modelValue) emit('update:modelValue', { ...props.modelValue, ...change })
+  if (!props.modelValue) return
+  const next = { ...props.modelValue, ...change }
+  // Необязательные поля без значения не храним: черновик остаётся чистым для сравнения со снимком.
+  if (next.peer_row_key === undefined) delete next.peer_row_key
+  if (next.peer_interface_name === undefined) delete next.peer_interface_name
+  emit('update:modelValue', next)
 }
 // Смена устройства-соседа сбрасывает порт: иначе в черновике остался бы порт другого устройства.
 function onPeerDeviceChange(deviceId: string) {
-  patch({ peer_device_id: deviceId, peer_interface_id: '' })
+  patch({ peer_device_id: deviceId, peer_interface_id: '', peer_row_key: undefined, peer_interface_name: undefined })
+}
+// Несохранённая строка этого устройства выбирается по ключу, сохранённый порт — по id.
+function onPeerPortChange(value: string) {
+  const candidate = selfSelected.value ? props.selfPorts?.find((c) => c.value === value) : undefined
+  if (candidate?.rowKey) patch({ peer_interface_id: '', peer_row_key: candidate.rowKey, peer_interface_name: undefined })
+  else patch({ peer_interface_id: value, peer_row_key: undefined, peer_interface_name: selfSelected.value ? undefined : peerPorts.value.find((p) => p.id === value)?.name })
 }
 </script>
 
@@ -103,7 +163,7 @@ function onPeerDeviceChange(deviceId: string) {
         </label>
         <label class="field connection-peer-port">
           <span>Порт *</span>
-          <SearchableSelect :model-value="modelValue.peer_interface_id" :options="portOptions" :disabled="!modelValue.peer_device_id" placeholder="— выберите —" @update:model-value="(v) => patch({ peer_interface_id: v })" />
+          <SearchableSelect :model-value="peerRef(modelValue)" :options="portOptions" :disabled="!modelValue.peer_device_id" placeholder="— выберите —" @update:model-value="onPeerPortChange" />
         </label>
         <label class="field connection-type">
           <span>Тип физической линии связи *</span>
@@ -114,7 +174,9 @@ function onPeerDeviceChange(deviceId: string) {
           <input type="text" :value="modelValue.description" maxlength="500" @input="patch({ description: ($event.target as HTMLInputElement).value })" />
         </label>
       </div>
-      <small v-if="peerHasNoFreePorts" class="connection-hint">У выбранного устройства нет свободных сохранённых портов: все заняты активными подключениями или ещё не созданы.</small>
+      <small v-if="peersLoading" class="connection-hint connection-loading">Загрузка портов устройства…</small>
+      <small v-else-if="peersError" class="connection-hint connection-error" role="alert">Не удалось загрузить порты устройства: {{ peersError }}</small>
+      <small v-else-if="noFreePortsHint" class="connection-hint">{{ noFreePortsHint }}</small>
       <div v-if="configDiffs.length" class="connection-diffs" role="status">
         <svg class="icon conflict-icon"><use href="/icons.svg#i-alert" /></svg>
         <span>Конфигурация порта расходится с портом соседа — {{ configDiffs.join('; ') }}. Сохранить можно: расхождение будет отмечено на экране «Подключения».</span>
