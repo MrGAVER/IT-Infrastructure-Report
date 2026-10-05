@@ -82,7 +82,13 @@ const props = withDefaults(
   }>(),
   { conflicts: () => ({}), protocolPortCatalog: () => [], groups: () => [], deviceId: null, editConnections: false, connectionBaseline: undefined },
 )
-const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]]; 'update:groups': [groups: InterfaceGroupDraft[]] }>()
+const emit = defineEmits<{
+  'update:modelValue': [rows: InterfaceDraftRow[]]
+  'update:groups': [groups: InterfaceGroupDraft[]]
+  /** Конфигурация портов-соседей изменена отсюда (запись на другие устройства уже выполнена): родитель, который
+   * считает расхождения по данным соседей, должен перечитать их. */
+  'neighbors-changed': []
+}>()
 const { notify, notifyError } = useToast()
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -309,7 +315,10 @@ const {
     }
     return draft.changedPorts
   },
-  onFinished: closeConflict,
+  onFinished: () => {
+    closeConflict()
+    emit('neighbors-changed')
+  },
 })
 
 // "Применить конфигурацию соседа [ко мне]":
@@ -371,6 +380,7 @@ async function applyCurrentConfigToNeighbor() {
     if (cached) Object.assign(cached, payload)
     notify('Конфигурация применена к соседнему порту', 'success')
     closeConflict()
+    emit('neighbors-changed')
   } catch (err) {
     notifyError(err)
   } finally {

@@ -206,23 +206,13 @@ describe('DevicePortsModal.vue', () => {
   describe('уведомление о сохранении порта с расхождением относительно соседа', () => {
     // Порт if-1 (dev-1) подключён активным кабелем к порту if-other (dev-2) с конфигурацией
     // «управление: нет / передача данных: нет / trunk» — то есть той же, что у if-1 по умолчанию.
+    // Сосед приходит с сервера вместе с подключением (GET /devices/{id}/interface-connections); общий список
+    // подключений и каталог интерфейсов не используются — стор подключений пуст намеренно.
     function mountWithNeighbour(thisPort: { is_management: boolean }) {
       useToast().toasts.splice(0)
-      const catalogs = useCatalogsStore()
-      catalogs.loaded = true
-      catalogs.items['interfaces'] = [
-        { id: 'if-other', name: 'Gi0/2', physical_device_id: 'dev-2', is_management: false, is_data_transfer: false, vlan_mode: 'trunk' },
-      ]
       const connections = useConnectionsStore()
       connections.loaded = true
-      connections.all = [
-        {
-          id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-other', connection_type_id: 'ct', is_active: true, description: null,
-          source_device_name: 'srv-01', source_interface_name: 'eth0', destination_device_name: 'sw-02', destination_interface_name: 'Gi0/2', connection_type_name: 'UTP',
-          source_port_role: 'data', destination_port_role: 'data', port_config_status: 'ok',
-          source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
-        },
-      ]
+      connections.all = []
       const port = { ...existingInterfaceFixture, ...thisPort, vlan_mode: 'trunk' }
       vi.stubGlobal(
         'fetch',
@@ -231,6 +221,15 @@ describe('DevicePortsModal.vue', () => {
           if (url.includes('/resources/interfaces') && method === 'GET') return jsonResponse({ items: [port], total: 1, offset: 0, limit: 1000 })
           if (url.includes('/resources/devices/dev-1') && method === 'GET') return jsonResponse(deviceFixture)
           if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return jsonResponse({ items: [port] })
+          if (method === 'GET' && /\/devices\/dev-1\/interface-connections$/.test(url)) {
+            return jsonResponse({
+              items: [{
+                interface_id: 'if-1', connection_id: 'c-1', connection_type_id: 'ct', description: null,
+                peer_interface_id: 'if-other', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02',
+                peer_is_management: false, peer_is_data_transfer: false, peer_vlan_mode: 'trunk',
+              }],
+            })
+          }
           return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
         }),
       )

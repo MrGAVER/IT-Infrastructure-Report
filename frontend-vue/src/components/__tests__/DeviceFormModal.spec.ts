@@ -1453,31 +1453,22 @@ describe('DeviceFormModal.vue', () => {
   describe('пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — вычисление в DeviceFormModal.vue', () => {
     const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
 
+    // Сведения о соседе приходят с сервера вместе с подключением порта (GET /devices/{id}/interface-connections):
+    // ни общий список подключений, ни каталог интерфейсов форме для расхождений не нужны — стор подключений
+    // намеренно оставлен пустым, чтобы тест это доказывал.
     function mountWithConnection(thisIface: Record<string, unknown>, otherIface: Record<string, unknown>) {
-      const catalogs = useCatalogsStore()
-      catalogs.items['interfaces'] = [
-        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface },
-        { id: 'if-other', physical_device_id: 'dev-2', name: 'Gi0/2', ...otherIface },
-      ] as never
       const connections = useConnectionsStore()
-      connections.all = [
-        {
-          id: 'c-1',
-          source_interface_id: 'if-this',
-          destination_interface_id: 'if-other',
-          is_active: true,
-          source_device_name: 'sw-01',
-          source_interface_name: 'Gi0/1',
-          destination_device_name: 'sw-02',
-          destination_interface_name: 'Gi0/2',
-        } as never,
-      ]
+      connections.all = []
       connections.loaded = true
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string) => {
           if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
             return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
+            const peer = otherIface as { is_management: boolean; is_data_transfer: boolean; vlan_mode: string }
+            return new Response(JSON.stringify({ items: [{ interface_id: 'if-this', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'if-other', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: peer.is_management, peer_is_data_transfer: peer.is_data_transfer, peer_vlan_mode: peer.vlan_mode }] }))
           }
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
@@ -1537,6 +1528,43 @@ describe('DeviceFormModal.vue', () => {
       )
       await flushPromises()
 
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
+      expect(wrapper.find('.expand-toggle .conflict-icon').exists()).toBe(false)
+    })
+
+    it('«Применить текущую конфигурацию» соседу: форма перечитывает соседей с сервера, и значок расхождения исчезает сразу', async () => {
+      const connections = useConnectionsStore()
+      connections.all = []
+      connections.loaded = true
+      let neighborIsManagement = false // у соседа «Управление» выключено, у нашего порта — включено
+      const calls: Array<{ url: string; method: string }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method })
+          if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: true, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (method === 'PUT' && url.endsWith('/resources/interfaces/if-other')) {
+            neighborIsManagement = true // сервер записал конфигурацию соседа
+            return new Response(JSON.stringify({ id: 'if-other' }))
+          }
+          if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
+            return new Response(JSON.stringify({ items: [{ interface_id: 'if-this', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'if-other', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: neighborIsManagement, peer_is_data_transfer: true, peer_vlan_mode: 'trunk' }] }))
+          }
+          return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        }),
+      )
+      const wrapper = mount(DeviceFormModal, { props: { device } })
+      await flushPromises()
+      expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).toContain('has-conflict')
+
+      await wrapper.find('.conflict-icon-btn').trigger('click')
+      await wrapper.find('.conflict-modal-actions .btn-primary').trigger('click') // применить текущую конфигурацию соседу
+      await flushPromises()
+
+      expect(calls.filter((c) => c.url.endsWith('/devices/dev-1/interface-connections'))).toHaveLength(2) // при открытии и после записи соседу
       expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
       expect(wrapper.find('.expand-toggle .conflict-icon').exists()).toBe(false)
     })
@@ -1904,27 +1932,14 @@ describe('правки формы физического устройства: �
   describe('пункт 5: уведомление о сохранении порта с расхождением относительно соседа', () => {
     const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
 
+    // Сосед приходит с сервера вместе с подключением порта (GET /devices/{id}/interface-connections); общий список
+    // подключений и каталог интерфейсов не нужны, стор подключений пуст намеренно.
     function mountWithNeighbour(thisIface: Record<string, unknown>, otherIface: Record<string, unknown>) {
       useToast().toasts.splice(0)
-      const catalogs = useCatalogsStore()
-      catalogs.items['interfaces'] = [
-        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface },
-        { id: 'if-other', physical_device_id: 'dev-2', name: 'Gi0/2', ...otherIface },
-      ] as never
       const connections = useConnectionsStore()
-      connections.all = [
-        {
-          id: 'c-1',
-          source_interface_id: 'if-this',
-          destination_interface_id: 'if-other',
-          is_active: true,
-          source_device_name: 'sw-01',
-          source_interface_name: 'Gi0/1',
-          destination_device_name: 'sw-02',
-          destination_interface_name: 'Gi0/2',
-        } as never,
-      ]
+      connections.all = []
       connections.loaded = true
+      const peer = otherIface as { is_management: boolean; is_data_transfer: boolean; vlan_mode: string }
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string, init?: RequestInit) => {
@@ -1933,6 +1948,9 @@ describe('правки формы физического устройства: �
           if (method === 'PUT' && url.includes('/resources/devices/dev-1')) return new Response(JSON.stringify(device))
           if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
             return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }))
+          }
+          if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
+            return new Response(JSON.stringify({ items: [{ interface_id: 'if-this', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'if-other', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: peer.is_management, peer_is_data_transfer: peer.is_data_transfer, peer_vlan_mode: peer.vlan_mode }] }))
           }
           return emptyList()
         }),
@@ -2061,10 +2079,11 @@ describe('подключения портов в блоке «Порты / ин�
       if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
         return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: false, is_data_transfer: false, vlan_mode: 'access' }], groups: [] }))
       }
-      if (method === 'GET' && url.includes('/resources/connections')) {
-        const connection = { id: 'c-new', source_interface_id: 'if-new', destination_interface_id: 'b-1', is_active: true, source_device_name: 'srv-new', source_interface_name: 'eth0', destination_device_name: 'sw-b', destination_interface_name: 'Gi0/1' }
-        return new Response(JSON.stringify({ items: [connection], total: 1, offset: 0, limit: 1000 }))
+      // Соседа для предупреждения форма спрашивает у сервера по только что сохранённому устройству.
+      if (method === 'GET' && /\/devices\/dev-new\/interface-connections$/.test(url)) {
+        return new Response(JSON.stringify({ items: [{ interface_id: 'if-new', connection_id: 'c-new', connection_type_id: 'ct-1', description: 'патч-корд №5', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_is_management: true, peer_is_data_transfer: false, peer_vlan_mode: 'access' }] }))
       }
+      if (method === 'GET' && url.includes('/resources/connections')) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       return undefined
     })
 
@@ -2081,12 +2100,39 @@ describe('подключения портов в блоке «Порты / ин�
 
     const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
     expect(put?.body).toMatchObject({ interfaces: [{ name: 'eth0', connection: { peer_interface_id: 'b-1', connection_type_id: 'ct-1', description: 'патч-корд №5' } }] })
-    expect(calls.some((c) => c.method === 'GET' && c.url.includes('/resources/connections'))).toBe(true) // стор подключений обновлён
+    expect(calls.some((c) => c.method === 'GET' && c.url.includes('/devices/dev-new/interface-connections'))).toBe(true) // сосед — у сервера
+    expect(calls.some((c) => c.method === 'GET' && c.url.includes('/resources/connections'))).toBe(true) // общий список был загружен — обновлён
     expect(wrapper.emitted('saved')).toBeTruthy()
     const toasts = useToast().toasts
     expect(toasts.map((t) => t.type)).toEqual(['warning'])
     expect(toasts[0].message).toContain('eth0')
     expect(toasts[0].message).toContain('sw-b')
+  })
+
+  it('общий список подключений не загружается, пока им никто не пользуется: форма его ни открывает, ни перезагружает', async () => {
+    const wrapper = await mountNewDeviceWithPort()
+    useConnectionsStore().loaded = false
+    const calls = recordingFetch((url, method) => {
+      if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+      if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
+        return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }], groups: [] }))
+      }
+      if (method === 'GET' && /\/devices\/dev-new\/interface-connections$/.test(url)) {
+        return new Response(JSON.stringify({ items: [{ interface_id: 'if-new', connection_id: 'c-new', connection_type_id: 'ct-1', description: null, peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_is_management: true, peer_is_data_transfer: false, peer_vlan_mode: 'access' }] }))
+      }
+      return undefined
+    })
+
+    await wrapper.find('.connection-connect-btn').trigger('click')
+    await pick(wrapper, '.connection-peer-device', 'sw-b')
+    await flushPromises()
+    await pick(wrapper, '.connection-peer-port', 'Gi0/1')
+    await pick(wrapper, '.connection-type', 'Витая пара')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(calls.some((c) => c.url.includes('/resources/connections'))).toBe(false)
+    expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
   it('«Подключить» без выбора порта соседа и типа линии не отправляет запросов и показывает ошибку', async () => {

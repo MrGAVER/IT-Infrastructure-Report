@@ -936,6 +936,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result[0].is_management).toBe(true) // взято у соседа
       expect(result[0].is_data_transfer).toBe(false) // взято у соседа
       expect(wrapper.find('.conflict-modal').exists()).toBe(false) // окно закрылось
+      expect(wrapper.emitted('neighbors-changed')).toBeFalsy() // соседи не менялись — перечитывать нечего
     })
 
     it('"Применить текущую конфигурацию" отправляет PUT на интерфейс соседа и закрывает окно', async () => {
@@ -959,6 +960,8 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(wrapper.find('.conflict-modal').exists()).toBe(false)
       // Черновик ЭТОЙ строки не менялся — обновился сосед, а не текущий порт.
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+      // Родитель считает расхождения по данным соседей с сервера — ему сообщают, что их надо перечитать.
+      expect(wrapper.emitted('neighbors-changed')).toHaveLength(1)
     })
 
     // --- Каскадная смена режима порта (вариант C): «Применить текущую конфигурацию» по режиму порта ---
@@ -1032,6 +1035,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         expect(wrapper.find('.conflict-modal').exists()).toBe(false)
         expect((catalogs.items['interfaces'][0] as unknown as { vlan_mode: string }).vlan_mode).toBe('access') // кэш соседа обновлён — значок расхождения исчезнет
         expect(wrapper.emitted('update:modelValue')).toBeFalsy() // черновик не менялся
+        expect(wrapper.emitted('neighbors-changed')).toHaveLength(1) // порты соседей изменены на сервере — родитель перечитает их
       })
 
       it('сложный случай: открывается окно с последствиями, пока пользователь не подтвердил — применения (POST) нет', async () => {
@@ -1050,6 +1054,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         expect(wrapper.find('.cascade-desc').text()).toContain('«Gi0/3» (sw-03)')
         expect(calls.filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
         expect(wrapper.find('.conflict-modal').exists()).toBe(true) // окно расхождения остаётся под ним
+        expect(wrapper.emitted('neighbors-changed')).toBeFalsy() // пока ничего не записано — перечитывать нечего
       })
 
       it('снимаемые VLAN (даже при одном порте) тоже требуют окна подтверждения', async () => {
@@ -1335,6 +1340,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       await flushPromises()
 
       expect(wrapper.find('.conflict-modal').exists()).toBe(true) // окно осталось открытым
+      expect(wrapper.emitted('neighbors-changed')).toBeFalsy() // запись не удалась — соседи прежние
     })
   })
 })

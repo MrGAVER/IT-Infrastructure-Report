@@ -12,12 +12,12 @@
 // что и у остальных форм.
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'
+import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
 import { validateInterfaceGroups } from '../utils/interfaceGroups'
 import { computePortVlanOptions, loadAssignedDeviceVlanIds, loadDeviceTypeVlanIds } from '../api/portVlans'
 import type { Device, DeviceInterface, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
-import { useConnectionsStore } from '../stores/connections'
 import { useVLANsStore } from '../stores/vlans'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -30,12 +30,14 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
-const connectionsStore = useConnectionsStore()
 const { notify } = useToast()
 // Конфигурация сохранённых портов на момент открытия — по ней после сохранения определяется, что порт
 // с расхождением относительно соседа сохраняется с НОВОЙ конфигурацией (см. utils/portConflicts.ts,
 // то же правило, что в DeviceFormModal.vue). Неизменяемый снимок, не состояние формы.
 let initialPortConfigs = new Map<string, PortConfig>()
+// Подключения портов этого устройства со сведениями о соседе — с сервера: по ним после сохранения ищутся
+// расхождения конфигурации с соседними портами (не по общим спискам с потолком в 1000 записей).
+let savedConnections: DeviceInterfaceConnection[] = []
 const interfaces = ref<InterfaceDraftRow[]>([])
 // Группы портов устройства (InterfaceGroupsPanel.vue внутри DeviceInterfacesEditor.vue): грузятся
 // и сохраняются вместе с портами одним атомарным PUT, иначе правка портов здесь молча отвязала бы
@@ -53,13 +55,15 @@ onMounted(async () => {
   // Каталоги (типы/скорости интерфейсов) почти наверняка уже загружены родительским экраном
   // (ConnectionsView.vue вызывает ensureLoaded() при монтировании), но модалка не должна на это
   // полагаться — ensureLoaded() сама не делает лишний запрос, если уже загружено или грузится.
-  await Promise.all([catalogs.ensureLoaded(), vlansStore.ensureLoaded(), connectionsStore.ensureLoaded()])
+  await Promise.all([catalogs.ensureLoaded(), vlansStore.ensureLoaded()])
   try {
-    const [rows, groups, device] = await Promise.all([
+    const [rows, groups, device, connections] = await Promise.all([
       loadDeviceInterfaceDraftRows(props.deviceId),
       loadDeviceInterfaceGroups(props.deviceId),
       api.get<Device>(`/resources/devices/${props.deviceId}`),
+      fetchDeviceInterfaceConnections(props.deviceId),
     ])
+    savedConnections = connections
     interfaces.value = rows
     interfaceGroups.value = groups
     initialPortConfigs = snapshotPortConfigs(rows)
@@ -83,8 +87,8 @@ async function submit() {
   try {
     const { items } = await persistDeviceInterfaces(props.deviceId, interfaces.value, interfaceGroups.value)
     catalogs.replaceDeviceInterfaces(props.deviceId, items)
-    // Порты этого устройства в каталоге уже заменены сохранёнными, порты соседей — как были загружены.
-    const conflicts = computePortConflicts(interfaces.value, connectionsStore.all, (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
+    // Сосед — по данным сервера на момент открытия окна: подключения здесь не редактируются.
+    const conflicts = computePortConflicts(interfaces.value, savedConnections)
     const notice = buildPortConflictNotice(interfaces.value, conflicts, initialPortConfigs)
     if (notice) notify(notice, 'warning')
     emit('saved', props.deviceId, items)
