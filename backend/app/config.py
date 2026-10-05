@@ -7,6 +7,9 @@ APP_DATA_DIR = Path(os.getenv('INFRA_REGISTRY_DATA_DIR', str(BASE_DIR))).expandu
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR = APP_DATA_DIR / 'reports'
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
+# Сколько дней хранятся сгенерированные отчёты: файл нужен только пока его скачивают, а каталог без
+# очистки рос бы бесконечно. 0 — не удалять никогда.
+REPORT_RETENTION_DAYS = int(os.getenv('INFRA_REGISTRY_REPORT_RETENTION_DAYS', '30'))
 DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_registry.db"}')
 # Основной UI — собранный Vue-фронтенд (frontend-vue/dist), см. frontend-vue/README.md.
 # Каталог появляется только после `npm run build` в frontend-vue — локально при разработке

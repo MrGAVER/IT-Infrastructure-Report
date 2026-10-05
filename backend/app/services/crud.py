@@ -15,7 +15,7 @@ from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interface_groups, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
 from .actor_context import Actor, current_actor
 from .diagram_icons import validate_svg_markup
-from .integrity import format_referenced_message, source_reference_refs
+from .integrity import format_referenced_message, integrity_error_response, source_reference_refs
 from .interface_connections import assert_interfaces_not_connected, sync_interface_connections
 from .validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization, validate_unique_open_port_numbers
 
@@ -125,15 +125,33 @@ def _validate_physical_device(data: dict[str, Any], session: Session, item_id: s
     validate_device_model_relation(data, session, item_id); validate_operating_system(data, session); validate_embedded_os(data, session); validate_device_location_hierarchy(data, session)
     if data.get('system_name') and duplicate_system_name(session, data['system_name'], item_id) and not confirm_duplicate:
         raise HTTPException(409, detail={'code': ErrorCode.DUPLICATE_SYSTEM_NAME, 'message': 'Системное имя уже используется другим устройством. Сохранить дубликат?'})
+    occupant = _find_rack_slot_occupant(data, session, item_id)
+    if occupant and not confirm_rack_reassign:
+        raise HTTPException(409, detail={'code': ErrorCode.RACK_POSITION_OCCUPIED, 'message': f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{occupant.system_name or occupant.serial_number}". Переназначить позицию на текущее устройство?'})
+
+
+def _find_rack_slot_occupant(data: dict[str, Any], session: Session, item_id: str | None) -> PhysicalDevice | None:
+    """Устройство, уже занимающее слот (стойка + позиция) из data, не считая редактируемого item_id."""
     rack_id = data.get('rack_id'); rack_position = data.get('rack_position')
-    if rack_id and rack_position:
-        stmt = select(PhysicalDevice).where(PhysicalDevice.rack_id == rack_id, PhysicalDevice.rack_position == rack_position)
-        if item_id: stmt = stmt.where(PhysicalDevice.id != item_id)
-        occupant = session.scalar(stmt)
-        if occupant:
-            if not confirm_rack_reassign:
-                raise HTTPException(409, detail={'code': ErrorCode.RACK_POSITION_OCCUPIED, 'message': f'Позиция "{rack_position}" в этой стойке уже занята устройством "{occupant.system_name or occupant.serial_number}". Переназначить позицию на текущее устройство?'})
-            occupant.rack_position = None
+    if not (rack_id and rack_position): return None
+    stmt = select(PhysicalDevice).where(PhysicalDevice.rack_id == rack_id, PhysicalDevice.rack_position == rack_position)
+    if item_id: stmt = stmt.where(PhysicalDevice.id != item_id)
+    return session.scalar(stmt)
+
+
+def _release_rack_slot(model: type, data: dict[str, Any], session: Session, item_id: str | None = None) -> None:
+    """Освобождает слот в стойке, который пользователь подтвердил переназначить (confirm_rack_position_reassign).
+
+    Раньше позицию прежнего занятого обнуляла сама функция валидации — проверка с побочным эффектом, а при
+    уникальном индексе слота ещё и неработоспособная: SQLAlchemy выполняет INSERT нового устройства раньше
+    UPDATE прежнего, и индекс отвергал бы запись. Поэтому освобождение вынесено сюда и идёт отдельным flush()
+    ДО сохранения нового устройства. Вызывается только после validate_resource(): без подтверждения тот уже
+    бросил 409, так что занятый слот здесь означает «подтверждено»."""
+    if model is not PhysicalDevice: return
+    occupant = _find_rack_slot_occupant(data, session, item_id)
+    if occupant is None: return
+    occupant.rack_position = None
+    session.flush()
 
 
 def _validate_physical_device_vlan(data: dict[str, Any], session: Session) -> None:
@@ -254,9 +272,14 @@ def list_resource(resource: str, session: Session, q: str | None = None, offset:
         # in (insertion order for SQLite) — i.e. the OLDEST entries, not the most recent ones the
         # UI labels "Последние N действий". Audit log is the one resource where recency matters.
         stmt = stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())  # id — чтобы записи с равным временем не «переезжали» между страницами
+    else:
+        # Без ORDER BY порядок строк при offset/limit не гарантирован (на PostgreSQL он может меняться
+        # между запросами), и соседние страницы дублировали или пропускали записи. Старые — первыми;
+        # id — детерминированный тай-брейк для строк с равным временем создания.
+        stmt = stmt.order_by(*[col for col in (getattr(model, 'created_at', None), getattr(model, 'id', None)) if col is not None])
     if q:
         text_cols = [c for c in inspect(model).columns if str(c.type).upper().startswith(('VARCHAR', 'TEXT', 'CHAR'))]
-        if text_cols: stmt = stmt.where(or_(*[func.lower(c).contains(q.lower()) for c in text_cols]))
+        if text_cols: stmt = stmt.where(or_(*[func.lower(c).contains(q.lower(), autoescape=True) for c in text_cols]))  # autoescape: «%» и «_» из поиска — обычные символы, а не шаблон LIKE
     if filters:
         column_names = {c.key for c in inspect(model).columns}
         for key, value in filters.items():
@@ -405,6 +428,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
         _validate_open_port_catalog(data, session)
         _validate_open_port_number_is_free(data, session)
     validate_resource(model, data, session, confirm_duplicate=bool(payload.get('confirm_system_name_duplicate')), confirm_rack_reassign=bool(payload.get('confirm_rack_position_reassign')))
+    _release_rack_slot(model, data, session)
     obj = model(**data); session.add(obj)
     try:
         session.flush()
@@ -415,7 +439,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
         audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+        session.rollback(); raise integrity_error_response(resource, exc) from exc
 
 def update_resource(resource: str, item_id: str, payload: dict[str, Any], session: Session):
     ensure_writable(resource)
@@ -437,6 +461,7 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         if any(proposed.get(k) != before.get(k) for k in ('protocol_catalog_id', 'owner_type', 'owner_id')):
             _validate_open_port_number_is_free(proposed, session, item_id)
     validate_resource(model, proposed, session, item_id, bool(payload.get('confirm_system_name_duplicate')), bool(payload.get('confirm_rack_position_reassign')))
+    _release_rack_slot(model, proposed, session, item_id)
     for key, value in payload.items():
         if key in allowed: setattr(obj, key, value)
     if model is VirtualMachine and 'physical_device_id' in proposed:
@@ -459,7 +484,7 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+        session.rollback(); raise integrity_error_response(resource, exc) from exc
 
 def _find_referencing_counts(model, item_id: str, session: Session) -> list[tuple[str, int]]:
     """Для каждого другого зарегистрированного ресурса считает, сколько его записей ссылаются
@@ -779,7 +804,7 @@ def _sync_owner_collection(owner_model: type, entity: str, not_found: str, owner
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+        session.rollback(); raise integrity_error_response(entity, exc) from exc
     return {'items': load(owner)}
 
 
@@ -940,7 +965,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+        session.rollback(); raise integrity_error_response('device-interfaces', exc) from exc
 
 
 def list_interface_groups(device_id: str, session: Session) -> list[dict[str, Any]]:
@@ -1187,7 +1212,7 @@ def sync_device_vlans(device_id: str, payload: dict[str, Any], session: Session)
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+        session.rollback(); raise integrity_error_response('device-vlans', exc) from exc
 
 
 def get_information_system_details(system_id: str, session: Session) -> dict[str, Any]:
@@ -1318,5 +1343,5 @@ def sync_information_system_details(system_id: str, payload: dict[str, Any], ses
     except HTTPException:
         session.rollback(); raise
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, f'Нарушение целостности данных: {str(exc.orig)[:300]}') from exc
+        session.rollback(); raise integrity_error_response('information-systems', exc) from exc
 

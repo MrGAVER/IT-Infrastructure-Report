@@ -27,9 +27,12 @@ services/crud.py:delete_resource(). Любой новый путь удален�
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import event, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..constants import ErrorCode, OwnerType, SourceType
@@ -38,6 +41,32 @@ from ..models import (
     InterfaceGroupOpenPort, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine,
 )
 from ..registry import DISPLAY_NAMES
+
+logger = logging.getLogger(__name__)
+
+# Имя уникального индекса слота стойки (миграция b5d2f8a1c673, models.PhysicalDevice.__table_args__).
+RACK_SLOT_INDEX = "uq_device_rack_slot"
+
+
+def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPException:
+    """409 для нарушения ограничения БД БЕЗ текста исходной ошибки.
+
+    Раньше клиенту уходило `str(exc.orig)[:300]` — имена таблиц, колонок и ограничений (код-ревью, п. 8).
+    Теперь детали пишутся только в лог сервера, а клиент получает общий код INTEGRITY_ERROR. Исключение —
+    гонка за слот в стойке: два параллельных запроса прошли проверку «слот свободен», а второй упёрся в
+    уникальный индекс; это ожидаемый исход, и для него есть понятный код RACK_POSITION_OCCUPIED.
+
+    Вызывающий сам откатывает сессию; функция только строит исключение (`raise ... from exc`).
+    """
+    detail_text = str(exc.orig)
+    logger.warning("Нарушение целостности данных в ресурсе %s: %s", resource, detail_text)
+    lowered = detail_text.lower()
+    if RACK_SLOT_INDEX in lowered or ("rack_position" in lowered and "unique" in lowered):
+        return HTTPException(409, detail={
+            "code": ErrorCode.RACK_POSITION_OCCUPIED,
+            "message": "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой пользователь). Обновите данные и повторите.",
+        })
+    return HTTPException(409, detail={"code": ErrorCode.INTEGRITY_ERROR, "message": "Нарушение целостности данных: операция противоречит существующим записям."})
 
 # resource_key (см. registry.MODEL_MAP) → значение InformationSystemSource.source_type, которое
 # соответствует этому типу владельца (source_type играет роль owner_type).

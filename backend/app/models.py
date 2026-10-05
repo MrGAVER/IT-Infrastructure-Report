@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -161,8 +161,18 @@ class EmbeddedOperatingSystem(TimestampMixin, Base):
     vendor: Mapped[Optional[str]] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+_RACK_SLOT_FILLED = "rack_id IS NOT NULL AND rack_position IS NOT NULL AND rack_position <> ''"
+
 class PhysicalDevice(TimestampMixin, Base):
     __tablename__ = "physical_devices"
+    # Слот в стойке (стойка + позиция) занимает не более одного устройства. Раньше это проверялось только
+    # кодом «проверил, потом записал», и два параллельных запроса создали бы два устройства в одном слоте.
+    # Индекс частичный: устройства без стойки или без позиции ограничением не затрагиваются (миграция
+    # b5d2f8a1c673). Переназначение занятого слота делает services/crud.py:_release_rack_slot.
+    __table_args__ = (
+        Index("uq_device_rack_slot", "rack_id", "rack_position", unique=True,
+              sqlite_where=text(_RACK_SLOT_FILLED), postgresql_where=text(_RACK_SLOT_FILLED)),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
     manufacturer_id: Mapped[Optional[str]] = mapped_column(ForeignKey("manufacturers.id"), index=True)
