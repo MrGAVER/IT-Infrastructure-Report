@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -160,6 +160,74 @@ class ChangePasswordRequest(BaseModel):
 class AuthSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     enabled: bool
+
+
+# --- Тела запросов синхронизации и массовых операций (код-ревью п. 8) -------------------------
+# Эти эндпоинты принимали `payload: dict`: опечатка в имени поля («interfases») молча давала пустой
+# список и УДАЛЯЛА все записи, а OpenAPI-документация была пустой. Теперь верхний уровень тела — схема
+# с extra="forbid": неизвестный ключ и неверный тип поля дают понятный 422 на входе. Элементы списков
+# (порты, VLAN, ПО…) остаются словарями: их разбор и доменные правила живут в сервисах (services/crud.py,
+# services/interface_connections.py), и дублировать их в схемах — значит держать два источника истины.
+# Роутеры передают сервисам `model_dump(exclude_unset=True)`: ключ, которого клиент не присылал
+# (например, groups у PUT /devices/{id}/interfaces — «группы не трогать»), остаётся отсутствующим, а
+# не превращается в значение по умолчанию.
+
+class _StrictBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DeviceInterfacesSync(_StrictBody):
+    """PUT /devices/{id}/interfaces — полный список портов; groups — полный список групп (без ключа группы не трогаются)."""
+    interfaces: list[dict[str, Any]] = []
+    groups: Optional[list[dict[str, Any]]] = None
+
+
+class DeviceVlansSync(_StrictBody):
+    """PUT /devices/{id}/vlans — полный список VLAN устройства."""
+    vlans: list[dict[str, Any]] = []
+
+
+class DeployedSoftwareSync(_StrictBody):
+    """PUT /devices/{id}/deployed-software и /vms/{id}/deployed-software — полный список ПО."""
+    deployed_software: list[dict[str, Any]] = []
+
+
+class VMOpenPortsSync(_StrictBody):
+    """PUT /vms/{id}/open-ports — полный список открытых портов ВМ."""
+    open_ports: list[dict[str, Any]] = []
+
+
+class VMIPAddressesSync(_StrictBody):
+    """PUT /vms/{id}/ip-addresses — полный список IP-адресов ВМ."""
+    ip_addresses: list[dict[str, Any]] = []
+
+
+class VlanCopyRequest(_StrictBody):
+    """POST /devices/{id}/vlan-copy — откуда копировать VLAN."""
+    source_device_id: Optional[str] = None
+
+
+class BulkVlanAssignRequest(_StrictBody):
+    """POST /device-vlans/bulk-assign — один VLAN нескольким устройствам."""
+    physical_device_ids: list[str] = []
+    vlan_id: Optional[str] = None
+    description: Optional[str] = None
+
+
+class VLANDomainMemberRequest(_StrictBody):
+    """POST /vlan-domains/{id}/members — добавить устройство в домен."""
+    physical_device_id: Optional[str] = None
+
+
+class VLANDomainSyncRequest(_StrictBody):
+    """POST /vlan-domains/{id}/sync — replace=true убирает у участников VLAN домена, которых нет у источника."""
+    replace: bool = False
+
+
+class DeviceStackMemberRequest(_StrictBody):
+    """POST /device-stacks/{id}/members — добавить устройство в стек."""
+    physical_device_id: Optional[str] = None
+    position: int = Field(default=1, ge=1)
 
 
 # Ресурс (ключ registry.MODEL_MAP) -> (схема для create, схема для update).

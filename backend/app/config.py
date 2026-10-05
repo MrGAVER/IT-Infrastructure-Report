@@ -14,7 +14,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_regi
 # Основной UI — собранный Vue-фронтенд (frontend-vue/dist), см. frontend-vue/README.md.
 # Каталог появляется только после `npm run build` в frontend-vue — локально при разработке
 # из исходников (без сборки) GET '/' отдаст понятную 500-ошибку с указанием отсутствующего
-# файла (см. api/system.py:frontend_index), а не тихо упадёт. В Docker/PyInstaller-сборке
+# файла (см. main.py:spa_fallback), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
 APP_VERSION = '2.112.0'
