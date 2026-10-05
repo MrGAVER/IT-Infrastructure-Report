@@ -18,7 +18,18 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-infra}:${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в .env (см. .env.example)}@db:5432/${POSTGRES_DB:-infra_registry}
-      INFRA_REGISTRY_CORS_ORIGINS: ${INFRA_REGISTRY_CORS_ORIGINS:-*}
+      # CORS по умолчанию выключен (интерфейс отдаётся с того же origin) — список нужен только для
+      # отдельного фронтенда, см. README, раздел «Безопасность по умолчанию».
+      INFRA_REGISTRY_CORS_ORIGINS: ${INFRA_REGISTRY_CORS_ORIGINS:-}
+      # '*' — не проверять заголовок Host: так обновление не ломает доступ по IP/имени сервера. Для
+      # защиты от DNS-rebinding перечислите реальные имена: INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local,10.0.0.5
+      INFRA_REGISTRY_ALLOWED_HOSTS: ${INFRA_REGISTRY_ALLOWED_HOSTS:-*}
+      # Токен первичной настройки аутентификации: из Docker адрес клиента не localhost, и без токена
+      # заводить пользователей и включать аутентификацию через интерфейс нельзя (заголовок X-Setup-Token).
+      INFRA_REGISTRY_SETUP_TOKEN: ${INFRA_REGISTRY_SETUP_TOKEN:-}
+      # Адреса прокси, которым доверяет uvicorn при определении IP клиента (X-Forwarded-For) — нужно
+      # за обратным прокси, иначе в журнале аудита и сессиях будет адрес самого прокси.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
       - "8000:8000"
     depends_on:

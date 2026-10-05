@@ -14,6 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from defusedxml import ElementTree as SafeET
 from fastapi import HTTPException
 
 from ..models import DeviceCategory, DeviceModel, DeviceType, DiagramIcon, Manufacturer, PhysicalDevice
@@ -90,37 +91,86 @@ SHAPE_GLYPHS: dict[str, str] = {
 SHAPE_GLYPHS["switch"] = SHAPE_GLYPHS["switch_l2"]
 GLYPH_VIEWBOX = (24, 24)  # ширина, высота системы координат SHAPE_GLYPHS-разметки
 
-# Код-ревью п.3.1 (критичная уязвимость): DiagramIcon.svg_markup попадает без изменений и в
-# экспортируемый .svg (services/diagram_export.py), и во фронтенд через v-html
-# (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
-# <foreignObject> (может содержать произвольный HTML) и обработчики событий (onload, onerror и
-# т.п.) выполняются в браузере при рендеринге. Пользователь с правом на управление каталогом
-# иконок мог бы разместить payload, который выполнится в браузере ЛЮБОГО, кто откроет диаграмму
-# — включая администратора — и похитить токен сессии из localStorage.
+# DiagramIcon.svg_markup попадает и в экспортируемый .svg (services/diagram_export.py), и во фронтенд
+# через v-html (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
+# <foreignObject> (произвольный HTML), обработчики событий (onload, onerror…), анимация атрибутов
+# (<set>/<animate> подставляют javascript:-ссылку) и внешние ссылки выполняются или грузятся в браузере
+# при рендеринге. Пользователь с правом на каталог иконок мог бы разместить payload, который сработает у
+# ЛЮБОГО, кто откроет диаграмму, и похитит токен сессии из localStorage.
 #
-# Это allow-list по СИМПТОМАМ (запрещённые конструкции), а не по тегам/атрибутам — сознательный
-# компромисс: полноценный allow-list тегов SVG (path/circle/rect/g/...) потребовал бы разбора
-# XML и легко ломался бы на легитимной разметке (иконки — это готовый SVG из внешних редакторов,
-# не рукописный минимальный набор фигур). Основные вектора исполнения кода в SVG перечислены
-# явно; остаётся компромисс между удобством ввода и полнотой защиты — см. README, раздел
-# «Известные ограничения».
-_FORBIDDEN_SVG_PATTERN = re.compile(
-    r"<\s*script|<\s*foreignobject|on\w+\s*=|javascript\s*:", re.IGNORECASE
-)
+# Раньше проверка была чёрным списком по регулярному выражению и обходилась (код-ревью, п. 4):
+# <s:script> с префиксом пространства имён, javascript: через HTML-сущность (&#106;avascript:), SMIL-
+# анимация href. Теперь — белый список: разметка разбирается как XML (defusedxml: DTD и сущности
+# запрещены), допускаются только перечисленные графические теги, а из атрибутов отвергаются обработчики
+# on*, любые ссылки не на элемент внутри самого документа (#id) и url(...) не на #id.
+#
+# Цена: иконки из внешних редакторов с метаданными (inkscape:/sodipodi:), <style>, <image> и <a> не
+# проходят — их нужно очистить перед загрузкой; сообщение об ошибке называет проблемный тег.
+_SVG_NS = "http://www.w3.org/2000/svg"
+_XLINK_NS = "http://www.w3.org/1999/xlink"
+_ALLOWED_SVG_TAGS = frozenset({
+    "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
+    "defs", "lineargradient", "radialgradient", "stop", "clippath", "mask", "symbol", "use",
+    "text", "tspan", "title", "desc",
+})
+_XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
+_CSS_URL = re.compile(r"url\s*\(\s*(['\"]?)\s*([^)'\"]*)", re.IGNORECASE)
+
+
+def _local_name(qualified: str) -> str:
+    return qualified.rsplit("}", 1)[-1].lower()
+
+
+def _reject(message: str) -> HTTPException:
+    return HTTPException(422, f"Недопустимое содержимое SVG: {message}")
+
+
+def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
+    name = _local_name(qualified_name)
+    lowered = value.strip().lower()
+    if name.startswith("on"):
+        raise _reject(f"обработчик событий «{name}» в теге «{tag}» запрещён")
+    if name == "href" and not lowered.startswith("#"):
+        raise _reject(f"ссылка «{name}» в теге «{tag}» может указывать только на элемент документа (#id)")
+    if "script" in lowered or "expression(" in lowered:
+        raise _reject(f"атрибут «{name}» тега «{tag}» содержит исполняемый код")
+    for _quote, target in _CSS_URL.findall(value):
+        if not target.strip().startswith("#"):
+            raise _reject(f"url() в атрибуте «{name}» тега «{tag}» может указывать только на #id")
 
 
 def validate_svg_markup(svg_markup: str | None) -> None:
-    """Бросает HTTPException(422), если svg_markup содержит конструкции, способные выполнить
-    код в браузере (см. комментарий у _FORBIDDEN_SVG_PATTERN). Вызывается при создании/
-    обновлении DiagramIcon через generic CRUD (services/crud.py:_RESOURCE_VALIDATORS) — до
+    """Бросает HTTPException(422), если svg_markup не является корректным XML или содержит что-либо
+    кроме разрешённых графических тегов и безопасных атрибутов (см. комментарий выше). Вызывается при
+    создании/обновлении DiagramIcon через generic CRUD (services/crud.py:_RESOURCE_VALIDATORS) — до
     сохранения в БД, а не только на фронтенде, где проверку легко обойти прямым запросом к API.
+
+    Принимает как полный <svg>…</svg>, так и голый фрагмент из нескольких элементов (он оборачивается
+    в корневой элемент с пространствами имён SVG и xlink).
 
     Пример вызова:
         validate_svg_markup('<svg><rect width="10" height="10"/></svg>')  # OK, не бросает
         validate_svg_markup('<svg onload="alert(1)"></svg>')  # HTTPException(422)
     """
-    if svg_markup and _FORBIDDEN_SVG_PATTERN.search(svg_markup):
-        raise HTTPException(422, "Недопустимое содержимое SVG: скрипты и обработчики событий запрещены")
+    if not svg_markup or not svg_markup.strip():
+        return
+    body = _XML_DECLARATION.sub("", svg_markup, count=1)
+    try:
+        root = SafeET.fromstring(f'<root xmlns="{_SVG_NS}" xmlns:xlink="{_XLINK_NS}">{body}</root>')
+    except Exception as exc:  # defusedxml бросает разные типы (ParseError, EntitiesForbidden, DTDForbidden…)
+        raise HTTPException(422, "Недопустимое содержимое SVG: разметка не является корректным XML без DTD и сущностей") from exc
+
+    for element in root.iter():
+        if element is root:
+            continue
+        if not isinstance(element.tag, str):  # комментарии и инструкции обработки
+            continue
+        namespace = element.tag[1:].split("}", 1)[0] if element.tag.startswith("{") else ""
+        tag = _local_name(element.tag)
+        if namespace != _SVG_NS or tag not in _ALLOWED_SVG_TAGS:
+            raise _reject(f"тег «{tag}» не разрешён")
+        for attribute, value in element.attrib.items():
+            _check_attribute(tag, attribute, value)
 
 
 @dataclass(frozen=True)

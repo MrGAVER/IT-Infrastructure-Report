@@ -232,7 +232,8 @@ def _custom_icon_tile_svg(standalone_svg: str) -> str:
     корневом уровне читает локальные файлы по <image href=\"/абсолютный/путь\"> (содержимое попало
     бы в PNG для .vsdx), а во вложенном SVG-изображении внешние ресурсы не загружаются. Браузеры и
     draw.io обрабатывают такой data URI как изображение — без скриптов и без внешних запросов.
-    Проверка _FORBIDDEN_SVG_PATTERN (diagram_icons.py) этого класса атак не покрывает вовсе.
+    Проверка validate_svg_markup (diagram_icons.py) этого класса атак не ловит: это легитимный элемент SVG, поэтому
+    вложенность в data URI — единственная защита именно от него.
     """
     width, height, radius, pad = NODE_WIDTH, CUSTOM_ICON_TILE_HEIGHT, CUSTOM_ICON_TILE_RADIUS, CUSTOM_ICON_TILE_PADDING
     encoded = base64.b64encode(standalone_svg.encode("utf-8")).decode("ascii")
@@ -302,8 +303,17 @@ def _svg_node(node: dict, x: float, y: float) -> str:
 
     icon = node["icon"]
     parts = [f'<g class="diagram-node" data-node-id="{_esc(node["id"])}">']
-    if icon.get("mode") == "custom" and icon.get("svg_markup"):
-        parts.append(f'<g transform="translate({x},{y})">{icon["svg_markup"]}</g>')
+    custom_svg = _standalone_custom_svg(icon)
+    if custom_svg:
+        # Пользовательская разметка попадает в документ ТОЛЬКО как вложенное изображение (data URI), а не
+        # как есть: так же, как в .drawio и .vsdx. Браузер обрабатывает такое изображение без скриптов и
+        # без внешних запросов, поэтому открытый в браузере .svg не выполняет код из каталога иконок
+        # (код-ревью, п. 4, остаточный риск .svg-экспорта).
+        encoded = base64.b64encode(custom_svg.encode("utf-8")).decode("ascii")
+        parts.append(
+            f'<image x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" preserveAspectRatio="xMidYMid meet" '
+            f'xlink:href="data:image/svg+xml;base64,{encoded}"/>'
+        )
     else:
         color = icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
         parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{color}" stroke="#333333" stroke-width="1.5"/>')
@@ -379,7 +389,7 @@ def export_svg(graph: dict) -> str:
     max_y = max((n["y"] for n in graph["nodes"]), default=0) + NODE_HEIGHT + 40
     body = "".join(edges_svg) + "".join(nodes_svg)
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {max_x} {max_y}" width="{max_x}" height="{max_y}">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 {max_x} {max_y}" width="{max_x}" height="{max_y}">'
         f'<rect width="100%" height="100%" fill="#ffffff"/>{body}</svg>'
     )
 

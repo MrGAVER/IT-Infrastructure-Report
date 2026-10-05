@@ -669,6 +669,13 @@ class AuditLog(TimestampMixin, Base):
     entity_id: Mapped[str] = mapped_column(String(36))
     action: Mapped[str] = mapped_column(String(50))
     details: Mapped[Optional[str]] = mapped_column(Text)
+    # Кто совершил действие (см. services/actor_context.py). actor_id — без внешнего ключа: журнал —
+    # офлайн-архив, и запись должна пережить удаление учётной записи; поэтому же рядом хранится
+    # actor_username. Все три поля пусты у записей, сделанных до появления этих колонок, и у действий
+    # без аутентификации (actor_ip при этом известен).
+    actor_id: Mapped[Optional[str]] = mapped_column(String(36))
+    actor_username: Mapped[Optional[str]] = mapped_column(String(150))
+    actor_ip: Mapped[Optional[str]] = mapped_column(String(64))
 
 class User(TimestampMixin, Base):
     """Учётная запись приложения. Существует независимо от AuthSettings.enabled — учётные записи

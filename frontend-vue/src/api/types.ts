@@ -843,8 +843,9 @@ export interface VLANDashboardResponse {
   items: VLANDashboardGroup[]
 }
 
-/** Запись журнала аудита (GET /api/v1/audit-log). Приложение пока без auth (см. README проекта),
- * поэтому "кто сделал" в записи нет — только что/когда/как. */
+/** Запись журнала аудита (GET /api/v1/audit-log). Автор действия — actor_*: имя пользователя известно,
+ * только если аутентификация была включена; адрес клиента — всегда, кроме записей, сделанных до
+ * появления этих полей (у них все три равны null). */
 export interface AuditLogEntry {
   id: string
   entity_type: string
@@ -852,6 +853,9 @@ export interface AuditLogEntry {
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SYNC' | string
   details: string | null
   created_at: string
+  actor_id: string | null
+  actor_username: string | null
+  actor_ip: string | null
 }
 
 // --- Правила автоматического согласования данных порта (backend/app/services/port_sync_rules.py) ---

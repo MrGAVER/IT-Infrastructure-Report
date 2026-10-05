@@ -126,11 +126,16 @@ def test_export_svg_handles_empty_graph():
     assert root.tag.endswith("svg")
 
 
-def test_export_svg_custom_icon_embeds_svg_markup_verbatim():
+def test_export_svg_custom_icon_is_embedded_as_a_nested_image():
+    """Код-ревью п. 4: разметка иконки не вставляется в документ как есть, а кладётся вложенным
+    изображением (data URI) — содержимое при этом сохраняется целиком (см. также test_code_review_security)."""
     graph = _sample_graph()
     graph["nodes"][0]["icon"] = {"mode": "custom", "svg_markup": '<circle r="5" class="custom-mark"/>'}
     svg = export_svg(graph)
-    assert "custom-mark" in svg
+    ET.fromstring(svg)  # документ остаётся корректным XML
+    match = re.search(r'href="data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)"', svg)
+    assert match and "custom-mark" in base64.b64decode(match.group(1)).decode("utf-8")
+    assert 'class="custom-mark"' not in svg
 
 
 def test_export_svg_renders_category_glyph_path_from_descriptor():

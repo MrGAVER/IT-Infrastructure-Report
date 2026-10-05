@@ -25,6 +25,9 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 # Keeps generated reports (see TestReports in test_api.py) out of the real project
 # directory/reports folder — app.config.REPORT_DIR defaults to <project>/reports otherwise.
 os.environ.setdefault("INFRA_REGISTRY_DATA_DIR", tempfile.mkdtemp(prefix="infra_registry_tests_"))
+# TrustedHostMiddleware (app/main.py) по умолчанию пускает только localhost/127.0.0.1, а TestClient ходит на
+# Host: testserver — разрешаем его явно, как оператор разрешил бы своё имя хоста.
+os.environ.setdefault("INFRA_REGISTRY_ALLOWED_HOSTS", "testserver,localhost,127.0.0.1")
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -85,9 +88,20 @@ def sql_log(db_session):
         event.remove(engine, "before_cursor_execute", _before_cursor_execute)
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_throttle():
+    """Троттлинг входа (services/login_throttle.py) держит состояние в памяти процесса — без сброса
+    неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один)."""
+    from app.services import auth as auth_module
+
+    auth_module.login_throttle.clear()
+    yield
+    auth_module.login_throttle.clear()
+
+
 @pytest.fixture()
-def client(db_session, monkeypatch):
-    """TestClient с app.db.get_db, подменённым на фикстурную сессию/движок выше, чтобы
+def client_factory(db_session, monkeypatch):
+    """Фабрика TestClient с app.db.get_db, подменённым на фикстурную сессию/движок выше, чтобы
     тесты не трогали настоящий infra_registry.db и не зависели друг от друга по данным.
 
     app.main.lifespan() вызывает seed_defaults() через собственный SessionLocal(), а не через
@@ -97,7 +111,11 @@ def client(db_session, monkeypatch):
     app.services.auth.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
     FastAPI Depends, поэтому dependency_overrides её не касается; она открывает сессии через
     app.db.SessionLocal() (см. комментарий в services/auth.py про `from X import Y`), которую
-    подменяем здесь же на ту же тестовую фабрику."""
+    подменяем здесь же на ту же тестовую фабрику.
+
+    Адрес клиента задаётся параметром: первичная настройка аутентификации (см.
+    services/auth.require_admin) доступна только с localhost, поэтому по умолчанию — 127.0.0.1, а
+    тесты «удалённого» доступа просят другой адрес."""
     from fastapi.testclient import TestClient
 
     from app import db as app_db
@@ -112,8 +130,22 @@ def client(db_session, monkeypatch):
         yield db_session
 
     app_main.app.dependency_overrides[get_db] = _override_get_db
+    opened: list = []
+
+    def _make(client_host: str = "127.0.0.1"):
+        test_client = TestClient(app_main.app, client=(client_host, 50000))
+        test_client.__enter__()
+        opened.append(test_client)
+        return test_client
+
     try:
-        with TestClient(app_main.app) as c:
-            yield c
+        yield _make
     finally:
+        for test_client in reversed(opened):
+            test_client.__exit__(None, None, None)
         app_main.app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture()
+def client(client_factory):
+    return client_factory()

@@ -33,6 +33,30 @@ export function setStoredToken(token: string | null): void {
   }
 }
 
+// --- Токен первичной настройки (INFRA_REGISTRY_SETUP_TOKEN на сервере) --------------------------
+// Пока аутентификация выключена, создавать пользователей и включать её можно только с localhost либо
+// с этим токеном в заголовке X-Setup-Token (backend/app/services/auth.py:require_setup_access). Нужен
+// он только при удалённой настройке (Docker, обратный прокси). sessionStorage, а не localStorage:
+// токен установки одноразовый по смыслу и не должен переживать закрытие вкладки.
+const SETUP_TOKEN_STORAGE_KEY = 'itr:setup-token'
+
+export function getStoredSetupToken(): string | null {
+  try {
+    return sessionStorage.getItem(SETUP_TOKEN_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setStoredSetupToken(token: string | null): void {
+  try {
+    if (token) sessionStorage.setItem(SETUP_TOKEN_STORAGE_KEY, token)
+    else sessionStorage.removeItem(SETUP_TOKEN_STORAGE_KEY)
+  } catch {
+    /* см. getStoredToken */
+  }
+}
+
 /** Событие на 401 от бэкенда: токен истёк/отозван (logout на другой вкладке, смена пароля
  * администратором и т.п.). authStore слушает его в main.ts, а не наоборот (stores/auth.ts не
  * импортируется отсюда), чтобы не заводить цикл client.ts -> stores/auth.ts -> client.ts. */
@@ -56,6 +80,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getStoredToken()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
+  // Токен установки уходит только на /auth/*: остальным эндпоинтам он ни к чему.
+  const setupToken = path.startsWith('/auth/') ? getStoredSetupToken() : null
+  if (setupToken) headers['X-Setup-Token'] = setupToken
 
   const res = await fetch(`${API_BASE}${path}`, { headers, ...init })
   if (!res.ok) {

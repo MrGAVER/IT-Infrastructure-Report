@@ -269,3 +269,23 @@ describe('AuditLogView.vue — загрузка и ошибки', () => {
     expect(rows(wrapper)).toHaveLength(0)
   })
 })
+
+describe('AuditLogView.vue — автор действия', () => {
+  it('показывает пользователя в отдельной колонке, адрес — во всплывающей подсказке', async () => {
+    const wrapper = await mountView(10)
+
+    expect(wrapper.findAll('thead th').map((th) => th.text())).toContain('Пользователь')
+    const cells = wrapper.findAll('tbody td.actor-cell')
+    expect(cells).toHaveLength(10)
+    expect(cells[1].text()).toBe('admin')
+    expect(cells[1].attributes('title')).toBe('IP-адрес: 10.0.0.7')
+  })
+
+  it('у записи без автора (сделана до появления колонки) вместо имени — прочерк', async () => {
+    const wrapper = await mountView(10)
+
+    const first = wrapper.findAll('tbody td.actor-cell')[0]
+    expect(first.text()).toBe('—')
+    expect(first.attributes('title')).toBeUndefined()
+  })
+})
