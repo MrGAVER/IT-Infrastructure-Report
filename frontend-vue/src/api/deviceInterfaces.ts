@@ -105,6 +105,7 @@ function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
 
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { duplicatePortNumbers } from '../utils/openPorts'
+import { connectionPayload, type ConnectionBaseline } from '../utils/interfaceConnections'
 
 /** У каждого интерфейса должно быть имя — бэкенд это тоже проверит (422), но лучше показать
  * понятную ошибку до запроса, чем ждать round-trip. UI (DeviceInterfacesEditor.vue) не даёт
@@ -153,6 +154,12 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[], portCatalo
  * видеть старые данные до перезагрузки страницы. Забыли сделать это в DeviceFormModal.vue —
  * фикс п.3.1; DevicePortsModal.vue делал это с самого начала, см. её submit().
  *
+ * connectionBaseline — снимок подключений портов на момент загрузки формы (utils/interfaceConnections.ts:
+ * snapshotConnections); передаётся ТОЛЬКО вызывающей стороной, которая их редактирует (как groups). Тогда
+ * в ключе `connection` каждого порта уходит лишь изменённое подключение (объект — создать/обновить, null —
+ * отключить), а у нетронутых портов ключа нет — сервер их подключения не трогает. Новый порт (без id) с
+ * подключением тоже отправляется: сервер создаёт его в той же транзакции, что и сам порт.
+ *
  * @example
  * const { items } = await persistDeviceInterfaces('dev-123', rows)
  * catalogs.replaceDeviceInterfaces('dev-123', items)
@@ -161,6 +168,7 @@ export async function persistDeviceInterfaces(
   deviceId: string,
   rows: InterfaceDraftRow[],
   groups?: InterfaceGroupDraft[],
+  connectionBaseline?: ConnectionBaseline,
 ): Promise<{ items: DeviceInterface[]; groups: InterfaceGroup[] }> {
   return api.put<{ items: DeviceInterface[]; groups: InterfaceGroup[] }>(`/devices/${deviceId}/interfaces`, {
     // Группы портов: groups передаётся ТОЛЬКО вызывающей стороной, которая их редактирует, и тогда
@@ -190,6 +198,7 @@ export async function persistDeviceInterfaces(
     interfaces: rows.map((row) => ({
       id: row.id,
       ...(groups ? { group_key: row.group_key || null } : {}),
+      ...connectionEntry(row, connectionBaseline),
       name: row.name.trim(),
       interface_type_id: row.interface_type_id || null,
       mac_address: row.mac_address || null,
@@ -223,4 +232,11 @@ export async function persistDeviceInterfaces(
         })),
     })),
   })
+}
+
+/** Ключ `connection` элемента payload: пусто, если подключения не редактируются или порт не менялся. */
+function connectionEntry(row: InterfaceDraftRow, baseline?: ConnectionBaseline): { connection?: ReturnType<typeof connectionPayload> } {
+  if (!baseline) return {}
+  const value = connectionPayload(row, baseline)
+  return value === undefined ? {} : { connection: value }
 }

@@ -32,6 +32,7 @@
 import { computed, ref } from 'vue'
 import { updateResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useDevicesStore } from '../stores/devices'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -45,6 +46,7 @@ import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import InterfaceGroupsPanel from './InterfaceGroupsPanel.vue'
+import InterfaceConnectionEditor from './InterfaceConnectionEditor.vue'
 import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
 
 const props = withDefaults(
@@ -68,12 +70,17 @@ const props = withDefaults(
     // («Применить текущую конфигурацию»): порты и группы этого устройства сервер не пишет, а отдаёт
     // в плане как изменения черновика формы (см. utils/vlanModeCascade.ts).
     deviceId?: string | null
+    // Показывать блок «Подключение» в раскрытой строке порта. Включает только вызывающая сторона,
+    // которая сохраняет подключения вместе с портами (форма устройства): окно «Управлять портами»
+    // (DevicePortsModal.vue) их не сохраняет, и кнопка «Подключить» там ничего бы не делала.
+    editConnections?: boolean
   }>(),
-  { conflicts: () => ({}), protocolPortCatalog: () => [], groups: () => [], deviceId: null },
+  { conflicts: () => ({}), protocolPortCatalog: () => [], groups: () => [], deviceId: null, editConnections: false },
 )
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]]; 'update:groups': [groups: InterfaceGroupDraft[]] }>()
 const { notify, notifyError } = useToast()
 const catalogs = useCatalogsStore()
+const devicesStore = useDevicesStore()
 
 // Поля генератора — черновой ввод формы, не часть modelValue (как if-count/if-name-template в
 // vanilla). Начальное количество подставляется от уже загруженных интерфейсов один раз при
@@ -163,6 +170,25 @@ const duplicatePortsByRow = computed(() => props.modelValue.map((row) => duplica
 
 function duplicatePortsText(index: number): string {
   return `Повторяются номера открытых портов: ${duplicatePortsByRow.value[index].join(', ')}`
+}
+
+// Подключение порта (блок «Подключение», InterfaceConnectionEditor.vue): порты соседей, уже выбранные в
+// ДРУГИХ строках, — чтобы один порт соседа нельзя было выбрать дважды, — и краткая подпись для свёрнутой строки.
+function takenPeerIds(index: number): Set<string> {
+  const ids = new Set<string>()
+  props.modelValue.forEach((r, j) => {
+    if (j !== index && r.connection?.peer_interface_id) ids.add(r.connection.peer_interface_id)
+  })
+  return ids
+}
+
+function connectionSummary(row: InterfaceDraftRow): string {
+  const draft = row.connection
+  if (!draft) return ''
+  if (!draft.peer_interface_id) return '↔ порт не выбран'
+  const peerPort = ((catalogs.items['interfaces'] ?? []) as unknown as { id: string; name: string }[]).find((i) => i.id === draft.peer_interface_id)
+  const peerDevice = devicesStore.all.find((d) => d.id === draft.peer_device_id)
+  return `↔ ${peerDevice ? peerDevice.system_name || peerDevice.serial_number : '?'} · ${peerPort?.name ?? '?'}`
 }
 
 function rowConflict(row: InterfaceDraftRow): PortConflictInfo | undefined {
@@ -829,7 +855,7 @@ function applyBulkEdit() {
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
                   <svg v-if="duplicatePortsByRow[i]?.length" class="icon conflict-icon ports-dup-icon" :aria-label="duplicatePortsText(i)" :title="duplicatePortsText(i)"><use href="/icons.svg#i-alert" /></svg>
                   <svg v-if="rowConflict(row)?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
-                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
+                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="row.connection"> · {{ connectionSummary(row) }}</template><template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
                 </button>
               </td>
@@ -951,6 +977,17 @@ function applyBulkEdit() {
                       </button>
                     </div>
                   </div>
+
+                  <!-- Подключение порта к порту другого устройства: создаётся здесь же, при
+                       создании/редактировании устройства, и сохраняется тем же PUT, что и порты. -->
+                  <InterfaceConnectionEditor
+                    v-if="editConnections"
+                    :model-value="row.connection ?? null"
+                    :device-id="deviceId"
+                    :config="{ is_management: row.is_management, is_data_transfer: row.is_data_transfer, vlan_mode: row.vlan_mode }"
+                    :taken-peer-ids="takenPeerIds(i)"
+                    @update:model-value="(v) => updateRow(i, { connection: v })"
+                  />
 
                   <!-- Фикс п.1.4 (батч4): "Открытые порты" — теперь блок КОНКРЕТНОГО интерфейса
                        (был один общий на всё устройство в DeviceFormModal.vue), плюс копирование

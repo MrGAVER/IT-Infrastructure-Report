@@ -16,6 +16,7 @@ from .serialization import enrich_devices, enrich_interface_groups, enrich_inter
 from .actor_context import Actor, current_actor
 from .diagram_icons import validate_svg_markup
 from .integrity import format_referenced_message, source_reference_refs
+from .interface_connections import assert_interfaces_not_connected, sync_interface_connections
 from .validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization, validate_unique_open_port_numbers
 
 def model_for(resource: str):
@@ -885,6 +886,9 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     allowed_type = set(session.scalars(select(DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id == device.device_type_id)).all())
     allowed_device = set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == device.id)).all())
     allowed_vlans = allowed_type | allowed_device
+    # Подключения портов (необязательный ключ connection в элементе interfaces, см.
+    # services/interface_connections.py): применяются после записи всех портов — у новых уже есть id.
+    connection_requests: list[tuple[DeviceInterface, Any]] = []
     try:
         group_states = _sync_interface_groups(device_id, groups_payload, allowed_vlans, session) if manage_groups else {}
         for item in items:
@@ -901,6 +905,9 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             # Параметры группы применяются ПОСЛЕ значений из payload и перекрывают их: группа —
             # источник истины для заданных ею параметров, что бы ни прислал клиент.
             if group_state: _apply_group_to_interface(obj, group_state, session)
+            if 'connection' in item: connection_requests.append((obj, item['connection']))
+        stale = [obj for obj in existing if obj.id not in incoming_ids]
+        assert_interfaces_not_connected(stale, session)
         for obj in existing:
             if obj.id not in incoming_ids:
                 session.execute(delete(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == obj.id))
@@ -910,9 +917,10 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
                 session.delete(obj)
         session.flush()
         if manage_groups: _delete_stale_groups(device_id, {state.obj.id for state in group_states.values()}, session)
+        connections_changed = sync_interface_connections(connection_requests, session) if connection_requests else 0
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces: session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).values(is_management=bool(iface.is_management)))
-        audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}' + (f', групп: {len(groups_payload)}' if manage_groups else '')); session.commit()
+        audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}' + (f', групп: {len(groups_payload)}' if manage_groups else '') + (f', подключений изменено: {connections_changed}' if connections_changed else '')); session.commit()
         result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name)).all()
         return {'groups': list_interface_groups(device_id, session), 'items': [{
             **serialize(iface),

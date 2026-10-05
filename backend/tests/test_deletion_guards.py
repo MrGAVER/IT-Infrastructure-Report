@@ -106,6 +106,11 @@ ALLOWED_DELETIONS = {
     ("app/services/crud.py", "_sync_source_ip_addresses", "old_ip"),
     ("app/services/crud.py", "_sync_information_system_sources", "IPAddress"),
     ("app/services/crud.py", "_sync_information_system_sources", "obj"),
+    # подключение порта, снятое в форме устройства («Отключить», services/interface_connections.py):
+    # Connection — листовая запись, на неё не ссылается ни FK, ни полиморфная связь (это держит тест
+    # test_interface_connections.py::test_connection_has_no_incoming_references), поэтому assert_deletable()
+    # нечего проверять — как и в generic delete_resource('connections'); аудит пишется там же
+    ("app/services/interface_connections.py", "sync_interface_connections", "conn"),
 }
 
 # Модели, на которые ссылаются связи без FK: Core-удаление delete(<Модель>) запрещено везде —
