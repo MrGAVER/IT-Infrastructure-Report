@@ -434,4 +434,18 @@ describe('persistDeviceInterfaces: подключения портов (ключ
     expect(sent[0]).not.toHaveProperty('connection')
     expect(sent[1].connection).toBeNull()
   })
+
+  it('сосед — другая строка формы: уходит номер её элемента в массиве interfaces (peer_row), а не ключ строки', async () => {
+    const toSecond = { ...peerDraft, peer_interface_id: '', peer_row_key: 'k-second' }
+    const sent = await sentInterfaces(
+      [
+        { ...emptyRow(), name: 'eth0', connection: toSecond },
+        { ...emptyRow(), name: 'eth1', key: 'k-second' },
+      ],
+      new Map(),
+    )
+    expect(sent[0].connection).toEqual({ peer_row: 1, connection_type_id: 'ct-1', description: 'патч-корд' })
+    expect(sent[1]).not.toHaveProperty('connection')
+    expect(sent[1]).not.toHaveProperty('key') // служебный ключ строки на сервер не уходит
+  })
 })

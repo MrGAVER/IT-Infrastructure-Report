@@ -6,7 +6,7 @@
 // кода 409-ошибки (см. backend/app/constants.py:ErrorCode) предлагают
 // подтверждение через window.confirm() и повторную отправку с флагом, вместо
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, shallowRef, watch } from 'vue'
 import { ApiError, createResource, listResource, updateResource, ErrorCode } from '../api/client'
 import { syncDeviceDeployedSoftware } from '../api/deviceDeployedSoftware'
 import { persistDeviceVlans } from '../api/deviceVlans'
@@ -33,6 +33,7 @@ import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
 import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, removeDomainVlansFromDraft } from '../utils/vlan'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig, type PortRowLike } from '../utils/portConflicts'
+import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import { attachConnectionDrafts, changedConnectionRowIds, hasConnectionChanges, snapshotConnections, validateConnectionDrafts, type ConnectionBaseline } from '../utils/interfaceConnections'
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
@@ -47,7 +48,16 @@ const devicesStore = useDevicesStore()
 const { notify } = useToast()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
-const isEdit = computed(() => props.device !== null)
+// Устройство, которое ЭТА форма уже создала, но не смогла сохранить целиком: после createResource идёт
+// несколько отдельных запросов (ПО, домены, VLAN, порты и подключения), и сбой любого из них оставляет
+// устройство в БД. Пока оно задано, повторное «Сохранить» ОБНОВЛЯЕТ его — иначе второй POST создал бы дубль
+// (или упёрся бы в уникальность серийного номера), а пользователь не смог бы исправить данные и дозаписать.
+const createdDevice = ref<Device | null>(null)
+// Домены, в которые устройство уже включено запросом этой формы: повтор после сбоя не должен отправлять
+// POST vlan-domain-devices второй раз (связь уже создана).
+const joinedDomainIds = new Set<string>()
+const existingDeviceId = computed(() => props.device?.id ?? createdDevice.value?.id ?? null)
+const isEdit = computed(() => existingDeviceId.value !== null)
 
 function emptyForm() {
   return {
@@ -95,7 +105,8 @@ let initialPortConfigs = new Map<string, PortConfig>()
 // Подключения уже сохранённых портов на момент открытия формы (блок «Подключение» в строке порта): по
 // снимку на сервер уходят только изменённые подключения (api/deviceInterfaces.ts:persistDeviceInterfaces).
 // Тоже не реактивен намеренно. У нового устройства и у копии снимок пуст.
-let initialConnections: ConnectionBaseline = new Map()
+// shallowRef: baseline целиком заменяется при загрузке и передаётся редактору портов (освобождаемые порты).
+const initialConnections = shallowRef<ConnectionBaseline>(new Map())
 const memberDomainIds = ref<Set<string>>(new Set())
 // Фикс п.1.3.8: домены VLAN на форме устройства — read-only список (галочки участников
 // редактируются только в VLANDomainsPanel.vue, см. комментарий в DeviceVlanListEditor.vue), но
@@ -220,7 +231,7 @@ function toDeviceVlanDraftRow(x: DeviceVLAN): DeviceVlanDraftRow {
 // Фикс п.2 (копирование сущностей): источник данных для формы — либо редактируемое устройство
 // (props.device, обычный edit), либо "устройство-донор" для копирования (props.copyFrom). При
 // копировании props.device остаётся null — это по-прежнему СОЗДАНИЕ нового устройства (submit()
-// вызовет createResource, а не updateResource, см. isEdit выше), просто форма стартует не с
+// вызовет createResource, а не updateResource, см. existingDeviceId выше), просто форма стартует не с
 // чистого листа, а с данными донора. View, открывающие форму, никогда не передают оба сразу.
 const copySourceId = computed(() => props.device?.id ?? props.copyFrom?.id ?? null)
 
@@ -245,7 +256,7 @@ watch(
     pendingSourceDomainIds.value = new Set()
     deviceTypeVlanIds.value = new Set()
     initialPortConfigs = new Map()
-    initialConnections = new Map()
+    initialConnections.value = new Map()
     if (source) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = source[key as keyof Device]
@@ -266,14 +277,15 @@ watch(
     // vlansStore/connectionsStore (тем нужны данные конкретно существующего устройства).
     vlanDomainsStore.ensureLoaded()
     if (!source) {
-      // Новому устройству тоже можно сразу подключить порты: нужны список устройств-соседей и занятые порты.
+      // Новому устройству тоже можно сразу подключить порты: нужен список устройств-соседей (свободные порты
+      // выбранного соседа блок «Подключение» запрашивает у сервера сам).
       devicesStore.ensureLoaded()
       connectionsStore.ensureLoaded()
       return
     }
     loadingNested.value = true
     try {
-      const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds] = await Promise.all([
+      const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds, deviceConnections] = await Promise.all([
         listResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: source.id, limit: 1000 }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
         // помощник использует DevicePortsModal.vue (управление портами с экрана «Подключения»).
@@ -287,6 +299,10 @@ watch(
         // form.device_type_id — см. ниже) именно для того, чтобы portVlanOptions выше не
         // пересчитался с неполными данными между двумя разными по времени загрузками.
         loadDeviceTypeVlanIds(source.device_type_id),
+        // Действующие подключения портов устройства — с сервера, а не из общего списка подключений (потолок 1000
+        // записей): по ним строятся черновики подключений и снимок для отправки только изменённого. Копия
+        // устройства подключений не наследует. Ошибка здесь не глотается: без них порт выглядел бы неподключённым.
+        isCopy ? Promise.resolve([] as DeviceInterfaceConnection[]) : fetchDeviceInterfaceConnections(source.id),
         vlansStore.ensureLoaded(),
         // Фикс п.3.3 (вторая часть — "при дальнейшем редактировании данных об 'Управлении',
         // 'Передаче данных' через дашборд 'Инвентаризации устройств' также проводить такую
@@ -310,7 +326,7 @@ watch(
       // его активное подключение (utils/interfaceConnections.ts).
       interfaces.value = isCopy
         ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports), connection: null }))
-        : attachConnectionDrafts(ifaceRows, connectionsStore.all, (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
+        : attachConnectionDrafts(ifaceRows, deviceConnections)
       interfaceGroups.value = ifaceGroups
       // Копия: у нового устройства нет групп донора — группы создаются заново (без id, под новыми
       // ключами), а порты перевязываются на них.
@@ -321,7 +337,7 @@ watch(
       }
       // При копировании id стёрты — снимок пуст, а у копии всё равно нет подключений и соседей.
       initialPortConfigs = snapshotPortConfigs(interfaces.value)
-      initialConnections = snapshotConnections(interfaces.value)
+      initialConnections.value = snapshotConnections(interfaces.value)
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
@@ -580,9 +596,10 @@ function onCancelJoinDomain(domainId: string) {
 // месте, новые создаются, убранные в форме удаляются — без пересоздания всего ПО при каждом
 // сохранении. Новому устройству (создание или копия) без заполненных строк синхронизировать нечего —
 // запрос не отправляется; для существующего пустой список отправляется всегда, чтобы снять ПО,
-// убранное пользователем.
-async function persistSoftwareAssets(deviceId: string) {
-  if (!isEdit.value && !softwareAssets.value.some((row) => row.software_asset_id)) return
+// убранное пользователем. `deviceExisted` — устройство существовало до этого сохранения (редактирование
+// или повтор после сбоя): для только что созданного пустой список синхронизировать не нужно.
+async function persistSoftwareAssets(deviceId: string, deviceExisted: boolean) {
+  if (!deviceExisted && !softwareAssets.value.some((row) => row.software_asset_id)) return
   await syncDeviceDeployedSoftware(deviceId, softwareAssets.value)
 }
 
@@ -591,9 +608,12 @@ async function persistSoftwareAssets(deviceId: string) {
 // persistDeviceVlans() ниже — _validate_physical_device_vlan в backend/app/services/crud.py
 // проверяет членство устройства в домене VLAN при сохранении device-vlans и отклоняет запись
 // с 422 "Устройство не включено в домен этого VLAN", если членства ещё нет.
+// Уже созданные связи (joinedDomainIds) при повторе после сбоя пропускаются: POST — не идемпотентен.
 async function persistPendingDomainMemberships(deviceId: string) {
   for (const domainId of pendingDomainMemberships.value) {
+    if (joinedDomainIds.has(domainId)) continue
     await createResource('vlan-domain-devices', { physical_device_id: deviceId, domain_id: domainId })
+    joinedDomainIds.add(domainId)
   }
 }
 
@@ -619,7 +639,7 @@ async function submit() {
     return
   }
   const interfaceError =
-    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog) ?? validateConnectionDrafts(interfaces.value, initialConnections)
+    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog) ?? validateConnectionDrafts(interfaces.value, initialConnections.value)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return
@@ -641,8 +661,11 @@ async function submit() {
   saving.value = true
   // Меняются ли подключения портов в этом сохранении (и у каких уже сохранённых портов) — от этого
   // зависит, нужно ли после сохранения обновлять стор подключений (см. ниже).
-  const connectionsChanged = hasConnectionChanges(interfaces.value, initialConnections)
-  const changedConnectionIds = changedConnectionRowIds(interfaces.value, initialConnections)
+  const connectionsChanged = hasConnectionChanges(interfaces.value, initialConnections.value)
+  const changedConnectionIds = changedConnectionRowIds(interfaces.value, initialConnections.value)
+  // Устройство создано именно этим сохранением (а не раньше) — нужно, чтобы при сбое следующих шагов
+  // честно сказать об этом пользователю (см. catch ниже).
+  let createdByThisSubmit = false
   try {
     let extra: Record<string, unknown> | undefined
     // До трёх попыток: обычная отправка, затем до двух ре-отправок с флагами
@@ -650,10 +673,14 @@ async function submit() {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const payload = toPayload(extra)
-        const saved = isEdit.value
-          ? await updateResource<Device>('devices', props.device!.id, payload)
-          : await createResource<Device>('devices', payload)
-        await persistSoftwareAssets(saved.id)
+        // Устройство уже есть — редактирование либо повтор после сбоя (см. createdDevice): обновляем его.
+        const deviceId = existingDeviceId.value
+        const saved = deviceId ? await updateResource<Device>('devices', deviceId, payload) : await createResource<Device>('devices', payload)
+        if (!deviceId) {
+          createdDevice.value = saved
+          createdByThisSubmit = true
+        }
+        await persistSoftwareAssets(saved.id, deviceId !== null)
         await persistPendingDomainMemberships(saved.id)
         await persistPendingSourceDomains(saved.id)
         // persistDeviceVlans ДО persistDeviceInterfaces (не как раньше) — sync_interfaces на
@@ -664,7 +691,7 @@ async function submit() {
         await persistDeviceVlans(saved.id, deviceVlans.value)
         // Атомарный PUT (не через generic createResource/deleteResource) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
-        const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, interfaces.value, interfaceGroups.value, initialConnections)
+        const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, interfaces.value, interfaceGroups.value, initialConnections.value)
         // Фикс п.3.1: без этого catalogs.items['interfaces'] не узнаёт о только что
         // сохранённых портах устройства (persistDeviceInterfaces — чистый API-вызов, сам кэш
         // каталогов не трогает по дизайну, см. её комментарий), и поле "Порт" в форме
@@ -706,7 +733,15 @@ async function submit() {
       }
     }
   } catch (err) {
-    errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить устройство'
+    const reason = err instanceof Error ? err.message : 'Не удалось сохранить устройство'
+    if (createdByThisSubmit) {
+      // Устройство уже в БД, а остальное не сохранилось: говорим об этом прямо и обновляем список —
+      // родитель перезагружает его только по 'saved', а форма остаётся открытой для исправления.
+      errorMessage.value = `Устройство создано, но остальные данные сохранить не удалось: ${reason.replace(/[\s.]+$/, '')}. Исправьте данные и нажмите «Сохранить» ещё раз — устройство будет обновлено, а не создано повторно.`
+      await devicesStore.reload()
+    } else {
+      errorMessage.value = reason
+    }
   } finally {
     saving.value = false
   }
@@ -854,6 +889,7 @@ async function submit() {
           :protocol-port-catalog="catalogs.protocolPortCatalog"
           :device-id="props.device?.id ?? null"
           edit-connections
+          :connection-baseline="initialConnections"
         />
         <DeviceVlanListEditor
           v-if="!loadingNested"
