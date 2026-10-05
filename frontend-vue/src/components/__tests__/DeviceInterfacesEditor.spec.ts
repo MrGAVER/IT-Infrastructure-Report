@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceInterfacesEditor from '../DeviceInterfacesEditor.vue'
+import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
 import { groupChange, makePlan, portChange, vlanRef } from '../../utils/__tests__/cascadePlanFixture'
+import type { SelfPortCandidate } from '../../utils/interfaceConnections'
 import type { VlanModeCascadePlan } from '../../api/vlanModeCascade'
 
 const typeOptions: CatalogItem[] = [{ id: 't-eth', name: 'Ethernet' }]
@@ -1492,11 +1494,23 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
 })
 
 describe('DeviceInterfacesEditor.vue — блок «Подключение» порта', () => {
-  const connected = { peer_device_id: 'dev-b', peer_interface_id: 'b-1', connection_type_id: 'ct-1', description: '' }
+  const connected = { peer_device_id: 'dev-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+
+  // Свободные порты соседа приходят с сервера (api/deviceConnectivity.ts): здесь — порты sw-b без занятых.
+  function stubPeerPorts(ports: Array<{ id: string; name: string; occupied?: boolean }>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const include = new Set(new URLSearchParams(url.split('?')[1] ?? '').getAll('include'))
+        const items = ports.filter((p) => !p.occupied || include.has(p.id)).map((p) => ({ is_management: false, is_data_transfer: false, vlan_mode: 'access', occupied: false, ...p }))
+        return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 200 }))
+      }),
+    )
+  }
 
   function mountWith(rows: InterfaceDraftRow[], editConnections?: boolean) {
     useDevicesStore().all = [{ id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' }] as never
-    useCatalogsStore().items['interfaces'] = [{ id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'access' }] as never
+    stubPeerPorts([{ id: 'b-1', name: 'Gi0/1' }])
     return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: 'dev-1', ...(editConnections === undefined ? {} : { editConnections }) } })
   }
 
@@ -1533,7 +1547,6 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
   })
 
   it('порт соседа, выбранный в другой строке, не предлагается в этой', async () => {
-    useCatalogsStore().items['interfaces'] = [] as never
     const wrapper = mountWith(
       [
         { ...emptyRow(), id: 'if-1', name: 'eth0', connection: connected },
@@ -1541,14 +1554,140 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
       ],
       true,
     )
-    useCatalogsStore().items['interfaces'] = [
-      { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'access' },
-      { id: 'b-2', physical_device_id: 'dev-b', name: 'Gi0/2', is_management: false, is_data_transfer: false, vlan_mode: 'access' },
-    ] as never
+    stubPeerPorts([
+      { id: 'b-1', name: 'Gi0/1' },
+      { id: 'b-2', name: 'Gi0/2' },
+    ])
     await wrapper.findAll('.expand-toggle')[1].trigger('click')
+    await flushPromises() // свободные порты sw-b приходят с сервера
 
     const select = wrapper.find('.iface-detail-row .connection-peer-port .searchable-select')
     await select.find('input').trigger('focus')
     expect(select.findAll('.ss-option').map((o) => o.text())).toEqual(['Gi0/2'])
   })
 })
+
+describe('DeviceInterfacesEditor.vue — подключения между портами этого устройства и обмен соседями', () => {
+  const toRow = (key: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: '__self__', peer_interface_id: '', peer_row_key: key, connection_type_id: 'ct-1', description: '', ...extra })
+  const toPort = (id: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: 'dev-b', peer_interface_id: id, connection_type_id: 'ct-1', description: '', ...extra })
+  const row = (name: string, extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({ ...emptyRow(), name, ...extra })
+
+  function mountWith(rows: InterfaceDraftRow[], extra: Record<string, unknown> = {}) {
+    useDevicesStore().all = [{ id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' }] as never
+    useCatalogsStore().items['interfaces'] = [] as never
+    // Редактор подключения просит порты соседа у сервера; здесь это не предмет проверки — отвечаем пустой страницей.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 200 }))))
+    return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: null, editConnections: true, ...extra } })
+  }
+  const lastRows = (wrapper: ReturnType<typeof mount>) => wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]
+  async function expandAll(wrapper: ReturnType<typeof mount>, count: number) {
+    for (let i = count - 1; i >= 0; i--) await expandRow(wrapper, i)
+  }
+  const editors = (wrapper: ReturnType<typeof mount>) => wrapper.findAllComponents(InterfaceConnectionEditor)
+
+  it('«+ Интерфейс» с редактированием подключений даёт строке уникальный ключ; без — ключа нет', async () => {
+    const withKeys = mountWith([row('eth0', { key: 'k0' })])
+    // Кнопка добавления — по тексту: в панели несколько кнопок.
+    await withKeys.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click')
+    const added = lastRows(withKeys).at(-1)!
+    expect(added.key).toBeTruthy()
+    expect(added.key).not.toBe('k0')
+
+    const plain = mountWith([], { editConnections: false })
+    await plain.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click')
+    expect(lastRows(plain)[0]).not.toHaveProperty('key')
+  })
+
+  it('строки без id и без ключа (копия устройства) получают ключи сразу при показе; строки с id или ключом не трогаются', () => {
+    const wrapper = mountWith([row('a'), row('b', { key: 'kept' }), row('c', { id: 'if-3' })])
+    const rows = lastRows(wrapper)
+    expect(rows[0].key).toBeTruthy()
+    expect(rows[1].key).toBe('kept')
+    expect(rows[2]).not.toHaveProperty('key')
+  })
+
+  it('без editConnections ключи не назначаются и модель не перезаписывается', () => {
+    const wrapper = mountWith([row('a')], { editConnections: false })
+    expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+  })
+
+  it('кандидаты в соседи — другие порты устройства: без самой строки, без портов с собственным подключением и без выбранных соседом другой строкой', async () => {
+    const rows = [
+      row('eth0', { key: 'k0' }),
+      row('eth1', { key: 'k1' }),
+      row('eth2', { key: 'k2', connection: toPort('b-1') }), // у порта своё подключение
+      row('eth3', { id: 'if-4' }),
+      row('eth4', { key: 'k4' }), // его уже выбрала eth5
+      row('eth5', { key: 'k5', connection: toRow('k4') }),
+    ]
+    const wrapper = mountWith(rows)
+    await expandAll(wrapper, rows.length)
+
+    const selfPorts = (i: number) => editors(wrapper)[i].props('selfPorts') as unknown as SelfPortCandidate[]
+    // eth2 и eth5 имеют собственные подключения, eth4 уже выбрала eth5 — остаются только eth1 и eth3.
+    expect(selfPorts(0).map((c) => c.label)).toEqual(['eth1 (строка 2)', 'eth3 (строка 4)'])
+    // несохранённая строка адресуется ключом, сохранённая — id
+    expect(selfPorts(0)[0]).toMatchObject({ value: 'row:k1', rowKey: 'k1' })
+    expect(selfPorts(0)[1]).toMatchObject({ value: 'if-4', interfaceId: 'if-4' })
+    // у выбравшей строки её сосед остаётся в списке
+    expect(selfPorts(5).map((c) => c.label)).toContain('eth4 (строка 5)')
+    // а у остальных строк eth4 уже недоступен
+    expect(selfPorts(1).map((c) => c.label)).not.toContain('eth4 (строка 5)')
+  })
+
+  it('порт, уже указывающий на эту строку, в её списке не предлагается: кабель описывается с одной стороны', async () => {
+    const rows = [row('eth0', { key: 'k0', connection: toRow('k1') }), row('eth1', { key: 'k1' })]
+    const wrapper = mountWith(rows)
+    await expandAll(wrapper, 2)
+    expect((editors(wrapper)[1].props('selfPorts') as unknown as SelfPortCandidate[]).map((c) => c.label)).toEqual([])
+  })
+
+  it('удаление строки снимает ссылки на неё в подключениях других портов: сосед сбрасывается, остальное остаётся', async () => {
+    const rows = [row('eth0', { key: 'k0', connection: toRow('k1', { description: 'кабель' }) }), row('eth1', { key: 'k1' }), row('eth2', { key: 'k2', connection: toPort('b-1') })]
+    const wrapper = mountWith(rows)
+
+    await wrapper.findAll('button[aria-label="Удалить интерфейс"]')[1].trigger('click')
+
+    const next = lastRows(wrapper)
+    expect(next.map((r) => r.name)).toEqual(['eth0', 'eth2'])
+    expect(next[0].connection).toEqual({ peer_device_id: '__self__', peer_interface_id: '', connection_type_id: 'ct-1', description: 'кабель' })
+    expect(next[0].connection).not.toHaveProperty('peer_row_key')
+    expect(next[1].connection).toMatchObject({ peer_interface_id: 'b-1' }) // чужое подключение не тронуто
+  })
+
+  it('удаление сохранённой строки снимает ссылки на её id', async () => {
+    const rows = [row('eth0', { id: 'if-1', connection: toPort('if-2', { peer_device_id: 'dev-1' }) }), row('eth1', { id: 'if-2' })]
+    const wrapper = mountWith(rows)
+    await wrapper.findAll('button[aria-label="Удалить интерфейс"]')[1].trigger('click')
+    expect(lastRows(wrapper)[0].connection).toMatchObject({ peer_interface_id: '' })
+  })
+
+  it('свёрнутая строка с соседом из этой же формы подписана «↔ это устройство · имя порта»', () => {
+    const wrapper = mountWith([row('eth0', { key: 'k0', connection: toRow('k1') }), row('uplink', { key: 'k1' })])
+    expect(wrapper.findAll('.expand-toggle')[0].text()).toContain('↔ это устройство · uplink')
+  })
+
+  it('порты других устройств, освобождаемые формой, передаются редактору подключения: отключённый и переставленный порт', async () => {
+    const baseline = new Map([
+      ['if-1', toPort('b-1')],
+      ['if-2', toPort('b-2')],
+      ['if-3', toPort('b-3')],
+    ])
+    const rows = [
+      row('eth0', { id: 'if-1', connection: null }), // отключён → b-1 свободен
+      row('eth1', { id: 'if-2', connection: toPort('b-9') }), // переставлен → b-2 свободен
+      row('eth2', { id: 'if-3', connection: toPort('b-3') }), // не менялся → b-3 по-прежнему занят
+    ]
+    const wrapper = mountWith(rows, { connectionBaseline: baseline })
+    await expandAll(wrapper, 3)
+    const freed = [...(editors(wrapper)[0].props('freedPeerIds') as Set<string>)].sort()
+    expect(freed).toEqual(['b-1', 'b-2'])
+  })
+
+  it('без снимка подключений освобождаемых портов нет', async () => {
+    const wrapper = mountWith([row('eth0', { id: 'if-1', connection: null })])
+    await expandAll(wrapper, 1)
+    expect([...(editors(wrapper)[0].props('freedPeerIds') as Set<string>)]).toEqual([])
+  })
+})
+

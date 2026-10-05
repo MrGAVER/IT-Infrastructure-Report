@@ -236,3 +236,177 @@ def test_connection_has_no_incoming_references():
         if fk.column.table.name == "connections"
     )
     assert referencing == []
+
+
+# ---------------------------------------------------------------------------------------------
+# Обмен соседями в одном запросе и ссылки peer_row (порты без id, порты одного устройства)
+# ---------------------------------------------------------------------------------------------
+
+def _device_with_ports(client, serial: str, names: list[str]) -> tuple[dict, dict[str, dict]]:
+    dev = _device(client, serial)
+    assert _sync(client, dev["id"], [{"name": n} for n in names]).status_code == 200
+    return dev, _ports(client, dev["id"])
+
+
+def _by_ports(client) -> dict[frozenset, dict]:
+    return {frozenset((c["source_interface_id"], c["destination_interface_id"])): c for c in _connections(client)}
+
+
+def test_two_ports_can_swap_their_neighbours_in_one_request(client):
+    """A: eth0—g1, eth1—g2  →  eth0—g2, eth1—g1. До плана подключений это упиралось в 409: порт
+    g2 в момент проверки eth0 ещё был занят подключением eth1."""
+    _, theirs = _device_with_ports(client, "SW-SWAP", ["g1", "g2"])
+    ct = _connection_type(client)
+    dev, own = _device_with_ports(client, "SRV-SWAP", ["eth0", "eth1"])
+    assert _sync(client, dev["id"], [
+        {"id": own["eth0"]["id"], "name": "eth0", "connection": _conn(theirs["g1"], ct)},
+        {"id": own["eth1"]["id"], "name": "eth1", "connection": _conn(theirs["g2"], ct)},
+    ]).status_code == 200
+    before = {frozenset((c["source_interface_id"], c["destination_interface_id"])): c["id"] for c in _connections(client)}
+
+    r = _sync(client, dev["id"], [
+        {"id": own["eth0"]["id"], "name": "eth0", "connection": _conn(theirs["g2"], ct)},
+        {"id": own["eth1"]["id"], "name": "eth1", "connection": _conn(theirs["g1"], ct)},
+    ])
+
+    assert r.status_code == 200, r.text
+    after = _by_ports(client)
+    assert set(after) == {frozenset((own["eth0"]["id"], theirs["g2"]["id"])), frozenset((own["eth1"]["id"], theirs["g1"]["id"]))}
+    # Подключения переставлены на месте: те же записи, а не удалены и созданы заново.
+    assert {c["id"] for c in after.values()} == set(before.values())
+
+
+def test_swap_fails_with_409_when_the_other_side_is_not_part_of_the_request(client):
+    """Порт соседа занят подключением, которое этот запрос не трогает, — освобождать его нечем."""
+    _, theirs = _device_with_ports(client, "SW-NOSWAP", ["g1", "g2"])
+    ct = _connection_type(client)
+    dev, own = _device_with_ports(client, "SRV-NOSWAP", ["eth0", "eth1"])
+    _sync(client, dev["id"], [
+        {"id": own["eth0"]["id"], "name": "eth0", "connection": _conn(theirs["g1"], ct)},
+        {"id": own["eth1"]["id"], "name": "eth1", "connection": _conn(theirs["g2"], ct)},
+    ])
+
+    r = _sync(client, dev["id"], [
+        {"id": own["eth0"]["id"], "name": "eth0", "connection": _conn(theirs["g2"], ct)},
+        {"id": own["eth1"]["id"], "name": "eth1"},  # ключа connection нет — подключение eth1—g2 остаётся
+    ])
+
+    assert r.status_code == 409, r.text
+    assert frozenset((own["eth0"]["id"], theirs["g1"]["id"])) in _by_ports(client)  # откат: eth0 по-прежнему на g1
+
+
+def test_two_new_ports_of_the_same_device_are_connected_via_peer_row(client):
+    ct = _connection_type(client)
+    dev = _device(client, "SRV-LOOP")
+
+    r = _sync(client, dev["id"], [
+        {"name": "eth0", "connection": {"peer_row": 1, "connection_type_id": ct["id"], "description": "перемычка"}},
+        {"name": "eth1"},
+    ])
+
+    assert r.status_code == 200, r.text
+    ports = _ports(client, dev["id"])
+    (conn,) = _connections(client)
+    assert (conn["source_interface_id"], conn["destination_interface_id"]) == (ports["eth0"]["id"], ports["eth1"]["id"])
+    assert conn["description"] == "перемычка"
+
+
+def test_saved_port_is_connected_to_a_new_port_of_the_same_device_via_peer_row(client):
+    ct = _connection_type(client)
+    dev, own = _device_with_ports(client, "SRV-MIX", ["eth0"])
+
+    r = _sync(client, dev["id"], [
+        {"id": own["eth0"]["id"], "name": "eth0", "connection": {"peer_row": 1, "connection_type_id": ct["id"]}},
+        {"name": "eth1"},
+    ])
+
+    assert r.status_code == 200, r.text
+    (conn,) = _connections(client)
+    assert {conn["source_interface_id"], conn["destination_interface_id"]} == {own["eth0"]["id"], _ports(client, dev["id"])["eth1"]["id"]}
+
+
+def test_two_saved_ports_of_the_same_device_can_be_connected_by_id(client):
+    ct = _connection_type(client)
+    dev, own = _device_with_ports(client, "SRV-SAME", ["eth0", "eth1"])
+
+    r = _sync(client, dev["id"], [
+        {"id": own["eth0"]["id"], "name": "eth0", "connection": _conn(own["eth1"], ct)},
+        {"id": own["eth1"]["id"], "name": "eth1"},
+    ])
+
+    assert r.status_code == 200, r.text
+    assert len(_connections(client)) == 1
+
+
+def test_a_cable_described_from_both_sides_is_one_connection(client):
+    ct = _connection_type(client)
+    dev = _device(client, "SRV-BOTH")
+
+    r = _sync(client, dev["id"], [
+        {"name": "eth0", "connection": {"peer_row": 1, "connection_type_id": ct["id"]}},
+        {"name": "eth1", "connection": {"peer_row": 0, "connection_type_id": ct["id"]}},
+    ])
+
+    assert r.status_code == 200, r.text
+    assert len(_connections(client)) == 1
+
+
+def test_a_cable_described_from_both_sides_with_different_parameters_is_rejected(client):
+    twisted, fiber = _connection_type(client), _connection_type(client, "Оптическое волокно")
+    dev = _device(client, "SRV-BOTH-DIFF")
+
+    r = _sync(client, dev["id"], [
+        {"name": "eth0", "connection": {"peer_row": 1, "connection_type_id": twisted["id"]}},
+        {"name": "eth1", "connection": {"peer_row": 0, "connection_type_id": fiber["id"]}},
+    ])
+
+    assert r.status_code == 422 and "задано дважды" in r.json()["detail"], r.text
+    assert _ports(client, dev["id"]) == {} and _connections(client) == []
+
+
+def test_a_port_cannot_be_claimed_by_two_different_connections_of_one_request(client):
+    ct = _connection_type(client)
+    dev = _device(client, "SRV-CLAIM")
+
+    r = _sync(client, dev["id"], [
+        {"name": "eth0", "connection": {"peer_row": 2, "connection_type_id": ct["id"]}},
+        {"name": "eth1", "connection": {"peer_row": 2, "connection_type_id": ct["id"]}},
+        {"name": "eth2"},
+    ])
+
+    assert r.status_code == 409 and "«eth2»" in r.json()["detail"], r.text
+    assert _ports(client, dev["id"]) == {} and _connections(client) == []
+
+
+def test_invalid_peer_row_values_are_rejected(client):
+    ct = _connection_type(client)
+    peer = _peer_port(client, "SW-ROWS")
+    dev = _device(client, "SRV-ROWS")
+
+    cases = [
+        ({"peer_row": 5, "connection_type_id": ct["id"]}, "нет элемента с номером 5"),
+        ({"peer_row": -1, "connection_type_id": ct["id"]}, "неотрицательным целым"),
+        ({"peer_row": True, "connection_type_id": ct["id"]}, "неотрицательным целым"),
+        ({"peer_row": "1", "connection_type_id": ct["id"]}, "неотрицательным целым"),
+        ({"peer_row": 0, "connection_type_id": ct["id"]}, "самому себе"),
+        ({"peer_row": 1, "peer_interface_id": peer["id"], "connection_type_id": ct["id"]}, "одним из полей"),
+    ]
+    for connection, expected in cases:
+        r = _sync(client, dev["id"], [{"name": "eth0", "connection": connection}, {"name": "eth1"}])
+        assert r.status_code == 422, (connection, r.text)
+        assert expected in r.json()["detail"], (connection, r.json())
+    assert _ports(client, dev["id"]) == {} and _connections(client) == []
+
+
+def test_peer_row_pointing_at_a_busy_saved_port_still_returns_409(client):
+    ct = _connection_type(client)
+    peer = _peer_port(client, "SW-BUSY")
+    dev, own = _device_with_ports(client, "SRV-BUSY", ["eth0", "eth1"])
+    _sync(client, dev["id"], [{"id": own["eth1"]["id"], "name": "eth1", "connection": _conn(peer, ct)}, {"id": own["eth0"]["id"], "name": "eth0"}])
+
+    r = _sync(client, dev["id"], [
+        {"id": own["eth0"]["id"], "name": "eth0", "connection": {"peer_row": 1, "connection_type_id": ct["id"]}},
+        {"id": own["eth1"]["id"], "name": "eth1"},
+    ])
+
+    assert r.status_code == 409 and "уже участвует" in r.json()["detail"], r.text

@@ -29,7 +29,7 @@
 //   умолчанию для любой строки, включая только что добавленную;
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { updateResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -42,6 +42,7 @@ import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers } from '../utils/openPorts'
+import { SELF_DEVICE, connectionPointsTo, newRowKey, peerRef, rowRef, type ConnectionBaseline, type SelfPortCandidate } from '../utils/interfaceConnections'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
@@ -74,8 +75,12 @@ const props = withDefaults(
     // которая сохраняет подключения вместе с портами (форма устройства): окно «Управлять портами»
     // (DevicePortsModal.vue) их не сохраняет, и кнопка «Подключить» там ничего бы не делала.
     editConnections?: boolean
+    // Подключения портов на момент открытия формы (только вместе с editConnections): по ним видно, какие
+    // порты других устройств этой же формой освобождаются, — их можно выбрать соседом другой строки
+    // (обмен соседями между портами без промежуточного сохранения).
+    connectionBaseline?: ConnectionBaseline
   }>(),
-  { conflicts: () => ({}), protocolPortCatalog: () => [], groups: () => [], deviceId: null, editConnections: false },
+  { conflicts: () => ({}), protocolPortCatalog: () => [], groups: () => [], deviceId: null, editConnections: false, connectionBaseline: undefined },
 )
 const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]]; 'update:groups': [groups: InterfaceGroupDraft[]] }>()
 const { notify, notifyError } = useToast()
@@ -125,6 +130,8 @@ function onGroupsChange(payload: { rows: InterfaceDraftRow[]; groups: InterfaceG
 
 function emptyRow(): InterfaceDraftRow {
   return {
+    // Ключ нужен, чтобы подключение другого порта могло сослаться на строку, у которой ещё нет id.
+    ...(props.editConnections ? { key: newRowKey() } : {}),
     name: '',
     interface_type_id: '',
     mac_address: '',
@@ -177,18 +184,82 @@ function duplicatePortsText(index: number): string {
 function takenPeerIds(index: number): Set<string> {
   const ids = new Set<string>()
   props.modelValue.forEach((r, j) => {
-    if (j !== index && r.connection?.peer_interface_id) ids.add(r.connection.peer_interface_id)
+    const ref = j !== index && r.connection ? peerRef(r.connection) : ''
+    if (ref) ids.add(ref)
   })
   return ids
+}
+
+// Строка без id может стать соседом подключения другого порта этой же формы, а ссылаться на неё нужно по
+// стабильному ключу (индекс меняется при добавлении и удалении строк). Строки, созданные не в этом
+// редакторе (копия устройства), получают ключ сразу при показе.
+watch(
+  () => props.modelValue,
+  (rows) => {
+    if (!props.editConnections || rows.every((r) => r.id || r.key)) return
+    emit('update:modelValue', rows.map((r) => (r.id || r.key ? r : { ...r, key: newRowKey() })))
+  },
+  { immediate: true },
+)
+
+// Другие порты ЭТОГО устройства, доступные строке `index` в роли соседа: не она сама, не выбранные соседом
+// другой строки и не имеющие собственного подключения (порт участвует только в одном подключении, а кабель
+// между двумя портами формы описывается с одной стороны). Уже выбранный этой строкой сосед остаётся в списке.
+function selfPortCandidates(index: number): SelfPortCandidate[] {
+  const me = props.modelValue[index]
+  const taken = takenPeerIds(index)
+  return props.modelValue.flatMap((row, i): SelfPortCandidate[] => {
+    const ref = rowRef(row)
+    if (i === index || !ref) return []
+    if (!connectionPointsTo(me.connection, row) && (taken.has(ref) || row.connection)) return []
+    return [
+      {
+        value: ref,
+        label: `${row.name.trim() || 'без имени'} (строка ${i + 1})`,
+        interfaceId: row.id,
+        rowKey: row.id ? undefined : row.key,
+        config: { is_management: row.is_management, is_data_transfer: row.is_data_transfer, vlan_mode: row.vlan_mode },
+      },
+    ]
+  })
+}
+
+// Порты соседей, которые эта форма освобождает: подключение порта снято или переставлено на другой порт.
+const freedPeerIds = computed(() => {
+  const freed = new Set<string>()
+  const baseline = props.connectionBaseline
+  if (!baseline) return freed
+  for (const row of props.modelValue) {
+    const before = row.id ? baseline.get(row.id) : null
+    if (before?.peer_interface_id && row.connection?.peer_interface_id !== before.peer_interface_id) freed.add(before.peer_interface_id)
+  }
+  return freed
+})
+
+// Строки удалены: подключения других портов, ссылавшиеся на них, теряют соседа (форма потребует выбрать
+// другого или нажать «Отключить»), а не уходят на сервер с несуществующей ссылкой.
+function clearReferencesTo(rows: InterfaceDraftRow[], removed: readonly InterfaceDraftRow[]): InterfaceDraftRow[] {
+  const refs = new Set(removed.map(rowRef).filter(Boolean))
+  if (!refs.size) return rows
+  return rows.map((r) => {
+    if (!r.connection || !refs.has(peerRef(r.connection))) return r
+    const connection = { ...r.connection, peer_interface_id: '' }
+    delete connection.peer_row_key
+    return { ...r, connection }
+  })
 }
 
 function connectionSummary(row: InterfaceDraftRow): string {
   const draft = row.connection
   if (!draft) return ''
-  if (!draft.peer_interface_id) return '↔ порт не выбран'
-  const peerPort = ((catalogs.items['interfaces'] ?? []) as unknown as { id: string; name: string }[]).find((i) => i.id === draft.peer_interface_id)
+  const ref = peerRef(draft)
+  if (!ref) return '↔ порт не выбран'
+  if (draft.peer_row_key || draft.peer_device_id === (props.deviceId ?? SELF_DEVICE)) {
+    const target = props.modelValue.find((r) => rowRef(r) === ref)
+    return `↔ это устройство · ${target ? target.name.trim() || 'без имени' : '?'}`
+  }
   const peerDevice = devicesStore.all.find((d) => d.id === draft.peer_device_id)
-  return `↔ ${peerDevice ? peerDevice.system_name || peerDevice.serial_number : '?'} · ${peerPort?.name ?? '?'}`
+  return `↔ ${peerDevice ? peerDevice.system_name || peerDevice.serial_number : '?'} · ${draft.peer_interface_name ?? '?'}`
 }
 
 function rowConflict(row: InterfaceDraftRow): PortConflictInfo | undefined {
@@ -373,7 +444,7 @@ function generate() {
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
   copyTargetIndex.value = {}
-  emit('update:modelValue', rows)
+  emit('update:modelValue', clearReferencesTo(rows, props.modelValue.slice(count)))
   replaceAllPorts.value = false // одноразовая осознанная галочка — не должна оставаться взведённой "на будущее" (см. её комментарий)
 }
 
@@ -421,7 +492,10 @@ function removeRow(index: number) {
   copyTargetIndex.value = {}
   emit(
     'update:modelValue',
-    props.modelValue.filter((_, i) => i !== index),
+    clearReferencesTo(
+      props.modelValue.filter((_, i) => i !== index),
+      [props.modelValue[index]],
+    ),
   )
 }
 
@@ -986,6 +1060,8 @@ function applyBulkEdit() {
                     :device-id="deviceId"
                     :config="{ is_management: row.is_management, is_data_transfer: row.is_data_transfer, vlan_mode: row.vlan_mode }"
                     :taken-peer-ids="takenPeerIds(i)"
+                    :self-ports="selfPortCandidates(i)"
+                    :freed-peer-ids="freedPeerIds"
                     @update:model-value="(v) => updateRow(i, { connection: v })"
                   />
 

@@ -4,12 +4,18 @@ import {
   changedConnectionRowIds,
   connectionConfigDiffs,
   connectionPayload,
+  connectionPointsTo,
   hasConnectionChanges,
+  isConnectionChanged,
+  newRowKey,
+  peerRef,
+  rowRef,
   sameConnection,
   snapshotConnections,
   validateConnectionDrafts,
 } from '../interfaceConnections'
-import type { Connection, InterfaceConnectionDraft, InterfaceDraftRow } from '../../api/types'
+import type { DeviceInterfaceConnection } from '../../api/deviceConnectivity'
+import type { InterfaceConnectionDraft, InterfaceDraftRow } from '../../api/types'
 
 function row(overrides: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow {
   return {
@@ -33,38 +39,51 @@ function draft(overrides: Partial<InterfaceConnectionDraft> = {}): InterfaceConn
   return { peer_device_id: 'dev-2', peer_interface_id: 'if-peer', connection_type_id: 'ct-1', description: '', ...overrides }
 }
 
-function connection(overrides: Partial<Connection> = {}): Connection {
-  return { id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-peer', connection_type_id: 'ct-1', is_active: true, description: null, ...overrides } as Connection
+function serverConnection(overrides: Partial<DeviceInterfaceConnection> = {}): DeviceInterfaceConnection {
+  return {
+    interface_id: 'if-1',
+    connection_id: 'c-1',
+    connection_type_id: 'ct-1',
+    description: null,
+    peer_interface_id: 'if-peer',
+    peer_interface_name: 'Gi0/1',
+    peer_device_id: 'dev-2',
+    peer_device_name: 'sw-2',
+    peer_is_management: false,
+    peer_is_data_transfer: true,
+    peer_vlan_mode: 'trunk',
+    ...overrides,
+  }
 }
 
-const interfaces = [
-  { id: 'if-1', physical_device_id: 'dev-1' },
-  { id: 'if-peer', physical_device_id: 'dev-2' },
-]
-
 describe('attachConnectionDrafts', () => {
-  it('подключает активное подключение порта; сосед — другая сторона подключения', () => {
-    const [asSource] = attachConnectionDrafts([row()], [connection({ description: 'патч-корд' })], interfaces)
-    expect(asSource.connection).toEqual({ peer_device_id: 'dev-2', peer_interface_id: 'if-peer', connection_type_id: 'ct-1', description: 'патч-корд' })
-
-    const [asDestination] = attachConnectionDrafts([row({ id: 'if-peer' })], [connection()], interfaces)
-    expect(asDestination.connection).toMatchObject({ peer_device_id: 'dev-1', peer_interface_id: 'if-1' })
+  it('подставляет подключение порта из ответа сервера: сосед, порт соседа, тип линии, описание', () => {
+    const [result] = attachConnectionDrafts([row()], [serverConnection({ description: 'патч-корд' })])
+    expect(result.connection).toEqual({ peer_device_id: 'dev-2', peer_interface_id: 'if-peer', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: 'патч-корд' })
   })
 
-  it('порт без подключения, неактивное подключение и строка без id дают null', () => {
-    expect(attachConnectionDrafts([row()], [], interfaces)[0].connection).toBeNull()
-    expect(attachConnectionDrafts([row()], [connection({ is_active: false })], interfaces)[0].connection).toBeNull()
-    expect(attachConnectionDrafts([row({ id: undefined })], [connection()], interfaces)[0].connection).toBeNull()
+  it('порт без подключения и строка без id (ещё не сохранённый порт) дают null', () => {
+    expect(attachConnectionDrafts([row()], [])[0].connection).toBeNull()
+    expect(attachConnectionDrafts([row({ id: undefined })], [serverConnection()])[0].connection).toBeNull()
+    expect(attachConnectionDrafts([row({ id: 'if-other' })], [serverConnection()])[0].connection).toBeNull()
   })
 
-  it('сосед, которого нет в каталоге портов, не роняет загрузку — устройство остаётся пустым', () => {
-    const [result] = attachConnectionDrafts([row()], [connection()], [])
-    expect(result.connection).toMatchObject({ peer_device_id: '', peer_interface_id: 'if-peer' })
+  it('у порта несколько действующих подключений (исторические данные) — берётся первое в порядке ответа', () => {
+    const [result] = attachConnectionDrafts([row()], [serverConnection({ peer_interface_id: 'first' }), serverConnection({ peer_interface_id: 'second' })])
+    expect(result.connection?.peer_interface_id).toBe('first')
+  })
+
+  it('кабель между двумя портами одного устройства виден у обоих портов', () => {
+    const rows = attachConnectionDrafts(
+      [row({ id: 'a' }), row({ id: 'b' })],
+      [serverConnection({ interface_id: 'a', peer_interface_id: 'b', peer_device_id: 'dev-1' }), serverConnection({ interface_id: 'b', peer_interface_id: 'a', peer_device_id: 'dev-1' })],
+    )
+    expect(rows.map((r) => r.connection?.peer_interface_id)).toEqual(['b', 'a'])
   })
 
   it('не меняет исходные строки', () => {
     const original = row()
-    attachConnectionDrafts([original], [connection()], interfaces)
+    attachConnectionDrafts([original], [serverConnection()])
     expect(original.connection).toBeUndefined()
   })
 })
@@ -172,5 +191,111 @@ describe('connectionConfigDiffs', () => {
       '«Передача данных»: нет / у соседа да',
       'режим порта: access / у соседа trunk',
     ])
+  })
+})
+
+// ---- соседи из этой же формы: порты без id (peer_row_key) и другие порты того же устройства ----
+
+describe('ссылки на строки формы', () => {
+  it('newRowKey даёт разные ключи', () => {
+    expect(newRowKey()).not.toBe(newRowKey())
+  })
+
+  it('peerRef: id сохранённого порта либо row:<key>; rowRef — то же для самой строки', () => {
+    expect(peerRef(draft())).toBe('if-peer')
+    expect(peerRef(draft({ peer_interface_id: '', peer_row_key: 'k1' }))).toBe('row:k1')
+    expect(rowRef({ id: 'if-1', key: 'k1' })).toBe('if-1') // сохранённая строка — по id, даже если ключ есть
+    expect(rowRef({ key: 'k1' })).toBe('row:k1')
+    expect(rowRef({})).toBe('')
+  })
+
+  it('connectionPointsTo: указывает ли подключение на строку; пустые ссылки никуда не указывают', () => {
+    expect(connectionPointsTo(draft({ peer_interface_id: 'if-9' }), { id: 'if-9' })).toBe(true)
+    expect(connectionPointsTo(draft({ peer_interface_id: '', peer_row_key: 'k1' }), { key: 'k1' })).toBe(true)
+    expect(connectionPointsTo(draft({ peer_interface_id: '', peer_row_key: 'k1' }), { key: 'k2' })).toBe(false)
+    expect(connectionPointsTo(draft({ peer_interface_id: '' }), {})).toBe(false)
+    expect(connectionPointsTo(null, { id: 'if-9' })).toBe(false)
+  })
+
+  it('sameConnection: разные строки-соседи — это изменение', () => {
+    const a = draft({ peer_interface_id: '', peer_row_key: 'k1' })
+    expect(sameConnection(a, { ...a })).toBe(true)
+    expect(sameConnection(a, { ...a, peer_row_key: 'k2' })).toBe(false)
+    expect(sameConnection(a, draft())).toBe(false)
+  })
+
+  it('isConnectionChanged сравнивает со снимком; у строки без id снимка нет', () => {
+    const baseline = snapshotConnections([row({ connection: draft() })])
+    expect(isConnectionChanged(row({ connection: draft() }), baseline)).toBe(false)
+    expect(isConnectionChanged(row({ connection: null }), baseline)).toBe(true)
+    expect(isConnectionChanged(row({ id: undefined, connection: draft() }), baseline)).toBe(true)
+    expect(isConnectionChanged(row({ id: undefined, connection: null }), baseline)).toBe(false)
+  })
+})
+
+describe('connectionPayload: сосед — строка этой же формы', () => {
+  const empty = snapshotConnections([])
+  const rows = [row({ id: undefined, key: 'k0', name: 'eth0' }), row({ id: undefined, key: 'k1', name: 'eth1' }), row({ id: 'if-3', name: 'eth2' })]
+
+  it('несохранённая строка-сосед уходит номером элемента массива interfaces (peer_row), без peer_interface_id', () => {
+    const payload = connectionPayload({ id: undefined, connection: draft({ peer_interface_id: '', peer_row_key: 'k1', description: ' кабель ' }) }, empty, rows)
+    expect(payload).toEqual({ peer_row: 1, connection_type_id: 'ct-1', description: 'кабель' })
+    expect(payload).not.toHaveProperty('peer_interface_id')
+  })
+
+  it('сохранённый сосед того же устройства уходит обычным peer_interface_id', () => {
+    expect(connectionPayload({ id: undefined, connection: draft({ peer_interface_id: 'if-3' }) }, empty, rows)).toEqual({ peer_interface_id: 'if-3', connection_type_id: 'ct-1', description: null })
+  })
+
+  it('строки-соседа нет среди строк — исключение, а не отправка мусора', () => {
+    expect(() => connectionPayload({ id: undefined, connection: draft({ peer_interface_id: '', peer_row_key: 'gone' }) }, empty, rows)).toThrow('не найден')
+  })
+
+  it('неизменённое подключение не требует списка строк', () => {
+    const baseline = snapshotConnections([row({ connection: draft() })])
+    expect(connectionPayload(row({ connection: draft() }), baseline)).toBeUndefined()
+  })
+})
+
+describe('validateConnectionDrafts: соседи из этой же формы', () => {
+  const empty = snapshotConnections([])
+  const toKey = (key: string, extra: Partial<InterfaceConnectionDraft> = {}) => draft({ peer_interface_id: '', peer_row_key: key, ...extra })
+
+  it('кабель между двумя новыми портами, описанный с одной стороны, — без ошибок', () => {
+    const rows = [row({ id: undefined, key: 'k0', name: 'eth0', connection: toKey('k1') }), row({ id: undefined, key: 'k1', name: 'eth1' })]
+    expect(validateConnectionDrafts(rows, empty)).toBeNull()
+  })
+
+  it('тот же кабель, описанный с обеих сторон, — не ошибка (сервер склеит в одно подключение)', () => {
+    const rows = [row({ id: undefined, key: 'k0', name: 'eth0', connection: toKey('k1') }), row({ id: undefined, key: 'k1', name: 'eth1', connection: toKey('k0') })]
+    expect(validateConnectionDrafts(rows, empty)).toBeNull()
+  })
+
+  it('сосед удалён из списка портов — ошибка с именем порта', () => {
+    const rows = [row({ id: undefined, key: 'k0', name: 'eth0', connection: toKey('gone') })]
+    expect(validateConnectionDrafts(rows, empty)).toContain('удалён из списка портов')
+  })
+
+  it('порт нельзя подключить к самому себе', () => {
+    const rows = [row({ id: undefined, key: 'k0', name: 'eth0', connection: toKey('k0') }), row({ id: 'if-1', name: 'eth1', connection: draft({ peer_interface_id: 'if-1' }) })]
+    expect(validateConnectionDrafts(rows.slice(0, 1), empty)).toContain('к самому себе')
+    expect(validateConnectionDrafts(rows.slice(1), empty)).toContain('к самому себе')
+  })
+
+  it('сосед из этой же формы, подключённый в другое место, — ошибка: порт участвует только в одном подключении', () => {
+    const rows = [
+      row({ id: undefined, key: 'k0', name: 'eth0', connection: toKey('k1') }),
+      row({ id: undefined, key: 'k1', name: 'eth1', connection: draft({ peer_interface_id: 'if-peer' }) }),
+    ]
+    expect(validateConnectionDrafts(rows, empty)).toContain('«eth1» выбран соседом для порта «eth0»')
+  })
+
+  it('одна и та же строка-сосед для двух портов — ошибка дублирования', () => {
+    const rows = [
+      row({ id: undefined, key: 'k0', name: 'eth0', connection: toKey('k2') }),
+      row({ id: undefined, key: 'k1', name: 'eth1', connection: toKey('k2') }),
+      row({ id: undefined, key: 'k2', name: 'eth2' }),
+    ]
+    expect(validateConnectionDrafts(rows, empty)).toContain('нескольких портов')
   })
 })

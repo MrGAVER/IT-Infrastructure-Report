@@ -11,7 +11,11 @@
 * ``null`` — порт отключается: его активное подключение удаляется;
 * ``{"peer_interface_id", "connection_type_id", "description"}`` — порт подключён к указанному порту
   другого (или этого же, но уже сохранённого) устройства: подключение создаётся, а если у порта уже
-  есть активное подключение — обновляется на месте (тип линии, описание, соседний порт).
+  есть активное подключение — обновляется на месте (тип линии, описание, соседний порт);
+* ``{"peer_row", "connection_type_id", "description"}`` — то же, но сосед задан НОМЕРОМ элемента в
+  этом же массиве ``interfaces`` (с нуля). Так подключаются порты, у которых ещё нет id: новый порт
+  к другому новому порту этого же запроса или к уже сохранённому порту этого же устройства. Ровно
+  одно из ``peer_interface_id`` / ``peer_row``.
 
 Подключения обрабатываются ПОСЛЕ записи всех портов (у новых портов уже есть id) и в той же
 транзакции: любая ошибка — например, занятый соседний порт (409) — откатывает и порты, и подключения.
@@ -19,6 +23,12 @@
 (services/validation.py:validate_connection). Сверку конфигураций портов (роль, режим, VLAN) эта
 операция не блокирует: расхождение, как и при создании подключения другим способом, отображается
 в дашборде «Подключения» со статусом «расхождение» до одобрения.
+
+Порядок применения (sync_interface_connections): сначала разбирается весь payload, затем
+выполняются все отключения, затем строится ПЛАН всех подключений и целиком проверяется (порт не
+входит в две разные пары; пара не задана дважды с разными параметрами), и только после этого план
+применяется. Благодаря плану порты можно менять местами в одном запросе (A: P→Q, B: Q→P): прежние
+порты переставляемых этим же запросом подключений при проверке считаются свободными.
 """
 from __future__ import annotations
 
@@ -38,8 +48,10 @@ _AUDIT_ENTITY = 'connections'
 
 @dataclass(frozen=True)
 class ConnectionSpec:
-    """Разобранный и провалидированный по форме элемент payload['interfaces'][i]['connection']."""
-    peer_interface_id: str
+    """Разобранный и провалидированный по форме элемент payload['interfaces'][i]['connection'].
+    Сосед задан ровно одним из полей: id порта либо номером элемента массива interfaces."""
+    peer_interface_id: str | None
+    peer_row: int | None
     connection_type_id: str
     description: str | None
 
@@ -54,21 +66,32 @@ def parse_connection_spec(raw: Any) -> ConnectionSpec | None:
     True
     >>> parse_connection_spec({'peer_interface_id': 'p1', 'connection_type_id': 't1'}).description is None
     True
+    >>> parse_connection_spec({'peer_row': 2, 'connection_type_id': 't1'}).peer_row
+    2
     """
     if raw is None:
         return None
     if not isinstance(raw, dict):
         raise HTTPException(422, 'Поле connection интерфейса должно быть объектом или null')
-    peer_id = raw.get('peer_interface_id')
-    if not isinstance(peer_id, str) or not peer_id.strip():
+    peer_id, peer_row = raw.get('peer_interface_id'), raw.get('peer_row')
+    if peer_id not in (None, '') and peer_row is not None:
+        raise HTTPException(422, 'Соседний порт задаётся одним из полей: peer_interface_id или peer_row')
+    if peer_row is not None:
+        # bool — подкласс int: True/False как номер строки — ошибка клиента, а не «строка 1/0».
+        if not isinstance(peer_row, int) or isinstance(peer_row, bool) or peer_row < 0:
+            raise HTTPException(422, 'Поле peer_row должно быть неотрицательным целым числом — номером порта в списке interfaces')
+        peer_id = None
+    elif not isinstance(peer_id, str) or not peer_id.strip():
         raise HTTPException(422, 'Для подключения порта выберите соседнее устройство и его порт')
+    else:
+        peer_id = peer_id.strip()
     type_id = raw.get('connection_type_id')
     if not isinstance(type_id, str) or not type_id.strip():
         raise HTTPException(422, 'Для подключения порта выберите тип физической линии связи')
     description = raw.get('description')
     if description is not None and not isinstance(description, str):
         raise HTTPException(422, 'Описание подключения должно быть строкой')
-    return ConnectionSpec(peer_id.strip(), type_id.strip(), (description or '').strip() or None)
+    return ConnectionSpec(peer_id, peer_row, type_id.strip(), (description or '').strip() or None)
 
 
 def connections_of(interface_ids: Sequence[str], session: Session, *, active_only: bool = True) -> list[Connection]:
@@ -86,18 +109,33 @@ def _audit(session: Session, entity_id: str, action: str, details: str) -> None:
     session.add(AuditLog(entity_type=_AUDIT_ENTITY, entity_id=entity_id, action=action, details=details))
 
 
-def sync_interface_connections(requests: Sequence[tuple[DeviceInterface, Any]], session: Session) -> int:
+@dataclass
+class _Plan:
+    """Одно запланированное подключение: порт ``iface`` — к порту ``peer``. ``target`` — существующее
+    активное подключение порта, которое будет изменено (None — создаётся новое)."""
+    iface: DeviceInterface
+    peer: DeviceInterface
+    spec: ConnectionSpec
+    target: Connection | None
+
+    @property
+    def pair(self) -> frozenset[str]:
+        return frozenset((self.iface.id, self.peer.id))
+
+
+def sync_interface_connections(requests: Sequence[tuple[DeviceInterface, Any]], session: Session, rows: Sequence[DeviceInterface] = ()) -> int:
     """Применяет подключения портов из payload формы устройства и возвращает число созданных,
     изменённых и удалённых подключений. Транзакцией (commit/rollback) управляет вызывающая сторона.
 
     requests — пары (порт, сырое значение ключа connection); порты уже записаны и сброшены в БД
-    (flush), поэтому у каждого есть id.
+    (flush), поэтому у каждого есть id. rows — порты ВСЕХ элементов payload['interfaces'] в порядке
+    запроса: по ним разрешается ``peer_row``.
 
     Пример: sync_interface_connections([(iface, {'peer_interface_id': peer.id, 'connection_type_id': ct.id})], session)
     """
-    # Сначала разбираем весь payload (ошибка формы — до любых изменений), затем отключаем порты и
-    # только потом подключаем: порт соседа, освобождаемый в этом же запросе, можно занять независимо
-    # от порядка строк.
+    # Сначала разбираем весь payload (ошибка формы — до любых изменений), затем отключаем порты,
+    # строим и проверяем план и только потом применяем его: порт соседа, освобождаемый в этом же
+    # запросе, можно занять независимо от порядка строк.
     parsed = [(iface, parse_connection_spec(raw)) for iface, raw in requests]
     changed = 0
     for iface, spec in parsed:
@@ -109,31 +147,74 @@ def sync_interface_connections(requests: Sequence[tuple[DeviceInterface, Any]], 
             _audit(session, conn.id, AuditAction.DELETE, 'Удаление записи (порт отключён в форме устройства)')
         session.flush()
         changed += len(active)
-    for iface, spec in parsed:
-        if spec is not None:
-            changed += _apply_spec(iface, spec, connections_of([iface.id], session), session)
+
+    plans = _build_plans([(iface, spec) for iface, spec in parsed if spec is not None], rows, session)
+    _assert_plans_consistent(plans)
+    # Подключения, которые этот запрос переставляет: их прежние порты при проверке считаются свободными.
+    moved_ids = {plan.target.id for plan in plans if plan.target}
+    for plan in plans:
+        changed += _apply_plan(plan, moved_ids, session)
     return changed
 
 
-def _apply_spec(iface: DeviceInterface, spec: ConnectionSpec, active: list[Connection], session: Session) -> int:
-    if session.get(ConnectionType, spec.connection_type_id) is None:
-        raise HTTPException(422, 'Выбранный тип физической линии связи не найден')
-    peer = session.get(DeviceInterface, spec.peer_interface_id)
-    if peer is None:
-        raise HTTPException(422, 'Выбранный порт для подключения не найден')
-    if peer.id == iface.id:
+def _resolve_peer(iface: DeviceInterface, spec: ConnectionSpec, rows: Sequence[DeviceInterface], session: Session) -> DeviceInterface:
+    if spec.peer_row is not None:
+        if spec.peer_row >= len(rows):
+            raise HTTPException(422, f'Порт-сосед не найден: в списке interfaces нет элемента с номером {spec.peer_row}')
+        peer = rows[spec.peer_row]
+    else:
+        peer = session.get(DeviceInterface, spec.peer_interface_id)
+        if peer is None:
+            raise HTTPException(422, 'Выбранный порт для подключения не найден')
+    if peer is iface or peer.id == iface.id:
         raise HTTPException(422, 'Порт нельзя подключить к самому себе')
+    return peer
 
-    # Подключение к тому же порту — обновляем на месте. Иначе берём первое активное подключение этого
-    # порта и переключаем его на новый соседний порт. Если у порта по историческим причинам несколько
-    # активных подключений, остальные не трогаем: validate_connection ниже ответит 409, а не удалит
-    # данные молча.
-    same = next((c for c in active if {c.source_interface_id, c.destination_interface_id} == {iface.id, peer.id}), None)
-    target = same or (active[0] if active else None)
 
+def _build_plans(specs: Sequence[tuple[DeviceInterface, ConnectionSpec]], rows: Sequence[DeviceInterface], session: Session) -> list[_Plan]:
+    plans: list[_Plan] = []
+    by_pair: dict[frozenset[str], _Plan] = {}
+    for iface, spec in specs:
+        if session.get(ConnectionType, spec.connection_type_id) is None:
+            raise HTTPException(422, 'Выбранный тип физической линии связи не найден')
+        peer = _resolve_peer(iface, spec, rows, session)
+        plan = _Plan(iface, peer, spec, None)
+        earlier = by_pair.get(plan.pair)
+        if earlier is not None:
+            # Один и тот же кабель описан с обеих сторон (порт A указывает на B, а B — на A): это одно
+            # подключение. Параметры должны совпадать, иначе неясно, какой из вариантов верный.
+            if (earlier.spec.connection_type_id, earlier.spec.description) != (spec.connection_type_id, spec.description):
+                raise HTTPException(422, f'Подключение портов «{iface.name}» и «{peer.name}» задано дважды с разными параметрами')
+            continue
+        # Подключение к тому же порту — обновляем на месте. Иначе берём первое активное подключение
+        # этого порта и переключаем его на нового соседа. Если у порта по историческим причинам
+        # несколько активных подключений, остальные не трогаем: validate_connection ответит 409, а
+        # не удалит данные молча.
+        active = connections_of([iface.id], session)
+        same = next((c for c in active if {c.source_interface_id, c.destination_interface_id} == set(plan.pair)), None)
+        plan.target = same or (active[0] if active else None)
+        by_pair[plan.pair] = plan
+        plans.append(plan)
+    return plans
+
+
+def _assert_plans_consistent(plans: Sequence[_Plan]) -> None:
+    """Порт может входить только в одно подключение: проверка внутри самого запроса (в БД до применения
+    плана этих подключений ещё нет, поэтому validate_connection их не увидит)."""
+    claimed: dict[str, _Plan] = {}
+    for plan in plans:
+        for port in (plan.iface, plan.peer):
+            other = claimed.get(port.id)
+            if other is not None and other.pair != plan.pair:
+                raise HTTPException(409, f'Порт «{port.name}» указан в нескольких подключениях одного запроса — порт может участвовать только в одном подключении.')
+            claimed[port.id] = plan
+
+
+def _apply_plan(plan: _Plan, moved_ids: set[str], session: Session) -> int:
+    iface, peer, spec, target = plan.iface, plan.peer, plan.spec, plan.target
     if target is None:
         data = {'source_interface_id': iface.id, 'destination_interface_id': peer.id, 'connection_type_id': spec.connection_type_id, 'is_active': True, 'description': spec.description}
-        validate_connection(data, session)
+        validate_connection(data, session, ignore_connection_ids=moved_ids)
         created = Connection(**data)
         session.add(created)
         session.flush()
@@ -144,7 +225,7 @@ def _apply_spec(iface: DeviceInterface, spec: ConnectionSpec, active: list[Conne
     # на той стороне, на которой стоял, меняется только соседний.
     source_id, destination_id = (iface.id, peer.id) if target.source_interface_id == iface.id else (peer.id, iface.id)
     candidate = {'source_interface_id': source_id, 'destination_interface_id': destination_id, 'connection_type_id': spec.connection_type_id, 'is_active': True, 'description': spec.description}
-    validate_connection(candidate, session, current_connection_id=target.id)
+    validate_connection(candidate, session, current_connection_id=target.id, ignore_connection_ids=moved_ids)
 
     changes: list[str] = []
     if (source_id, destination_id) != (target.source_interface_id, target.destination_interface_id):
