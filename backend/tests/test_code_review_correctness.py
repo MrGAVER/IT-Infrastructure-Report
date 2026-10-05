@@ -4,7 +4,6 @@
 """
 from __future__ import annotations
 
-import io
 import os
 import sqlite3
 import time
@@ -16,7 +15,6 @@ from alembic import command
 from alembic.config import Config
 from fastapi import HTTPException
 from openpyxl import load_workbook
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Manufacturer, PhysicalDevice
