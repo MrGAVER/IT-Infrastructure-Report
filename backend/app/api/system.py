@@ -4,6 +4,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from ..config import APP_VERSION, FRONTEND_DIR, REPORT_DIR
 from ..db import get_db
+from ..schemas import BulkVlanAssignRequest, DeployedSoftwareSync, DeviceStackMemberRequest, VLANDomainMemberRequest, VLANDomainSyncRequest, VMIPAddressesSync, VMOpenPortsSync, VlanCopyRequest
 from ..models import (Connection, Container, DeviceInterface, DeviceStack, DeviceStackMember, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine, PhysicalDeviceVLAN, VLANDomain, VLANDomainDevice)
 from ..services.catalogs import seed_defaults
 from ..services.serialization import enrich_connections, enrich_devices, serialize
@@ -57,25 +58,25 @@ def list_vms(session: Session = Depends(get_db)):
     return {'items':[serialize(x) for x in rows], 'total':len(rows)}
 
 @router.put('/api/v1/vms/{vm_id}/open-ports')
-def sync_vm_ports(vm_id: str, payload: dict, session: Session = Depends(get_db)):
+def sync_vm_ports(vm_id: str, payload: VMOpenPortsSync, session: Session = Depends(get_db)):
     """Атомарная синхронизация открытых портов ВМ: тело {open_ports: [{id?, protocol_catalog_id,
     transport_protocol, description}]} — полный список портов ВМ, diff по id (см.
     services/crud.py:sync_vm_open_ports)."""
-    return sync_vm_open_ports(vm_id, payload, session)
+    return sync_vm_open_ports(vm_id, payload.model_dump(exclude_unset=True), session)
 
 @router.put('/api/v1/vms/{vm_id}/ip-addresses')
-def sync_vm_ips(vm_id: str, payload: dict, session: Session = Depends(get_db)):
+def sync_vm_ips(vm_id: str, payload: VMIPAddressesSync, session: Session = Depends(get_db)):
     """Атомарная синхронизация IP-адресов ВМ: тело {ip_addresses: [{id?, ip_address, prefix_length,
     purpose, is_management}]} — полный список IP-адресов ВМ, diff по id (см.
     services/crud.py:sync_vm_ip_addresses)."""
-    return sync_vm_ip_addresses(vm_id, payload, session)
+    return sync_vm_ip_addresses(vm_id, payload.model_dump(exclude_unset=True), session)
 
 @router.put('/api/v1/vms/{vm_id}/deployed-software')
-def sync_vm_software(vm_id: str, payload: dict, session: Session = Depends(get_db)):
+def sync_vm_software(vm_id: str, payload: DeployedSoftwareSync, session: Session = Depends(get_db)):
     """Атомарная синхронизация программных активов ВМ: тело {deployed_software: [{id?,
     software_asset_id, version}]} — полный список ПО ВМ, diff по id (см.
     services/crud.py:sync_vm_deployed_software)."""
-    return sync_vm_deployed_software(vm_id, payload, session)
+    return sync_vm_deployed_software(vm_id, payload.model_dump(exclude_unset=True), session)
 
 
 @router.get('/api/v1/vlan-dashboard')
@@ -108,9 +109,9 @@ def vlan_dashboard(session: Session = Depends(get_db)):
     return {'items':[{'vlan_id': k, 'definitions': v} for k,v in sorted(grouped.items())]}
 
 @router.post('/api/v1/vlan-domains/{domain_id}/members')
-def add_vlan_domain_member(domain_id: str, payload: dict, session: Session = Depends(get_db)):
+def add_vlan_domain_member(domain_id: str, payload: VLANDomainMemberRequest, session: Session = Depends(get_db)):
     domain = session.get(VLANDomain, domain_id)
-    device = session.get(PhysicalDevice, payload.get('physical_device_id'))
+    device = session.get(PhysicalDevice, payload.physical_device_id) if payload.physical_device_id else None
     if not domain or not device: raise HTTPException(404, 'Домен или физическое устройство не найдено')
     existing=session.scalar(select(VLANDomainDevice).where(VLANDomainDevice.domain_id==domain_id,VLANDomainDevice.physical_device_id==device.id))
     if existing: return serialize(existing)
@@ -124,7 +125,7 @@ def add_vlan_domain_member(domain_id: str, payload: dict, session: Session = Dep
     session.commit(); session.refresh(obj); return serialize(obj)
 
 @router.post('/api/v1/vlan-domains/{domain_id}/sync')
-def sync_vlan_domain(domain_id: str, payload: dict = Body(default={}), session: Session = Depends(get_db)):
+def sync_vlan_domain(domain_id: str, payload: VLANDomainSyncRequest = Body(default_factory=VLANDomainSyncRequest), session: Session = Depends(get_db)):
     """Пункт 1 правки "домен VLAN" — payload может содержать replace=true (посылается
     VLANDomainFormModal.vue при смене устройства-источника, после подтверждения
     пользователем предупреждения о перезаписи): помимо обычного добавления недостающих VLAN
@@ -134,7 +135,7 @@ def sync_vlan_domain(domain_id: str, payload: dict = Body(default={}), session: 
     форма — обычная синхронизация (кнопка "Синхронизировать" в VLANDomainsPanel.vue,
     replace не передаётся) только добавляет отсутствующее и НЕ трогает лишнее, это её штатное,
     уже используемое поведение, менять его не нужно."""
-    replace = bool(payload.get('replace'))
+    replace = payload.replace
     domain = session.get(VLANDomain, domain_id)
     if not domain: raise HTTPException(404, 'Домен VLAN не найден')
     if not domain.source_device_id: raise HTTPException(422, 'Для домена не задано устройство-источник')
@@ -184,9 +185,9 @@ def sync_vlan_domain(domain_id: str, payload: dict = Body(default={}), session: 
     return {'status':'ok','created_definitions':created,'assigned':updated,'removed':removed}
 
 @router.post('/api/v1/devices/{device_id}/vlan-copy')
-def copy_device_vlans(device_id: str, payload: dict, session: Session = Depends(get_db)):
+def copy_device_vlans(device_id: str, payload: VlanCopyRequest, session: Session = Depends(get_db)):
     target = session.get(PhysicalDevice, device_id)
-    source_id = payload.get('source_device_id')
+    source_id = payload.source_device_id
     source = session.get(PhysicalDevice, source_id) if source_id else None
     if not target or not source: raise HTTPException(404, 'Исходное или целевое устройство не найдено')
     source_assignments = session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == source.id)).all()
@@ -214,17 +215,17 @@ def copy_device_vlans(device_id: str, payload: dict, session: Session = Depends(
     return {'status':'ok','created_definitions':created,'assigned':assigned}
 
 @router.post('/api/v1/device-vlans/bulk-assign')
-def bulk_assign_vlan(payload: dict, session: Session = Depends(get_db)):
+def bulk_assign_vlan(payload: BulkVlanAssignRequest, session: Session = Depends(get_db)):
     """Назначает один существующий VLAN сразу нескольким устройствам — без создания формального
     VLANDomain (тот нужен для периодической синхронизации набора VLAN, см. sync_vlan_domain; это —
     разовое массовое назначение, по аналогии с bulk-редактором интерфейсов на фронтенде).
     IP-адрес в bulk-режиме не задаётся намеренно: одинаковый IP на нескольких устройствах в одном
     VLAN был бы некорректен, а различающиеся значения для каждого устройства — уже не bulk-действие;
     IP при необходимости проставляется потом по каждой записи individually."""
-    device_ids = payload.get('physical_device_ids')
-    vlan_id = payload.get('vlan_id')
-    description = payload.get('description') or None
-    if not isinstance(device_ids, list) or not device_ids:
+    device_ids = payload.physical_device_ids
+    vlan_id = payload.vlan_id
+    description = payload.description or None
+    if not device_ids:
         raise HTTPException(422, 'Укажите хотя бы одно устройство')
     if not vlan_id or not session.get(VLAN, vlan_id):
         raise HTTPException(404, 'VLAN не найден')
@@ -322,32 +323,24 @@ def device_stack_detail(stack_id: str, session: Session = Depends(get_db)):
 
 
 @router.post('/api/v1/device-stacks/{stack_id}/members')
-def add_device_stack_member(stack_id: str, payload: dict, session: Session = Depends(get_db)):
+def add_device_stack_member(stack_id: str, payload: DeviceStackMemberRequest, session: Session = Depends(get_db)):
     """Идемпотентно (как и add_vlan_domain_member выше) — повторное добавление уже состоящего в
     ЭТОМ ЖЕ стеке устройства просто возвращает существующую запись членства, не 409. Попытка
     добавить устройство, состоящее в ДРУГОМ стеке, всё равно упадёт понятной 409 —
     _validate_device_stack_member_entry (см. services/crud.py) вызывается ниже через
     validate_resource, как и для любого generic-ресурса."""
     stack = session.get(DeviceStack, stack_id)
-    device = session.get(PhysicalDevice, payload.get('physical_device_id'))
+    device = session.get(PhysicalDevice, payload.physical_device_id) if payload.physical_device_id else None
     if not stack or not device: raise HTTPException(404, 'Стек или физическое устройство не найдено')
     existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == device.id))
     if existing and existing.stack_id == stack_id: return serialize(existing)
-    data = {'stack_id': stack_id, 'physical_device_id': device.id, 'position': payload.get('position', 1)}
+    data = {'stack_id': stack_id, 'physical_device_id': device.id, 'position': payload.position}
     validate_resource(DeviceStackMember, data, session, item_id=None)
     obj = DeviceStackMember(**data)
     session.add(obj); session.flush()
     audit(session, 'device-stack-members', obj.id, AuditAction.CREATE, f'Устройство добавлено в стек «{stack.name}»')
     session.commit(); session.refresh(obj); return serialize(obj)
 
-
-@router.get('/', include_in_schema=False)
-def frontend_index():
-    """Единственный UI — собранный Vue-фронтенд (frontend-vue/dist), см. config.py:FRONTEND_DIR."""
-    index = FRONTEND_DIR / 'index.html'
-    if not index.is_file():
-        raise HTTPException(500, f'Файл интерфейса не найден: {index}. Соберите frontend-vue (npm run build).')
-    return FileResponse(index, media_type='text/html; charset=utf-8')
 
 @router.get('/icons.svg', include_in_schema=False)
 def frontend_icons():

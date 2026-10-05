@@ -132,5 +132,5 @@ def spa_fallback(full_path: str):
         raise HTTPException(404, 'Not Found')
     index = FRONTEND_DIR / 'index.html'
     if not index.is_file():
-        raise HTTPException(500, f'Файл интерфейса не найден: {index}')
+        raise HTTPException(500, f'Файл интерфейса не найден: {index}. Соберите frontend-vue (npm run build).')
     return FileResponse(index, media_type='text/html; charset=utf-8')

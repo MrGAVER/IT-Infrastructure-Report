@@ -448,3 +448,64 @@ class TestReportFiles:
         os.utime(stale, (0, 0))
         assert client.post("/api/v1/reports/audit-log").status_code == 200
         assert not stale.exists()
+
+
+# ---------------------------------------------------------------------------
+# п. 12. Экспорт журнала аудита — потоковая запись
+# ---------------------------------------------------------------------------
+class TestStreamingAuditExport:
+    def _seed(self, db_session, count: int) -> None:
+        from app.models import AuditLog
+
+        for i in range(count):
+            db_session.add(AuditLog(entity_type="devices", entity_id=f"id-{i:03d}", action="UPDATE", details=f"Запись {i}",
+                                    created_at=datetime(2026, 1, 1, 0, 0, i % 60) if i < 60 else datetime(2026, 1, 2, 0, 0, i % 60)))
+        db_session.commit()
+
+    def test_all_rows_survive_page_boundaries_without_duplicates(self, db_session, tmp_path, monkeypatch):
+        from app.services import audit_export
+
+        self._seed(db_session, 23)
+        monkeypatch.setattr(audit_export, "EXPORT_PAGE_SIZE", 5)
+        sheet = load_workbook(build_audit_log_report(db_session, tmp_path)).active
+        ids = [row[4].value for row in sheet.iter_rows(min_row=2)]
+        assert len(ids) == 23 and len(set(ids)) == 23
+
+    def test_row_limit_is_still_a_ceiling(self, db_session, tmp_path, monkeypatch):
+        from app.services import audit_export
+
+        self._seed(db_session, 23)
+        monkeypatch.setattr(audit_export, "EXPORT_PAGE_SIZE", 5)
+        monkeypatch.setattr(audit_export, "EXPORT_ROW_LIMIT", 12)
+        sheet = load_workbook(build_audit_log_report(db_session, tmp_path)).active
+        assert sheet.max_row == 1 + 12
+
+    def test_sheet_keeps_header_style_freeze_and_filter(self, db_session, tmp_path):
+        self._seed(db_session, 3)
+        sheet = load_workbook(build_audit_log_report(db_session, tmp_path)).active
+        assert sheet.title == "Журнал аудита"
+        assert sheet["A1"].font.bold and sheet["A1"].alignment.horizontal == "center"
+        assert sheet.freeze_panes == "A2"
+        assert sheet.auto_filter.ref == "A1:G4"
+        assert sheet.column_dimensions["G"].width >= 40
+
+    def test_empty_journal_gives_a_header_only_sheet(self, db_session, tmp_path):
+        sheet = load_workbook(build_audit_log_report(db_session, tmp_path)).active
+        assert sheet.max_row == 1 and sheet.auto_filter.ref is None
+
+    def test_export_does_not_materialise_all_rows_at_once(self, db_session, tmp_path, monkeypatch):
+        from app.services import audit_export
+
+        self._seed(db_session, 30)
+        monkeypatch.setattr(audit_export, "EXPORT_PAGE_SIZE", 10)
+        largest: list[int] = []
+        real = audit_export.list_resource
+
+        def spy(*args, **kwargs):
+            result = real(*args, **kwargs)
+            largest.append(len(result["items"]))
+            return result
+
+        monkeypatch.setattr(audit_export, "list_resource", spy)
+        build_audit_log_report(db_session, tmp_path)
+        assert max(largest) <= 10 and len(largest) >= 3

@@ -26,7 +26,7 @@ def _write_index(directory: Path, marker: str) -> None:
 def test_root_serves_vue_frontend_as_primary(client, tmp_path, monkeypatch):
     vue_dir = tmp_path / 'vue-dist'
     _write_index(vue_dir, 'VUE-PRIMARY')
-    monkeypatch.setattr(system_module, 'FRONTEND_DIR', vue_dir)
+    monkeypatch.setattr(app_main, 'FRONTEND_DIR', vue_dir)  # `/` обслуживает main.spa_fallback — отдельного маршрута в system.py больше нет
 
     r = client.get('/')
 
@@ -35,7 +35,7 @@ def test_root_serves_vue_frontend_as_primary(client, tmp_path, monkeypatch):
 
 
 def test_root_without_built_dist_gives_actionable_error_not_a_crash(client, tmp_path, monkeypatch):
-    monkeypatch.setattr(system_module, 'FRONTEND_DIR', tmp_path / 'not-built-yet')
+    monkeypatch.setattr(app_main, 'FRONTEND_DIR', tmp_path / 'not-built-yet')
 
     r = client.get('/')
 

@@ -2,13 +2,17 @@
 
 Отдельный модуль, а не часть reporting.py: это принципиально другая структура данных (плоский
 хронологический лог действий с фильтрами по дате/разделу), не многолистовая инвентаризация ИС.
-Переиспользует list_resource() (те же фильтры/сортировка, что и в UI раздела «Аудит») и
-setup_sheet/finalize_sheet из reporting.py, чтобы оформление листа не разъезжалось с остальными
-отчётами приложения.
+Переиспользует list_resource() (те же фильтры/сортировка, что и в UI раздела «Аудит»); запись —
+потоковая (write_only), поэтому setup_sheet/finalize_sheet из reporting.py здесь не применяются:
+finalize_sheet обходит все ячейки готового листа, а при потоковой записи он недоступен.
 """
 from __future__ import annotations
 from pathlib import Path
+from typing import Iterator
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 from ..registry import DISPLAY_NAMES
 from .computed import local_timestamp_suffix
@@ -21,22 +25,57 @@ AUDIT_HEADERS = ["Дата и время", "Пользователь", "IP-ад�
 # Журнал аудита экспортируется целиком в пределах разумного потолка (а не постранично, как в UI):
 # цель экспорта — офлайн-архив для комплаенса, а не то же ограниченное представление, что на экране.
 EXPORT_ROW_LIMIT = 100_000
+# Строки читаются из БД и пишутся в файл порциями: раньше все до 100 000 записей сначала целиком
+# загружались в память списком словарей, а затем ещё раз — в обычную (не потоковую) книгу openpyxl.
+EXPORT_PAGE_SIZE = 5_000
+
+# Ширина колонок задаётся заранее (при потоковой записи содержимое листа уже недоступно для подбора по
+# самой длинной ячейке, как это делает finalize_sheet у остальных отчётов).
+_COLUMN_WIDTHS = [20, 20, 16, 28, 38, 18, 60]
+
+
+def _audit_rows(session: Session, filters: dict | None, date_from: str | None, date_to: str | None) -> Iterator[dict]:
+    """Записи журнала в порядке list_resource (новые первыми) порциями по EXPORT_PAGE_SIZE, не больше EXPORT_ROW_LIMIT."""
+    offset = 0
+    while offset < EXPORT_ROW_LIMIT:
+        limit = min(EXPORT_PAGE_SIZE, EXPORT_ROW_LIMIT - offset)
+        items = list_resource("audit-log", session, offset=offset, limit=limit, filters=filters, date_from=date_from, date_to=date_to)["items"]
+        yield from items
+        if len(items) < limit:
+            return
+        offset += limit
 
 
 def build_audit_log_report(session: Session, report_dir: Path, date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None) -> Path:
-    from ..reporting import setup_sheet, finalize_sheet  # локальный импорт: reporting.py не должен знать об audit_export.py
+    """Формирует .xlsx журнала аудита потоковой записью (Workbook(write_only=True)): память не растёт с числом
+    записей. Оформление то же, что у остальных отчётов (жирная центрированная шапка, закреплённая первая
+    строка, автофильтр), кроме подбора ширины по содержимому — она фиксирована (_COLUMN_WIDTHS).
 
+    Пример вызова:
+        path = build_audit_log_report(session, REPORT_DIR, date_from="2026-10-01", entity_type="devices")
+    """
     filters = {"entity_type": entity_type} if entity_type else None
-    result = list_resource("audit-log", session, offset=0, limit=EXPORT_ROW_LIMIT, filters=filters, date_from=date_from, date_to=date_to)
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Журнал аудита"
-    setup_sheet(ws, AUDIT_HEADERS)
-    for row in result["items"]:
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet("Журнал аудита")
+    for index, width in enumerate(_COLUMN_WIDTHS, start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+    ws.freeze_panes = "A2"
+
+    header_cells = []
+    for title in AUDIT_HEADERS:
+        cell = WriteOnlyCell(ws, value=title)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        header_cells.append(cell)
+    ws.append(header_cells)
+
+    top_wrapped = Alignment(vertical="top", wrap_text=True)
+    count = 0
+    for row in _audit_rows(session, filters, date_from, date_to):
         # excel_safe_row: details и имя пользователя — текст, который вводил человек; начинающийся с «=»
         # он стал бы формулой в Excel получателя (см. services/excel_safety.py).
-        ws.append(excel_safe_row([
+        values = excel_safe_row([
             row["created_at"],
             row.get("actor_username") or "",
             row.get("actor_ip") or "",
@@ -44,8 +83,16 @@ def build_audit_log_report(session: Session, report_dir: Path, date_from: str | 
             row["entity_id"],
             ACTION_LABELS.get(row["action"], row["action"]),
             row["details"] or "",
-        ]))
-    finalize_sheet(ws)
+        ])
+        cells = []
+        for value in values:
+            cell = WriteOnlyCell(ws, value=value)
+            cell.alignment = top_wrapped
+            cells.append(cell)
+        ws.append(cells)
+        count += 1
+    if count:
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(AUDIT_HEADERS))}{count + 1}"
 
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / f"Журнал_аудита_{local_timestamp_suffix()}.xlsx"
