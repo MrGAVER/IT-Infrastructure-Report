@@ -164,3 +164,74 @@ def test_interface_connections_skip_inactive_and_foreign_connections_and_unknown
     assert client.get(f"{API}/devices/{dev['id']}/interface-connections").json() == {"items": []}
     assert client.get(f"{API}/devices/no-such-device/interface-connections").status_code == 404
     assert db_session.query(Connection).count() == 2
+
+
+def _options(client, **params):
+    return client.get(f"{API}/devices/options", params=params)
+
+
+def _labels(response) -> list[str]:
+    return [x["label"] for x in response.json()["items"]]
+
+
+def test_device_options_are_light_records_sorted_by_label_ignoring_case(client):
+    _device(client, "SN-2", "beta-sw")
+    _device(client, "SN-1", "Alpha-sw")
+    _device(client, "SN-ONLY")  # без системного имени подписью служит серийный номер
+
+    body = _options(client).json()
+
+    assert [x["label"] for x in body["items"]] == ["Alpha-sw", "beta-sw", "SN-ONLY"]
+    assert body["total"] == 3 and body["offset"] == 0 and body["limit"] == 50
+    first = body["items"][0]
+    assert set(first) == {"id", "label", "system_name", "serial_number"}  # без обогащения полного списка устройств
+    assert (first["system_name"], first["serial_number"]) == ("Alpha-sw", "SN-1")
+    assert body["items"][2]["system_name"] is None
+
+
+def test_device_options_search_ignores_case_including_cyrillic_and_matches_name_or_serial(client):
+    _device(client, "SN-100", "Коммутатор-А")
+    _device(client, "SN-200", "Маршрутизатор")
+    _device(client, "ABC-300", "core-switch")
+
+    assert _labels(_options(client, q="КОММУТ")) == ["Коммутатор-А"]  # SQLite lower() кириллицу не понижает
+    assert _labels(_options(client, q="маршрутиз")) == ["Маршрутизатор"]
+    assert _labels(_options(client, q="CORE")) == ["core-switch"]
+    assert _labels(_options(client, q="abc-3")) == ["core-switch"]  # по серийному номеру
+    assert _labels(_options(client, q="  sn-1  ")) == ["Коммутатор-А"]  # пробелы по краям не мешают
+    assert _options(client, q="нет такого").json() == {"items": [], "total": 0, "offset": 0, "limit": 50}
+
+
+def test_device_options_include_bypasses_the_search_and_exclude_beats_include(client):
+    a = _device(client, "SN-A", "alpha")
+    b = _device(client, "SN-B", "bravo")
+    _device(client, "SN-C", "charlie")
+
+    assert _labels(_options(client, q="alp", include=[b["id"]])) == ["alpha", "bravo"]  # выбранный сосед виден при любом поиске
+    assert _labels(_options(client, q="alp", include=["чужой-id"])) == ["alpha"]  # неизвестные id игнорируются
+    assert _labels(_options(client, exclude=[a["id"]])) == ["bravo", "charlie"]
+    assert _labels(_options(client, include=[a["id"]], exclude=[a["id"]])) == ["bravo", "charlie"]
+
+
+def test_device_options_pagination_is_consistent_and_validates_parameters(client):
+    for n in range(1, 8):
+        _device(client, f"SN-{n}", f"sw-{n}")
+
+    first = _options(client, limit=3).json()
+    second = _options(client, limit=3, offset=3).json()
+    last = _options(client, limit=3, offset=6).json()
+
+    assert [x["label"] for x in first["items"]] == ["sw-1", "sw-2", "sw-3"]
+    assert [x["label"] for x in second["items"]] == ["sw-4", "sw-5", "sw-6"]
+    assert [x["label"] for x in last["items"]] == ["sw-7"]
+    assert first["total"] == second["total"] == last["total"] == 7
+    assert _options(client, limit=201).status_code == 422
+    assert _options(client, limit=0).status_code == 422
+    assert _options(client, offset=-1).status_code == 422
+
+
+def test_device_options_route_is_not_shadowed_by_the_per_device_routes(client):
+    dev, _ = _with_ports(client, "SN-ROUTE", ["p1"], "route-sw")
+
+    assert _options(client).status_code == 200
+    assert _free(client, dev["id"]).status_code == 200  # соседние маршруты /devices/{id}/… работают как прежде
