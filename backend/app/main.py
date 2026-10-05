@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from .config import APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from .config import ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.devices import router as devices_router
@@ -30,18 +31,28 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan)
-# Порядок add_middleware() ниже осознанный и важен: Starlette оборачивает мидлвари в порядке,
-# ОБРАТНОМ порядку регистрации (последний добавленный — самый внешний). auth_gate_middleware
-# иногда завершает запрос сам, не вызывая call_next (короткое замыкание на 401/403) — если бы
-# CORSMiddleware был зарегистрирован ДО него (т.е. оказался внутри), эти ответы уходили бы
-# клиенту без CORS-заголовков, и браузер в dev-режиме (Vite на отдельном порту, см.
-# CORS_ALLOWED_ORIGINS) показывал бы малопонятную CORS-ошибку вместо настоящих 401/403.
-# Поэтому auth_gate_middleware регистрируется ПЕРВЫМ (окажется внутри), CORS — ВТОРЫМ (снаружи).
+# Порядок add_middleware() важен: Starlette оборачивает мидлвари в порядке, ОБРАТНОМ порядку
+# регистрации (последний добавленный — самый внешний). auth_gate_middleware иногда завершает запрос
+# сам, не вызывая call_next (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
+# него, эти ответы уходили бы клиенту без CORS-заголовков, и браузер в dev-режиме (Vite на отдельном
+# порту, см. CORS_ALLOWED_ORIGINS) показывал бы малопонятную CORS-ошибку вместо настоящих 401/403.
+# Поэтому auth_gate_middleware регистрируется ПЕРВЫМ (внутри), а CORS и проверка Host — ПОСЛЕ него
+# (снаружи), см. install_http_security().
+def install_http_security(app: FastAPI, *, allowed_hosts: list[str], cors_origins: list[str]) -> None:
+    """CORS и проверка заголовка Host — внешний слой защиты HTTP (код-ревью, п. 2).
+
+    - Пустой cors_origins — CORS не включается вовсе: чужие origin'ы не получают ни заголовков
+      Access-Control-*, ни ответа на preflight, то есть браузер не даст стороннему сайту читать API.
+    - allowed_hosts — TrustedHostMiddleware отвечает 400 на любой Host вне списка (защита от
+      DNS-rebinding); '*' в списке разрешает любой Host.
+    allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через
+    куки — широкий allow_origins вместе с allow_credentials=True был бы лишним риском без пользы."""
+    if cors_origins:
+        app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or ['localhost', '127.0.0.1'])
+
 app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
-# allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не
-# через куки — комбинация allow_credentials=True с широким allow_origins была бы лишним риском
-# без всякой пользы, раз ambient-креденшелов (кук) в этой схеме нет в принципе.
-app.add_middleware(CORSMiddleware, allow_origins=CORS_ALLOWED_ORIGINS, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
+install_http_security(app, allowed_hosts=ALLOWED_HOSTS, cors_origins=CORS_ALLOWED_ORIGINS)
 app.include_router(auth_router)
 app.include_router(system_router)
 app.include_router(devices_router)
@@ -72,14 +83,13 @@ def seed_catalogs_on_startup():
         session.close()
 
 def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
-    """Код-ревью п.3.3: приложение официально поддерживает серверное развёртывание (Docker +
-    PostgreSQL, см. docker-compose.yml) для нескольких сотрудников — но дефолты
-    (AuthSettings.enabled=False, CORS_ALLOWED_ORIGINS='*') рассчитаны на однопользовательский
-    локальный/EXE-сценарий (см. .env.example). В серверном сценарии та же комбинация означает,
-    что любой, кто достаёт до порта, получает полный доступ на чтение/запись без аутентификации
-    — это прямо усиливает риски найденных в этом же ревью 3.1/3.2. Запуск НЕ блокируется (те же
-    дефолты остаются рабочими и правильными для локального сценария) — только предупреждение в
-    лог; сам DATABASE_URL в сообщение не попадает, чтобы не светить пароль БД в логах."""
+    """Приложение официально поддерживает серверное развёртывание (Docker + PostgreSQL, см.
+    docker-compose.yml) для нескольких сотрудников, а аутентификация по умолчанию выключена —
+    рассчитано на однопользовательский локальный/EXE-сценарий (см. .env.example). В серверном сценарии
+    выключенная аутентификация означает, что любой, кто достаёт до порта, имеет полный доступ на
+    чтение/запись реестра (первичная настройка при этом защищена, см. services/auth.require_setup_access),
+    а явно заданный CORS '*' разрешает это ещё и чужим веб-страницам. Запуск НЕ блокируется — только
+    предупреждение в лог; сам DATABASE_URL в сообщение не попадает, чтобы не светить пароль БД в логах."""
     if not DATABASE_URL.lower().startswith("postgresql"):
         return
     problems = []

@@ -78,6 +78,7 @@ function formatWhen(iso: string): string {
           <thead>
             <tr>
               <th>Дата и время</th>
+              <th>Пользователь</th>
               <th>Раздел</th>
               <th>Действие</th>
               <th>ID записи</th>
@@ -87,6 +88,7 @@ function formatWhen(iso: string): string {
           <tbody>
             <tr v-for="e in log.items" :key="e.id">
               <td class="mono when-cell">{{ formatWhen(e.created_at) }}</td>
+              <td class="actor-cell" :title="e.actor_ip ? `IP-адрес: ${e.actor_ip}` : undefined">{{ e.actor_username || '—' }}</td>
               <td>{{ catalogs.resourceLabel(e.entity_type) }}</td>
               <td>
                 <span class="action-badge" :class="e.action.toLowerCase()">{{ ACTION_LABELS[e.action] ?? e.action }}</span>
@@ -95,7 +97,7 @@ function formatWhen(iso: string): string {
               <td class="details-cell">{{ e.details || '—' }}</td>
             </tr>
             <tr v-if="!log.items.length">
-              <td colspan="5" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
+              <td colspan="6" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
             </tr>
           </tbody>
         </table>
@@ -220,6 +222,9 @@ tbody tr:hover td {
 .id-cell {
   color: var(--ink-muted);
   cursor: help;
+}
+.actor-cell {
+  white-space: nowrap;
 }
 .details-cell {
   color: var(--ink-muted);

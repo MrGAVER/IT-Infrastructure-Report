@@ -16,16 +16,46 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_regi
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
 APP_VERSION = '2.109.0'
 
-# Frontend is served from the same origin (StaticFiles mount below), and the app currently
-# does not use cookies/auth headers, so CORS is only relevant when a separate frontend origin
-# calls this API directly (e.g. local development on a different port). Comma-separated list
-# of allowed origins, e.g. "http://localhost:5173,http://127.0.0.1:5173". Defaults to '*' for
-# the common single-user/local-network deployment; set explicitly for anything more exposed.
-CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv('INFRA_REGISTRY_CORS_ORIGINS', '*').split(',') if o.strip()]
+def _csv_env(name: str, default: str = '') -> list[str]:
+    """Список из переменной окружения через запятую: пробелы и пустые элементы отбрасываются."""
+    return [item.strip() for item in os.getenv(name, default).split(',') if item.strip()]
+
+
+# Интерфейс отдаётся с того же origin (StaticFiles ниже), а API читает токен из заголовка
+# Authorization — поэтому по умолчанию CORS ВЫКЛЮЧЕН (пустой список: ни одного чужого origin не
+# разрешено). Раньше дефолтом было '*', и любая веб-страница в браузере владельца могла читать и
+# менять данные локального приложения. Разрешить конкретные origin'ы нужно только для отдельного
+# фронтенда, например dev-сервера Vite: INFRA_REGISTRY_CORS_ORIGINS=http://localhost:5173
+CORS_ALLOWED_ORIGINS = _csv_env('INFRA_REGISTRY_CORS_ORIGINS')
+
+# Допустимые значения заголовка Host (защита от DNS-rebinding: страница чужого домена, перенацеленная
+# на 127.0.0.1, приходит с чужим Host). По умолчанию — только локальные имена, что верно для
+# EXE-режима (слушает 127.0.0.1) и разработки. Для серверного развёртывания добавьте реальное имя
+# хоста, например INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local,10.0.0.5; '*' отключает проверку
+# (так по умолчанию задано в docker-compose.yml, чтобы обновление не ломало доступ по IP).
+ALLOWED_HOSTS = _csv_env('INFRA_REGISTRY_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+# Токен первичной настройки аутентификации. Пока аутентификация выключена (это значение по
+# умолчанию), создавать пользователей и включать её можно только с localhost без прокси-заголовков
+# либо — если токен задан — с заголовком X-Setup-Token. Задайте токен, когда приложение стоит за
+# обратным прокси или в Docker, где адрес клиента не localhost.
+SETUP_TOKEN = os.getenv('INFRA_REGISTRY_SETUP_TOKEN', '')
+
+# Content-Security-Policy для интерфейса и API. Пустая строка отключает заголовок целиком (например,
+# если политику выставляет обратный прокси); любое другое значение заменяет политику по умолчанию.
+CSP_POLICY = os.getenv(
+    'INFRA_REGISTRY_CSP',
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; "
+    "form-action 'self'; frame-ancestors 'none'",
+)
 
 # Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth.py) —
 # переменные ниже настраивают её поведение, когда она включена, а не сам факт включения.
 AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12'))
-AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', '5'))
+# 10, а не 5: от перебора с одного адреса защищает троттлинг входа (services/login_throttle.py), а
+# блокировка учётной записи — запасной рубеж против распределённого подбора; чем она чувствительнее,
+# тем проще посторонним держать администратора заблокированным.
+AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', '10'))
 AUTH_LOCKOUT_MINUTES = float(os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', '15'))
 AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', '8'))

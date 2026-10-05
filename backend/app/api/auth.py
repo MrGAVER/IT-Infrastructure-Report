@@ -1,10 +1,12 @@
 """Роутер аутентификации: /api/v1/auth/*.
 
 Публичные без токена (см. services/auth.PUBLIC_API_PATHS): status, login.
-Всё остальное защищено ASGI-middleware (main.py:auth_gate_middleware) при AuthSettings.enabled=True;
-при enabled=False — открыто целиком, как и весь остальной /api/*, это и есть однопользовательский
-режим. /users и /settings дополнительно проверяют роль admin явно (require_admin) — middleware
-пропускает viewer'а на безопасные GET-запросы, а список учётных записей viewer'у видеть не должен.
+Всё остальное защищено ASGI-middleware (services/auth.py:auth_gate_middleware) при AuthSettings.enabled=True;
+при enabled=False реестр открыт целиком, как и весь остальной /api/*, это и есть однопользовательский
+режим. /users и /settings дополнительно проверяют доступ явно (require_admin): при включённой
+аутентификации — роль admin (middleware пропускает viewer'а на безопасные GET-запросы, а список учётных
+записей viewer'у видеть не должен), при выключенной — доступ к первичной настройке (localhost либо токен
+установки, см. require_setup_access), чтобы посторонний не смог завести администратора и включить аутентификацию.
 """
 from __future__ import annotations
 

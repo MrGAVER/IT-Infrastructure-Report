@@ -13,6 +13,7 @@ from ..registry import MODEL_MAP, DISPLAY_NAMES, READONLY_RESOURCES
 from ..schemas import RESOURCE_SCHEMAS
 from ..constants import ErrorCode, AuditAction, SourceType, OwnerType
 from .serialization import enrich_devices, enrich_interface_groups, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
+from .actor_context import Actor, current_actor
 from .diagram_icons import validate_svg_markup
 from .integrity import format_referenced_message, source_reference_refs
 from .interface_connections import assert_interfaces_not_connected, sync_interface_connections
@@ -68,8 +69,14 @@ def allowed_columns(model) -> set[str]:
     if model is Connection: allowed.discard('port_config_approved_signature')
     return allowed
 
-def audit(session: Session, entity_type: str, entity_id: str, action: str, details: str = '') -> None:
-    if entity_type != 'audit-log': session.add(AuditLog(entity_type=entity_type, entity_id=entity_id, action=action, details=details))
+def audit(session: Session, entity_type: str, entity_id: str, action: str, details: str = '', actor: Actor | None = None) -> None:
+    """Запись в журнал аудита. Автор берётся из actor, а если он не передан — из current_actor, который
+    выставляет auth_gate_middleware на время запроса (см. services/actor_context.py): так записи
+    отвечают на вопрос «кто это сделал» без изменения сигнатур десятков вызывающих функций. Явный actor
+    нужен там, где запрос ещё анонимен, а действие уже принадлежит пользователю (вход)."""
+    if entity_type == 'audit-log': return
+    who = actor or current_actor.get()
+    session.add(AuditLog(entity_type=entity_type, entity_id=entity_id, action=action, details=details, actor_id=who.user_id, actor_username=who.username, actor_ip=who.ip))
 
 def _fmt_audit_value(value: Any) -> str:
     """Короткое читаемое представление значения поля для diff'а в audit-log — не сериализация

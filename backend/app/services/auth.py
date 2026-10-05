@@ -7,8 +7,7 @@
   sha256-хеш (AuthSession.token_hash), сам токен виден клиенту ровно один раз — в ответе на
   /api/v1/auth/login. Это делает logout/принудительный сброс сессий тривиальным (удалить строку),
   не требует секретного ключа подписи и не хранит в БД ничего, что само по себе годится для входа —
-  в отличие от JWT, кража дампа БД (например, той самой стухшей infra_registry.db из репозитория,
-  см. память проекта) не даёт готовых к использованию токенов.
+  в отличие от JWT, кража дампа БД не даёт готовых к использованию токенов.
 - Пароли — hashlib.pbkdf2_hmac(sha256), самоописывающийся формат хеша (см. hash_password) без
   сторонних библиотек: requirements.txt проекта сознательно короткий, а bcrypt/argon2 — это ещё и
   нативные расширения, которые дороже поддерживать в PyInstaller-сборке (infra_registry.spec).
@@ -22,6 +21,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import math
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -38,10 +38,16 @@ from ..config import (
     AUTH_MAX_FAILED_ATTEMPTS,
     AUTH_MIN_PASSWORD_LENGTH,
     AUTH_SESSION_TTL_HOURS,
+    CSP_POLICY,
+    SETUP_TOKEN,
 )
 from ..constants import AuditAction, ErrorCode, UserRole
 from ..models import AuthSession, AuthSettings, User
+from .actor_context import Actor, current_actor
 from .crud import audit
+from .login_throttle import LoginThrottle
+
+__all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роутеры берут актора отсюда
 
 # ---------------------------------------------------------------------------
 # Время: SQLite/SQLAlchemy отбрасывают tzinfo при round-trip через DateTime без
@@ -58,7 +64,7 @@ def _now() -> datetime:
 # Пароли
 # ---------------------------------------------------------------------------
 PBKDF2_ALGORITHM = "pbkdf2_sha256"
-PBKDF2_ITERATIONS = 260_000  # ориентир OWASP (2023) для PBKDF2-HMAC-SHA256
+PBKDF2_ITERATIONS = 600_000  # рекомендация OWASP для PBKDF2-HMAC-SHA256; хеши с меньшим числом итераций пересчитываются при входе
 _SALT_BYTES = 16
 
 
@@ -422,7 +428,18 @@ def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) 
 # ---------------------------------------------------------------------------
 # Вход: блокировка после серии неудачных попыток
 # ---------------------------------------------------------------------------
-_INVALID_CREDENTIALS = HTTPException(401, "Неверное имя пользователя или пароль.")
+# Один на процесс: состояние троттлинга (см. services/login_throttle.py) живёт в памяти.
+login_throttle = LoginThrottle()
+
+
+def _invalid_credentials() -> HTTPException:
+    """Новый экземпляр на каждый отказ: повторный raise одного и того же объекта накапливал бы в нём
+    traceback всех прошлых отказов (утечка памяти и чужие стеки в логах)."""
+    return HTTPException(401, "Неверное имя пользователя или пароль.")
+
+
+def _client_ip(request: Optional[Request]) -> Optional[str]:
+    return request.client.host if request is not None and request.client else None
 
 
 def _increment_failed_attempts(session: Session, user_id: str) -> int:
@@ -445,12 +462,28 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
     в тексте ошибки «нет такого пользователя» и «неверный пароль» (защита от перебора логинов) —
     но блокировка (423) неизбежно подтверждает существование аккаунта, это осознанный компромисс
     между защитой от перебора паролей и полной анонимностью логинов."""
+    client_ip = _client_ip(request)
+    throttle_key = (client_ip, username.strip().casefold())
+    wait = login_throttle.retry_after(throttle_key)
+    if wait > 0:
+        # До любой работы с БД и хешированием: отбиваем перебор дёшево, не тратя CPU на PBKDF2.
+        retry_after = max(1, math.ceil(wait))
+        raise HTTPException(
+            429,
+            {
+                "message": f"Слишком много неудачных попыток входа. Повторите через {retry_after} с.",
+                "code": ErrorCode.TOO_MANY_ATTEMPTS,
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = find_user_by_username(session, username)
     if user is None or not user.is_active:
         # Тратим примерно то же время, что и на реальную проверку пароля — чтобы «нет такого
         # пользователя» не отвечал заметно быстрее «пароль неверный» (ещё один timing-сигнал).
         hash_password(password)
-        raise _INVALID_CREDENTIALS
+        login_throttle.record_failure(throttle_key)
+        raise _invalid_credentials()
 
     now = _now()
     if user.locked_until and user.locked_until > now:
@@ -472,10 +505,12 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
                 locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
             ))
             session.commit()
+        login_throttle.record_failure(throttle_key)
         audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
-              f"Неудачная попытка входа «{user.username}»" + (" — учётная запись заблокирована" if locked_now else ""))
+              f"Неудачная попытка входа «{user.username}»" + (" — учётная запись заблокирована" if locked_now else ""),
+              actor=Actor(user.id, user.username, client_ip))
         session.commit()
-        raise _INVALID_CREDENTIALS
+        raise _invalid_credentials()
 
     user.failed_attempts = 0
     user.locked_until = None
@@ -484,8 +519,9 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         user.password_hash = hash_password(password)
     session.commit()
 
+    login_throttle.reset(throttle_key)
     token = create_session(session, user, request=request)
-    audit(session, "auth", user.id, AuditAction.LOGIN, f"Вход «{user.username}»")
+    audit(session, "auth", user.id, AuditAction.LOGIN, f"Вход «{user.username}»", actor=Actor(user.id, user.username, client_ip))
     session.commit()
     return user, token
 
@@ -518,19 +554,25 @@ def _extract_bearer_token(header_value: Optional[str]) -> Optional[str]:
 
 
 _SECURITY_HEADERS = {
-    # Минимальный, не требующий настройки набор — снижает риск MIME-sniffing и кликджекинга для
-    # встроенного Vue-интерфейса. Не включает Content-Security-Policy/HSTS: они специфичны для
-    # окружения развёртывания (dev-сервер Vite, self-signed TLS в локальной сети и т.п.) и здесь
-    # были бы либо бесполезны, либо ломали бы dev-режим — их место в обвязке при деплое, а не тут.
+    # Базовый набор против MIME-sniffing и кликджекинга для встроенного Vue-интерфейса.
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
 }
 
+# Swagger UI/ReDoc подгружают скрипты и стили со сторонних CDN — строгая политика сломала бы
+# страницы документации, а данных реестра на них нет.
+_CSP_EXEMPT_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect", "/openapi.json"})
 
-def _with_security_headers(response):
+
+def _with_security_headers(response, path: str = ""):
     for header, value in _SECURITY_HEADERS.items():
         response.headers.setdefault(header, value)
+    # Content-Security-Policy — второй рубеж после DOMPurify: токен сессии лежит в localStorage, и любая
+    # XSS означала бы его кражу. Политику можно заменить или отключить через INFRA_REGISTRY_CSP
+    # (см. config.CSP_POLICY) — например, когда её выставляет обратный прокси.
+    if CSP_POLICY and path not in _CSP_EXEMPT_PATHS:
+        response.headers.setdefault("Content-Security-Policy", CSP_POLICY)
     return response
 
 
@@ -542,11 +584,24 @@ async def auth_gate_middleware(request: Request, call_next):
     добавляются на ВСЕ ответы, включая статику и короткое замыкание на 401/403.
 
     request.state.user / request.state.auth_enabled выставляются здесь для ЛЮБОГО запроса к
-    /api/* (в т.ч. публичных) — api/auth.py читает их напрямую вместо повторного похода в БД."""
+    /api/* (в т.ч. публичных) — api/auth.py читает их напрямую вместо повторного похода в БД.
+
+    На время запроса выставляется current_actor (адрес клиента, а после проверки токена — ещё и
+    пользователь): из него crud.audit() берёт автора действия для журнала аудита."""
     path = request.url.path
     if not path.startswith("/api/"):
-        return _with_security_headers(await call_next(request))
+        return _with_security_headers(await call_next(request), path)
 
+    actor_token = current_actor.set(Actor(ip=_client_ip(request)))
+    try:
+        response = await _gate_api_request(request, call_next)
+    finally:
+        current_actor.reset(actor_token)
+    return _with_security_headers(response, path)
+
+
+async def _gate_api_request(request: Request, call_next):
+    path = request.url.path
     # db_module.SessionLocal, а не `from ..db import SessionLocal` в заголовке файла: это
     # мидлварь, а не FastAPI Depends — тесты (backend/tests/conftest.py:client) подменяют
     # SessionLocal через monkeypatch.setattr(app.db, "SessionLocal", ...) на своё in-memory
@@ -558,28 +613,67 @@ async def auth_gate_middleware(request: Request, call_next):
         request.state.user = None
 
         if not settings_row.enabled or path in PUBLIC_API_PATHS:
-            return _with_security_headers(await call_next(request))
+            return await call_next(request)
 
         token = _extract_bearer_token(request.headers.get("authorization"))
         user = resolve_session(db_session, token) if token else None
         if user is None:
-            return _with_security_headers(JSONResponse({"detail": "Требуется аутентификация."}, status_code=401))
+            return JSONResponse({"detail": "Требуется аутентификация."}, status_code=401)
         request.state.user = user
+        current_actor.set(Actor(user.id, user.username, _client_ip(request)))
 
         if user.role != UserRole.ADMIN and request.method in WRITE_METHODS and not _is_role_check_exempt(path):
-            return _with_security_headers(JSONResponse({"detail": "Недостаточно прав: требуется роль администратора."}, status_code=403))
+            return JSONResponse({"detail": "Недостаточно прав: требуется роль администратора."}, status_code=403)
     finally:
         db_session.close()
 
-    return _with_security_headers(await call_next(request))
+    return await call_next(request)
+
+
+# Заголовки, которые добавляет обратный прокси: если они есть, TCP-адрес клиента — это адрес прокси,
+# а не пользователя, и «пришёл с localhost» ничего не доказывает.
+_PROXY_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip")
+_LOCALHOST_ADDRESSES = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
+
+
+def _is_direct_localhost(request: Request) -> bool:
+    client = request.client
+    if client is None or client.host not in _LOCALHOST_ADDRESSES:
+        return False
+    return not any(header in request.headers for header in _PROXY_HEADERS)
+
+
+def require_setup_access(request: Request) -> None:
+    """Первичная настройка аутентификации (пока она выключена): создание пользователей и сам
+    переключатель. Без этой проверки любой, кто достаёт до порта, мог создать администратора, включить
+    аутентификацию и тем самым закрыть реестр от его владельца.
+
+    Пускаем либо по токену установки (INFRA_REGISTRY_SETUP_TOKEN, заголовок X-Setup-Token) — если он
+    задан, то он нужен всем, включая localhost, — либо, если токена нет, только прямое соединение с
+    localhost без прокси-заголовков. Остальной реестр при выключенной аутентификации по-прежнему открыт.
+    """
+    if SETUP_TOKEN:
+        supplied = request.headers.get("x-setup-token", "")
+        if hmac.compare_digest(supplied.encode("utf-8"), SETUP_TOKEN.encode("utf-8")):
+            return
+    elif _is_direct_localhost(request):
+        return
+    raise HTTPException(403, {
+        "message": "Первичная настройка аутентификации доступна только с localhost или по токену установки "
+                   "(заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN).",
+        "code": ErrorCode.SETUP_ACCESS_DENIED,
+    })
 
 
 def require_admin(request: Request) -> None:
     """Явная проверка внутри конкретных эндпоинтов управления пользователями/настройками —
     вторым слоем поверх middleware (которое пропускает viewer'а на безопасные GET-методы; здесь
     же список пользователей и переключатель должны быть недоступны viewer'у ни на чтение, ни на
-    запись). Не проверяет заново токен — переиспользует request.state, выставленный middleware."""
+    запись). Не проверяет заново токен — переиспользует request.state, выставленный middleware.
+
+    Пока аутентификация выключена, администраторов ещё нет — доступ определяет require_setup_access."""
     if not getattr(request.state, "auth_enabled", False):
+        require_setup_access(request)
         return
     user: Optional[User] = getattr(request.state, "user", None)
     if user is None or user.role != UserRole.ADMIN:

@@ -187,6 +187,10 @@ export function auditJournal(count: number): import('../../api/types').AuditLogE
     action: actions[i % 3],
     details: `Запись ${i}`,
     created_at: new Date(Date.UTC(2026, 7, 1) + (count - i) * 60_000).toISOString(),
+    // Каждая 5-я запись сделана до появления автора действия (все actor_* пусты); остальные — под admin.
+    actor_id: i % 5 === 0 ? null : 'user-admin',
+    actor_username: i % 5 === 0 ? null : 'admin',
+    actor_ip: i % 5 === 0 ? null : '10.0.0.7',
   }))
 }
 

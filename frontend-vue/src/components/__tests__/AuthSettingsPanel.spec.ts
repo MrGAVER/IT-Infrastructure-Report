@@ -15,6 +15,7 @@ const viewerUser = {
 beforeEach(() => {
   setActivePinia(createPinia())
   localStorage.clear()
+  sessionStorage.clear()
   vi.stubGlobal('confirm', vi.fn(() => true))
 })
 
@@ -79,5 +80,38 @@ describe('AuthSettingsPanel.vue', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('уже существует')
+  })
+
+  it('при отказе в первичной настройке (403 SETUP_ACCESS_DENIED) просит токен установки и повторяет запрос с ним', async () => {
+    const calls: Array<{ url: string; headers: Record<string, string> }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const headers = (init?.headers ?? {}) as Record<string, string>
+        calls.push({ url, headers })
+        if (headers['X-Setup-Token'] === 's3cret') return jsonResponse([viewerUser])
+        return jsonResponse({ detail: { code: 'SETUP_ACCESS_DENIED', message: 'Первичная настройка только с localhost' } }, 403)
+      }),
+    )
+    const wrapper = mount(AuthSettingsPanel)
+    await flushPromises()
+
+    expect(wrapper.find('.setup-token-row').exists()).toBe(true)
+    expect(calls[0].headers['X-Setup-Token']).toBeUndefined()
+
+    await wrapper.find('.setup-token-row input').setValue('s3cret')
+    await wrapper.find('.setup-token-row').trigger('submit')
+    await flushPromises()
+
+    expect(sessionStorage.getItem('itr:setup-token')).toBe('s3cret')
+    expect(wrapper.find('.setup-token-row').exists()).toBe(false)
+    expect(wrapper.text()).toContain('viewer1')
+  })
+
+  it('не показывает поле токена, если список пользователей загрузился', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([viewerUser])))
+    const wrapper = mount(AuthSettingsPanel)
+    await flushPromises()
+    expect(wrapper.find('.setup-token-row').exists()).toBe(false)
   })
 })

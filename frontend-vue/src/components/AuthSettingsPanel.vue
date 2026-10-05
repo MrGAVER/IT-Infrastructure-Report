@@ -5,7 +5,7 @@
 // сервер всё равно отклонит эти запросы (require_admin), но незачем рисовать элементы,
 // которые гарантированно приведут к 403.
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ApiError } from '../api/client'
+import { ApiError, getStoredSetupToken, setStoredSetupToken } from '../api/client'
 import type { UserRole } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 
@@ -22,8 +22,38 @@ const createError = ref<string | null>(null)
 const busyUserId = ref<string | null>(null)
 const userActionError = ref<string | null>(null)
 
+// Первичная настройка при выключенной аутентификации разрешена только с localhost или по токену
+// установки (backend/app/services/auth.py:require_setup_access) — с другого компьютера сервер отвечает
+// 403 SETUP_ACCESS_DENIED, и панель просит ввести токен.
+const SETUP_DENIED = 'SETUP_ACCESS_DENIED'
+const setupTokenNeeded = ref(false)
+const setupTokenInput = ref(getStoredSetupToken() ?? '')
+
+function noteSetupDenied(err: unknown): boolean {
+  if (err instanceof ApiError && err.code === SETUP_DENIED) {
+    setupTokenNeeded.value = true
+    return true
+  }
+  return false
+}
+
+async function loadUsers() {
+  try {
+    await auth.fetchUsers()
+    setupTokenNeeded.value = false
+  } catch (err) {
+    if (!noteSetupDenied(err)) userActionError.value = err instanceof ApiError ? err.message : 'Не удалось загрузить пользователей'
+  }
+}
+
+async function applySetupToken() {
+  setStoredSetupToken(setupTokenInput.value.trim() || null)
+  userActionError.value = null
+  await loadUsers()
+}
+
 onMounted(() => {
-  if (canManage.value) void auth.fetchUsers()
+  if (canManage.value) void loadUsers()
 })
 
 async function toggleAuth() {
@@ -41,6 +71,7 @@ async function toggleAuth() {
   try {
     await auth.setEnabled(next)
   } catch (err) {
+    noteSetupDenied(err)
     toggleError.value = err instanceof ApiError ? err.message : 'Не удалось изменить настройку'
   } finally {
     toggling.value = false
@@ -60,6 +91,7 @@ async function createUser() {
     newUser.password = ''
     newUser.role = 'viewer'
   } catch (err) {
+    noteSetupDenied(err)
     createError.value = err instanceof ApiError ? err.message : 'Не удалось создать пользователя'
   } finally {
     creating.value = false
@@ -126,6 +158,15 @@ async function removeUser(id: string, username: string) {
     </p>
 
     <template v-if="canManage">
+      <form v-if="setupTokenNeeded" class="setup-token-row" @submit.prevent="applySetupToken">
+        <p class="hint">
+          Настройка доступа с этого компьютера требует токен установки — значение переменной
+          <code>INFRA_REGISTRY_SETUP_TOKEN</code> на сервере. Либо откройте приложение на самом сервере
+          (localhost) — там токен не нужен.
+        </p>
+        <input v-model="setupTokenInput" type="password" placeholder="Токен установки" autocomplete="off" aria-label="Токен установки" />
+        <button type="submit" class="btn btn-secondary">Применить</button>
+      </form>
       <h3>Пользователи</h3>
       <table v-if="auth.users.length" class="users-table">
         <thead>
@@ -236,6 +277,25 @@ async function removeUser(id: string, username: string) {
   border: 1px solid currentColor;
   border-radius: var(--r-s);
   padding: 1px 5px;
+}
+.setup-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.setup-token-row .hint { flex-basis: 100%; margin: 0; }
+.setup-token-row input {
+  flex: 1;
+  min-width: 160px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 8px 9px;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
 }
 .new-user-row {
   display: flex;
