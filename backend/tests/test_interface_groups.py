@@ -1,5 +1,5 @@
 """Группы портов устройства (правка формы устройства, п.4): PUT /devices/{id}/interfaces с
-payload['groups'] и GET /devices/{id}/interface-groups (services/crud.py:sync_interfaces и
+payload['groups'] и GET /devices/{id}/interface-groups (services/crud/interfaces.py:sync_interfaces и
 _sync_interface_groups/_apply_group_to_interface).
 
 Главный инвариант: параметры группы (режим порта + VLAN, общий IP, открытые порты)

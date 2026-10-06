@@ -1,5 +1,5 @@
 """PUT /api/v1/devices/{id}/vlans — атомарная diff-синхронизация блока «VLAN устройства»
-(services/crud.py:sync_device_vlans). Заменяет клиентскую схему «удалить всё и создать заново»
+(services/crud/device_vlans.py:sync_device_vlans). Заменяет клиентскую схему «удалить всё и создать заново»
 (до этого DeviceFormModal.vue делал десятки отдельных запросов без транзакции)."""
 from __future__ import annotations
 

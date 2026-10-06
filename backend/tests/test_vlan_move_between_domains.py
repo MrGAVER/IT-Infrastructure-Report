@@ -4,7 +4,7 @@
 его (_auto_assign_new_domain_vlan_to_domain_devices), а старые участники — нет, хотя он им больше не
 принадлежит. Следующее сохранение такого устройства упиралось в 422 «Устройство не включено в домен
 этого VLAN». Теперь VLAN снимается с устройств прежнего домена, которых нет в новом, вместе со связями
-с их портами и группами портов (services/crud.py:_unassign_moved_vlan_from_former_domain_devices).
+с их портами и группами портов (services/crud/vlan_domains.py:_unassign_moved_vlan_from_former_domain_devices).
 """
 from __future__ import annotations
 

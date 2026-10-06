@@ -142,7 +142,7 @@ def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
 def validate_svg_markup(svg_markup: str | None) -> None:
     """Бросает HTTPException(422), если svg_markup не является корректным XML или содержит что-либо
     кроме разрешённых графических тегов и безопасных атрибутов (см. комментарий выше). Вызывается при
-    создании/обновлении DiagramIcon через generic CRUD (services/crud.py:_RESOURCE_VALIDATORS) — до
+    создании/обновлении DiagramIcon через generic CRUD (services/crud/:_RESOURCE_VALIDATORS) — до
     сохранения в БД, а не только на фронтенде, где проверку легко обойти прямым запросом к API.
 
     Принимает как полный <svg>…</svg>, так и голый фрагмент из нескольких элементов (он оборачивается

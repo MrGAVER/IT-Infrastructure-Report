@@ -62,7 +62,7 @@ class TestEnrichDevicesStackFields:
         assert items[member_b["id"]]["stack_position"] == 2
 
         # Тот же generic-листинг ресурса (используется, например, отчётами) — enrich_devices()
-        # общая для обоих эндпоинтов, см. services/crud.py:list_resource.
+        # общая для обоих эндпоинтов, см. services/crud/generic.py:list_resource.
         via_resources = {d["id"]: d for d in client.get("/api/v1/resources/devices", params={"limit": 1000}).json()["items"]}
         assert via_resources[member_a["id"]]["stack_id"] == stack["id"]
 

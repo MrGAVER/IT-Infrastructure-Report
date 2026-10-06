@@ -1,5 +1,5 @@
 """
-Тесты на backend/app/services/crud.py: _find_referencing_counts / delete_resource.
+Тесты на backend/app/services/crud/: _find_referencing_counts / delete_resource.
 
 Проверяют конкретный сценарий из отчёта: должна быть невозможность молча удалить справочную
 запись (например, тип устройства), на которую ссылаются другие записи (физические устройства).

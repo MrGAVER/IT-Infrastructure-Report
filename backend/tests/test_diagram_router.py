@@ -248,7 +248,7 @@ def test_delete_diagram_not_found(client):
 
 def test_diagram_icon_deletion_blocked_when_referenced(client, db_session):
     """Раздел 13 ТЗ дословно: 'Удаление DiagramIcon, на который есть ссылка, блокируется (409),
-    как и для остальных справочников' — общий механизм crud.py:_find_referencing_counts."""
+    как и для остальных справочников' — общий механизм crud/:_find_referencing_counts."""
     icon = client.post("/api/v1/resources/diagram-icons", json={"name": "Своя иконка", "svg_markup": "<svg/>"}).json()
     device = _seed_device(db_session)
     device.diagram_icon_id = icon["id"]
@@ -263,7 +263,7 @@ def test_diagram_icon_deletion_blocked_when_referenced(client, db_session):
 
 
 def test_diagram_icon_create_rejects_executable_svg(client):
-    """Код-ревью п.3.1: проверка обязана жить на бэкенде (services/crud.py:_RESOURCE_VALIDATORS
+    """Код-ревью п.3.1: проверка обязана жить на бэкенде (services/crud/:_RESOURCE_VALIDATORS
     -> validate_svg_markup), а не только на фронтенде — иначе прямой POST в API в обход формы
     сохранял бы payload как есть."""
     r = client.post("/api/v1/resources/diagram-icons", json={"name": "Вредоносная", "svg_markup": '<svg onload="alert(1)"></svg>'})

@@ -24,6 +24,7 @@ from app.models import (
     SoftwareAsset, VirtualMachine,
 )
 from app.services import crud
+from app.services.crud import deletion as crud_deletion
 from app.services.integrity import (
     ReferencedRecordError, find_orphaned_owner_references, format_referenced_message,
 )
@@ -53,29 +54,29 @@ ALLOWED_DELETIONS = {
     # назначения VLAN
     ("app/api/system.py", "sync_vlan_domain", "PhysicalDeviceVLAN"),
     # generic-удаление: перед ним вызывается assert_deletable(), затем очистка полиморфных дочерних
-    ("app/services/crud.py", "delete_resource", "cleanup_model"),
-    ("app/services/crud.py", "delete_resource", "obj"),
+    ("app/services/crud/deletion.py", "delete_resource", "cleanup_model"),
+    ("app/services/crud/deletion.py", "delete_resource", "obj"),
     # синхронизация дочерних записей формы (интерфейсы устройства, порты, IP, источники ИС): удаляет
     # дочерние строки и сама подчищает их полиморфных потомков
-    ("app/services/crud.py", "_sync_single_interface", "InterfaceVLAN"),
-    ("app/services/crud.py", "_sync_single_interface", "old_ip"),
+    ("app/services/crud/interfaces.py", "_sync_single_interface", "InterfaceVLAN"),
+    ("app/services/crud/interfaces.py", "_sync_single_interface", "old_ip"),
     # Открытые порты, IP-адреса и ПО — листовые записи (на них никто не ссылается), удаляются diff'ом по
     # id общей _sync_owned_rows: у порта устройства (sync_owner_open_ports) и у ВМ (sync_vm_*)
-    ("app/services/crud.py", "_sync_owned_rows", "stale_row"),
-    ("app/services/crud.py", "sync_interfaces", "IPAddress"),
-    ("app/services/crud.py", "sync_interfaces", "OpenPort"),
-    ("app/services/crud.py", "sync_interfaces", "obj"),
+    ("app/services/crud/owned_rows.py", "_sync_owned_rows", "stale_row"),
+    ("app/services/crud/interfaces.py", "sync_interfaces", "IPAddress"),
+    ("app/services/crud/interfaces.py", "sync_interfaces", "OpenPort"),
+    ("app/services/crud/interfaces.py", "sync_interfaces", "obj"),
     # группы портов (InterfaceGroup, её VLAN и открытые порты): дочерние записи одного устройства, не
     # входят в MODEL_MAP; входящие ссылки — только device_interfaces.group_id (ON DELETE SET NULL,
     # порты отвязываются, но не удаляются) и собственные VLAN/открытые порты группы (CASCADE).
     # Удаляются не защищённые модели (PhysicalDevice/VM/контейнер/интерфейс не затрагиваются);
     # link/extra/row в _apply_group_to_interface — VLAN-связи, IP и открытые порты ПОРТА, которые
     # группа приводит к своим значениям (то же, что уже делает _sync_single_interface для порта)
-    ("app/services/crud.py", "_sync_group_vlans", "row"),
-    ("app/services/crud.py", "_sync_group_open_ports", "row"),
-    ("app/services/crud.py", "_apply_group_to_interface", "link"),
-    ("app/services/crud.py", "_apply_group_to_interface", "extra"),
-    ("app/services/crud.py", "_apply_group_to_interface", "row"),
+    ("app/services/crud/interfaces.py", "_sync_group_vlans", "row"),
+    ("app/services/crud/interfaces.py", "_sync_group_open_ports", "row"),
+    ("app/services/crud/interfaces.py", "_apply_group_to_interface", "link"),
+    ("app/services/crud/interfaces.py", "_apply_group_to_interface", "extra"),
+    ("app/services/crud/interfaces.py", "_apply_group_to_interface", "row"),
     # каскадная смена режима порта (services/vlan_mode_cascade.py): при trunk -> access у порта и группы
     # остаётся один VLAN — снимаются лишние назначения VLAN (InterfaceVLAN у порта, InterfaceGroupVLAN
     # у группы). Это дочерние записи, не входящие в защищаемые модели; сами порты, группы и VLAN не
@@ -91,21 +92,21 @@ ALLOWED_DELETIONS = {
     # удаление ПОЛЬЗОВАТЕЛЬСКОГО правила согласования (services/port_sync_store.py): на port_sync_rules
     # нет ни FK, ни полиморфных ссылок; стандартное правило (code задан) код удалять отказывается (409)
     ("app/services/port_sync_store.py", "delete_rule", "row"),
-    ("app/services/crud.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
-    ("app/services/crud.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
-    ("app/services/crud.py", "_delete_stale_groups", "group"),
+    ("app/services/crud/interfaces.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
+    ("app/services/crud/interfaces.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
+    ("app/services/crud/interfaces.py", "_delete_stale_groups", "group"),
     # VLAN устройства (PhysicalDeviceVLAN) — дочерняя запись без входящих ссылок (ни FK, ни
     # полиморфных: проверено reflection'ом по MODEL_MAP), поэтому assert_deletable() ей не нужен
-    ("app/services/crud.py", "sync_device_vlans", "obj"),
+    ("app/services/crud/device_vlans.py", "sync_device_vlans", "obj"),
     # VLAN, перенесённый в другой домен, снимается с устройств прежнего домена (назначение на устройстве
     # и связи с портами/группами этих устройств) — дочерние записи без входящих ссылок
-    ("app/services/crud.py", "_unassign_moved_vlan_from_former_domain_devices", "PhysicalDeviceVLAN"),
-    ("app/services/crud.py", "_unassign_moved_vlan_from_former_domain_devices", "InterfaceVLAN"),
-    ("app/services/crud.py", "_unassign_moved_vlan_from_former_domain_devices", "InterfaceGroupVLAN"),
-    ("app/services/crud.py", "_sync_linked_table", "obj"),
-    ("app/services/crud.py", "_sync_source_ip_addresses", "old_ip"),
-    ("app/services/crud.py", "_sync_information_system_sources", "IPAddress"),
-    ("app/services/crud.py", "_sync_information_system_sources", "obj"),
+    ("app/services/crud/vlan_domains.py", "_unassign_moved_vlan_from_former_domain_devices", "PhysicalDeviceVLAN"),
+    ("app/services/crud/vlan_domains.py", "_unassign_moved_vlan_from_former_domain_devices", "InterfaceVLAN"),
+    ("app/services/crud/vlan_domains.py", "_unassign_moved_vlan_from_former_domain_devices", "InterfaceGroupVLAN"),
+    ("app/services/crud/information_system.py", "_sync_linked_table", "obj"),
+    ("app/services/crud/information_system.py", "_sync_source_ip_addresses", "old_ip"),
+    ("app/services/crud/information_system.py", "_sync_information_system_sources", "IPAddress"),
+    ("app/services/crud/information_system.py", "_sync_information_system_sources", "obj"),
     # подключение порта, снятое в форме устройства («Отключить», services/interface_connections.py):
     # Connection — листовая запись, на неё не ссылается ни FK, ни полиморфная связь (это держит тест
     # test_interface_connections.py::test_connection_has_no_incoming_references), поэтому assert_deletable()
@@ -269,7 +270,9 @@ class TestOrmDeleteGuard:
         device = _device(db_session)
         _source(db_session, SourceType.DEVICE, device.id)
         db_session.commit()
-        monkeypatch.setattr(crud, "assert_deletable", lambda *a, **k: None)
+        # Патчим модуль, который вызывает assert_deletable (delete_resource живёт в crud/deletion.py), а не пакет crud:
+        # подмена атрибута пакета на уже связанные имена внутри submodule не влияет.
+        monkeypatch.setattr(crud_deletion, "assert_deletable", lambda *a, **k: None)
 
         r = client.delete(f"/api/v1/resources/devices/{device.id}")
         assert r.status_code == 409

@@ -3,7 +3,7 @@ PUT /api/v1/vms/{id}/ip-addresses и PUT /api/v1/vms/{id}/deployed-software.
 
 Так же, как открытые порты (см. test_vm_open_ports_sync.py): раньше форма ВМ при каждом сохранении
 удаляла все записи списка и создавала их заново. Теперь сервер сравнивает присланный список с БД по
-id (services/crud.py:_sync_owned_rows) — id и дата создания сохраняются, любая ошибка откатывает весь
+id (services/crud/owned_rows.py:_sync_owned_rows) — id и дата создания сохраняются, любая ошибка откатывает весь
 запрос, а в журнал аудита попадает только реальное изменение.
 """
 from __future__ import annotations
