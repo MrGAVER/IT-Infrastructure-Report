@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas import DeployedSoftwareSync, DeviceInterfacesSync, DeviceVlansSync
 from ..services.crud import get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
-from ..services.device_connectivity import list_free_interfaces, list_interface_connections
+from ..services.device_connectivity import list_device_options, list_free_interfaces, list_interface_connections
 router = APIRouter(prefix='/api/v1/devices', tags=['Devices'])
 @router.put('/{device_id}/interfaces')
 def sync(device_id: str, payload: DeviceInterfacesSync, session: Session = Depends(get_db)):
@@ -43,3 +43,17 @@ def free_interfaces(
 def interface_connections(device_id: str, session: Session = Depends(get_db)):
     """Действующие подключения портов устройства со сведениями о соседнем порте и устройстве."""
     return list_interface_connections(device_id, session)
+
+
+@router.get('/options')
+def device_options(
+    q: str | None = None,
+    include: list[str] = Query(default=[]),
+    exclude: list[str] = Query(default=[]),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    session: Session = Depends(get_db),
+):
+    """Устройства для выбора соседа в форме подключения (поиск и страницы, без полного списка устройств).
+    include — id устройств, которые вернуть независимо от поиска (текущий сосед); exclude — id, которые не возвращать."""
+    return list_device_options(session, q=q, include=include, exclude=exclude, offset=offset, limit=limit)

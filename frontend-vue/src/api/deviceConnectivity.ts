@@ -37,8 +37,27 @@ export interface DeviceInterfaceConnection {
   peer_vlan_mode: VlanMode
 }
 
+/** Устройство для выбора соседа из GET /devices/options: лёгкая запись без обогащения полного списка устройств. */
+export interface DeviceOption {
+  id: string
+  /** Системное имя, а без него серийный номер — так устройство подписывается во всём интерфейсе. */
+  label: string
+  system_name: string | null
+  serial_number: string
+}
+
+export interface DeviceOptionsPage {
+  items: DeviceOption[]
+  total: number
+  offset: number
+  limit: number
+}
+
 /** Размер страницы при полной загрузке портов устройства (сервер принимает до 500). */
 export const FREE_INTERFACES_PAGE_SIZE = 200
+
+/** Размер страницы списка устройств-соседей (сервер принимает до 200): остальные находятся поиском. */
+export const DEVICE_OPTIONS_PAGE_SIZE = 50
 
 export interface FreeInterfacesQuery {
   /** Подстрока имени порта без учёта регистра. */
@@ -78,4 +97,30 @@ export async function fetchAllFreeInterfaces(deviceId: string, include: readonly
 export async function fetchDeviceInterfaceConnections(deviceId: string): Promise<DeviceInterfaceConnection[]> {
   const res = await api.get<{ items: DeviceInterfaceConnection[] }>(`/devices/${encodeURIComponent(deviceId)}/interface-connections`)
   return res.items
+}
+
+export interface DeviceOptionsQuery {
+  /** Подстрока системного имени или серийного номера без учёта регистра. */
+  q?: string
+  /** id устройств, которые вернуть независимо от поиска (текущий сосед: его подпись нужна полю выбора). */
+  include?: readonly string[]
+  /** id устройств, которые не возвращать (редактируемое устройство); сильнее include. */
+  exclude?: readonly string[]
+  offset?: number
+  limit?: number
+}
+
+/**
+ * Одна страница устройств для выбора соседа: поиск и порядок задаёт сервер, а не клиент по полному списку
+ * устройств, загружаемому ради одного выпадающего списка.
+ *
+ * @example
+ * const page = await fetchDeviceOptionsPage({ q: 'sw', include: [currentPeerDeviceId], exclude: [thisDeviceId] })
+ */
+export function fetchDeviceOptionsPage({ q, include = [], exclude = [], offset = 0, limit = DEVICE_OPTIONS_PAGE_SIZE }: DeviceOptionsQuery = {}): Promise<DeviceOptionsPage> {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  if (q?.trim()) params.set('q', q.trim())
+  for (const id of include) params.append('include', id)
+  for (const id of exclude) params.append('exclude', id)
+  return api.get<DeviceOptionsPage>(`/devices/options?${params}`)
 }

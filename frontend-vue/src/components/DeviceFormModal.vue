@@ -14,7 +14,7 @@ import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceI
 import { cloneGroupsForCopy, validateInterfaceGroups } from '../utils/interfaceGroups'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, InterfaceGroupDraft, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, DeviceInterface, PortConflictInfo } from '../api/types'
+import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, InterfaceGroupDraft, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, PortConflictInfo } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
@@ -45,7 +45,7 @@ const vlansStore = useVLANsStore()
 const vlanDomainsStore = useVLANDomainsStore()
 const connectionsStore = useConnectionsStore()
 const devicesStore = useDevicesStore()
-const { notify } = useToast()
+const { notify, notifyError } = useToast()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 // Устройство, которое ЭТА форма уже создала, но не смогла сохранить целиком: после createResource идёт
@@ -107,6 +107,10 @@ let initialPortConfigs = new Map<string, PortConfig>()
 // Тоже не реактивен намеренно. У нового устройства и у копии снимок пуст.
 // shallowRef: baseline целиком заменяется при загрузке и передаётся редактору портов (освобождаемые порты).
 const initialConnections = shallowRef<ConnectionBaseline>(new Map())
+// Действующие подключения портов редактируемого устройства со сведениями о соседе — с сервера
+// (GET /devices/{id}/interface-connections): по ним считаются расхождения конфигурации с соседними портами.
+// Не зависит ни от общего списка подключений, ни от каталога интерфейсов (оба с потолком 1000 записей).
+const savedConnections = shallowRef<DeviceInterfaceConnection[]>([])
 const memberDomainIds = ref<Set<string>>(new Set())
 // Фикс п.1.3.8: домены VLAN на форме устройства — read-only список (галочки участников
 // редактируются только в VLANDomainsPanel.vue, см. комментарий в DeviceVlanListEditor.vue), но
@@ -155,8 +159,21 @@ const singleDeviceDomainId = computed(() => (deviceDomainIds.value.size === 1 ? 
 // кнопок применить (пункт 1 — is_management/is_data_transfer, пункт 2 — vlan_mode; это два
 // НЕЗАВИСИМЫХ флага расхождения, у каждого своё место в интерфейсе редактора).
 const interfaceConflicts = computed<Record<string, PortConflictInfo>>(() =>
-  computePortConflicts(interfaces.value, connectionsStore.all, (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[]),
+  computePortConflicts(interfaces.value, savedConnections.value),
 )
+
+// Конфигурация соседних портов изменилась из этой формы («Применить текущую конфигурацию соседу», каскад режима
+// порта): сведения о соседях перечитываются с сервера, чтобы значок расхождения исчез сразу. Ошибка не глотается —
+// без обновления значок остался бы устаревшим.
+async function reloadNeighborConfigs() {
+  const deviceId = existingDeviceId.value
+  if (!deviceId) return
+  try {
+    savedConnections.value = await fetchDeviceInterfaceConnections(deviceId)
+  } catch (err) {
+    notifyError(err)
+  }
+}
 
 // Опции для чекбоксов "VLAN на порту" (DeviceInterfacesEditor.vue) — НЕ то же самое, что
 // availableVlans выше: тот отвечает "что можно НАЗНАЧИТЬ устройству" (фильтр по домену), этот —
@@ -257,6 +274,7 @@ watch(
     deviceTypeVlanIds.value = new Set()
     initialPortConfigs = new Map()
     initialConnections.value = new Map()
+    savedConnections.value = []
     if (source) {
       for (const key of Object.keys(form) as (keyof typeof form)[]) {
         const value = source[key as keyof Device]
@@ -274,15 +292,11 @@ watch(
     // СОЗДАНИИ нового устройства (join-запрос откладывается в pendingDomainMemberships до
     // сохранения — тот же механизм, что уже есть для домена, заведённого через создание VLAN, см.
     // onVlanDomainCreated), поэтому загружается ДО ранней остановки ниже, а не внутри неё как
-    // vlansStore/connectionsStore (тем нужны данные конкретно существующего устройства).
+    // vlansStore (ему нужны данные конкретно существующего устройства).
     vlanDomainsStore.ensureLoaded()
-    if (!source) {
-      // Новому устройству тоже можно сразу подключить порты: нужен список устройств-соседей (свободные порты
-      // выбранного соседа блок «Подключение» запрашивает у сервера сам).
-      devicesStore.ensureLoaded()
-      connectionsStore.ensureLoaded()
-      return
-    }
+    // Устройства-соседи и их свободные порты блок «Подключение» запрашивает у сервера сам (поиском со страницами),
+    // полный список устройств форме не нужен.
+    if (!source) return
     loadingNested.value = true
     try {
       const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds, deviceConnections] = await Promise.all([
@@ -304,13 +318,6 @@ watch(
         // устройства подключений не наследует. Ошибка здесь не глотается: без них порт выглядел бы неподключённым.
         isCopy ? Promise.resolve([] as DeviceInterfaceConnection[]) : fetchDeviceInterfaceConnections(source.id),
         vlansStore.ensureLoaded(),
-        // Фикс п.3.3 (вторая часть — "при дальнейшем редактировании данных об 'Управлении',
-        // 'Передаче данных' через дашборд 'Инвентаризации устройств' также проводить такую
-        // проверку"): нужны текущие активные подключения, чтобы найти "второй конец" каждого
-        // порта и сравнить его is_management/is_data_transfer — см. interfaceConflictWarnings.
-        connectionsStore.ensureLoaded(),
-        // Список устройств — для подписи и выбора соседа в блоке «Подключение» порта.
-        devicesStore.ensureLoaded(),
       ])
       // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
       // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
@@ -338,6 +345,7 @@ watch(
       // При копировании id стёрты — снимок пуст, а у копии всё равно нет подключений и соседей.
       initialPortConfigs = snapshotPortConfigs(interfaces.value)
       initialConnections.value = snapshotConnections(interfaces.value)
+      savedConnections.value = deviceConnections
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
@@ -712,9 +720,13 @@ async function submit() {
         let noticeRows: PortRowLike[] = interfaces.value
         let noticeConflicts = interfaceConflicts.value
         if (connectionsChanged) {
-          await connectionsStore.reload()
+          // Соседи берутся у сервера для этого устройства, а не из общего списка подключений. Общий список
+          // (его читают экраны «Подключения» и схема) обновляем, только если он уже загружен: иначе он и так
+          // загрузится свежим при первом обращении.
+          savedConnections.value = await fetchDeviceInterfaceConnections(saved.id)
+          if (connectionsStore.loaded) await connectionsStore.reload()
           noticeRows = savedInterfaces
-          noticeConflicts = computePortConflicts(noticeRows, connectionsStore.all, (catalogs.items['interfaces'] ?? []) as unknown as DeviceInterface[])
+          noticeConflicts = computePortConflicts(noticeRows, savedConnections.value)
         }
         const conflictNotice = buildPortConflictNotice(noticeRows, noticeConflicts, initialPortConfigs, changedConnectionIds)
         if (conflictNotice) notify(conflictNotice, 'warning')
@@ -888,8 +900,10 @@ async function submit() {
           :conflicts="interfaceConflicts"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
           :device-id="props.device?.id ?? null"
+          :device-label="form.system_name || form.serial_number"
           edit-connections
           :connection-baseline="initialConnections"
+          @neighbors-changed="reloadNeighborConfigs"
         />
         <DeviceVlanListEditor
           v-if="!loadingNested"

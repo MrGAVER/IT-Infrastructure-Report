@@ -6,7 +6,6 @@ import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
 import { useCatalogsStore } from '../../stores/catalogs'
-import { useDevicesStore } from '../../stores/devices'
 import { groupChange, makePlan, portChange, vlanRef } from '../../utils/__tests__/cascadePlanFixture'
 import type { SelfPortCandidate } from '../../utils/interfaceConnections'
 import type { VlanModeCascadePlan } from '../../api/vlanModeCascade'
@@ -936,6 +935,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result[0].is_management).toBe(true) // взято у соседа
       expect(result[0].is_data_transfer).toBe(false) // взято у соседа
       expect(wrapper.find('.conflict-modal').exists()).toBe(false) // окно закрылось
+      expect(wrapper.emitted('neighbors-changed')).toBeFalsy() // соседи не менялись — перечитывать нечего
     })
 
     it('"Применить текущую конфигурацию" отправляет PUT на интерфейс соседа и закрывает окно', async () => {
@@ -959,6 +959,8 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(wrapper.find('.conflict-modal').exists()).toBe(false)
       // Черновик ЭТОЙ строки не менялся — обновился сосед, а не текущий порт.
       expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+      // Родитель считает расхождения по данным соседей с сервера — ему сообщают, что их надо перечитать.
+      expect(wrapper.emitted('neighbors-changed')).toHaveLength(1)
     })
 
     // --- Каскадная смена режима порта (вариант C): «Применить текущую конфигурацию» по режиму порта ---
@@ -1032,6 +1034,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         expect(wrapper.find('.conflict-modal').exists()).toBe(false)
         expect((catalogs.items['interfaces'][0] as unknown as { vlan_mode: string }).vlan_mode).toBe('access') // кэш соседа обновлён — значок расхождения исчезнет
         expect(wrapper.emitted('update:modelValue')).toBeFalsy() // черновик не менялся
+        expect(wrapper.emitted('neighbors-changed')).toHaveLength(1) // порты соседей изменены на сервере — родитель перечитает их
       })
 
       it('сложный случай: открывается окно с последствиями, пока пользователь не подтвердил — применения (POST) нет', async () => {
@@ -1050,6 +1053,7 @@ describe('DeviceInterfacesEditor.vue', () => {
         expect(wrapper.find('.cascade-desc').text()).toContain('«Gi0/3» (sw-03)')
         expect(calls.filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
         expect(wrapper.find('.conflict-modal').exists()).toBe(true) // окно расхождения остаётся под ним
+        expect(wrapper.emitted('neighbors-changed')).toBeFalsy() // пока ничего не записано — перечитывать нечего
       })
 
       it('снимаемые VLAN (даже при одном порте) тоже требуют окна подтверждения', async () => {
@@ -1335,6 +1339,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       await flushPromises()
 
       expect(wrapper.find('.conflict-modal').exists()).toBe(true) // окно осталось открытым
+      expect(wrapper.emitted('neighbors-changed')).toBeFalsy() // запись не удалась — соседи прежние
     })
   })
 })
@@ -1494,7 +1499,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
 })
 
 describe('DeviceInterfacesEditor.vue — блок «Подключение» порта', () => {
-  const connected = { peer_device_id: 'dev-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+  const connected = { peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
 
   // Свободные порты соседа приходят с сервера (api/deviceConnectivity.ts): здесь — порты sw-b без занятых.
   function stubPeerPorts(ports: Array<{ id: string; name: string; occupied?: boolean }>) {
@@ -1509,7 +1514,6 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
   }
 
   function mountWith(rows: InterfaceDraftRow[], editConnections?: boolean) {
-    useDevicesStore().all = [{ id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' }] as never
     stubPeerPorts([{ id: 'b-1', name: 'Gi0/1' }])
     return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: 'dev-1', ...(editConnections === undefined ? {} : { editConnections }) } })
   }
@@ -1569,11 +1573,10 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
 
 describe('DeviceInterfacesEditor.vue — подключения между портами этого устройства и обмен соседями', () => {
   const toRow = (key: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: '__self__', peer_interface_id: '', peer_row_key: key, connection_type_id: 'ct-1', description: '', ...extra })
-  const toPort = (id: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: 'dev-b', peer_interface_id: id, connection_type_id: 'ct-1', description: '', ...extra })
+  const toPort = (id: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: id, connection_type_id: 'ct-1', description: '', ...extra })
   const row = (name: string, extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({ ...emptyRow(), name, ...extra })
 
   function mountWith(rows: InterfaceDraftRow[], extra: Record<string, unknown> = {}) {
-    useDevicesStore().all = [{ id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' }] as never
     useCatalogsStore().items['interfaces'] = [] as never
     // Редактор подключения просит порты соседа у сервера; здесь это не предмет проверки — отвечаем пустой страницей.
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 200 }))))

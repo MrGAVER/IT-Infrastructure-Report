@@ -32,7 +32,6 @@
 import { computed, ref, watch } from 'vue'
 import { updateResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
-import { useDevicesStore } from '../stores/devices'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -61,8 +60,8 @@ const props = withDefaults(
     // ("на всё устройство") экземпляр редактора в DeviceFormModal.vue.
     protocolPortCatalog?: ProtocolPortCatalogEntry[]
     // Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — считаются
-    // родителем (DeviceFormModal.vue: interfaceConflicts), т.к. только у него есть доступ к
-    // стору подключений; этот компонент их только отображает и предлагает разрешить.
+    // родителем (DeviceFormModal.vue: interfaceConflicts), т.к. только у него есть данные о подключениях
+    // устройства с сервера; этот компонент их только отображает и предлагает разрешить.
     conflicts?: Record<string, PortConflictInfo>
     // Группы портов устройства (v-model:groups): параметры группы записываются в её порты, а у
     // членов группы управляемые ею поля недоступны для правки в самой строке (см. rowManaged()).
@@ -71,6 +70,9 @@ const props = withDefaults(
     // («Применить текущую конфигурацию»): порты и группы этого устройства сервер не пишет, а отдаёт
     // в плане как изменения черновика формы (см. utils/vlanModeCascade.ts).
     deviceId?: string | null
+    // Подпись редактируемого устройства (имя или серийный номер из формы) — для пункта «это устройство» в списке
+    // соседей блока «Подключение».
+    deviceLabel?: string
     // Показывать блок «Подключение» в раскрытой строке порта. Включает только вызывающая сторона,
     // которая сохраняет подключения вместе с портами (форма устройства): окно «Управлять портами»
     // (DevicePortsModal.vue) их не сохраняет, и кнопка «Подключить» там ничего бы не делала.
@@ -82,10 +84,15 @@ const props = withDefaults(
   }>(),
   { conflicts: () => ({}), protocolPortCatalog: () => [], groups: () => [], deviceId: null, editConnections: false, connectionBaseline: undefined },
 )
-const emit = defineEmits<{ 'update:modelValue': [rows: InterfaceDraftRow[]]; 'update:groups': [groups: InterfaceGroupDraft[]] }>()
+const emit = defineEmits<{
+  'update:modelValue': [rows: InterfaceDraftRow[]]
+  'update:groups': [groups: InterfaceGroupDraft[]]
+  /** Конфигурация портов-соседей изменена отсюда (запись на другие устройства уже выполнена): родитель, который
+   * считает расхождения по данным соседей, должен перечитать их. */
+  'neighbors-changed': []
+}>()
 const { notify, notifyError } = useToast()
 const catalogs = useCatalogsStore()
-const devicesStore = useDevicesStore()
 
 // Поля генератора — черновой ввод формы, не часть modelValue (как if-count/if-name-template в
 // vanilla). Начальное количество подставляется от уже загруженных интерфейсов один раз при
@@ -258,8 +265,7 @@ function connectionSummary(row: InterfaceDraftRow): string {
     const target = props.modelValue.find((r) => rowRef(r) === ref)
     return `↔ это устройство · ${target ? target.name.trim() || 'без имени' : '?'}`
   }
-  const peerDevice = devicesStore.all.find((d) => d.id === draft.peer_device_id)
-  return `↔ ${peerDevice ? peerDevice.system_name || peerDevice.serial_number : '?'} · ${draft.peer_interface_name ?? '?'}`
+  return `↔ ${draft.peer_device_name ?? '?'} · ${draft.peer_interface_name ?? '?'}`
 }
 
 function rowConflict(row: InterfaceDraftRow): PortConflictInfo | undefined {
@@ -309,7 +315,10 @@ const {
     }
     return draft.changedPorts
   },
-  onFinished: closeConflict,
+  onFinished: () => {
+    closeConflict()
+    emit('neighbors-changed')
+  },
 })
 
 // "Применить конфигурацию соседа [ко мне]":
@@ -371,6 +380,7 @@ async function applyCurrentConfigToNeighbor() {
     if (cached) Object.assign(cached, payload)
     notify('Конфигурация применена к соседнему порту', 'success')
     closeConflict()
+    emit('neighbors-changed')
   } catch (err) {
     notifyError(err)
   } finally {
@@ -1058,6 +1068,7 @@ function applyBulkEdit() {
                     v-if="editConnections"
                     :model-value="row.connection ?? null"
                     :device-id="deviceId"
+                    :device-label="deviceLabel"
                     :config="{ is_management: row.is_management, is_data_transfer: row.is_data_transfer, vlan_mode: row.vlan_mode }"
                     :taken-peer-ids="takenPeerIds(i)"
                     :self-ports="selfPortCandidates(i)"

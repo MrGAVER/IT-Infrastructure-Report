@@ -4,13 +4,17 @@ import { createPinia, setActivePinia } from 'pinia'
 import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
 import type { InterfaceConnectionDraft } from '../../api/types'
 import { useCatalogsStore } from '../../stores/catalogs'
-import { useDevicesStore } from '../../stores/devices'
 import { SELF_DEVICE, type SelfPortCandidate } from '../../utils/interfaceConnections'
 
 const config = { is_management: false, is_data_transfer: true, vlan_mode: 'trunk' as const }
 
+// Подпись устройства-соседа в черновике (peer_device_name) приходит вместе с подключением с сервера и запоминается при
+// выборе устройства; для известных id тестовый черновик получает её сам, как настоящий.
+const DEVICE_NAMES: Record<string, string> = { 'dev-b': 'sw-b', 'dev-a': 'A-serial' }
+
 function draft(overrides: Partial<InterfaceConnectionDraft> = {}): InterfaceConnectionDraft {
-  return { peer_device_id: '', peer_interface_id: '', connection_type_id: '', description: '', ...overrides }
+  const name = DEVICE_NAMES[overrides.peer_device_id ?? '']
+  return { peer_device_id: '', peer_interface_id: '', connection_type_id: '', description: '', ...(name ? { peer_device_name: name } : {}), ...overrides }
 }
 
 interface ServerPort {
@@ -25,17 +29,47 @@ function port(id: string, name: string, extra: Partial<ServerPort> = {}): Server
   return { id, name, ...extra }
 }
 
-// Фейковый сервер GET /devices/{id}/free-interfaces: отдаёт свободные порты и явно запрошенные через include
-// (занятые помечены occupied), постранично — как backend services/device_connectivity.py.
+interface ServerDevice {
+  id: string
+  system_name: string
+  serial_number: string
+}
+
+// Фейковый сервер: GET /devices/{id}/free-interfaces отдаёт свободные порты и явно запрошенные через include (занятые
+// помечены occupied), постранично; GET /devices/options — устройства с поиском, include/exclude и страницами.
+// Как backend services/device_connectivity.py. `requests` — запросы портов, `deviceRequests` — запросы устройств.
 let serverPorts: Record<string, ServerPort[]>
+let serverDevices: ServerDevice[]
 let requests: string[]
+let deviceRequests: string[]
+let deviceHandler: ((params: URLSearchParams) => Response | Promise<Response>) | undefined
+const deviceLabel = (d: ServerDevice) => d.system_name || d.serial_number
 function stubFreeInterfaces(failWith?: number) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      requests.push(url)
-      if (failWith) return new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: failWith })
+      const options = /\/devices\/options\?(.*)$/.exec(url)
+      if (options) {
+        deviceRequests.push(url)
+        const params = new URLSearchParams(options[1])
+        if (deviceHandler) return deviceHandler(params)
+        const q = (params.get('q') ?? '').toLowerCase()
+        const include = new Set(params.getAll('include'))
+        const exclude = new Set(params.getAll('exclude'))
+        const offset = Number(params.get('offset') ?? 0)
+        const limit = Number(params.get('limit') ?? 50)
+        const found = serverDevices
+          .filter((d) => !exclude.has(d.id) && (include.has(d.id) || !q || deviceLabel(d).toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q)))
+          .sort((a, b) => deviceLabel(a).toLowerCase().localeCompare(deviceLabel(b).toLowerCase()))
+        const items = found.slice(offset, offset + limit).map((d) => ({ id: d.id, label: deviceLabel(d), system_name: d.system_name || null, serial_number: d.serial_number }))
+        return new Response(JSON.stringify({ items, total: found.length, offset, limit }))
+      }
+      if (failWith) {
+        requests.push(url)
+        return new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: failWith })
+      }
       const match = /\/devices\/([^/]+)\/free-interfaces\?(.*)$/.exec(url)
+      if (match) requests.push(url)
       if (!match) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       const params = new URLSearchParams(match[2])
       const include = new Set(params.getAll('include'))
@@ -52,16 +86,18 @@ beforeEach(() => {
   setActivePinia(createPinia())
   document.body.innerHTML = ''
   requests = []
+  deviceRequests = []
+  deviceHandler = undefined
   serverPorts = {
     'dev-b': [port('b-1', 'Gi0/1'), port('b-2', 'Gi0/2'), port('b-3', 'Gi0/3')],
     'dev-a': [port('a-1', 'eth0')],
   }
-  stubFreeInterfaces()
-  useDevicesStore().all = [
+  serverDevices = [
     { id: 'dev-self', system_name: 'srv-self', serial_number: 'S0' },
     { id: 'dev-b', system_name: 'sw-b', serial_number: 'S2' },
     { id: 'dev-a', system_name: '', serial_number: 'A-serial' },
-  ] as never
+  ]
+  stubFreeInterfaces()
   useCatalogsStore().items['connection-types'] = [{ id: 'ct-1', name: 'Витая пара' }] as never
 })
 
@@ -75,6 +111,7 @@ async function mountEditor(modelValue: InterfaceConnectionDraft | null, extra: R
 async function optionLabels(wrapper: VueWrapper, rootSelector: string): Promise<string[]> {
   const select = wrapper.find(`${rootSelector} .searchable-select`)
   await select.find('input').trigger('focus')
+  await flushPromises() // список устройств запрашивается у сервера при открытии
   return select.findAll('.ss-option').map((o) => o.text())
 }
 
@@ -130,10 +167,12 @@ describe('InterfaceConnectionEditor.vue', () => {
     const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1' }))
     const select = wrapper.find('.connection-peer-device .searchable-select')
     await select.find('input').trigger('focus')
+    await flushPromises()
     await select.findAll('.ss-option').find((o) => o.text() === 'A-serial')!.trigger('mousedown')
 
     const next = wrapper.emitted('update:modelValue')![0][0] as InterfaceConnectionDraft
-    expect(next).toEqual({ peer_device_id: 'dev-a', peer_interface_id: '', connection_type_id: 'ct-1', description: '' })
+    // Подпись нового устройства запоминается в черновике — полного списка устройств у формы нет.
+    expect(next).toEqual({ peer_device_id: 'dev-a', peer_device_name: 'A-serial', peer_interface_id: '', connection_type_id: 'ct-1', description: '' })
     expect(next).not.toHaveProperty('peer_interface_name')
   })
 
@@ -225,8 +264,11 @@ describe('InterfaceConnectionEditor.vue — порты этого же устр�
   })
 
   it('с selfPorts «это устройство» первым в списке: у сохранённого — с его именем, у нового — «Это устройство (новое)»', async () => {
-    const saved = await mountEditor(draft(), { selfPorts: [] })
+    const saved = await mountEditor(draft(), { selfPorts: [], deviceLabel: 'srv-self' })
     expect(await optionLabels(saved, '.connection-peer-device')).toEqual(['srv-self (это устройство)', 'A-serial', 'sw-b'])
+
+    const unnamed = await mountEditor(draft(), { selfPorts: [] }) // подпись формы не передана
+    expect((await optionLabels(unnamed, '.connection-peer-device'))[0]).toBe('Это устройство')
 
     const created = await mountEditor(draft(), { selfPorts: [], deviceId: null })
     expect((await optionLabels(created, '.connection-peer-device'))[0]).toBe('Это устройство (новое)')
@@ -260,9 +302,10 @@ describe('InterfaceConnectionEditor.vue — порты этого же устр�
     expect((select.find('input').element as HTMLInputElement).value).toBe('Это устройство (новое)')
 
     await select.find('input').trigger('focus')
+    await flushPromises()
     await select.findAll('.ss-option').find((o) => o.text() === 'sw-b')!.trigger('mousedown')
     const next = wrapper.emitted('update:modelValue')![0][0] as InterfaceConnectionDraft
-    expect(next).toMatchObject({ peer_device_id: 'dev-b', peer_interface_id: '' })
+    expect(next).toMatchObject({ peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: '' })
     expect(next).not.toHaveProperty('peer_row_key')
   })
 
@@ -304,5 +347,169 @@ describe('InterfaceConnectionEditor.vue — порты этого же устр�
     serverPorts['dev-b'] = [port('b-1', 'Gi0/1', { occupied: true }), port('b-2', 'Gi0/2'), port('b-3', 'Gi0/3')]
     const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b' }), { freedPeerIds: new Set(['b-1']), takenPeerIds: new Set(['b-1']) })
     expect(await optionLabels(wrapper, '.connection-peer-port')).toEqual(['Gi0/2', 'Gi0/3'])
+  })
+})
+
+describe('InterfaceConnectionEditor.vue — устройства-соседи ищутся на сервере', () => {
+  const deviceSelect = (wrapper: VueWrapper) => wrapper.find('.connection-peer-device .searchable-select')
+  const queryOf = (url: string) => new URLSearchParams(url.split('?')[1])
+
+  async function openDevices(wrapper: VueWrapper) {
+    await deviceSelect(wrapper).find('input').trigger('focus')
+    await flushPromises()
+  }
+  async function typeDevices(wrapper: VueWrapper, text: string) {
+    await deviceSelect(wrapper).find('input').setValue(text)
+  }
+  const labels = (wrapper: VueWrapper) => deviceSelect(wrapper).findAll('.ss-option').map((o) => o.text())
+
+  it('список устройств не запрашивается, пока выпадающий список не открыт: показ блока «Подключение» сети не нагружает', async () => {
+    const wrapper = await mountEditor(draft())
+    expect(deviceRequests).toEqual([])
+
+    await openDevices(wrapper)
+    expect(deviceRequests).toHaveLength(1)
+    expect(queryOf(deviceRequests[0]).get('limit')).toBe('50')
+    expect(queryOf(deviceRequests[0]).has('q')).toBe(false)
+  })
+
+  it('в запросе редактируемое устройство уходит в exclude, а выбранный сосед — в include', async () => {
+    const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
+    await openDevices(wrapper)
+
+    const params = queryOf(deviceRequests[0])
+    expect(params.getAll('exclude')).toEqual(['dev-self'])
+    expect(params.getAll('include')).toEqual(['dev-b'])
+  })
+
+  it('поиск уходит на сервер одним запросом после паузы, а результат не фильтруется на клиенте повторно', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = await mountEditor(draft())
+      await openDevices(wrapper) // пустой запрос при открытии — сразу
+      deviceRequests.length = 0
+
+      await typeDevices(wrapper, 's')
+      await typeDevices(wrapper, 'sw')
+      expect(deviceRequests).toEqual([]) // пауза ещё не прошла
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      expect(deviceRequests).toHaveLength(1)
+      expect(queryOf(deviceRequests[0]).get('q')).toBe('sw')
+      expect(labels(wrapper)).toEqual(['sw-b'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('локально опции не отфильтровываются: что вернул сервер (например, найденное по серийному номеру), то и показано', async () => {
+    deviceHandler = () => new Response(JSON.stringify({ items: [{ id: 'dev-x', label: 'Коммутатор-7', system_name: 'Коммутатор-7', serial_number: 'ZZZ-1' }], total: 1, offset: 0, limit: 50 }))
+    vi.useFakeTimers()
+    try {
+      const wrapper = await mountEditor(draft())
+      await openDevices(wrapper)
+      await typeDevices(wrapper, 'zzz-1') // подпись «Коммутатор-7» этот текст не содержит
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+      expect(labels(wrapper)).toEqual(['Коммутатор-7'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('выбранный сосед остаётся в списке и подписан, даже когда поиск его не нашёл', async () => {
+    deviceHandler = () => new Response(JSON.stringify({ items: [{ id: 'dev-a', label: 'A-serial', system_name: null, serial_number: 'A-serial' }], total: 1, offset: 0, limit: 50 }))
+    const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
+    expect((deviceSelect(wrapper).find('input').element as HTMLInputElement).value).toBe('sw-b') // подпись из черновика
+
+    await openDevices(wrapper)
+    expect(labels(wrapper)).toEqual(['sw-b', 'A-serial'])
+  })
+
+  it('черновик без подписи устройства: подпись запрашивается у сервера через include и показывается в поле', async () => {
+    const wrapper = await mountEditor({ peer_device_id: 'dev-b', peer_interface_id: 'b-1', connection_type_id: 'ct-1', description: '' })
+
+    expect(deviceRequests).toHaveLength(1)
+    expect(queryOf(deviceRequests[0]).getAll('include')).toEqual(['dev-b'])
+    expect((deviceSelect(wrapper).find('input').element as HTMLInputElement).value).toBe('sw-b')
+  })
+
+  it('найдено больше, чем помещается на странице, — подсказка «показаны первые N из M»', async () => {
+    serverDevices = Array.from({ length: 120 }, (_, i) => ({ id: `d-${i}`, system_name: `sw-${String(i).padStart(3, '0')}`, serial_number: `S-${i}` }))
+    const wrapper = await mountEditor(draft())
+    await openDevices(wrapper)
+
+    expect(deviceSelect(wrapper).findAll('.ss-option')).toHaveLength(50)
+    expect(deviceSelect(wrapper).find('.ss-hint').text()).toBe('Показаны первые 50 из 120 — уточните поиск')
+  })
+
+  it('сервер не ответил — сообщение об ошибке под полем, а не пустой список без объяснений', async () => {
+    deviceHandler = () => new Response(JSON.stringify({ detail: 'База недоступна' }), { status: 500 })
+    const wrapper = await mountEditor(draft())
+    await openDevices(wrapper)
+
+    expect(wrapper.find('.connection-error').text()).toContain('Не удалось загрузить устройства: База недоступна')
+    expect(labels(wrapper)).toEqual([])
+  })
+
+  it('ответ устаревшего поиска не затирает результат более нового', async () => {
+    vi.useFakeTimers()
+    try {
+      let releaseFirst: () => void = () => {}
+      const gate = new Promise<void>((resolve) => (releaseFirst = resolve))
+      const item = (id: string, label: string) => ({ id, label, system_name: label, serial_number: id })
+      deviceHandler = async (params) => {
+        if (params.get('q') === 'a') {
+          await gate // ответ на «a» приходит позже ответа на «ab»
+          return new Response(JSON.stringify({ items: [item('old', 'старый')], total: 1, offset: 0, limit: 50 }))
+        }
+        return new Response(JSON.stringify({ items: [item('new', 'новый')], total: 1, offset: 0, limit: 50 }))
+      }
+      const wrapper = await mountEditor(draft())
+      await openDevices(wrapper)
+      await typeDevices(wrapper, 'a')
+      await vi.advanceTimersByTimeAsync(300)
+      await typeDevices(wrapper, 'ab')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+      releaseFirst()
+      await flushPromises()
+
+      expect(labels(wrapper)).toEqual(['новый'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('пункт «это устройство» при поиске показывается, только если подходит под введённый текст', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = await mountEditor(draft(), { selfPorts: [], deviceLabel: 'srv-self' })
+      await openDevices(wrapper)
+      expect(labels(wrapper)[0]).toBe('srv-self (это устройство)')
+
+      await typeDevices(wrapper, 'sw')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+      expect(labels(wrapper)).toEqual(['sw-b'])
+
+      await typeDevices(wrapper, 'это устр')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+      expect(labels(wrapper)[0]).toBe('srv-self (это устройство)')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('«это устройство» и очистка выбора не запоминают подпись устройства', async () => {
+    const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }), { selfPorts: [], deviceLabel: 'srv-self' })
+    await openDevices(wrapper)
+    await deviceSelect(wrapper).findAll('.ss-option').find((o) => o.text().startsWith('srv-self'))!.trigger('mousedown')
+
+    const next = wrapper.emitted('update:modelValue')![0][0] as InterfaceConnectionDraft
+    expect(next).toMatchObject({ peer_device_id: 'dev-self', peer_interface_id: '' })
+    expect(next).not.toHaveProperty('peer_device_name')
   })
 })

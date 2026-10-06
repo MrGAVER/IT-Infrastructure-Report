@@ -8,7 +8,9 @@
 * ``list_free_interfaces`` — свободные порты устройства (без активного подключения), чтобы выбрать
   соседа для подключения;
 * ``list_interface_connections`` — действующие подключения портов устройства вместе со сведениями о
-  соседнем порте и устройстве, чтобы показать их в форме при редактировании.
+  соседнем порте и устройстве, чтобы показать их в форме при редактировании;
+* ``list_device_options`` — устройства для выбора соседа: поиск по имени и серийному номеру и постраничная
+  выдача, чтобы форма не загружала весь реестр устройств ради одного выпадающего списка.
 
 «Активное» подключение — ``is_active IS NOT FALSE``, как в services/validation.py:validate_connection
 (NULL считается активным): порт, который эти функции считают свободным, validate_connection тоже
@@ -135,3 +137,40 @@ def list_interface_connections(device_id: str, session: Session) -> dict[str, An
                 'peer_vlan_mode': peer.vlan_mode,
             })
     return {'items': items}
+
+
+def list_device_options(session: Session, *, q: str | None = None, include: Iterable[str] = (), exclude: Iterable[str] = (), offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    """Устройства для выбора соседа в форме подключения: лёгкие записи, поиск и одна страница.
+
+    Каждая запись — ``id``, ``label`` (системное имя, а без него серийный номер, как везде в интерфейсе),
+    ``system_name`` и ``serial_number``; без обогащения, которое делает полный список ``GET /devices``
+    (стеки, адреса, связанные справочники). Порядок — по подписи без учёта регистра, затем по id, чтобы
+    страницы не «плыли» между запросами.
+
+    ``q`` — подстрока имени или серийного номера без учёта регистра. ``include`` — id устройств, которые
+    нужно вернуть независимо от ``q`` (выбранный сейчас сосед: форма должна показать его подпись). ``exclude``
+    — id, которые не возвращаются никогда (редактируемое устройство в списке «других» устройств); он сильнее
+    ``include``. ``total`` — размер всей выборки до разбиения на страницы.
+
+    Регистр сравнивается ``casefold`` в Python, а не ``lower()`` в SQL: ``lower()`` в SQLite знает только ASCII,
+    и поиск по кириллице «alpha» находил бы «Alpha», но не «Альфа». Читаются три колонки без остальных данных
+    устройства, поэтому для реестра в тысячи устройств это дёшево; при переходе на СУБД с Unicode-регистром
+    фильтр можно перенести в SQL.
+
+    Пример: list_device_options(session, q='sw', include=[current_peer_device_id], exclude=[this_device_id])
+    """
+    rows = session.execute(select(PhysicalDevice.id, PhysicalDevice.system_name, PhysicalDevice.serial_number)).all()
+    forced = set(include)
+    excluded = set(exclude)
+    needle = (q or '').strip().casefold()
+
+    def matches(system_name: str | None, serial_number: str | None) -> bool:
+        return not needle or needle in (system_name or '').casefold() or needle in (serial_number or '').casefold()
+
+    selected = [
+        {'id': device_id, 'label': system_name or serial_number or device_id, 'system_name': system_name, 'serial_number': serial_number}
+        for device_id, system_name, serial_number in rows
+        if device_id not in excluded and (device_id in forced or matches(system_name, serial_number))
+    ]
+    selected.sort(key=lambda item: (item['label'].casefold(), item['id']))
+    return {'items': selected[offset:offset + limit], 'total': len(selected), 'offset': offset, 'limit': limit}
