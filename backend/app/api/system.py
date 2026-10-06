@@ -61,21 +61,21 @@ def list_vms(session: Session = Depends(get_db)):
 def sync_vm_ports(vm_id: str, payload: VMOpenPortsSync, session: Session = Depends(get_db)):
     """Атомарная синхронизация открытых портов ВМ: тело {open_ports: [{id?, protocol_catalog_id,
     transport_protocol, description}]} — полный список портов ВМ, diff по id (см.
-    services/crud.py:sync_vm_open_ports)."""
+    services/crud/owned_rows.py:sync_vm_open_ports)."""
     return sync_vm_open_ports(vm_id, payload.model_dump(exclude_unset=True), session)
 
 @router.put('/api/v1/vms/{vm_id}/ip-addresses')
 def sync_vm_ips(vm_id: str, payload: VMIPAddressesSync, session: Session = Depends(get_db)):
     """Атомарная синхронизация IP-адресов ВМ: тело {ip_addresses: [{id?, ip_address, prefix_length,
     purpose, is_management}]} — полный список IP-адресов ВМ, diff по id (см.
-    services/crud.py:sync_vm_ip_addresses)."""
+    services/crud/owned_rows.py:sync_vm_ip_addresses)."""
     return sync_vm_ip_addresses(vm_id, payload.model_dump(exclude_unset=True), session)
 
 @router.put('/api/v1/vms/{vm_id}/deployed-software')
 def sync_vm_software(vm_id: str, payload: DeployedSoftwareSync, session: Session = Depends(get_db)):
     """Атомарная синхронизация программных активов ВМ: тело {deployed_software: [{id?,
     software_asset_id, version}]} — полный список ПО ВМ, diff по id (см.
-    services/crud.py:sync_vm_deployed_software)."""
+    services/crud/owned_rows.py:sync_vm_deployed_software)."""
     return sync_vm_deployed_software(vm_id, payload.model_dump(exclude_unset=True), session)
 
 
@@ -119,7 +119,7 @@ def add_vlan_domain_member(domain_id: str, payload: VLANDomainMemberRequest, ses
     session.add(obj); session.flush()
     # Пункт 2 правки "домен VLAN": сразу переносим на новое устройство то, что уже определено для
     # этого домена (assign_domain_vlans_to_device — общая с create_resource('vlan-domain-devices')
-    # логика, см. её docstring в services/crud.py).
+    # логика, см. её docstring в services/crud/).
     assign_domain_vlans_to_device(domain_id, device.id, session)
     audit(session, 'vlan-domain-devices', obj.id, AuditAction.CREATE, f'Устройство добавлено в VLAN-домен «{domain.name}»')
     session.commit(); session.refresh(obj); return serialize(obj)
@@ -327,7 +327,7 @@ def add_device_stack_member(stack_id: str, payload: DeviceStackMemberRequest, se
     """Идемпотентно (как и add_vlan_domain_member выше) — повторное добавление уже состоящего в
     ЭТОМ ЖЕ стеке устройства просто возвращает существующую запись членства, не 409. Попытка
     добавить устройство, состоящее в ДРУГОМ стеке, всё равно упадёт понятной 409 —
-    _validate_device_stack_member_entry (см. services/crud.py) вызывается ниже через
+    _validate_device_stack_member_entry (см. services/crud/) вызывается ниже через
     validate_resource, как и для любого generic-ресурса."""
     stack = session.get(DeviceStack, stack_id)
     device = session.get(PhysicalDevice, payload.physical_device_id) if payload.physical_device_id else None

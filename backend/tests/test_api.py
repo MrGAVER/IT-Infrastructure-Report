@@ -1,6 +1,6 @@
 """
 Интеграционные тесты HTTP-слоя: fastapi.testclient.TestClient поверх реальной SQLAlchemy-сессии
-на in-memory SQLite (см. conftest.py). Раньше этот слой (api/*.py + services/crud.py) не был
+на in-memory SQLite (см. conftest.py). Раньше этот слой (api/*.py + services/crud/) не был
 покрыт тестами вовсе — существовавшие тесты проверяли только форматирование Excel-отчёта на
 облегчённом моке ORM (mock_sqlalchemy.py), без реальных запросов, FK-констрейнтов, конфликтов
 409 и т.п.
@@ -289,7 +289,7 @@ class TestDeviceTypeCategoryRequired:
     находка №1 код-ревью): DeviceType.category_id стал обязательным NOT NULL FK в рамках фичи
     диаграммы топологии сети, но ни validate_resource, ни quickAdd/schema.ts не были обновлены
     под это требование — POST без category_id падал сырым 409 "NOT NULL constraint failed"
-    вместо понятной ошибки 422. См. backend/app/services/crud.py:validate_resource."""
+    вместо понятной ошибки 422. См. backend/app/services/crud/validators.py:validate_resource."""
 
     def test_create_device_type_without_category_id_returns_422_not_raw_409(self, client):
         r = client.post("/api/v1/resources/device-types", json={"name": "Тип без категории"})
@@ -1060,7 +1060,7 @@ class TestCopyDeviceVlans:
 class TestVlanDomainMemberGetsDomainVlansImmediately:
     """Пункт 2 правки "домен VLAN": устройство, добавленное в домен, должно СРАЗУ получить набор
     VLAN этого домена — без отдельного ручного "Синхронизировать" (см. assign_domain_vlans_to_device
-    в services/crud.py, вызывается и из add_vlan_domain_member, и из create_resource — оба пути
+    в services/crud/, вызывается и из add_vlan_domain_member, и из create_resource — оба пути
     добавления участника, см. docstring функции)."""
 
     def _domain_with_synced_vlans(self, client):
@@ -1236,7 +1236,7 @@ class TestVlanDomainReplaceSync:
         foreign_vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 99, "name": "Чужой домен", "domain_id": other_domain["id"]}).json()
         local_vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 100, "name": "Локальный, без домена"}).json()
         # VLAN другого домена уже назначен устройству-участнику этого домена автоматически (см.
-        # _auto_assign_new_domain_vlan_to_domain_devices в services/crud.py), вручную — только локальный.
+        # _auto_assign_new_domain_vlan_to_domain_devices в services/crud/), вручную — только локальный.
         before = client.get(f"/api/v1/resources/device-vlans?physical_device_id={member['id']}").json()["items"]
         assert foreign_vlan["id"] in {row["vlan_id"] for row in before}
         r2 = client.post("/api/v1/resources/device-vlans", json={"physical_device_id": member["id"], "vlan_id": local_vlan["id"]})
@@ -1322,7 +1322,7 @@ class TestPolymorphicOwnerCleanupOnDelete:
     DELETE /resources/{interfaces,vms,devices}/{id} в обход sync_interfaces оставлял такие
     open_ports в базе осиротевшими (owner_id указывал на уже не существующую запись). После
     объединения DeployedSoftware/IPAddress в тот же паттерн (owner_type/owner_id) — тот же риск и
-    для них, поэтому _POLYMORPHIC_OWNER_CLEANUP покрывает обе модели тоже (см. crud.py)."""
+    для них, поэтому _POLYMORPHIC_OWNER_CLEANUP покрывает обе модели тоже (см. crud/)."""
 
     def test_deleting_interface_removes_its_open_ports(self, client):
         dt = _create_device_type(client, "Коммутатор для удаления порта")
@@ -1486,7 +1486,7 @@ class TestNewDomainVlanAutoAssignedToSourceDevice:
     """Пункт 2 правки "создание физического устройства": VLAN, заведённый в справочник (POST
     /resources/vlans) сразу с domain_id, должен появиться в «VLAN устройства» устройства-источника
     домена без отдельного ручного шага — до этой правки sync_vlan_domain не помогал (см. docstring
-    _auto_assign_new_domain_vlan_to_source_device в services/crud.py): он реплицирует то, что УЖЕ
+    _auto_assign_new_domain_vlan_to_source_device в services/crud/): он реплицирует то, что УЖЕ
     назначено источнику, а только что созданный VLAN там ещё не значится."""
 
     def test_create_with_domain_that_has_source_device_auto_assigns(self, client):
@@ -1561,7 +1561,7 @@ class TestNewDomainVlanAutoAssignedToSourceDevice:
 class TestNewDomainVlanAssignedToAllDomainDevices:
     """Правка "VLAN домена": новый VLAN домена появляется в «VLAN устройства» ВСЕХ устройств этого
     домена (участников и источника), а не только у источника — без ручного «Синхронизировать»
-    (см. _auto_assign_new_domain_vlan_to_domain_devices в services/crud.py)."""
+    (см. _auto_assign_new_domain_vlan_to_domain_devices в services/crud/)."""
 
     def _device(self, client, dt, serial):
         return client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": serial}).json()
@@ -1887,7 +1887,7 @@ class TestAuditLog:
         'Изменение записи' на ЛЮБОЕ изменение любой из ~40 сущностей реестра — колонка
         "Детали" в журнале аудита дублировала колонку "Действие" (там уже бейдж "Изменено"),
         не показывая, что именно изменилось. Теперь details содержит конкретное
-        'поле: старое → новое' (services/crud.py:_describe_update)."""
+        'поле: старое → новое' (services/crud/audit_log.py:_describe_update)."""
         created = client.post("/api/v1/resources/manufacturers", json={"name": "До правки"})
         assert created.status_code == 201, created.text
         item_id = created.json()["id"]

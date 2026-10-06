@@ -168,7 +168,7 @@ class PhysicalDevice(TimestampMixin, Base):
     # Слот в стойке (стойка + позиция) занимает не более одного устройства. Раньше это проверялось только
     # кодом «проверил, потом записал», и два параллельных запроса создали бы два устройства в одном слоте.
     # Индекс частичный: устройства без стойки или без позиции ограничением не затрагиваются (миграция
-    # b5d2f8a1c673). Переназначение занятого слота делает services/crud.py:_release_rack_slot.
+    # b5d2f8a1c673). Переназначение занятого слота делает services/crud/validators.py:_release_rack_slot.
     __table_args__ = (
         Index("uq_device_rack_slot", "rack_id", "rack_position", unique=True,
               sqlite_where=text(_RACK_SLOT_FILLED), postgresql_where=text(_RACK_SLOT_FILLED)),
@@ -204,7 +204,7 @@ class DeviceStack(TimestampMixin, Base):
     порты. Само межстековое кабелирование НЕ дублируется отдельной моделью — это обычные
     Connection (см. класс ниже) между интерфейсами устройств-участников: "стековые" среди них —
     это просто те, у которых ОБА конца принадлежат участникам ОДНОГО стека (см.
-    services/crud.py:stack_detail — вычисляется на лету, а не хранится отдельным флагом, чтобы
+    services/crud/:stack_detail — вычисляется на лету, а не хранится отдельным флагом, чтобы
     не рассинхронизироваться при добавлении/удалении обычных Connection в обход стека)."""
     __tablename__ = "device_stacks"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -296,7 +296,7 @@ class DeviceInterface(TimestampMixin, Base):
     # trunk (см. миграцию 5b5ea0e81d32 для бэкфилла существующих данных).
     vlan_mode: Mapped[str] = mapped_column(String(10), default="trunk", server_default="trunk", nullable=False)
     # Группа портов (InterfaceGroup): параметры группы (режим порта/VLAN, общий IP, открытые
-    # порты) записываются в сам порт при каждом сохранении (см. services/crud.py:
+    # порты) записываются в сам порт при каждом сохранении (см. services/crud/:
     # _apply_group_to_interface), поэтому отчёты, диаграммы и подключения по-прежнему читают
     # итоговые значения порта и о группах ничего не знают. SET NULL: удаление группы не удаляет
     # порты и не стирает уже записанные в них значения.
@@ -560,13 +560,13 @@ class InformationSystemSource(TimestampMixin, Base):
 
     ВАЖНО — семантика владения здесь ОБРАТНАЯ по отношению к тем трём моделям: там владелец
     (устройство/ВМ) владеет дочерней записью и её осиротение при удалении владельца желательно
-    (см. _POLYMORPHIC_OWNER_CLEANUP в services/crud.py). Здесь ИС лишь ССЫЛАЕТСЯ на оборудование
+    (см. _POLYMORPHIC_OWNER_CLEANUP в services/crud/). Здесь ИС лишь ССЫЛАЕТСЯ на оборудование
     как на место размещения — удаление устройства/ВМ/контейнера, на который ссылается хотя бы одна
     строка source, должно быть ЗАБЛОКИРОВАНО (иначе регуляторный отчёт будет описывать размещение
     ИС на уже не существующем оборудовании). Раньше это обеспечивал сам FK на уровне БД; owner_id
     настоящим FK не является (ссылается на одну из трёх разных таблиц в зависимости от source_type
     — единая FK-колонка не может ссылаться на разные таблицы), поэтому защита воссоздана вручную в
-    services/crud.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см. services/integrity.py) — решение
+    services/crud/deletion.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см. services/integrity.py) — решение
     заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
     точности отчёта)."""
     __tablename__ = "information_system_sources"

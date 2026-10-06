@@ -1,5 +1,5 @@
 """Подключения портов из формы устройства: PUT /devices/{id}/interfaces с ключом connection в
-элементе interfaces (services/interface_connections.py, вызывается из services/crud.py:sync_interfaces).
+элементе interfaces (services/interface_connections.py, вызывается из services/crud/interfaces.py:sync_interfaces).
 
 Главные инварианты:
 * подключение создаётся в той же транзакции, что и порты, — в том числе для порта, которого до

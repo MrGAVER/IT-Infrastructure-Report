@@ -506,7 +506,8 @@ SIEM, количество физических портов, адрес и зд
 backend/
   app/
     api/            — роутеры FastAPI (system, resources, devices, report_builder)
-    services/        — crud, validation, serialization, catalogs, computed, constants,
+    services/        — crud/ (пакет: generic CRUD и синхронизация вложенных коллекций, см. ниже),
+                        validation, serialization, catalogs, computed, constants,
                         report_meta/report_engine/report_grid/report_render (конструктор отчётов)
     main.py          — application factory
     config.py        — конфигурация, версия приложения
@@ -531,6 +532,25 @@ installer/            — скрипты сборки Windows EXE
 launcher.py            — точка входа для EXE
 docker-compose.yml
 ```
+
+### Пакет `backend/app/services/crud/`
+
+Бывший `crud.py` на 1382 строки разрезан по ответственностям; публичный API (`from app.services.crud import ...`)
+прежний. Зависимости идут в одну сторону, циклов нет (проверяет `tests/test_crud_package.py`):
+
+| Модуль | Ответственность |
+| --- | --- |
+| `columns.py`, `payload.py` | модель по ключу ресурса, разрешённые колонки; схемы Pydantic и проверка неизвестных ключей |
+| `audit_log.py` | запись в журнал аудита (`audit`) |
+| `validators.py` | реестр доменных валидаторов по моделям, слот в стойке |
+| `generic.py`, `deletion.py` | список, создание, правка; удаление и проверка ссылающихся записей |
+| `vlan_domains.py` | согласование VLAN устройств с VLAN-доменами |
+| `owned_rows.py` | открытые порты, IP-адреса, ПО владельца (устройство, ВМ, интерфейс) |
+| `interfaces.py`, `device_vlans.py` | порты устройства и их группы; VLAN устройства |
+| `information_system.py` | детали информационной системы |
+
+Если тест подменяет функцию (`monkeypatch`), патчить нужно модуль, который её вызывает (например,
+`app.services.crud.deletion`), а не пакет `crud`.
 
 ## Тестирование
 

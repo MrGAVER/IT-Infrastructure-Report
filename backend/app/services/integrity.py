@@ -4,10 +4,10 @@
 owner_id ссылается на устройство/ВМ/контейнер в зависимости от source_type, а OpenPort/
 DeployedSoftware/IPAddress — на владельца в зависимости от owner_type. Одна колонка не может быть
 FK сразу на несколько таблиц, поэтому раньше вся защита держалась на одном месте —
-services/crud.py:delete_resource(). Любой новый путь удаления в обход него молча оставлял бы в БД
+services/crud/deletion.py:delete_resource(). Любой новый путь удаления в обход него молча оставлял бы в БД
 «висячие» ссылки. Здесь собраны пять уровней защиты, от прикладного к БД:
 
-1. assert_deletable() (crud.py) — единая точка проверки «можно ли удалить», её вызывает
+1. assert_deletable() (crud/) — единая точка проверки «можно ли удалить», её вызывает
    delete_resource(); любой новый путь удаления должен звать её же.
 2. before_delete на PhysicalDevice/VirtualMachine/Container (register_delete_guards ниже) —
    срабатывает на любое ORM-удаление, даже в обход delete_resource().

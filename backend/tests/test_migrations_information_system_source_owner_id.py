@@ -183,7 +183,7 @@ def test_old_fk_columns_dropped_and_owner_id_added(alembic_config):
 def test_real_ddl_after_migration(alembic_config):
     """Пересборка на SQLite не должна терять FK/индексы остальных (не удаляемых) колонок — owner_id
     сознательно БЕЗ FK (см. docstring миграции): единая колонка не может физически ссылаться на три
-    разные таблицы, защита от удаления воссоздана вручную в crud.py, а не на уровне БД."""
+    разные таблицы, защита от удаления воссоздана вручную в crud/, а не на уровне БД."""
     cfg, db_path = alembic_config
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)

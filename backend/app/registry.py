@@ -8,8 +8,8 @@ from .models import (
 )
 
 # Ресурсы, доступные через generic CRUD только для чтения. audit-log должен быть неизменяемым:
-# audit() (см. services/crud.py) уже не даёт создать запись audit-log из кода приложения, а
-# generic-эндпоинты POST/PUT/DELETE /api/v1/resources/{resource} (services/crud.py:
+# audit() (см. services/crud/) уже не даёт создать запись audit-log из кода приложения, а
+# generic-эндпоинты POST/PUT/DELETE /api/v1/resources/{resource} (services/crud/:
 # create_resource/update_resource/delete_resource) обязаны проверять этот набор — иначе любой
 # клиент может подделать или стереть журнал аудита через /api/v1/resources/audit-log.
 READONLY_RESOURCES = frozenset({'audit-log'})
