@@ -59,7 +59,8 @@ function serverConnection(overrides: Partial<DeviceInterfaceConnection> = {}): D
 describe('attachConnectionDrafts', () => {
   it('подставляет подключение порта из ответа сервера: сосед, порт соседа, тип линии, описание', () => {
     const [result] = attachConnectionDrafts([row()], [serverConnection({ description: 'патч-корд' })])
-    expect(result.connection).toEqual({ peer_device_id: 'dev-2', peer_interface_id: 'if-peer', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: 'патч-корд' })
+    // Подписи устройства и порта соседа берутся из ответа сервера: полного списка устройств у формы нет.
+    expect(result.connection).toEqual({ peer_device_id: 'dev-2', peer_device_name: 'sw-2', peer_interface_id: 'if-peer', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: 'патч-корд' })
   })
 
   it('порт без подключения и строка без id (ещё не сохранённый порт) дают null', () => {

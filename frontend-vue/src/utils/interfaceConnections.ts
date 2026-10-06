@@ -68,7 +68,7 @@ export function attachConnectionDrafts(rows: InterfaceDraftRow[], connections: r
     if (!c) return { ...row, connection: null }
     return {
       ...row,
-      connection: { peer_device_id: c.peer_device_id, peer_interface_id: c.peer_interface_id, peer_interface_name: c.peer_interface_name, connection_type_id: c.connection_type_id, description: c.description ?? '' },
+      connection: { peer_device_id: c.peer_device_id, peer_device_name: c.peer_device_name, peer_interface_id: c.peer_interface_id, peer_interface_name: c.peer_interface_name, connection_type_id: c.connection_type_id, description: c.description ?? '' },
     }
   })
 }

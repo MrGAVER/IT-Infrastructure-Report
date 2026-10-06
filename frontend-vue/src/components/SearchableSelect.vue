@@ -16,12 +16,20 @@
 // overflow:auto контейнера (например, длинной модалки) — консистентно с уже существующим
 // паттерном в этом кодбейзе, а не отдельное решение только для этого компонента.
 //
+// Режим remote — для списков, которые слишком велики, чтобы грузить их целиком (например, устройства реестра):
+// компонент не фильтрует options сам, а сообщает введённый текст событием search (при открытии — пустая
+// строка), и родитель подставляет в options ответ сервера. loading показывает ожидание ответа, hint —
+// пояснение под списком («показаны первые 50 из 312»). Подпись текущего выбора родитель обязан держать
+// в options сам: после поиска её может не оказаться среди найденного.
+//
 // @example
 // <SearchableSelect
 //   v-model="form.room_id"
 //   :options="(catalogs.items['rooms'] ?? []).map((r) => ({ value: r.id, label: r.name }))"
 //   placeholder="— не выбрано —"
 // />
+//
+// <SearchableSelect v-model="deviceId" remote :options="found" :loading="busy" @search="runSearch" />
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 
@@ -39,10 +47,16 @@ const props = withDefaults(
     options: SearchableSelectOption[]
     placeholder?: string
     disabled?: boolean
+    /** Опции приходят от родителя по запросу: локальной фильтрации нет, ввод уходит событием search. */
+    remote?: boolean
+    /** Только для remote: ответ на последний поиск ещё не пришёл. */
+    loading?: boolean
+    /** Строка-пояснение под списком опций (например, что показана только часть найденного). */
+    hint?: string
   }>(),
-  { placeholder: '— не выбрано —', disabled: false },
+  { placeholder: '— не выбрано —', disabled: false, remote: false, loading: false, hint: '' },
 )
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string]; search: [query: string] }>()
 
 const open = ref(false)
 const query = ref('')
@@ -53,6 +67,7 @@ const inputEl = ref<HTMLInputElement | null>(null)
 const selectedOption = computed(() => props.options.find((o) => o.value === props.modelValue) ?? null)
 
 const filteredOptions = computed(() => {
+  if (props.remote) return props.options // фильтрует сервер
   const q = query.value.trim().toLowerCase()
   if (!q) return props.options
   return props.options.filter((o) => o.label.toLowerCase().includes(q))
@@ -96,6 +111,7 @@ function openDropdown() {
   if (props.disabled || open.value) return
   open.value = true
   query.value = ''
+  if (props.remote) emit('search', '')
   highlightedIndex.value = Math.max(
     0,
     filteredOptions.value.findIndex((o) => o.value === props.modelValue),
@@ -104,6 +120,10 @@ function openDropdown() {
 function closeDropdown() {
   open.value = false
   query.value = selectedOption.value?.label ?? ''
+}
+function onInput(event: Event) {
+  query.value = (event.target as HTMLInputElement).value
+  if (props.remote) emit('search', query.value)
 }
 function selectOption(opt: SearchableSelectOption) {
   emit('update:modelValue', opt.value)
@@ -165,7 +185,7 @@ function onEnter() {
         autocomplete="off"
         @focus="openDropdown"
         @click="openDropdown"
-        @input="query = ($event.target as HTMLInputElement).value"
+        @input="onInput"
         @keydown.down.prevent="onArrowDown"
         @keydown.up.prevent="onArrowUp"
         @keydown.enter.prevent="onEnter"
@@ -184,7 +204,7 @@ function onEnter() {
     </div>
 
     <div v-if="open" class="ss-panel" role="listbox">
-      <div v-if="!filteredOptions.length" class="ss-empty">Ничего не найдено</div>
+      <div v-if="!filteredOptions.length" class="ss-empty">{{ loading ? 'Загрузка…' : 'Ничего не найдено' }}</div>
       <template v-for="g in groupedOptions" :key="g.group ?? '__ungrouped'">
         <div v-if="g.group" class="ss-group-label">{{ g.group }}</div>
         <button
@@ -200,6 +220,7 @@ function onEnter() {
           {{ opt.label }}
         </button>
       </template>
+      <div v-if="filteredOptions.length && (loading || hint)" class="ss-hint">{{ loading ? 'Загрузка…' : hint }}</div>
     </div>
   </div>
 </template>
@@ -284,6 +305,11 @@ function onEnter() {
 .ss-empty {
   padding: 8px 9px;
   font-size: 12px;
+  color: var(--ink-muted);
+}
+.ss-hint {
+  padding: 6px 9px 3px;
+  font-size: 11px;
   color: var(--ink-muted);
 }
 .ss-group-label {

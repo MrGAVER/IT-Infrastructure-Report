@@ -2000,6 +2000,22 @@ describe('правки формы физического устройства: �
   })
 })
 
+// Фейковый GET /devices/options (backend services/device_connectivity.py:list_device_options): устройства для выбора соседа
+// ищутся на сервере, а не берутся из стора устройств. Редактируемое устройство форма просит исключить (exclude).
+const SERVER_DEVICES = [
+  { id: 'dev-1', system_name: 'srv-1', serial_number: 'SN-1' },
+  { id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' },
+]
+function deviceOptionsResponse(url: string): Response | undefined {
+  if (!/\/devices\/options\?/.test(url)) return undefined
+  const params = new URLSearchParams(url.split('?')[1])
+  const exclude = new Set(params.getAll('exclude'))
+  const include = new Set(params.getAll('include'))
+  const q = (params.get('q') ?? '').toLowerCase()
+  const items = SERVER_DEVICES.filter((d) => !exclude.has(d.id) && (include.has(d.id) || !q || d.system_name.toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q))).map((d) => ({ id: d.id, label: d.system_name, system_name: d.system_name, serial_number: d.serial_number }))
+  return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 50 }))
+}
+
 describe('подключения портов в блоке «Порты / интерфейсы» формы устройства', () => {
   const emptyList = () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
   type Call = { url: string; method: string; body?: Record<string, unknown> }
@@ -2009,6 +2025,8 @@ describe('подключения портов в блоке «Порты / ин�
   // только по явному include — как делает форма для текущего соседа.
   let connectivityState: { peerBusy: boolean; own: Array<Record<string, unknown>> }
   function connectivity(url: string): Response | undefined {
+    const devices = deviceOptionsResponse(url)
+    if (devices) return devices
     if (/\/devices\/dev-b\/free-interfaces\?/.test(url)) {
       const include = new URLSearchParams(url.split('?')[1]).getAll('include')
       const items = connectivityState.peerBusy && !include.includes('b-1') ? [] : [{ id: 'b-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access', occupied: connectivityState.peerBusy }]
@@ -2053,6 +2071,7 @@ describe('подключения портов в блоке «Порты / ин�
   async function pick(wrapper: ReturnType<typeof mount>, block: string, label: string) {
     const select = wrapper.find(`${block} .searchable-select`)
     await select.find('input').trigger('focus')
+    await flushPromises() // устройства-соседи запрашиваются у сервера при открытии списка
     const option = select.findAll('.ss-option').find((o) => o.text() === label)
     if (!option) throw new Error(`«${label}» нет в списке выбора ${block}`)
     await option.trigger('mousedown')
@@ -2109,6 +2128,28 @@ describe('подключения портов в блоке «Порты / ин�
     expect(toasts[0].message).toContain('sw-b')
   })
 
+  it('соседей форма ищет у сервера: ни полный список устройств, ни общий список подключений при этом не запрашиваются', async () => {
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    seedStores()
+    useDevicesStore().loaded = false
+    useConnectionsStore().loaded = false
+    const calls = recordingFetch(() => undefined)
+    const wrapper = mount(DeviceFormModal, { props: { device: null } })
+    await flushPromises()
+    await wrapper.find('select').setValue('type:dt-server')
+    await wrapper.find('input[type="text"]').setValue('SN-NEW')
+    await wrapper.find('.empty button.btn-secondary').trigger('click')
+    await wrapper.find('.iface-table input.cell-input').setValue('eth0')
+    await wrapper.find('.expand-toggle').trigger('click')
+    await wrapper.find('.connection-connect-btn').trigger('click')
+    await pick(wrapper, '.connection-peer-device', 'sw-b')
+
+    expect(calls.some((c) => /\/api\/v1\/devices(\?|$)/.test(c.url))).toBe(false) // GET /devices — весь реестр устройств
+    expect(calls.some((c) => c.url.includes('/resources/connections'))).toBe(false)
+    expect(calls.some((c) => c.url.includes('/devices/options?'))).toBe(true)
+  })
+
   it('общий список подключений не загружается, пока им никто не пользуется: форма его ни открывает, ни перезагружает', async () => {
     const wrapper = await mountNewDeviceWithPort()
     useConnectionsStore().loaded = false
@@ -2153,8 +2194,13 @@ describe('подключения портов в блоке «Порты / ин�
     const existing = { id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'b-1', connection_type_id: 'ct-1', is_active: true, description: null, source_device_name: 'srv-1', source_interface_name: 'eth0', destination_device_name: 'sw-b', destination_interface_name: 'Gi0/1' }
     const port = { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }
 
-    function mountEdit() {
+    // devicesCold — стор устройств и общий список подключений не загружены: так видно, обращается ли к ним сама форма.
+    function mountEdit(devicesCold = false) {
       seedStores([existing], [ownConnectionRow])
+      if (devicesCold) {
+        useDevicesStore().loaded = false
+        useConnectionsStore().loaded = false
+      }
       useCatalogsStore().items['interfaces'] = [port, { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] as never
       const calls = recordingFetch((url, method) => {
         if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return new Response(JSON.stringify({ items: [port], groups: [] }))
@@ -2164,6 +2210,16 @@ describe('подключения портов в блоке «Порты / ин�
       })
       return { wrapper: mount(DeviceFormModal, { props: { device } }), calls }
     }
+
+    it('при открытии на редактирование подпись соседа приходит из подключения устройства, а полный список устройств не запрашивается', async () => {
+      const { wrapper, calls } = mountEdit(true)
+      await flushPromises()
+
+      expect(wrapper.find('.expand-toggle').text()).toContain('↔ sw-b · Gi0/1') // «sw-b» — peer_device_name из interface-connections
+      expect(calls.some((c) => /\/api\/v1\/devices(\?|$)/.test(c.url))).toBe(false)
+      expect(calls.some((c) => c.url.includes('/resources/connections'))).toBe(false)
+      expect(calls.some((c) => c.url.includes('/devices/options?'))).toBe(false) // список устройств — только по открытию выпадающего списка
+    })
 
     it('показывает текущее подключение в строке порта; без правок подключения ключ connection не отправляется и стор не перезагружается', async () => {
       const { wrapper, calls } = mountEdit()
@@ -2388,7 +2444,7 @@ describe('подключения между портами одного устр
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
-        return handlers(url, method) ?? emptyList()
+        return handlers(url, method) ?? deviceOptionsResponse(url) ?? emptyList()
       }),
     )
     return calls
@@ -2398,6 +2454,7 @@ describe('подключения между портами одного устр
   async function pickIn(wrapper: ReturnType<typeof mount>, row: number, block: string, label: string) {
     const select = wrapper.findAll('.connection-block')[row].find(`${block} .searchable-select`)
     await select.find('input').trigger('focus')
+    await flushPromises() // список устройств-соседей приходит с сервера
     const option = select.findAll('.ss-option').find((o) => o.text() === label)
     if (!option) throw new Error(`«${label}» нет в списке выбора ${block} строки ${row}`)
     await option.trigger('mousedown')
@@ -2405,6 +2462,7 @@ describe('подключения между портами одного устр
   async function optionsIn(wrapper: ReturnType<typeof mount>, row: number, block: string): Promise<string[]> {
     const select = wrapper.findAll('.connection-block')[row].find(`${block} .searchable-select`)
     await select.find('input').trigger('focus')
+    await flushPromises()
     return select.findAll('.ss-option').map((o) => o.text())
   }
 

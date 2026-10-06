@@ -292,14 +292,11 @@ watch(
     // СОЗДАНИИ нового устройства (join-запрос откладывается в pendingDomainMemberships до
     // сохранения — тот же механизм, что уже есть для домена, заведённого через создание VLAN, см.
     // onVlanDomainCreated), поэтому загружается ДО ранней остановки ниже, а не внутри неё как
-    // vlansStore/connectionsStore (тем нужны данные конкретно существующего устройства).
+    // vlansStore (ему нужны данные конкретно существующего устройства).
     vlanDomainsStore.ensureLoaded()
-    if (!source) {
-      // Новому устройству тоже можно сразу подключить порты: нужен список устройств-соседей (свободные порты
-      // выбранного соседа блок «Подключение» запрашивает у сервера сам).
-      devicesStore.ensureLoaded()
-      return
-    }
+    // Устройства-соседи и их свободные порты блок «Подключение» запрашивает у сервера сам (поиском со страницами),
+    // полный список устройств форме не нужен.
+    if (!source) return
     loadingNested.value = true
     try {
       const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds, deviceConnections] = await Promise.all([
@@ -321,8 +318,6 @@ watch(
         // устройства подключений не наследует. Ошибка здесь не глотается: без них порт выглядел бы неподключённым.
         isCopy ? Promise.resolve([] as DeviceInterfaceConnection[]) : fetchDeviceInterfaceConnections(source.id),
         vlansStore.ensureLoaded(),
-        // Список устройств — для подписи и выбора соседа в блоке «Подключение» порта.
-        devicesStore.ensureLoaded(),
       ])
       // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
       // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
@@ -905,6 +900,7 @@ async function submit() {
           :conflicts="interfaceConflicts"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
           :device-id="props.device?.id ?? null"
+          :device-label="form.system_name || form.serial_number"
           edit-connections
           :connection-baseline="initialConnections"
           @neighbors-changed="reloadNeighborConfigs"

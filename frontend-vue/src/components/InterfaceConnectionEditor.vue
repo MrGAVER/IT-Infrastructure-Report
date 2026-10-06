@@ -7,8 +7,9 @@
 // Компонент только редактирует черновик (v-model: InterfaceConnectionDraft | null) и ничего не сохраняет:
 // подключение уходит на сервер вместе с портами одним PUT (см. api/deviceInterfaces.ts:persistDeviceInterfaces).
 // Это нужно, потому что у нового порта ещё нет id — отдельным запросом подключение создать нельзя.
-// Единственное, что компонент загружает сам, — свободные порты выбранного устройства-соседа: их и занятость
-// считает сервер (api/deviceConnectivity.ts), а не клиент по общим спискам с потолком в 1000 записей.
+// Сам компонент загружает только два вида данных, оба у сервера (api/deviceConnectivity.ts): устройства-соседей —
+// поиском со страницами, а не из полного списка устройств реестра, — и свободные порты выбранного соседа;
+// занятость портов считает сервер, а не клиент по общим спискам с потолком в 1000 записей.
 //
 // Соседний порт — порт другого устройства (из сохранённых) или, если родитель передал selfPorts, ДРУГОЙ порт
 // этого же устройства, в том числе ещё не сохранённый: у него нет id, поэтому на строку формы ссылаются по
@@ -21,11 +22,10 @@
 // Расхождение конфигурации (Управление / Передача данных / режим порта) с портом соседа показывается
 // сразу — до сохранения. Сохранению оно не мешает: как и у подключения, созданного на экране
 // «Подключения», расхождение отображается там со статусом «расхождение» до решения или одобрения.
-import { computed, ref, watch } from 'vue'
-import { fetchAllFreeInterfaces, type FreeInterface } from '../api/deviceConnectivity'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { DEVICE_OPTIONS_PAGE_SIZE, fetchAllFreeInterfaces, fetchDeviceOptionsPage, type DeviceOption, type FreeInterface } from '../api/deviceConnectivity'
 import type { DeviceInterface, InterfaceConnectionDraft } from '../api/types'
-import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
-import { useDevicesStore } from '../stores/devices'
+import { useCatalogsStore } from '../stores/catalogs'
 import { SELF_DEVICE, connectionConfigDiffs, emptyConnectionDraft, peerRef, type SelfPortCandidate } from '../utils/interfaceConnections'
 import SearchableSelect from './SearchableSelect.vue'
 
@@ -34,6 +34,8 @@ const props = withDefaults(
     modelValue: InterfaceConnectionDraft | null
     /** Устройство, чьи порты редактируются (null — новое): его порты в списке соседей не показываются. */
     deviceId: string | null
+    /** Подпись редактируемого устройства для пункта «это устройство» (имя или серийный номер в форме). */
+    deviceLabel?: string
     /** Текущая конфигурация порта этой строки — для сравнения с портом соседа. */
     config: Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'>
     /** Порты соседей, уже выбранные в ДРУГИХ строках формы (peerRef: id порта или `row:<key>`). */
@@ -49,21 +51,85 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:modelValue': [value: InterfaceConnectionDraft | null] }>()
 
 const catalogs = useCatalogsStore()
-const devicesStore = useDevicesStore()
 
 const selfValue = computed(() => props.deviceId ?? SELF_DEVICE)
 const selfSelected = computed(() => !!props.selfPorts && props.modelValue?.peer_device_id === selfValue.value)
 
+// Устройства-соседи — у сервера: поиск по имени и серийному номеру со страницей в DEVICE_OPTIONS_PAGE_SIZE записей.
+// Список запрашивается при открытии выпадающего списка и при вводе (с паузой), а не при показе блока: у большинства
+// портов соседа не меняют. В каждый запрос уходит include с текущим соседом, чтобы его подпись не пропала из списка
+// при поиске, и exclude с редактируемым устройством. Ответ устаревшего запроса отбрасывается (deviceSeq).
+const DEVICE_SEARCH_DEBOUNCE_MS = 250
+const deviceResults = ref<DeviceOption[]>([])
+const deviceTotal = ref(0)
+const deviceQuery = ref('')
+const devicesLoading = ref(false)
+const devicesError = ref<string | null>(null)
+let deviceSeq = 0
+let deviceTimer: ReturnType<typeof setTimeout> | undefined
+
+async function loadDevices(query: string) {
+  const seq = ++deviceSeq
+  devicesError.value = null
+  devicesLoading.value = true
+  try {
+    const selected = props.modelValue?.peer_device_id
+    const page = await fetchDeviceOptionsPage({
+      q: query,
+      include: selected && !selfSelected.value ? [selected] : [],
+      exclude: props.deviceId ? [props.deviceId] : [],
+      limit: DEVICE_OPTIONS_PAGE_SIZE,
+    })
+    if (seq !== deviceSeq) return
+    deviceResults.value = page.items
+    deviceTotal.value = page.total
+  } catch (err) {
+    if (seq !== deviceSeq) return
+    deviceResults.value = []
+    deviceTotal.value = 0
+    devicesError.value = err instanceof Error ? err.message : 'неизвестная ошибка'
+  } finally {
+    if (seq === deviceSeq) devicesLoading.value = false
+  }
+}
+
+function onDeviceSearch(query: string) {
+  deviceQuery.value = query
+  clearTimeout(deviceTimer)
+  // Открытие списка (пустой запрос) — сразу, ввод — после паузы, чтобы не слать запрос на каждую букву.
+  if (!query) void loadDevices('')
+  else deviceTimer = setTimeout(() => void loadDevices(query), DEVICE_SEARCH_DEBOUNCE_MS)
+}
+onBeforeUnmount(() => clearTimeout(deviceTimer))
+
+// Подпись выбранного устройства есть в черновике (peer_device_name). Если её нет (черновик собран без неё), один раз
+// спрашиваем сервер: include вернёт это устройство при любом поиске.
+watch(
+  () => [props.modelValue?.peer_device_id ?? '', props.modelValue?.peer_device_name ?? '', selfSelected.value] as const,
+  ([id, name, self]) => {
+    if (id && !name && !self) void loadDevices('')
+  },
+  { immediate: true },
+)
+
+const ownLabel = computed(() => (props.deviceId ? (props.deviceLabel ? `${props.deviceLabel} (это устройство)` : 'Это устройство') : 'Это устройство (новое)'))
+
 const deviceOptions = computed(() => {
-  const others = devicesStore.all
-    .filter((d) => d.id !== props.deviceId)
-    .map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))
-    .sort((a, b) => RU_COLLATOR.compare(a.label, b.label))
-  if (!props.selfPorts) return others
-  const own = props.deviceId ? devicesStore.all.find((d) => d.id === props.deviceId) : undefined
-  const ownLabel = own ? `${own.system_name || own.serial_number} (это устройство)` : 'Это устройство (новое)'
-  return [{ value: selfValue.value, label: ownLabel }, ...others]
+  const options = deviceResults.value.map((d) => ({ value: d.id, label: d.label }))
+  const draft = props.modelValue
+  // Выбранный сосед может не попасть в найденное (поиск по другому тексту) — подпись держим в списке сами.
+  if (draft?.peer_device_id && !selfSelected.value && !options.some((o) => o.value === draft.peer_device_id) && draft.peer_device_name) {
+    options.unshift({ value: draft.peer_device_id, label: draft.peer_device_name })
+  }
+  if (!props.selfPorts) return options
+  // Пункт «это устройство» не приходит с сервера: он есть всегда, но при поиске показывается, только если подходит.
+  const needle = deviceQuery.value.trim().toLowerCase()
+  if (needle && !ownLabel.value.toLowerCase().includes(needle)) return options
+  return [{ value: selfValue.value, label: ownLabel.value }, ...options]
 })
+const deviceHint = computed(() =>
+  deviceTotal.value > deviceResults.value.length ? `Показаны первые ${deviceResults.value.length} из ${deviceTotal.value} — уточните поиск` : '',
+)
 
 // Порты выбранного устройства-соседа с сервера: свободные плюс запрошенные явно (текущий сосед этой строки и
 // порты, которые эта форма освобождает, — на сервере они ещё заняты). Обновляется при смене устройства и когда
@@ -126,11 +192,13 @@ function patch(change: Partial<InterfaceConnectionDraft>) {
   // Необязательные поля без значения не храним: черновик остаётся чистым для сравнения со снимком.
   if (next.peer_row_key === undefined) delete next.peer_row_key
   if (next.peer_interface_name === undefined) delete next.peer_interface_name
+  if (next.peer_device_name === undefined) delete next.peer_device_name
   emit('update:modelValue', next)
 }
 // Смена устройства-соседа сбрасывает порт: иначе в черновике остался бы порт другого устройства.
 function onPeerDeviceChange(deviceId: string) {
-  patch({ peer_device_id: deviceId, peer_interface_id: '', peer_row_key: undefined, peer_interface_name: undefined })
+  const name = deviceId && deviceId !== selfValue.value ? deviceResults.value.find((d) => d.id === deviceId)?.label : undefined
+  patch({ peer_device_id: deviceId, peer_device_name: name, peer_interface_id: '', peer_row_key: undefined, peer_interface_name: undefined })
 }
 // Несохранённая строка этого устройства выбирается по ключу, сохранённый порт — по id.
 function onPeerPortChange(value: string) {
@@ -159,7 +227,16 @@ function onPeerPortChange(value: string) {
       <div class="connection-grid">
         <label class="field connection-peer-device">
           <span>Устройство</span>
-          <SearchableSelect :model-value="modelValue.peer_device_id" :options="deviceOptions" placeholder="— выберите —" @update:model-value="onPeerDeviceChange" />
+          <SearchableSelect
+            :model-value="modelValue.peer_device_id"
+            :options="deviceOptions"
+            remote
+            :loading="devicesLoading"
+            :hint="deviceHint"
+            placeholder="— выберите —"
+            @search="onDeviceSearch"
+            @update:model-value="onPeerDeviceChange"
+          />
         </label>
         <label class="field connection-peer-port">
           <span>Порт *</span>
@@ -174,6 +251,7 @@ function onPeerPortChange(value: string) {
           <input type="text" :value="modelValue.description" maxlength="500" @input="patch({ description: ($event.target as HTMLInputElement).value })" />
         </label>
       </div>
+      <small v-if="devicesError" class="connection-hint connection-error" role="alert">Не удалось загрузить устройства: {{ devicesError }}</small>
       <small v-if="peersLoading" class="connection-hint connection-loading">Загрузка портов устройства…</small>
       <small v-else-if="peersError" class="connection-hint connection-error" role="alert">Не удалось загрузить порты устройства: {{ peersError }}</small>
       <small v-else-if="noFreePortsHint" class="connection-hint">{{ noFreePortsHint }}</small>

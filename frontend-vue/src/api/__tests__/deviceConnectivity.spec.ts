@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { FREE_INTERFACES_PAGE_SIZE, fetchAllFreeInterfaces, fetchDeviceInterfaceConnections, fetchFreeInterfacesPage } from '../deviceConnectivity'
+import { DEVICE_OPTIONS_PAGE_SIZE, FREE_INTERFACES_PAGE_SIZE, fetchAllFreeInterfaces, fetchDeviceInterfaceConnections, fetchDeviceOptionsPage, fetchFreeInterfacesPage } from '../deviceConnectivity'
 import type { FreeInterface } from '../deviceConnectivity'
 
 const port = (n: number): FreeInterface => ({ id: `p-${n}`, name: `Gi0/${n}`, is_management: false, is_data_transfer: true, vlan_mode: 'access', occupied: false })
@@ -96,5 +96,43 @@ describe('fetchDeviceInterfaceConnections', () => {
 
     expect(await fetchDeviceInterfaceConnections('dev-1')).toEqual([item])
     expect(fetchMock.mock.calls[0][0]).toContain('/devices/dev-1/interface-connections')
+  })
+})
+
+describe('fetchDeviceOptionsPage', () => {
+  it('строит запрос: q обрезается, include и exclude повторяются, страница по умолчанию — 50 записей', async () => {
+    const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 50 })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchDeviceOptionsPage({ q: '  sw  ', include: ['a', 'b'], exclude: ['me'], offset: 100 })
+
+    const url = fetchMock.mock.calls[0][0]
+    expect(url).toContain('/devices/options?')
+    const params = new URLSearchParams(url.split('?')[1])
+    expect(params.get('q')).toBe('sw')
+    expect(params.getAll('include')).toEqual(['a', 'b'])
+    expect(params.getAll('exclude')).toEqual(['me'])
+    expect(params.get('offset')).toBe('100')
+    expect(params.get('limit')).toBe(String(DEVICE_OPTIONS_PAGE_SIZE))
+  })
+
+  it('без параметров: первая страница, без q, include и exclude', async () => {
+    const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 50 })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchDeviceOptionsPage({ q: '   ' })
+
+    const params = new URLSearchParams(fetchMock.mock.calls[0][0].split('?')[1])
+    expect([params.has('q'), params.has('include'), params.has('exclude')]).toEqual([false, false, false])
+    expect(params.get('offset')).toBe('0')
+  })
+
+  it('возвращает страницу как есть; ошибка сервера прокидывается вызывающему', async () => {
+    const page = { items: [{ id: 'd-1', label: 'sw-1', system_name: 'sw-1', serial_number: 'S1' }], total: 7, offset: 0, limit: 50 }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(page))))
+    expect(await fetchDeviceOptionsPage()).toEqual(page)
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'База недоступна' }), { status: 500 })))
+    await expect(fetchDeviceOptionsPage()).rejects.toThrow('База недоступна')
   })
 })

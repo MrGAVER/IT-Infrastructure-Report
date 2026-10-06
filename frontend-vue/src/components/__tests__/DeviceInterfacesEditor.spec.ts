@@ -6,7 +6,6 @@ import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
 import { useCatalogsStore } from '../../stores/catalogs'
-import { useDevicesStore } from '../../stores/devices'
 import { groupChange, makePlan, portChange, vlanRef } from '../../utils/__tests__/cascadePlanFixture'
 import type { SelfPortCandidate } from '../../utils/interfaceConnections'
 import type { VlanModeCascadePlan } from '../../api/vlanModeCascade'
@@ -1500,7 +1499,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
 })
 
 describe('DeviceInterfacesEditor.vue — блок «Подключение» порта', () => {
-  const connected = { peer_device_id: 'dev-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+  const connected = { peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
 
   // Свободные порты соседа приходят с сервера (api/deviceConnectivity.ts): здесь — порты sw-b без занятых.
   function stubPeerPorts(ports: Array<{ id: string; name: string; occupied?: boolean }>) {
@@ -1515,7 +1514,6 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
   }
 
   function mountWith(rows: InterfaceDraftRow[], editConnections?: boolean) {
-    useDevicesStore().all = [{ id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' }] as never
     stubPeerPorts([{ id: 'b-1', name: 'Gi0/1' }])
     return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: 'dev-1', ...(editConnections === undefined ? {} : { editConnections }) } })
   }
@@ -1575,11 +1573,10 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
 
 describe('DeviceInterfacesEditor.vue — подключения между портами этого устройства и обмен соседями', () => {
   const toRow = (key: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: '__self__', peer_interface_id: '', peer_row_key: key, connection_type_id: 'ct-1', description: '', ...extra })
-  const toPort = (id: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: 'dev-b', peer_interface_id: id, connection_type_id: 'ct-1', description: '', ...extra })
+  const toPort = (id: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: id, connection_type_id: 'ct-1', description: '', ...extra })
   const row = (name: string, extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({ ...emptyRow(), name, ...extra })
 
   function mountWith(rows: InterfaceDraftRow[], extra: Record<string, unknown> = {}) {
-    useDevicesStore().all = [{ id: 'dev-b', system_name: 'sw-b', serial_number: 'SN-B' }] as never
     useCatalogsStore().items['interfaces'] = [] as never
     // Редактор подключения просит порты соседа у сервера; здесь это не предмет проверки — отвечаем пустой страницей.
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 200 }))))

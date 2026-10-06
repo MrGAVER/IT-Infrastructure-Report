@@ -152,3 +152,58 @@ describe('SearchableSelect.vue (п.4)', () => {
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['m-hp-1'])
   })
 })
+
+describe('SearchableSelect.vue — режим remote (поиск на сервере)', () => {
+  const mountRemote = (props: Record<string, unknown> = {}) => mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS, remote: true, ...props } })
+
+  it('при открытии сообщает пустой поиск, при вводе — введённый текст; без remote события search нет', async () => {
+    const remote = mountRemote()
+    await remote.find('input').trigger('focus')
+    await remote.find('input').setValue('мос')
+    expect(remote.emitted('search')).toEqual([[''], ['мос']])
+
+    const local = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS } })
+    await local.find('input').trigger('focus')
+    await local.find('input').setValue('мос')
+    expect(local.emitted('search')).toBeFalsy()
+  })
+
+  it('опции не фильтруются локально: показано всё, что передал родитель, даже если не содержит введённого текста', async () => {
+    const wrapper = mountRemote()
+    await wrapper.find('input').trigger('focus')
+    await wrapper.find('input').setValue('zzz')
+
+    expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual(['Москва', 'Санкт-Петербург', 'Новосибирск'])
+    expect(wrapper.find('.ss-empty').exists()).toBe(false)
+  })
+
+  it('выбор опции работает как обычно и закрывает список; подпись выбранного остаётся в поле', async () => {
+    const wrapper = mountRemote()
+    await wrapper.find('input').trigger('focus')
+    await wrapper.findAll('.ss-option')[1].trigger('mousedown')
+
+    expect(wrapper.emitted('update:modelValue')![0]).toEqual(['spb'])
+    expect(wrapper.find('.ss-panel').exists()).toBe(false)
+  })
+
+  it('пустой ответ: «Ничего не найдено», а пока ответа нет — «Загрузка…» вместо него', async () => {
+    const wrapper = mountRemote({ options: [], loading: true })
+    await wrapper.find('input').trigger('focus')
+    expect(wrapper.find('.ss-empty').text()).toBe('Загрузка…')
+
+    await wrapper.setProps({ loading: false })
+    expect(wrapper.find('.ss-empty').text()).toBe('Ничего не найдено')
+  })
+
+  it('подсказка под списком (hint) и индикатор загрузки над найденным показываются только при наличии опций', async () => {
+    const wrapper = mountRemote({ hint: 'Показаны первые 3 из 40 — уточните поиск' })
+    await wrapper.find('input').trigger('focus')
+    expect(wrapper.find('.ss-hint').text()).toBe('Показаны первые 3 из 40 — уточните поиск')
+
+    await wrapper.setProps({ loading: true })
+    expect(wrapper.find('.ss-hint').text()).toBe('Загрузка…')
+
+    await wrapper.setProps({ options: [], hint: 'не должна показываться без опций', loading: false })
+    expect(wrapper.find('.ss-hint').exists()).toBe(false)
+  })
+})
