@@ -39,6 +39,23 @@ export interface SearchableSelectOption {
   /** Опции с одинаковым group рендерятся под одним заголовком — аналог <optgroup>. Порядок
    * групп — по первому появлению в options, ничего не пересортировывается. */
   group?: string
+  /** Дополнительный текст, по которому опция находится при вводе, но который не показывается (например,
+   * тип устройства у модели: «коммутатор cisco» найдёт модель, в подписи которой есть только производитель
+   * и название). Подпись и searchText ищутся вместе. */
+  searchText?: string
+}
+
+/** Слова запроса без учёта регистра; пустой запрос — пустой список (фильтра нет). */
+function searchTokens(query: string): string[] {
+  return query.toLowerCase().split(/\s+/).filter(Boolean)
+}
+
+/** Опция подходит, если КАЖДОЕ слово запроса встречается в подписи или в searchText — слова могут идти
+ * в любом порядке и не подряд («cisco 2960» находит «Cisco WS-C2960-48TD-L»). */
+function matchesSearch(option: SearchableSelectOption, tokens: readonly string[]): boolean {
+  if (!tokens.length) return true
+  const haystack = `${option.label} ${option.searchText ?? ''}`.toLowerCase()
+  return tokens.every((token) => haystack.includes(token))
 }
 
 const props = withDefaults(
@@ -68,9 +85,9 @@ const selectedOption = computed(() => props.options.find((o) => o.value === prop
 
 const filteredOptions = computed(() => {
   if (props.remote) return props.options // фильтрует сервер
-  const q = query.value.trim().toLowerCase()
-  if (!q) return props.options
-  return props.options.filter((o) => o.label.toLowerCase().includes(q))
+  const tokens = searchTokens(query.value)
+  if (!tokens.length) return props.options
+  return props.options.filter((o) => matchesSearch(o, tokens))
 })
 
 /** Плоский список с индексом для клавиатурной навигации, сгруппированный для отображения —
