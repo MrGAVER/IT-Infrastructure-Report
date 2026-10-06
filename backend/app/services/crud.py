@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import difflib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
@@ -44,12 +46,43 @@ def validate_payload_schema(resource: str, payload: dict[str, Any], *, is_update
     schemas = RESOURCE_SCHEMAS.get(resource)
     if schemas is None:
         return payload
+    _reject_unknown_keys(resource, payload)
     schema = schemas[1] if is_update else schemas[0]
     try:
         validated = schema.model_validate(payload)
     except ValidationError as exc:
         raise HTTPException(422, _format_schema_validation_error(exc)) from exc
     return {**payload, **validated.model_dump(exclude_unset=True)}
+
+# Служебные ключи, которые generic CRUD читает из payload напрямую (они не колонки модели).
+_SERVICE_PAYLOAD_KEYS = frozenset({'confirm_system_name_duplicate', 'confirm_rack_position_reassign'})
+# Ключи, которые клиент может вернуть «эхом» из ранее полученной записи; generic CRUD их и так игнорирует
+# (id/created_at/updated_at не входят в allowed_columns, number у ИС присваивается сервером) — отказывать
+# на них значило бы ломать обычный цикл «прочитал запись — поправил — отправил обратно».
+_ECHOED_READONLY_KEYS = frozenset({'id', 'created_at', 'updated_at', 'number'})
+
+
+def _reject_unknown_keys(resource: str, payload: dict[str, Any]) -> None:
+    """422 на ключ, которого нет среди колонок модели, служебных флагов и «эхо»-ключей (код-ревью, п. 8).
+
+    Generic CRUD отбрасывает ключи вне allowed_columns() молча (`{k: v ... if k in allowed}`), поэтому
+    опечатка в имени поля — `serial_numbr`, `rack_positon` — давала «успех»: запись создавалась без
+    значения, а при правке просто не менялась, и пользователь узнавал об этом позже. Схемы
+    devices/information-systems/vlans объявляют не все колонки (например, diagram_icon_id), поэтому
+    проверка идёт по колонкам модели, а не через extra="forbid" схемы: так она не отстаёт от модели.
+
+    К ресурсам без схемы это не применяется (их инкрементальное покрытие — см. validate_payload_schema).
+    В сообщении — ближайшее по написанию допустимое имя, если оно есть."""
+    known = allowed_columns(model_for(resource)) | _SERVICE_PAYLOAD_KEYS | _ECHOED_READONLY_KEYS
+    unknown = sorted(str(key) for key in payload if key not in known)
+    if not unknown:
+        return
+    hints = []
+    for key in unknown:
+        close = difflib.get_close_matches(key, sorted(known), n=1, cutoff=0.7)
+        hints.append(f"«{key}»" + (f" (возможно, «{close[0]}»)" if close else ''))
+    raise HTTPException(422, f"Ошибка валидации: неизвестные поля: {', '.join(hints)}")
+
 
 def _format_schema_validation_error(exc: ValidationError) -> str:
     """Сводит структурированный Pydantic ValidationError к одной строке — в стиле остальных
