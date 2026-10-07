@@ -905,8 +905,9 @@ export type PortSyncVlanCondition = 'any' | 'none' | 'set' | 'all'
 /** Отношение значений целевого порта и порта-источника. */
 export type PortSyncRelation = 'any' | 'same' | 'differs'
 /** Что делать с VLAN: keep — не менять; copy — взять набор соседа; adapt — привести к режиму
- * (в access остаётся один VLAN с наименьшим номером). */
-export type PortSyncVlanPolicy = 'keep' | 'copy' | 'adapt'
+ * (в access остаётся один VLAN с наименьшим номером); union — объединить: ОБА порта получают объединение
+ * наборов обоих (ни один VLAN не снимается), направление выбирать не нужно. */
+export type PortSyncVlanPolicy = 'keep' | 'copy' | 'adapt' | 'union'
 
 export interface PortSyncCondition<V> {
   role: PortSyncRoleCondition
@@ -964,23 +965,35 @@ export interface PortSyncOption {
   changes: { role: PortRole | null; mode: VlanMode | null; vlans: number[] | null }
 }
 
+/** Один из портов подключения, которым правило применяет изменения. */
+export interface PortSyncTarget {
+  target: 'source' | 'destination'
+  changes: PortSyncChanges | null
+  /** Почему именно этому порту изменение не применится (группа, нет VLAN у устройства…); null — применится. */
+  blocked: string | null
+}
+
 export interface PortSyncPlanItem {
   connection_id: string
   outcome: PortSyncOutcome
   reason: string | null
   rule: { id: string | null; code: string | null; name: string; action: PortSyncAction } | null
-  /** Какой порт подключения меняется (для auto и blocked). */
-  target: 'source' | 'destination' | null
+  /** Какой порт подключения меняется (для auto и blocked); both — оба (симметричное правило «объединить»). */
+  target: 'source' | 'destination' | 'both' | null
   source: PortSyncPortView
   destination: PortSyncPortView
+  /** Изменения единственного целевого порта; при target = both — null, см. targets. */
   changes: PortSyncChanges | null
+  /** Целевые порты с изменениями каждого (для auto и blocked). Может отсутствовать в старых ответах. */
+  targets?: PortSyncTarget[]
   options: PortSyncOption[]
   warnings: string[]
 }
 
 export interface PortSyncSummary {
   connections: number
-  /** Сколько подключений будет изменено при применении. */
+  /** Сколько ПОРТОВ будет изменено при применении (у симметричного правила одно подключение даёт два порта;
+   * число подключений — auto). */
   applicable: number
   shown: number
   total_items: number

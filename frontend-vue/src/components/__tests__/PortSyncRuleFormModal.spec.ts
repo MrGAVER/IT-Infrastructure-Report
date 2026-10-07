@@ -126,6 +126,38 @@ describe('PortSyncRuleFormModal.vue — создание', () => {
     expect(wrapper.find('[data-hint="symmetric"]').exists()).toBe(false) // для ручного правила направление не нужно
   })
 
+  it('политика «объединить» симметрична по замыслу: подсказка про направление не показывается, роль и режим отключаются', async () => {
+    const wrapper = mountForm(null)
+    await field(wrapper, 'apply-role').setValue(true)
+    await field(wrapper, 'apply-mode').setValue(true)
+    expect(wrapper.find('[data-hint="symmetric"]').exists()).toBe(true)
+
+    await field(wrapper, 'apply-vlans').setValue('union')
+
+    expect(wrapper.find('[data-hint="symmetric"]').exists()).toBe(false)
+    expect(wrapper.find('[data-hint="union"]').text()).toContain('оба порта')
+    expect((field(wrapper, 'apply-role').element as HTMLInputElement).checked).toBe(false) // роль и режим сброшены
+    expect((field(wrapper, 'apply-mode').element as HTMLInputElement).checked).toBe(false)
+    expect((field(wrapper, 'apply-role').element as HTMLInputElement).disabled).toBe(true)
+    expect((field(wrapper, 'apply-mode').element as HTMLInputElement).disabled).toBe(true)
+
+    await field(wrapper, 'apply-vlans').setValue('keep')
+    expect((field(wrapper, 'apply-role').element as HTMLInputElement).disabled).toBe(false)
+    expect(wrapper.find('[data-hint="union"]').exists()).toBe(false)
+  })
+
+  it('правило с политикой «объединить» отправляется с apply.vlans = union', async () => {
+    const wrapper = mountForm(null)
+    await field(wrapper, 'name').setValue('Объединять VLAN')
+    await field(wrapper, 'apply-vlans').setValue('union')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const post = calls.find((c) => c.method === 'POST')!
+    expect(post.body.apply).toEqual({ role: false, mode: false, vlans: 'union' })
+  })
+
   it('ошибка сервера (например, название занято) остаётся в окне, правило не считается сохранённым', async () => {
     stubApi(() => new Response(JSON.stringify({ detail: 'Правило с названием «X» уже есть' }), { status: 409 }))
     const wrapper = mountForm(null)

@@ -213,6 +213,26 @@ describe('PortConfigReviewModal.vue', () => {
     expect(wrapper.emitted('manage-ports')).toEqual([[{ interfaceId: 'if-sw', deviceLabel: 'sw-01' }]])
   })
 
+  it('«Изменить порт…» просит родителя открыть правку нужной стороны — для расхождения и для одобренного расхождения', async () => {
+    const wrapper = mountModal(connection())
+
+    expect(wrapper.find('[data-action="edit-source"]').text()).toContain('Изменить порт «idrac» (srv-01)')
+    await wrapper.find('[data-action="edit-source"]').trigger('click')
+    await wrapper.find('[data-action="edit-destination"]').trigger('click')
+
+    expect(wrapper.emitted('edit-port')).toEqual([['source'], ['destination']])
+
+    const approved = mountModal(connection({ port_config_status: 'approved' }))
+    expect(approved.find('[data-action="edit-destination"]').exists()).toBe(true)
+  })
+
+  it('когда конфигурации совпадают, править порт из этого окна не предлагается', () => {
+    const wrapper = mountModal(connection({ destination_port_role: 'management', port_config_status: 'ok', port_config_diff: [] }))
+
+    expect(wrapper.find('[data-action="edit-source"]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="edit-destination"]').exists()).toBe(false)
+  })
+
   it('различие только в режиме: режим выравнивается каскадом, а окно портов (VLAN) не предлагается', () => {
     const wrapper = mountModal(connection({ source_vlan_mode: 'trunk', destination_vlan_mode: 'access', port_config_diff: ['mode'], source_port_role: 'data' }))
 
@@ -430,6 +450,49 @@ describe('PortConfigReviewModal.vue — рекомендация по прави
     await flushPromises()
 
     expect(wrapper.find('[data-recommendation-warning]').text()).toContain('30')
+  })
+
+  it('правило «объединить»: рекомендация перечисляет изменения каждого из двух портов', async () => {
+    const both = {
+      target: 'both', changes: null,
+      rule: { id: 'r-3', code: 'trunk_vlans_union', name: 'Trunk: наборы VLAN на концах линии объединяются', action: 'auto' },
+      source: { interface_id: 'if-srv', name: 'idrac', device_id: 'dev-1', device_name: 'srv-01', role: 'data', mode: 'trunk', vlans: [10, 20] },
+      destination: { interface_id: 'if-sw', name: 'Gi0/5', device_id: 'dev-2', device_name: 'sw-01', role: 'data', mode: 'trunk', vlans: [10, 30] },
+      targets: [
+        { target: 'source', changes: { role: null, mode: null, vlans: { from: [10, 20], to: [10, 20, 30], skipped: [] } }, blocked: null },
+        { target: 'destination', changes: { role: null, mode: null, vlans: { from: [10, 30], to: [10, 20, 30], skipped: [] } }, blocked: null },
+      ],
+    }
+    stubWithPlan(planFor(both, { applicable: 2 }))
+    const wrapper = mountModal(connection({ source_port_role: 'data', port_config_diff: ['vlans'] }))
+    await flushPromises()
+
+    const block = wrapper.find('[data-recommendation]')
+    const targets = block.findAll('[data-recommendation-target]')
+    expect(targets.map((t) => t.text())).toEqual(['Порту «idrac» (srv-01) будет применено:', 'Порту «Gi0/5» (sw-01) будет применено:'])
+    expect(block.text()).toContain('VLAN: 10, 20 → 10, 20, 30')
+    expect(block.text()).toContain('VLAN: 10, 30 → 10, 20, 30')
+    expect(block.find('[data-action="plan"]').exists()).toBe(true)
+  })
+
+  it('правило «объединить»: порт, которому изменение не применится, показан с причиной, а второй порт применим', async () => {
+    const half = {
+      target: 'both', changes: null,
+      rule: { id: 'r-3', code: 'trunk_vlans_union', name: 'Trunk: наборы VLAN на концах линии объединяются', action: 'auto' },
+      source: { interface_id: 'if-srv', name: 'idrac', device_id: 'dev-1', device_name: 'srv-01', role: 'data', mode: 'trunk', vlans: [10, 20] },
+      destination: { interface_id: 'if-sw', name: 'Gi0/5', device_id: 'dev-2', device_name: 'sw-01', role: 'data', mode: 'trunk', vlans: [10, 30] },
+      targets: [
+        { target: 'source', changes: { role: null, mode: null, vlans: { from: [10, 20], to: [10, 20, 30], skipped: [] } }, blocked: null },
+        { target: 'destination', changes: null, blocked: 'Порт входит в группу «Серверные», которая задаёт режим и VLAN — измените группу' },
+      ],
+    }
+    stubWithPlan(planFor(half))
+    const wrapper = mountModal(connection({ port_config_diff: ['vlans'] }))
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-recommendation-target]')).toHaveLength(1)
+    expect(wrapper.find('[data-recommendation-target-blocked]').text()).toContain('«Gi0/5» (sw-01) не изменится: Порт входит в группу «Серверные»')
+    expect(wrapper.find('[data-action="plan"]').exists()).toBe(true)
   })
 
   it('если подходящего правила нет, блок не показывается', async () => {

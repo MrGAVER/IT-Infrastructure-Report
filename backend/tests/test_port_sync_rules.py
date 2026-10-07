@@ -16,6 +16,7 @@ from app.services.port_sync_rules import (
     EMPTY_TRUNK_RULE,
     MODE_MATCH_RULE,
     ROLE_MATCH_RULE,
+    TRUNK_VLANS_UNION_RULE,
     VLANS_MATCH_RULE,
     APPLY_TO_DESTINATION,
     APPLY_TO_SOURCE,
@@ -165,7 +166,11 @@ def test_each_manual_default_names_one_kind_of_discrepancy():
 
     assert decide(RULES, replace(base, role=PortRole.MANAGEMENT), base).rule.code == ROLE_MATCH_RULE
     assert decide(RULES, replace(base, mode="access"), base).rule.code == MODE_MATCH_RULE
-    assert decide(RULES, replace(base, vlans=frozenset({20})), base).rule.code == VLANS_MATCH_RULE
+    # Наборы VLAN у trunk-пары различаются автоматически решаемым правилом, у access-пары — человеком.
+    assert decide(RULES, replace(base, vlans=frozenset({20})), base).rule.code == TRUNK_VLANS_UNION_RULE
+    access = facts(PortRole.DATA, "access", (10,))
+    manual = decide(RULES, replace(access, vlans=frozenset({20})), access)
+    assert (manual.rule.code, manual.outcome) == (VLANS_MATCH_RULE, Outcome.MANUAL)
 
 
 def test_manual_rule_offers_both_directions_with_the_changes_of_each():
@@ -349,7 +354,7 @@ def test_service_fields_in_the_payload_are_ignored():
 # --- стандартные правила ------------------------------------------------------------------------
 
 def test_default_rules_have_unique_codes_names_and_priorities():
-    assert len({r.code for r in DEFAULT_RULES}) == len(DEFAULT_RULES) == 4
+    assert len({r.code for r in DEFAULT_RULES}) == len(DEFAULT_RULES) == 5
     assert len({r.name for r in DEFAULT_RULES}) == len(DEFAULT_RULES)
     assert len({r.priority for r in DEFAULT_RULES}) == len(DEFAULT_RULES)
     assert all(r.code and r.enabled and r.description for r in DEFAULT_RULES)
@@ -381,3 +386,71 @@ def test_rules_equal_ignoring_state_ignores_priority_and_enabled_only():
     assert rules_equal_ignoring_state(base, replace(base, enabled=False, priority=999))
     assert not rules_equal_ignoring_state(base, replace(base, action="auto"))
     assert not rules_equal_ignoring_state(base, replace(base, description="иначе"))
+
+
+# --- политика VLAN «объединить» (trunk с разными наборами VLAN) ---------------------------------
+
+def _union(decision):
+    """Что получает каждый порт пары: {apply_to: итоговый набор VLAN или None}."""
+    return {o.apply_to: o.changes.vlans for o in decision.options}
+
+
+def test_trunk_ports_with_different_vlan_sets_are_merged_automatically_on_both_ports():
+    decision = decide(RULES, facts(vlans=(10, 20)), facts(vlans=(20, 30)))
+
+    assert decision.outcome is Outcome.AUTO and decision.rule.code == TRUNK_VLANS_UNION_RULE
+    assert _union(decision) == {APPLY_TO_SOURCE: frozenset({10, 20, 30}), APPLY_TO_DESTINATION: frozenset({10, 20, 30})}
+    assert all(o.changes.role is None and o.changes.mode is None and o.changes.violation is None for o in decision.options)
+
+
+def test_merge_changes_only_the_port_that_lacks_vlans_when_one_set_contains_the_other():
+    decision = decide(RULES, facts(vlans=(10, 20, 30)), facts(vlans=(10,)))
+
+    assert decision.outcome is Outcome.AUTO
+    assert _union(decision) == {APPLY_TO_DESTINATION: frozenset({10, 20, 30})}  # порт-источник уже несёт всё
+
+
+def test_merge_never_removes_a_vlan():
+    rule = DEFAULT_RULES_BY_CODE[TRUNK_VLANS_UNION_RULE]
+
+    changes = compute_changes(rule, facts(vlans=(10, 20)), facts(vlans=(20, 30)))
+
+    assert changes.vlans == frozenset({10, 20, 30}) and changes.vlans >= frozenset({10, 20})
+    assert compute_changes(rule, facts(vlans=(10, 20, 30)), facts(vlans=(20,))).is_empty
+
+
+def test_merge_treats_all_vlans_state_as_assigned():
+    decision = decide(RULES, facts(vlans=(10, 20), all_vlans=True), facts(vlans=(30,)))
+
+    assert decision.outcome is Outcome.AUTO and decision.rule.code == TRUNK_VLANS_UNION_RULE
+
+
+def test_merge_does_not_apply_to_equal_sets_access_ports_or_empty_trunk():
+    assert decide(RULES, facts(vlans=(10, 20)), facts(vlans=(10, 20))).outcome is Outcome.NONE
+    assert decide(RULES, facts(PortRole.DATA, "access", (10,)), facts(PortRole.DATA, "access", (20,))).rule.code == VLANS_MATCH_RULE
+    assert decide(RULES, facts(vlans=()), facts(vlans=(10,))).rule.code == EMPTY_TRUNK_RULE  # пустой trunk — своё правило, оно раньше
+
+
+def test_merge_rule_comes_after_empty_trunk_and_before_the_manual_rules():
+    order = [r.code for r in RULES]
+
+    assert order.index(EMPTY_TRUNK_RULE) < order.index(TRUNK_VLANS_UNION_RULE) < order.index(ROLE_MATCH_RULE)
+    assert len({r.priority for r in DEFAULT_RULES}) == len(DEFAULT_RULES)  # без совпадений — порядок не зависит от id
+
+
+def test_merge_policy_is_symmetric_and_validated():
+    assert RuleSpec(name="r", vlan_policy="union").symmetric and not RuleSpec(name="r", vlan_policy="copy").symmetric
+    rule = rule_from_payload({"name": "Объединять", "action": "auto", "apply": {"vlans": "union"}})
+    assert rule.vlan_policy == "union" and not rule.apply_role and not rule.apply_mode
+    for apply in ({"vlans": "union", "mode": True}, {"vlans": "union", "role": True}):
+        with pytest.raises(RuleValidationError, match="объединить"):
+            rule_from_payload({"name": "Плохое", "action": "auto", "apply": apply})
+
+
+def test_user_merge_rule_applies_to_both_ports_without_manual_direction():
+    rule = rule_from_payload({"name": "Объединять любые", "action": "auto", "relation": {"vlans": "differs"}, "apply": {"vlans": "union"}})
+
+    decision = decide([rule], facts(PortRole.DATA, "access", (10,)), facts(PortRole.DATA, "access", (20,)))
+
+    assert decision.outcome is Outcome.AUTO and len(decision.options) == 2
+    assert all(o.changes.violation for o in decision.options)  # в access по-прежнему не более одного VLAN — применить нельзя

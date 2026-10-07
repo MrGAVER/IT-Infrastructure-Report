@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { approveMatchingPortConfig, approvePortConfig, revokePortConfigApproval, setPortRole } from '../portConfig'
+import { approveMatchingPortConfig, approvePortConfig, revokePortConfigApproval, setPortConfig, setPortRole } from '../portConfig'
 
 function stubFetch(body: unknown = {}) {
   const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify(body), { status: 200 }))
@@ -21,6 +21,21 @@ describe('api/portConfig', () => {
     const fetchMock = stubFetch()
     await setPortRole('if-1', 'none')
     expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string)).toEqual({ is_management: false, is_data_transfer: false })
+  })
+
+  it('setPortConfig: PUT /interfaces/{id}/port-config с ролью, набором VLAN и проверочным режимом', async () => {
+    const fetchMock = stubFetch({ id: 'if-1' })
+    await setPortConfig('if-1', { role: 'data', vlan_ids: ['v1', 'v2'], mode: 'trunk' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toContain('/interfaces/if-1/port-config')
+    expect(init?.method).toBe('PUT')
+    expect(JSON.parse(init!.body as string)).toEqual({ role: 'data', vlan_ids: ['v1', 'v2'], mode: 'trunk' })
+  })
+
+  it('setPortConfig: пустой набор VLAN передаётся как есть — это «снять все»', async () => {
+    const fetchMock = stubFetch({ id: 'if-1' })
+    await setPortConfig('if-1', { vlan_ids: [] })
+    expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string)).toEqual({ vlan_ids: [] })
   })
 
   it('approvePortConfig: POST /connections/port-config/approve со списком id', async () => {

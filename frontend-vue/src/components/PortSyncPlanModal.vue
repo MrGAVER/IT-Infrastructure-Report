@@ -10,7 +10,7 @@ import { applyPortSync, previewPortSync, type PortSyncScope } from '../api/portS
 import type { PortSyncApplyResult, PortSyncPlan, PortSyncPlanItem } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
-import { OUTCOME_LABELS, changeLines, optionLine, summaryLine, targetPort } from '../utils/portSyncRules'
+import { OUTCOME_LABELS, changeLines, optionLine, plannedTargets, summaryLine } from '../utils/portSyncRules'
 
 const props = defineProps<{ scope: PortSyncScope; title?: string }>()
 const emit = defineEmits<{ close: []; applied: [result: PortSyncApplyResult] }>()
@@ -62,7 +62,7 @@ async function apply() {
   }
 }
 
-const changed = (item: PortSyncPlanItem) => targetPort(item)
+const targetsOf = (item: PortSyncPlanItem) => plannedTargets(item)
 
 onMounted(load)
 </script>
@@ -102,12 +102,15 @@ onMounted(load)
             <div v-if="item.rule" class="rule-name">Правило: «{{ item.rule.name }}»</div>
 
             <template v-if="item.outcome === 'auto' || item.outcome === 'blocked'">
-              <div v-if="changed(item)" class="target">
-                Порт «{{ changed(item)!.name }}» ({{ changed(item)!.device_name }}):
+              <div v-for="t in targetsOf(item)" :key="t.port.interface_id" class="target-block" data-target>
+                <div class="target">Порт «{{ t.port.name }}» ({{ t.port.device_name }}):</div>
+                <ul v-if="t.changes && (!t.blocked || item.outcome === 'blocked')" class="lines">
+                  <li v-for="line in changeLines(t.changes)" :key="line">{{ line }}</li>
+                </ul>
+                <!-- Порту из пары, которому изменение не применится, причина показывается здесь, а не теряется: -->
+                <!-- второй порт той же пары при этом применяется. -->
+                <p v-if="t.blocked && item.outcome === 'auto'" class="reason bad" data-target-blocked>Не изменится: {{ t.blocked }}</p>
               </div>
-              <ul v-if="item.changes" class="lines">
-                <li v-for="line in changeLines(item.changes)" :key="line">{{ line }}</li>
-              </ul>
             </template>
 
             <ul v-if="item.outcome === 'manual' && item.options.length" class="lines" data-options>
@@ -243,6 +246,9 @@ onMounted(load)
   margin-top: 4px;
   color: var(--ink-muted);
   font-size: 11.5px;
+}
+.target-block + .target-block {
+  margin-top: 6px;
 }
 .target {
   margin-top: 6px;

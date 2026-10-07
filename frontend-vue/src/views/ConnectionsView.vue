@@ -16,6 +16,7 @@ import StatCard from '../components/StatCard.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
 import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
+import PortConfigEditModal from '../components/PortConfigEditModal.vue'
 import DevicePortsModal from '../components/DevicePortsModal.vue'
 
 // Таблица — постраничная выборка с сервера (connectionsDashboard); общий кэш (connections) нужен
@@ -69,6 +70,23 @@ const syncPlanOpen = ref(false)
  * устройства; после их сохранения таблица перечитывается (onPortsSaved), и статус пересчитывает сервер. */
 function manageFromReview(target: { interfaceId: string; deviceLabel: string }) {
   reviewing.value = null
+  openPortsForInterface(target.interfaceId, target.deviceLabel)
+}
+
+// Правка роли, режима и VLAN одного порта подключения (PortConfigEditModal.vue) — из строки таблицы и из окна
+// проверки расхождения. Таблицу после сохранения перечитывает само окно.
+const editing = ref<{ connection: Connection; side: 'source' | 'destination' } | null>(null)
+function editPort(connection: Connection, side: 'source' | 'destination') {
+  editing.value = { connection, side }
+}
+function editPortFromReview(side: 'source' | 'destination') {
+  const connection = reviewing.value
+  reviewing.value = null
+  if (connection) editPort(connection, side)
+}
+/** Из окна правки порта — к окну всех портов устройства (например, чтобы изменить группу, задающую VLAN). */
+function manageFromEdit(target: { interfaceId: string; deviceLabel: string }) {
+  editing.value = null
   openPortsForInterface(target.interfaceId, target.deviceLabel)
 }
 
@@ -249,6 +267,9 @@ async function removeConnection(c: Connection) {
                 <span class="devname">{{ c.source_device_name }}</span>
                 <span class="portname mono">
                   {{ c.source_interface_name }}
+                  <button type="button" class="port-manage-btn" data-action="edit-port-source" aria-label="Изменить роль, режим и VLAN порта источника" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'source')">
+                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  </button>
                   <button type="button" class="port-manage-btn" aria-label="Управлять портами исходного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.source_interface_id, c.source_device_name)">
                     <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                   </button>
@@ -259,6 +280,9 @@ async function removeConnection(c: Connection) {
                 <span class="devname">{{ c.destination_device_name }}</span>
                 <span class="portname mono">
                   {{ c.destination_interface_name }}
+                  <button type="button" class="port-manage-btn" data-action="edit-port-destination" aria-label="Изменить роль, режим и VLAN порта назначения" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'destination')">
+                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  </button>
                   <button type="button" class="port-manage-btn" aria-label="Управлять портами конечного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.destination_interface_id, c.destination_device_name)">
                     <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                   </button>
@@ -326,7 +350,15 @@ async function removeConnection(c: Connection) {
       @close="syncPlanOpen = false"
       @applied="dashboard.refreshAfterChange()"
     />
-    <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" @manage-ports="manageFromReview" />
+    <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" @manage-ports="manageFromReview" @edit-port="editPortFromReview" />
+    <PortConfigEditModal
+      v-if="editing"
+      :connection="editing.connection"
+      :side="editing.side"
+      @close="editing = null"
+      @saved="editing = null"
+      @manage-ports="manageFromEdit"
+    />
     <DevicePortsModal
       v-if="portsTarget"
       :device-id="portsTarget.deviceId"

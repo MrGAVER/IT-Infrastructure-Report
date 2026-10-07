@@ -15,9 +15,16 @@ VLAN). Правила редактируются пользователем (в 
     `ignore` (пару не трогать — останавливает проверку правил ниже);
   * что целевой порт берёт у источника: роль, режим, VLAN (`vlan_policy`).
 
+Политика VLAN `union` («объединить») особая: она симметрична. Оба порта линии должны нести один и
+тот же набор VLAN, и ни один VLAN при этом не снимается, поэтому направление выбирать не нужно —
+каждый порт получает объединение наборов обоих. Так автоматически решаются расхождения VLAN на
+trunk-портах (стандартное правило `trunk_vlans_union`). Роль и режим направленные (их «берёт»
+один порт у другого), поэтому с `union` в одном правиле не сочетаются.
+
 Правила проверяются по возрастанию `priority`; решает первое подходящее. Для каждой пары
 проверяются обе ориентации (A ← B и B ← A). `auto` подходит, только если подходит ровно одна
-ориентация, — иначе направление неоднозначно и решение остаётся за человеком. `auto`-правило, которое
+ориентация, — иначе направление неоднозначно и решение остаётся за человеком. Исключение —
+симметричное правило (`union`): подходят обе ориентации, и применяется каждая, где есть что менять. `auto`-правило, которое
 для этой пары ничего бы не изменило, считается неприменимым и проверка идёт дальше.
 
 Состояние VLAN порта: `none` — VLAN не назначены совсем; `set` — назначен хотя бы один (в том числе
@@ -51,7 +58,7 @@ ROLE_CONDITIONS = ("any", *(r.value for r in PortRole))
 MODE_CONDITIONS = ("any", VLAN_MODE_ACCESS, VLAN_MODE_TRUNK)
 VLAN_CONDITIONS = ("any", "none", "set", "all")
 RELATIONS = ("any", "same", "differs")
-VLAN_POLICIES = ("keep", "copy", "adapt")
+VLAN_POLICIES = ("keep", "copy", "adapt", "union")
 
 MAX_NAME_LENGTH = 200
 MAX_DESCRIPTION_LENGTH = 2000
@@ -118,6 +125,11 @@ class RuleSpec:
     priority: int = 100
     id: str | None = None
 
+    @property
+    def symmetric(self) -> bool:
+        """Применяется к ОБОИМ портам пары, а не к одному из них (политика VLAN `union`)."""
+        return self.vlan_policy == "union"
+
 
 class Outcome(str, Enum):
     AUTO = "auto"  # направление определено, изменения можно применить после подтверждения
@@ -160,7 +172,9 @@ class Option:
 class Decision:
     outcome: Outcome
     rule: RuleSpec | None = None
-    options: tuple[Option, ...] = ()  # auto — ровно одна; manual — по одной на подходящую ориентацию
+    # auto — ровно одна, а у симметричного правила — по одной на каждый порт, которому есть что менять;
+    # manual — по одной на подходящую ориентацию
+    options: tuple[Option, ...] = ()
     note: str | None = None
 
 
@@ -205,13 +219,16 @@ def compute_changes(rule: RuleSpec, target: PortFacts, source: PortFacts) -> Cha
 
     VLAN-политика: `copy` — целевой порт получает набор VLAN источника; `adapt` — после смены режима
     приводит свои VLAN к режиму (в access остаётся один VLAN с наименьшим номером, в trunk —
-    назначенные сохраняются), как при переключении режима в форме устройства и в каскаде смены режима."""
+    назначенные сохраняются), как при переключении режима в форме устройства и в каскаде смены режима;
+    `union` — целевой порт получает объединение своих VLAN и VLAN источника (свои не снимаются)."""
     role = source.role if rule.apply_role and target.role != source.role else None
     mode = source.mode if rule.apply_mode and target.mode != source.mode else None
     new_mode = mode or target.mode
     vlans: frozenset[int] | None = None
     if rule.vlan_policy == "copy" and target.vlans != source.vlans:
         vlans = source.vlans
+    elif rule.vlan_policy == "union" and not source.vlans <= target.vlans:
+        vlans = target.vlans | source.vlans
     elif rule.vlan_policy == "adapt" and mode == VLAN_MODE_ACCESS and len(target.vlans) > 1:
         vlans = frozenset({min(target.vlans)})
     final_vlans = vlans if vlans is not None else target.vlans
@@ -245,7 +262,7 @@ def decide(rules: Iterable[RuleSpec], a: PortFacts, b: PortFacts) -> Decision:
         effective = tuple(o for o in options if not o.changes.is_empty)
         if not effective:
             continue  # правило подошло, но менять нечего — для этой пары оно ничего не решает
-        if len(options) > 1:
+        if len(options) > 1 and not rule.symmetric:
             return Decision(Outcome.MANUAL, rule, effective, "Правило применимо в обе стороны — направление выберите вручную")
         return Decision(Outcome.AUTO, rule, effective)
     return Decision(Outcome.NONE)
@@ -350,6 +367,8 @@ def rule_from_payload(payload: Mapping[str, Any], *, base: RuleSpec | None = Non
 
     if vlan_policy == "adapt" and not apply_mode:
         raise RuleValidationError("Политика VLAN «по режиму» имеет смысл только вместе со сменой режима (apply.mode)")
+    if vlan_policy == "union" and (apply_role or apply_mode):
+        raise RuleValidationError("Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу")
     if action == "auto" and not (apply_role or apply_mode or vlan_policy != "keep"):
         raise RuleValidationError("Правило с действием «автоматически» должно что-то менять: роль, режим или VLAN")
 
@@ -375,6 +394,7 @@ EMPTY_TRUNK_RULE = "empty_trunk_takes_neighbor_vlans"
 ROLE_MATCH_RULE = "role_match"
 MODE_MATCH_RULE = "mode_match"
 VLANS_MATCH_RULE = "vlans_match"
+TRUNK_VLANS_UNION_RULE = "trunk_vlans_union"
 
 DEFAULT_RULES: tuple[RuleSpec, ...] = (
     RuleSpec(
@@ -392,6 +412,26 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
         apply_role=False,
         apply_mode=True,
         vlan_policy="copy",
+    ),
+    RuleSpec(
+        code=TRUNK_VLANS_UNION_RULE,
+        name="Trunk: наборы VLAN на концах линии объединяются",
+        description=(
+            "Если оба порта подключения в режиме trunk, у обоих назначены VLAN, но наборы различаются, каждый "
+            "порт получает объединение VLAN обоих портов: ни один VLAN не снимается, и линия начинает нести "
+            "одинаковый набор с обеих сторон. VLAN, которых нет у устройства порта, ему не назначаются — это "
+            "показывается в плане предупреждением. Применяется автоматически — после предпросмотра и "
+            "подтверждения. Приоритет 15 — сразу после правила для пустого trunk."
+        ),
+        action="auto",
+        # 15, а не 20: у уже работающих установок стандартные правила занимают 10, 20, 30, 40 (а после
+        # перестановки — 10, 20, 30, 40, 50…), и совпавший приоритет сделал бы порядок проверки
+        # зависимым от id. Между 10 и 20 всегда есть свободное место.
+        priority=15,
+        target=Side(mode=VLAN_MODE_TRUNK, vlans="set"),
+        source=Side(mode=VLAN_MODE_TRUNK, vlans="set"),
+        relation=Side(vlans="differs"),
+        vlan_policy="union",
     ),
     RuleSpec(
         code=ROLE_MATCH_RULE,

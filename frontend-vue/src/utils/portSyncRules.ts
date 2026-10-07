@@ -58,6 +58,7 @@ export const VLAN_POLICY_OPTIONS: { value: PortSyncVlanPolicy; label: string }[]
   { value: 'keep', label: 'не менять' },
   { value: 'copy', label: 'взять набор VLAN соседа' },
   { value: 'adapt', label: 'привести к режиму (в access — один VLAN)' },
+  { value: 'union', label: 'объединить наборы VLAN обоих портов (ничего не снимается)' },
 ]
 
 export const OUTCOME_LABELS: Record<PortSyncOutcome, string> = {
@@ -101,6 +102,7 @@ export function describeApply(rule: Pick<PortSyncRule, 'apply'>): string {
   if (rule.apply.mode) parts.push('режим')
   if (rule.apply.vlans === 'copy') parts.push('набор VLAN')
   if (rule.apply.vlans === 'adapt') parts.push('VLAN приводятся к режиму')
+  if (rule.apply.vlans === 'union') parts.push('наборы VLAN объединяются на обоих портах')
   return parts.join(', ')
 }
 
@@ -118,6 +120,7 @@ export function describeRule(rule: Describable): string {
   const when = condition.length ? `Если ${condition.join('; ')}` : 'Для любой пары портов подключения'
   const apply = describeApply(rule)
   if (rule.action === 'ignore') return `${when} — пару не согласовывать.`
+  if (rule.action === 'auto' && rule.apply.vlans === 'union') return `${when} — оба порта получают объединение наборов VLAN (ни один VLAN не снимается).`
   if (rule.action === 'manual') return `${when} — расхождение требует решения человека${apply ? ` (порту можно применить: ${apply} соседа)` : ''}.`
   return `${when} — порту применяется${apply ? `: ${apply} соседнего порта` : ' (изменения не заданы)'}.`
 }
@@ -162,6 +165,9 @@ export function validateRuleDraft(draft: RuleDraft): string | null {
   if (draft.name.trim().length > 200) return 'Название правила не длиннее 200 символов'
   if (!Number.isInteger(draft.priority)) return 'Порядок проверки — целое число'
   if (draft.apply.vlans === 'adapt' && !draft.apply.mode) return 'Политика VLAN «привести к режиму» имеет смысл только вместе со сменой режима'
+  if (draft.apply.vlans === 'union' && (draft.apply.role || draft.apply.mode)) {
+    return 'Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу'
+  }
   if (draft.action === 'auto' && !draft.apply.role && !draft.apply.mode && draft.apply.vlans === 'keep') {
     return 'Правило с действием «Автоматически» должно что-то менять: роль, режим или VLAN'
   }
@@ -187,11 +193,29 @@ export function movedOrder(ids: readonly string[], id: string, delta: -1 | 1): s
 
 // --- план согласования ------------------------------------------------------------------------
 
-/** Порт подключения, которому применяются изменения (для auto и blocked); null, если направление не определено. */
+/** Порт подключения, которому применяются изменения (для auto и blocked); null, если направление не
+ * определено или портов два (target = both) — для них plannedTargets(). */
 export function targetPort(item: Pick<PortSyncPlanItem, 'target' | 'source' | 'destination'>): PortSyncPortView | null {
   if (item.target === 'source') return item.source
   if (item.target === 'destination') return item.destination
   return null
+}
+
+export interface PlannedTarget {
+  port: PortSyncPortView
+  changes: PortSyncChanges | null
+  /** Причина, по которой этому порту изменение не применится; null — применится. */
+  blocked: string | null
+}
+
+/** Все целевые порты решения auto/blocked с изменениями каждого: один порт — обычно, два — у правила
+ * «объединить». Ответ без `targets` (старый формат) даёт единственный порт из target/changes. */
+export function plannedTargets(item: Pick<PortSyncPlanItem, 'target' | 'targets' | 'changes' | 'source' | 'destination'>): PlannedTarget[] {
+  if (item.targets?.length) {
+    return item.targets.map((t) => ({ port: t.target === 'source' ? item.source : item.destination, changes: t.changes, blocked: t.blocked }))
+  }
+  const port = targetPort(item)
+  return port ? [{ port, changes: item.changes, blocked: null }] : []
 }
 
 /** Изменения порта построчно: «роль: Управление активами → Передача данных», «режим: trunk → access»,
@@ -221,9 +245,13 @@ export function optionLine(option: PortSyncOption, item: Pick<PortSyncPlanItem, 
 
 /** Сводка плана одной строкой — только ненулевые счётчики. */
 export function summaryLine(summary: {
-  connections: number; applicable: number; blocked: number; manual: number; ignored: number; none: number; skipped: number
+  connections: number; applicable: number; auto?: number; blocked: number; manual: number; ignored: number; none: number; skipped: number
 }): string {
-  const parts = [`проверено подключений: ${summary.connections}`, `будет согласовано: ${summary.applicable}`]
+  // applicable считает порты: у правила «объединить» одно подключение даёт два порта — тогда показываем оба числа.
+  const planned = summary.auto !== undefined && summary.auto !== summary.applicable
+    ? `${summary.auto} (портов: ${summary.applicable})`
+    : String(summary.applicable)
+  const parts = [`проверено подключений: ${summary.connections}`, `будет согласовано: ${planned}`]
   if (summary.blocked) parts.push(`нельзя применить: ${summary.blocked}`)
   if (summary.manual) parts.push(`решает человек: ${summary.manual}`)
   if (summary.ignored) parts.push(`исключено правилами: ${summary.ignored}`)
