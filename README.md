@@ -505,8 +505,11 @@ SIEM, количество физических портов, адрес и зд
 ```text
 backend/
   app/
-    api/            — роутеры FastAPI (system, resources, devices, report_builder)
+    api/            — роутеры FastAPI: system (health, диагностика), resources (generic CRUD), devices,
+                        vlan, device_stacks, vms, reports, listings, frontend_assets, report_builder, auth, ...
+                        (обработчики только разбирают запрос и вызывают services/)
     services/        — crud/ (пакет: generic CRUD и синхронизация вложенных коллекций, см. ниже),
+                        vlan_operations (VLAN: панель, домены, копирование, массовое назначение), device_stacks,
                         validation, serialization, catalogs, computed, constants,
                         report_meta/report_engine/report_grid/report_render (конструктор отчётов)
     main.py          — application factory
