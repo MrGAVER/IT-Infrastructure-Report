@@ -6,7 +6,7 @@ from ..services.crud import get_interface_groups, sync_device_deployed_software,
 from ..services.device_connectivity import list_device_options, list_free_interfaces, list_interface_connections
 router = APIRouter(prefix='/api/v1/devices', tags=['Devices'])
 @router.put('/{device_id}/interfaces')
-def sync(device_id: str, payload: DeviceInterfacesSync, session: Session = Depends(get_db)):
+def sync_device_interfaces(device_id: str, payload: DeviceInterfacesSync, session: Session = Depends(get_db)):
     return sync_interfaces(device_id, payload.model_dump(exclude_unset=True), session)
 
 
