@@ -29,8 +29,9 @@
 //   умолчанию для любой строки, включая только что добавленную;
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { updateResource } from '../api/client'
+import { fetchAllFreeInterfaces } from '../api/deviceConnectivity'
 import { useCatalogsStore } from '../stores/catalogs'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
@@ -41,7 +42,22 @@ import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers } from '../utils/openPorts'
-import { SELF_DEVICE, connectionPointsTo, newRowKey, peerRef, rowRef, type ConnectionBaseline, type SelfPortCandidate } from '../utils/interfaceConnections'
+import {
+  SELF_DEVICE,
+  changedConnectionRowIds,
+  connectionConfigDiffKinds,
+  connectionConfigDiffs,
+  connectionPointsTo,
+  newRowKey,
+  peerRef,
+  rowRef,
+  type ConfigDiffKind,
+  type ConnectionBaseline,
+  type PeerConfigTarget,
+  type PortConfigLike,
+  type SelfPortCandidate,
+} from '../utils/interfaceConnections'
+import { portConfigOf, samePortConfig, type PortConfig } from '../utils/portConflicts'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
@@ -283,6 +299,11 @@ function conflictSummary(conflict: PortConflictInfo, kind: 'flags' | 'vlan_mode'
 // (два действия — "оставить как у меня" / "взять как у соседа") общий.
 const activeConflict = ref<{ index: number; kind: 'flags' | 'vlan_mode' } | null>(null)
 const applyingConflict = ref(false)
+// Счётчик изменений портов соседей, сделанных отсюда (конфигурация применена соседу или каскад режима дошёл до его
+// порта): блоки «Подключение» по нему перечитывают порты соседа с сервера и убирают уже устранённое расхождение.
+const peersVersion = ref(0)
+// Идёт применение конфигурации из блока «Подключение» (запрос соседу или предпросмотр каскада).
+const applyingPeerConfig = ref(false)
 
 function openConflict(index: number, kind: 'flags' | 'vlan_mode') {
   activeConflict.value = { index, kind }
@@ -317,7 +338,9 @@ const {
   },
   onFinished: () => {
     closeConflict()
+    peersVersion.value++
     emit('neighbors-changed')
+    void refreshReviewPeers() // каскад дошёл до порта соседа или группы — окно проверки перед сохранением обновляется
   },
 })
 
@@ -355,6 +378,16 @@ async function applyNeighborConfig() {
   }
 }
 
+// Назначение порта соседа (другого устройства) — точечный PUT generic-ресурса 'interfaces'; группы флажки не
+// задают. Локальный кэш catalogs.items['interfaces'] правим на месте: без этого значок расхождения пропал бы
+// только после полной перезагрузки каталогов.
+async function writeFlagsToNeighbor(interfaceId: string, from: Pick<InterfaceDraftRow, 'is_management' | 'is_data_transfer'>) {
+  const payload = { is_management: from.is_management, is_data_transfer: from.is_data_transfer }
+  await updateResource('interfaces', interfaceId, payload)
+  const cached = ((catalogs.items['interfaces'] ?? []) as unknown as { id: string }[]).find((i) => i.id === interfaceId)
+  if (cached) Object.assign(cached, payload)
+}
+
 // "Применить текущую конфигурацию [соседу]" — сам сосед принадлежит ДРУГОМУ устройству, не
 // входящему в modelValue этой формы, поэтому это не черновик, а немедленный запрос.
 //  * Назначение порта (flags): точечный PUT generic-ресурса 'interfaces'; группы флажки не задают.
@@ -374,12 +407,10 @@ async function applyCurrentConfigToNeighbor() {
       await cascadeStart(conflict.otherInterfaceId, row.vlan_mode, `«${conflict.otherInterfaceName}» (${conflict.otherDeviceName})`)
       return
     }
-    const payload = { is_management: row.is_management, is_data_transfer: row.is_data_transfer }
-    await updateResource('interfaces', conflict.otherInterfaceId, payload)
-    const cached = ((catalogs.items['interfaces'] ?? []) as unknown as { id: string }[]).find((i) => i.id === conflict.otherInterfaceId)
-    if (cached) Object.assign(cached, payload)
+    await writeFlagsToNeighbor(conflict.otherInterfaceId, row)
     notify('Конфигурация применена к соседнему порту', 'success')
     closeConflict()
+    peersVersion.value++
     emit('neighbors-changed')
   } catch (err) {
     notifyError(err)
@@ -387,6 +418,286 @@ async function applyCurrentConfigToNeighbor() {
     applyingConflict.value = false
   }
 }
+
+// Режим порта строки формы → mode (общий шаг обоих действий из блока «Подключение»).
+//  * Сохранённый порт — каскад (composables/useVlanModeCascade.ts): режим может задавать группа, а у связанных
+//    портов он тоже должен совпасть. Затрагивается только эта строка — правится черновик, иначе окно последствий.
+//  * Ещё не сохранённый порт: серверу считать нечего — правим саму строку, но если режим задан её группой,
+//    менять его нельзя (группу правят в панели групп).
+// Возвращает: 'draft' — изменён черновик, 'pending' — ждёт подтверждения в окне, 'none' — менять нечего/нельзя.
+async function changeRowVlanMode(index: number, mode: 'access' | 'trunk'): Promise<'draft' | 'pending' | 'none'> {
+  const row = props.modelValue[index]
+  if (!row) return 'none'
+  if (row.vlan_mode === mode) return 'none'
+  if (!row.id) {
+    if (rowManaged(row).vlan) {
+      notify(groupLockNote(row, 'Режим порта'), 'warning')
+      return 'none'
+    }
+    setVlanMode(index, mode)
+    return 'draft'
+  }
+  const current = await cascadePreview(row.id, mode, `«${row.name}» (это устройство)`)
+  if (!current) return 'none'
+  if (isFormOnlyPlan(current.plan)) {
+    setVlanMode(index, mode)
+    return 'draft'
+  }
+  cascadeReview(current)
+  return 'pending'
+}
+
+// Блок «Подключение» (InterfaceConnectionEditor): расхождение с выбранным соседом показывается сразу, ещё до
+// сохранения формы, и тут же его можно устранить — любым из двух способов. kinds — что именно расходится.
+//
+// «Применить конфигурацию соседа»: этому порту — назначение (Управление/Передача данных) и/или режим соседа.
+// Назначение правит только строку черновика (сохранится вместе с формой), режим — см. changeRowVlanMode.
+async function applyPeerConfigToPort(index: number, peer: PeerConfigTarget, kinds: ConfigDiffKind[]) {
+  const row = props.modelValue[index]
+  if (!row || applyingPeerConfig.value) return
+  applyingPeerConfig.value = true
+  try {
+    let changedDraft = false
+    if (kinds.includes('flags')) {
+      updateRow(index, { is_management: peer.config.is_management, is_data_transfer: peer.config.is_data_transfer })
+      changedDraft = true
+      // Следующий шаг читает строку из props: ждём, пока родитель применит правку, иначе она перетрётся.
+      await nextTick()
+    }
+    if (kinds.includes('vlan_mode') && (await changeRowVlanMode(index, peer.config.vlan_mode)) === 'draft') changedDraft = true
+    if (changedDraft) notify(`Порту «${row.name.trim() || 'без имени'}» применена конфигурация соседа — сохраните форму`, 'success')
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    applyingPeerConfig.value = false
+  }
+}
+
+// «Применить текущую конфигурацию»: соседу — назначение и/или режим порта этой строки.
+//  * Сосед — другой порт ЭТОГО устройства: правим его строку черновика (сохранится вместе с формой).
+//  * Сосед — порт ДРУГОГО устройства: это не черновик, а немедленный запрос, как у «Применить текущую
+//    конфигурацию» в окне расхождения: PUT назначения и каскад режима (writeFlagsToNeighbor / cascadeStart).
+//    Подключение при этом пока не сохранено — сообщение честно говорит, что порт соседа уже изменён.
+async function applyPortConfigToPeer(index: number, peer: PeerConfigTarget, kinds: ConfigDiffKind[]) {
+  const row = props.modelValue[index]
+  if (!row || applyingPeerConfig.value) return
+  applyingPeerConfig.value = true
+  try {
+    if (peer.isSelf) {
+      const peerIndex = props.modelValue.findIndex((r) => rowRef(r) === peer.ref)
+      if (peerIndex === -1) {
+        notify('Порт соседа уже убран из формы — выберите соседа заново', 'warning')
+        return
+      }
+      let changedDraft = false
+      if (kinds.includes('flags')) {
+        updateRow(peerIndex, { is_management: row.is_management, is_data_transfer: row.is_data_transfer })
+        changedDraft = true
+        await nextTick()
+      }
+      if (kinds.includes('vlan_mode') && (await changeRowVlanMode(peerIndex, row.vlan_mode)) === 'draft') changedDraft = true
+      if (changedDraft) notify(`Соседнему порту ${peer.label} применена текущая конфигурация — сохраните форму`, 'success')
+      return
+    }
+    if (!peer.interfaceId) return
+    if (kinds.includes('flags')) {
+      await writeFlagsToNeighbor(peer.interfaceId, row)
+      notify(`Назначение порта соседа ${peer.label} изменено сразу (это порт другого устройства)`, 'success')
+    }
+    if (kinds.includes('vlan_mode')) await cascadeStart(peer.interfaceId, row.vlan_mode, peer.label)
+    peersVersion.value++
+    emit('neighbors-changed')
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    applyingPeerConfig.value = false
+  }
+}
+
+// ===== Проверка расхождений с соседями ПЕРЕД сохранением формы =====
+// Предупреждение в блоке «Подключение» легко не заметить (строка порта свёрнута), а уведомление после записи
+// ничего не предлагает и появляется, когда форма уже закрыта. Поэтому при нажатии «Сохранить» (DeviceFormModal
+// вызывает reviewNeighborMismatches) расхождения, которые появляются именно в этом сохранении, выносятся в диалог:
+// по каждому — те же два действия, что и в блоке «Подключение» (applyPeerConfigToPort / applyPortConfigToPeer),
+// а внизу «Сохранить как есть» или «Вернуться к форме».
+//
+// Что считается «появляется в этом сохранении» — как у уведомления после записи (utils/portConflicts.ts): порт новый,
+// его подключение создано или заменено в форме, либо конфигурация порта отличается от снимка при открытии формы.
+// Старое, никем не тронутое расхождение диалог не поднимает — иначе он выскакивал бы при каждом сохранении.
+interface ReviewPeerRef {
+  ref: string
+  isSelf: boolean
+  deviceId?: string
+  interfaceId?: string
+  nameHint?: string
+  deviceNameHint?: string
+}
+interface ReviewEntry {
+  rowRef: string
+  peer: ReviewPeerRef
+}
+interface ReviewItem {
+  key: string
+  index: number
+  row: InterfaceDraftRow
+  peer: PeerConfigTarget
+  kinds: ConfigDiffKind[]
+  texts: string[]
+}
+
+const reviewOpen = ref(false)
+const reviewEntries = ref<ReviewEntry[]>([])
+// Конфигурация портов соседей на ДРУГИХ устройствах (id порта → имя и конфигурация): с сервера, перечитывается после
+// каждого применённого действия. Соседи с этого же устройства берутся из строк формы — они всегда актуальны.
+const reviewPeers = ref<Record<string, { name: string; config: PortConfigLike }>>({})
+let reviewResolve: ((proceed: boolean) => void) | null = null
+
+function collectReviewEntries(initial: ReadonlyMap<string, PortConfig>): ReviewEntry[] {
+  const changed = changedConnectionRowIds(props.modelValue, props.connectionBaseline ?? new Map())
+  const self = props.deviceId ?? SELF_DEVICE
+  const seenPairs = new Set<string>()
+  const entries: ReviewEntry[] = []
+  for (const row of props.modelValue) {
+    const draft = row.connection
+    const ref = rowRef(row)
+    const peer = draft ? peerRef(draft) : ''
+    if (!draft || !ref || !peer) continue
+    const before = row.id ? initial.get(row.id) : undefined
+    if (row.id && before && !changed.has(row.id) && samePortConfig(before, portConfigOf(row))) continue
+    const isSelf = !!draft.peer_row_key || draft.peer_device_id === self
+    if (isSelf) {
+      // Два порта этого устройства, соединённые друг с другом, — одно расхождение, а не два.
+      const pair = [ref, peer].sort().join('|')
+      if (seenPairs.has(pair)) continue
+      seenPairs.add(pair)
+    }
+    entries.push({
+      rowRef: ref,
+      peer: {
+        ref: peer,
+        isSelf,
+        deviceId: isSelf ? undefined : draft.peer_device_id,
+        interfaceId: draft.peer_interface_id || undefined,
+        nameHint: draft.peer_interface_name,
+        deviceNameHint: draft.peer_device_name,
+      },
+    })
+  }
+  return entries
+}
+
+async function loadReviewPeers(entries: readonly ReviewEntry[]): Promise<Record<string, { name: string; config: PortConfigLike }>> {
+  const idsByDevice = new Map<string, Set<string>>()
+  for (const { peer } of entries) {
+    if (peer.isSelf || !peer.deviceId || !peer.interfaceId) continue
+    const ids = idsByDevice.get(peer.deviceId) ?? new Set<string>()
+    ids.add(peer.interfaceId)
+    idsByDevice.set(peer.deviceId, ids)
+  }
+  const peers: Record<string, { name: string; config: PortConfigLike }> = {}
+  await Promise.all(
+    [...idsByDevice].map(async ([deviceId, ids]) => {
+      // Порт соседа уже занят этим подключением — на сервере он отдаётся только по явному include.
+      for (const port of await fetchAllFreeInterfaces(deviceId, [...ids])) {
+        if (ids.has(port.id)) peers[port.id] = { name: port.name, config: { is_management: port.is_management, is_data_transfer: port.is_data_transfer, vlan_mode: port.vlan_mode } }
+      }
+    }),
+  )
+  return peers
+}
+
+function reviewPeerTarget(peer: ReviewPeerRef): PeerConfigTarget | null {
+  if (peer.isSelf) {
+    const index = props.modelValue.findIndex((r) => rowRef(r) === peer.ref)
+    if (index === -1) return null
+    const target = props.modelValue[index]
+    return {
+      ref: peer.ref,
+      label: `«${target.name.trim() || 'без имени'}» (это устройство, строка ${index + 1})`,
+      config: portConfigOf(target),
+      interfaceId: target.id,
+      rowKey: target.id ? undefined : target.key,
+      isSelf: true,
+    }
+  }
+  const info = peer.interfaceId ? reviewPeers.value[peer.interfaceId] : undefined
+  if (!peer.interfaceId || !info) return null
+  return { ref: peer.ref, label: `«${peer.nameHint ?? info.name}» (${peer.deviceNameHint ?? 'другое устройство'})`, config: info.config, interfaceId: peer.interfaceId, isSelf: false }
+}
+
+// Расхождения, оставшиеся ПРЯМО СЕЙЧАС: считаются заново из строк формы и конфигурации соседей, поэтому
+// устранённое действием из диалога пропадает из списка само.
+const reviewItems = computed<ReviewItem[]>(() =>
+  reviewEntries.value.flatMap((entry) => {
+    const index = props.modelValue.findIndex((r) => rowRef(r) === entry.rowRef)
+    const peer = reviewPeerTarget(entry.peer)
+    if (index === -1 || !peer) return []
+    const row = props.modelValue[index]
+    const own = portConfigOf(row)
+    const kinds = connectionConfigDiffKinds(own, peer.config)
+    return kinds.length ? [{ key: `${entry.rowRef}>${entry.peer.ref}`, index, row, peer, kinds, texts: connectionConfigDiffs(own, peer.config) }] : []
+  }),
+)
+
+async function refreshReviewPeers() {
+  if (!reviewOpen.value) return
+  try {
+    reviewPeers.value = await loadReviewPeers(reviewEntries.value)
+  } catch (err) {
+    notifyError(err)
+  }
+}
+
+function finishReview(proceed: boolean) {
+  if (!reviewOpen.value) return
+  reviewOpen.value = false
+  reviewEntries.value = []
+  reviewPeers.value = {}
+  const resolve = reviewResolve
+  reviewResolve = null
+  resolve?.(proceed)
+}
+const { onOverlayPointerDown: onReviewOverlayPointerDown, onOverlayClick: onReviewOverlayClick } = useOverlayDismiss(() => finishReview(false))
+
+async function reviewApplyNeighbor(item: ReviewItem) {
+  await applyPeerConfigToPort(item.index, item.peer, item.kinds)
+  await refreshReviewPeers()
+}
+async function reviewApplyCurrent(item: ReviewItem) {
+  await applyPortConfigToPeer(item.index, item.peer, item.kinds)
+  await refreshReviewPeers()
+}
+
+/**
+ * Вызывается формой перед записью. Если среди подключений есть расхождение назначения (Управление / Передача данных) или
+ * режима порта с соседом, появившееся в этом сохранении, показывает диалог и ждёт решения.
+ *
+ * @param initial снимок конфигурации сохранённых портов на момент открытия формы (snapshotPortConfigs)
+ * @returns true — сохранять (расхождений нет, устранены или пользователь выбрал «Сохранить как есть»);
+ *          false — «Вернуться к форме». Не отклоняется: сбой чтения соседей не блокирует сохранение (проверка —
+ *          подсказка, а не условие), но показывается уведомлением.
+ */
+async function reviewNeighborMismatches(initial: ReadonlyMap<string, PortConfig> = new Map()): Promise<boolean> {
+  if (!props.editConnections || reviewOpen.value) return true
+  const entries = collectReviewEntries(initial)
+  if (!entries.length) return true
+  try {
+    reviewPeers.value = await loadReviewPeers(entries)
+  } catch (err) {
+    notifyError(err)
+    return true
+  }
+  reviewEntries.value = entries
+  if (!reviewItems.value.length) {
+    reviewEntries.value = []
+    return true
+  }
+  reviewOpen.value = true
+  return new Promise<boolean>((resolve) => {
+    reviewResolve = resolve
+  })
+}
+defineExpose({ reviewNeighborMismatches })
 
 // Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
 // от текущего количества строк при добавлении) — см. её комментарий выше. Пустое поле (юзер
@@ -1073,7 +1384,11 @@ function applyBulkEdit() {
                     :taken-peer-ids="takenPeerIds(i)"
                     :self-ports="selfPortCandidates(i)"
                     :freed-peer-ids="freedPeerIds"
+                    :applying="applyingPeerConfig"
+                    :peers-version="peersVersion"
                     @update:model-value="(v) => updateRow(i, { connection: v })"
+                    @apply-peer-config="(peer, kinds) => applyPeerConfigToPort(i, peer, kinds)"
+                    @apply-config-to-peer="(peer, kinds) => applyPortConfigToPeer(i, peer, kinds)"
                   />
 
                   <!-- Фикс п.1.4 (батч4): "Открытые порты" — теперь блок КОНКРЕТНОГО интерфейса
@@ -1166,6 +1481,45 @@ function applyBulkEdit() {
 
   <!-- Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения:
        показывает конфигурацию текущего порта и соседнего рядом, даёт применить любую из двух. -->
+  <!-- Проверка расхождений с соседями при нажатии «Сохранить». Стоит ДО окна последствий каскада режима порта
+       (VlanModeCascadeModal): оно открывается из этого диалога и должно быть выше него. -->
+  <div v-if="reviewOpen" class="overlay" @mousedown="onReviewOverlayPointerDown" @click="onReviewOverlayClick">
+    <div class="conflict-modal review-modal card" role="alertdialog" aria-modal="true" aria-labelledby="neighbor-review-title">
+      <div class="conflict-modal-head">
+        <h3 id="neighbor-review-title">Настройки порта расходятся с соседним портом</h3>
+        <button type="button" class="icon-btn" aria-label="Вернуться к форме" @click="finishReview(false)">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
+      </div>
+      <template v-if="reviewItems.length">
+        <p class="conflict-modal-desc">
+          Назначение («Управление» / «Передача данных») или режим порта (Trunk / Access) отличается от настроек порта на другом конце подключения. Можно привести их к
+          одному виду сейчас или сохранить как есть — расхождение будет отмечено на экране «Подключения».
+        </p>
+        <ul class="review-list">
+          <li v-for="item in reviewItems" :key="item.key" class="review-item">
+            <div class="review-item-title">Порт «{{ item.row.name.trim() || 'без имени' }}» ↔ {{ item.peer.label }}</div>
+            <div class="review-item-diffs">{{ item.texts.join('; ') }}</div>
+            <div class="review-item-actions">
+              <button type="button" class="btn btn-secondary" :disabled="applyingPeerConfig || cascadeApplying" title="Этому порту — назначение и режим порта соседа" @click="reviewApplyNeighbor(item)">
+                Применить конфигурацию соседа
+              </button>
+              <button type="button" class="btn btn-secondary" :disabled="applyingPeerConfig || cascadeApplying" title="Соседу — назначение и режим этого порта" @click="reviewApplyCurrent(item)">
+                Применить текущую конфигурацию
+              </button>
+            </div>
+            <small v-if="!item.peer.isSelf" class="review-item-note">Сосед — порт другого устройства: его настройки изменятся сразу, не дожидаясь сохранения формы.</small>
+          </li>
+        </ul>
+      </template>
+      <p v-else class="conflict-modal-desc review-done">Расхождений не осталось.</p>
+      <div class="review-footer">
+        <button type="button" class="btn btn-secondary" @click="finishReview(false)">Вернуться к форме</button>
+        <button type="button" class="btn btn-primary" @click="finishReview(true)">{{ reviewItems.length ? 'Сохранить как есть' : 'Сохранить' }}</button>
+      </div>
+    </div>
+  </div>
+
   <div v-if="activeConflict" class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
     <div class="conflict-modal card" role="dialog" aria-modal="true">
       <div class="conflict-modal-head">
@@ -1709,6 +2063,58 @@ function applyBulkEdit() {
   font-size: 11.5px;
   color: var(--ink-muted);
   margin: 10px 0 0;
+}
+.review-modal {
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.review-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.review-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.review-item-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.review-item-diffs {
+  font-size: 12px;
+  color: var(--status-warn);
+}
+.review-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.review-item-actions .btn {
+  padding: 5px 9px;
+  font-size: 11.5px;
+}
+.review-item-note {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.review-done {
+  color: var(--ink);
+}
+.review-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .conflict-icon-btn {
   border: none;

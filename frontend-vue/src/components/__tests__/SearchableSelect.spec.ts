@@ -53,6 +53,45 @@ describe('SearchableSelect.vue (п.4)', () => {
     expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual(['Санкт-Петербург'])
   })
 
+  it('запрос из нескольких слов требует каждое из них, в любом порядке и не подряд', async () => {
+    const options: SearchableSelectOption[] = [
+      { value: 'm1', label: 'Cisco WS-C2960-48TD-L' },
+      { value: 'm2', label: 'Cisco WS-C3750G-24T' },
+      { value: 'm3', label: 'HP ProLiant DL380' },
+    ]
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options } })
+    await wrapper.find('input').trigger('focus')
+
+    await wrapper.find('input').setValue('cisco 2960')
+    expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual(['Cisco WS-C2960-48TD-L'])
+
+    await wrapper.find('input').setValue('2960 CISCO')
+    expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual(['Cisco WS-C2960-48TD-L'])
+
+    await wrapper.find('input').setValue('cisco hp')
+    expect(wrapper.findAll('.ss-option')).toHaveLength(0)
+  })
+
+  it('searchText опции участвует в поиске, но в списке не показывается', async () => {
+    const options: SearchableSelectOption[] = [
+      { value: 'm1', label: 'Cisco C2960', searchText: 'Коммутатор' },
+      { value: 'm2', label: 'HP DL380', searchText: 'Сервер' },
+    ]
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options } })
+    await wrapper.find('input').trigger('focus')
+
+    await wrapper.find('input').setValue('коммутатор cisco')
+    expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual(['Cisco C2960'])
+    expect(wrapper.find('.ss-panel').text()).not.toContain('Коммутатор')
+  })
+
+  it('пробелы в запросе по краям и между словами не мешают поиску', async () => {
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS } })
+    await wrapper.find('input').trigger('focus')
+    await wrapper.find('input').setValue('   санкт   петер  ')
+    expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual(['Санкт-Петербург'])
+  })
+
   it('фильтр без совпадений показывает "Ничего не найдено"', async () => {
     const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS } })
     await wrapper.find('input').trigger('focus')

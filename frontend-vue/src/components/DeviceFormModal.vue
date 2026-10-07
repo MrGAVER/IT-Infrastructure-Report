@@ -29,6 +29,7 @@ import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
 import DeviceIconPicker from './DeviceIconPicker.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
 import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, removeDomainVlansFromDraft } from '../utils/vlan'
@@ -93,6 +94,8 @@ const form = reactive(emptyForm())
 // types.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
+// Редактор портов: перед записью проверяет расхождения с соседями (reviewNeighborMismatches).
+const interfacesEditor = ref<InstanceType<typeof DeviceInterfacesEditor> | null>(null)
 // Группы портов (InterfaceGroupsPanel.vue внутри DeviceInterfacesEditor.vue): общие режим порта/VLAN,
 // IP и открытые порты для нескольких портов. Грузятся с портами и сохраняются с ними одним PUT.
 const interfaceGroups = ref<InterfaceGroupDraft[]>([])
@@ -429,6 +432,25 @@ function modelOptionLabel(group: { manufacturerId: string; manufacturerName: str
   return group.manufacturerId ? `${group.manufacturerName} ${model.model}` : model.model
 }
 
+// Поиск вводом текста в поле «Тип / производитель / модель» (SearchableSelect вместо нативного select).
+// Порядок и группировка прежние: сначала модели по производителям (заведённые пользователем), в самом
+// конце — «голые» типы без модели. Модель находится и по производителю с названием (они в подписи), и по
+// названию её типа устройства (searchText — в списке не показывается), а запрос из нескольких слов
+// требует каждое из них («коммутатор cisco»). Подпись выбранного — как раньше у option.
+const TYPE_WITHOUT_MODEL_GROUP = 'Тип устройства (без конкретной модели)'
+const typeModelOptions = computed<SearchableSelectOption[]>(() => {
+  const models = modelGroups.value.flatMap((g) =>
+    g.models.map((m) => ({
+      value: `model:${m.id}`,
+      label: modelOptionLabel(g, m),
+      group: g.manufacturerName,
+      searchText: catalogs.label('device-types', m.device_type_id, ''),
+    })),
+  )
+  const types = (catalogs.items['device-types'] ?? []).map((t) => ({ value: `type:${t.id}`, label: t.name, group: TYPE_WITHOUT_MODEL_GROUP }))
+  return [...models, ...types]
+})
+
 const typeModelSelection = computed<string, string | undefined>({
   get() {
     if (form.model_id) return `model:${form.model_id}`
@@ -667,6 +689,13 @@ async function submit() {
   }
 
   saving.value = true
+  // Расхождение назначения/режима порта с соседом, появившееся в этом сохранении, показываем ДО записи — диалогом с
+  // возможностью применить конфигурацию соседа или текущего порта, а не только уведомлением после неё (когда форма
+  // уже закрыта). Редактор портов не смонтирован (ещё грузится) — проверять нечего.
+  if (interfacesEditor.value && !(await interfacesEditor.value.reviewNeighborMismatches(initialPortConfigs))) {
+    saving.value = false
+    return
+  }
   // Меняются ли подключения портов в этом сохранении (и у каких уже сохранённых портов) — от этого
   // зависит, нужно ли после сохранения обновлять стор подключений (см. ниже).
   const connectionsChanged = hasConnectionChanges(interfaces.value, initialConnections.value)
@@ -782,17 +811,7 @@ async function submit() {
         <label class="field field-wide">
           <span>Тип / производитель / модель *</span>
           <div class="lookup-row">
-            <select v-model="typeModelSelection" required>
-              <option value="">— выберите —</option>
-              <!-- Пункт 1: сначала модели, заведённые пользователем (по производителям), а "голые"
-                   стандартные типы без модели — в самом конце списка. -->
-              <optgroup v-for="g in modelGroups" :key="g.manufacturerId" :label="g.manufacturerName">
-                <option v-for="m in g.models" :key="m.id" :value="`model:${m.id}`">{{ modelOptionLabel(g, m) }}</option>
-              </optgroup>
-              <optgroup label="Тип устройства (без конкретной модели)">
-                <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="`type:${t.id}`">{{ t.name }}</option>
-              </optgroup>
-            </select>
+            <SearchableSelect v-model="typeModelSelection" :options="typeModelOptions" placeholder="— выберите —" />
             <QuickAddButton resource="device-models" title="Модель устройства" @created="onModelCreated" />
           </div>
         </label>
@@ -892,6 +911,7 @@ async function submit() {
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
         <DeviceInterfacesEditor
           v-if="!loadingNested"
+          ref="interfacesEditor"
           v-model="interfaces"
           v-model:groups="interfaceGroups"
           :type-options="catalogs.items['interface-types'] ?? []"

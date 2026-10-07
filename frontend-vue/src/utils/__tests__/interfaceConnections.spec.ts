@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   attachConnectionDrafts,
   changedConnectionRowIds,
+  connectionConfigDiffKinds,
   connectionConfigDiffs,
   connectionPayload,
   connectionPointsTo,
@@ -300,3 +301,32 @@ describe('validateConnectionDrafts: соседи из этой же формы',
     expect(validateConnectionDrafts(rows, empty)).toContain('нескольких портов')
   })
 })
+
+describe('connectionConfigDiffKinds', () => {
+  const peer = { is_management: false, is_data_transfer: true, vlan_mode: 'trunk' as const }
+
+  it('совпадающие конфигурации — расхождений нет', () => {
+    expect(connectionConfigDiffKinds({ ...peer }, peer)).toEqual([])
+  })
+
+  it('«Управление» и «Передача данных» — один вид flags, даже если расходятся оба признака', () => {
+    expect(connectionConfigDiffKinds({ ...peer, is_management: true }, peer)).toEqual(['flags'])
+    expect(connectionConfigDiffKinds({ ...peer, is_data_transfer: false }, peer)).toEqual(['flags'])
+    expect(connectionConfigDiffKinds({ ...peer, is_management: true, is_data_transfer: false }, peer)).toEqual(['flags'])
+  })
+
+  it('режим порта — отдельный вид vlan_mode; оба вида сразу — в порядке «назначение, режим»', () => {
+    expect(connectionConfigDiffKinds({ ...peer, vlan_mode: 'access' }, peer)).toEqual(['vlan_mode'])
+    expect(connectionConfigDiffKinds({ is_management: true, is_data_transfer: true, vlan_mode: 'access' }, peer)).toEqual(['flags', 'vlan_mode'])
+  })
+
+  it('согласован с connectionConfigDiffs: пустой тогда и только тогда, когда пуст текстовый список', () => {
+    for (const mgmt of [false, true])
+      for (const data of [false, true])
+        for (const mode of ['access', 'trunk'] as const) {
+          const own = { is_management: mgmt, is_data_transfer: data, vlan_mode: mode }
+          expect(connectionConfigDiffKinds(own, peer).length === 0).toBe(connectionConfigDiffs(own, peer).length === 0)
+        }
+  })
+})
+
