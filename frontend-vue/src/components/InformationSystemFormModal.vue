@@ -55,6 +55,10 @@ const supportOrganizationOptions = computed<SearchableSelectOption[]>(() =>
   (catalogs.items['support-organizations'] ?? []).map((o) => ({ value: o.id, label: o.name })),
 )
 
+const cryptoProtectionOptions = computed<SearchableSelectOption[]>(() =>
+  (catalogs.items['crypto-protection-means'] ?? []).map((c) => ({ value: c.id, label: c.name as string })),
+)
+
 /** SupportMethod.support_organization_id (models.py), если задан. CatalogItem типизирован через
  * индексную сигнатуру ([key: string]: unknown), поэтому нужен явный каст. */
 function methodOrganizationId(m: CatalogItem): string | null {
@@ -338,10 +342,12 @@ async function submit() {
         <label class="field field-wide">
           <span>Средство криптографической защиты</span>
           <div class="lookup-row">
-            <select v-model="form.crypto_protection_description_id" :disabled="!form.crypto_protection_enabled">
-              <option value="">— не указано —</option>
-              <option v-for="c in catalogs.items['crypto-protection-means'] ?? []" :key="c.id" :value="c.id">{{ c.name }}</option>
-            </select>
+            <SearchableSelect
+              v-model="form.crypto_protection_description_id"
+              :options="cryptoProtectionOptions"
+              placeholder="— не указано —"
+              :disabled="!form.crypto_protection_enabled"
+            />
             <QuickAddButton
               resource="crypto-protection-means"
               title="Средство криптографической защиты"
@@ -456,12 +462,14 @@ async function submit() {
   gap: 6px;
   min-width: 0;
 }
-.lookup-row select {
+/* SearchableSelect — div-обёртка, а не <select>: без flex:1 она в flex-строке сжимается до
+   ширины содержимого и поле не занимает отведённую ему половину строки (организация/способ
+   техподдержки) или всю ширину модалки (СКЗИ). Тот же приём, что в DeviceFormModal.vue. */
+.lookup-row .searchable-select {
   flex: 1;
   min-width: 0;
 }
 .field input[type='text'],
-.field select,
 .field textarea {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -474,9 +482,6 @@ async function submit() {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-}
-.field select:disabled {
-  opacity: 0.5;
 }
 .checkbox-field {
   flex-direction: row;

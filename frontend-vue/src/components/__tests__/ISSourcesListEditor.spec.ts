@@ -19,6 +19,21 @@ function emptyRow(): ISSourceDraftRow {
 
 const baseProps = { deviceOptions: devices, vmOptions: vms, containerOptions: containers }
 
+type Wrapper = ReturnType<typeof mount>
+
+// Физический сервер, ВМ и контейнер — SearchableSelect (классы .col-device/.col-vm/.col-container),
+// а не нативные select: выбор — фокус на поле и mousedown по опции с нужной подписью.
+async function pickOption(wrapper: Wrapper, column: '.col-device' | '.col-vm' | '.col-container', label: string) {
+  await wrapper.find(`${column} input`).trigger('focus')
+  const option = wrapper.findAll(`${column} .ss-option`).find((o) => o.text() === label)
+  expect(option, `опция «${label}» в ${column}`).toBeTruthy()
+  await option!.trigger('mousedown')
+}
+
+function shownValue(wrapper: Wrapper, column: '.col-device' | '.col-vm' | '.col-container'): string {
+  return (wrapper.find(`${column} input`).element as HTMLInputElement).value
+}
+
 describe('ISSourcesListEditor.vue', () => {
   it('показывает подсказку, если источники не добавлены', () => {
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: [] } })
@@ -47,27 +62,79 @@ describe('ISSourcesListEditor.vue', () => {
     const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm' }]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
-    const vmSelect = wrapper.findAll('.source-grid select')[2] // 0=type, 1=device, 2=vm
-    await vmSelect.setValue('vm-2')
+    await pickOption(wrapper, '.col-vm', 'app-vm-2')
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-2' }])
 
     // Хост подставлен автоматически из vmOptions по owner_id (а не хранится отдельным полем).
     await wrapper.setProps({ modelValue: emitted[0][0] as ISSourceDraftRow[] })
-    const deviceSelect = wrapper.findAll('.source-grid select')[1]
-    expect((deviceSelect.element as HTMLSelectElement).value).toBe('dev-2')
+    expect(shownValue(wrapper, '.col-device')).toBe('srv-02')
+    expect(shownValue(wrapper, '.col-vm')).toBe('app-vm-2')
   })
 
   it('при ручном выборе устройства (тип "ВМ") сбрасывает owner_id и запоминает хост как фильтр', async () => {
     const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
-    const deviceSelect = wrapper.findAll('.source-grid select')[1]
-    await deviceSelect.setValue('dev-2')
+    await pickOption(wrapper, '.col-device', 'srv-02')
 
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'vm', owner_id: '', vmHostHint: 'dev-2' }])
+  })
+
+  it('физический сервер, ВМ и контейнер — SearchableSelect, а не нативные select (остаётся только выбор типа)', () => {
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: [emptyRow()] } })
+
+    expect(wrapper.findAll('.source-grid select')).toHaveLength(1)
+    expect(wrapper.find('.col-device.searchable-select').exists()).toBe(true)
+    expect(wrapper.find('.col-vm.searchable-select').exists()).toBe(true)
+    expect(wrapper.find('.col-container.searchable-select').exists()).toBe(true)
+  })
+
+  it('активен только тот SearchableSelect, который соответствует типу источника', () => {
+    const disabledOf = (type: ISSourceDraftRow['source_type']) => {
+      const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: [{ ...emptyRow(), source_type: type }] } })
+      const isDisabled = (col: string) => wrapper.find(`${col} input`).attributes('disabled') !== undefined
+      return { device: isDisabled('.col-device'), vm: isDisabled('.col-vm'), container: isDisabled('.col-container') }
+    }
+
+    expect(disabledOf('manual')).toEqual({ device: true, vm: true, container: true })
+    expect(disabledOf('device')).toEqual({ device: false, vm: true, container: true })
+    expect(disabledOf('vm')).toEqual({ device: false, vm: false, container: true })
+    expect(disabledOf('container')).toEqual({ device: true, vm: true, container: false })
+  })
+
+  it('выбор контейнера записывает его id в owner_id', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'container' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    await pickOption(wrapper, '.col-container', 'nginx-container')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'container', owner_id: 'ct-1' }])
+  })
+
+  it('ВМ выбранного сервера поднимаются наверх списка ВМ, поиск вводом текста фильтрует список', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', vmHostHint: 'dev-2' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    const input = wrapper.find('.col-vm input')
+    await input.trigger('focus')
+    expect(wrapper.findAll('.col-vm .ss-option').map((o) => o.text())).toEqual(['app-vm-2', 'app-vm-1']) // хост dev-2 — его ВМ первой
+
+    await input.setValue('vm-1')
+    expect(wrapper.findAll('.col-vm .ss-option').map((o) => o.text())).toEqual(['app-vm-1'])
+  })
+
+  it('очистка (крестик) выбранной ВМ сбрасывает owner_id, как выбор пустого пункта в нативном select', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    await wrapper.find('.col-vm .ss-clear').trigger('mousedown')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect(emitted[0][0]).toEqual([{ ...emptyRow(), source_type: 'vm', owner_id: '' }])
   })
 
   it('для типа не "вручную" показывает подсказку вместо списка IP', () => {

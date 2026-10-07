@@ -92,7 +92,8 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     await editors.protocols.find('button.add-btn').trigger('click')
     await editors.sources.find('button.add-btn').trigger('click')
 
-    await editors.departments.find('select').setValue('dep-1')
+    await editors.departments.find('.searchable-select input').trigger('focus')
+    await editors.departments.find('.ss-option').trigger('mousedown') // единственная запись — «Отдел ИБ»
     await editors.protocols.find('.col-catalog .searchable-select input').trigger('focus')
     await editors.protocols.find('.col-catalog .ss-option').trigger('mousedown') // единственная запись — "443 / HTTPS"
     await editors.sources.find('.source-grid button.btn-link').trigger('click') // "+ IP-адрес" при типе "вручную" по умолчанию
@@ -202,6 +203,58 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     // DeviceFormModal.spec.ts). "Очистить" (.ss-clear) не мешает найти именно этот input: он
     // рендерится только когда значение уже выбрано, а перед созданием организации поле пустое.
     expect((wrapper.find('.searchable-select input').element as HTMLInputElement).value).toBe('ООО "Технический партнёр"')
+  })
+
+  it('СКЗИ — SearchableSelect: недоступен, пока не отмечено «Применяются сертифицированные СКЗИ», и сохраняет выбор', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['crypto-protection-means'] = [
+      { id: 'cpm-1', name: 'ViPNet Client' },
+      { id: 'cpm-2', name: 'КриптоПро CSP' },
+    ]
+    const wrapper = mount(InformationSystemFormModal, { props: { system: null } })
+    await flushPromises()
+
+    // Поле «Средство криптографической защиты» — последнее lookup-поле перед вложенными редакторами.
+    const cryptoField = wrapper.findAll('.field').find((f) => f.text().includes('Средство криптографической защиты'))!
+    expect(cryptoField.find('select').exists()).toBe(false)
+    expect(cryptoField.find('.lookup-row .searchable-select').exists()).toBe(true)
+    expect(cryptoField.find('.searchable-select input').attributes('disabled')).toBeDefined()
+
+    const checkboxes = wrapper.findAll('.checkbox-field input[type="checkbox"]') // 0 — SIEM, 1 — СКЗИ
+    await checkboxes[1].setValue(true) // «Применяются сертифицированные СКЗИ»
+    expect(cryptoField.find('.searchable-select input').attributes('disabled')).toBeUndefined()
+
+    await cryptoField.find('.searchable-select input').trigger('focus')
+    await cryptoField.findAll('.ss-option').find((o) => o.text() === 'КриптоПро CSP')!.trigger('mousedown')
+
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.endsWith('/resources/information-systems')) return jsonResponse({ id: 'is-crypto', name: 'crypto-is' }, 201)
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+    await wrapper.find('input[maxlength="500"]').setValue('crypto-is')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/information-systems'))
+    expect(create!.body).toMatchObject({ crypto_protection_enabled: true, crypto_protection_description_id: 'cpm-2' })
+  })
+
+  it('организация и способ техподдержки — два SearchableSelect в одной строке формы, каждый растягивается на свою ячейку', async () => {
+    const wrapper = mount(InformationSystemFormModal, { props: { system: null } })
+    await flushPromises()
+
+    const fields = wrapper.findAll('.field').filter((f) => /техническ|техподдержк/i.test(f.find('span').text()))
+    expect(fields).toHaveLength(2)
+    for (const field of fields) {
+      expect(field.classes()).not.toContain('field-wide') // половина строки грида, а не отдельная строка
+      expect(field.find('.lookup-row > .searchable-select').exists()).toBe(true)
+    }
   })
 
   it('п.3: длинное наименование ИС показывает подсказку через секунду наведения', async () => {
