@@ -3,6 +3,7 @@ import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ConnectionsView from '../ConnectionsView.vue'
 import ConnectionCanvasModal from '../../components/ConnectionCanvasModal.vue'
+import PortConfigEditModal from '../../components/PortConfigEditModal.vue'
 import PortConfigReviewModal from '../../components/PortConfigReviewModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
@@ -565,5 +566,83 @@ describe('ConnectionsView.vue — согласование портов по п�
     expect(syncCalls('/port-sync/apply')[0].body).toEqual({ plan_hash: 'h', confirm: true })
     expect(pageRequests().length).toBeGreaterThan(pagesBefore)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+})
+
+describe('ConnectionsView.vue — правка роли, режима и VLAN порта', () => {
+  const mismatched = connection('conn-2', {
+    source_device_name: 'srv-02', source_interface_id: 'if-1', source_interface_name: 'idrac',
+    destination_device_name: 'sw-02', destination_interface_id: 'if-2', destination_interface_name: 'gi0/7',
+    source_port_role: 'management', destination_port_role: 'data', port_config_status: 'mismatch', port_config_diff: ['role'],
+  })
+
+  // Окно правки при открытии читает порт; здесь важно только что и какую сторону открыли.
+  const portApi = (call: Call) => {
+    if (call.method === 'GET' && call.url.endsWith('/resources/interfaces/if-1')) {
+      return jsonResponse({ id: 'if-1', name: 'idrac', physical_device_id: 'dev-1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk', group_id: null })
+    }
+    if (call.method === 'GET' && call.url.endsWith('/resources/interfaces/if-2')) {
+      return jsonResponse({ id: 'if-2', name: 'gi0/7', physical_device_id: 'dev-2', is_management: false, is_data_transfer: true, vlan_mode: 'trunk', group_id: null })
+    }
+    return undefined
+  }
+
+  it('карандаш у порта источника открывает правку именно источника; у порта назначения — назначения', async () => {
+    const wrapper = await mountView({ rows: [mismatched], extra: portApi })
+
+    await wrapper.find('[data-action="edit-port-source"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(PortConfigEditModal).props('side')).toBe('source')
+    expect(body().text()).toContain('Порт «idrac» · srv-02')
+
+    wrapper.findComponent(PortConfigEditModal).vm.$emit('close')
+    await flushPromises()
+    expect(wrapper.findComponent(PortConfigEditModal).exists()).toBe(false)
+
+    await wrapper.find('[data-action="edit-port-destination"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(PortConfigEditModal).props('side')).toBe('destination')
+    expect(body().text()).toContain('Порт «gi0/7» · sw-02')
+  })
+
+  it('из окна проверки расхождения «Изменить порт…» закрывает проверку и открывает правку выбранной стороны', async () => {
+    const wrapper = await mountView({ rows: [mismatched], extra: portApi })
+
+    await wrapper.find('.port-badge').trigger('click')
+    expect(wrapper.findComponent(PortConfigReviewModal).exists()).toBe(true)
+    await wrapper.findComponent(PortConfigReviewModal).find('[data-action="edit-destination"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent(PortConfigReviewModal).exists()).toBe(false)
+    const editor = wrapper.findComponent(PortConfigEditModal)
+    expect(editor.props('side')).toBe('destination')
+    expect(editor.props('connection')).toMatchObject({ id: 'conn-2' })
+  })
+
+  it('после сохранения окно правки закрывается', async () => {
+    const wrapper = await mountView({ rows: [mismatched], extra: portApi })
+    await wrapper.find('[data-action="edit-port-source"]').trigger('click')
+    await flushPromises()
+
+    wrapper.findComponent(PortConfigEditModal).vm.$emit('saved')
+    await flushPromises()
+
+    expect(wrapper.findComponent(PortConfigEditModal).exists()).toBe(false)
+  })
+
+  it('«Открыть порты устройства» из правки закрывает правку и открывает окно всех портов устройства', async () => {
+    useCatalogsStore().items['interfaces'] = [{ id: 'if-1', name: 'idrac', physical_device_id: 'dev-1' }]
+    const wrapper = await mountView({
+      rows: [mismatched],
+      extra: (call) => portApi(call) ?? (call.url.includes('/resources/interfaces') && call.method === 'GET' ? jsonResponse({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'idrac' }], total: 1, offset: 0, limit: 1000 }) : undefined),
+    })
+    await wrapper.find('[data-action="edit-port-source"]').trigger('click')
+    await flushPromises()
+
+    wrapper.findComponent(PortConfigEditModal).vm.$emit('manage-ports', { interfaceId: 'if-1', deviceLabel: 'srv-02' })
+    await flushPromises()
+
+    expect(wrapper.findComponent(PortConfigEditModal).exists()).toBe(false)
+    expect(body().text()).toContain('Порты устройства «srv-02»')
   })
 })

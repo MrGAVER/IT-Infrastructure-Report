@@ -1,6 +1,6 @@
 // Проверка конфигураций портов-соседей подключений — см. backend/app/api/port_config.py.
 import { api } from './client'
-import type { Connection, DeviceInterface, PortConfigPreview, PortRole } from './types'
+import type { Connection, DeviceInterface, PortConfigPreview, PortRole, VlanMode } from './types'
 import { flagsFromRole } from '../utils/portConfig'
 
 /** Точечно меняет роль порта, не трогая остальные его настройки (в отличие от PUT
@@ -8,6 +8,19 @@ import { flagsFromRole } from '../utils/portConfig'
  * виде, что и в каталоге 'interfaces', им заменяют запись в кэше (catalogs.replaceInterface). */
 export function setPortRole(interfaceId: string, role: PortRole) {
   return api.put<DeviceInterface>(`/interfaces/${interfaceId}/port-role`, flagsFromRole(role))
+}
+
+/** Правка порта с дашборда: роль и/или ПОЛНЫЙ набор VLAN (id записей справочника) одной атомарной операцией.
+ * `mode` — не смена режима (её делает каскад, api/vlanModeCascade.ts), а проверка: набор выбран для этого режима,
+ * и если у порта режим уже другой, сервер ответит 409. Ответ — порт в виде каталога 'interfaces'. */
+export interface PortConfigPatch {
+  role?: PortRole
+  vlan_ids?: string[]
+  mode?: VlanMode
+}
+
+export function setPortConfig(interfaceId: string, patch: PortConfigPatch) {
+  return api.put<DeviceInterface>(`/interfaces/${interfaceId}/port-config`, patch)
 }
 
 export interface ApprovePortConfigResult {

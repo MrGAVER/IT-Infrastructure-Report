@@ -5,6 +5,7 @@ from ..db import get_db
 from ..services.connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, list_connections
 from ..services.connection_review import approve_port_config, preview_port_config, revoke_port_config_approval, set_port_role
 from ..services.port_config import PortConfigStatus
+from ..services.port_edit import set_port_config
 from ..services.vlan_mode_cascade import apply_vlan_mode_cascade, preview_vlan_mode_cascade
 
 # Записывающие методы защищены общей мидлварью авторизации (viewer получает 403) — отдельной
@@ -31,6 +32,14 @@ def connections_page(
 @router.put('/interfaces/{interface_id}/port-role')
 def update_port_role(interface_id: str, payload: dict, session: Session = Depends(get_db)):
     return set_port_role(interface_id, payload, session)
+
+
+@router.put('/interfaces/{interface_id}/port-config')
+def update_port_config(interface_id: str, payload: dict, session: Session = Depends(get_db)):
+    """Правка порта с дашборда: роль и/или набор VLAN одной операцией. Тело: {role?, vlan_ids?, mode?} —
+    vlan_ids это ПОЛНЫЙ набор (id записей справочника VLAN); mode — не смена режима (её делает каскад
+    ниже), а проверка, что набор выбран для текущего режима порта (иначе 409)."""
+    return set_port_config(interface_id, payload, session)
 
 
 @router.post('/interfaces/{interface_id}/vlan-mode-cascade/preview')

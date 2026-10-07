@@ -7,8 +7,8 @@
 // Роль выравнивается здесь же одним запросом. Режим порта — каскадом (composables/useVlanModeCascade.ts):
 // режим могут задавать группы портов, и он должен совпасть у связанных портов, поэтому сервер считает всю
 // область изменения, а окно показывает последствия до применения. VLAN правятся в окне портов
-// устройства (событие manage-ports). Статус после любого действия пересчитывает сервер — клиент только
-// подставляет его в список.
+// устройства (событие manage-ports) либо напрямую в окне правки порта (событие edit-port: роль, режим и VLAN
+// выбранного порта). Статус после любого действия пересчитывает сервер — клиент только подставляет его в список.
 import { computed, onMounted, ref, watch } from 'vue'
 import { setPortRole } from '../api/portConfig'
 import { previewPortSync } from '../api/portSync'
@@ -21,7 +21,7 @@ import { useToast } from '../composables/useToast'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import type { VlanMode } from '../api/vlanModeCascade'
 import { facetsLabel, formatVlans, modeLabel, roleLabel } from '../utils/portConfig'
-import { changeLines, optionLine, targetPort } from '../utils/portSyncRules'
+import { changeLines, optionLine, plannedTargets } from '../utils/portSyncRules'
 import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
 
 const props = defineProps<{ connection: Connection }>()
@@ -29,6 +29,8 @@ const emit = defineEmits<{
   close: []
   /** Открыть окно портов устройства, чтобы поправить режим порта и VLAN. */
   'manage-ports': [target: { interfaceId: string; deviceLabel: string }]
+  /** Открыть окно правки роли, режима и VLAN одного порта подключения. */
+  'edit-port': [side: 'source' | 'destination']
 }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
@@ -80,7 +82,8 @@ async function onPlanApplied() {
   emit('close')
 }
 
-const recommendedPort = computed(() => (recommendation.value ? targetPort(recommendation.value) : null))
+// Целевых портов обычно один, у правила «объединить» — два (каждый со своими изменениями).
+const recommendedTargets = computed(() => (recommendation.value ? plannedTargets(recommendation.value) : []))
 
 async function run(action: () => Promise<void>, fallbackError: string) {
   busy.value = true
@@ -204,10 +207,13 @@ function alignMode(keepSource: boolean) {
       <div v-if="recommendation" class="recommendation" :class="recommendation.outcome" data-recommendation>
         <div class="recommendation-title">По правилам согласования: «{{ recommendation.rule!.name }}»</div>
         <template v-if="recommendation.outcome === 'auto'">
-          <div v-if="recommendedPort">Порту «{{ recommendedPort.name }}» ({{ recommendedPort.device_name }}) будет применено:</div>
-          <ul class="recommendation-lines">
-            <li v-for="line in changeLines(recommendation.changes)" :key="line">{{ line }}</li>
-          </ul>
+          <template v-for="t in recommendedTargets" :key="t.port.interface_id">
+            <div v-if="!t.blocked" data-recommendation-target>Порту «{{ t.port.name }}» ({{ t.port.device_name }}) будет применено:</div>
+            <ul v-if="!t.blocked" class="recommendation-lines">
+              <li v-for="line in changeLines(t.changes)" :key="line">{{ line }}</li>
+            </ul>
+            <p v-else class="recommendation-note bad" data-recommendation-target-blocked>Порт «{{ t.port.name }}» ({{ t.port.device_name }}) не изменится: {{ t.blocked }}</p>
+          </template>
           <p v-for="warning in recommendation.warnings" :key="warning" class="recommendation-note" data-recommendation-warning>⚠ {{ warning }}</p>
           <button type="button" class="btn btn-secondary" data-action="plan" :disabled="busy" @click="planOpen = true">Согласовать по правилу…</button>
         </template>
@@ -247,6 +253,12 @@ function alignMode(keepSource: boolean) {
               Порту «{{ current.source_interface_name }}» задать режим как у «{{ current.destination_interface_name }}» ({{ modeLabel(current.destination_vlan_mode) }})
             </button>
           </template>
+          <button type="button" class="btn btn-secondary" data-action="edit-source" :disabled="busy" @click="emit('edit-port', 'source')">
+            Изменить порт «{{ current.source_interface_name }}» ({{ current.source_device_name }}): роль, режим, VLAN…
+          </button>
+          <button type="button" class="btn btn-secondary" data-action="edit-destination" :disabled="busy" @click="emit('edit-port', 'destination')">
+            Изменить порт «{{ current.destination_interface_name }}» ({{ current.destination_device_name }}): роль, режим, VLAN…
+          </button>
           <template v-if="needsVlanSetup">
             <button type="button" class="btn btn-secondary" data-action="manage-source" :disabled="busy" @click="managePorts('source')">
               Настроить VLAN: «{{ current.source_interface_name }}» ({{ current.source_device_name }})
