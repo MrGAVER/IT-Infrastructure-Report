@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useVlanModeCascade, type CascadeHost } from '../useVlanModeCascade'
+import { useVlanModeCascade, type CascadeHost, type CascadeOutcome } from '../useVlanModeCascade'
 import { useToast } from '../useToast'
 import { useCatalogsStore } from '../../stores/catalogs'
-import type { EditedDeviceState, VlanModeCascadePlan } from '../../api/vlanModeCascade'
+import type { CascadePortRequest, EditedDeviceState, VlanModeCascadePlan } from '../../api/vlanModeCascade'
 import { groupChange, makePlan, portChange } from '../../utils/__tests__/cascadePlanFixture'
 
 function jsonResponse(body: unknown, status = 200) {
@@ -36,18 +36,25 @@ const complexPlan = (patch: Partial<VlanModeCascadePlan> = {}) => makePlan({ gro
 let host: CascadeHost & { finished: number; deferredCalls: VlanModeCascadePlan[] }
 let edited: EditedDeviceState | null
 
+let portRequest: CascadePortRequest | null
+let outcomes: CascadeOutcome[]
+
 function mountHost(deferredPorts = 0) {
   edited = null
+  portRequest = null
+  outcomes = []
   host = {
     finished: 0,
     deferredCalls: [],
     edited: () => edited,
+    port: () => portRequest,
     applyDeferred(plan) {
       host.deferredCalls.push(plan)
       return deferredPorts
     },
-    onFinished() {
+    onFinished(outcome) {
       host.finished += 1
+      outcomes.push(outcome)
     },
   }
   return useVlanModeCascade(host)
@@ -191,5 +198,59 @@ describe('useVlanModeCascade', () => {
     await cascade.start('if-2', 'access', 'x')
 
     expect(useToast().toasts.at(-1)?.message).toBe('Режим Access: в этой форме изменено портов: 1 — сохраните форму')
+  })
+
+  describe('роль и VLAN порта-инициатора (port)', () => {
+    it('уходят и в предпросмотре, и при применении тем же значением, даже если хозяин успел его поменять', async () => {
+      const plan = complexPlan()
+      const calls = stubApi([plan], () => applied(plan))
+      const cascade = mountHost()
+      portRequest = { role: 'management', vlan_ids: ['v10'] }
+      await cascade.start('if-2', 'access', 'x')
+      portRequest = { role: 'data' } // после предпросмотра пользователь передумал — применяется показанное и проверенное
+
+      await cascade.confirm()
+
+      expect(calls[0].body).toEqual({ mode: 'access', edited: null, port: { role: 'management', vlan_ids: ['v10'] } })
+      expect(calls[1].body).toMatchObject({ port: { role: 'management', vlan_ids: ['v10'] }, plan_hash: 'hash-1', confirm: true })
+      expect(outcomes).toEqual(['applied'])
+    })
+
+    it('без port в запросах поля нет — поведение прежнее для формы устройства и окна проверки', async () => {
+      const plan = makePlan()
+      const calls = stubApi([plan], () => applied(plan))
+      const cascade = mountHost()
+
+      await cascade.start('if-2', 'access', 'x')
+
+      expect(calls[0].body).toEqual({ mode: 'access', edited: null })
+      expect(calls[1].body).not.toHaveProperty('port')
+    })
+
+    it('пустой план: хозяин получает unchanged — каскад ничего не применял, роль и VLAN записывать ему', async () => {
+      const calls = stubApi([makePlan({ empty: true, ports: [], devices: [] })])
+      const cascade = mountHost()
+      portRequest = { vlan_ids: ['v10'] }
+
+      expect(await cascade.start('if-2', 'access', 'x')).toBe('unchanged')
+
+      expect(calls.filter((c) => !c.url.endsWith('/preview'))).toHaveLength(0)
+      expect(outcomes).toEqual(['unchanged'])
+    })
+
+    it('устаревший план (409): повторный предпросмотр снова несёт port; если режим уже целевой — unchanged', async () => {
+      const plan = complexPlan()
+      const calls = stubApi([plan, makePlan({ empty: true, ports: [], devices: [] })], () => jsonResponse({ detail: 'Данные изменились после предпросмотра' }, 409))
+      const cascade = mountHost()
+      portRequest = { role: 'management' }
+      await cascade.start('if-2', 'access', 'x')
+
+      await cascade.confirm()
+
+      const previews = calls.filter((c) => c.url.endsWith('/preview'))
+      expect(previews).toHaveLength(2)
+      expect(previews[1].body).toMatchObject({ port: { role: 'management' } })
+      expect(outcomes).toEqual(['unchanged'])
+    })
   })
 })

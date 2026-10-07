@@ -194,3 +194,167 @@ def test_duplicate_vlan_ids_are_collapsed(lab):
     assert lab.edit(port, {"vlan_ids": [vlan, vlan]}).status_code == 200
 
     assert lab.state(port)["vlans"] == [10]
+
+
+# --- режим + роль + VLAN одной транзакцией (каскад с полем port) ---------------------------------
+
+def _cascade_url(port: str, step: str = "") -> str:
+    return f"/api/v1/interfaces/{port}/vlan-mode-cascade{step}"
+
+
+def _preview(lab, port: str, mode: str, change: dict | None = None):
+    body: dict = {"mode": mode}
+    if change is not None:
+        body["port"] = change
+    return lab.client.post(_cascade_url(port, "/preview"), json=body)
+
+
+def _apply(lab, port: str, mode: str, change: dict | None, plan_hash: str):
+    body: dict = {"mode": mode, "plan_hash": plan_hash, "confirm": True}
+    if change is not None:
+        body["port"] = change
+    return lab.client.post(_cascade_url(port), json=body)
+
+
+def _with_vlans(lab, port: str, *numbers: int) -> None:
+    """Назначает VLAN порту напрямую в БД — без записей аудита, чтобы тесты могли проверять аудит операции."""
+    mode = lab.db.get(DeviceInterface, port).vlan_mode
+    lab.db.add_all(InterfaceVLAN(interface_id=port, vlan_id=lab.vlan(n).id, mode=mode) for n in numbers)
+    lab.db.commit()
+
+
+def test_mode_role_and_vlans_are_written_by_one_request(lab):
+    port = lab.port(mode="trunk")
+    _with_vlans(lab, port, 10, 20)
+    change = {"role": "management", "vlan_ids": [lab.vlan(10).id]}
+    plan = _preview(lab, port, "access", change).json()
+
+    response = _apply(lab, port, "access", change, plan["hash"])
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["port_written"] is True and body["applied"]["ports"] == 1
+    assert lab.state(port) == {"role": (True, False), "mode": "access", "vlans": [10], "link_modes": {"access"}}
+    written = next(i for i in body["interfaces"] if i["id"] == port)
+    assert written["vlan_mode"] == "access" and written["is_management"] is True and written["is_data_transfer"] is False
+    (entry,) = lab.audit("Правка порта", "вместе со сменой режима → access")
+    assert "роль Передача данных → Управление активами" in entry and "VLAN 10, 20 → 10" in entry
+    assert len(lab.audit("Каскадная смена режима порта")) == 1  # аудит самого каскада остаётся отдельной записью
+
+
+def test_a_cascade_request_without_port_behaves_as_before(lab):
+    port = lab.port(mode="trunk")
+    _with_vlans(lab, port, 10)
+    plan = _preview(lab, port, "access").json()
+
+    body = _apply(lab, port, "access", None, plan["hash"]).json()
+
+    assert body["port_written"] is False and lab.state(port)["mode"] == "access" and lab.state(port)["role"] == (False, True)
+    assert lab.audit("Правка порта") == []
+
+
+def test_an_invalid_vlan_is_rejected_at_preview_and_at_apply_and_nothing_is_written(lab):
+    port = lab.port(mode="trunk", allowed=(10,))
+    _with_vlans(lab, port, 10)
+    plan = _preview(lab, port, "access").json()
+    bad = {"role": "management", "vlan_ids": [lab.vlan(99).id]}
+
+    at_preview = _preview(lab, port, "access", bad)
+    at_apply = _apply(lab, port, "access", bad, plan["hash"])
+
+    assert at_preview.status_code == 422 and "не разрешены" in at_preview.json()["detail"]
+    assert at_apply.status_code == 422
+    assert lab.state(port) == {"role": (False, True), "mode": "trunk", "vlans": [10], "link_modes": {"trunk"}}  # даже режим не сменился
+    assert lab.audit("Каскадная смена") == [] and lab.audit("Правка порта") == []
+
+
+def test_several_vlans_are_rejected_under_the_target_access_mode_but_fine_for_trunk(lab):
+    port = lab.port(mode="access")
+    _with_vlans(lab, port, 10)
+    two = {"vlan_ids": [lab.vlan(10).id, lab.vlan(20).id]}
+
+    rejected = _preview(lab, port, "access", two)  # режим уже access и останется им
+    to_trunk = _preview(lab, port, "trunk", two)
+
+    assert rejected.status_code == 422 and "access" in rejected.json()["detail"]
+    assert to_trunk.status_code == 200
+    assert _apply(lab, port, "trunk", two, to_trunk.json()["hash"]).status_code == 200
+    assert lab.state(port) == {"role": (False, True), "mode": "trunk", "vlans": [10, 20], "link_modes": {"trunk"}}
+
+
+def test_a_stale_plan_hash_is_rejected_and_neither_mode_nor_role_is_written(lab):
+    port = lab.port(mode="trunk")
+
+    response = _apply(lab, port, "access", {"role": "management"}, "stale-hash")
+
+    assert response.status_code == 409
+    assert lab.state(port)["mode"] == "trunk" and lab.state(port)["role"] == (False, True)
+
+
+def test_when_the_mode_is_already_the_target_role_and_vlans_are_still_written(lab):
+    port = lab.port(mode="access")
+    change = {"role": "management", "vlan_ids": [lab.vlan(20).id]}
+    plan = _preview(lab, port, "access", change).json()
+    assert plan["empty"] is True
+
+    body = _apply(lab, port, "access", change, plan["hash"]).json()
+
+    assert body["port_written"] is True and body["applied"] == {"ports": 0, "groups": 0, "devices": 0}
+    assert lab.state(port) == {"role": (True, False), "mode": "access", "vlans": [20], "link_modes": {"access"}}
+
+
+def test_a_group_port_changes_mode_and_role_together_but_its_vlans_stay_locked(lab):
+    port = lab.port(mode="trunk")
+    iface = lab.db.get(DeviceInterface, port)
+    group = InterfaceGroup(physical_device_id=iface.physical_device_id, name="Магистрали", vlan_mode="trunk")
+    lab.db.add(group)
+    lab.db.flush()
+    iface.group_id = group.id
+    lab.db.commit()
+    locked = {"vlan_ids": [lab.vlan(10).id]}
+    plan = _preview(lab, port, "access", {"role": "management"}).json()
+
+    blocked = _apply(lab, port, "access", locked, plan["hash"])
+    allowed = _apply(lab, port, "access", {"role": "management"}, plan["hash"])
+
+    assert blocked.status_code == 409 and "Магистрали" in blocked.json()["detail"]
+    assert allowed.status_code == 200, allowed.text
+    lab.db.expire_all()
+    assert lab.db.get(InterfaceGroup, group.id).vlan_mode == "access"  # режим сменился у всей группы
+    assert lab.state(port)["role"] == (True, False) and lab.state(port)["mode"] == "access"
+
+
+def test_port_does_not_combine_with_an_open_device_form(lab):
+    port = lab.port(mode="trunk")
+    device_id = lab.db.get(DeviceInterface, port).physical_device_id
+
+    response = lab.client.post(_cascade_url(port, "/preview"), json={"mode": "access", "edited": {"device_id": device_id, "ports": {}, "groups": {}}, "port": {"role": "data"}})
+
+    assert response.status_code == 422 and "edited" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("bad", [{}, {"role": "boss"}, {"vlan_ids": "10"}, {"role": "data", "mode": "trunk"}, [], "data"])
+def test_a_malformed_port_is_rejected(lab, bad):
+    port = lab.port(mode="trunk")
+
+    response = _preview(lab, port, "access", bad)
+
+    assert response.status_code == 422
+
+
+def test_a_failure_while_writing_the_port_rolls_back_the_whole_cascade(lab, monkeypatch):
+    port = lab.port(mode="trunk")
+    _with_vlans(lab, port, 10)
+    change = {"role": "management", "vlan_ids": [lab.vlan(10).id]}
+    plan = _preview(lab, port, "access", change).json()
+    from app.services import vlan_mode_cascade as module
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("сбой записи роли и VLAN")
+
+    monkeypatch.setattr(module, "write_port_change", broken)
+    with pytest.raises(RuntimeError):
+        _apply(lab, port, "access", change, plan["hash"])
+    lab.db.rollback()
+
+    assert lab.state(port) == {"role": (False, True), "mode": "trunk", "vlans": [10], "link_modes": {"trunk"}}  # режим тоже откатился

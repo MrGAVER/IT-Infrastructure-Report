@@ -53,6 +53,10 @@ interface Server {
   groups: Array<Record<string, unknown>>
   plan: ReturnType<typeof makePlan>
   putResponse: () => Response
+  /** Ответ на предпросмотр каскада (по умолчанию — план); подменяется, чтобы показать ошибку проверки или пустой план. */
+  previewResponse: () => Response
+  /** Ответ на применение каскада; null — обычный успешный. */
+  applyResponse: (() => Response) | null
 }
 
 let calls: Call[]
@@ -65,6 +69,8 @@ function resetServer(): Server {
     groups: [],
     plan: makePlan({ target_mode: 'access', start_interface_id: 'if-1', ports: [portChange({ id: 'if-2', device_id: 'dev-2' })] }),
     putResponse: () => jsonResponse(server.iface),
+    previewResponse: () => jsonResponse(server.plan),
+    applyResponse: null,
   }
 }
 
@@ -90,8 +96,9 @@ function stubApi() {
       }
       if (method === 'GET' && p === '/devices/dev-1/interface-groups') return jsonResponse({ items: server.groups })
       if (method === 'PUT' && p === '/interfaces/if-1/port-config') return server.putResponse()
-      if (method === 'POST' && p === '/interfaces/if-1/vlan-mode-cascade/preview') return jsonResponse(server.plan)
+      if (method === 'POST' && p === '/interfaces/if-1/vlan-mode-cascade/preview') return server.previewResponse()
       if (method === 'POST' && p === '/interfaces/if-1/vlan-mode-cascade') {
+        if (server.applyResponse) return server.applyResponse()
         return jsonResponse({ plan: server.plan, applied: { ports: server.plan.totals.ports, groups: server.plan.totals.groups, devices: server.plan.totals.devices }, interfaces: [] })
       }
       return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000, summary: { total: 0, active: 0, inactive: 0, mismatch: 0, approved: 0 } })
@@ -101,6 +108,16 @@ function stubApi() {
 
 const callsTo = (method: string, p: string) => calls.filter((c) => c.method === method && path(c.url) === p)
 const putCalls = () => callsTo('PUT', '/interfaces/if-1/port-config')
+const previewCalls = () => callsTo('POST', '/interfaces/if-1/vlan-mode-cascade/preview')
+const applyCalls = () => callsTo('POST', '/interfaces/if-1/vlan-mode-cascade')
+
+const bigPlan = () =>
+  makePlan({
+    target_mode: 'access',
+    start_interface_id: 'if-1',
+    groups: [groupChange()],
+    totals: { ports: 3, devices: 1, groups: 1, deferred_ports: 0, immediate_ports: 3, immediate_devices: 1, dropped_vlans: 0 },
+  })
 
 async function openModal(conn: Connection = connection(), side: 'source' | 'destination' = 'source') {
   const wrapper = mount(PortConfigEditModal, { props: { connection: conn, side } })
@@ -207,31 +224,28 @@ describe('PortConfigEditModal.vue', () => {
     expect(saveButton().text()).toContain('Далее')
   })
 
-  it('смена режима идёт каскадом: предпросмотр → применение → затем роль и VLAN одним PUT уже в новом режиме', async () => {
-    await openModal()
+  it('смена режима: режим, роль и VLAN уходят ОДНИМ запросом каскада, отдельного PUT нет', async () => {
+    const wrapper = await openModal()
 
     await body().find('[data-field="mode-access"]').trigger('click')
     await body().find('[data-field="role"]').setValue('management')
     await saveButton().trigger('click')
     await flushPromises()
 
+    // Роль и VLAN проверяются уже при предпросмотре и уходят в том же теле, что и при применении.
+    expect(previewCalls()).toHaveLength(1)
+    expect(previewCalls()[0].body).toEqual({ mode: 'access', edited: null, port: { role: 'management', vlan_ids: ['v10'] } })
     // Тривиальный план (один порт соседа) применяется сразу, без окна подтверждения.
-    expect(calls.findIndex((c) => path(c.url) === '/interfaces/if-1/vlan-mode-cascade/preview')).toBeGreaterThan(-1)
-    const apply = callsTo('POST', '/interfaces/if-1/vlan-mode-cascade')
-    expect(apply).toHaveLength(1)
-    expect(apply[0].body).toMatchObject({ mode: 'access', plan_hash: 'hash-1', confirm: true })
-    expect(putCalls()).toHaveLength(1)
-    expect(putCalls()[0].body).toEqual({ role: 'management', vlan_ids: ['v10'], mode: 'access' })
-    expect(calls.indexOf(putCalls()[0])).toBeGreaterThan(calls.indexOf(apply[0])) // сначала режим, потом остальное
+    expect(applyCalls()).toHaveLength(1)
+    expect(applyCalls()[0].body).toEqual({ mode: 'access', edited: null, port: { role: 'management', vlan_ids: ['v10'] }, plan_hash: 'hash-1', confirm: true })
+    expect(putCalls()).toHaveLength(0)
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+    expect(useToast().toasts.some((t) => t.message === 'Конфигурация порта обновлена')).toBe(true)
+    expect(calls.some((c) => c.method === 'GET' && /\/api\/v1\/connections\?/.test(c.url))).toBe(true) // дашборд перечитан
   })
 
   it('нетривиальный план каскада ждёт подтверждения в окне; пока не подтверждён, ничего не записывается', async () => {
-    server.plan = makePlan({
-      target_mode: 'access',
-      start_interface_id: 'if-1',
-      groups: [groupChange()],
-      totals: { ports: 3, devices: 1, groups: 1, deferred_ports: 0, immediate_ports: 3, immediate_devices: 1, dropped_vlans: 0 },
-    })
+    server.plan = bigPlan()
     const wrapper = await openModal()
 
     await body().find('[data-field="mode-access"]').trigger('click')
@@ -239,16 +253,16 @@ describe('PortConfigEditModal.vue', () => {
     await flushPromises()
 
     expect(body().text()).toContain('Сменить режим порта на')
-    expect(callsTo('POST', '/interfaces/if-1/vlan-mode-cascade')).toHaveLength(0)
+    expect(applyCalls()).toHaveLength(0)
     expect(putCalls()).toHaveLength(0)
 
     await body().find<HTMLInputElement>('.cascade-ack input').setValue(true)
     await body().find('.cascade-actions .btn-primary').trigger('click')
     await flushPromises()
 
-    expect(callsTo('POST', '/interfaces/if-1/vlan-mode-cascade')).toHaveLength(1)
-    expect(putCalls()).toHaveLength(1)
-    expect(putCalls()[0].body).toEqual({ vlan_ids: ['v10'], mode: 'access' })
+    expect(applyCalls()).toHaveLength(1)
+    expect(applyCalls()[0].body).toMatchObject({ port: { vlan_ids: ['v10'] }, plan_hash: 'hash-1', confirm: true })
+    expect(putCalls()).toHaveLength(0)
     expect(wrapper.emitted('saved')).toHaveLength(1)
   })
 
@@ -274,8 +288,8 @@ describe('PortConfigEditModal.vue', () => {
     expect(wrapper.emitted('saved')).toBeUndefined()
   })
 
-  it('если после каскада сохранить роль и VLAN не удалось, говорит, что режим уже изменён, и перечитывает порт, не теряя ввод', async () => {
-    server.putResponse = () => jsonResponse({ detail: 'Один или несколько VLAN не разрешены для типа данного устройства' }, 422)
+  it('ошибка проверки роли или VLAN приходит уже при предпросмотре: ничего не записано, режим не менялся, ввод сохранён', async () => {
+    server.previewResponse = () => jsonResponse({ detail: 'Один или несколько VLAN не разрешены для типа данного устройства' }, 422)
     const wrapper = await openModal()
 
     await body().find('[data-field="mode-access"]').trigger('click')
@@ -283,11 +297,72 @@ describe('PortConfigEditModal.vue', () => {
     await saveButton().trigger('click')
     await flushPromises()
 
-    expect(body().find('[data-error]').text()).toContain('Режим порта изменён, но роль и VLAN сохранить не удалось')
     expect(body().find('[data-error]').text()).toContain('не разрешены')
+    expect(body().find('[data-error]').text()).not.toContain('Режим порта изменён') // режим не менялся — операция атомарна
+    expect(applyCalls()).toHaveLength(0)
+    expect(putCalls()).toHaveLength(0)
     expect(wrapper.emitted('saved')).toBeUndefined()
-    expect(body().find<HTMLSelectElement>('[data-field="role"]').element.value).toBe('management') // ввод сохранён
-    expect(callsTo('GET', '/resources/interfaces/if-1').length).toBeGreaterThanOrEqual(2) // состояние порта перечитано
+    expect(body().find<HTMLSelectElement>('[data-field="role"]').element.value).toBe('management')
+    expect(body().find('[data-field="mode-access"]').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('сервер отклонил применение каскада (например, группа сменила VLAN): ошибка в окне, окно открыто, повторить можно', async () => {
+    server.applyResponse = () => jsonResponse({ detail: 'Порт входит в группу «Магистрали», которая задаёт режим и VLAN, — измените группу' }, 409)
+    server.plan = makePlan({ target_mode: 'access', start_interface_id: 'if-1', ports: [portChange({ id: 'if-2', device_id: 'dev-2' })] })
+    const wrapper = await openModal()
+
+    await body().find('[data-field="mode-access"]').trigger('click')
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(body().find('[data-error]').text()).toContain('Магистрали')
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    expect(saveButton().attributes('disabled')).toBeUndefined() // можно исправить и повторить
+  })
+
+  it('режим уже целевой (его успели сменить): каскад пуст, роль и VLAN записываются обычным PUT', async () => {
+    server.previewResponse = () => jsonResponse(makePlan({ target_mode: 'access', start_interface_id: 'if-1', empty: true, ports: [], devices: [] }))
+    const wrapper = await openModal()
+
+    await body().find('[data-field="mode-access"]').trigger('click')
+    await body().find('[data-field="role"]').setValue('management')
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(applyCalls()).toHaveLength(0)
+    expect(putCalls()).toHaveLength(1)
+    expect(putCalls()[0].body).toEqual({ role: 'management', vlan_ids: ['v10'], mode: 'access' })
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('план устарел (409 при применении): окно показывает новый план, и роль с VLAN снова уходят в предпросмотр', async () => {
+    server.plan = bigPlan()
+    let applyAttempts = 0
+    server.applyResponse = () => {
+      applyAttempts += 1
+      return applyAttempts === 1 ? jsonResponse({ detail: 'Данные изменились после предпросмотра' }, 409) : jsonResponse({ plan: server.plan, applied: { ports: 3, groups: 1, devices: 1 }, interfaces: [] })
+    }
+    const wrapper = await openModal()
+
+    await body().find('[data-field="mode-access"]').trigger('click')
+    await body().find('[data-field="role"]').setValue('management')
+    await saveButton().trigger('click')
+    await flushPromises()
+    await body().find<HTMLInputElement>('.cascade-ack input').setValue(true)
+    await body().find('.cascade-actions .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(previewCalls()).toHaveLength(2) // предпросмотр и повторный после 409
+    expect(previewCalls()[1].body).toMatchObject({ port: { role: 'management', vlan_ids: ['v10'] } })
+    expect(wrapper.emitted('saved')).toBeUndefined() // окно ждёт подтверждения нового плана
+
+    await body().find<HTMLInputElement>('.cascade-ack input').setValue(true)
+    await body().find('.cascade-actions .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(applyCalls()).toHaveLength(2)
+    expect(applyCalls()[1].body).toMatchObject({ port: { role: 'management', vlan_ids: ['v10'] } })
+    expect(wrapper.emitted('saved')).toHaveLength(1)
   })
 
   it('ошибка обычного сохранения показывается в окне, окно не закрывается', async () => {
@@ -317,6 +392,19 @@ describe('PortConfigEditModal.vue', () => {
 
     expect(putCalls()[0].body).toEqual({ role: 'management', mode: 'trunk' })
     expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('порт в группе: смена режима идёт каскадом без поля port, если ни роль, ни VLAN менять не нужно', async () => {
+    server.iface = { ...server.iface, group_id: 'g-1' }
+    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }]
+    server.plan = bigPlan()
+    await openModal()
+
+    await body().find('[data-field="mode-access"]').trigger('click')
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(previewCalls()[0].body).toEqual({ mode: 'access', edited: null }) // набор группы и роль не трогаем — port не отправляется
   })
 
   it('«Открыть порты устройства» для порта в группе просит родителя открыть окно портов', async () => {
