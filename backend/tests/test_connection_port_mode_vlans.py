@@ -217,6 +217,7 @@ def test_search_matches_the_port_mode(lab):
     assert lab.client.get("/api/v1/connections", params={"q": "trunk"}).json()["items"] == []
 
 
+@pytest.mark.sqlite_only  # «осиротевшую» строку делает PRAGMA foreign_keys=OFF; в PostgreSQL внешний ключ так не обойти, и такой строки там быть не может
 def test_orphan_connection_has_empty_mode_and_vlans(lab, db_session):
     """Порт удалён в обход внешних ключей — подключение остаётся в списке со статусом ok."""
     from sqlalchemy import text
