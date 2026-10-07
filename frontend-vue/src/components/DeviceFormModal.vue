@@ -94,6 +94,8 @@ const form = reactive(emptyForm())
 // types.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const interfaces = ref<InterfaceDraftRow[]>([])
+// Редактор портов: перед записью проверяет расхождения с соседями (reviewNeighborMismatches).
+const interfacesEditor = ref<InstanceType<typeof DeviceInterfacesEditor> | null>(null)
 // Группы портов (InterfaceGroupsPanel.vue внутри DeviceInterfacesEditor.vue): общие режим порта/VLAN,
 // IP и открытые порты для нескольких портов. Грузятся с портами и сохраняются с ними одним PUT.
 const interfaceGroups = ref<InterfaceGroupDraft[]>([])
@@ -687,6 +689,13 @@ async function submit() {
   }
 
   saving.value = true
+  // Расхождение назначения/режима порта с соседом, появившееся в этом сохранении, показываем ДО записи — диалогом с
+  // возможностью применить конфигурацию соседа или текущего порта, а не только уведомлением после неё (когда форма
+  // уже закрыта). Редактор портов не смонтирован (ещё грузится) — проверять нечего.
+  if (interfacesEditor.value && !(await interfacesEditor.value.reviewNeighborMismatches(initialPortConfigs))) {
+    saving.value = false
+    return
+  }
   // Меняются ли подключения портов в этом сохранении (и у каких уже сохранённых портов) — от этого
   // зависит, нужно ли после сохранения обновлять стор подключений (см. ниже).
   const connectionsChanged = hasConnectionChanges(interfaces.value, initialConnections.value)
@@ -902,6 +911,7 @@ async function submit() {
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
         <DeviceInterfacesEditor
           v-if="!loadingNested"
+          ref="interfacesEditor"
           v-model="interfaces"
           v-model:groups="interfaceGroups"
           :type-options="catalogs.items['interface-types'] ?? []"
