@@ -5,6 +5,7 @@ import {
   optionLine,
   summaryLine,
   targetPort,
+  plannedTargets,
   describeApply,
   describeRelation,
   describeRule,
@@ -179,5 +180,55 @@ describe('portSyncRules utils — план согласования', () => {
     expect(summaryLine({ ...base, blocked: 1, manual: 2, none: 3 })).toBe(
       'проверено подключений: 5 · будет согласовано: 2 · нельзя применить: 1 · решает человек: 2 · без подходящего правила: 3',
     )
+  })
+})
+
+
+describe('portSyncRules utils — политика «объединить»', () => {
+  const union = rule({
+    target: { role: 'any', mode: 'trunk', vlans: 'set' },
+    source: { role: 'any', mode: 'trunk', vlans: 'set' },
+    relation: { role: 'any', mode: 'any', vlans: 'differs' },
+    apply: { role: false, mode: false, vlans: 'union' },
+  })
+
+  it('describeApply и describeRule: оба порта получают объединение, ни один VLAN не снимается', () => {
+    expect(describeApply(union)).toBe('наборы VLAN объединяются на обоих портах')
+    const sentence = describeRule(union)
+    expect(sentence).toContain('оба порта получают объединение наборов VLAN')
+    expect(sentence).toContain('наборы VLAN различаются')
+    expect(sentence).not.toContain('порту применяется')
+  })
+
+  it('validateRuleDraft: «объединить» не сочетается со сменой роли или режима, а само по себе корректно', () => {
+    const base = { ...emptyRuleDraft(), name: 'Объединять' }
+    expect(validateRuleDraft({ ...base, apply: { role: false, mode: false, vlans: 'union' } })).toBeNull()
+    expect(validateRuleDraft({ ...base, apply: { role: false, mode: true, vlans: 'union' } })).toContain('объединить')
+    expect(validateRuleDraft({ ...base, apply: { role: true, mode: false, vlans: 'union' } })).toContain('объединить')
+  })
+
+  it('plannedTargets: оба порта из targets, у каждого свои изменения и причина запрета', () => {
+    const view = (name: string) => ({ interface_id: `if-${name}`, name, device_id: null, device_name: `dev-${name}`, role: 'data' as const, mode: 'trunk' as const, vlans: [] })
+    const changes = { role: null, mode: null, vlans: { from: [10], to: [10, 20], skipped: [] } }
+    const targets = plannedTargets({
+      target: 'both', changes: null, source: view('a'), destination: view('b'),
+      targets: [{ target: 'source', changes, blocked: null }, { target: 'destination', changes, blocked: 'Порт входит в группу' }],
+    })
+    expect(targets.map((t) => [t.port.name, t.blocked])).toEqual([['a', null], ['b', 'Порт входит в группу']])
+  })
+
+  it('plannedTargets: ответ старого формата (без targets) даёт единственный порт, без направления — пусто', () => {
+    const view = (name: string) => ({ interface_id: `if-${name}`, name, device_id: null, device_name: 'd', role: 'data' as const, mode: 'trunk' as const, vlans: [] })
+    const changes = { role: null, mode: null, vlans: { from: [], to: [10], skipped: [] } }
+    expect(plannedTargets({ target: 'destination', changes, source: view('a'), destination: view('b') }).map((t) => t.port.name)).toEqual(['b'])
+    expect(plannedTargets({ target: null, changes: null, source: view('a'), destination: view('b') })).toEqual([])
+    expect(targetPort({ target: 'both', source: view('a'), destination: view('b') })).toBeNull()
+  })
+
+  it('summaryLine: если портов больше, чем подключений, показываются оба числа', () => {
+    const base = { connections: 4, applicable: 5, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0 }
+    expect(summaryLine({ ...base, auto: 3 })).toBe('проверено подключений: 4 · будет согласовано: 3 (портов: 5)')
+    expect(summaryLine({ ...base, applicable: 3, auto: 3 })).toBe('проверено подключений: 4 · будет согласовано: 3')
+    expect(summaryLine(base)).toBe('проверено подключений: 4 · будет согласовано: 5') // без auto — как раньше
   })
 })

@@ -11,11 +11,11 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..constants import AuditAction, OwnerType
-from ..models import Connection, DeviceInterface, IPAddress
+from ..constants import AuditAction
+from ..models import Connection, DeviceInterface
 from .connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, select_connection_ids
 from .crud import audit
 from .port_config import (
@@ -30,6 +30,7 @@ from .port_config import (
     role_from_flags,
 )
 from .port_config_db import load_port_configs
+from .port_writes import write_port_role
 from .serialization import enrich_connections, enrich_interfaces
 
 _FACET_LABELS = {ConfigFacet.ROLE: "роль", ConfigFacet.MODE: "режим порта", ConfigFacet.VLANS: "VLAN"}
@@ -61,14 +62,8 @@ def set_port_role(interface_id: str, payload: dict[str, Any], session: Session) 
     if not iface:
         raise HTTPException(404, "Порт не найден")
     before = port_role(iface)
-    iface.is_management = is_management
-    iface.is_data_transfer = is_data_transfer
-    session.execute(
-        update(IPAddress)
-        .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id)
-        .values(is_management=is_management)
-    )
     after = role_from_flags(is_management, is_data_transfer)
+    write_port_role(iface, after, session)
     audit(session, "interfaces", iface.id, AuditAction.UPDATE, f"Роль порта «{iface.name}»: {PORT_ROLE_LABELS[before]} → {PORT_ROLE_LABELS[after]}")
     session.commit()
     session.refresh(iface)

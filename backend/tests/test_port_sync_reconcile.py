@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from app.models import AuditLog, Connection, DeviceInterface, InterfaceGroup, InterfaceVLAN, IPAddress, PhysicalDeviceVLAN, VLAN
-from app.services.port_sync_rules import EMPTY_TRUNK_RULE, ROLE_MATCH_RULE
+from app.services.port_sync_rules import EMPTY_TRUNK_RULE, ROLE_MATCH_RULE, TRUNK_VLANS_UNION_RULE
 
 PREVIEW = "/api/v1/port-sync/preview"
 APPLY = "/api/v1/port-sync/apply"
@@ -511,7 +511,7 @@ def test_apply_is_atomic_when_a_write_fails(world, monkeypatch):
     plan = world.preview()
     from app.services import port_sync_reconcile as module
 
-    original = module._write_vlans
+    original = module.write_port_vlans
     calls = {"n": 0}
 
     def flaky(port, mode, keep, session):
@@ -520,7 +520,7 @@ def test_apply_is_atomic_when_a_write_fails(world, monkeypatch):
             raise RuntimeError("сбой записи")
         return original(port, mode, keep, session)
 
-    monkeypatch.setattr(module, "_write_vlans", flaky)
+    monkeypatch.setattr(module, "write_port_vlans", flaky)
     with pytest.raises(RuntimeError):
         world.client.post(APPLY, json={"plan_hash": plan["plan_hash"], "confirm": True})
     world.db.rollback()
@@ -545,3 +545,142 @@ def test_preview_query_count_does_not_grow_with_the_number_of_connections(world,
     world.preview()
 
     assert len(sql_log) == small
+
+
+# --- trunk с разными наборами VLAN: объединение на обоих портах ----------------------------------
+
+def _trunk_pair(world: World, *, a_vlans=(10, 20), b_vlans=(20, 30), a_allowed=(10, 20, 30), b_allowed=(10, 20, 30)):
+    (a,) = world.device("TRUNK-A", ["Gi0/1"], allowed=a_allowed)
+    (b,) = world.device("TRUNK-B", ["Gi0/1"], allowed=b_allowed)
+    world.configure(a, mode="trunk", vlans=a_vlans)
+    world.configure(b, mode="trunk", vlans=b_vlans)
+    return a, b, world.connect(a, b)
+
+
+def test_preview_plans_the_union_for_both_trunk_ports(world):
+    a, b, connection = _trunk_pair(world)
+
+    plan = world.preview()
+
+    assert plan["summary"]["auto"] == 1 and plan["summary"]["applicable"] == 2  # одно подключение, два порта
+    (item,) = plan["items"]
+    assert item["connection_id"] == connection and item["outcome"] == "auto" and item["rule"]["code"] == TRUNK_VLANS_UNION_RULE
+    assert item["target"] == "both" and item["changes"] is None
+    by_target = {t["target"]: t for t in item["targets"]}
+    assert by_target["source"]["changes"]["vlans"] == {"from": [10, 20], "to": [10, 20, 30], "skipped": []}
+    assert by_target["destination"]["changes"]["vlans"] == {"from": [20, 30], "to": [10, 20, 30], "skipped": []}
+    assert not any(t["blocked"] for t in item["targets"])
+    assert world.port(a)["vlans"] == [10, 20] and world.port(b)["vlans"] == [20, 30]  # предпросмотр ничего не пишет
+
+
+def test_apply_merges_vlans_on_both_ports_and_clears_the_mismatch(world):
+    a, b, connection = _trunk_pair(world)
+    assert world.status(connection) == "mismatch"
+
+    result = world.apply()
+
+    assert result["applied"] == {"ports": 2, "connections": 1} and result["connection_ids"] == [connection]
+    assert world.port(a)["vlans"] == [10, 20, 30] and world.port(b)["vlans"] == [10, 20, 30]
+    assert world.port(a)["link_modes"] == {"trunk"} and world.port(b)["link_modes"] == {"trunk"}
+    assert world.status(connection) == "ok"
+    assert len(world.audit("Согласование порта", "Trunk: наборы VLAN")) == 2  # по записи аудита на порт
+
+
+def test_a_trunk_port_that_already_carries_everything_is_left_alone(world):
+    a, b, _c = _trunk_pair(world, a_vlans=(10, 20, 30), b_vlans=(20,))
+
+    plan = world.preview()
+    assert [t["target"] for t in plan["items"][0]["targets"]] == ["destination"] and plan["items"][0]["target"] == "destination"
+    assert plan["summary"]["applicable"] == 1
+
+    world.apply(plan)
+    assert world.port(a)["vlans"] == [10, 20, 30] and world.port(b)["vlans"] == [10, 20, 30]
+
+
+def test_a_vlan_the_device_does_not_have_is_skipped_for_that_port_only(world):
+    # У устройства A нет VLAN 30: A остаётся как есть, B получает VLAN 10 и всё равно применяется.
+    a, b, connection = _trunk_pair(world, a_allowed=(10, 20))
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["outcome"] == "auto" and plan["summary"]["applicable"] == 1
+    by_target = {t["target"]: t for t in item["targets"]}
+    assert "не доступен устройству" in by_target["source"]["blocked"] and by_target["destination"]["blocked"] is None
+    assert any("30" in w for w in item["warnings"]) or by_target["source"]["changes"]["vlans"]["skipped"] == [30]
+
+    world.apply(plan)
+    assert world.port(a)["vlans"] == [10, 20] and world.port(b)["vlans"] == [10, 20, 30]
+    assert world.status(connection) == "mismatch"  # объединение неполное — расхождение остаётся и видно
+
+
+def test_both_ports_blocked_blocks_the_connection(world):
+    a, b, _c = _trunk_pair(world, a_vlans=(10,), b_vlans=(20,), a_allowed=(10,), b_allowed=(20,))
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["outcome"] == "blocked" and plan["summary"]["applicable"] == 0
+    assert item["reason"].count("Порт «Gi0/1»") == 2
+    assert world.apply(plan)["applied"] == {"ports": 0, "connections": 0}
+    assert world.port(a)["vlans"] == [10] and world.port(b)["vlans"] == [20]
+
+
+def test_a_group_port_does_not_stop_the_other_side_from_being_merged(world):
+    a, b, _c = _trunk_pair(world)
+    iface = world.db.get(DeviceInterface, a)
+    group = InterfaceGroup(physical_device_id=iface.physical_device_id, name="Магистрали", vlan_mode="trunk")
+    world.db.add(group)
+    world.db.flush()
+    iface.group_id = group.id
+    world.db.commit()
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["outcome"] == "auto"
+    by_target = {t["target"]: t for t in item["targets"]}
+    assert "Магистрали" in by_target["source"]["blocked"] and by_target["destination"]["blocked"] is None
+    world.apply(plan)
+    assert world.port(a)["vlans"] == [10, 20] and world.port(b)["vlans"] == [10, 20, 30]  # группу единичным порт не меняет
+
+
+def test_two_connections_cannot_merge_into_the_same_port_in_one_plan(world):
+    (a,) = world.device("HUB-A", ["Gi0/1"], allowed=(10, 20, 30))
+    (b,) = world.device("HUB-B", ["Gi0/1"], allowed=(10, 20, 30))
+    (c,) = world.device("HUB-C", ["Gi0/1"], allowed=(10, 20, 30))
+    world.configure(a, mode="trunk", vlans=(10,))
+    world.configure(b, mode="trunk", vlans=(20,))
+    world.configure(c, mode="trunk", vlans=(30,))
+    first = world.connect(a, b)
+    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую.
+    duplicate = Connection(source_interface_id=a, destination_interface_id=c, connection_type_id=world.cable, is_active=True)
+    world.db.add(duplicate)
+    world.db.commit()
+    second = duplicate.id
+
+    plan = world.preview()
+
+    by_connection = {i["connection_id"]: i for i in plan["items"]}
+    assert by_connection[first]["outcome"] == "auto" and len(by_connection[first]["targets"]) == 2
+    # Порт a уже изменяется первым подключением — во втором ему ничего не применяется, порт c объединяется.
+    blocked = {t["target"]: t["blocked"] for t in by_connection[second]["targets"]}
+    assert "другим подключением" in blocked["source"] and blocked["destination"] is None
+    assert plan["summary"]["applicable"] == 3  # a и b по первому подключению + c по второму
+
+    world.apply(plan)
+    assert world.port(a)["vlans"] == [10, 20] and world.port(c)["vlans"] == [10, 30]
+
+
+def test_default_merge_rule_is_created_for_an_existing_installation(world):
+    from app.models import PortSyncRule
+    from app.services.port_sync_store import ensure_default_rules
+
+    row = world.db.query(PortSyncRule).filter_by(code=TRUNK_VLANS_UNION_RULE).one()
+    world.db.delete(row)  # установка, созданная до появления правила
+    world.db.commit()
+
+    assert ensure_default_rules(world.db) == 1
+
+    created = world.rule(TRUNK_VLANS_UNION_RULE)
+    assert created["action"] == "auto" and created["apply"] == {"role": False, "mode": False, "vlans": "union"} and created["priority"] == 15

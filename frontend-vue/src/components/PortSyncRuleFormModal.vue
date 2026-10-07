@@ -5,7 +5,7 @@
 // правило одним предложением (utils/portSyncRules.describeRule): так видно, что именно получилось,
 // ещё до сохранения. Проверку выполняет сервер; клиентская (validateRuleDraft) — только чтобы не
 // отправлять заведомо неверное.
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { PortSyncRule } from '../api/types'
 import { usePortSyncRulesStore } from '../stores/portSyncRules'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -37,7 +37,16 @@ const actionHint = computed(() => ACTION_OPTIONS.find((o) => o.value === form.ac
 const sentence = computed(() => describeRule(form))
 // Подсказка о том, что направление определяют условия: у «Автоматически» правило, подходящее обоим
 // портам пары, сервер не применит — оно уйдёт на ручное решение.
-const symmetricHint = computed(() => form.action === 'auto' && JSON.stringify(form.target) === JSON.stringify(form.source))
+// Исключение — политика VLAN «объединить»: она симметрична по замыслу, оба порта получают одно и то же.
+const isUnion = computed(() => form.apply.vlans === 'union')
+const symmetricHint = computed(() => form.action === 'auto' && !isUnion.value && JSON.stringify(form.target) === JSON.stringify(form.source))
+// Роль и режим порт «берёт» у соседа — в одну сторону, поэтому с «объединить» они не сочетаются.
+watch(isUnion, (union) => {
+  if (union) {
+    form.apply.role = false
+    form.apply.mode = false
+  }
+})
 
 async function submit() {
   errorMessage.value = validateRuleDraft(form)
@@ -174,11 +183,11 @@ async function submit() {
           <legend>Что порт берёт у соседа</legend>
           <div class="apply-row">
             <label class="field checkbox-field">
-              <input v-model="form.apply.role" type="checkbox" data-field="apply-role" />
+              <input v-model="form.apply.role" type="checkbox" data-field="apply-role" :disabled="isUnion" />
               <span>Роль</span>
             </label>
             <label class="field checkbox-field">
-              <input v-model="form.apply.mode" type="checkbox" data-field="apply-mode" />
+              <input v-model="form.apply.mode" type="checkbox" data-field="apply-mode" :disabled="isUnion" />
               <span>Режим</span>
             </label>
             <label class="field">
@@ -190,6 +199,10 @@ async function submit() {
           </div>
         </fieldset>
 
+        <p v-if="isUnion" class="hint" data-hint="union">
+          «Объединить» меняет оба порта сразу: каждый получает объединение наборов VLAN обоих портов, ни один VLAN не снимается, направление выбирать
+          не нужно. Роль и режим с этой политикой не сочетаются — их порт берёт у соседа.
+        </p>
         <p v-if="symmetricHint" class="hint warn" data-hint="symmetric">
           Условия на оба порта одинаковы: правило подходит каждому из них, и автоматически его применить нельзя — направление придётся выбирать вручную.
           Различите условия (например, у одного порта «VLAN не назначены совсем», у другого — «назначены»).

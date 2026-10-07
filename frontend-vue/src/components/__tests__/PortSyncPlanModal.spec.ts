@@ -246,4 +246,72 @@ describe('PortSyncPlanModal.vue', () => {
 
     expect(wrapper.find('h2').text()).toBe('Что сделает правило «X»')
   })
+
+  it('правило «объединить»: изменения показываются для обоих портов, сводка называет и подключения, и порты', async () => {
+    const changes = (from: number[], to: number[]) => ({ role: null, mode: null, vlans: { from, to, skipped: [] } })
+    stub(plan(
+      [item({
+        target: 'both', changes: null,
+        rule: { id: 'r-2', code: 'trunk_vlans_union', name: 'Trunk: наборы VLAN на концах линии объединяются', action: 'auto' },
+        source: port('Gi0/1', 'sw-1', [10, 20]), destination: port('Gi0/2', 'sw-2', [20, 30]),
+        targets: [
+          { target: 'source', changes: changes([10, 20], [10, 20, 30]), blocked: null },
+          { target: 'destination', changes: changes([20, 30], [10, 20, 30]), blocked: null },
+        ],
+      })],
+      { applicable: 2 },
+    ))
+    const wrapper = mountModal()
+    await flushPromises()
+
+    const blocks = wrapper.findAll('[data-target]')
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0].text()).toContain('Порт «Gi0/1» (sw-1):')
+    expect(blocks[0].text()).toContain('VLAN: 10, 20 → 10, 20, 30')
+    expect(blocks[1].text()).toContain('Порт «Gi0/2» (sw-2):')
+    expect(blocks[1].text()).toContain('VLAN: 20, 30 → 10, 20, 30')
+    expect(wrapper.find('[data-summary]').text()).toBe('проверено подключений: 1 · будет согласовано: 1 (портов: 2)')
+    expect(wrapper.text()).toContain('изменить данные портов (2)')
+  })
+
+  it('порту пары, которому изменение запрещено, показывается причина, а второй порт остаётся в плане', async () => {
+    const changes = { role: null, mode: null, vlans: { from: [10], to: [10, 20], skipped: [] } }
+    stub(plan(
+      [item({
+        target: 'both', changes: null,
+        targets: [
+          { target: 'source', changes, blocked: 'Порт входит в группу «Магистрали», которая задаёт режим и VLAN, — измените группу' },
+          { target: 'destination', changes, blocked: null },
+        ],
+      })],
+      { applicable: 1 },
+    ))
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.find('[data-outcome="auto"]').exists()).toBe(true)
+    expect(wrapper.find('[data-target-blocked]').text()).toBe('Не изменится: Порт входит в группу «Магистрали», которая задаёт режим и VLAN, — измените группу')
+    const blocks = wrapper.findAll('[data-target]')
+    expect(blocks[0].find('.lines').exists()).toBe(false) // у запрещённого порта строк изменений нет
+    expect(blocks[1].find('.lines').text()).toContain('VLAN: 10 → 10, 20')
+  })
+
+  it('заблокированное подключение с двумя портами: у обоих показаны причина и несостоявшиеся изменения', async () => {
+    const changes = { role: null, mode: null, vlans: { from: [10], to: [10, 20], skipped: [20] } }
+    stub(plan(
+      [item({
+        outcome: 'blocked', target: 'both', changes: null,
+        reason: 'Порт «Gi0/1» (sw-1): нет VLAN; Порт «Gi0/2» (sw-2): нет VLAN',
+        targets: [{ target: 'source', changes, blocked: 'нет VLAN' }, { target: 'destination', changes, blocked: 'нет VLAN' }],
+      })],
+      { applicable: 0, auto: 0, blocked: 1 },
+    ))
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-target]')).toHaveLength(2)
+    expect(wrapper.find('[data-reason]').text()).toContain('Порт «Gi0/1» (sw-1): нет VLAN')
+    expect(wrapper.findAll('[data-target] .lines')).toHaveLength(2)
+    expect(wrapper.findAll('[data-target-blocked]')).toHaveLength(0) // причина общая, а не «не изменится» у применимого плана
+  })
 })

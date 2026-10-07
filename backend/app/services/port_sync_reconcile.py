@@ -6,7 +6,10 @@
 правило даёт решение:
 
     auto     — направление определено: целевому порту будут применены изменения (применяются только
-               после предпросмотра и подтверждения; один план — одна транзакция);
+               после предпросмотра и подтверждения; один план — одна транзакция). У симметричного
+               правила (политика VLAN «объединить», trunk с разными наборами VLAN) целевых портов
+               два — изменения получает каждый, кому есть что менять; порт, которому нельзя, остаётся
+               в плане с причиной, а второй всё равно применяется;
     blocked  — правило подошло, но применить нельзя: порт входит в группу, задающую режим и VLAN;
                результат нарушил бы «в access не более одного VLAN»; ни один VLAN соседа недоступен
                устройству; порт уже изменяется другим подключением этого же плана;
@@ -32,15 +35,14 @@ from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..constants import AuditAction, OwnerType
+from ..constants import AuditAction
 from ..models import (
     Connection,
     DeviceInterface,
     DeviceTypeVLAN,
-    IPAddress,
     InterfaceGroup,
     InterfaceVLAN,
     PhysicalDevice,
@@ -62,13 +64,14 @@ from .port_sync_rules import (
     APPLY_TO_SOURCE,
     Changes,
     Decision,
+    Option,
     Outcome,
     PortFacts,
     RuleSpec,
     decide,
-    flags_from_role,
 )
 from .port_sync_store import rules_for_reconcile
+from .port_writes import write_port_role, write_port_vlans
 
 MAX_CONNECTION_IDS = 500
 MAX_PREVIEW_ITEMS = 300
@@ -237,16 +240,26 @@ def _describe(role: tuple[str, str] | None, mode: tuple[str, str] | None, vlans:
     return "; ".join(parts)
 
 
-def _apply_decision(
-    decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]
-) -> tuple[dict[str, Any], _Planned | None]:
-    """Превращает решение auto в запись плана: определяет порт, сопоставляет VLAN, проверяет запреты."""
-    option = decision.options[0]
+@dataclass
+class _TargetPlan:
+    """Разбор одного варианта решения auto: что записать порту либо почему этого сделать нельзя."""
+
+    apply_to: str  # APPLY_TO_SOURCE | APPLY_TO_DESTINATION
+    port: _Port
+    changes: dict[str, Any]
+    warnings: list[str]
+    blocked: str | None
+    planned: _Planned | None
+
+
+def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]) -> _TargetPlan:
+    """Сопоставляет VLAN целевого порта и проверяет запреты. `claimed` только читает — порты, занятые
+    этим планом, помечает вызывающий, когда решит, что подключение применяется."""
     target_id = connection.source_interface_id if option.apply_to == APPLY_TO_SOURCE else connection.destination_interface_id
     source_id = connection.destination_interface_id if option.apply_to == APPLY_TO_SOURCE else connection.source_interface_id
     target, source = ports[target_id], ports[source_id]
     changes = option.changes
-    item: dict[str, Any] = {"outcome": "auto", "target": option.apply_to, "warnings": []}
+    warnings: list[str] = []
 
     resolved_ids: list[str] | None = None
     skipped: list[int] = []
@@ -273,19 +286,48 @@ def _apply_decision(
     role_pair = (target.facts.role.value, changes.role.value) if changes.role else None
     mode_pair = (target.facts.mode, changes.mode) if changes.mode else None
     vlan_pair = (sorted(target.facts.vlans), sorted(final_numbers)) if resolved_ids is not None else None
-    item["changes"] = {
+    view = {
         "role": {"from": role_pair[0], "to": role_pair[1]} if role_pair else None,
         "mode": {"from": mode_pair[0], "to": mode_pair[1]} if mode_pair else None,
         "vlans": {"from": vlan_pair[0], "to": vlan_pair[1], "skipped": skipped} if vlan_pair else ({"from": sorted(target.facts.vlans), "to": sorted(target.facts.vlans), "skipped": skipped} if skipped else None),
     }
     if skipped and not blocked:
-        item["warnings"].append("Не назначены VLAN, которых нет у устройства порта: " + ", ".join(map(str, skipped)))
-    if blocked:
-        item["outcome"] = "blocked"
-        item["reason"] = blocked
-        return item, None
-    claimed.add(target_id)
-    return item, _Planned(connection, target, decision.rule, changes.role, changes.mode, resolved_ids, _describe(role_pair, mode_pair, vlan_pair))
+        warnings.append("Не назначены VLAN, которых нет у устройства порта: " + ", ".join(map(str, skipped)))
+    planned = None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, resolved_ids, _describe(role_pair, mode_pair, vlan_pair))
+    return _TargetPlan(option.apply_to, target, view, warnings, blocked, planned)
+
+
+def _port_label(port: _Port) -> str:
+    device = port.device.system_name or port.device.serial_number if port.device else ""
+    return f"«{port.iface.name}» ({device})" if device else f"«{port.iface.name}»"
+
+
+def _apply_decision(
+    decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]
+) -> tuple[dict[str, Any], list[_Planned]]:
+    """Превращает решение auto в запись плана и список изменений портов (пустой — применять нечего).
+
+    Обычно целевой порт один. У симметричного правила (политика VLAN «объединить») портов два, и они
+    независимы: порт, которому изменение запрещено (группа, нет VLAN у устройства, занят другим
+    подключением), в плане остаётся с причиной, а второй порт всё равно получает своё — объединение
+    VLAN ничего не снимает, поэтому частичное применение расхождение не ухудшает. Подключение
+    блокируется, только если не изменяется ни один порт."""
+    parts = [_plan_target(option, decision.rule, connection, ports, vlans, claimed) for option in decision.options]
+    several = len(parts) > 1
+    ready = [part for part in parts if part.planned]
+    item: dict[str, Any] = {
+        "outcome": "auto" if ready else "blocked",
+        "target": "both" if several else parts[0].apply_to,
+        "changes": None if several else parts[0].changes,
+        "targets": [{"target": p.apply_to, "changes": p.changes, "blocked": p.blocked} for p in parts],
+        "warnings": [f"Порт {_port_label(p.port)}: {w}" if several else w for p in parts for w in p.warnings],
+    }
+    if not ready:
+        item["reason"] = "; ".join(f"Порт {_port_label(p.port)}: {p.blocked}" if several else str(p.blocked) for p in parts)
+        return item, []
+    for part in ready:
+        claimed.add(part.port.iface.id)
+    return item, [part.planned for part in ready if part.planned]
 
 
 def _selected_connections(session: Session, connection_ids: Any) -> tuple[list[Connection], bool]:
@@ -374,8 +416,7 @@ def _compute(session: Session, connection_ids: Any, rule_id: str | None) -> _Pla
                 if decision.outcome is Outcome.AUTO:
                     result, planned = _apply_decision(decision, connection, ports, vlans, claimed)
                     item.update(result)
-                    if planned:
-                        plan.planned.append(planned)
+                    plan.planned.extend(planned)
                 else:
                     item["outcome"] = decision.outcome.value
                     item["reason"] = decision.note
@@ -411,29 +452,6 @@ def preview_reconcile(payload: Any, session: Session) -> dict[str, Any]:
 # --- применение ----------------------------------------------------------------------------------
 
 
-def _write_role(port: DeviceInterface, role: PortRole, session: Session) -> None:
-    is_management, is_data = flags_from_role(role)
-    port.is_management, port.is_data_transfer = is_management, is_data
-    # IP-адреса порта зеркалируют его is_management — тот же инвариант, что у sync_interfaces и set_port_role.
-    session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == port.id).values(is_management=is_management))
-
-
-def _write_vlans(port: DeviceInterface, mode: str, keep: list[str], session: Session) -> None:
-    port.vlan_mode = mode
-    session.flush()
-    links = session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id == port.id)).all()
-    kept: set[str] = set()
-    for link in links:
-        if link.vlan_id in keep and link.vlan_id not in kept:
-            link.mode = mode
-            kept.add(link.vlan_id)
-        else:
-            session.delete(link)
-    for vlan_id in keep:
-        if vlan_id not in kept:
-            session.add(InterfaceVLAN(interface_id=port.id, vlan_id=vlan_id, mode=mode))
-
-
 def apply_reconcile(payload: Any, session: Session) -> dict[str, Any]:
     """Применяет план: изменения получают только порты решений auto, которые не заблокированы. Одна
     транзакция — записано всё или ничего.
@@ -451,14 +469,15 @@ def apply_reconcile(payload: Any, session: Session) -> dict[str, Any]:
     for planned in plan.planned:
         port = planned.port.iface
         if planned.role is not None:
-            _write_role(port, planned.role, session)
+            write_port_role(port, planned.role, session)
         if planned.mode is not None or planned.vlan_ids is not None:
             keep = planned.vlan_ids if planned.vlan_ids is not None else list(planned.port.vlan_ids)
-            _write_vlans(port, planned.mode or planned.port.facts.mode, keep, session)
+            write_port_vlans(port, planned.mode or planned.port.facts.mode, keep, session)
         audit(session, "interfaces", port.id, AuditAction.UPDATE, f"Согласование порта «{port.name}» по правилу «{planned.rule.name}»: {planned.description}")
     session.commit()
+    connection_ids_applied = list(dict.fromkeys(p.connection.id for p in plan.planned))
     return {
-        "applied": {"ports": len(plan.planned), "connections": len(plan.planned)},
-        "connection_ids": [p.connection.id for p in plan.planned],
+        "applied": {"ports": len(plan.planned), "connections": len(connection_ids_applied)},
+        "connection_ids": connection_ids_applied,
         "summary": plan.summary,
     }
