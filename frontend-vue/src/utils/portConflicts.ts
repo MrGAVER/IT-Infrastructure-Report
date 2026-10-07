@@ -85,7 +85,7 @@ export function snapshotPortConfigs(rows: InterfaceDraftRow[]): Map<string, Port
   return snapshot
 }
 
-function sameConfig(a: PortConfig, b: PortConfig): boolean {
+export function samePortConfig(a: PortConfig, b: PortConfig): boolean {
   return a.is_management === b.is_management && a.is_data_transfer === b.is_data_transfer && a.vlan_mode === b.vlan_mode
 }
 
@@ -131,7 +131,7 @@ export function buildPortConflictNotice(
     const conflict = conflicts[row.id]
     if (!conflict) continue
     const before = initial.get(row.id)
-    if (before && sameConfig(before, portConfigOf(row)) && !alwaysInclude.has(row.id)) continue
+    if (before && samePortConfig(before, portConfigOf(row)) && !alwaysInclude.has(row.id)) continue
     lines.push(`порт ${row.name} ↔ ${conflict.otherInterfaceName} (${conflict.otherDeviceName}) — ${describeDifferences(row, conflict)}`)
   }
   if (!lines.length) return null

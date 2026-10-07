@@ -2158,6 +2158,13 @@ describe('подключения портов в блоке «Порты / ин�
     await option.trigger('mousedown')
   }
 
+  // Кнопка диалога «расхождение с соседом» (DeviceInterfacesEditor.vue), который форма показывает при «Сохранить».
+  const reviewButton = (wrapper: ReturnType<typeof mount>, text: string) => {
+    const button = wrapper.findAll('.review-modal button').find((b) => b.text() === text)
+    if (!button) throw new Error(`В диалоге расхождений нет кнопки «${text}»`)
+    return button
+  }
+
   async function mountNewDeviceWithPort() {
     stubCatalogsFetch()
     await useCatalogsStore().ensureLoaded()
@@ -2196,6 +2203,13 @@ describe('подключения портов в блоке «Порты / ин�
     expect(wrapper.find('.connection-diffs').text()).toContain('«Управление»: нет / у соседа да') // видно ещё до сохранения
 
     await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Расхождение видно ДО записи — диалогом, а не только уведомлением после неё; пока выбора нет, ничего не записано.
+    expect(wrapper.find('.review-modal').text()).toContain('Порт «eth0» ↔ «Gi0/1» (sw-b)')
+    expect(wrapper.find('.review-modal').text()).toContain('«Управление»: нет / у соседа да')
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    await reviewButton(wrapper, 'Сохранить как есть').trigger('click')
     await flushPromises()
 
     const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
@@ -2252,9 +2266,80 @@ describe('подключения портов в блоке «Порты / ин�
     await pick(wrapper, '.connection-type', 'Витая пара')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
+    await reviewButton(wrapper, 'Сохранить как есть').trigger('click') // расхождение с соседом — диалог перед записью
+    await flushPromises()
 
     expect(calls.some((c) => c.url.includes('/resources/connections'))).toBe(false)
     expect(wrapper.emitted('saved')).toBeTruthy()
+  })
+
+  describe('диалог расхождения с соседом при «Сохранить»', () => {
+    // Новое устройство с портом eth0 (ни «Управление», ни «Передача данных») подключено к sw-b · Gi0/1 с «Управление».
+    async function connectedNewDevice() {
+      const wrapper = await mountNewDeviceWithPort()
+      const calls = recordingFetch((url, method) => {
+        if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+        if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
+          // Сервер возвращает порт таким, каким его прислали (calls.at(-1) — этот самый запрос).
+          const sent = (calls.at(-1)?.body as { interfaces?: Array<{ is_management?: boolean }> } | undefined)?.interfaces?.[0]
+          return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: !!sent?.is_management, is_data_transfer: false, vlan_mode: 'access' }], groups: [] }))
+        }
+        if (method === 'GET' && /\/devices\/dev-new\/interface-connections$/.test(url)) return new Response(JSON.stringify({ items: [] }))
+        if (method === 'GET' && url.includes('/resources/connections')) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+        return undefined
+      })
+      await wrapper.find('.connection-connect-btn').trigger('click')
+      await pick(wrapper, '.connection-peer-device', 'sw-b')
+      await flushPromises()
+      await pick(wrapper, '.connection-peer-port', 'Gi0/1')
+      await pick(wrapper, '.connection-type', 'Витая пара')
+      return { wrapper, calls }
+    }
+
+    it('«Вернуться к форме»: ничего не записано, форма остаётся открытой, «Сохранить» снова доступно', async () => {
+      const { wrapper, calls } = await connectedNewDevice()
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+      expect(wrapper.find('.review-modal').exists()).toBe(true)
+
+      await reviewButton(wrapper, 'Вернуться к форме').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.review-modal').exists()).toBe(false)
+      expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+      expect(wrapper.emitted('saved')).toBeFalsy()
+      expect(wrapper.find('.modal-foot .btn-primary').attributes('disabled')).toBeUndefined()
+    })
+
+    it('«Применить конфигурацию соседа» в диалоге: порт получает назначение соседа, в запись уходит уже оно, уведомления о расхождении нет', async () => {
+      const { wrapper, calls } = await connectedNewDevice()
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      await reviewButton(wrapper, 'Применить конфигурацию соседа').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.review-modal').text()).toContain('Расхождений не осталось')
+      expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+
+      await reviewButton(wrapper, 'Сохранить').trigger('click')
+      await flushPromises()
+
+      const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
+      expect(put?.body).toMatchObject({ interfaces: [{ name: 'eth0', is_management: true, is_data_transfer: false }] })
+      expect(wrapper.emitted('saved')).toBeTruthy()
+      // Уведомление «Порты сохранены, но конфигурация расходится…» не нужно: расхождение устранено до записи.
+      expect(useToast().toasts.map((t) => t.type)).not.toContain('warning')
+    })
+
+    it('без расхождения (конфигурации совпадают) диалога нет — сохранение идёт сразу', async () => {
+      const { wrapper, calls } = await connectedNewDevice()
+      await wrapper.find('.iface-table .col-check input[type="checkbox"]').setValue(true) // «Управление» — как у соседа
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.find('.review-modal').exists()).toBe(false)
+      expect(calls.some((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))).toBe(true)
+    })
   })
 
   it('«Подключить» без выбора порта соседа и типа линии не отправляет запросов и показывает ошибку', async () => {
