@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
+import { mount, flushPromises, DOMWrapper, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
@@ -57,6 +57,23 @@ async function vlanChoices(scope: VlanScope, rowIndex = 0): Promise<string[]> {
   return select.findAll('.ss-option').map((o) => o.text())
 }
 
+// Поле «Тип / производитель / модель» — SearchableSelect: пользователь фокусирует поле и нажимает на опцию
+// (mousedown), как у VLAN выше. label — подпись опции в списке: «Сервер» (тип без модели) или «Cisco WS-C2960».
+async function pickTypeModel(wrapper: VueWrapper, label: string) {
+  const field = wrapper.find('.form-grid .lookup-row .searchable-select')
+  await field.find('input').trigger('focus')
+  const option = field.findAll('.ss-option').find((o) => o.text() === label)
+  if (!option) throw new Error(`Опции «${label}» нет в поле «Тип / производитель / модель»`)
+  await option.trigger('mousedown')
+}
+
+// Серийный номер — по подписи поля: первое текстовое поле формы теперь поисковое «Тип / производитель / модель».
+async function setSerial(wrapper: VueWrapper, value: string) {
+  const field = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Серийный номер *')
+  if (!field) throw new Error('Поле «Серийный номер» не найдено')
+  await field.find('input').setValue(value)
+}
+
 async function mountWithLoadedCatalogs() {
   stubCatalogsFetch()
   const catalogs = useCatalogsStore()
@@ -83,8 +100,8 @@ describe('DeviceFormModal.vue', () => {
     })
     vi.stubGlobal('fetch', postMock)
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-1')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-1')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -116,8 +133,8 @@ describe('DeviceFormModal.vue', () => {
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('confirm', vi.fn(() => true))
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-2')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-2')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -143,8 +160,8 @@ describe('DeviceFormModal.vue', () => {
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('confirm', vi.fn(() => false))
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-3')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-3')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -226,8 +243,8 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-4')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-4')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -262,8 +279,8 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-5')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-5')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -291,8 +308,8 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-6')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-6')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -495,8 +512,8 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-6')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-6')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -527,8 +544,8 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-6')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-6')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -928,8 +945,8 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-16')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-16')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -1036,8 +1053,8 @@ describe('DeviceFormModal.vue', () => {
       }),
     )
 
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-13')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-13')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -1048,13 +1065,14 @@ describe('DeviceFormModal.vue', () => {
 
   it('объединённое поле типа/производителя/модели: группа "без модели" не завязана на конкретную модель', async () => {
     const wrapper = await mountWithLoadedCatalogs()
-    const select = wrapper.find('.form-grid .lookup-row select')
+    const field = wrapper.find('.form-grid .lookup-row .searchable-select')
+    expect(wrapper.find('.form-grid .lookup-row').find('select').exists()).toBe(false) // первая строка lookup — это тип/модель
 
-    const optgroups = select.findAll('optgroup')
-    expect(optgroups[0].attributes('label')).toBe('Тип устройства (без конкретной модели)')
+    await field.find('input').trigger('focus')
+    expect(field.findAll('.ss-group-label').map((g) => g.text())).toEqual(['Тип устройства (без конкретной модели)'])
 
-    await select.setValue('type:dt-server')
-    expect((select.element as HTMLSelectElement).value).toBe('type:dt-server')
+    await pickTypeModel(wrapper, 'Сервер')
+    expect((field.find('input').element as HTMLInputElement).value).toBe('Сервер')
   })
 
   it('п.1.3.7: option модели показывает производителя целиком ("Cisco WS-C2960-48TD-L"), не только модель', async () => {
@@ -1066,14 +1084,76 @@ describe('DeviceFormModal.vue', () => {
     ]
     await wrapper.vm.$nextTick()
 
-    const select = wrapper.find('.form-grid .lookup-row select')
-    const options = select.findAll('option')
-    const modelOption = options.find((o) => (o.element as HTMLOptionElement).value === 'model:dm-1')
-    expect(modelOption?.text()).toBe('Cisco WS-C2960-48TD-L')
-    // Закрытый select после выбора показывает ТОЛЬКО текст option (заголовок optgroup не виден) —
-    // это и есть тот сценарий, где раньше терялось "чьё это оборудование".
-    await select.setValue('model:dm-1')
-    expect(modelOption?.text()).toContain('Cisco')
+    const field = wrapper.find('.form-grid .lookup-row .searchable-select')
+    await field.find('input').trigger('focus')
+    expect(field.findAll('.ss-option').map((o) => o.text())).toContain('Cisco WS-C2960-48TD-L')
+    // Закрытое поле после выбора показывает ТОЛЬКО подпись опции (заголовок группы не виден) —
+    // это и есть тот сценарий, где раньше терялось «чьё это оборудование».
+    await pickTypeModel(wrapper, 'Cisco WS-C2960-48TD-L')
+    expect((field.find('input').element as HTMLInputElement).value).toBe('Cisco WS-C2960-48TD-L')
+  })
+
+  it('поиск вводом текста в поле «Тип / производитель / модель»: по производителю, модели и названию типа; выбор уходит в payload', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    const catalogs = useCatalogsStore()
+    catalogs.items['manufacturers'] = [
+      { id: 'mf-cisco', name: 'Cisco' },
+      { id: 'mf-hp', name: 'HP' },
+    ]
+    catalogs.items['device-models'] = [
+      { id: 'dm-1', name: 'C2960', manufacturer_id: 'mf-cisco', device_type_id: 'dt-net', model: 'WS-C2960-48TD-L' },
+      { id: 'dm-2', name: 'DL380', manufacturer_id: 'mf-hp', device_type_id: 'dt-server', model: 'DL380' },
+    ]
+    await wrapper.vm.$nextTick()
+
+    const field = wrapper.find('.form-grid .lookup-row .searchable-select')
+    const input = field.find('input')
+    const shown = () => field.findAll('.ss-option').map((o) => o.text())
+    await input.trigger('focus')
+    expect(shown()).toEqual(['Cisco WS-C2960-48TD-L', 'HP DL380', 'Сервер', 'Сетевое оборудование'])
+
+    await input.setValue('cisco') // производитель
+    expect(shown()).toEqual(['Cisco WS-C2960-48TD-L'])
+    await input.setValue('2960') // часть модели
+    expect(shown()).toEqual(['Cisco WS-C2960-48TD-L'])
+    await input.setValue('сетевое') // название типа находит и саму модель этого типа, и «голый» тип
+    expect(shown()).toEqual(['Cisco WS-C2960-48TD-L', 'Сетевое оборудование'])
+    await input.setValue('серверное cisco') // ни одной опции — ничего не найдено
+    expect(shown()).toEqual([])
+    expect(field.find('.ss-empty').text()).toBe('Ничего не найдено')
+
+    await input.setValue('hp dl')
+    await field.find('.ss-option').trigger('mousedown')
+    expect((input.element as HTMLInputElement).value).toBe('HP DL380')
+
+    let body: Record<string, unknown> | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.includes('/resources/devices')) {
+          body = JSON.parse(init!.body as string)
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-FIND' }), { status: 201 })
+        }
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+    await setSerial(wrapper, 'SN-FIND')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(body).toMatchObject({ model_id: 'dm-2', device_type_id: 'dt-server', manufacturer_id: 'mf-hp' })
+  })
+
+  it('поле «Тип / производитель / модель» обязательно: без выбора форма не отправляется, а очистка выбора возвращает эту ошибку', async () => {
+    const wrapper = await mountWithLoadedCatalogs()
+    await setSerial(wrapper, 'SN-NOTYPE')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.text()).toContain('Укажите тип устройства')
+
+    await pickTypeModel(wrapper, 'Сервер')
+    await wrapper.find('.form-grid .lookup-row .ss-clear').trigger('mousedown')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.text()).toContain('Укажите тип устройства')
+    expect(wrapper.emitted('saved')).toBeFalsy()
   })
 
   it('быстрое добавление модели устройства синхронизирует тип и производителя формы', async () => {
@@ -1118,12 +1198,12 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     // Объединённое поле отражает выбранную модель, а не "сырой" device_type_id.
-    expect((wrapper.find('.form-grid .lookup-row select').element as HTMLSelectElement).value).toBe('model:dm-new')
+    expect((wrapper.find('.form-grid .lookup-row .searchable-select input').element as HTMLInputElement).value).toBe('Dell PowerVault')
 
     // А device_type_id/manufacturer_id формы реально синхронизированы — проверяем по факту
     // отправленного payload'а, а не по DOM-значению другого select'а (которого больше нет).
     const postMock = fetch as unknown as ReturnType<typeof vi.fn>
-    await wrapper.find('input[type="text"]').setValue('SN-77')
+    await setSerial(wrapper, 'SN-77')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     const deviceCall = postMock.mock.calls.find(([url, init]) => (init?.method ?? 'GET') === 'POST' && String(url).includes('/resources/devices'))
@@ -1705,8 +1785,8 @@ describe('DeviceFormModal.vue', () => {
   describe('фикс п.3: валидация IP-адреса/префикса в блоке "VLAN устройства"', () => {
     it('не сохраняет устройство с некорректным IP-адресом на VLAN устройства', async () => {
       const wrapper = await mountWithLoadedCatalogs()
-      await wrapper.find('select').setValue('type:dt-server')
-      await wrapper.find('input[type="text"]').setValue('SN-1')
+      await pickTypeModel(wrapper, 'Сервер')
+      await setSerial(wrapper, 'SN-1')
 
       const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
       await vlanEditor.find('.add-btn').trigger('click')
@@ -1723,8 +1803,8 @@ describe('DeviceFormModal.vue', () => {
 
     it('не сохраняет устройство с некорректным префиксом на VLAN устройства', async () => {
       const wrapper = await mountWithLoadedCatalogs()
-      await wrapper.find('select').setValue('type:dt-server')
-      await wrapper.find('input[type="text"]').setValue('SN-1')
+      await pickTypeModel(wrapper, 'Сервер')
+      await setSerial(wrapper, 'SN-1')
 
       const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
       await vlanEditor.find('.add-btn').trigger('click')
@@ -1758,7 +1838,8 @@ describe('правки формы физического устройства: �
     ]
     await wrapper.vm.$nextTick()
 
-    const labels = wrapper.find('.form-grid .lookup-row select').findAll('optgroup').map((g) => g.attributes('label'))
+    await wrapper.find('.form-grid .lookup-row .searchable-select input').trigger('focus')
+    const labels = wrapper.findAll('.form-grid .lookup-row .ss-group-label').map((g) => g.text())
     expect(labels).toEqual(['Cisco', 'HP', 'Тип устройства (без конкретной модели)'])
   })
 
@@ -1796,8 +1877,8 @@ describe('правки формы физического устройства: �
         return emptyList()
       }),
     )
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-OS')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-OS')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -1856,8 +1937,8 @@ describe('правки формы физического устройства: �
     expect(vlanEditor.find('.join-domain-row').exists()).toBe(false) // единственный домен — больше не предлагается
 
     calls.length = 0
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-DOM')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-DOM')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -1919,8 +2000,8 @@ describe('правки формы физического устройства: �
     expect(vlanEditor().find('.join-domain-row option[value="dom-1"]').exists()).toBe(true) // домен снова можно включить
 
     calls.length = 0
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-CANCEL')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-CANCEL')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -2083,8 +2164,8 @@ describe('подключения портов в блоке «Порты / ин�
     seedStores()
     const wrapper = mount(DeviceFormModal, { props: { device: null } })
     await flushPromises()
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-NEW')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-NEW')
     await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
     await wrapper.find('.iface-table input.cell-input').setValue('eth0')
     await wrapper.find('.expand-toggle').trigger('click')
@@ -2137,8 +2218,8 @@ describe('подключения портов в блоке «Порты / ин�
     const calls = recordingFetch(() => undefined)
     const wrapper = mount(DeviceFormModal, { props: { device: null } })
     await flushPromises()
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-NEW')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-NEW')
     await wrapper.find('.empty button.btn-secondary').trigger('click')
     await wrapper.find('.iface-table input.cell-input').setValue('eth0')
     await wrapper.find('.expand-toggle').trigger('click')
@@ -2280,7 +2361,7 @@ describe('подключения портов в блоке «Порты / ин�
     const wrapper = mount(DeviceFormModal, { props: { device: null, copyFrom: donor } })
     await flushPromises()
     expect(wrapper.find('.expand-toggle').text()).not.toContain('↔')
-    await wrapper.find('input[type="text"]').setValue('SN-COPY')
+    await setSerial(wrapper, 'SN-COPY')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -2319,8 +2400,8 @@ describe('сбой после создания устройства: повто�
   async function fillNewDeviceWithPort(wrapper: Awaited<ReturnType<typeof mountWithLoadedCatalogs>>) {
     await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс (список пуст)
     await wrapper.find('.iface-table input.cell-input').setValue('eth0')
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-R')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-R')
   }
 
   const countCalls = (calls: Call[], method: string, urlPart: string) => calls.filter((c) => c.method === method && c.url.includes(urlPart)).length
@@ -2387,8 +2468,8 @@ describe('сбой после создания устройства: повто�
 
   it('сбой самого создания устройства (до появления id) выводит исходную ошибку, форма остаётся «Добавить», повтор снова создаёт', async () => {
     const wrapper = await mountWithLoadedCatalogs()
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-R')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-R')
     const calls: Call[] = []
     let failCreate = true
     vi.stubGlobal(
@@ -2472,8 +2553,8 @@ describe('подключения между портами одного устр
     seed([], [])
     const wrapper = mount(DeviceFormModal, { props: { device: null } })
     await flushPromises()
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-LOOP')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-LOOP')
     await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс
     await wrapper.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click') // + ещё один
     // В каждой строке два поля .cell-input (имя и MAC): имя первой строки — первое поле, второй — третье.
@@ -2577,8 +2658,8 @@ describe('подключения между портами одного устр
     seed([], [])
     const wrapper = mount(DeviceFormModal, { props: { device: null } })
     await flushPromises()
-    await wrapper.find('select').setValue('type:dt-server')
-    await wrapper.find('input[type="text"]').setValue('SN-DEL')
+    await pickTypeModel(wrapper, 'Сервер')
+    await setSerial(wrapper, 'SN-DEL')
     await wrapper.find('.empty button.btn-secondary').trigger('click')
     await wrapper.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click')
     // В каждой строке два поля .cell-input (имя и MAC): имя первой строки — первое поле, второй — третье.
