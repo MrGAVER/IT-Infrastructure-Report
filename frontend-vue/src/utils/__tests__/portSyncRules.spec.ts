@@ -231,4 +231,11 @@ describe('portSyncRules utils — политика «объединить»', ()
     expect(summaryLine({ ...base, applicable: 3, auto: 3 })).toBe('проверено подключений: 4 · будет согласовано: 3')
     expect(summaryLine(base)).toBe('проверено подключений: 4 · будет согласовано: 5') // без auto — как раньше
   })
+
+  it('summaryLine: подключения, у которых расхождение останется, называются до подтверждения', () => {
+    const base = { connections: 4, applicable: 4, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0 }
+    expect(summaryLine({ ...base, partial: 2 })).toBe('проверено подключений: 4 · будет согласовано: 4 · расхождение останется у: 2')
+    expect(summaryLine({ ...base, partial: 0 })).toBe('проверено подключений: 4 · будет согласовано: 4') // нулевой счётчик не показывается
+    expect(summaryLine(base)).toBe('проверено подключений: 4 · будет согласовано: 4') // старый ответ без partial
+  })
 })

@@ -514,11 +514,11 @@ def test_apply_is_atomic_when_a_write_fails(world, monkeypatch):
     original = module.write_port_vlans
     calls = {"n": 0}
 
-    def flaky(port, mode, keep, session):
+    def flaky(port, mode, keep, session, **kwargs):
         calls["n"] += 1
         if calls["n"] == 2:
             raise RuntimeError("сбой записи")
-        return original(port, mode, keep, session)
+        return original(port, mode, keep, session, **kwargs)
 
     monkeypatch.setattr(module, "write_port_vlans", flaky)
     with pytest.raises(RuntimeError):
@@ -684,3 +684,100 @@ def test_default_merge_rule_is_created_for_an_existing_installation(world):
 
     created = world.rule(TRUNK_VLANS_UNION_RULE)
     assert created["action"] == "auto" and created["apply"] == {"role": False, "mode": False, "vlans": "union"} and created["priority"] == 15
+
+
+# --- массовое применение: число запросов не растёт с числом портов -------------------------------
+
+def _statements_while(db, action) -> list[str]:
+    """SQL-запросы, выполненные во время `action` (через событие движка)."""
+    from sqlalchemy import event
+
+    engine = db.get_bind()
+    seen: list[str] = []
+
+    def record(_conn, _cursor, statement, _parameters, _context, _executemany):
+        seen.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        action()
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    return seen
+
+
+def test_applying_many_ports_does_not_query_or_flush_per_port(world):
+    count = 40
+    a_ports = world.device("MASS-A", [f"p{i}" for i in range(count)], allowed=(10, 20, 30))
+    b_ports = world.device("MASS-B", [f"p{i}" for i in range(count)], allowed=(10, 20, 30))
+    for a, b in zip(a_ports, b_ports):
+        world.configure(a, mode="trunk", vlans=(10, 20))
+        world.configure(b, mode="trunk", vlans=(10, 30))
+        world.connect(a, b)
+    plan = world.preview()
+    assert plan["summary"]["applicable"] == 2 * count
+
+    statements = _statements_while(world.db, lambda: world.apply(plan))
+
+    # Связи порт–VLAN читаются порциями (≤ 400 id в запросе), а не запросом на порт: 80 портов — одна порция.
+    link_reads = [s for s in statements if s.lstrip().upper().startswith("SELECT") and "interface_vlans" in s and "FROM interface_vlans" in s]
+    # Запись связей уходит пачками (executemany), поэтому INSERT-ов заметно меньше, чем новых связей.
+    link_inserts = [s for s in statements if s.lstrip().upper().startswith("INSERT INTO INTERFACE_VLANS")]
+    assert len(link_reads) <= 6, link_reads
+    assert len(link_inserts) <= 4, len(link_inserts)
+    for a, b in zip(a_ports, b_ports):
+        assert world.port(a)["vlans"] == [10, 20, 30] and world.port(b)["vlans"] == [10, 20, 30]
+
+
+# --- неполный результат: расхождение после применения останется ----------------------------------
+
+def test_a_complete_merge_is_not_partial(world):
+    _trunk_pair(world)
+
+    plan = world.preview()
+
+    assert plan["items"][0]["partial"] is False and plan["summary"]["partial"] == 0
+
+
+def test_a_blocked_half_of_the_pair_makes_the_connection_partial(world):
+    _trunk_pair(world, a_allowed=(10, 20))  # у A нет VLAN 30 — изменится только B
+
+    plan = world.preview()
+
+    assert plan["items"][0]["outcome"] == "auto" and plan["items"][0]["partial"] is True
+    assert plan["summary"]["partial"] == 1
+
+
+def test_vlans_skipped_on_a_port_that_is_still_changed_make_the_connection_partial(world):
+    # A: 10, 20, 40; B: 20, 30; у B нет VLAN 40. Оба порта меняются (A получает 30, B — 10), но 40 до B не дойдёт.
+    a, b, _c = _trunk_pair(world, a_vlans=(10, 20, 40), b_vlans=(20, 30), a_allowed=(10, 20, 30, 40), b_allowed=(10, 20, 30))
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["outcome"] == "auto" and plan["summary"]["applicable"] == 2
+    assert not any(t["blocked"] for t in item["targets"])
+    assert item["partial"] is True and plan["summary"]["partial"] == 1
+    world.apply(plan)
+    assert world.port(a)["vlans"] == [10, 20, 30, 40] and world.port(b)["vlans"] == [10, 20, 30]
+
+
+def test_partial_counts_connections_across_the_whole_plan_not_only_the_shown_items(world, monkeypatch):
+    from app.services import port_sync_reconcile
+
+    monkeypatch.setattr(port_sync_reconcile, "MAX_PREVIEW_ITEMS", 1)
+    for index in range(3):
+        a, b, _c = _trunk_pair_numbered(world, index)
+
+    plan = world.preview()
+
+    assert len(plan["items"]) == 1 and plan["summary"]["total_items"] == 3
+    assert plan["summary"]["partial"] == 3  # считаются все подключения плана, а не показанные
+
+
+def _trunk_pair_numbered(world: World, index: int):
+    (a,) = world.device(f"PART-A{index}", ["Gi0/1"], allowed=(10, 20))  # у A нет VLAN 30
+    (b,) = world.device(f"PART-B{index}", ["Gi0/1"], allowed=(10, 20, 30))
+    world.configure(a, mode="trunk", vlans=(10, 20))
+    world.configure(b, mode="trunk", vlans=(20, 30))
+    return a, b, world.connect(a, b)

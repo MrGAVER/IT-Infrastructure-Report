@@ -314,4 +314,30 @@ describe('PortSyncPlanModal.vue', () => {
     expect(wrapper.findAll('[data-target] .lines')).toHaveLength(2)
     expect(wrapper.findAll('[data-target-blocked]')).toHaveLength(0) // причина общая, а не «не изменится» у применимого плана
   })
+
+  it('подключение, у которого расхождение останется после применения, помечено в плане, а счётчик — в сводке', async () => {
+    stub(plan(
+      [
+        item({ connection_id: 'c-1', partial: true, warnings: ['Не назначены VLAN, которых нет у устройства порта: 30'] }),
+        item({ connection_id: 'c-2' }),
+      ],
+      { partial: 1 },
+    ))
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.find('[data-summary]').text()).toContain('расхождение останется у: 1')
+    const items = wrapper.findAll('[data-outcome="auto"]')
+    expect(items[0].find('[data-partial]').text()).toContain('Подключение останется в «Расхождениях»')
+    expect(items[1].find('[data-partial]').exists()).toBe(false)
+  })
+
+  it('план без неполных подключений не пугает: ни пометки, ни счётчика', async () => {
+    stub(plan([item()]))
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.find('[data-partial]').exists()).toBe(false)
+    expect(wrapper.find('[data-summary]').text()).not.toContain('останется')
+  })
 })

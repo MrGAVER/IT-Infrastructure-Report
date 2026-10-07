@@ -9,6 +9,12 @@
 которая задаёт режим и VLAN) делает вызывающий — у каждой операции своё сообщение об ошибке и свой
 способ её показать. Функции не делают commit и не пишут аудит — это тоже на вызывающем: операция
 может менять несколько портов одной транзакцией.
+
+Пакетная запись. Согласование по правилам может менять тысячи портов за раз, а запрос на каждый порт
+(SELECT связей, UPDATE IP-адресов) вместе с flush на каждом порту превращал применение плана в минуты.
+Поэтому для массовых операций есть `load_vlan_links` (связи порт–VLAN всех портов несколькими запросами)
+и `write_port_roles` (признак на IP-адресах несколькими UPDATE): одиночные функции остаются для правок
+одного порта и работают через те же примитивы.
 """
 from __future__ import annotations
 
@@ -22,24 +28,68 @@ from ..models import DeviceInterface, IPAddress, InterfaceVLAN
 from .port_config import PortRole
 from .port_sync_rules import flags_from_role
 
+# Число id в одном IN-запросе (у SQLite/psycopg число параметров ограничено).
+_CHUNK = 400
+
+
+def _chunks(values: Sequence[str]):
+    for start in range(0, len(values), _CHUNK):
+        yield values[start:start + _CHUNK]
+
+
+def write_port_roles(items: Sequence[tuple[DeviceInterface, PortRole]], session: Session) -> None:
+    """Роль каждого порта (управление / передача данных) вместе с признаком на его IP-адресах.
+
+    IP-адреса порта зеркалируют его is_management — тот же инвариант, что у sync_interfaces. Адреса
+    обновляются одним UPDATE на каждое значение признака (на порцию портов), а не по запросу на порт."""
+    by_flag: dict[bool, list[str]] = {True: [], False: []}
+    for port, role in items:
+        is_management, is_data = flags_from_role(role)
+        port.is_management, port.is_data_transfer = is_management, is_data
+        by_flag[is_management].append(port.id)
+    for is_management, port_ids in by_flag.items():
+        for chunk in _chunks(port_ids):
+            session.execute(
+                update(IPAddress)
+                .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(chunk))
+                .values(is_management=is_management)
+            )
+
 
 def write_port_role(port: DeviceInterface, role: PortRole, session: Session) -> None:
-    """Роль порта (управление / передача данных) вместе с признаком на его IP-адресах.
-
-    IP-адреса порта зеркалируют его is_management — тот же инвариант, что у sync_interfaces."""
-    is_management, is_data = flags_from_role(role)
-    port.is_management, port.is_data_transfer = is_management, is_data
-    session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == port.id).values(is_management=is_management))
+    """Роль одного порта вместе с признаком на его IP-адресах (см. write_port_roles)."""
+    write_port_roles([(port, role)], session)
 
 
-def write_port_vlans(port: DeviceInterface, mode: str, vlan_ids: Sequence[str], session: Session) -> None:
+def load_vlan_links(port_ids: Sequence[str], session: Session) -> dict[str, list[InterfaceVLAN]]:
+    """Связи порт–VLAN всех данных портов несколькими запросами (порциями) — для `write_port_vlans(links=…)`
+    при массовой записи. У порта без VLAN — пустой список."""
+    ids = list(dict.fromkeys(port_ids))
+    links: dict[str, list[InterfaceVLAN]] = {port_id: [] for port_id in ids}
+    for chunk in _chunks(ids):
+        for link in session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id.in_(chunk))).all():
+            links[link.interface_id].append(link)
+    return links
+
+
+def write_port_vlans(
+    port: DeviceInterface,
+    mode: str,
+    vlan_ids: Sequence[str],
+    session: Session,
+    *,
+    links: Sequence[InterfaceVLAN] | None = None,
+) -> None:
     """Режим порта и ровно этот набор VLAN (id записей справочника): лишние связи удаляются, недостающие
-    добавляются, у остающихся выставляется режим. Дубликаты в `vlan_ids` игнорируются."""
+    добавляются, у остающихся выставляется режим. Дубликаты в `vlan_ids` игнорируются.
+
+    `links` — текущие связи этого порта, уже загруженные `load_vlan_links` (массовая запись): тогда запроса
+    по порту нет. Без него связи читаются здесь. Изменения уходят в БД при ближайшем flush сессии."""
     port.vlan_mode = mode
-    session.flush()
+    current = links if links is not None else session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id == port.id)).all()
     keep = list(dict.fromkeys(vlan_ids))
     kept: set[str] = set()
-    for link in session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id == port.id)).all():
+    for link in current:
         if link.vlan_id in keep and link.vlan_id not in kept:
             link.mode = mode
             kept.add(link.vlan_id)
