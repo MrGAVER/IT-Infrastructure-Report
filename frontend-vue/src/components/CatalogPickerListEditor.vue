@@ -3,8 +3,11 @@
 // именно каталог и какое бэкенд-поле за ним стоит (передаются через props), поэтому один и тот
 // же компонент используется для подразделений ИС (department_id) и мест размещения ИС
 // (placement_asset_id) в InformationSystemFormModal.vue — обе связи имеют одинаковую форму.
+import { computed } from 'vue'
 import type { CatalogItem, CatalogPickerDraftRow } from '../api/types'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 const props = defineProps<{
   modelValue: CatalogPickerDraftRow[]
@@ -17,6 +20,10 @@ const props = defineProps<{
   quickAddResource?: string
 }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: CatalogPickerDraftRow[]] }>()
+
+// Порядок записей — как пришёл от родителя (справочник уже отсортирован стором), здесь только
+// маппинг в плоский формат SearchableSelect, чтобы список можно было фильтровать вводом текста.
+const catalogOptions = computed<SearchableSelectOption[]>(() => props.catalogEntries.map((e) => ({ value: e.id, label: e.name as string })))
 
 function addRow() {
   emit('update:modelValue', [...props.modelValue, { catalogId: '' }])
@@ -46,10 +53,7 @@ function updateRow(index: number, catalogId: string) {
     <div v-if="!modelValue.length" class="empty">Не добавлено</div>
 
     <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
-      <select :value="row.catalogId" @change="updateRow(i, ($event.target as HTMLSelectElement).value)">
-        <option value="">{{ placeholder }}</option>
-        <option v-for="entry in catalogEntries" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-      </select>
+      <SearchableSelect :model-value="row.catalogId" :options="catalogOptions" :placeholder="placeholder" @update:model-value="(v) => updateRow(i, v)" />
       <QuickAddButton v-if="quickAddResource" :resource="quickAddResource" :title="addLabel" @created="(r) => updateRow(i, r.id)" />
       <button type="button" class="icon-btn danger" aria-label="Удалить" @click="removeRow(i)">
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
@@ -81,21 +85,13 @@ function updateRow(index: number, catalogId: string) {
   color: var(--ink-muted);
   padding: 4px 0;
 }
+/* minmax(0, 1fr): без нулевого минимума длинная подпись выбранной записи распирала бы колонку
+   шире модалки. SearchableSelect — обычный grid-item и сам растягивается на всю колонку. */
 .nested-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-}
-.nested-row select {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 7px 8px;
-  font-size: 12.5px;
-  color: var(--ink);
-  font-family: inherit;
-  width: 100%;
 }
 .icon-btn.danger {
   color: var(--status-crit);

@@ -99,31 +99,32 @@ function onQuickAdded(index: number, record: CatalogItem) {
   color: var(--ink-muted);
   padding: 4px 0;
 }
+/* Строка: [протокол / порт] [+] [описание] [удалить]. Обёртка .lookup-row — display: contents,
+   поэтому её дочерние элементы (SearchableSelect и кнопка «+») становятся ячейками этого же
+   грида: две колонки minmax(0, 1fr) делят всё свободное место поровну, и «протокол / порт» и
+   «Описание» получаются строго одной ширины на всю ширину модалки (кнопка «+» не отнимает
+   ширину у селекта, как было бы при вложенном flex-контейнере). */
 .nested-row {
   display: grid;
-  grid-template-columns: 1.1fr 1.6fr auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
 }
 .lookup-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: contents;
 }
-.lookup-row select {
-  flex: 1;
-  min-width: 0;
-}
-.nested-row input,
-.nested-row select {
+/* Размер и шрифт — как у input внутри SearchableSelect, чтобы поля совпадали и по высоте. */
+.nested-row input {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-s);
-  padding: 7px 8px;
-  font-size: 12.5px;
+  padding: 8px 9px;
+  font-size: 13px;
   color: var(--ink);
   font-family: inherit;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .icon-btn.danger {
   color: var(--status-crit);
@@ -137,9 +138,18 @@ function onQuickAdded(index: number, record: CatalogItem) {
   align-self: flex-start;
 }
 
+/* Узкий экран: в первой строке селект, «+» и удаление, описание — на всю ширину второй строки. */
 @media (max-width: 560px) {
   .nested-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .nested-row .col-desc {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .nested-row .icon-btn {
+    grid-column: 3;
+    grid-row: 1;
   }
 }
 </style>

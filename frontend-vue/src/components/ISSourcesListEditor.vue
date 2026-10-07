@@ -18,7 +18,10 @@
 // рендерится отдельным блоком под основной 4-колоночной сеткой (.source-grid), а не внутри неё —
 // переменное число IP сломало бы фиксированную раскладку "8 элементов на 4 колонки" (см.
 // комментарий у .row-actions ниже).
+import { computed } from 'vue'
 import type { Device, ISSourceDraftRow, SourceIpDraftRow, VirtualMachine, Container } from '../api/types'
+import SearchableSelect from './SearchableSelect.vue'
+import type { SearchableSelectOption } from './SearchableSelect.vue'
 
 const props = defineProps<{ modelValue: ISSourceDraftRow[]; deviceOptions: Device[]; vmOptions: VirtualMachine[]; containerOptions: Container[] }>()
 const emit = defineEmits<{ 'update:modelValue': [rows: ISSourceDraftRow[]] }>()
@@ -26,6 +29,12 @@ const emit = defineEmits<{ 'update:modelValue': [rows: ISSourceDraftRow[]] }>()
 function deviceLabel(d: Device): string {
   return d.system_name || d.serial_number
 }
+
+// Физический сервер, ВМ и контейнер выбираются через SearchableSelect (поиск вводом текста) —
+// списки могут быть длинными. Опции серверов и контейнеров одинаковы для всех строк, поэтому
+// считаются один раз (computed), а не на каждую строку.
+const deviceSelectOptions = computed<SearchableSelectOption[]>(() => props.deviceOptions.map((d) => ({ value: d.id, label: deviceLabel(d) })))
+const containerSelectOptions = computed<SearchableSelectOption[]>(() => props.containerOptions.map((c) => ({ value: c.id, label: c.name })))
 
 // Значение, показываемое в селекте "физический сервер". При source_type='device' owner_id и есть
 // выбранный сервер. При source_type='vm' owner_id хранит id самой ВМ (не её хоста) — если ВМ уже
@@ -48,6 +57,10 @@ function sortedVms(row: ISSourceDraftRow): VirtualMachine[] {
     const bm = hostId && b.physical_device_id === hostId ? 0 : 1
     return am - bm
   })
+}
+
+function vmSelectOptions(row: ISSourceDraftRow): SearchableSelectOption[] {
+  return sortedVms(row).map((v) => ({ value: v.id, label: v.name }))
 }
 
 function emptyRow(): ISSourceDraftRow {
@@ -122,26 +135,30 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
           <option value="vm">Виртуальная машина</option>
           <option value="container">Контейнер</option>
         </select>
-        <select
-          :value="deviceSelectValue(row)"
+        <SearchableSelect
+          class="col-device"
+          :model-value="deviceSelectValue(row)"
+          :options="deviceSelectOptions"
+          placeholder="— физический сервер —"
           :disabled="row.source_type !== 'device' && row.source_type !== 'vm'"
-          @change="onDeviceChange(i, ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">— физический сервер —</option>
-          <option v-for="d in deviceOptions" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-        </select>
-        <select :value="row.source_type === 'vm' ? row.owner_id : ''" :disabled="row.source_type !== 'vm'" @change="onVmChange(i, ($event.target as HTMLSelectElement).value)">
-          <option value="">— ВМ —</option>
-          <option v-for="v in sortedVms(row)" :key="v.id" :value="v.id">{{ v.name }}</option>
-        </select>
-        <select
-          :value="row.source_type === 'container' ? row.owner_id : ''"
+          @update:model-value="(v) => onDeviceChange(i, v)"
+        />
+        <SearchableSelect
+          class="col-vm"
+          :model-value="row.source_type === 'vm' ? row.owner_id : ''"
+          :options="vmSelectOptions(row)"
+          placeholder="— ВМ —"
+          :disabled="row.source_type !== 'vm'"
+          @update:model-value="(v) => onVmChange(i, v)"
+        />
+        <SearchableSelect
+          class="col-container"
+          :model-value="row.source_type === 'container' ? row.owner_id : ''"
+          :options="containerSelectOptions"
+          placeholder="— контейнер —"
           :disabled="row.source_type !== 'container'"
-          @change="updateRow(i, { owner_id: ($event.target as HTMLSelectElement).value })"
-        >
-          <option value="">— контейнер —</option>
-          <option v-for="c in containerOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
-        </select>
+          @update:model-value="(v) => updateRow(i, { owner_id: v })"
+        />
         <button v-if="row.source_type === 'manual'" type="button" class="btn-link col-ip" @click="addIp(i)">+ IP-адрес</button>
         <span v-else class="ip-hint col-ip">IP берётся из выбранного оборудования/ВМ</span>
         <input placeholder="Назначение" :value="row.purpose" @input="updateRow(i, { purpose: ($event.target as HTMLInputElement).value })" />
@@ -213,9 +230,11 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
   border-radius: var(--r-s);
   padding: 8px;
 }
+/* minmax(0, 1fr): длинная подпись выбранного сервера/ВМ/контейнера не должна распирать колонку
+   (у SearchableSelect нет собственной ширины — он занимает всю ячейку грида). */
 .source-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
 }
@@ -233,6 +252,13 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
 .source-grid select:disabled,
 .source-grid input:disabled {
   opacity: 0.45;
+}
+/* Поле SearchableSelect внутри компактной сетки — тот же кегль и высота, что у соседних input/
+   select строки (12px, padding 7px 8px), иначе оно выше на 1px и сильнее обрезает подпись.
+   Справа остаётся место под крестик очистки и шеврон самого компонента. */
+.source-grid :deep(.ss-input-row input) {
+  font-size: 12px;
+  padding: 7px 40px 7px 8px;
 }
 .external-check {
   display: flex;
@@ -307,12 +333,12 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
 
 @media (max-width: 900px) {
   .source-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 560px) {
   .source-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
