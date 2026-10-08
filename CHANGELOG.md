@@ -3362,5 +3362,5 @@ Vue-компонентов, пагинация `/api/v1/devices` (меняет �
   (`write_port_roles`): применение того же плана — 3,8 с под профайлером. Число запросов не зависит от числа портов
   (регрессионный тест считает SQL через событие движка).
 
-Проверено: backend pytest (1312 passed, 1 skipped), ruff; frontend vue-tsc -b, vitest (1530), vite build.
-Миграций БД нет.
+Проверено на дереве после слияния с main (2.121.0): backend pytest (1325 passed, 1 skipped), ruff; frontend vue-tsc -b,
+vitest (1562), vite build. Миграций БД нет.
