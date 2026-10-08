@@ -256,7 +256,7 @@ python -m venv .venv
 # Linux/macOS
 source .venv/bin/activate
 
-pip install -r backend/requirements.txt
+pip install -r backend/requirements.txt   # диапазоны версий; для точно тех же версий, что в Docker и CI: см. «Зависимости backend»
 
 cd frontend-vue
 npm ci
@@ -563,6 +563,27 @@ launcher.py            — точка входа для EXE
 docker-compose.yml
 ```
 
+### Зависимости backend
+
+`backend/requirements.txt` и `requirements-dev.txt` задают допустимые диапазоны версий; **точные версии с хешами**
+зафиксированы в `backend/requirements.lock` (runtime) и `backend/requirements-dev.lock` (runtime + тесты и анализ).
+Docker-образ и CI ставят пакеты из lock-файлов (`pip install --require-hashes -r ...`), поэтому сборка завтра даёт те же
+версии, что сегодня, а подмена пакета на PyPI не пройдёт проверку хеша. Lock универсальный (Linux, Windows, macOS),
+Python 3.12. Сборка EXE (`installer/build_windows.bat`, зависимости — `backend/requirements-build.txt`) пока
+ставит пакеты по диапазонам.
+
+Обновление после правки `requirements*.txt` (или чтобы подтянуть свежие версии в пределах диапазонов):
+
+```bash
+pip install uv
+cd backend
+uv pip compile requirements.txt     --universal --generate-hashes --python-version 3.12 -o requirements.lock     --no-header
+uv pip compile requirements-dev.txt --universal --generate-hashes --python-version 3.12 -o requirements-dev.lock --no-header
+# подтянуть новые версии: добавьте --upgrade (или --upgrade-package <имя> для одного пакета), затем прогоните тесты
+```
+
+CI проверяет, что lock-файлы актуальны (пересборка не даёт diff), и запускает `pip-audit` по `requirements.lock`.
+
 ### Пакет `backend/app/services/crud/`
 
 Бывший `crud.py` на 1382 строки разрезан по ответственностям; публичный API (`from app.services.crud import ...`)
@@ -597,7 +618,7 @@ docker-compose.yml
   реальной SQLAlchemy-сессии на in-memory SQLite (см. `conftest.py`): реальные запросы, FK-констрейнты,
   конфликты 409, полный путь через API, а не только форматирование. Требуют dev-зависимостей:
   ```bash
-  pip install -r backend/requirements-dev.txt
+  pip install -r backend/requirements-dev.txt   # либо точные версии CI: pip install --require-hashes -r backend/requirements-dev.lock
   pytest   # или: pytest backend/tests -v
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
