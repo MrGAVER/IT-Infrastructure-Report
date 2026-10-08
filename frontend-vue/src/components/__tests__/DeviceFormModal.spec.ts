@@ -1662,14 +1662,14 @@ describe('DeviceFormModal.vue', () => {
     })
   })
 
-  describe('фикс п.2.1.2: новый VLAN устройства автоматически подхватывается портами с "Все VLAN"', () => {
-    it('интерфейс в trunk-режиме, где уже выбраны все текущие опции, получает вновь добавленный VLAN устройства', async () => {
-      const vlans = useVLANsStore()
-      vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-old', vlan_id: 10, name: 'Old', description: '', domain_id: null, domain_name: '', devices: [] }] }]
-      vlans.loaded = true
-      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+  describe('фикс п.2.1.2: новый VLAN устройства автоматически подхватывается портами и группами с "Все VLAN"', () => {
+    type Call = { url: string; method: string; body?: unknown }
 
-      const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    // Сценарий бага: единственный назначенный VLAN устройства (v-old) уже выбран на порту (и, если
+    // withGroup, в его группе) как "Все VLAN"; затем пользователь добавляет в блок "VLAN устройства" новый (v-new).
+    function stubScenarioFetch(calls: Call[], opts: { withGroup: boolean }) {
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' }
+      const group = { id: 'g-1', name: 'Транки', vlan_mode: 'trunk', vlan_ids: ['v-old'], ip_address: null, prefix_length: null, ip_purpose: null, manage_open_ports: false, open_ports: [] }
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string, init?: RequestInit) => {
@@ -1677,6 +1677,7 @@ describe('DeviceFormModal.vue', () => {
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
           if (url.includes('/resources/device-types')) return new Response(JSON.stringify(deviceTypesFixture))
           if (/\/resources$/.test(url)) return new Response(JSON.stringify([]))
+          if (url.includes('/devices/dev-1/interface-groups')) return new Response(JSON.stringify({ items: opts.withGroup ? [group] : [] }))
           // Тип устройства не даёт ни одного VLAN сам по себе — единственный источник portVlanOptions
           // здесь "VLAN устройства" (deviceVlans), это и есть сценарий бага: единственный назначенный
           // VLAN устройства (v-old) уже выбран на порту как "Все VLAN".
@@ -1685,7 +1686,8 @@ describe('DeviceFormModal.vue', () => {
             return new Response(JSON.stringify({ items: [{ id: 'dv-1', physical_device_id: 'dev-1', vlan_id: 'v-old', ip_address: null, prefix_length: null, is_management: false, description: null }], total: 1, offset: 0, limit: 1000 }))
           }
           if (url.includes('/resources/interfaces') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+            const iface = { id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk', ...(opts.withGroup ? { group_id: 'g-1' } : {}) }
+            return new Response(JSON.stringify({ items: [iface], total: 1, offset: 0, limit: 1000 }))
           }
           if (url.includes('/resources/interface-vlans') && method === 'GET') {
             return new Response(JSON.stringify({ items: [{ id: 'iv-1', interface_id: 'if-1', vlan_id: 'v-old', mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
@@ -1707,11 +1709,19 @@ describe('DeviceFormModal.vue', () => {
             return new Response(JSON.stringify(device))
           }
           if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) {
-            return new Response(JSON.stringify({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', vlan_mode: 'trunk' }] }))
+            return new Response(JSON.stringify({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', vlan_mode: 'trunk' }], groups: [] }))
           }
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
       )
+    }
+
+    async function addNewVlanAndSave(calls: Call[], withGroup: boolean) {
+      const vlans = useVLANsStore()
+      vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-old', vlan_id: 10, name: 'Old', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+      vlans.loaded = true
+      const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+      stubScenarioFetch(calls, { withGroup })
 
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
@@ -1732,10 +1742,30 @@ describe('DeviceFormModal.vue', () => {
 
       await wrapper.find('form').trigger('submit')
       await flushPromises()
+    }
 
-      const ifacesPut = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
-      const savedRow = (ifacesPut!.body as { interfaces: Array<{ id: string; vlan_ids: string[] }> }).interfaces.find((r) => r.id === 'if-1')
+    type SavedBody = { interfaces: Array<{ id: string; vlan_ids: string[]; group_key?: string | null }>; groups?: Array<{ id: string; vlan_mode: string | null; vlan_ids: string[] }> }
+    const savedBody = (calls: Call[]) => calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))!.body as SavedBody
+
+    it('интерфейс в trunk-режиме, где уже выбраны все текущие опции, получает вновь добавленный VLAN устройства', async () => {
+      const calls: Call[] = []
+      await addNewVlanAndSave(calls, false)
+
+      const savedRow = savedBody(calls).interfaces.find((r) => r.id === 'if-1')
       expect(savedRow!.vlan_ids).toEqual(expect.arrayContaining(['v-old', 'v-new']))
+    })
+
+    it('группа портов в trunk-режиме с полным набором VLAN тоже получает новый VLAN — группа и её порт согласованы', async () => {
+      const calls: Call[] = []
+      await addNewVlanAndSave(calls, true)
+
+      const body = savedBody(calls)
+      const savedGroup = body.groups!.find((g) => g.id === 'g-1')
+      const savedRow = body.interfaces.find((r) => r.id === 'if-1')
+      // Без обновления группы сервер записал бы в порт прежний набор группы и затёр бы новый VLAN порта.
+      expect(savedGroup!.vlan_ids).toEqual(['v-old', 'v-new'])
+      expect(savedRow!.group_key).toBe('g-1')
+      expect(savedRow!.vlan_ids).toEqual(['v-old', 'v-new'])
     })
   })
 
