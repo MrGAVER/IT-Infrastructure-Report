@@ -227,6 +227,87 @@ describe('InterfaceGroupsPanel.vue', () => {
     expect(change.groups.find((g) => g.key === 'g1')?.ip_address).toBe('10.0.0.9')
   })
 
+  describe('«Все VLAN» в Trunk-режиме группы — как на порту', () => {
+    const allCheckbox = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('.vlan-param .vlan-check-all input')
+    const vlanCheckboxes = (wrapper: ReturnType<typeof mountPanel>) => wrapper.findAll('.vlan-param .vlan-checks label:not(.vlan-check-all) input')
+    const checkedStates = (wrapper: ReturnType<typeof mountPanel>) => vlanCheckboxes(wrapper).map((c) => (c.element as HTMLInputElement).checked)
+
+    async function openTrunkCreate(rows = [row('Gi0/1')]) {
+      const wrapper = mountPanel({ rows })
+      await wrapper.find('.groups-head button').trigger('click')
+      await wrapper.findAll('input[name="group-mode"]')[2].trigger('change') // Trunk
+      return wrapper
+    }
+
+    it('галочка есть только в Trunk: в режимах «Не задавать» и Access её нет', async () => {
+      const wrapper = mountPanel({ rows: [row('Gi0/1')] })
+      await wrapper.find('.groups-head button').trigger('click')
+      expect(allCheckbox(wrapper).exists()).toBe(false)
+
+      await wrapper.findAll('input[name="group-mode"]')[1].trigger('change') // Access
+      expect(allCheckbox(wrapper).exists()).toBe(false)
+
+      await wrapper.findAll('input[name="group-mode"]')[2].trigger('change') // Trunk
+      expect(allCheckbox(wrapper).exists()).toBe(true)
+      expect(wrapper.find('.vlan-param .vlan-check-all').text()).toBe('Все VLAN')
+    })
+
+    it('отметка «Все VLAN» отмечает все VLAN, снятие — снимает все', async () => {
+      const wrapper = await openTrunkCreate()
+      expect(checkedStates(wrapper)).toEqual([false, false])
+      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(false)
+
+      await allCheckbox(wrapper).setValue(true)
+      expect(checkedStates(wrapper)).toEqual([true, true])
+      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(true)
+
+      await allCheckbox(wrapper).setValue(false)
+      expect(checkedStates(wrapper)).toEqual([false, false])
+    })
+
+    it('«Все VLAN» — состояние, а не флаг: отмечается, когда выбраны все VLAN вручную, и сбрасывается при снятии любого', async () => {
+      const wrapper = await openTrunkCreate()
+
+      await vlanCheckboxes(wrapper)[0].setValue(true)
+      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(false)
+
+      await vlanCheckboxes(wrapper)[1].setValue(true)
+      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(true)
+
+      await vlanCheckboxes(wrapper)[0].setValue(false)
+      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(false)
+    })
+
+    it('при сохранении группы все VLAN записываются в группу и в каждый её порт', async () => {
+      const wrapper = await openTrunkCreate([row('Gi0/1'), row('Gi0/2')])
+      await wrapper.find('.group-modal .field input').setValue('Транки')
+      for (const check of wrapper.findAll('.member-check input')) await check.setValue(true)
+      await allCheckbox(wrapper).setValue(true)
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const { rows, groups } = lastChange(wrapper)
+      expect(groups[0]).toMatchObject({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })
+      expect(rows.map((r) => r.vlan_ids)).toEqual([['v10', 'v20'], ['v10', 'v20']])
+    })
+
+    it('у сохранённой группы с полным набором VLAN галочка при открытии уже отмечена', async () => {
+      const rows = [row('Gi0/1', { group_key: 'g1', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })]
+      const wrapper = mountPanel({ rows, groups: [savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })] })
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('без VLAN у типа устройства галочки нет — только подсказка', async () => {
+      const wrapper = mount(InterfaceGroupsPanel, { props: { rows: [row('Gi0/1')], groups: [], vlanOptions: [], protocolPortCatalog: catalog } })
+      await wrapper.find('.groups-head button').trigger('click')
+      await wrapper.findAll('input[name="group-mode"]')[2].trigger('change') // Trunk
+
+      expect(allCheckbox(wrapper).exists()).toBe(false)
+      expect(wrapper.find('.vlan-param .empty').text()).toContain('VLAN не назначены')
+    })
+  })
+
   describe('копирование значений с порта', () => {
     const sourceRow = () =>
       row('Gi0/1', {
@@ -285,7 +366,9 @@ describe('InterfaceGroupsPanel.vue', () => {
       await wrapper.find('.copy-row .btn').trigger('click')
 
       expect((wrapper.findAll('input[name="group-mode"]')[2].element as HTMLInputElement).checked).toBe(true) // Trunk
-      expect(wrapper.findAll('.vlan-param .check-inline input').map((c) => (c.element as HTMLInputElement).checked)).toEqual([true, true])
+      expect(wrapper.findAll('.vlan-param .check-inline:not(.vlan-check-all) input').map((c) => (c.element as HTMLInputElement).checked)).toEqual([true, true])
+      // С порта скопирован полный набор VLAN — «Все VLAN» отмечается сам, как состояние.
+      expect((wrapper.find('.vlan-param .vlan-check-all input').element as HTMLInputElement).checked).toBe(true)
       expect((wrapper.find('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
       expect((wrapper.find('input[aria-label="Префикс общего IP-адреса"]').element as HTMLInputElement).value).toBe('24')
       expect((wrapper.find('.ports-param .manage-check input').element as HTMLInputElement).checked).toBe(true)

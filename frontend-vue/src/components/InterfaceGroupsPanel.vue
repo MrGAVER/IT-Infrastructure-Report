@@ -128,6 +128,16 @@ function toggleVlan(vlanId: string, checked: boolean) {
   draft.value = { ...draft.value, vlan_ids: [...ids] }
 }
 
+/** «Все VLAN» в Trunk-режиме — как у порта (DeviceInterfacesEditor.vue: isAllVlansSelected()/toggleAllVlans()):
+ * не отдельный флаг в данных группы, а состояние, когда vlan_ids покрывает весь vlanOptions. Галочка —
+ * способ проставить/снять его одним кликом вместо отметки каждого VLAN по отдельности. */
+const isAllVlansSelected = computed(() => !!draft.value && props.vlanOptions.length > 0 && props.vlanOptions.every((v) => draft.value!.vlan_ids.includes(v.id)))
+
+function toggleAllVlans(checked: boolean) {
+  if (!draft.value) return
+  draft.value = { ...draft.value, vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] }
+}
+
 const vlanSelectOptions = computed(() => props.vlanOptions.map((v) => ({ value: v.id, label: vlanLabel(v) })))
 
 function saveDraft() {
@@ -299,6 +309,10 @@ function summary(group: InterfaceGroupDraft): string {
             />
             <div v-else-if="draft.vlan_mode === 'trunk'" class="vlan-checks">
               <span v-if="!vlanOptions.length" class="empty">Для типа устройства VLAN не назначены</span>
+              <label v-else class="check-inline vlan-check-all">
+                <input type="checkbox" :checked="isAllVlansSelected" @change="toggleAllVlans(($event.target as HTMLInputElement).checked)" />
+                <b>Все VLAN</b>
+              </label>
               <label v-for="v in vlanOptions" :key="v.id" class="check-inline">
                 <input type="checkbox" :checked="draft.vlan_ids.includes(v.id)" @change="toggleVlan(v.id, ($event.target as HTMLInputElement).checked)" />
                 {{ vlanLabel(v) }}
