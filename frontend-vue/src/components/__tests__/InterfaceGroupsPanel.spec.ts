@@ -227,83 +227,180 @@ describe('InterfaceGroupsPanel.vue', () => {
     expect(change.groups.find((g) => g.key === 'g1')?.ip_address).toBe('10.0.0.9')
   })
 
-  describe('«Все VLAN» в Trunk-режиме группы — как на порту', () => {
-    const allCheckbox = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('.vlan-param .vlan-check-all input')
-    const vlanCheckboxes = (wrapper: ReturnType<typeof mountPanel>) => wrapper.findAll('.vlan-param .vlan-checks label:not(.vlan-check-all) input')
-    const checkedStates = (wrapper: ReturnType<typeof mountPanel>) => vlanCheckboxes(wrapper).map((c) => (c.element as HTMLInputElement).checked)
+  describe('«Все VLAN» и выбор VLAN в Trunk-режиме группы — как на порту', () => {
+    type Wrapper = ReturnType<typeof mountPanel>
+    const allCheckbox = (w: Wrapper) => w.find('.vlan-param .vlan-check-all input')
+    const isAllChecked = (w: Wrapper) => (allCheckbox(w).element as HTMLInputElement).checked
+    const summary = (w: Wrapper) => w.find('.vlan-param .vlan-summary').text()
+    const pickerButton = (w: Wrapper) => w.find('.vlan-param .vlan-picker-btn')
+    const picker = (w: Wrapper) => w.find('.vlan-picker-modal')
+    const pickerVlanChecks = (w: Wrapper) => w.findAll('.vlan-picker-modal .check-inline:not(.vlan-check-all) input')
+    const pickerStates = (w: Wrapper) => pickerVlanChecks(w).map((c) => (c.element as HTMLInputElement).checked)
+    const modeRadio = (w: Wrapper, index: number) => w.findAll('input[name="group-mode"]')[index]
 
     async function openTrunkCreate(rows = [row('Gi0/1')]) {
       const wrapper = mountPanel({ rows })
       await wrapper.find('.groups-head button').trigger('click')
-      await wrapper.findAll('input[name="group-mode"]')[2].trigger('change') // Trunk
+      await modeRadio(wrapper, 2).trigger('change') // Trunk
       return wrapper
     }
 
-    it('галочка есть только в Trunk: в режимах «Не задавать» и Access её нет', async () => {
+    it('галочка «Все VLAN» и кнопка выбора есть только в Trunk: в «Не задавать» и Access их нет', async () => {
       const wrapper = mountPanel({ rows: [row('Gi0/1')] })
       await wrapper.find('.groups-head button').trigger('click')
       expect(allCheckbox(wrapper).exists()).toBe(false)
+      expect(pickerButton(wrapper).exists()).toBe(false)
 
-      await wrapper.findAll('input[name="group-mode"]')[1].trigger('change') // Access
+      await modeRadio(wrapper, 1).trigger('change') // Access
       expect(allCheckbox(wrapper).exists()).toBe(false)
+      expect(pickerButton(wrapper).exists()).toBe(false)
 
-      await wrapper.findAll('input[name="group-mode"]')[2].trigger('change') // Trunk
+      await modeRadio(wrapper, 2).trigger('change') // Trunk
       expect(allCheckbox(wrapper).exists()).toBe(true)
+      expect(pickerButton(wrapper).exists()).toBe(true)
       expect(wrapper.find('.vlan-param .vlan-check-all').text()).toBe('Все VLAN')
     })
 
-    it('отметка «Все VLAN» отмечает все VLAN, снятие — снимает все', async () => {
-      const wrapper = await openTrunkCreate()
-      expect(checkedStates(wrapper)).toEqual([false, false])
-      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(false)
+    it('переключение в Trunk сразу отмечает все VLAN, в том числе вместо выбранного в Access', async () => {
+      const wrapper = mountPanel({ rows: [row('Gi0/1')] })
+      await wrapper.find('.groups-head button').trigger('click')
+      await modeRadio(wrapper, 1).trigger('change') // Access
+      const vlanSelect = wrapper.find('.vlan-param .searchable-select')
+      await vlanSelect.find('input').trigger('focus')
+      await vlanSelect.findAll('.ss-option')[1].trigger('mousedown') // v20
 
-      await allCheckbox(wrapper).setValue(true)
-      expect(checkedStates(wrapper)).toEqual([true, true])
-      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(true)
+      await modeRadio(wrapper, 2).trigger('change') // Trunk
+      expect(isAllChecked(wrapper)).toBe(true)
+      expect(summary(wrapper)).toBe('Выбрано VLAN: 2 из 2')
+    })
+
+    it('«Все VLAN» снимает и снова отмечает все VLAN одним кликом', async () => {
+      const wrapper = await openTrunkCreate()
 
       await allCheckbox(wrapper).setValue(false)
-      expect(checkedStates(wrapper)).toEqual([false, false])
+      expect(isAllChecked(wrapper)).toBe(false)
+      expect(summary(wrapper)).toBe('Выбрано VLAN: 0 из 2')
+
+      await allCheckbox(wrapper).setValue(true)
+      expect(isAllChecked(wrapper)).toBe(true)
+      expect(summary(wrapper)).toBe('Выбрано VLAN: 2 из 2')
     })
 
-    it('«Все VLAN» — состояние, а не флаг: отмечается, когда выбраны все VLAN вручную, и сбрасывается при снятии любого', async () => {
+    it('список VLAN открывается кнопкой в окне поверх окна группы и закрывается «Готово», окно группы остаётся', async () => {
       const wrapper = await openTrunkCreate()
+      expect(picker(wrapper).exists()).toBe(false)
+      expect(wrapper.findAll('.vlan-param .check-inline:not(.vlan-check-all)')).toHaveLength(0) // список VLAN не растягивает окно группы
 
-      await vlanCheckboxes(wrapper)[0].setValue(true)
-      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(false)
+      await pickerButton(wrapper).trigger('click')
+      expect(picker(wrapper).exists()).toBe(true)
+      expect(picker(wrapper).findAll('.check-inline:not(.vlan-check-all)').map((l) => l.text())).toEqual(['10 — Серверы', '20 — Гости'])
 
-      await vlanCheckboxes(wrapper)[1].setValue(true)
-      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(true)
-
-      await vlanCheckboxes(wrapper)[0].setValue(false)
-      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(false)
+      await picker(wrapper).find('.modal-foot .btn-primary').trigger('click')
+      expect(picker(wrapper).exists()).toBe(false)
+      expect(wrapper.find('.group-modal').exists()).toBe(true)
     })
 
-    it('при сохранении группы все VLAN записываются в группу и в каждый её порт', async () => {
+    it('клик по подложке закрывает только окно выбора VLAN, а не окно группы', async () => {
+      const wrapper = await openTrunkCreate()
+      await pickerButton(wrapper).trigger('click')
+
+      // Окно выбора — последняя подложка в DOM (поверх подложки окна группы).
+      const overlays = wrapper.findAll('.overlay')
+      expect(overlays).toHaveLength(2)
+      await overlays[1].trigger('mousedown')
+      await overlays[1].trigger('click')
+
+      expect(picker(wrapper).exists()).toBe(false)
+      expect(wrapper.find('.group-modal').exists()).toBe(true)
+    })
+
+    it('«Все VLAN» — состояние, а не флаг: снятие любого VLAN в окне сбрасывает галочку, возврат — отмечает', async () => {
+      const wrapper = await openTrunkCreate()
+      await pickerButton(wrapper).trigger('click')
+      expect(pickerStates(wrapper)).toEqual([true, true])
+
+      await pickerVlanChecks(wrapper)[0].setValue(false)
+      expect(pickerStates(wrapper)).toEqual([false, true])
+      expect(isAllChecked(wrapper)).toBe(false)
+      expect(summary(wrapper)).toBe('Выбрано VLAN: 1 из 2')
+      // та же галочка есть и в самом окне выбора
+      expect((wrapper.find('.vlan-picker-modal .vlan-check-all input').element as HTMLInputElement).checked).toBe(false)
+
+      await pickerVlanChecks(wrapper)[0].setValue(true)
+      expect(isAllChecked(wrapper)).toBe(true)
+      expect(summary(wrapper)).toBe('Выбрано VLAN: 2 из 2')
+    })
+
+    it('«Все VLAN» в окне выбора действует так же, как в окне группы', async () => {
+      const wrapper = await openTrunkCreate()
+      await pickerButton(wrapper).trigger('click')
+
+      await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(false)
+      expect(pickerStates(wrapper)).toEqual([false, false])
+      expect(summary(wrapper)).toBe('Выбрано VLAN: 0 из 2')
+
+      await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(true)
+      expect(pickerStates(wrapper)).toEqual([true, true])
+    })
+
+    it('при сохранении выбранные VLAN записываются в группу и в каждый её порт', async () => {
       const wrapper = await openTrunkCreate([row('Gi0/1'), row('Gi0/2')])
       await wrapper.find('.group-modal .field input').setValue('Транки')
       for (const check of wrapper.findAll('.member-check input')) await check.setValue(true)
-      await allCheckbox(wrapper).setValue(true)
+      await pickerButton(wrapper).trigger('click')
+      await pickerVlanChecks(wrapper)[1].setValue(false) // оставляем только v10
+      await picker(wrapper).find('.modal-foot .btn-primary').trigger('click')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const { rows, groups } = lastChange(wrapper)
+      expect(groups[0]).toMatchObject({ vlan_mode: 'trunk', vlan_ids: ['v10'] })
+      expect(rows.map((r) => r.vlan_ids)).toEqual([['v10'], ['v10']])
+    })
+
+    it('при сохранении с «Все VLAN» в группу и порты уходят все VLAN устройства', async () => {
+      const wrapper = await openTrunkCreate([row('Gi0/1')])
+      await wrapper.find('.group-modal .field input').setValue('Транки')
+      await wrapper.find('.member-check input').setValue(true)
       await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
 
       const { rows, groups } = lastChange(wrapper)
       expect(groups[0]).toMatchObject({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })
-      expect(rows.map((r) => r.vlan_ids)).toEqual([['v10', 'v20'], ['v10', 'v20']])
+      expect(rows[0].vlan_ids).toEqual(['v10', 'v20'])
     })
 
-    it('у сохранённой группы с полным набором VLAN галочка при открытии уже отмечена', async () => {
+    it('у сохранённой группы с полным набором VLAN галочка при открытии уже отмечена, с частичным — нет', async () => {
       const rows = [row('Gi0/1', { group_key: 'g1', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })]
-      const wrapper = mountPanel({ rows, groups: [savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })] })
+      const full = mountPanel({ rows, groups: [savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })] })
+      await full.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect(isAllChecked(full)).toBe(true)
+      expect(summary(full)).toBe('Выбрано VLAN: 2 из 2')
 
-      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
-      expect((allCheckbox(wrapper).element as HTMLInputElement).checked).toBe(true)
+      const partial = mountPanel({ rows, groups: [savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v20'] })] })
+      await partial.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect(isAllChecked(partial)).toBe(false)
+      expect(summary(partial)).toBe('Выбрано VLAN: 1 из 2')
     })
 
-    it('без VLAN у типа устройства галочки нет — только подсказка', async () => {
+    it('закрытие окна группы закрывает и окно выбора VLAN: при повторном открытии его нет', async () => {
+      const wrapper = await openTrunkCreate()
+      await pickerButton(wrapper).trigger('click')
+      expect(picker(wrapper).exists()).toBe(true)
+
+      await wrapper.find('.group-modal-actions .btn-secondary').trigger('click') // «Отмена»
+      expect(wrapper.find('.group-modal').exists()).toBe(false)
+      expect(picker(wrapper).exists()).toBe(false)
+
+      await wrapper.find('.groups-head button').trigger('click')
+      expect(picker(wrapper).exists()).toBe(false)
+    })
+
+    it('без VLAN у типа устройства нет ни галочки, ни кнопки — только подсказка', async () => {
       const wrapper = mount(InterfaceGroupsPanel, { props: { rows: [row('Gi0/1')], groups: [], vlanOptions: [], protocolPortCatalog: catalog } })
       await wrapper.find('.groups-head button').trigger('click')
-      await wrapper.findAll('input[name="group-mode"]')[2].trigger('change') // Trunk
+      await modeRadio(wrapper, 2).trigger('change') // Trunk
 
       expect(allCheckbox(wrapper).exists()).toBe(false)
+      expect(pickerButton(wrapper).exists()).toBe(false)
       expect(wrapper.find('.vlan-param .empty').text()).toContain('VLAN не назначены')
     })
   })
@@ -366,9 +463,9 @@ describe('InterfaceGroupsPanel.vue', () => {
       await wrapper.find('.copy-row .btn').trigger('click')
 
       expect((wrapper.findAll('input[name="group-mode"]')[2].element as HTMLInputElement).checked).toBe(true) // Trunk
-      expect(wrapper.findAll('.vlan-param .check-inline:not(.vlan-check-all) input').map((c) => (c.element as HTMLInputElement).checked)).toEqual([true, true])
       // С порта скопирован полный набор VLAN — «Все VLAN» отмечается сам, как состояние.
       expect((wrapper.find('.vlan-param .vlan-check-all input').element as HTMLInputElement).checked).toBe(true)
+      expect(wrapper.find('.vlan-param .vlan-summary').text()).toBe('Выбрано VLAN: 2 из 2')
       expect((wrapper.find('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
       expect((wrapper.find('input[aria-label="Префикс общего IP-адреса"]').element as HTMLInputElement).value).toBe('24')
       expect((wrapper.find('.ports-param .manage-check input').element as HTMLInputElement).checked).toBe(true)

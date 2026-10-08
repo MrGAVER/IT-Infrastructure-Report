@@ -91,3 +91,43 @@ export function filterVlansForDeviceDomains(
   if (!deviceDomainIds.size) return definitions.filter((d) => !d.domain_id)
   return definitions.filter((d) => !!d.domain_id && deviceDomainIds.has(d.domain_id))
 }
+
+/**
+ * Приводит vlan_ids порта или группы портов в соответствие с изменением списка допустимых VLAN
+ * устройства (oldOptions → newOptions). Одна и та же логика для портов и для групп — иначе группа
+ * расходилась бы со своими портами, а сервер, применяя группу к портам, затирал бы значения порта.
+ *
+ * 1. VLAN, переставшие быть допустимыми, убираются из vlan_ids.
+ * 2. Если появились новые VLAN и порт/группа в trunk-режиме имеет выбранными ВСЕ прежние опции
+ *    («Все VLAN» — состояние, а не флаг), новые VLAN добавляются в конец: «Все VLAN» остаётся правдой.
+ *    Правило не применяется, когда прежних опций не было (первая загрузка устройства: «все выбраны» было бы
+ *    истинно вырожденно и раздало бы новые VLAN всем trunk-портам без разбора).
+ *
+ * Чистая функция: входной массив не мутируется; если менять нечего — возвращается ТОТ ЖЕ массив
+ * (можно сравнивать по ссылке и не вызывать лишний реактивный апдейт).
+ *
+ * @example
+ * reconcileVlanIds(['a', 'b'], 'trunk', [{ id: 'a' }, { id: 'b' }], [{ id: 'a' }, { id: 'b' }, { id: 'c' }]) // ['a', 'b', 'c']
+ */
+export function reconcileVlanIds(
+  vlanIds: string[],
+  vlanMode: string,
+  oldOptions: readonly { id: string }[],
+  newOptions: readonly { id: string }[],
+): string[] {
+  const oldIds = new Set(oldOptions.map((o) => o.id))
+  const newIds = new Set(newOptions.map((o) => o.id))
+  const removedIds = oldOptions.filter((o) => !newIds.has(o.id)).map((o) => o.id)
+  const addedIds = newOptions.filter((o) => !oldIds.has(o.id)).map((o) => o.id)
+
+  let next = vlanIds
+  if (removedIds.length && next.some((id) => removedIds.includes(id))) {
+    next = next.filter((id) => !removedIds.includes(id))
+  }
+  // Проверка «все прежние опции выбраны» идёт по уже очищенному списку: если одновременно что-то
+  // убрали из выбранных, «Все VLAN» уже не было полным — новые VLAN не добавляем.
+  if (addedIds.length && oldOptions.length > 0 && vlanMode === 'trunk' && oldOptions.every((o) => next.includes(o.id))) {
+    next = [...next, ...addedIds]
+  }
+  return next
+}
