@@ -8,8 +8,10 @@ RUN npm run build
 
 FROM python:3.12-slim
 WORKDIR /app
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Версии берутся из requirements.lock (с хешами), а не из диапазонов requirements.txt: образ, собранный завтра, получает те
+# же пакеты, что и сегодня. Обновление lock — см. README, раздел «Зависимости backend».
+COPY backend/requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY backend/app ./app
 COPY backend/alembic.ini .
 COPY backend/alembic ./alembic
