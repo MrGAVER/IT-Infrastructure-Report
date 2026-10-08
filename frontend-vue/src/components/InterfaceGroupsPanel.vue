@@ -11,6 +11,7 @@ import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, 
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vlanLabel } from '../utils/vlan'
+import { sortOpenPortRows } from '../utils/openPorts'
 import {
   applyGroupsToRows,
   copyValuesFromRow,
@@ -93,7 +94,7 @@ watch(copySource, () => {
 function copyFromPort() {
   const row = copyRow.value
   if (!draft.value || !row || !canCopy.value) return
-  draft.value = copyValuesFromRow(draft.value, row, copyWhat.value)
+  draft.value = copyValuesFromRow(draft.value, row, copyWhat.value, props.protocolPortCatalog)
   const label = row.name || `#${Number(copySource.value) + 1}`
   const manyIps = copyWhat.value.ip && row.ips.filter((ip) => ip.ip_address.trim() !== '').length > 1
   notify(manyIps ? `Значения скопированы с порта «${label}». У порта несколько IP-адресов — скопирован первый.` : `Значения скопированы с порта «${label}».`, 'success')
@@ -139,7 +140,9 @@ function saveDraft() {
     notify(error, 'error')
     return
   }
-  const normalized: InterfaceGroupDraft = { ...group, name: group.name.trim() }
+  // Окно группы закрывается — это «заново открытая» форма: открытые порты группы встают по возрастанию
+  // номера порта (так же они придут и в порты-участники, и при следующем открытии окна).
+  const normalized: InterfaceGroupDraft = { ...group, name: group.name.trim(), open_ports: sortOpenPortRows(group.open_ports, props.protocolPortCatalog) }
   const groups = draftIsNew.value ? [...props.groups, normalized] : props.groups.map((g) => (g.key === normalized.key ? normalized : g))
   // Состав группы → значения группы записываются в каждый её порт.
   const rows = applyGroupsToRows(setGroupMembers(props.rows, normalized.key, members.value), groups)

@@ -1,9 +1,16 @@
-// Чистые функции над черновыми строками открытых портов (OpenPortDraftRow). Номер порта в
+// Чистые функции над черновыми строками открытых портов (OpenPortDraftRow) и протоколов ИС
+// (ISProtocolDraftRow — те же открытые порты информационной системы). Номер порта в
 // строке не хранится — он выводится из выбранной записи справочника (protocol_catalog_id →
 // ProtocolPortCatalogEntry.port, см. OpenPortListEditor.vue), поэтому и сортировка, и поиск
 // повторов принимают каталог параметром. Вынесено из компонента ради тестов без монтирования
 // и чтобы форма (проверка при сохранении) и редактор (подсветка строк) использовали одно правило.
-import type { OpenPortDraftRow, ProtocolPortCatalogEntry } from '../api/types'
+import type { ProtocolPortCatalogEntry } from '../api/types'
+
+/** Минимум, который нужен функциям ниже от строки любого редактора открытых портов: выбранная
+ * запись справочника. Остальные поля строки (транспорт, описание, id) им безразличны. */
+export interface PortRow {
+  protocol_catalog_id: string
+}
 
 function portIndex(catalog: readonly ProtocolPortCatalogEntry[]): Map<string, number> {
   return new Map(catalog.map((entry) => [entry.id, entry.port]))
@@ -12,9 +19,9 @@ function portIndex(catalog: readonly ProtocolPortCatalogEntry[]): Map<string, nu
 /** Копия списка, отсортированная по номеру порта по возрастанию. Строки без выбранной (или не
  * найденной в каталоге) записи справочника — в конце, чтобы только что добавленная пустая строка
  * оставалась внизу списка. Сортировка стабильна (Array.prototype.sort), исходный массив не меняется. */
-export function sortOpenPortRows(rows: readonly OpenPortDraftRow[], catalog: readonly ProtocolPortCatalogEntry[]): OpenPortDraftRow[] {
+export function sortOpenPortRows<T extends PortRow>(rows: readonly T[], catalog: readonly ProtocolPortCatalogEntry[]): T[] {
   const ports = portIndex(catalog)
-  const portOf = (row: OpenPortDraftRow): number => ports.get(row.protocol_catalog_id) ?? Number.POSITIVE_INFINITY
+  const portOf = (row: T): number => ports.get(row.protocol_catalog_id) ?? Number.POSITIVE_INFINITY
   return [...rows].sort((a, b) => {
     const pa = portOf(a)
     const pb = portOf(b)
@@ -26,7 +33,7 @@ export function sortOpenPortRows(rows: readonly OpenPortDraftRow[], catalog: rea
 /** Индексы строк, чей номер порта встречается в списке более одного раза. Повтор определяется
  * именно по номеру порта: разные записи справочника с одним портом (80/HTTP и 80/HTTP-Proxy) и
  * один порт с разным транспортом (TCP и UDP) — тоже повтор. Строки без записи справочника не учитываются. */
-export function duplicateRowIndexes(rows: readonly OpenPortDraftRow[], catalog: readonly ProtocolPortCatalogEntry[]): Set<number> {
+export function duplicateRowIndexes(rows: readonly PortRow[], catalog: readonly ProtocolPortCatalogEntry[]): Set<number> {
   const ports = portIndex(catalog)
   const byPort = new Map<number, number[]>()
   rows.forEach((row, index) => {
@@ -43,8 +50,9 @@ export function duplicateRowIndexes(rows: readonly OpenPortDraftRow[], catalog: 
   return result
 }
 
-/** Повторяющиеся номера портов (каждый один раз), по возрастанию — для текста ошибки. */
-export function duplicatePortNumbers(rows: readonly OpenPortDraftRow[], catalog: readonly ProtocolPortCatalogEntry[]): number[] {
+/** Повторяющиеся номера портов (каждый один раз), по возрастанию — для текста ошибки. Пустой
+ * массив — повторов нет. */
+export function duplicatePortNumbers(rows: readonly PortRow[], catalog: readonly ProtocolPortCatalogEntry[]): number[] {
   const ports = portIndex(catalog)
   const numbers = new Set<number>()
   for (const i of duplicateRowIndexes(rows, catalog)) {

@@ -9,7 +9,7 @@
 // Модуль не знает ни про Vue, ни про API — вся логика тестируется отдельно (см. __tests__).
 import type { InterfaceDraftRow, InterfaceGroupDraft, OpenPortDraftRow, ProtocolPortCatalogEntry } from '../api/types'
 import { isValidIPv4, isValidPrefixLength } from './ipValidation'
-import { duplicatePortNumbers } from './openPorts'
+import { duplicatePortNumbers, sortOpenPortRows } from './openPorts'
 
 let groupKeyCounter = 0
 
@@ -64,15 +64,30 @@ export function applyGroupToRow(row: InterfaceDraftRow, group: InterfaceGroupDra
     next = { ...next, ips: [{ id: first?.id, ip_address: group.ip_address.trim(), prefix_length: group.prefix_length, purpose: group.ip_purpose.trim() }] }
   }
   if (managed.openPorts) {
-    const reusable = new Map<string, string | undefined>()
-    for (const existing of row.open_ports) if (!reusable.has(portKey(existing))) reusable.set(portKey(existing), existing.id)
+    // Записи порта не пересоздаются (как и на сервере, services/crud/interfaces.py:_apply_group_open_ports):
+    // порт группы с тем же (запись справочника, транспорт) оставляет id своей строки, а лишние
+    // сохранённые строки порта переиспользуются под ещё не размещённые порты группы — сервер обновит их
+    // на месте, сохранив id и дату создания. Остаток без пары удаляется (его нет в списке).
+    const wanted: OpenPortDraftRow[] = []
     const seen = new Set<string>()
-    const ports: OpenPortDraftRow[] = []
     for (const p of group.open_ports) {
       if (!p.protocol_catalog_id || seen.has(portKey(p))) continue
       seen.add(portKey(p))
-      ports.push({ id: reusable.get(portKey(p)), protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })
+      wanted.push(p)
     }
+    const idByKey = new Map<string, string | undefined>()
+    const spareIds: string[] = []
+    for (const existing of row.open_ports) {
+      const key = portKey(existing)
+      if (seen.has(key) && !idByKey.has(key)) idByKey.set(key, existing.id)
+      else if (existing.id) spareIds.push(existing.id)
+    }
+    const ports = wanted.map((p) => ({
+      id: idByKey.has(portKey(p)) ? idByKey.get(portKey(p)) : spareIds.shift(),
+      protocol_catalog_id: p.protocol_catalog_id,
+      transport_protocol: p.transport_protocol || 'TCP',
+      description: p.description,
+    }))
     next = { ...next, open_ports: ports }
   }
   return next
@@ -111,11 +126,11 @@ export function copyableFields(row: InterfaceDraftRow): ManagedFields {
 }
 
 /** Копирует значения порта в черновик группы — только отмеченные в `what` и реально имеющиеся на
- * порту (см. copyableFields). Это правка черновика в окне группы: к портам она применяется, как и
+ * порту (см. copyableFields). Открытые порты в группе упорядочиваются по номеру порта (portCatalog). Это правка черновика в окне группы: к портам она применяется, как и
  * любое другое значение, только при сохранении группы. Строки открытых портов копируются без id —
  * это новые строки группы, а не те же записи порта. У порта с несколькими IP берётся первый: группа
  * задаёт один общий адрес. */
-export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraftRow, what: ManagedFields): InterfaceGroupDraft {
+export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraftRow, what: ManagedFields, portCatalog: readonly ProtocolPortCatalogEntry[] = []): InterfaceGroupDraft {
   const available = copyableFields(row)
   let next = group
   if (what.vlan && available.vlan) {
@@ -129,9 +144,13 @@ export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraf
     next = {
       ...next,
       manage_open_ports: true,
-      open_ports: row.open_ports
-        .filter((p) => p.protocol_catalog_id !== '')
-        .map((p) => ({ protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })),
+      // Список группы — по возрастанию номера порта (portCatalog — справочник для определения номера).
+      open_ports: sortOpenPortRows(
+        row.open_ports
+          .filter((p) => p.protocol_catalog_id !== '')
+          .map((p) => ({ protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })),
+        portCatalog,
+      ),
     }
   }
   return next

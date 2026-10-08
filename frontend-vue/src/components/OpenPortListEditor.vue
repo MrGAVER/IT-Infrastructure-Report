@@ -17,9 +17,8 @@
 // stores/catalogs.ts:sortProtocolPortCatalog), а сервер сам подставляет порт/протокол из
 // справочника при сохранении (backend/app/services/crud.py:_apply_open_port_catalog) —
 // хранить их в черновике смысла больше нет, см. OpenPortDraftRow в api/types.ts.
-import { computed } from 'vue'
 import type { OpenPortDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
-import { duplicatePortNumbers, duplicateRowIndexes, sortOpenPortRows } from '../utils/openPorts'
+import { useUniquePortRows } from '../composables/useUniquePortRows'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
@@ -56,16 +55,16 @@ const catalogOptions = (): SearchableSelectOption[] => props.catalogEntries.map(
 // очередной порт. Уже заполненные строки встают по возрастанию, а новая пустая строка — в конец
 // и остаётся там, пока пользователь её заполняет (выбор записи справочника, транспорт, описание
 // порядок не меняют). sortOpenPortRows ставит строки без выбранной записи после выбранных.
-function addRow() {
-  const rows = props.sortedUnique ? sortOpenPortRows(props.modelValue, props.catalogEntries) : props.modelValue
-  emit('update:modelValue', [...rows, emptyRow()])
-}
+// Сортировка и поиск повторов — общее правило с редактором протоколов ИС (composables/useUniquePortRows.ts).
+const { duplicateIndexes, duplicateMessage, sortedForAdd } = useUniquePortRows(
+  () => props.modelValue,
+  () => props.catalogEntries,
+  () => !!props.sortedUnique,
+)
 
-const duplicateIndexes = computed(() => (props.sortedUnique ? duplicateRowIndexes(props.modelValue, props.catalogEntries) : new Set<number>()))
-const duplicateMessage = computed(() => {
-  const numbers = props.sortedUnique ? duplicatePortNumbers(props.modelValue, props.catalogEntries) : []
-  return numbers.length ? `Порт ${numbers.join(', ')} указан несколько раз — каждый номер порта можно добавить только один раз.` : ''
-})
+function addRow() {
+  emit('update:modelValue', [...sortedForAdd(), emptyRow()])
+}
 
 function removeRow(index: number) {
   emit(
