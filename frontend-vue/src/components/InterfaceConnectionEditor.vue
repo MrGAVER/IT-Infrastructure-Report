@@ -26,7 +26,16 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { DEVICE_OPTIONS_PAGE_SIZE, fetchAllFreeInterfaces, fetchDeviceOptionsPage, type DeviceOption, type FreeInterface } from '../api/deviceConnectivity'
 import type { DeviceInterface, InterfaceConnectionDraft } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
-import { SELF_DEVICE, connectionConfigDiffs, emptyConnectionDraft, peerRef, type SelfPortCandidate } from '../utils/interfaceConnections'
+import {
+  SELF_DEVICE,
+  connectionConfigDiffKinds,
+  connectionConfigDiffs,
+  emptyConnectionDraft,
+  peerRef,
+  type ConfigDiffKind,
+  type PeerConfigTarget,
+  type SelfPortCandidate,
+} from '../utils/interfaceConnections'
 import SearchableSelect from './SearchableSelect.vue'
 
 const props = withDefaults(
@@ -45,10 +54,21 @@ const props = withDefaults(
     selfPorts?: readonly SelfPortCandidate[]
     /** Порты других устройств, которые этой формой освобождаются (подключение снято или переставлено). */
     freedPeerIds?: ReadonlySet<string>
+    /** Родитель применяет конфигурацию (запрос или каскад в процессе) — кнопки «Применить…» недоступны. */
+    applying?: boolean
+    /** Счётчик изменений портов соседей, сделанных родителем (применили конфигурацию соседу): при росте порты
+     * соседа перечитываются с сервера, иначе панель расхождения показывала бы уже устранённое. */
+    peersVersion?: number
   }>(),
-  { takenPeerIds: () => new Set<string>(), selfPorts: undefined, freedPeerIds: () => new Set<string>() },
+  { takenPeerIds: () => new Set<string>(), selfPorts: undefined, freedPeerIds: () => new Set<string>(), applying: false, peersVersion: 0 },
 )
-const emit = defineEmits<{ 'update:modelValue': [value: InterfaceConnectionDraft | null] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: InterfaceConnectionDraft | null]
+  /** «Применить конфигурацию соседа»: порту этой строки — назначение и/или режим соседа (kinds — что расходится). */
+  'apply-peer-config': [peer: PeerConfigTarget, kinds: ConfigDiffKind[]]
+  /** «Применить текущую конфигурацию»: соседу — назначение и/или режим порта этой строки. */
+  'apply-config-to-peer': [peer: PeerConfigTarget, kinds: ConfigDiffKind[]]
+}>()
 
 const catalogs = useCatalogsStore()
 
@@ -161,7 +181,7 @@ async function loadPeerPorts() {
     if (seq === loadSeq) peersLoading.value = false
   }
 }
-watch(() => [props.modelValue?.peer_device_id ?? '', selfSelected.value, [...props.freedPeerIds].sort().join(',')], loadPeerPorts, { immediate: true })
+watch(() => [props.modelValue?.peer_device_id ?? '', selfSelected.value, [...props.freedPeerIds].sort().join(','), props.peersVersion], loadPeerPorts, { immediate: true })
 
 const peerInterfaces = computed(() => {
   const draft = props.modelValue
@@ -178,13 +198,21 @@ const noFreePortsHint = computed(() => {
     : 'У выбранного устройства нет свободных сохранённых портов: все заняты активными подключениями или ещё не созданы.'
 })
 
-const configDiffs = computed(() => {
+// Сосед выбранного подключения и его конфигурация. Порт этого же устройства сверяем по текущим значениям
+// строки формы, а не по сохранённым данным; порт другого устройства — по данным сервера.
+const peerTarget = computed<PeerConfigTarget | null>(() => {
   const draft = props.modelValue
-  if (!draft) return []
-  // Порт этого же устройства сверяем по текущим значениям строки формы, а не по сохранённым данным.
-  const peer = selfSelected.value ? props.selfPorts?.find((c) => c.value === peerRef(draft))?.config : peerPorts.value.find((p) => p.id === draft.peer_interface_id)
-  return peer ? connectionConfigDiffs(props.config, peer) : []
+  const ref = draft ? peerRef(draft) : ''
+  if (!draft || !ref) return null
+  if (selfSelected.value) {
+    const candidate = props.selfPorts?.find((c) => c.value === ref)
+    return candidate ? { ref, label: `«${candidate.label}» (это устройство)`, config: candidate.config, interfaceId: candidate.interfaceId, rowKey: candidate.rowKey, isSelf: true } : null
+  }
+  const port = peerPorts.value.find((p) => p.id === draft.peer_interface_id)
+  return port ? { ref, label: `«${port.name}» (${draft.peer_device_name ?? 'другое устройство'})`, config: port, interfaceId: port.id, isSelf: false } : null
 })
+const configDiffs = computed(() => (peerTarget.value ? connectionConfigDiffs(props.config, peerTarget.value.config) : []))
+const configDiffKinds = computed(() => (peerTarget.value ? connectionConfigDiffKinds(props.config, peerTarget.value.config) : []))
 
 function patch(change: Partial<InterfaceConnectionDraft>) {
   if (!props.modelValue) return
@@ -255,9 +283,19 @@ function onPeerPortChange(value: string) {
       <small v-if="peersLoading" class="connection-hint connection-loading">Загрузка портов устройства…</small>
       <small v-else-if="peersError" class="connection-hint connection-error" role="alert">Не удалось загрузить порты устройства: {{ peersError }}</small>
       <small v-else-if="noFreePortsHint" class="connection-hint">{{ noFreePortsHint }}</small>
-      <div v-if="configDiffs.length" class="connection-diffs" role="status">
+      <div v-if="peerTarget && configDiffs.length" class="connection-diffs" role="alert">
         <svg class="icon conflict-icon"><use href="/icons.svg#i-alert" /></svg>
-        <span>Конфигурация порта расходится с портом соседа — {{ configDiffs.join('; ') }}. Сохранить можно: расхождение будет отмечено на экране «Подключения».</span>
+        <div class="connection-diffs-body">
+          <span>Конфигурация порта расходится с портом соседа — {{ configDiffs.join('; ') }}. Сохранить можно: расхождение будет отмечено на экране «Подключения».</span>
+          <div class="connection-diffs-actions">
+            <button type="button" class="btn btn-secondary" :disabled="applying" title="Этому порту — назначение и режим порта соседа" @click="emit('apply-peer-config', peerTarget, configDiffKinds)">
+              Применить конфигурацию соседа
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="applying" title="Соседу — назначение и режим этого порта" @click="emit('apply-config-to-peer', peerTarget, configDiffKinds)">
+              Применить текущую конфигурацию
+            </button>
+          </div>
+        </div>
       </div>
     </template>
   </div>
@@ -319,6 +357,20 @@ function onPeerPortChange(value: string) {
   gap: 6px;
   font-size: 11.5px;
   color: var(--ink);
+}
+.connection-diffs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.connection-diffs-actions .btn {
+  padding: 5px 9px;
+  font-size: 11.5px;
+}
+.connection-diffs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .connection-diffs .conflict-icon {
   flex: none;

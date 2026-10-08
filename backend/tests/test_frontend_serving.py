@@ -3,7 +3,7 @@
 frontend-vue/README.md; vanilla-фронтенд и '/legacy' удалены в 2.59.0, см. запись в changelog).
 
 Каталог фронтенда подменяется на временный через monkeypatch модульных констант
-(app.api.system.FRONTEND_DIR, app.main.FRONTEND_DIR), а не читается из реально собранного
+(app.api.frontend_assets.FRONTEND_DIR, app.main.FRONTEND_DIR), а не читается из реально собранного
 frontend-vue/dist — иначе тест зависел бы от того, был ли уже выполнен `npm run build` в
 frontend-vue, а в CI pytest сейчас запускается раньше этого шага (см. .github/workflows/ci.yml).
 StaticFiles-маунт '/assets' не тестируется отдельно — он создаётся один раз при импорте
@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app import main as app_main
-from app.api import system as system_module
+from app.api import frontend_assets as assets_module
 
 
 def _write_index(directory: Path, marker: str) -> None:
@@ -26,7 +26,7 @@ def _write_index(directory: Path, marker: str) -> None:
 def test_root_serves_vue_frontend_as_primary(client, tmp_path, monkeypatch):
     vue_dir = tmp_path / 'vue-dist'
     _write_index(vue_dir, 'VUE-PRIMARY')
-    monkeypatch.setattr(app_main, 'FRONTEND_DIR', vue_dir)  # `/` обслуживает main.spa_fallback — отдельного маршрута в system.py больше нет
+    monkeypatch.setattr(app_main, 'FRONTEND_DIR', vue_dir)  # `/` обслуживает main.spa_fallback — отдельного маршрута в api больше нет
 
     r = client.get('/')
 
@@ -62,7 +62,7 @@ def test_client_side_route_falls_back_to_vue_index_html(client, tmp_path, monkey
     """vue-router работает в режиме createWebHistory() (см. frontend-vue/src/router/index.ts) —
     прямой переход или обновление страницы на /vms должны вернуть index.html, а не 404,
     чтобы роутер сам открыл нужный экран на клиенте (как try_files в типичном nginx-конфиге
-    для SPA). Fallback-роут объявлен в app.main, не в api/system.py — см. комментарий там."""
+    для SPA). Fallback-роут объявлен в app.main, не в api/frontend_assets.py — см. комментарий там."""
     vue_dir = tmp_path / 'vue-dist'
     _write_index(vue_dir, 'VUE-PRIMARY')
     monkeypatch.setattr(app_main, 'FRONTEND_DIR', vue_dir)
@@ -86,7 +86,7 @@ def test_icons_svg_served_from_frontend_dir(client, tmp_path, monkeypatch):
     vue_dir = tmp_path / 'vue-dist'
     vue_dir.mkdir(parents=True, exist_ok=True)
     (vue_dir / 'icons.svg').write_text('<svg></svg>', encoding='utf-8')
-    monkeypatch.setattr(system_module, 'FRONTEND_DIR', vue_dir)
+    monkeypatch.setattr(assets_module, 'FRONTEND_DIR', vue_dir)
 
     r = client.get('/icons.svg')
 
@@ -95,7 +95,7 @@ def test_icons_svg_served_from_frontend_dir(client, tmp_path, monkeypatch):
 
 
 def test_icons_svg_missing_returns_404(client, tmp_path, monkeypatch):
-    monkeypatch.setattr(system_module, 'FRONTEND_DIR', tmp_path / 'empty')
+    monkeypatch.setattr(assets_module, 'FRONTEND_DIR', tmp_path / 'empty')
 
     r = client.get('/icons.svg')
 

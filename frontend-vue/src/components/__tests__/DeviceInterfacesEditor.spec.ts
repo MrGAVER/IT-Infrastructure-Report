@@ -1694,3 +1694,299 @@ describe('DeviceInterfacesEditor.vue — подключения между по�
   })
 })
 
+describe('DeviceInterfacesEditor.vue — расхождение с соседом при редактировании подключения: применить конфигурацию соседа или текущую', () => {
+  const connected = { peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+  const toRow = (key: string) => ({ peer_device_id: '__self__', peer_interface_id: '', peer_row_key: key, connection_type_id: 'ct-1', description: '' })
+  const row = (name: string, extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({ ...emptyRow(), name, ...extra })
+  const lastRows = (wrapper: ReturnType<typeof mount>) => wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]
+  const toastText = () => useToast().toasts.map((t) => t.message).join(' | ')
+
+  interface Call {
+    url: string
+    method: string
+    body?: Record<string, unknown>
+  }
+
+  // Фейковый сервер: порт соседа b-1 (свободные порты sw-b) с изменяемой конфигурацией; PUT на ресурс interfaces
+  // меняет её, поэтому после «Применить текущую конфигурацию» повторное чтение портов соседа уже без расхождения.
+  function stubServer(neighbor: { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk' }, cascadePreview?: () => Response) {
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : undefined
+        calls.push({ url, method, body })
+        if (method === 'PUT' && url.endsWith('/resources/interfaces/b-1')) {
+          Object.assign(neighbor, body)
+          return jsonResponse({ id: 'b-1', ...neighbor })
+        }
+        if (url.includes('/vlan-mode-cascade/preview') && cascadePreview) return cascadePreview()
+        if (/\/devices\/dev-b\/free-interfaces/.test(url)) {
+          return jsonResponse({ items: [{ id: 'b-1', name: 'Gi0/1', occupied: false, ...neighbor }], total: 1, offset: 0, limit: 200 })
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 200 })
+      }),
+    )
+    return calls
+  }
+
+  // Родитель держит v-model: изменения строк возвращаются в props, как в DeviceFormModal.
+  function mountLive(rows: InterfaceDraftRow[], extra: Record<string, unknown> = {}) {
+    useCatalogsStore().items['interfaces'] = [] as never
+    const wrapper = mount(DeviceInterfacesEditor, {
+      props: {
+        modelValue: rows,
+        typeOptions,
+        speedOptions,
+        vlanOptions,
+        deviceId: 'dev-1',
+        editConnections: true,
+        ...extra,
+        'onUpdate:modelValue': (value: InterfaceDraftRow[]) => wrapper.setProps({ modelValue: value }),
+      },
+    })
+    return wrapper
+  }
+  const applyButtons = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('.connection-diffs-actions button')
+
+  beforeEach(() => useToast().toasts.splice(0))
+
+  it('«Применить конфигурацию соседа»: порту сразу и назначение, и режим соседа (правка назначения не теряется при смене режима)', async () => {
+    stubServer({ is_management: true, is_data_transfer: true, vlan_mode: 'trunk' })
+    const wrapper = mountLive([row('eth0', { key: 'k0', connection: connected })], { deviceId: null })
+    await expandRow(wrapper)
+    await flushPromises()
+    expect(wrapper.find('.connection-diffs').exists()).toBe(true) // сообщение появилось само, до сохранения формы
+
+    await applyButtons(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    expect(lastRows(wrapper)[0]).toMatchObject({ is_management: true, is_data_transfer: true, vlan_mode: 'trunk' })
+    expect(toastText()).toContain('применена конфигурация соседа — сохраните форму')
+    expect(wrapper.find('.connection-diffs').exists()).toBe(false)
+  })
+
+  it('«Применить текущую конфигурацию» соседу на другом устройстве: PUT назначения сразу, строка формы не меняется, панель обновляется', async () => {
+    const calls = stubServer({ is_management: true, is_data_transfer: false, vlan_mode: 'access' })
+    const wrapper = mountLive([row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, vlan_mode: 'access', connection: connected })])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/interfaces/b-1'))
+    expect(put?.body).toEqual({ is_management: false, is_data_transfer: true })
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined() // порт этой строки не менялся
+    expect(wrapper.emitted('neighbors-changed')).toHaveLength(1)
+    expect(toastText()).toContain('изменено сразу')
+    expect(wrapper.find('.connection-diffs').exists()).toBe(false) // порты соседа перечитаны — расхождения нет
+  })
+
+  it('соседу на другом устройстве режим уходит каскадом от порта соседа: предпросмотр с режимом ЭТОГО порта, назначение — отдельным PUT', async () => {
+    const calls = stubServer({ is_management: true, is_data_transfer: true, vlan_mode: 'access' }, () => jsonResponse(makePlan({ target_mode: 'trunk', start_interface_id: 'b-1' })))
+    const wrapper = mountLive([row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, vlan_mode: 'trunk', connection: connected })])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+
+    expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/interfaces/b-1'))?.body).toEqual({ is_management: false, is_data_transfer: true })
+    const preview = calls.find((c) => c.url.endsWith('/interfaces/b-1/vlan-mode-cascade/preview'))
+    expect(preview?.body).toMatchObject({ mode: 'trunk' })
+  })
+
+  it('сосед — другой порт этого устройства: правится его строка черновика (назначение и режим), запросов на запись нет', async () => {
+    const calls = stubServer({ is_management: false, is_data_transfer: false, vlan_mode: 'access' })
+    const rows = [
+      row('eth0', { key: 'kA', is_management: true, is_data_transfer: false, vlan_mode: 'access', connection: toRow('kB') }),
+      row('eth1', { key: 'kB', is_management: false, is_data_transfer: true, vlan_mode: 'trunk', connection: toRow('kA') }),
+    ]
+    const wrapper = mountLive(rows, { deviceId: null })
+    await expandRow(wrapper, 0)
+    await flushPromises()
+    expect(wrapper.find('.connection-diffs').exists()).toBe(true)
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+
+    expect(lastRows(wrapper)[1]).toMatchObject({ name: 'eth1', is_management: true, is_data_transfer: false, vlan_mode: 'access' })
+    expect(lastRows(wrapper)[0]).toMatchObject({ name: 'eth0', is_management: true, vlan_mode: 'access' }) // текущий порт не тронут
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    expect(toastText()).toContain('применена текущая конфигурация — сохраните форму')
+    expect(wrapper.find('.connection-diffs').exists()).toBe(false)
+  })
+
+  it('режим не сохранённого порта, заданный его группой, не меняется: предупреждение вместо правки (назначение при этом применяется)', async () => {
+    stubServer({ is_management: true, is_data_transfer: false, vlan_mode: 'trunk' })
+    const group: InterfaceGroupDraft = { key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }
+    const wrapper = mountLive([row('eth0', { key: 'k0', group_key: 'g1', vlan_mode: 'access', connection: connected })], { deviceId: null, groups: [group] })
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    expect(lastRows(wrapper)[0]).toMatchObject({ is_management: true, vlan_mode: 'access' })
+    expect(toastText()).toContain('задан группой «Серверные»')
+  })
+
+  it('сервер отклонил запись соседу: ошибка в уведомлении, расхождение остаётся, кнопки снова доступны', async () => {
+    useCatalogsStore().items['interfaces'] = [] as never
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'PUT') return jsonResponse({ detail: 'Нет прав на изменение порта' }, 403)
+        return jsonResponse({ items: [{ id: 'b-1', name: 'Gi0/1', occupied: false, is_management: true, is_data_transfer: false, vlan_mode: 'access' }], total: 1, offset: 0, limit: 200 })
+      }),
+    )
+    const wrapper = mountLive([row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, connection: connected })])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+
+    expect(toastText()).toContain('Нет прав на изменение порта')
+    expect(wrapper.find('.connection-diffs').exists()).toBe(true)
+    expect(applyButtons(wrapper).every((b) => b.attributes('disabled') === undefined)).toBe(true)
+    expect(wrapper.emitted('neighbors-changed')).toBeUndefined()
+  })
+
+  describe('проверка расхождений перед сохранением формы (reviewNeighborMismatches)', () => {
+    const snapshot = (is_management: boolean) => new Map([['if-1', { is_management, is_data_transfer: true, vlan_mode: 'access' as const }]])
+    const dialog = (wrapper: ReturnType<typeof mount>) => wrapper.find('.review-modal')
+    const dialogButton = (wrapper: ReturnType<typeof mount>, text: string) => {
+      const button = wrapper.findAll('.review-modal button').find((b) => b.text() === text)
+      if (!button) throw new Error(`В диалоге нет кнопки «${text}»`)
+      return button
+    }
+    // Порт if-1 «Управление» нет, «Передача данных» есть; сосед b-1 — наоборот по «Управлению».
+    const savedRow = (extra: Partial<InterfaceDraftRow> = {}) => row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, vlan_mode: 'access', connection: connected, ...extra })
+    const NEIGHBOR = { is_management: true, is_data_transfer: true, vlan_mode: 'access' as const }
+    type ReviewVm = { reviewNeighborMismatches: (initial?: ReadonlyMap<string, { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk' }>) => Promise<boolean> }
+    const review = (wrapper: ReturnType<typeof mount>, initial?: Parameters<ReviewVm['reviewNeighborMismatches']>[0]) => (wrapper.vm as unknown as ReviewVm).reviewNeighborMismatches(initial)
+
+    it('нет редактирования подключений (окно «Управлять портами») — сразу true, к серверу не обращается', async () => {
+      const calls = stubServer({ ...NEIGHBOR })
+      const wrapper = mountLive([savedRow()], { editConnections: false })
+      expect(await review(wrapper)).toBe(true)
+      expect(calls).toEqual([])
+      expect(dialog(wrapper).exists()).toBe(false)
+    })
+
+    it('прежнее, никем не тронутое расхождение (подключение и конфигурация как при открытии формы) диалог не поднимает', async () => {
+      stubServer({ ...NEIGHBOR })
+      const wrapper = mountLive([savedRow()], { connectionBaseline: new Map([['if-1', connected]]) })
+      expect(await review(wrapper, snapshot(false))).toBe(true)
+      expect(dialog(wrapper).exists()).toBe(false)
+    })
+
+    it('конфигурация сохранённого порта изменена в форме — расхождение с соседом показано, оба вида сразу в одной строке', async () => {
+      stubServer({ ...NEIGHBOR, vlan_mode: 'trunk' })
+      const wrapper = mountLive([savedRow()], { connectionBaseline: new Map([['if-1', connected]]) })
+      const result = review(wrapper, snapshot(true)) // при открытии у порта было «Управление» — теперь снято
+      await flushPromises()
+
+      expect(dialog(wrapper).attributes('role')).toBe('alertdialog')
+      expect(wrapper.findAll('.review-item')).toHaveLength(1)
+      expect(dialog(wrapper).text()).toContain('Порт «eth0» ↔ «Gi0/1» (sw-b)')
+      expect(dialog(wrapper).text()).toContain('«Управление»: нет / у соседа да')
+      expect(dialog(wrapper).text()).toContain('режим порта: access / у соседа trunk')
+      expect(dialog(wrapper).text()).toContain('изменятся сразу') // сосед на другом устройстве
+      await dialogButton(wrapper, 'Сохранить как есть').trigger('click')
+      expect(await result).toBe(true)
+    })
+
+    it('«Сохранить как есть» и «Вернуться к форме»/крестик/клик мимо окна: true или false, окно закрыто, ничего не записано', async () => {
+      const calls = stubServer({ ...NEIGHBOR })
+      const open = async () => {
+        const wrapper = mountLive([row('eth0', { key: 'k0', connection: connected })], { deviceId: null })
+        const result = review(wrapper)
+        await flushPromises()
+        expect(dialog(wrapper).exists()).toBe(true)
+        return { wrapper, result }
+      }
+
+      const keep = await open()
+      await dialogButton(keep.wrapper, 'Сохранить как есть').trigger('click')
+      expect(await keep.result).toBe(true)
+      expect(dialog(keep.wrapper).exists()).toBe(false)
+
+      const back = await open()
+      await dialogButton(back.wrapper, 'Вернуться к форме').trigger('click')
+      expect(await back.result).toBe(false)
+
+      const cross = await open()
+      await cross.wrapper.find('.review-modal .icon-btn').trigger('click')
+      expect(await cross.result).toBe(false)
+
+      const outside = await open()
+      await outside.wrapper.find('.overlay').trigger('mousedown')
+      await outside.wrapper.find('.overlay').trigger('click')
+      expect(await outside.result).toBe(false)
+      expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    })
+
+    it('«Применить текущую конфигурацию» соседу на другом устройстве: PUT, расхождение пропадает из списка, остаётся «Сохранить»', async () => {
+      const calls = stubServer({ ...NEIGHBOR })
+      const wrapper = mountLive([row('eth0', { key: 'k0', is_management: false, is_data_transfer: true, connection: connected })], { deviceId: null })
+      const result = review(wrapper)
+      await flushPromises()
+
+      await dialogButton(wrapper, 'Применить текущую конфигурацию').trigger('click')
+      await flushPromises()
+
+      expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/interfaces/b-1'))?.body).toEqual({ is_management: false, is_data_transfer: true })
+      expect(wrapper.findAll('.review-item')).toHaveLength(0)
+      expect(dialog(wrapper).text()).toContain('Расхождений не осталось')
+      await dialogButton(wrapper, 'Сохранить').trigger('click')
+      expect(await result).toBe(true)
+    })
+
+    it('«Применить конфигурацию соседа» меняет строку формы, расхождение пропадает, соседа на сервере не трогает', async () => {
+      const calls = stubServer({ ...NEIGHBOR })
+      const wrapper = mountLive([row('eth0', { key: 'k0', is_management: false, is_data_transfer: true, connection: connected })], { deviceId: null })
+      const result = review(wrapper)
+      await flushPromises()
+
+      await dialogButton(wrapper, 'Применить конфигурацию соседа').trigger('click')
+      await flushPromises()
+
+      expect(lastRows(wrapper)[0]).toMatchObject({ is_management: true, is_data_transfer: true })
+      expect(wrapper.findAll('.review-item')).toHaveLength(0)
+      expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+      await dialogButton(wrapper, 'Сохранить').trigger('click')
+      expect(await result).toBe(true)
+    })
+
+    it('два порта этого устройства, подключённых друг к другу, — одно расхождение, а не два; сосед правится в форме', async () => {
+      stubServer({ ...NEIGHBOR })
+      const rows = [
+        row('eth0', { key: 'kA', is_management: true, vlan_mode: 'access', connection: toRow('kB') }),
+        row('eth1', { key: 'kB', is_management: false, vlan_mode: 'trunk', connection: toRow('kA') }),
+      ]
+      const wrapper = mountLive(rows, { deviceId: null })
+      const result = review(wrapper)
+      await flushPromises()
+      expect(wrapper.findAll('.review-item')).toHaveLength(1)
+
+      await dialogButton(wrapper, 'Применить текущую конфигурацию').trigger('click')
+      await flushPromises()
+      expect(lastRows(wrapper)[1]).toMatchObject({ name: 'eth1', is_management: true, vlan_mode: 'access' })
+      expect(wrapper.findAll('.review-item')).toHaveLength(0)
+      await dialogButton(wrapper, 'Сохранить').trigger('click')
+      expect(await result).toBe(true)
+    })
+
+    it('не удалось прочитать порты соседа — сохранение не блокируется (true), ошибка в уведомлении, диалога нет', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Сервер недоступен' }, 500)))
+      const wrapper = mountLive([row('eth0', { key: 'k0', connection: connected })], { deviceId: null })
+      expect(await review(wrapper)).toBe(true)
+      expect(dialog(wrapper).exists()).toBe(false)
+      expect(toastText()).toContain('Сервер недоступен')
+    })
+  })
+})

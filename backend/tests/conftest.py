@@ -35,14 +35,70 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 
-@pytest.fixture()
-def db_session():
-    """Свежая in-memory SQLite БД на каждый тест (изолированный engine, а не общий app.db.engine,
-    чтобы тесты не делили состояние друг с другом и с другими файлами тестов).
+# Серверный режим приложения работает на PostgreSQL (docker-compose.yml), а по умолчанию тесты идут на SQLite.
+# INFRA_REGISTRY_TEST_DATABASE_URL переключает ВСЕ фикстуры ниже на PostgreSQL, например:
+#   INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest backend/tests
+# База должна быть пустой и принадлежать тестам: схема пересоздаётся при старте, а между тестами все таблицы
+# очищаются (TRUNCATE ... CASCADE). Тесты, которым нужна именно SQLite (миграции на файле-БД), помечены
+# @pytest.mark.sqlite_only и при этом режиме пропускаются.
+TEST_DATABASE_URL = os.environ.get("INFRA_REGISTRY_TEST_DATABASE_URL", "").strip()
+IS_POSTGRES = TEST_DATABASE_URL.startswith("postgresql")
 
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "sqlite_only: тест зависит от SQLite и пропускается при INFRA_REGISTRY_TEST_DATABASE_URL")
+
+
+def pytest_collection_modifyitems(config, items):
+    if not IS_POSTGRES:
+        return
+    skip = pytest.mark.skip(reason="тест только для SQLite (INFRA_REGISTRY_TEST_DATABASE_URL задан)")
+    for item in items:
+        if "sqlite_only" in item.keywords:
+            item.add_marker(skip)
+
+
+@pytest.fixture(scope="session")
+def _postgres_engine():
+    """Один движок PostgreSQL на весь прогон; схема создаётся заново из моделей (как create_all у SQLite-фикстуры)."""
+    from app.models import Base
+
+    engine = create_engine(TEST_DATABASE_URL, future=True, pool_pre_ping=True)
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
+
+
+def _truncate_all(engine) -> None:
+    from app.models import Base
+
+    names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
+    with engine.begin() as connection:
+        # lock_timeout: сессия, забытая тестом внутри транзакции, не должна вешать весь прогон на TRUNCATE.
+        connection.exec_driver_sql("SET LOCAL lock_timeout = '15s'")
+        connection.exec_driver_sql(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE")
+
+
+@pytest.fixture()
+def db_session(request):
+    """Свежая БД на каждый тест: in-memory SQLite (по умолчанию) или очищенный PostgreSQL (см. выше).
+
+    SQLite: изолированный engine, а не общий app.db.engine, чтобы тесты не делили состояние друг с другом.
     poolclass=StaticPool заставляет SQLAlchemy держать одно и то же физическое соединение —
     без этого каждое новое соединение к 'sqlite:///:memory:' получает СВОЮ отдельную пустую БД,
     и созданные здесь таблицы были бы не видны внутри запросов, сделанных через TestClient."""
+    if IS_POSTGRES:
+        engine = request.getfixturevalue("_postgres_engine")
+        _truncate_all(engine)
+        SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+        session = SessionFactory()
+        try:
+            yield session
+        finally:
+            session.close()
+        return
+
     from app.models import Base
 
     engine = create_engine(

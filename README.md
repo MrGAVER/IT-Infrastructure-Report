@@ -532,8 +532,11 @@ SIEM, количество физических портов, адрес и зд
 ```text
 backend/
   app/
-    api/            — роутеры FastAPI (system, resources, devices, report_builder)
+    api/            — роутеры FastAPI: system (health, диагностика), resources (generic CRUD), devices,
+                        vlan, device_stacks, vms, reports, listings, frontend_assets, report_builder, auth, ...
+                        (обработчики только разбирают запрос и вызывают services/)
     services/        — crud/ (пакет: generic CRUD и синхронизация вложенных коллекций, см. ниже),
+                        vlan_operations (VLAN: панель, домены, копирование, массовое назначение), device_stacks,
                         validation, serialization, catalogs, computed, constants,
                         report_meta/report_engine/report_grid/report_render (конструктор отчётов)
     main.py          — application factory
@@ -645,10 +648,24 @@ docker-compose.yml
   потеряло UNIQUE на несколько миграций и ни один тест этого не заметил). При добавлении
   `batch_alter_table()` на SQLite стоит вручную проверять итоговую DDL (`sqlite_master`), а не
   полагаться только на зелёный pytest.
-- **CI тестирует только SQLite.** Серверный режим работает на PostgreSQL (`FOR UPDATE`, частичные индексы,
-  порядок строк), и его поведение проверено только рассуждением; job с `services: postgres` не добавлен — тестовые
-  фикстуры (`backend/tests/conftest.py`) создают SQLite-движок напрямую. Образ при этом не только собирается, но и
-  запускается (smoke-тест `/api/v1/health` и `/` в CI, на SQLite внутри контейнера).
+- **Цепочка миграций Alembic не проходит на чистой PostgreSQL** (проверено на PostgreSQL 16, 2026-10-07).
+  `alembic upgrade head` на пустой БД падает: миграция `e8c2f1a9b430` сравнивает булев столбец с целым `1`, а
+  `6f4b2c8d1a90` выполняет `PRAGMA foreign_keys` и создаёт таблицы сырым SQLite-DDL (`DATETIME`); такой же сырой
+  SQLite-код есть ещё в 8 миграциях из 57 (`38e9b2624a53`, `944bd490d967`, `a1b7c9d3e502`, `b7f2c1e5a904`,
+  `c4e8a7d91b20`, `c9a4e7d2f610`, `d8e35a1c7f60`, `f4a29c7e1d60`). Контейнер из `docker-compose.yml` выполняет
+  `alembic upgrade head` при старте, поэтому **первый запуск на пустом томе PostgreSQL не стартует**. SQLite (EXE,
+  локально) не затронут; базу PostgreSQL, уже находящуюся на актуальной ревизии, это не касается — только новые
+  установки. Миграции `a3e7c1d9b406` и `b5d2f8a1c673` отдельно проверены на PostgreSQL 16 (в том числе очистка
+  дублей слота стойки и откат). Кроме того, модели и миграции расходятся даже на SQLite (`alembic check`: недостающие
+  индексы `ix_vlan_domain_devices_*`, `ix_vlan_domains_source_device_id`, ограничение `uq_vlan_domain_id`, лишняя
+  таблица `virtualization_platforms`). Решение (базовая ревизия для пустой БД либо переписывание девяти миграций под
+  оба диалекта) зависит от того, как создавались существующие базы, и пока не принято.
+- **Тесты backend идут и на SQLite, и на PostgreSQL.** Job `test-postgres` в CI выполняет весь набор на PostgreSQL 16
+  (`INFRA_REGISTRY_TEST_DATABASE_URL`; схема создаётся из моделей, между тестами таблицы очищаются). Локально:
+  `INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest`. Тесты с пометкой
+  `@pytest.mark.sqlite_only` в этом режиме пропускаются.
+- **Образ Docker не только собирается, но и запускается** (smoke-тест `/api/v1/health` и `/` в CI — на SQLite
+  внутри контейнера, поэтому PostgreSQL и цепочку миграций на ней он не проверяет).
 - **Миграция `38e9b2624a53` (2.64.0) необратимо удаляет данные.** Перед `alembic upgrade head` на
   реальной БД, где уже есть устройства типов `Сетевое оборудование`/`Средство защиты информации`,
   нужно явное подтверждение, что эти устройства и вся их «дочерняя» история (интерфейсы,

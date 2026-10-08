@@ -175,9 +175,43 @@ export function validateConnectionDrafts(rows: readonly InterfaceDraftRow[], bas
   return null
 }
 
-type PortConfigLike = Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'>
+export type PortConfigLike = Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'>
 
 const yesNo = (v: boolean) => (v ? 'да' : 'нет')
+
+/** Вид расхождения с соседом: flags — «Управление»/«Передача данных», vlan_mode — режим порта (Trunk/Access). */
+export type ConfigDiffKind = 'flags' | 'vlan_mode'
+
+/**
+ * Какие виды расхождений есть между портом формы и портом соседа (пусто — конфигурации совпадают).
+ * Те же сравнения, что у connectionConfigDiffs, но структурно — для кнопок «Применить…».
+ *
+ * @example
+ * connectionConfigDiffKinds({ is_management: true, is_data_transfer: false, vlan_mode: 'access' },
+ *   { is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }) // ['vlan_mode']
+ */
+export function connectionConfigDiffKinds(own: PortConfigLike, peer: PortConfigLike): ConfigDiffKind[] {
+  const kinds: ConfigDiffKind[] = []
+  if (own.is_management !== peer.is_management || own.is_data_transfer !== peer.is_data_transfer) kinds.push('flags')
+  if (own.vlan_mode !== peer.vlan_mode) kinds.push('vlan_mode')
+  return kinds
+}
+
+/** Сосед, выбранный в блоке «Подключение», как цель действий «Применить конфигурацию…» (родитель — редактор портов). */
+export interface PeerConfigTarget {
+  /** peerRef(): id сохранённого порта либо `row:<key>` для ещё не сохранённой строки формы. */
+  ref: string
+  /** Подпись для сообщений и окна подтверждения: «b1» (CAS-GB) либо «eth2 (строка 3)» (это устройство). */
+  label: string
+  /** Конфигурация соседа на данный момент: порт другого устройства — с сервера, порт этого устройства — из формы. */
+  config: PortConfigLike
+  /** Id сохранённого порта соседа (нет у ещё не сохранённой строки этого устройства). */
+  interfaceId?: string
+  /** Ключ строки формы — только для не сохранённого порта этого устройства. */
+  rowKey?: string
+  /** Сосед — другой порт редактируемого устройства (правится в черновике), а не порт чужого устройства (запрос сразу). */
+  isSelf: boolean
+}
 
 /**
  * Чем конфигурация порта формы отличается от порта соседа: «Управление», «Передача данных» и режим

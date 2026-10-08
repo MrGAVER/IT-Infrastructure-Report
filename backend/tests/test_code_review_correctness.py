@@ -440,9 +440,9 @@ class TestReportFiles:
         assert cleanup_old_reports(tmp_path, max_age_days=0) == 0 and stale.exists()
 
     def test_generating_a_report_cleans_up_stale_files(self, client, tmp_path, monkeypatch):
-        from app.api import system
+        from app.api import reports
 
-        monkeypatch.setattr(system, "REPORT_DIR", tmp_path)
+        monkeypatch.setattr(reports, "REPORT_DIR", tmp_path)
         stale = tmp_path / "Старый_отчёт.xlsx"
         stale.write_bytes(b"x")
         os.utime(stale, (0, 0))

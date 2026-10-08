@@ -10,13 +10,19 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .config import ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
+from .api.device_stacks import router as device_stacks_router
 from .api.devices import router as devices_router
 from .api.diagrams import router as diagrams_router
+from .api.frontend_assets import router as frontend_assets_router
+from .api.listings import router as listings_router
 from .api.port_config import router as port_config_router
 from .api.port_sync import router as port_sync_router
 from .api.report_builder import router as report_builder_router
+from .api.reports import router as reports_router
 from .api.resources import router as resources_router
 from .api.system import router as system_router
+from .api.vlan import router as vlan_router
+from .api.vms import router as vms_router
 from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
 from .services.catalogs import seed_defaults
@@ -54,7 +60,14 @@ def install_http_security(app: FastAPI, *, allowed_hosts: list[str], cors_origin
 app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
 install_http_security(app, allowed_hosts=ALLOWED_HOSTS, cors_origins=CORS_ALLOWED_ORIGINS)
 app.include_router(auth_router)
+# Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
 app.include_router(system_router)
+app.include_router(listings_router)
+app.include_router(vms_router)
+app.include_router(vlan_router)
+app.include_router(reports_router)
+app.include_router(device_stacks_router)
+app.include_router(frontend_assets_router)
 app.include_router(devices_router)
 app.include_router(resources_router)
 app.include_router(port_config_router)

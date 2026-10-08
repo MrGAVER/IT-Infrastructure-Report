@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
 import type { InterfaceConnectionDraft } from '../../api/types'
 import { useCatalogsStore } from '../../stores/catalogs'
-import { SELF_DEVICE, type SelfPortCandidate } from '../../utils/interfaceConnections'
+import { SELF_DEVICE, type PeerConfigTarget, type SelfPortCandidate } from '../../utils/interfaceConnections'
 
 const config = { is_management: false, is_data_transfer: true, vlan_mode: 'trunk' as const }
 
@@ -218,6 +218,78 @@ describe('InterfaceConnectionEditor.vue', () => {
     serverPorts['dev-b'] = [port('b-1', 'Gi0/1')]
     const same = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
     expect(same.find('.connection-diffs').exists()).toBe(false)
+  })
+
+  describe('расхождение с соседом: сообщение и кнопки «Применить…» прямо в блоке «Подключение»', () => {
+    const applyButtons = (w: VueWrapper) => w.findAll('.connection-diffs-actions button')
+
+    it('при расхождении — предупреждение (role=alert) и две кнопки; при совпадении — ни того, ни другого', async () => {
+      serverPorts['dev-b'] = [port('b-1', 'Gi0/1', { is_management: true, vlan_mode: 'access' })]
+      const differ = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
+      expect(differ.find('.connection-diffs').attributes('role')).toBe('alert')
+      expect(applyButtons(differ).map((b) => b.text())).toEqual(['Применить конфигурацию соседа', 'Применить текущую конфигурацию'])
+
+      serverPorts['dev-b'] = [port('b-1', 'Gi0/1')]
+      const same = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
+      expect(same.find('.connection-diffs').exists()).toBe(false)
+      expect(applyButtons(same)).toHaveLength(0)
+    })
+
+    it('«Применить конфигурацию соседа» отдаёт родителю соседа и все расходящиеся виды: назначение и режим', async () => {
+      serverPorts['dev-b'] = [port('b-1', 'Gi0/1', { is_management: true, vlan_mode: 'access' })]
+      const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
+      await applyButtons(wrapper)[0].trigger('click')
+
+      const [peer, kinds] = wrapper.emitted('apply-peer-config')![0]
+      expect(peer).toMatchObject({
+        ref: 'b-1',
+        interfaceId: 'b-1',
+        isSelf: false,
+        label: '«Gi0/1» (sw-b)',
+        config: { is_management: true, is_data_transfer: true, vlan_mode: 'access' },
+      })
+      expect(kinds).toEqual(['flags', 'vlan_mode'])
+      expect(wrapper.emitted('apply-config-to-peer')).toBeUndefined()
+    })
+
+    it('«Применить текущую конфигурацию» — отдельное событие; расходится только режим — только он и уходит', async () => {
+      serverPorts['dev-b'] = [port('b-1', 'Gi0/1', { vlan_mode: 'access' })]
+      const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
+      await applyButtons(wrapper)[1].trigger('click')
+
+      const [peer, kinds] = wrapper.emitted('apply-config-to-peer')![0]
+      expect(peer).toMatchObject({ interfaceId: 'b-1', isSelf: false })
+      expect(kinds).toEqual(['vlan_mode'])
+      expect(wrapper.emitted('apply-peer-config')).toBeUndefined()
+    })
+
+    it('сосед — порт этого же устройства: в событии строка формы (rowKey, isSelf), конфигурация из формы', async () => {
+      const differ: SelfPortCandidate = { value: 'row:k3', label: 'eth2 (строка 3)', rowKey: 'k3', config: { is_management: true, is_data_transfer: true, vlan_mode: 'trunk' } }
+      const wrapper = await mountEditor(draft({ peer_device_id: 'dev-self', peer_interface_id: '', peer_row_key: 'k3' }), { selfPorts: [differ] })
+      await applyButtons(wrapper)[0].trigger('click')
+
+      const [peer, kinds] = wrapper.emitted('apply-peer-config')![0] as [PeerConfigTarget, string[]]
+      expect(peer).toMatchObject({ ref: 'row:k3', rowKey: 'k3', isSelf: true, label: '«eth2 (строка 3)» (это устройство)' })
+      expect(peer.interfaceId).toBeUndefined() // строка ещё не сохранена — id порта нет
+      expect(kinds).toEqual(['flags'])
+    })
+
+    it('пока родитель применяет конфигурацию (applying), обе кнопки недоступны — повторный клик не уйдёт', async () => {
+      serverPorts['dev-b'] = [port('b-1', 'Gi0/1', { vlan_mode: 'access' })]
+      const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }), { applying: true })
+      expect(applyButtons(wrapper).map((b) => b.attributes('disabled') !== undefined)).toEqual([true, true])
+    })
+
+    it('после изменения соседа родителем (peersVersion) порты соседа перечитываются и устранённое расхождение исчезает', async () => {
+      serverPorts['dev-b'] = [port('b-1', 'Gi0/1', { vlan_mode: 'access' })]
+      const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
+      expect(wrapper.find('.connection-diffs').exists()).toBe(true)
+
+      serverPorts['dev-b'] = [port('b-1', 'Gi0/1')] // родитель записал соседу режим текущего порта
+      await wrapper.setProps({ peersVersion: 1 })
+      await flushPromises()
+      expect(wrapper.find('.connection-diffs').exists()).toBe(false)
+    })
   })
 
   it('порты соседа больше одной страницы подгружаются целиком, а не обрезаются первой страницей', async () => {
