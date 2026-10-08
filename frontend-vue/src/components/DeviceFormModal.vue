@@ -32,7 +32,7 @@ import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
-import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft } from '../utils/vlan'
+import { filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft } from '../utils/vlan'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig, type PortRowLike } from '../utils/portConflicts'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import { attachConnectionDrafts, changedConnectionRowIds, hasConnectionChanges, snapshotConnections, validateConnectionDrafts, type ConnectionBaseline } from '../utils/interfaceConnections'
@@ -235,7 +235,12 @@ watch(portVlanOptions, (options, oldOptions) => {
     const vlan_ids = reconcileVlanIds(group.vlan_ids, group.vlan_mode, previous, options)
     return vlan_ids === group.vlan_ids ? group : { ...group, vlan_ids }
   })
-  if (nextGroups.some((group, i) => group !== groups[i])) interfaceGroups.value = nextGroups
+  if (nextGroups.some((group, i) => group !== groups[i])) {
+    interfaceGroups.value = nextGroups
+    // Из групп VLAN убираются молча — предупреждаем: набор VLAN группы изменился не по действию пользователя в самой группе.
+    const removalNotice = groupVlanRemovalMessage(groups, nextGroups, previous)
+    if (removalNotice) notify(removalNotice, 'warning')
+  }
 })
 
 function toSoftwareDraftRow(x: DeployedSoftware): SoftwareAssetDraftRow {
