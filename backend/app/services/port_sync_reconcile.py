@@ -19,6 +19,11 @@
     skipped  — подключение вне согласования (расхождения нет, неактивно, одобрено, нет порта) — только
                при явном списке подключений, чтобы объяснить, почему с ним ничего не происходит.
 
+Неполный результат (`partial`). Решение auto может не устранить расхождение до конца: часть VLAN
+пропущена (их нет у устройства порта) либо один из двух портов симметричного правила не меняется
+(группа, чужое подключение). Такие подключения помечаются `partial` и считаются в `summary.partial` —
+после применения они останутся в «Расхождениях», и человеку стоит знать об этом до подтверждения.
+
 VLAN переносятся по НОМЕРУ (802.1Q-тегу), как и при сверке: у целевого порта выбирается запись
 справочника с тем же номером из VLAN, доступных его устройству (VLAN типа устройства и собственные
 VLAN устройства — те же, что проверяет PUT /devices/{id}/interfaces). Номера, которых у целевого
@@ -71,7 +76,7 @@ from .port_sync_rules import (
     decide,
 )
 from .port_sync_store import rules_for_reconcile
-from .port_writes import write_port_role, write_port_vlans
+from .port_writes import load_vlan_links, write_port_roles, write_port_vlans
 
 MAX_CONNECTION_IDS = 500
 MAX_PREVIEW_ITEMS = 300
@@ -302,6 +307,11 @@ def _port_label(port: _Port) -> str:
     return f"«{port.iface.name}» ({device})" if device else f"«{port.iface.name}»"
 
 
+def _skipped_vlans(part: _TargetPlan) -> list[int]:
+    vlans = part.changes.get("vlans")
+    return vlans["skipped"] if vlans else []
+
+
 def _apply_decision(
     decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]
 ) -> tuple[dict[str, Any], list[_Planned]]:
@@ -317,6 +327,8 @@ def _apply_decision(
     ready = [part for part in parts if part.planned]
     item: dict[str, Any] = {
         "outcome": "auto" if ready else "blocked",
+        # Применимо, но расхождение останется: порт из пары не меняется или часть VLAN ему назначить нельзя.
+        "partial": bool(ready) and (len(ready) < len(parts) or any(_skipped_vlans(part) for part in ready)),
         "target": "both" if several else parts[0].apply_to,
         "changes": None if several else parts[0].changes,
         "targets": [{"target": p.apply_to, "changes": p.changes, "blocked": p.blocked} for p in parts],
@@ -397,6 +409,7 @@ def _compute(session: Session, connection_ids: Any, rule_id: str | None) -> _Pla
             "options": [],
             "warnings": [],
             "reason": None,
+            "partial": False,
         }
         if src is None or dst is None:
             item.update(outcome="skipped", reason="У подключения отсутствует один из портов")
@@ -432,6 +445,8 @@ def _compute(session: Session, connection_ids: Any, rule_id: str | None) -> _Pla
         "shown": min(len(shown), MAX_PREVIEW_ITEMS),
         "total_items": len(shown),
         **counts,
+        # Считается по всем подключениям плана, а не только по показанным (items обрезаются).
+        "partial": sum(1 for i in plan.items if i["partial"]),
     }
     plan.items = shown[:MAX_PREVIEW_ITEMS]
     plan.hash = _plan_hash(plan.planned)
@@ -466,13 +481,17 @@ def apply_reconcile(payload: Any, session: Session) -> dict[str, Any]:
         return {"applied": {"ports": 0, "connections": 0}, "connection_ids": [], "summary": plan.summary}
     if payload.get("plan_hash") != plan.hash:
         raise HTTPException(409, "Данные изменились после предпросмотра — повторите операцию и проверьте новый план")
+    # Запись пакетная: связи порт–VLAN и IP-адреса читаются/обновляются порциями, а не запросом на порт, —
+    # иначе применение плана на тысячи портов занимало минуты (см. services/port_writes.py).
+    write_port_roles([(p.port.iface, p.role) for p in plan.planned if p.role is not None], session)
+    vlan_writes = [p for p in plan.planned if p.mode is not None or p.vlan_ids is not None]
+    links = load_vlan_links([p.port.iface.id for p in vlan_writes], session)
+    for planned in vlan_writes:
+        port = planned.port.iface
+        keep = planned.vlan_ids if planned.vlan_ids is not None else list(planned.port.vlan_ids)
+        write_port_vlans(port, planned.mode or planned.port.facts.mode, keep, session, links=links[port.id])
     for planned in plan.planned:
         port = planned.port.iface
-        if planned.role is not None:
-            write_port_role(port, planned.role, session)
-        if planned.mode is not None or planned.vlan_ids is not None:
-            keep = planned.vlan_ids if planned.vlan_ids is not None else list(planned.port.vlan_ids)
-            write_port_vlans(port, planned.mode or planned.port.facts.mode, keep, session)
         audit(session, "interfaces", port.id, AuditAction.UPDATE, f"Согласование порта «{port.name}» по правилу «{planned.rule.name}»: {planned.description}")
     session.commit()
     connection_ids_applied = list(dict.fromkeys(p.connection.id for p in plan.planned))

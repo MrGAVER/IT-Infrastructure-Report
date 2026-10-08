@@ -37,8 +37,9 @@ def update_port_role(interface_id: str, payload: dict, session: Session = Depend
 @router.put('/interfaces/{interface_id}/port-config')
 def update_port_config(interface_id: str, payload: dict, session: Session = Depends(get_db)):
     """Правка порта с дашборда: роль и/или набор VLAN одной операцией. Тело: {role?, vlan_ids?, mode?} —
-    vlan_ids это ПОЛНЫЙ набор (id записей справочника VLAN); mode — не смена режима (её делает каскад
-    ниже), а проверка, что набор выбран для текущего режима порта (иначе 409)."""
+    vlan_ids это ПОЛНЫЙ набор (id записей справочника VLAN); mode — не смена режима, а проверка, что набор
+    выбран для текущего режима порта (иначе 409). Когда меняется и режим, роль и VLAN передаются в поле `port`
+    каскада ниже — тогда режим, роль и VLAN записываются одной транзакцией."""
     return set_port_config(interface_id, payload, session)
 
 
@@ -51,14 +52,19 @@ def vlan_mode_cascade_preview(interface_id: str, payload: dict, session: Session
     ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}} — режим,
     группа (ключ; null — вне групп), VLAN и имя порта и группы в ЧЕРНОВИКЕ, включая новые несохранённые
     группы (временный ключ). Порты и группы этого устройства только возвращаются в плане (deferred), но
-    не записываются; не переданное берётся из БД. POST, а не GET — состояние формы не помещается в query."""
+    не записываются; не переданное берётся из БД. POST, а не GET — состояние формы не помещается в query.
+
+    port: {role?, vlan_ids?} — роль и ПОЛНЫЙ набор VLAN порта-инициатора (окно правки порта на дашборде): они
+    проверяются под целевой режим уже здесь и записываются вместе с каскадом (см. apply). С edited не сочетается."""
     return preview_vlan_mode_cascade(interface_id, payload, session)
 
 
 @router.post('/interfaces/{interface_id}/vlan-mode-cascade')
 def vlan_mode_cascade_apply(interface_id: str, payload: dict, session: Session = Depends(get_db)):
-    """Применяет план из предпросмотра: тело {mode, edited?, plan_hash, confirm: true} (mode и edited
-    те же, что при предпросмотре). Если данные изменились после предпросмотра — 409."""
+    """Применяет план из предпросмотра: тело {mode, edited?, port?, plan_hash, confirm: true} (mode, edited и
+    port те же, что при предпросмотре). Если данные изменились после предпросмотра — 409. С `port` режим со
+    всей областью каскада, роль и набор VLAN порта-инициатора записываются ОДНОЙ транзакцией (`port_written`
+    в ответе); ошибка в роли или VLAN не оставляет ничего записанным, в том числе режима."""
     return apply_vlan_mode_cascade(interface_id, payload, session)
 
 

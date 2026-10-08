@@ -100,6 +100,9 @@ onMounted(load)
               </span>
             </div>
             <div v-if="item.rule" class="rule-name">Правило: «{{ item.rule.name }}»</div>
+            <p v-if="item.partial" class="partial" data-partial>
+              После применения расхождение останется: часть изменений применить нельзя (причины — ниже). Подключение останется в «Расхождениях».
+            </p>
 
             <template v-if="item.outcome === 'auto' || item.outcome === 'blocked'">
               <div v-for="t in targetsOf(item)" :key="t.port.interface_id" class="target-block" data-target>
@@ -269,6 +272,15 @@ onMounted(load)
 .warning {
   margin: 6px 0 0;
   color: var(--ink);
+}
+.partial {
+  margin: 6px 0 0;
+  padding: 6px 9px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--status-warn-soft);
+  border: 1px solid var(--status-warn);
+  border-radius: var(--r-s);
 }
 .hidden-note {
   margin: 10px 0 0;

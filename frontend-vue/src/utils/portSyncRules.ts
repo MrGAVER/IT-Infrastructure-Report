@@ -245,13 +245,15 @@ export function optionLine(option: PortSyncOption, item: Pick<PortSyncPlanItem, 
 
 /** Сводка плана одной строкой — только ненулевые счётчики. */
 export function summaryLine(summary: {
-  connections: number; applicable: number; auto?: number; blocked: number; manual: number; ignored: number; none: number; skipped: number
+  connections: number; applicable: number; auto?: number; blocked: number; manual: number; ignored: number; none: number; skipped: number; partial?: number
 }): string {
   // applicable считает порты: у правила «объединить» одно подключение даёт два порта — тогда показываем оба числа.
   const planned = summary.auto !== undefined && summary.auto !== summary.applicable
     ? `${summary.auto} (портов: ${summary.applicable})`
     : String(summary.applicable)
   const parts = [`проверено подключений: ${summary.connections}`, `будет согласовано: ${planned}`]
+  // Часть согласованных подключений останется в «Расхождениях» (VLAN нет у устройства, порт в группе) — предупреждаем до подтверждения.
+  if (summary.partial) parts.push(`расхождение останется у: ${summary.partial}`)
   if (summary.blocked) parts.push(`нельзя применить: ${summary.blocked}`)
   if (summary.manual) parts.push(`решает человек: ${summary.manual}`)
   if (summary.ignored) parts.push(`исключено правилами: ${summary.ignored}`)

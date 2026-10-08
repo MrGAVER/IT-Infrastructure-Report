@@ -59,4 +59,21 @@ describe('api/vlanModeCascade', () => {
 
     expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe('/api/v1/interfaces/a%2Fb%20c/vlan-mode-cascade/preview')
   })
+
+  it('port (роль и VLAN порта-инициатора) уходит в предпросмотре и при применении; без port поля в теле нет', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ plan: makePlan(), applied: { ports: 1, groups: 0, devices: 1 }, interfaces: [], port_written: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    const port = { role: 'management' as const, vlan_ids: ['v10'] }
+
+    await previewVlanModeCascade('if-2', 'access', null, port)
+    await applyVlanModeCascade('if-2', makePlan({ hash: 'abc' }), null, port)
+    await previewVlanModeCascade('if-2', 'access', null, null)
+    await applyVlanModeCascade('if-2', makePlan({ hash: 'abc' }), null)
+
+    const bodies = fetchMock.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string))
+    expect(bodies[0]).toEqual({ mode: 'access', edited: null, port })
+    expect(bodies[1]).toEqual({ mode: 'access', edited: null, port, plan_hash: 'abc', confirm: true })
+    expect(bodies[2]).toEqual({ mode: 'access', edited: null })
+    expect(bodies[3]).toEqual({ mode: 'access', edited: null, plan_hash: 'abc', confirm: true })
+  })
 })

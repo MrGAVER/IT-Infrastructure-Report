@@ -4,11 +4,13 @@
 // а роль — только «как у соседа».
 //
 // Как это записывается:
-//  * режим — каскадом (composables/useVlanModeCascade.ts): режим может задаваться группой портов и должен
-//    совпасть у связанных портов, поэтому сервер считает всю область изменения, а окно показывает
-//    последствия до применения;
-//  * роль и набор VLAN — одним атомарным запросом PUT /interfaces/{id}/port-config (api/portConfig.ts),
-//    уже ПОСЛЕ каскада: набор VLAN выбирается для нового режима.
+//  * режим меняется — каскадом (composables/useVlanModeCascade.ts): режим может задаваться группой портов и
+//    должен совпасть у связанных портов, поэтому сервер считает всю область изменения, а окно показывает
+//    последствия до применения. Роль и набор VLAN уходят В ТОМ ЖЕ запросе (поле `port`) и записываются
+//    одной транзакцией с каскадом: либо записано всё, либо ничего. Ошибку в роли или VLAN сервер показывает уже
+//    при предпросмотре, до подтверждения каскада;
+//  * режим не меняется — роль и набор VLAN одним атомарным запросом PUT /interfaces/{id}/port-config
+//    (api/portConfig.ts). Так же — если при предпросмотре оказалось, что режим уже целевой (его успели сменить).
 // Порт в группе, которая задаёт режим и VLAN, по VLAN не правится (группа — источник истины): режим при этом
 // сменить можно — он поменяется у всей группы, как и в окне проверки расхождения.
 //
@@ -24,7 +26,8 @@ import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useVLANsStore } from '../stores/vlans'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
-import { useVlanModeCascade } from '../composables/useVlanModeCascade'
+import { useVlanModeCascade, type CascadeOutcome } from '../composables/useVlanModeCascade'
+import type { CascadePortRequest } from '../api/vlanModeCascade'
 import { PORT_ROLE_LABELS, facetsLabel, formatVlans, portRoleOf } from '../utils/portConfig'
 import {
   adaptVlanIdsToMode,
@@ -173,24 +176,34 @@ function copyFromNeighbor() {
 
 // --- запись ------------------------------------------------------------------------------------
 
-/** Роль и набор VLAN — после каскада (если режим менялся). Ошибку не пробрасывает: каскад к этому моменту
- * уже применён, и окно должно показать, что получилось, и актуальное состояние порта для повторной попытки. */
-async function applyRoleAndVlans(afterModeChange: boolean) {
-  const patch = buildPortConfigPatch(initial.value, draft, { modeChanged: afterModeChange, vlansLocked: vlansLocked.value })
+/** Роль и набор VLAN обычным запросом (режим не менялся, либо уже был целевым). Ошибку не пробрасывает, а показывает
+ * в окне и перечитывает состояние порта — введённое пользователем не теряется, можно повторить. `resendVlans` —
+ * набор отправляется целиком, даже если он совпал с исходным (режим порта менялся другим способом). */
+async function applyRoleAndVlans(resendVlans: boolean) {
+  const patch = buildPortConfigPatch(initial.value, draft, { modeChanged: resendVlans, vlansLocked: vlansLocked.value })
   try {
     if (patch) {
       catalogs.replaceInterface(await setPortConfig(own.value.interfaceId, patch))
       notify('Конфигурация порта обновлена', 'success')
-    } else if (!afterModeChange) {
+    } else if (!resendVlans) {
       notify('Изменений нет', 'info')
     }
     await dashboard.refreshAfterChange()
     emit('saved')
   } catch (err) {
-    const reason = err instanceof Error ? err.message : 'Не удалось сохранить роль и VLAN порта'
-    errorMessage.value = afterModeChange ? `Режим порта изменён, но роль и VLAN сохранить не удалось: ${reason}` : reason
+    errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить роль и VLAN порта'
     await refreshAfterFailure()
   }
+}
+
+/** Роль и VLAN для записи вместе с каскадом: то же, что `buildPortConfigPatch`, без режима (его задаёт каскад). */
+function cascadePortRequest(): CascadePortRequest | null {
+  const patch = buildPortConfigPatch(initial.value, draft, { modeChanged: true, vlansLocked: vlansLocked.value })
+  if (!patch) return null
+  const request: CascadePortRequest = {}
+  if (patch.role !== undefined) request.role = patch.role
+  if (patch.vlan_ids !== undefined) request.vlan_ids = patch.vlan_ids
+  return request
 }
 
 async function refreshAfterFailure() {
@@ -204,7 +217,7 @@ async function refreshAfterFailure() {
   }
 }
 
-let runAfterModeChange = false
+let cascadePort: CascadePortRequest | null = null
 const {
   pending: cascadePending,
   applying: cascadeApplying,
@@ -213,8 +226,17 @@ const {
   cancel: cascadeCancel,
 } = useVlanModeCascade({
   edited: () => null,
-  async onFinished() {
-    await applyRoleAndVlans(runAfterModeChange)
+  port: () => cascadePort,
+  async onFinished(outcome: CascadeOutcome) {
+    if (outcome === 'unchanged') {
+      // Режим уже целевой — каскад ничего не применял, роль и VLAN идут обычной правкой.
+      await applyRoleAndVlans(true)
+      return
+    }
+    // Режим, роль и VLAN записаны одной транзакцией каскада.
+    if (cascadePort) notify('Конфигурация порта обновлена', 'success')
+    await dashboard.refreshAfterChange()
+    emit('saved')
   },
 })
 
@@ -227,9 +249,9 @@ async function save() {
   }
   saving.value = true
   try {
-    runAfterModeChange = modeChanged.value
     if (modeChanged.value) {
-      // Предпросмотр и подтверждение — в окне каскада; роль и VLAN запишутся в onFinished.
+      // Предпросмотр (вместе с проверкой роли и VLAN) и подтверждение — в окне каскада; запись — одним запросом.
+      cascadePort = cascadePortRequest()
       await cascadeStart(own.value.interfaceId, draft.mode, `«${own.value.name}» (${own.value.deviceLabel})`)
     } else {
       await applyRoleAndVlans(false)
@@ -300,7 +322,7 @@ const vlanLabel = (o: VLANDefinition) => `VLAN ${o.vlan_id}${o.name ? ` · ${o.n
             </div>
             <p v-if="modeChanged" class="hint" data-hint="cascade">
               Режим меняется каскадом: если порт входит в группу, задающую режим, или связан с портами, у которых режим другой, он сменится и у них.
-              Перед применением покажем все последствия.
+              Перед применением покажем все последствия; роль и VLAN сохранятся в той же операции — всё или ничего.
             </p>
           </div>
 

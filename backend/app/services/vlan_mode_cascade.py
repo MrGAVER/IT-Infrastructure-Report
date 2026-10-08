@@ -36,6 +36,14 @@
 Двухшаговый протокол: preview возвращает план и его hash; apply требует confirm=true и тот же hash —
 если данные изменились между предпросмотром и применением, операция отклоняется (409), а не
 выполняется по не показанному пользователю плану.
+
+Правка порта вместе со сменой режима. Окно правки порта на дашборде меняет режим, роль и набор VLAN
+сразу: в теле предпросмотра и применения можно передать `port: {role?, vlan_ids?}` — роль и ПОЛНЫЙ
+набор VLAN порта-инициатора (services/port_edit.py). Они проверяются под ЦЕЛЕВОЙ режим уже при
+предпросмотре (пользователь видит ошибку до подтверждения каскада) и записываются в той же транзакции,
+что и каскад: либо записано всё, либо ничего — промежуточного состояния «режим сменён, а роль и VLAN
+нет» не бывает. С `edited` (форма устройства открыта) `port` не сочетается: порты такого устройства
+сохраняются вместе с формой.
 """
 from __future__ import annotations
 
@@ -51,6 +59,7 @@ from sqlalchemy.orm import Session
 from ..constants import AuditAction
 from ..models import Connection, DeviceInterface, InterfaceGroup, InterfaceGroupVLAN, InterfaceVLAN, PhysicalDevice, VLAN
 from .crud import audit
+from .port_edit import PreparedPortChange, parse_port_change, prepare_port_change, write_port_change
 from .serialization import enrich_interfaces
 
 VLAN_MODES = ("access", "trunk")
@@ -546,10 +555,29 @@ def _compute(start_id: str, mode: str, edited: _Edited, session: Session) -> _Ch
 def preview_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
     """План смены режима порта и всех зависимых портов — ничего не записывает.
 
-    payload: {mode, edited?} — edited: устройство с открытой формой и режимы его портов/групп в черновике."""
+    payload: {mode, edited?, port?} — edited: устройство с открытой формой и режимы его портов/групп в черновике;
+    port: {role?, vlan_ids?} — роль и набор VLAN порта-инициатора, проверяются под целевой режим (ничего не пишет)."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
-    return _compute(interface_id, _parse_mode(payload.get("mode")), _parse_edited(payload.get("edited")), session).plan
+    mode = _parse_mode(payload.get("mode"))
+    plan = _compute(interface_id, mode, _parse_edited(payload.get("edited")), session).plan
+    _prepare_port(interface_id, payload, mode, session)  # ошибка в роли/VLAN видна до подтверждения каскада
+    return plan
+
+
+def _prepare_port(interface_id: str, payload: dict[str, Any], mode: str, session: Session) -> PreparedPortChange | None:
+    """Проверка `port` из тела (роль и набор VLAN порта-инициатора) под целевой режим — ничего не пишет.
+    None — `port` не передан."""
+    raw = payload.get("port")
+    if raw is None:
+        return None
+    if payload.get("edited") is not None:
+        raise HTTPException(422, "Поле port не сочетается с edited: порты устройства с открытой формой сохраняются вместе с формой")
+    change, _ = parse_port_change(raw)
+    iface = session.get(DeviceInterface, interface_id)
+    if iface is None:
+        raise HTTPException(404, "Порт не найден")
+    return prepare_port_change(iface, mode, change, session)
 
 
 def _write_port(port: DeviceInterface, target: str, keep: list[str], session: Session) -> None:
@@ -586,7 +614,7 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
     """Применяет план к данным (кроме редактируемого устройства — его порты и группы клиент вносит
     в черновик формы). Одна транзакция: либо записано всё, либо ничего.
 
-    payload: {mode, edited?, plan_hash, confirm: true} — mode и edited те же, что при предпросмотре.
+    payload: {mode, edited?, port?, plan_hash, confirm: true} — mode, edited и port те же, что при предпросмотре.
     Без confirm=true — 422; если план при применении отличается от показанного при предпросмотре
     (hash) — 409."""
     if not isinstance(payload, dict):
@@ -596,8 +624,19 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
         raise HTTPException(422, "Применение требует подтверждения: confirm = true")
     change = _compute(interface_id, mode, edited, session)
     plan = change.plan
+    # Вся проверка роли и VLAN — до первой записи: ошибка не оставляет половину операции.
+    prepared = _prepare_port(interface_id, payload, mode, session)
     if plan["empty"]:
-        return {"plan": plan, "applied": {"ports": 0, "groups": 0, "devices": 0}, "interfaces": []}
+        # Режим уже целевой — каскаду нечего менять, но роль и VLAN из запроса всё равно записываются.
+        wrote = prepared is not None and write_port_change(prepared, session)
+        if wrote:
+            session.commit()
+        return {
+            "plan": plan,
+            "applied": {"ports": 0, "groups": 0, "devices": 0},
+            "interfaces": enrich_interfaces([prepared.iface], session) if wrote and prepared else [],
+            "port_written": wrote,
+        }
     if payload.get("plan_hash") != plan["hash"]:
         raise HTTPException(409, "Данные изменились после предпросмотра — повторите операцию и проверьте новый план")
     loader = change.loader
@@ -626,6 +665,11 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
     for device in plan["devices"]:
         if not device["deferred"]:
             audit(session, "interfaces", device["id"], AuditAction.UPDATE, _audit_text(plan, device["id"], start_label))
-    session.commit()
     applied = {"ports": len(written_ports), "groups": sum(1 for g in plan["groups"] if not g["deferred"]), "devices": plan["totals"]["immediate_devices"]}
-    return {"plan": plan, "applied": applied, "interfaces": enrich_interfaces(written_ports, session)}
+    # Роль и VLAN порта-инициатора — после каскада, в той же транзакции: набор записывается точно как в запросе
+    # (каскад мог урезать его до одного VLAN в access — проверка под целевой режим это учла).
+    wrote = prepared is not None and write_port_change(prepared, session, context=f" (вместе со сменой режима → {mode})")
+    if wrote and prepared and all(p.id != prepared.iface.id for p in written_ports):
+        written_ports.append(prepared.iface)
+    session.commit()
+    return {"plan": plan, "applied": applied, "interfaces": enrich_interfaces(written_ports, session), "port_written": wrote}

@@ -3,7 +3,7 @@
 // и его hash; apply принимает тот же hash и confirm=true — если данные изменились между шагами,
 // сервер отвечает 409 вместо того, чтобы выполнить не показанный пользователю план.
 import { api } from './client'
-import type { DeviceInterface } from './types'
+import type { DeviceInterface, PortRole } from './types'
 
 export type VlanMode = 'access' | 'trunk'
 
@@ -79,6 +79,16 @@ export interface VlanModeCascadeResult {
   applied: { ports: number; groups: number; devices: number }
   /** Записанные сервером порты — в виде каталога 'interfaces' (для обновления кэша). */
   interfaces: DeviceInterface[]
+  /** Роль и/или набор VLAN порта-инициатора из запроса (`port`) записаны вместе с каскадом. */
+  port_written?: boolean
+}
+
+/** Роль и ПОЛНЫЙ набор VLAN (id записей справочника) порта-инициатора, которые сервер запишет в той же
+ * транзакции, что и каскад (backend/app/services/port_edit.py). Проверяются под целевой режим уже при
+ * предпросмотре. Не сочетается с `edited` (форма устройства открыта). */
+export interface CascadePortRequest {
+  role?: PortRole
+  vlan_ids?: string[]
 }
 
 /** Порт устройства с открытой формой — как он выглядит в ЧЕРНОВИКЕ. */
@@ -111,15 +121,18 @@ export interface EditedDeviceState {
 }
 
 // POST, а не GET: состояние формы (десятки портов) не помещается в query.
-export function previewVlanModeCascade(interfaceId: string, mode: VlanMode, edited: EditedDeviceState | null) {
-  return api.post<VlanModeCascadePlan>(`/interfaces/${encodeURIComponent(interfaceId)}/vlan-mode-cascade/preview`, { mode, edited })
+// port — роль и VLAN порта-инициатора (необязательно): сервер проверит их под целевой режим уже здесь.
+export function previewVlanModeCascade(interfaceId: string, mode: VlanMode, edited: EditedDeviceState | null, port?: CascadePortRequest | null) {
+  return api.post<VlanModeCascadePlan>(`/interfaces/${encodeURIComponent(interfaceId)}/vlan-mode-cascade/preview`, { mode, edited, ...(port ? { port } : {}) })
 }
 
-/** edited — то же состояние формы, что при предпросмотре: иначе сервер посчитает другой план и ответит 409. */
-export function applyVlanModeCascade(interfaceId: string, plan: VlanModeCascadePlan, edited: EditedDeviceState | null) {
+/** edited и port — те же, что при предпросмотре: иначе сервер посчитает другой план и ответит 409 (edited) или
+ * запишет не то, что проверялось (port). С port режим, роль и VLAN записываются одной транзакцией. */
+export function applyVlanModeCascade(interfaceId: string, plan: VlanModeCascadePlan, edited: EditedDeviceState | null, port?: CascadePortRequest | null) {
   return api.post<VlanModeCascadeResult>(`/interfaces/${encodeURIComponent(interfaceId)}/vlan-mode-cascade`, {
     mode: plan.target_mode,
     edited,
+    ...(port ? { port } : {}),
     plan_hash: plan.hash,
     confirm: true,
   })

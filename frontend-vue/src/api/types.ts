@@ -988,6 +988,9 @@ export interface PortSyncPlanItem {
   targets?: PortSyncTarget[]
   options: PortSyncOption[]
   warnings: string[]
+  /** Решение применимо, но расхождение после применения останется: часть VLAN пропущена (нет у устройства порта)
+   * или один из двух портов пары не меняется. Может отсутствовать в старых ответах. */
+  partial?: boolean
 }
 
 export interface PortSyncSummary {
@@ -1003,6 +1006,9 @@ export interface PortSyncSummary {
   ignored: number
   none: number
   skipped: number
+  /** Сколько подключений плана после применения останутся с расхождением (по всему плану, не только по показанным).
+   * Может отсутствовать в старых ответах. */
+  partial?: number
 }
 
 export interface PortSyncPlan {

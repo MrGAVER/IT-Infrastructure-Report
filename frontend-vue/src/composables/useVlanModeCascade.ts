@@ -8,19 +8,28 @@
 //  * edited() — состояние открытой формы (null, если формы нет — дашборд): сервер не пишет порты и
 //    группы этого устройства, а отдаёт их в плане как deferred;
 //  * applyDeferred() — внести deferred-часть плана в черновик формы, вернуть число изменённых портов;
-//  * onFinished() — каскад завершён (применён или менять нечего): закрыть окно, перечитать список.
+//  * onFinished(outcome) — каскад завершён: 'applied' (применён) или 'unchanged' (менять нечего — режим уже
+//    целевой): закрыть окно, перечитать список;
+//  * port() — роль и набор VLAN порта-инициатора, которые сервер запишет В ТОЙ ЖЕ транзакции, что и каскад
+//    (окно правки порта на дашборде): проверяются при предпросмотре, уходят и при применении. При
+//    outcome = 'unchanged' записывать их придётся вызывающему — каскад ничего не применял.
 import { ref } from 'vue'
 import { ApiError } from '../api/client'
-import { applyVlanModeCascade, previewVlanModeCascade, type EditedDeviceState, type VlanMode, type VlanModeCascadePlan } from '../api/vlanModeCascade'
+import { applyVlanModeCascade, previewVlanModeCascade, type CascadePortRequest, type EditedDeviceState, type VlanMode, type VlanModeCascadePlan } from '../api/vlanModeCascade'
 import type { CatalogItem } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { isTrivialPlan, modeLabel } from '../utils/vlanModeCascade'
 import { useToast } from './useToast'
 
+/** Чем закончился каскад: применён или менять было нечего (режим уже целевой). */
+export type CascadeOutcome = 'applied' | 'unchanged'
+
 export interface CascadeHost {
   edited: () => EditedDeviceState | null
   applyDeferred?: (plan: VlanModeCascadePlan) => number
-  onFinished?: () => void | Promise<void>
+  /** Роль и набор VLAN порта-инициатора для записи вместе с каскадом (null — не передавать). */
+  port?: () => CascadePortRequest | null
+  onFinished?: (outcome: CascadeOutcome) => void | Promise<void>
 }
 
 /** Что сделал start(): применил сразу, нечего менять или ждёт подтверждения в окне. */
@@ -34,6 +43,8 @@ export interface PendingCascade {
   portLabel: string
   /** Состояние формы на момент предпросмотра: то же уходит и при применении, иначе hash плана не сойдётся. */
   edited: EditedDeviceState | null
+  /** Роль и VLAN порта-инициатора на момент предпросмотра: проверены сервером под целевой режим, их же применяем. */
+  port: CascadePortRequest | null
 }
 
 export function useVlanModeCascade(host: CascadeHost) {
@@ -42,13 +53,13 @@ export function useVlanModeCascade(host: CascadeHost) {
   const pending = ref<PendingCascade | null>(null)
   const applying = ref(false)
 
-  async function finish(): Promise<void> {
+  async function finish(outcome: CascadeOutcome = 'applied'): Promise<void> {
     pending.value = null
-    await host.onFinished?.()
+    await host.onFinished?.(outcome)
   }
 
   async function commit(current: PendingCascade): Promise<void> {
-    const result = await applyVlanModeCascade(current.interfaceId, current.plan, current.edited)
+    const result = await applyVlanModeCascade(current.interfaceId, current.plan, current.edited, current.port)
     for (const item of result.interfaces) catalogs.replaceInterface(item as unknown as CatalogItem)
     const formPorts = host.applyDeferred?.(current.plan) ?? 0
     const mode = modeLabel(current.plan.target_mode)
@@ -65,13 +76,14 @@ export function useVlanModeCascade(host: CascadeHost) {
    * у каждого экрана свой способ их показать. */
   async function preview(interfaceId: string, mode: VlanMode, portLabel: string): Promise<PendingCascade | null> {
     const edited = host.edited()
-    const plan = await previewVlanModeCascade(interfaceId, mode, edited)
+    const port = host.port?.() ?? null
+    const plan = await previewVlanModeCascade(interfaceId, mode, edited, port)
     if (plan.empty) {
       notify('Режим порта уже совпадает', 'info')
-      await finish()
+      await finish('unchanged')
       return null
     }
-    return { plan, interfaceId, portLabel, edited }
+    return { plan, interfaceId, portLabel, edited, port }
   }
 
   /** Показывает окно подтверждения для плана из preview(). */
@@ -110,12 +122,13 @@ export function useVlanModeCascade(host: CascadeHost) {
   async function refreshPlan(stale: PendingCascade): Promise<void> {
     try {
       const edited = host.edited()
-      const fresh = await previewVlanModeCascade(stale.interfaceId, stale.plan.target_mode, edited)
+      const port = host.port?.() ?? stale.port
+      const fresh = await previewVlanModeCascade(stale.interfaceId, stale.plan.target_mode, edited, port)
       if (fresh.empty) {
         notify('Расхождение уже устранено — изменять нечего', 'info')
-        await finish()
+        await finish('unchanged')
       } else {
-        pending.value = { ...stale, plan: fresh, edited }
+        pending.value = { ...stale, plan: fresh, edited, port }
         notify('Данные изменились после предпросмотра — план обновлён, проверьте его ещё раз', 'warning')
       }
     } catch (err) {
