@@ -3364,3 +3364,27 @@ Vue-компонентов, пагинация `/api/v1/devices` (меняет �
 
 Проверено на дереве после слияния с main (2.121.0): backend pytest (1325 passed, 1 skipped), ruff; frontend vue-tsc -b,
 vitest (1562), vite build. Миграций БД нет.
+
+
+### 2.123.0 — зависимости backend закреплены lock-файлами с хешами
+
+Код приложения не менялся (п. 13 код-ревью: зависимости backend задавались диапазонами `>=` без lock-файла, и сборка
+образа в разные дни могла дать разные версии пакетов).
+
+- **`backend/requirements.lock` и `backend/requirements-dev.lock`** — точные версии всех (в том числе транзитивных) пакетов
+  с хешами sha256: runtime и runtime + тесты/анализ. Собраны `uv pip compile --universal` (Linux, Windows, macOS; Python 3.12).
+  Текущие закрепления: FastAPI 0.142.3, Starlette 1.7.0, SQLAlchemy 2.1.4, Alembic 1.20.0, Pydantic 2.13.5, psycopg 3.3.6.
+- **Docker и CI ставят из lock** (`pip install --require-hashes -r ...`): образ, собранный завтра, получает те же пакеты, а
+  подмена пакета на PyPI не пройдёт проверку хеша. `requirements*.txt` остаются источником диапазонов; сборка EXE
+  (`backend/requirements-build.txt`) пока по диапазонам.
+- **Новые шаги CI:** «Lock-файлы backend актуальны» (пересборка lock не должна давать diff — иначе правили
+  `requirements*.txt`, не обновив lock) и `pip-audit -r backend/requirements.lock --require-hashes` (проверяются именно те
+  версии, что попадут в образ). Обновление — README, «Зависимости backend».
+- **Проверено до релиза:** установка из dev-lock с `--require-hashes` в чистое окружение — успешно; **весь набор backend на
+  этих точных версиях — 1305 тестов прошли, 1 пропущен**; runtime-lock в отдельном чистом окружении — alembic с нуля,
+  uvicorn, создание записи, отчёт Excel, интерфейс на `/` работают; шаг «lock актуален» проверен в обе стороны (пустой diff
+  на актуальном lock, непустой после правки `requirements.txt`); `pip-audit` — уязвимостей нет. Сборку Docker-образа и job
+  в GitHub Actions я локально не запускал (Docker в моём окружении нет): проверен эквивалент — установка тех же файлов.
+
+Не вошло: lock для сборки EXE (Windows), автоматическое обновление зависимостей (Dependabot/Renovate), отдельный шаг
+миграций вместо `alembic upgrade head` в `CMD` контейнера.
