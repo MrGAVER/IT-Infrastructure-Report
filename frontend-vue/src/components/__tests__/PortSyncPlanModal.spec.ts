@@ -239,6 +239,102 @@ describe('PortSyncPlanModal.vue', () => {
     expect(wrapper.find('[data-hidden]').text()).toBe('Показаны первые 1 из 450; применяется весь план (120).')
   })
 
+  describe('постраничный показ плана', () => {
+    const items = (from: number, count: number) => Array.from({ length: count }, (_, i) => item({ connection_id: `c-${from + i}`, source: port(`Gi0/${from + i}`, 'sw-1') }))
+    // Первая страница: 2 из 5 элементов; summary — по всему плану.
+    const firstPage = () => plan(items(1, 2), { total_items: 5, applicable: 5, connections: 5 }, 'hash-all')
+
+    it('«Показать ещё» запрашивает следующую страницу с plan_hash первой и дописывает элементы', async () => {
+      stub(firstPage(), plan(items(3, 2), { total_items: 5, applicable: 5 }, 'hash-all'))
+      const wrapper = mountModal({ rule_id: 'r-1' })
+      await flushPromises()
+      expect(wrapper.findAll('[data-outcome]')).toHaveLength(2)
+      expect(wrapper.find('[data-action="more"]').text()).toBe('Показать ещё (3)')
+
+      await wrapper.find('[data-action="more"]').trigger('click')
+      await flushPromises()
+
+      expect(previewCalls()).toHaveLength(2)
+      expect(previewCalls()[1].body).toEqual({ rule_id: 'r-1', offset: 2, plan_hash: 'hash-all' })
+      expect(wrapper.findAll('[data-outcome]')).toHaveLength(4)
+      expect(wrapper.find('[data-hidden]').text()).toBe('Показаны первые 4 из 5; применяется весь план (5).')
+      expect(wrapper.find('[data-action="more"]').text()).toBe('Показать ещё (1)')
+    })
+
+    it('когда показано всё, кнопки и пометки нет; без скрытых элементов её нет с самого начала', async () => {
+      stub(firstPage(), plan(items(3, 3), { total_items: 5, applicable: 5 }, 'hash-all'))
+      const wrapper = mountModal()
+      await flushPromises()
+      await wrapper.find('[data-action="more"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.findAll('[data-outcome]')).toHaveLength(5)
+      expect(wrapper.find('[data-action="more"]').exists()).toBe(false)
+      expect(wrapper.find('[data-hidden]').exists()).toBe(false)
+
+      stub(plan(items(1, 2)))
+      const whole = mountModal()
+      await flushPromises()
+      expect(whole.find('[data-action="more"]').exists()).toBe(false)
+    })
+
+    it('подгрузка не сбрасывает отметку «Я проверил план» — применение идёт с plan_hash первой страницы и применяет весь план', async () => {
+      stub(firstPage(), plan(items(3, 3), { total_items: 5, applicable: 5 }, 'hash-all'))
+      const wrapper = mountModal({ rule_id: 'r-1' })
+      await flushPromises()
+      await wrapper.find('[data-field="confirm"]').setValue(true)
+
+      await wrapper.find('[data-action="more"]').trigger('click')
+      await flushPromises()
+
+      expect((wrapper.find('[data-field="confirm"]').element as HTMLInputElement).checked).toBe(true)
+      expect((wrapper.find('[data-action="apply"]').element as HTMLButtonElement).disabled).toBe(false)
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined })
+          return new Response(JSON.stringify({ applied: { ports: 5, connections: 5 }, connection_ids: [], summary: plan([]).summary }))
+        }),
+      )
+      await wrapper.find('[data-action="apply"]').trigger('click')
+      await flushPromises()
+
+      // В apply нет offset/limit: применяется ВЕСЬ план, а не показанная часть.
+      expect(applyCalls()[0].body).toEqual({ rule_id: 'r-1', plan_hash: 'hash-all', confirm: true })
+    })
+
+    it('409 при подгрузке — план изменился: сообщение, «Обновить план», отметка подтверждения сброшена', async () => {
+      stub(firstPage(), { status: 409, detail: 'План изменился после того, как был показан, — обновите предпросмотр' })
+      const wrapper = mountModal()
+      await flushPromises()
+      await wrapper.find('[data-field="confirm"]').setValue(true)
+
+      await wrapper.find('[data-action="more"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-error]').text()).toContain('План изменился')
+      expect(wrapper.find('[data-action="refresh"]').exists()).toBe(true)
+      expect((wrapper.find('[data-field="confirm"]').element as HTMLInputElement).checked).toBe(false)
+      expect(wrapper.findAll('[data-outcome]')).toHaveLength(2) // уже показанное остаётся
+    })
+
+    it('обновление плана начинает со второго запроса без plan_hash и показывает первую страницу заново', async () => {
+      stub(firstPage(), { status: 409, detail: 'План изменился' }, plan(items(1, 2), { total_items: 5, applicable: 5 }, 'hash-new'))
+      const wrapper = mountModal()
+      await flushPromises()
+      await wrapper.find('[data-action="more"]').trigger('click')
+      await flushPromises()
+
+      await wrapper.find('[data-action="refresh"]').trigger('click')
+      await flushPromises()
+
+      expect(previewCalls()[2].body).toEqual({})
+      expect(wrapper.findAll('[data-outcome]')).toHaveLength(2)
+      expect(wrapper.find('[data-error]').exists()).toBe(false)
+    })
+  })
+
   it('заголовок можно задать снаружи', async () => {
     stub(plan([]))
     const wrapper = mountModal({}, 'Что сделает правило «X»')

@@ -781,3 +781,149 @@ def _trunk_pair_numbered(world: World, index: int):
     world.configure(a, mode="trunk", vlans=(10, 20))
     world.configure(b, mode="trunk", vlans=(20, 30))
     return a, b, world.connect(a, b)
+
+
+# --- постраничный предпросмотр и кэш плана --------------------------------------------------------
+
+def _auto_pairs(world: World, count: int) -> list[str]:
+    """count подключений с решением auto (пустой trunk получает VLAN соседа)."""
+    ids = []
+    for index in range(count):
+        (a,) = world.device(f"PAGE-A{index}", ["Gi0/1"], allowed=(10, 20))
+        (b,) = world.device(f"PAGE-B{index}", ["Gi0/1"], allowed=(10, 20))
+        world.configure(b, mode="trunk", vlans=(10, 20))
+        ids.append(world.connect(a, b))
+    return ids
+
+
+@pytest.fixture()
+def compute_calls(monkeypatch) -> list[int]:
+    """Список, в который попадает запись при каждом расчёте плана (а не показе страницы из кэша)."""
+    from app.services import port_sync_reconcile
+
+    calls: list[int] = []
+    real = port_sync_reconcile._compute
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(port_sync_reconcile, "_compute", counting)
+    return calls
+
+
+def test_preview_pages_cover_the_whole_plan_once_in_a_stable_order(world):
+    _auto_pairs(world, 5)
+    full = world.preview()
+
+    first = world.preview(limit=2)
+    pages = [first]
+    for offset in (2, 4):
+        pages.append(world.preview(limit=2, offset=offset, plan_hash=first["plan_hash"]))
+
+    assert [len(p["items"]) for p in pages] == [2, 2, 1]
+    assert [p["page"] for p in pages] == [
+        {"offset": 0, "limit": 2, "total": 5, "has_more": True},
+        {"offset": 2, "limit": 2, "total": 5, "has_more": True},
+        {"offset": 4, "limit": 2, "total": 5, "has_more": False},
+    ]
+    assert [i["connection_id"] for p in pages for i in p["items"]] == [i["connection_id"] for i in full["items"]]
+    # Сводка и хеш — по всему плану и одинаковые на каждой странице; shown — число элементов в странице.
+    assert {p["plan_hash"] for p in pages} == {full["plan_hash"]}
+    assert all(p["summary"]["total_items"] == 5 and p["summary"]["applicable"] == 5 for p in pages)
+    assert [p["summary"]["shown"] for p in pages] == [2, 2, 1]
+
+
+def test_next_pages_are_served_from_the_cache_without_recomputing(world, compute_calls):
+    _auto_pairs(world, 4)
+
+    first = world.preview(limit=2)
+    second = world.preview(limit=2, offset=2, plan_hash=first["plan_hash"])
+    again = world.preview(limit=2, offset=0, plan_hash=first["plan_hash"])
+
+    assert len(compute_calls) == 1
+    assert len(second["items"]) == 2 and again["items"] == first["items"]
+
+
+def test_preview_without_plan_hash_always_recomputes(world, compute_calls):
+    _auto_pairs(world, 2)
+
+    world.preview(limit=1)
+    world.preview(limit=1)
+
+    assert len(compute_calls) == 2
+
+
+def test_cache_miss_recomputes_and_serves_the_same_plan(world, compute_calls):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 3)
+    first = world.preview(limit=2)
+    plan_cache.clear()  # срок снимка истёк / он вытеснен / запрос попал в другой воркер
+
+    second = world.preview(limit=2, offset=2, plan_hash=first["plan_hash"])
+
+    assert len(compute_calls) == 2
+    assert [i["connection_id"] for i in second["items"]] == [i["connection_id"] for i in world.preview()["items"]][2:]
+
+
+def test_page_of_a_plan_that_changed_after_a_cache_miss_is_409(world):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 3)
+    first = world.preview(limit=2)
+    plan_cache.clear()
+    # Пока снимка в кэше нет, появляется ещё одно подключение с расхождением — план другой.
+    (a,) = world.device("PAGE-A-NEW", ["Gi0/1"], allowed=(10, 20))
+    (b,) = world.device("PAGE-B-NEW", ["Gi0/1"], allowed=(10, 20))
+    world.configure(b, mode="trunk", vlans=(10, 20))
+    world.connect(a, b)
+
+    response = world.client.post(PREVIEW, json={"limit": 2, "offset": 2, "plan_hash": first["plan_hash"]})
+
+    assert response.status_code == 409, response.text
+
+
+def test_apply_never_uses_the_cache_and_drops_it(world, compute_calls):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 2)
+    plan = world.preview(limit=1)
+    assert len(plan_cache) == 1
+
+    world.apply(plan)
+
+    assert len(compute_calls) == 2  # предпросмотр + пересчёт при применении (кэш не читался)
+    assert len(plan_cache) == 0
+
+
+def test_rule_changes_drop_cached_plans(world):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 1)
+    world.preview()
+    assert len(plan_cache) == 1
+
+    rule = world.rule(EMPTY_TRUNK_RULE)
+    response = world.client.put(f"{RULES}/{rule['id']}", json={"enabled": False})
+
+    assert response.status_code == 200, response.text
+    assert len(plan_cache) == 0
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"offset": -1}, {"offset": "0"}, {"offset": True}, {"limit": 0}, {"limit": 100000}, {"limit": 1.5}, {"plan_hash": ""}, {"plan_hash": 5}],
+)
+def test_preview_rejects_malformed_page_parameters(world, body):
+    response = world.client.post(PREVIEW, json=body)
+    assert response.status_code == 422, response.text
+
+
+def test_offset_past_the_end_gives_an_empty_page(world):
+    _auto_pairs(world, 2)
+    first = world.preview(limit=1)
+
+    page = world.preview(limit=1, offset=10, plan_hash=first["plan_hash"])
+
+    assert page["items"] == [] and page["page"] == {"offset": 10, "limit": 1, "total": 2, "has_more": False}

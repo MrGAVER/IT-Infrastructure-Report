@@ -1011,10 +1011,21 @@ export interface PortSyncSummary {
   partial?: number
 }
 
+/** Положение страницы в плане: total — всего элементов плана, has_more — есть ли ещё после этой страницы. */
+export interface PortSyncPlanPage {
+  offset: number
+  limit: number
+  total: number
+  has_more: boolean
+}
+
 export interface PortSyncPlan {
+  /** Элементы ЭТОЙ страницы плана (summary.shown — их число); summary и plan_hash — по всему плану. */
   items: PortSyncPlanItem[]
   summary: PortSyncSummary
   plan_hash: string
+  /** Может отсутствовать в ответах старого сервера (тогда план пришёл целиком, не более 300 элементов). */
+  page?: PortSyncPlanPage
 }
 
 export interface PortSyncApplyResult {

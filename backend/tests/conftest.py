@@ -155,6 +155,17 @@ def _reset_login_throttle():
     auth_module.login_throttle.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_port_sync_plan_cache():
+    """Кэш планов согласования (services/port_sync_plan_cache.py) живёт в памяти процесса — как и троттлинг
+    входа, он не должен переносить снимки планов из одного теста в другой (у пустых планов один и тот же хеш)."""
+    from app.services.port_sync_plan_cache import plan_cache
+
+    plan_cache.clear()
+    yield
+    plan_cache.clear()
+
+
 @pytest.fixture()
 def client_factory(db_session, monkeypatch):
     """Фабрика TestClient с app.db.get_db, подменённым на фикстурную сессию/движок выше, чтобы
