@@ -3508,3 +3508,8 @@ vitest (1562), vite build. Миграций БД нет.
 
 Проверено: backend pytest (1363 passed, 1 skipped), ruff; frontend vue-tsc -b, vitest (1590), vite build; npm audit (prod)
 и pip-audit без уязвимостей. Миграций БД нет.
+
+Проверено на дереве после слияния с main (2.125.0): backend pytest (1363 passed, 1 skipped), ruff, `pip-audit` по
+`requirements.lock`, одна head миграций `b5d2f8a1c673`; frontend vue-tsc -b, vitest (1627), vite build, npm audit (prod).
+Записи 2.126.0 и 2.127.0 — одна ветка: версии перенумерованы при слиянии, так как 2.123.0–2.125.0 заняты main.
+
