@@ -38,3 +38,33 @@ describe('useToast: автоскрытие по типу', () => {
     expect(toasts).toHaveLength(0)
   })
 })
+
+describe('useToast: действие и своё время показа', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    useToast().toasts.splice(0)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('действие сохраняется в уведомлении; у обычного уведомления поля action нет', () => {
+    const { toasts, notify } = useToast()
+    const run = () => {}
+    notify('с действием', 'warning', { action: { label: 'Открыть', run } })
+    notify('обычное', 'info')
+
+    expect(toasts[0].action).toEqual({ label: 'Открыть', run })
+    expect('action' in toasts[1]).toBe(false)
+  })
+
+  it('timeoutMs заменяет время по типу: warning с 30с живёт дольше стандартных 10с', () => {
+    const { toasts, notify } = useToast()
+    notify('долгое', 'warning', { timeoutMs: 30000 })
+
+    vi.advanceTimersByTime(10001)
+    expect(toasts).toHaveLength(1)
+    vi.advanceTimersByTime(20000)
+    expect(toasts).toHaveLength(0)
+  })
+})

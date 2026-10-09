@@ -22,6 +22,8 @@ import { useConnectionsStore } from '../stores/connections'
 import { useDevicesStore } from '../stores/devices'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
+import { usePortSyncPlanRequest } from '../composables/usePortSyncPlanRequest'
+import { findPortSyncNotice } from '../utils/portSyncNotice'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
@@ -47,6 +49,7 @@ const vlanDomainsStore = useVLANDomainsStore()
 const connectionsStore = useConnectionsStore()
 const devicesStore = useDevicesStore()
 const { notify, notifyError } = useToast()
+const portSyncPlan = usePortSyncPlanRequest()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 // Устройство, которое ЭТА форма уже создала, но не смогла сохранить целиком: после createResource идёт
@@ -243,6 +246,34 @@ watch(portVlanOptions, (options, oldOptions) => {
   }
 })
 
+// Набор VLAN устройства при открытии формы и в черновике: порядок строк не важен, пустые строки не считаются.
+let initialDeviceVlanKey = ''
+function deviceVlanKey(rows: DeviceVlanDraftRow[]): string {
+  return rows
+    .filter((row) => row.vlan_id)
+    .map((row) => row.vlan_id)
+    .sort()
+    .join('|')
+}
+
+// После изменения списка VLAN устройства порты подхватывают их сами, а согласование с соседями идёт только вручную —
+// подсказываем, если у подключений устройства теперь есть что согласовать. Не блокирует сохранение: ошибка проверки
+// не отменяет уже сохранённое, о ней говорим отдельным предупреждением.
+async function notifyAboutPortSync(deviceId: string): Promise<void> {
+  try {
+    const found = await findPortSyncNotice(deviceId)
+    if (!found) return
+    const scope = found.connectionIds.length > 0 ? { connection_ids: found.connectionIds } : {}
+    notify(found.message, 'warning', {
+      timeoutMs: 30000, // по уведомлению нужно решение — оно живёт дольше обычного предупреждения
+      action: { label: 'Показать план', run: () => portSyncPlan.open(scope, 'Согласование портов после изменения VLAN устройства') },
+    })
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    notify(`Устройство сохранено, но проверить, нужно ли согласование портов, не удалось: ${reason}`, 'warning')
+  }
+}
+
 function toSoftwareDraftRow(x: DeployedSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
 }
@@ -360,6 +391,7 @@ watch(
       initialConnections.value = snapshotConnections(interfaces.value)
       savedConnections.value = deviceConnections
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
+      initialDeviceVlanKey = deviceVlanKey(deviceVlans.value)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
       // п.1.3.8), а не как уже подтверждённое: иначе availableVlans выше решит, что устройство
@@ -735,6 +767,7 @@ async function submit() {
         // allowed_vlans в backend/app/services/crud.py). Если VLAN только что добавлен в блок
         // "VLAN устройства" и тут же назначен порту в этом же сохранении, к моменту проверки он
         // должен уже быть в БД — иначе 422 "VLAN не разрешён" на ровном месте для пользователя.
+        const deviceVlansChanged = !!props.device && deviceVlanKey(deviceVlans.value) !== initialDeviceVlanKey
         await persistDeviceVlans(saved.id, deviceVlans.value)
         // Атомарный PUT (не через generic createResource/deleteResource) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
@@ -770,6 +803,8 @@ async function submit() {
         const conflictNotice = buildPortConflictNotice(noticeRows, noticeConflicts, initialPortConfigs, changedConnectionIds)
         if (conflictNotice) notify(conflictNotice, 'warning')
         emit('saved', saved)
+        // Проверка идёт уже после закрытия формы и не задерживает его; сама ловит свои ошибки.
+        if (deviceVlansChanged) void notifyAboutPortSync(saved.id)
         return
       } catch (err) {
         if (err instanceof ApiError && err.code === ErrorCode.DUPLICATE_SYSTEM_NAME && confirm(err.message + '\n\nОК — сохранить дубликат.')) {
