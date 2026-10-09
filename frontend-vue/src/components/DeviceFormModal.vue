@@ -32,7 +32,7 @@ import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
-import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, removeDomainVlansFromDraft } from '../utils/vlan'
+import { filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft } from '../utils/vlan'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig, type PortRowLike } from '../utils/portConflicts'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import { attachConnectionDrafts, changedConnectionRowIds, hasConnectionChanges, snapshotConnections, validateConnectionDrafts, type ConnectionBaseline } from '../utils/interfaceConnections'
@@ -216,21 +216,31 @@ const portVlanOptions = computed(() =>
 // же причине пункт 2.1.2 применяется только когда oldOptions уже был непуст — на самой первой
 // загрузке "все опции уже выбраны" было бы истинно вырожденно (для пустого множества) и
 // разложило бы новые VLAN на все trunk-порты без разбора.
+//
+// Те же правила применяются и к ГРУППАМ портов (interfaceGroups): группа хранит свой vlan_ids, и
+// сервер при сохранении записывает его во все порты группы — не обновлённая группа затёрла бы
+// только что подхваченный портом новый VLAN (и оставила бы в группе снятый). Сама логика — в чистой
+// функции reconcileVlanIds (utils/vlan.ts), общая для портов и групп.
 watch(portVlanOptions, (options, oldOptions) => {
-  const removedIds = new Set((oldOptions ?? []).filter((v) => !options.some((o) => o.id === v.id)).map((v) => v.id))
-  const addedIds = options.filter((o) => !(oldOptions ?? []).some((v) => v.id === o.id)).map((o) => o.id)
-  const hadAnyOldOptions = (oldOptions ?? []).length > 0
-  if (!removedIds.size && !(addedIds.length && hadAnyOldOptions)) return
-  interfaces.value = interfaces.value.map((row) => {
-    let vlan_ids = row.vlan_ids
-    if (removedIds.size && vlan_ids.some((id) => removedIds.has(id))) {
-      vlan_ids = vlan_ids.filter((id) => !removedIds.has(id))
-    }
-    if (addedIds.length && hadAnyOldOptions && row.vlan_mode === 'trunk' && oldOptions!.every((o) => vlan_ids.includes(o.id))) {
-      vlan_ids = [...vlan_ids, ...addedIds]
-    }
+  const previous = oldOptions ?? []
+  const rows = interfaces.value
+  const nextRows = rows.map((row) => {
+    const vlan_ids = reconcileVlanIds(row.vlan_ids, row.vlan_mode, previous, options)
     return vlan_ids === row.vlan_ids ? row : { ...row, vlan_ids }
   })
+  if (nextRows.some((row, i) => row !== rows[i])) interfaces.value = nextRows
+
+  const groups = interfaceGroups.value
+  const nextGroups = groups.map((group) => {
+    const vlan_ids = reconcileVlanIds(group.vlan_ids, group.vlan_mode, previous, options)
+    return vlan_ids === group.vlan_ids ? group : { ...group, vlan_ids }
+  })
+  if (nextGroups.some((group, i) => group !== groups[i])) {
+    interfaceGroups.value = nextGroups
+    // Из групп VLAN убираются молча — предупреждаем: набор VLAN группы изменился не по действию пользователя в самой группе.
+    const removalNotice = groupVlanRemovalMessage(groups, nextGroups, previous)
+    if (removalNotice) notify(removalNotice, 'warning')
+  }
 })
 
 function toSoftwareDraftRow(x: DeployedSoftware): SoftwareAssetDraftRow {

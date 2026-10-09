@@ -91,3 +91,96 @@ export function filterVlansForDeviceDomains(
   if (!deviceDomainIds.size) return definitions.filter((d) => !d.domain_id)
   return definitions.filter((d) => !!d.domain_id && deviceDomainIds.has(d.domain_id))
 }
+
+/**
+ * Приводит vlan_ids порта или группы портов в соответствие с изменением списка допустимых VLAN
+ * устройства (oldOptions → newOptions). Одна и та же логика для портов и для групп — иначе группа
+ * расходилась бы со своими портами, а сервер, применяя группу к портам, затирал бы значения порта.
+ *
+ * 1. VLAN, переставшие быть допустимыми, убираются из vlan_ids.
+ * 2. Если появились новые VLAN и порт/группа в trunk-режиме имеет выбранными ВСЕ прежние опции
+ *    («Все VLAN» — состояние, а не флаг), новые VLAN добавляются в конец: «Все VLAN» остаётся правдой.
+ *    Правило не применяется, когда прежних опций не было (первая загрузка устройства: «все выбраны» было бы
+ *    истинно вырожденно и раздало бы новые VLAN всем trunk-портам без разбора).
+ *
+ * Чистая функция: входной массив не мутируется; если менять нечего — возвращается ТОТ ЖЕ массив
+ * (можно сравнивать по ссылке и не вызывать лишний реактивный апдейт).
+ *
+ * @example
+ * reconcileVlanIds(['a', 'b'], 'trunk', [{ id: 'a' }, { id: 'b' }], [{ id: 'a' }, { id: 'b' }, { id: 'c' }]) // ['a', 'b', 'c']
+ */
+export function reconcileVlanIds(
+  vlanIds: string[],
+  vlanMode: string,
+  oldOptions: readonly { id: string }[],
+  newOptions: readonly { id: string }[],
+): string[] {
+  const oldIds = new Set(oldOptions.map((o) => o.id))
+  const newIds = new Set(newOptions.map((o) => o.id))
+  const removedIds = oldOptions.filter((o) => !newIds.has(o.id)).map((o) => o.id)
+  const addedIds = newOptions.filter((o) => !oldIds.has(o.id)).map((o) => o.id)
+
+  let next = vlanIds
+  if (removedIds.length && next.some((id) => removedIds.includes(id))) {
+    next = next.filter((id) => !removedIds.includes(id))
+  }
+  // Проверка «все прежние опции выбраны» идёт по уже очищенному списку: если одновременно что-то
+  // убрали из выбранных, «Все VLAN» уже не было полным — новые VLAN не добавляем.
+  if (addedIds.length && oldOptions.length > 0 && vlanMode === 'trunk' && oldOptions.every((o) => next.includes(o.id))) {
+    next = [...next, ...addedIds]
+  }
+  return next
+}
+
+/**
+ * Фильтрует список VLAN по строке поиска (окно выбора VLAN группы портов). Ищет по тому же тексту, что
+ * видит пользователь, — vlanLabel(): номер, имя и домен, без учёта регистра. Запрос из нескольких слов —
+ * должны встретиться ВСЕ слова, в любом порядке («серверы 110»). Порядок исходного списка сохраняется.
+ * Пустой запрос возвращает ТОТ ЖЕ массив (не создаёт лишнего реактивного апдейта).
+ *
+ * @example
+ * filterVlansByQuery(vlans, 'гост 20') // [{ vlan_id: 20, name: 'Гостевой', ... }]
+ */
+export function filterVlansByQuery<T extends VLANDefinition>(vlans: T[], query: string): T[] {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!tokens.length) return vlans
+  return vlans.filter((v) => {
+    const label = vlanLabel(v).toLowerCase()
+    return tokens.every((token) => label.includes(token))
+  })
+}
+
+/**
+ * Текст уведомления, когда VLAN, снятые с устройства, были убраны и из групп портов (reconcileVlanIds
+ * делает это молча — пользователь должен узнать, что группа изменилась). Возвращает null, если ни одна
+ * группа ничего не потеряла.
+ *
+ * `before` и `after` сопоставляются ПО ИНДЕКСУ (после reconcileVlanIds порядок групп не меняется).
+ * VLAN в сообщении — без повторов, в порядке списка прежних опций (oldOptions); VLAN, которого в опциях
+ * нет, показывается идентификатором. Группы — в порядке списка, нетронутые не упоминаются.
+ *
+ * @example
+ * groupVlanRemovalMessage([{ name: 'Транки', vlan_ids: ['a', 'b'] }], [{ name: 'Транки', vlan_ids: ['a'] }], options)
+ * // 'Снятые с устройства VLAN (20 — Гости) убраны и из групп портов: «Транки».'
+ */
+export function groupVlanRemovalMessage(
+  before: readonly { name: string; vlan_ids: string[] }[],
+  after: readonly { name: string; vlan_ids: string[] }[],
+  oldOptions: readonly VLANDefinition[],
+): string | null {
+  const lostIds = new Set<string>()
+  const groupNames: string[] = []
+  before.forEach((group, i) => {
+    const kept = new Set(after[i]?.vlan_ids ?? [])
+    const lost = group.vlan_ids.filter((id) => !kept.has(id))
+    if (!lost.length) return
+    lost.forEach((id) => lostIds.add(id))
+    groupNames.push(`«${group.name.trim() || 'без названия'}»`)
+  })
+  if (!groupNames.length) return null
+
+  const labelById = new Map(oldOptions.map((v) => [v.id, vlanLabel(v)]))
+  const orderedIds = [...oldOptions.map((v) => v.id).filter((id) => lostIds.has(id)), ...[...lostIds].filter((id) => !labelById.has(id))]
+  const labels = orderedIds.map((id) => labelById.get(id) ?? id)
+  return `Снятые с устройства VLAN (${labels.join(', ')}) убраны и из групп портов: ${groupNames.join(', ')}.`
+}

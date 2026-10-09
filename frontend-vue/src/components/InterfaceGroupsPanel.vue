@@ -10,7 +10,7 @@ import { computed, ref, watch } from 'vue'
 import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
-import { vlanLabel } from '../utils/vlan'
+import { filterVlansByQuery, vlanLabel } from '../utils/vlan'
 import { sortOpenPortRows } from '../utils/openPorts'
 import {
   applyGroupsToRows,
@@ -65,6 +65,7 @@ function openEdit(group: InterfaceGroupDraft) {
 
 function closeEdit() {
   draft.value = null
+  vlanPickerOpen.value = false
 }
 
 // --- Копирование значений с порта -------------------------------------------------------------
@@ -118,7 +119,10 @@ function otherGroupName(index: number): string | null {
 function setMode(mode: '' | 'access' | 'trunk') {
   if (!draft.value) return
   // Смена режима на access оставляет не более одного VLAN (тот же инвариант, что у порта).
-  draft.value = { ...draft.value, vlan_mode: mode, vlan_ids: mode === 'access' ? draft.value.vlan_ids.slice(0, 1) : mode === '' ? [] : draft.value.vlan_ids }
+  // Переключение на trunk сразу отмечает «Все VLAN» — как у порта (DeviceInterfacesEditor.vue:
+  // setVlanMode): пустой trunk — бесполезное стартовое состояние, а нужные VLAN снимаются в окне выбора.
+  const vlan_ids = mode === 'access' ? draft.value.vlan_ids.slice(0, 1) : mode === 'trunk' ? props.vlanOptions.map((v) => v.id) : []
+  draft.value = { ...draft.value, vlan_mode: mode, vlan_ids }
 }
 
 function toggleVlan(vlanId: string, checked: boolean) {
@@ -128,6 +132,28 @@ function toggleVlan(vlanId: string, checked: boolean) {
   else ids.delete(vlanId)
   draft.value = { ...draft.value, vlan_ids: [...ids] }
 }
+
+/** «Все VLAN» в Trunk-режиме — как у порта (DeviceInterfacesEditor.vue: isAllVlansSelected()/toggleAllVlans()):
+ * не отдельный флаг в данных группы, а состояние, когда vlan_ids покрывает весь vlanOptions. Галочка —
+ * способ проставить/снять его одним кликом вместо отметки каждого VLAN по отдельности. */
+const isAllVlansSelected = computed(() => !!draft.value && props.vlanOptions.length > 0 && props.vlanOptions.every((v) => draft.value!.vlan_ids.includes(v.id)))
+
+function toggleAllVlans(checked: boolean) {
+  if (!draft.value) return
+  draft.value = { ...draft.value, vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] }
+}
+
+// Выбор отдельных VLAN — во всплывающем окне (как в массовом редактировании портов): при большом числе
+// VLAN инлайновый список растягивал окно группы. В самом окне группы остаются «Все VLAN», сводка и кнопка.
+const vlanPickerOpen = ref(false)
+const vlanSearch = ref('')
+const filteredVlanOptions = computed(() => filterVlansByQuery(props.vlanOptions, vlanSearch.value))
+function openVlanPicker() {
+  vlanSearch.value = '' // поиск не переживает закрытие окна: при повторном открытии список полный
+  vlanPickerOpen.value = true
+}
+const selectedVlanCount = computed(() => (draft.value ? props.vlanOptions.filter((v) => draft.value!.vlan_ids.includes(v.id)).length : 0))
+const { onOverlayPointerDown: onPickerPointerDown, onOverlayClick: onPickerClick } = useOverlayDismiss(() => (vlanPickerOpen.value = false))
 
 const vlanSelectOptions = computed(() => props.vlanOptions.map((v) => ({ value: v.id, label: vlanLabel(v) })))
 
@@ -300,12 +326,16 @@ function summary(group: InterfaceGroupDraft): string {
               placeholder="— VLAN не выбран —"
               @update:model-value="(v) => (draft = { ...draft!, vlan_ids: v ? [v] : [] })"
             />
-            <div v-else-if="draft.vlan_mode === 'trunk'" class="vlan-checks">
+            <div v-else-if="draft.vlan_mode === 'trunk'" class="trunk-row">
               <span v-if="!vlanOptions.length" class="empty">Для типа устройства VLAN не назначены</span>
-              <label v-for="v in vlanOptions" :key="v.id" class="check-inline">
-                <input type="checkbox" :checked="draft.vlan_ids.includes(v.id)" @change="toggleVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-                {{ vlanLabel(v) }}
-              </label>
+              <template v-else>
+                <label class="check-inline vlan-check-all">
+                  <input type="checkbox" :checked="isAllVlansSelected" @change="toggleAllVlans(($event.target as HTMLInputElement).checked)" />
+                  <b>Все VLAN</b>
+                </label>
+                <span class="vlan-summary">Выбрано VLAN: {{ selectedVlanCount }} из {{ vlanOptions.length }}</span>
+                <button type="button" class="btn btn-secondary vlan-picker-btn" @click="openVlanPicker">Выбрать VLAN…</button>
+              </template>
             </div>
           </div>
 
@@ -350,6 +380,37 @@ function summary(group: InterfaceGroupDraft): string {
       <div class="modal-foot group-modal-actions">
         <button type="button" class="btn btn-secondary" @click="closeEdit">Отмена</button>
         <button type="button" class="btn btn-primary" @click="saveDraft">{{ draftIsNew ? 'Создать группу' : 'Применить' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="draft && vlanPickerOpen" class="overlay" @mousedown="onPickerPointerDown" @click="onPickerClick">
+    <div class="vlan-picker-modal card" role="dialog" aria-modal="true" aria-label="Выбор VLAN группы">
+      <div class="modal-head">
+        <h2>Выбор VLAN группы</h2>
+        <button type="button" class="icon-btn" aria-label="Закрыть" @click="vlanPickerOpen = false">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
+      </div>
+      <div class="picker-search">
+        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+        <input v-model="vlanSearch" type="text" placeholder="Поиск по номеру, имени, домену…" aria-label="Поиск VLAN" />
+      </div>
+      <div class="vlan-summary picker-summary">Выбрано VLAN: {{ selectedVlanCount }} из {{ vlanOptions.length }}</div>
+      <div class="vlan-checks vlan-picker-list">
+        <!-- «Все VLAN» действует на ВСЕ VLAN устройства, а не только на найденные поиском -->
+        <label class="check-inline vlan-check-all">
+          <input type="checkbox" :checked="isAllVlansSelected" @change="toggleAllVlans(($event.target as HTMLInputElement).checked)" />
+          <b>Все VLAN</b>
+        </label>
+        <label v-for="v in filteredVlanOptions" :key="v.id" class="check-inline">
+          <input type="checkbox" :checked="draft.vlan_ids.includes(v.id)" @change="toggleVlan(v.id, ($event.target as HTMLInputElement).checked)" />
+          {{ vlanLabel(v) }}
+        </label>
+        <span v-if="!filteredVlanOptions.length" class="picker-empty">Ничего не найдено</span>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-primary" @click="vlanPickerOpen = false">Готово</button>
       </div>
     </div>
   </div>
@@ -637,6 +698,65 @@ function summary(group: InterfaceGroupDraft): string {
   gap: 6px 14px;
   max-height: 180px;
   overflow-y: auto;
+}
+.trunk-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.vlan-summary {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.vlan-picker-btn {
+  white-space: nowrap;
+}
+/* окно выбора VLAN — поверх окна группы (тот же z-index, но позже в DOM) */
+.vlan-picker-modal {
+  width: 100%;
+  max-width: 360px;
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+.vlan-picker-modal .vlan-picker-list {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  max-height: none;
+  overflow-y: auto;
+}
+.vlan-picker-modal .modal-foot {
+  margin-top: 14px;
+}
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 7px 10px;
+  margin-top: 4px;
+}
+.picker-search .icon {
+  color: var(--ink-muted);
+}
+.picker-search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--ink);
+  font-size: 12.5px;
+  width: 100%;
+}
+.picker-summary {
+  margin: 8px 0;
+}
+.picker-empty {
+  font-size: 12.5px;
+  color: var(--ink-muted);
 }
 
 .ip-row {
