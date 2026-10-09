@@ -196,4 +196,113 @@ describe('ISSourcesListEditor.vue', () => {
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toEqual([rows[1]])
   })
+  // --- Уже добавленные в ИС ВМ и контейнеры не предлагаются для нового размещения ---
+
+  // Подписи опций SearchableSelect конкретной строки (список раскрывается фокусом на поле).
+  async function optionLabelsOfRow(wrapper: Wrapper, rowIndex: number, column: '.col-vm' | '.col-container'): Promise<string[]> {
+    const card = wrapper.findAll('.source-card')[rowIndex]
+    await card.find(`${column} input`).trigger('focus')
+    return card.findAll(`${column} .ss-option`).map((o) => o.text())
+  }
+
+  it('ВМ, уже выбранная в другой строке, не предлагается в списке ВМ новой строки', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await optionLabelsOfRow(wrapper, 1, '.col-vm')).toEqual(['app-vm-2'])
+  })
+
+  it('собственная ВМ строки остаётся в её списке и отображается в поле, чужая выбранная — скрыта', async () => {
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' },
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-2' },
+    ]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    // Подпись читается до раскрытия списков: фокус на поле очищает строку ввода для поиска.
+    const cards = wrapper.findAll('.source-card')
+    expect((cards[0].find('.col-vm input').element as HTMLInputElement).value).toBe('app-vm-1')
+    expect((cards[1].find('.col-vm input').element as HTMLInputElement).value).toBe('app-vm-2')
+    expect(await optionLabelsOfRow(wrapper, 0, '.col-vm')).toEqual(['app-vm-1'])
+    expect(await optionLabelsOfRow(wrapper, 1, '.col-vm')).toEqual(['app-vm-2'])
+  })
+
+  it('контейнер, уже выбранный в другой строке, не предлагается в списке контейнеров новой строки', async () => {
+    const twoContainers: Container[] = [...containers, { ...containers[0], id: 'ct-2', name: 'redis-container' }]
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'container', owner_id: 'ct-1' }, { ...emptyRow(), source_type: 'container' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, containerOptions: twoContainers, modelValue: rows } })
+
+    expect(await optionLabelsOfRow(wrapper, 1, '.col-container')).toEqual(['redis-container'])
+    // Строке с выбранным контейнером доступны её собственный и свободные (но не чужой).
+    expect(await optionLabelsOfRow(wrapper, 0, '.col-container')).toEqual(['nginx-container', 'redis-container'])
+  })
+
+  it('занятость учитывается только среди строк того же типа: сервер с таким же id не скрывает ВМ', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'device', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await optionLabelsOfRow(wrapper, 1, '.col-vm')).toEqual(['app-vm-1', 'app-vm-2'])
+  })
+
+  it('после удаления строки её ВМ снова доступна для выбора', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+    expect(await optionLabelsOfRow(wrapper, 1, '.col-vm')).toEqual(['app-vm-2'])
+
+    await wrapper.setProps({ modelValue: [rows[1]] })
+
+    expect(await optionLabelsOfRow(wrapper, 0, '.col-vm')).toEqual(['app-vm-1', 'app-vm-2'])
+  })
+
+  it('старые данные с дублем (одна ВМ в двух строках) не ломаются: каждая строка показывает свою ВМ', async () => {
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), id: 's1', source_type: 'vm', owner_id: 'vm-1' },
+      { ...emptyRow(), id: 's2', source_type: 'vm', owner_id: 'vm-1' },
+    ]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    const cards = wrapper.findAll('.source-card')
+    expect((cards[0].find('.col-vm input').element as HTMLInputElement).value).toBe('app-vm-1')
+    expect((cards[1].find('.col-vm input').element as HTMLInputElement).value).toBe('app-vm-1')
+  })
+  // Текст пустого списка. Подпись читается из .ss-empty раскрытого списка конкретной строки.
+  async function emptyTextOfRow(wrapper: Wrapper, rowIndex: number, column: '.col-vm' | '.col-container', query = ''): Promise<string> {
+    const card = wrapper.findAll('.source-card')[rowIndex]
+    const input = card.find(`${column} input`)
+    await input.trigger('focus')
+    if (query) await input.setValue(query)
+    return card.find(`${column} .ss-empty`).text()
+  }
+
+  it('если все ВМ уже добавлены, список ВМ новой строки объясняет, почему он пуст', async () => {
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' },
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-2' },
+      { ...emptyRow(), source_type: 'vm' },
+    ]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 2, '.col-vm')).toBe('Все ВМ уже добавлены в эту ИС')
+  })
+
+  it('если все контейнеры уже добавлены, список контейнеров новой строки объясняет, почему он пуст', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'container', owner_id: 'ct-1' }, { ...emptyRow(), source_type: 'container' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 1, '.col-container')).toBe('Все контейнеры уже добавлены в эту ИС')
+  })
+
+  it('«Ничего не найдено» остаётся для запроса без совпадений, пока свободные ВМ есть', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 1, '.col-vm', 'нет такой')).toBe('Ничего не найдено')
+  })
+
+  it('если ВМ в системе нет вовсе, подсказки «все добавлены» нет — обычное «Ничего не найдено»', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, vmOptions: [], modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 0, '.col-vm')).toBe('Ничего не найдено')
+  })
 })

@@ -1,13 +1,14 @@
 """Детали информационной системы: связанные таблицы и источники."""
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ...models import IPAddress, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, ProtocolPortCatalog
+from ...models import Container, IPAddress, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, ProtocolPortCatalog, VirtualMachine
 from ...constants import AuditAction, SourceType, OwnerType
 from ..serialization import serialize
 from ..integrity import integrity_error_response
@@ -121,6 +122,41 @@ def _sync_source_ip_addresses(source_id: str, ip_items: Any, session: Session) -
         if old_ip.id not in seen_ip_ids: session.delete(old_ip)
 
 
+# Источники, которые не могут повторяться в одной ИС: ВМ и контейнер — «место размещения», повтор той же ВМ
+# в двух строках ничего не добавляет к отчёту (форма ИС такие повторы уже не предлагает — см.
+# ISSourcesListEditor.vue). Физические серверы/оборудование и ручные строки намеренно не ограничены: решение
+# для них не принято. значение — (подпись для сообщения об ошибке, модель с полем name).
+_UNIQUE_SOURCE_OWNERS = {SourceType.VM: ('ВМ', VirtualMachine), SourceType.CONTAINER: ('Контейнер', Container)}
+
+
+def _unique_source_key(item: Any) -> tuple[str, str] | None:
+    """(source_type, owner_id) строки из запроса, если она занимает ВМ/контейнер; иначе None. Некорректные
+    типы значений пропускаются — их отвергает основной цикл синхронизации своими сообщениями."""
+    if not isinstance(item, dict): return None
+    source_type = item.get('source_type') or SourceType.MANUAL
+    owner_id = item.get('owner_id')
+    if not isinstance(source_type, str) or source_type not in _UNIQUE_SOURCE_OWNERS: return None
+    if not isinstance(owner_id, str) or not owner_id: return None
+    return source_type, owner_id
+
+
+def _assert_no_new_duplicate_sources(source_items: list[Any], existing_sources: list[InformationSystemSource], session: Session) -> None:
+    """422, если запрос ДОБАВЛЯЕТ повтор ВМ/контейнера в той же ИС. Уже сохранённые дубли (данные до появления
+    проверки, БД их допускает) не блокируют сохранение ИС: ключ нарушает правило только когда в запросе его строк
+    больше, чем и одной, и уже сохранённых. Так дубль можно оставить как есть или убрать, но нельзя нарастить —
+    без миграции и без удаления данных пользователя."""
+    requested = Counter(key for item in source_items if (key := _unique_source_key(item)) is not None)
+    persisted = Counter((x.source_type, x.owner_id) for x in existing_sources if x.source_type in _UNIQUE_SOURCE_OWNERS and x.owner_id)
+    clashes = [key for key, count in requested.items() if count > max(1, persisted[key])]
+    if not clashes: return
+    names = []
+    for source_type, owner_id in clashes:
+        label, model = _UNIQUE_SOURCE_OWNERS[source_type]
+        owner = session.get(model, owner_id)  # запрос — только на пути ошибки, не на каждом сохранении
+        names.append(f"{label} «{owner.name if owner else owner_id}»")
+    raise HTTPException(422, 'Уже добавлено в эту ИС: ' + ', '.join(names))
+
+
 def _sync_information_system_sources(system_id: str, source_items: Any, session: Session) -> None:
     """Синхронизирует унифицированные записи InformationSystemSource — единственный (с миграции
     b7f2c1e5a904) механизм связи ИС с оборудованием/ВМ/контейнером и IP-адресом источника, не
@@ -128,6 +164,7 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
     той же причине, что и _sync_linked_table()."""
     if not isinstance(source_items, list): raise HTTPException(422, 'Поле sources должно быть массивом')
     existing_sources = session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()
+    _assert_no_new_duplicate_sources(source_items, existing_sources, session)
     source_map = {x.id: x for x in existing_sources}; seen=set()
     for item in source_items:
         if not isinstance(item, dict): continue
