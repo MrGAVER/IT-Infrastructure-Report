@@ -9,6 +9,7 @@ import { useConnectionsStore } from '../../stores/connections'
 import { useDevicesStore } from '../../stores/devices'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
 import { useToast } from '../../composables/useToast'
+import { usePortSyncPlanRequest } from '../../composables/usePortSyncPlanRequest'
 
 function stubCatalogsFetch() {
   vi.stubGlobal(
@@ -2845,3 +2846,117 @@ describe('подключения между портами одного устр
   })
 })
 
+describe('уведомление о согласовании портов после изменения списка VLAN устройства', () => {
+  const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+  const emptyList = () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+  const summary = (patch: Record<string, number> = {}) => ({
+    connections: 1, applicable: 0, shown: 0, total_items: 0, auto: 0, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0, ...patch,
+  })
+  type Call = { url: string; method: string; body?: Record<string, unknown> }
+
+  // Устройство с одним подключением; planSummary — что ответит сервер на предпросмотр, previewStatus — его код ответа.
+  async function mountDevice(planSummary = summary({ auto: 1 }), previewStatus = 200) {
+    useToast().toasts.splice(0)
+    usePortSyncPlanRequest().close()
+    const vlans = useVLANsStore()
+    vlans.groups = [{ vlan_id: 30, definitions: [{ id: 'v-30', vlan_id: 30, name: 'VLAN 30', description: '', domain_id: null, domain_name: '', devices: [] }] }] as never
+    vlans.loaded = true
+    const connections = useConnectionsStore()
+    connections.all = []
+    connections.loaded = true
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'PUT' && url.includes('/devices/dev-1/vlans')) return new Response(JSON.stringify({ items: [] }))
+        if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return new Response(JSON.stringify({ items: [] }))
+        if (method === 'PUT' && url.includes('/resources/devices/dev-1')) return new Response(JSON.stringify(device))
+        if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
+          const link = { interface_id: 'if-1', connection_id: 'c-1', connection_type_id: 'ct', description: null, peer_interface_id: 'p', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: false, peer_is_data_transfer: true, peer_vlan_mode: 'trunk' }
+          return new Response(JSON.stringify({ items: [link] }))
+        }
+        if (method === 'POST' && url.endsWith('/port-sync/preview')) {
+          return previewStatus === 200
+            ? new Response(JSON.stringify({ items: [], summary: planSummary, plan_hash: 'h' }))
+            : new Response(JSON.stringify({ detail: 'сервер недоступен' }), { status: previewStatus })
+        }
+        return emptyList()
+      }),
+    )
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+    return { wrapper, calls }
+  }
+
+  async function addDeviceVlan(wrapper: VueWrapper) {
+    const editor = () => wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    await editor().find('button.add-btn').trigger('click')
+    await wrapper.vm.$nextTick()
+    await pickVlan(editor(), '30 — VLAN 30')
+  }
+
+  async function save(wrapper: VueWrapper) {
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+  }
+
+  it('список VLAN изменён и у подключения есть что согласовать: предупреждение с кнопкой «Показать план», форма уже закрыта', async () => {
+    const { wrapper, calls } = await mountDevice(summary({ auto: 2, manual: 1 }))
+    await addDeviceVlan(wrapper)
+
+    await save(wrapper)
+
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    const [toast] = useToast().toasts
+    expect(toast.type).toBe('warning')
+    expect(toast.message).toContain('расхождение портов: 3')
+    expect(toast.action?.label).toBe('Показать план')
+    const preview = calls.find((c) => c.url.endsWith('/port-sync/preview'))
+    expect(preview?.body).toMatchObject({ connection_ids: ['c-1'], limit: 1 }) // только подключения этого устройства, одна запись
+  })
+
+  it('нажатие на «Показать план» открывает окно плана по подключениям этого устройства', async () => {
+    const { wrapper } = await mountDevice()
+    await addDeviceVlan(wrapper)
+    await save(wrapper)
+
+    useToast().toasts[0].action?.run()
+
+    expect(usePortSyncPlanRequest().request.value?.scope).toEqual({ connection_ids: ['c-1'] })
+  })
+
+  it('список VLAN не менялся — ни предпросмотра, ни уведомления', async () => {
+    const { wrapper, calls } = await mountDevice()
+
+    await save(wrapper)
+
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    expect(calls.some((c) => c.url.endsWith('/port-sync/preview'))).toBe(false)
+    expect(useToast().toasts).toHaveLength(0)
+  })
+
+  it('VLAN изменён, но согласовывать нечего (расхождений нет или всё «исключено правилом») — уведомления нет', async () => {
+    const { wrapper } = await mountDevice(summary({ skipped: 1, ignored: 1 }))
+    await addDeviceVlan(wrapper)
+
+    await save(wrapper)
+
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    expect(useToast().toasts).toHaveLength(0)
+  })
+
+  it('проверка не удалась: устройство всё равно сохранено, а о сбое проверки говорит отдельное предупреждение', async () => {
+    const { wrapper } = await mountDevice(summary(), 500)
+    await addDeviceVlan(wrapper)
+
+    await save(wrapper)
+
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    const [toast] = useToast().toasts
+    expect(toast.type).toBe('warning')
+    expect(toast.message).toContain('Устройство сохранено, но проверить, нужно ли согласование портов, не удалось')
+    expect(toast.action).toBeUndefined()
+  })
+})

@@ -2,13 +2,27 @@
 // в текущем vanilla-фронтенде (frontend/static/core.js): не блокируют интерфейс,
 // успех/инфо скрываются сами через 5с, предупреждения (warning) — через 10с (их нужно успеть
 // прочитать и, как правило, что-то по ним сделать), ошибки остаются, пока их не закроют.
+// Необязательное действие (кнопка в уведомлении) и своё время показа — для уведомлений, по которым надо что-то сделать.
 import { reactive } from 'vue'
 import { ApiError } from '../api/client'
+
+/** Кнопка в уведомлении: по нажатию выполняется run, и уведомление закрывается. */
+export interface ToastAction {
+  label: string
+  run: () => void
+}
 
 export interface Toast {
   id: number
   message: string
   type: 'success' | 'error' | 'info' | 'warning'
+  action?: ToastAction
+}
+
+export interface NotifyOptions {
+  action?: ToastAction
+  /** Через сколько мс скрыть уведомление; по умолчанию — по типу. Для error без значения уведомление остаётся. */
+  timeoutMs?: number
 }
 
 /** Время автоскрытия по типу; у error значения нет — ошибка остаётся до ручного закрытия. */
@@ -22,10 +36,10 @@ function dismiss(id: number) {
   if (idx !== -1) toasts.splice(idx, 1)
 }
 
-function notify(message: string, type: Toast['type'] = 'info') {
+function notify(message: string, type: Toast['type'] = 'info', options: NotifyOptions = {}) {
   const id = nextId++
-  toasts.push({ id, message, type })
-  const timeout = AUTO_DISMISS_MS[type]
+  toasts.push({ id, message, type, ...(options.action ? { action: options.action } : {}) })
+  const timeout = options.timeoutMs ?? AUTO_DISMISS_MS[type]
   if (timeout !== undefined) setTimeout(() => dismiss(id), timeout)
   return id
 }

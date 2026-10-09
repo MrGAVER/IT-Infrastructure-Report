@@ -11,6 +11,7 @@ import pytest
 
 from app.services.port_config import PortConfig, PortRole, config_differences
 from app.services.port_sync_rules import (
+    ALL_VLANS_BOTH_RULE,
     ALL_VLANS_RULE,
     DEFAULT_RULES,
     DEFAULT_RULES_BY_CODE,
@@ -359,7 +360,7 @@ def test_service_fields_in_the_payload_are_ignored():
 # --- стандартные правила ------------------------------------------------------------------------
 
 def test_default_rules_have_unique_codes_names_and_priorities():
-    assert len({r.code for r in DEFAULT_RULES}) == len(DEFAULT_RULES) == 6
+    assert len({r.code for r in DEFAULT_RULES}) == len(DEFAULT_RULES) == 7
     assert len({r.name for r in DEFAULT_RULES}) == len(DEFAULT_RULES)
     assert len({r.priority for r in DEFAULT_RULES}) == len(DEFAULT_RULES)
     assert all(r.code and r.enabled and r.description for r in DEFAULT_RULES)
@@ -382,7 +383,7 @@ def test_new_standard_rule_matches_the_requested_definition():
     assert (rule.target.mode, rule.target.vlans) == ("trunk", "none")      # на порту trunk совсем без VLAN
     assert (rule.source.mode, rule.source.vlans) == ("trunk", "set")       # у соседа trunk с VLAN (или «все VLAN»)
     assert rule.apply_mode and rule.vlan_policy == "copy" and not rule.apply_role
-    others = [r for r in DEFAULT_RULES if r.code not in (EMPTY_TRUNK_RULE, ALL_VLANS_RULE)]
+    others = [r for r in DEFAULT_RULES if r.code not in (EMPTY_TRUNK_RULE, ALL_VLANS_RULE, ALL_VLANS_BOTH_RULE)]
     assert rule.priority < min(r.priority for r in others)                 # конкретное правило проверяется раньше общих
 
 
@@ -536,3 +537,38 @@ def test_all_vlans_policy_is_accepted_by_validation_and_unknown_policy_is_not():
     assert rule.vlan_policy == "all" and not rule.symmetric
     with pytest.raises(RuleValidationError, match="apply.vlans"):
         rule_from_payload({"name": "Плохое", "action": "auto", "apply": {"vlans": "everything"}})
+
+
+# --- «Все VLAN» на обоих портах, но номера различаются: пару не трогаем ------------------------------
+
+def test_all_vlans_on_both_ports_standard_rule_matches_the_requested_definition():
+    rule = DEFAULT_RULES_BY_CODE[ALL_VLANS_BOTH_RULE]
+
+    assert rule.action == "ignore"
+    assert (rule.target.mode, rule.target.vlans) == ("trunk", "all") and (rule.source.mode, rule.source.vlans) == ("trunk", "all")
+    # Роль и режим не затрагиваются: правило не должно скрывать расхождение роли — оно решается правилом ниже.
+    assert (rule.relation.role, rule.relation.vlans) == ("same", "differs")
+    all_rule = DEFAULT_RULES_BY_CODE[ALL_VLANS_RULE]
+    others = [r for r in DEFAULT_RULES if r.code not in (ALL_VLANS_RULE, ALL_VLANS_BOTH_RULE)]
+    assert all_rule.priority < rule.priority < min(r.priority for r in others)  # после «Все VLAN → Все VLAN», раньше остальных
+
+
+@pytest.mark.parametrize("a, b", [
+    (all_port(10, 20, 30), all_port(10, 20)),  # у устройства соседа нет VLAN 30
+    (all_port(10, 20), all_port(10, 20, 30)),  # то же в другую сторону
+    (all_port(10, 20), all_port(30, 40)),      # наборы вообще не пересекаются
+])
+def test_all_vlans_on_both_ports_with_different_numbers_is_left_alone(a, b):
+    decision = decide(RULES, a, b)
+
+    assert decision.outcome is Outcome.IGNORED and decision.rule.code == ALL_VLANS_BOTH_RULE
+    assert decision.options == ()  # без попыток «объединить» или «взять набор» — менять нечего: это разные VLAN устройств
+
+
+def test_all_vlans_on_both_ports_does_not_hide_a_role_difference_or_other_cases():
+    management = facts(PortRole.MANAGEMENT, "trunk", (10, 20, 30), all_vlans=True)
+
+    assert decide(RULES, all_port(10, 20), management).rule.code != ALL_VLANS_BOTH_RULE  # роль различается — не «не трогать»
+    assert decide(RULES, facts(vlans=(10,)), all_port(10, 20)).rule.code == ALL_VLANS_RULE  # у соседа не «все» — как прежде
+    assert decide(RULES, all_port(10, 20), all_port(10, 20)).outcome is Outcome.NONE  # одинаковые наборы — расхождения нет
+    assert decide(RULES, all_port(10, 20), all_port(10, 20, mode="access")).rule.code != ALL_VLANS_BOTH_RULE  # не trunk

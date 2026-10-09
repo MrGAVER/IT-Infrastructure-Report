@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from app.models import AuditLog, PortSyncRule
-from app.services.port_sync_rules import ALL_VLANS_RULE, DEFAULT_RULES, DEFAULT_RULES_BY_CODE, EMPTY_TRUNK_RULE, ROLE_MATCH_RULE
+from app.services.port_sync_rules import ALL_VLANS_BOTH_RULE, ALL_VLANS_RULE, DEFAULT_RULES, DEFAULT_RULES_BY_CODE, EMPTY_TRUNK_RULE, ROLE_MATCH_RULE
 from app.services.port_sync_store import ensure_default_rules
 
 BASE = "/api/v1/port-sync/rules"
@@ -62,6 +62,16 @@ def test_all_vlans_standard_rule_is_exposed_exactly_as_requested(client):
     assert rule["target"] == {"role": "any", "mode": "trunk", "vlans": "any"}
     assert rule["apply"] == {"role": False, "mode": False, "vlans": "all"}  # соседу — тоже «Все VLAN»
     assert rule["priority"] == min(r["priority"] for r in _rules(client))
+
+
+def test_all_vlans_on_both_ports_standard_rule_is_exposed_exactly_as_requested(client):
+    rule = _by_code(client, ALL_VLANS_BOTH_RULE)
+
+    assert rule["action"] == "ignore" and rule["builtin"] and rule["enabled"]
+    assert rule["target"] == {"role": "any", "mode": "trunk", "vlans": "all"}
+    assert rule["source"] == {"role": "any", "mode": "trunk", "vlans": "all"}
+    assert rule["relation"] == {"role": "same", "mode": "any", "vlans": "differs"}
+    assert _by_code(client, ALL_VLANS_RULE)["priority"] < rule["priority"] < _by_code(client, EMPTY_TRUNK_RULE)["priority"]
 
 
 def test_all_vlans_rule_is_added_to_an_existing_installation_without_touching_the_old_rules(client, db_session):
