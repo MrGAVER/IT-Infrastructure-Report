@@ -199,6 +199,17 @@ describe('InterfaceGroupsPanel.vue', () => {
       expect(useToast().toasts.map((t) => t.message)).toEqual(['В группе «Серверные» номера открытых портов повторяются: 80.'])
     })
 
+    it('при сохранении открытые порты группы упорядочиваются по номеру и в таком порядке попадают в порты-участники', async () => {
+      const wrapper = mountWithPorts(['cat-https', 'cat-ssh'])
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const change = lastChange(wrapper)
+      expect(change.groups[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+      expect(change.rows[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+    })
+
     it('без повторов группа сохраняется', async () => {
       const wrapper = mountWithPorts(['cat-ssh', 'cat-https'])
 

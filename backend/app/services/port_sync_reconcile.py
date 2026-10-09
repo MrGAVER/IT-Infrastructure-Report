@@ -31,6 +31,13 @@ VLAN устройства — те же, что проверяет PUT /devices/
 
 Безопасность применения: без `confirm: true` — 422; план пересчитывается заново и сверяется по
 `plan_hash` с тем, что видел пользователь, — иначе 409 (данные изменились после предпросмотра).
+
+Постраничный предпросмотр. Элементов плана может быть тысячи, поэтому предпросмотр отдаёт их страницами
+(`offset`, `limit` — не более MAX_PREVIEW_ITEMS), а сводка и `plan_hash` относятся ко всему плану. Первая
+страница считает план и кладёт его в кэш (services/port_sync_plan_cache.py); следующие страницы запрашиваются
+с `plan_hash` первой и берутся срезом из кэша без запросов к БД. Промах кэша (истёк срок, вытеснен, другой
+воркер) — пересчёт; если план при этом изменился (другой `plan_hash`) — 409, как и у применения. Применение
+кэш не использует: оно всегда считает план заново.
 """
 from __future__ import annotations
 
@@ -65,6 +72,7 @@ from .port_config import (
     evaluate_port_config,
     port_role,
 )
+from .port_sync_plan_cache import CachedPlan, plan_cache, scope_key
 from .port_sync_rules import (
     APPLY_TO_SOURCE,
     Changes,
@@ -79,7 +87,7 @@ from .port_sync_store import rules_for_reconcile
 from .port_writes import load_vlan_links, write_port_roles, write_port_vlans
 
 MAX_CONNECTION_IDS = 500
-MAX_PREVIEW_ITEMS = 300
+MAX_PREVIEW_ITEMS = 300  # размер страницы предпросмотра по умолчанию и его верхняя граница
 _CHUNK = 400  # число id в одном IN-запросе (у SQLite/psycopg число параметров ограничено)
 
 _OUTCOME_ORDER = {"auto": 0, "blocked": 1, "manual": 2, "ignored": 3, "none": 4, "skipped": 5}
@@ -381,6 +389,25 @@ def _parse_scope(payload: Any) -> tuple[Any, str | None]:
     return payload.get("connection_ids"), rule_id
 
 
+def _int_field(payload: dict[str, Any], key: str, default: int, *, minimum: int, maximum: int | None = None) -> int:
+    value = payload.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum or (maximum is not None and value > maximum):
+        bound = f" от {minimum} до {maximum}" if maximum is not None else f" не меньше {minimum}"
+        raise HTTPException(422, f"Поле {key} должно быть целым числом{bound}")
+    return value
+
+
+def _parse_page(payload: dict[str, Any]) -> tuple[int, int, str | None]:
+    """(offset, limit, plan_hash). plan_hash — хеш плана, страницы которого запрашиваются (из ответа
+    предпросмотра): по нему страница берётся из кэша. Без него план считается заново."""
+    offset = _int_field(payload, "offset", 0, minimum=0)
+    limit = _int_field(payload, "limit", MAX_PREVIEW_ITEMS, minimum=1, maximum=MAX_PREVIEW_ITEMS)
+    plan_hash = payload.get("plan_hash")
+    if plan_hash is not None and (not isinstance(plan_hash, str) or not plan_hash):
+        raise HTTPException(422, "Поле plan_hash должно быть хешем плана из предпросмотра")
+    return offset, limit, plan_hash
+
+
 def _plan_hash(planned: list[_Planned]) -> str:
     effects = [
         [p.connection.id, p.port.iface.id, p.role.value if p.role else None, p.mode, sorted(p.vlan_ids) if p.vlan_ids is not None else None, p.rule.id or p.rule.code]
@@ -448,20 +475,44 @@ def _compute(session: Session, connection_ids: Any, rule_id: str | None) -> _Pla
         # Считается по всем подключениям плана, а не только по показанным (items обрезаются).
         "partial": sum(1 for i in plan.items if i["partial"]),
     }
-    plan.items = shown[:MAX_PREVIEW_ITEMS]
+    plan.items = shown  # все элементы к показу; на страницы их режет preview_reconcile
     plan.hash = _plan_hash(plan.planned)
     return plan
 
 
 def preview_reconcile(payload: Any, session: Session) -> dict[str, Any]:
-    """План согласования — ничего не записывает.
+    """План согласования — ничего не записывает. Отдаёт одну страницу его элементов.
 
-    payload: {connection_ids?, rule_id?}. Без connection_ids — все активные подключения с неодобренным
-    расхождением; с rule_id проверяется только это правило (даже отключённое — чтобы посмотреть, что
-    оно сделает, до включения)."""
+    payload: {connection_ids?, rule_id?, offset?, limit?, plan_hash?}. Без connection_ids — все активные
+    подключения с неодобренным расхождением; с rule_id проверяется только это правило (даже отключённое —
+    чтобы посмотреть, что оно сделает, до включения). offset/limit — страница (по умолчанию первые
+    MAX_PREVIEW_ITEMS элементов). plan_hash — хеш плана из ответа на первую страницу: страница берётся из
+    кэша без пересчёта, а если кэша нет и план изменился — 409.
+
+    Ответ: {items, summary, plan_hash, page: {offset, limit, total, has_more}}. summary и plan_hash — по
+    всему плану; summary.shown — число элементов в ЭТОМ ответе."""
     connection_ids, rule_id = _parse_scope(payload)
-    plan = _compute(session, connection_ids, rule_id)
-    return {"items": plan.items, "summary": plan.summary, "plan_hash": plan.hash}
+    offset, limit, expected_hash = _parse_page(payload)
+    scope = scope_key(connection_ids, rule_id)
+
+    cached = plan_cache.get(scope, expected_hash) if expected_hash is not None else None
+    if cached is not None:
+        plan_hash = expected_hash
+    else:
+        plan = _compute(session, connection_ids, rule_id)
+        if expected_hash is not None and plan.hash != expected_hash:
+            raise HTTPException(409, "План изменился после того, как был показан, — обновите предпросмотр")
+        cached = CachedPlan(items=tuple(plan.items), summary=plan.summary)
+        plan_hash = plan.hash
+        plan_cache.put(scope, plan_hash, cached)
+
+    page = list(cached.items[offset:offset + limit])
+    return {
+        "items": page,
+        "summary": {**cached.summary, "shown": len(page)},
+        "plan_hash": plan_hash,
+        "page": {"offset": offset, "limit": limit, "total": len(cached.items), "has_more": offset + len(page) < len(cached.items)},
+    }
 
 
 # --- применение ----------------------------------------------------------------------------------
@@ -494,6 +545,7 @@ def apply_reconcile(payload: Any, session: Session) -> dict[str, Any]:
         port = planned.port.iface
         audit(session, "interfaces", port.id, AuditAction.UPDATE, f"Согласование порта «{port.name}» по правилу «{planned.rule.name}»: {planned.description}")
     session.commit()
+    plan_cache.clear()  # данные изменились — снимки планов в кэше больше не соответствуют действительности
     connection_ids_applied = list(dict.fromkeys(p.connection.id for p in plan.planned))
     return {
         "applied": {"ports": len(plan.planned), "connections": len(connection_ids_applied)},

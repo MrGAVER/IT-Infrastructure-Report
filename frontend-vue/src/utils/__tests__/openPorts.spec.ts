@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { duplicatePortNumbers, duplicateRowIndexes, sortOpenPortRows } from '../openPorts'
-import type { OpenPortDraftRow, ProtocolPortCatalogEntry } from '../../api/types'
+import type { ISProtocolDraftRow, OpenPortDraftRow, ProtocolPortCatalogEntry } from '../../api/types'
 
 const catalog: ProtocolPortCatalogEntry[] = [
   { id: 'c-ssh', port: 22, protocol_type: 'SSH', description: null },
@@ -68,5 +68,20 @@ describe('duplicatePortNumbers / duplicateRowIndexes', () => {
   it('возвращает номера отсортированными и без дублей самих номеров', () => {
     const rows = [row('c-https'), row('c-ssh'), row('c-https'), row('c-ssh'), row('c-https')]
     expect(duplicatePortNumbers(rows, catalog)).toEqual([22, 443])
+  })
+})
+
+describe('те же функции над строками протоколов ИС (ISProtocolDraftRow — без транспорта)', () => {
+  const proto = (protocol_catalog_id: string, description = ''): ISProtocolDraftRow => ({ protocol_catalog_id, description })
+
+  it('сортировка сохраняет тип строки и упорядочивает по номеру порта, пустая строка — в конец', () => {
+    const sorted: ISProtocolDraftRow[] = sortOpenPortRows([proto('c-https', 'b'), proto(''), proto('c-ssh', 'a')], catalog)
+    expect(sorted.map((r) => r.description || r.protocol_catalog_id || '—')).toEqual(['a', 'b', '—'])
+  })
+
+  it('повторы по номеру порта находятся так же, как у открытых портов ВМ', () => {
+    const rows = [proto('c-http'), proto('c-ssh'), proto('c-http-alt')]
+    expect(duplicatePortNumbers(rows, catalog)).toEqual([80])
+    expect([...duplicateRowIndexes(rows, catalog)].sort()).toEqual([0, 2])
   })
 })

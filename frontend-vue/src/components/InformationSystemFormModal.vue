@@ -32,6 +32,7 @@ import type { SearchableSelectOption } from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { stripIds } from '../utils/copyEntity'
+import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
 
 const props = defineProps<{ system: InformationSystem | null; copyFrom?: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
@@ -186,7 +187,10 @@ watch(
         // id внутри него нужно снять отдельным проходом, иначе backend отклонит их 422 "IP не
         // принадлежит выбранному источнику" (у новой source-строки таких id ещё не может быть).
         departments.value = isCopy ? stripIds(rawDepartments) : rawDepartments
-        protocols.value = isCopy ? stripIds(rawProtocols) : rawProtocols
+        // Протоколы — те же открытые порты, что у ВМ: форма открывается с портами по возрастанию номера
+        // (сервер тоже отдаёт их так, но порядок гарантирует и эта сортировка, как в VMFormModal.vue).
+        const sortedProtocols = sortOpenPortRows(rawProtocols, catalogs.protocolPortCatalog)
+        protocols.value = isCopy ? stripIds(sortedProtocols) : sortedProtocols
         sources.value = isCopy ? stripIds(rawSources).map((s) => ({ ...s, ips: stripIds(s.ips) })) : rawSources
         placementAssets.value = isCopy ? stripIds(rawPlacementAssets) : rawPlacementAssets
       }
@@ -250,6 +254,13 @@ async function submit() {
         return
       }
     }
+  }
+  // Номера открытых портов (протоколов) одной ИС не повторяются — то же правило, что в форме ВМ и на
+  // сервере (backend/app/services/validation.py:validate_unique_open_port_numbers).
+  const duplicatePorts = duplicatePortNumbers(protocols.value, catalogs.protocolPortCatalog)
+  if (duplicatePorts.length) {
+    errorMessage.value = `Номера открытых портов не должны повторяться: ${duplicatePorts.join(', ')}.`
+    return
   }
   saving.value = true
   try {

@@ -4,6 +4,10 @@
 // пока пользователь не отметит «Я проверил план» и не нажмёт «Применить»: план показывается заново
 // при каждом открытии окна, а применение сервер сверяет с показанным (plan_hash) — если данные
 // изменились после предпросмотра, он ответит 409, и окно предложит обновить план.
+//
+// Элементов плана могут быть тысячи, поэтому они показываются страницами: первая приходит вместе с планом, а
+// «Показать ещё» запрашивает следующую с plan_hash первой — сервер берёт её из кэша без пересчёта плана. Если
+// кэша уже нет и план изменился, ответ 409 — как и при применении: окно предлагает обновить план.
 import { computed, onMounted, ref } from 'vue'
 import { ApiError } from '../api/client'
 import { applyPortSync, previewPortSync, type PortSyncScope } from '../api/portSync'
@@ -18,15 +22,18 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 const { notify } = useToast()
 
 const plan = ref<PortSyncPlan | null>(null)
+// Показанные элементы: первая страница плюс подгруженные «Показать ещё». plan.items — только первая страница.
+const items = ref<PortSyncPlanItem[]>([])
 const loading = ref(false)
+const loadingMore = ref(false)
 const applying = ref(false)
 const confirmed = ref(false)
 const errorMessage = ref<string | null>(null)
 const stale = ref(false)
 
 const applicable = computed(() => plan.value?.summary.applicable ?? 0)
-const hiddenCount = computed(() => (plan.value ? plan.value.summary.total_items - plan.value.items.length : 0))
-const canApply = computed(() => applicable.value > 0 && confirmed.value && !loading.value && !applying.value)
+const hiddenCount = computed(() => (plan.value ? plan.value.summary.total_items - items.value.length : 0))
+const canApply = computed(() => applicable.value > 0 && confirmed.value && !loading.value && !loadingMore.value && !applying.value)
 
 async function load() {
   loading.value = true
@@ -35,11 +42,31 @@ async function load() {
   confirmed.value = false
   try {
     plan.value = await previewPortSync(props.scope)
+    items.value = plan.value.items
   } catch (err) {
     plan.value = null
+    items.value = []
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось построить план согласования'
   } finally {
     loading.value = false
+  }
+}
+
+// Следующая страница того же плана. Принятое «Я проверил план» не сбрасывается: план тот же (тот же plan_hash).
+async function loadMore() {
+  if (!plan.value || loadingMore.value || hiddenCount.value <= 0) return
+  loadingMore.value = true
+  errorMessage.value = null
+  try {
+    const next = await previewPortSync(props.scope, { offset: items.value.length, planHash: plan.value.plan_hash })
+    items.value = [...items.value, ...next.items]
+  } catch (err) {
+    // 409 — план изменился, пока его листали: показанная часть больше не соответствует плану.
+    stale.value = err instanceof ApiError && err.status === 409
+    if (stale.value) confirmed.value = false
+    errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить следующие элементы плана'
+  } finally {
+    loadingMore.value = false
   }
 }
 
@@ -88,10 +115,10 @@ onMounted(load)
       <template v-else-if="plan">
         <p class="summary" data-summary>{{ summaryLine(plan.summary) }}</p>
 
-        <p v-if="!plan.items.length" class="empty" data-empty>Нет подключений, которые нужно согласовывать.</p>
+        <p v-if="!items.length" class="empty" data-empty>Нет подключений, которые нужно согласовывать.</p>
 
         <ul v-else class="items">
-          <li v-for="item in plan.items" :key="item.connection_id" class="item" :class="item.outcome" :data-outcome="item.outcome">
+          <li v-for="item in items" :key="item.connection_id" class="item" :class="item.outcome" :data-outcome="item.outcome">
             <div class="item-head">
               <span class="badge" :class="item.outcome">{{ OUTCOME_LABELS[item.outcome] }}</span>
               <span class="pair">
@@ -125,9 +152,14 @@ onMounted(load)
           </li>
         </ul>
 
-        <p v-if="hiddenCount > 0" class="hidden-note" data-hidden>
-          Показаны первые {{ plan.items.length }} из {{ plan.summary.total_items }}; применяется весь план ({{ applicable }}).
-        </p>
+        <div v-if="hiddenCount > 0" class="more">
+          <p class="hidden-note" data-hidden>
+            Показаны первые {{ items.length }} из {{ plan.summary.total_items }}; применяется весь план ({{ applicable }}).
+          </p>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="more" :disabled="loadingMore" @click="loadMore">
+            {{ loadingMore ? 'Загрузка…' : `Показать ещё (${hiddenCount})` }}
+          </button>
+        </div>
       </template>
 
       <div class="modal-foot">
@@ -282,8 +314,15 @@ onMounted(load)
   border: 1px solid var(--status-warn);
   border-radius: var(--r-s);
 }
+.more {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
 .hidden-note {
-  margin: 10px 0 0;
+  margin: 0;
   font-size: 12px;
   color: var(--ink-muted);
 }

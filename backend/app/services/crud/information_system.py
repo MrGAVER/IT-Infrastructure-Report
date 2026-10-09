@@ -8,12 +8,23 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ...models import Container, IPAddress, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, VirtualMachine
+from ...models import Container, IPAddress, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, ProtocolPortCatalog, VirtualMachine
 from ...constants import AuditAction, SourceType, OwnerType
 from ..serialization import serialize
 from ..integrity import integrity_error_response
-from ..validation import validate_ipv4_field
+from ..validation import validate_ipv4_field, validate_unique_open_port_numbers
 from .audit_log import audit
+
+
+def _load_protocols(system_id: str, session: Session) -> list[ISProtocol]:
+    """Протоколы ИС по возрастанию номера порта (как открытые порты ВМ): форма показывает их в этом
+    порядке без собственной сортировки. Равные номера — по id, чтобы порядок был стабильным."""
+    return list(session.scalars(
+        select(ISProtocol)
+        .join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id)
+        .where(ISProtocol.information_system_id == system_id)
+        .order_by(ProtocolPortCatalog.port, ISProtocol.id)
+    ).all())
 
 
 def get_information_system_details(system_id: str, session: Session) -> dict[str, Any]:
@@ -29,7 +40,7 @@ def get_information_system_details(system_id: str, session: Session) -> dict[str
             ips_by_source.setdefault(ip.owner_id, []).append(serialize(ip))
     return {
         'departments': [serialize(x) for x in session.scalars(select(ISDepartment).where(ISDepartment.information_system_id == system_id)).all()],
-        'protocols': [serialize(x) for x in session.scalars(select(ISProtocol).where(ISProtocol.information_system_id == system_id)).all()],
+        'protocols': [serialize(x) for x in _load_protocols(system_id, session)],
         'sources': [{**serialize(x), 'ips': ips_by_source.get(x.id, [])} for x in sources],
         'placement_assets': [serialize(x) for x in session.scalars(select(ISPlacementAsset).where(ISPlacementAsset.information_system_id == system_id)).all()],
     }
@@ -44,12 +55,8 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
     описывают другой аспект ИС). Вынесено из sync_information_system_details(), чтобы снизить
     цикломатическую сложность внешней функции (была 25) — сама логика не изменена.
 
-    ISProtocol.protocol_catalog_id — обязательное поле (NOT NULL, миграция b7f2c1e5a904) и не
-    проверяется здесь отдельно: generic-цикл ниже просто передаст его как есть, а его отсутствие
-    или ссылка на несуществующую запись справочника упадёт при flush() понятной IntegrityError —
-    информационных систем немного, а отдельная проверка ради чуть более дружелюбного сообщения
-    здесь не стоит лишнего запроса на каждую строку протокола (в отличие от open-ports, где эта
-    проверка уже даёт понятную 422 — см. _validate_open_port_catalog)."""
+    Протоколы ИС до записи проходят _prepare_protocol_items (пропуск пустых строк, проверка записи
+    справочника и уникальности номеров портов) — остальные таблицы пишутся как есть."""
     if not isinstance(items, list): raise HTTPException(422, f'Поле {key} должно быть массивом')
     existing = session.scalars(select(model).where(model.information_system_id == system_id)).all()
     existing_map = {x.id: x for x in existing}; seen=set()
@@ -73,6 +80,21 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
     session.flush()
     for obj in existing:
         if obj.id not in seen: session.delete(obj)
+
+
+def _prepare_protocol_items(items: Any, system: InformationSystem, session: Session) -> list[dict[str, Any]]:
+    """Протоколы ИС перед записью — те же правила, что у открытых портов ВМ (sync_owner_open_ports):
+    строка без выбранной записи справочника (пустой плейсхолдер формы) пропускается, остальные
+    должны ссылаться на существующую запись справочника «Протоколы и порты» (понятная 422 вместо
+    IntegrityError), а номера портов в пределах ИС не повторяются (по списку целиком, поэтому обмен
+    номерами между двумя строками за один запрос допустим). Три запроса независимо от числа строк."""
+    if not isinstance(items, list): raise HTTPException(422, 'Поле protocols должно быть массивом')
+    rows = [item for item in items if isinstance(item, dict) and item.get('protocol_catalog_id')]
+    catalog_ids = {row['protocol_catalog_id'] for row in rows}
+    known = set(session.scalars(select(ProtocolPortCatalog.id).where(ProtocolPortCatalog.id.in_(catalog_ids))).all()) if catalog_ids else set()
+    if catalog_ids - known: raise HTTPException(422, 'Не выбрана существующая запись справочника «Протоколы и порты»')
+    validate_unique_open_port_numbers((row['protocol_catalog_id'] for row in rows), session, f'ИС «{system.name}»')
+    return rows
 
 
 def _sync_source_ip_addresses(source_id: str, ip_items: Any, session: Session) -> None:
@@ -169,11 +191,14 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
 
 
 def sync_information_system_details(system_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
-    if not session.get(InformationSystem, system_id):
+    system = session.get(InformationSystem, system_id)
+    if not system:
         raise HTTPException(404, 'Информационная система не найдена')
     try:
         for key, model in _LINKED_TABLE_SPECS:
-            _sync_linked_table(key, model, payload.get(key, []), system_id, session)
+            items = payload.get(key, [])
+            if key == 'protocols': items = _prepare_protocol_items(items, system, session)
+            _sync_linked_table(key, model, items, system_id, session)
         _sync_information_system_sources(system_id, payload.get('sources', []), session)
         audit(session, 'information-systems', system_id, AuditAction.UPDATE, 'Обновлены связанные данные ИС (подразделения/протоколы/источники/размещение)')
         session.commit()
