@@ -265,4 +265,44 @@ describe('ISSourcesListEditor.vue', () => {
     expect((cards[0].find('.col-vm input').element as HTMLInputElement).value).toBe('app-vm-1')
     expect((cards[1].find('.col-vm input').element as HTMLInputElement).value).toBe('app-vm-1')
   })
+  // Текст пустого списка. Подпись читается из .ss-empty раскрытого списка конкретной строки.
+  async function emptyTextOfRow(wrapper: Wrapper, rowIndex: number, column: '.col-vm' | '.col-container', query = ''): Promise<string> {
+    const card = wrapper.findAll('.source-card')[rowIndex]
+    const input = card.find(`${column} input`)
+    await input.trigger('focus')
+    if (query) await input.setValue(query)
+    return card.find(`${column} .ss-empty`).text()
+  }
+
+  it('если все ВМ уже добавлены, список ВМ новой строки объясняет, почему он пуст', async () => {
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' },
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-2' },
+      { ...emptyRow(), source_type: 'vm' },
+    ]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 2, '.col-vm')).toBe('Все ВМ уже добавлены в эту ИС')
+  })
+
+  it('если все контейнеры уже добавлены, список контейнеров новой строки объясняет, почему он пуст', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'container', owner_id: 'ct-1' }, { ...emptyRow(), source_type: 'container' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 1, '.col-container')).toBe('Все контейнеры уже добавлены в эту ИС')
+  })
+
+  it('«Ничего не найдено» остаётся для запроса без совпадений, пока свободные ВМ есть', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 1, '.col-vm', 'нет такой')).toBe('Ничего не найдено')
+  })
+
+  it('если ВМ в системе нет вовсе, подсказки «все добавлены» нет — обычное «Ничего не найдено»', async () => {
+    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm' }]
+    const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, vmOptions: [], modelValue: rows } })
+
+    expect(await emptyTextOfRow(wrapper, 0, '.col-vm')).toBe('Ничего не найдено')
+  })
 })

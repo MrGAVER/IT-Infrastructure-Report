@@ -51,6 +51,11 @@ function ownerIdsOfType(sourceType: ISSourceDraftRow['source_type']): Set<string
 const usedVmIds = computed(() => ownerIdsOfType('vm'))
 const usedContainerIds = computed(() => ownerIdsOfType('container'))
 
+// Все ВМ/контейнеры системы уже добавлены в эту ИС — список новой строки пуст, и без пояснения это выглядит
+// как поломка. Если их в системе нет вовсе, пояснения нет: «все добавлены» было бы неправдой.
+const allVmsTaken = computed(() => props.vmOptions.length > 0 && props.vmOptions.every((v) => usedVmIds.value.has(v.id)))
+const allContainersTaken = computed(() => props.containerOptions.length > 0 && props.containerOptions.every((c) => usedContainerIds.value.has(c.id)))
+
 /** Опция доступна строке, если не занята другой строкой. Собственное значение строки остаётся
  * всегда: подпись текущего выбора SearchableSelect берёт именно из options, а у старых данных с
  * дублем (одна ВМ в двух строках) обе строки должны по-прежнему показывать свою ВМ. */
@@ -174,6 +179,7 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
           class="col-vm"
           :model-value="row.source_type === 'vm' ? row.owner_id : ''"
           :options="vmSelectOptions(row)"
+          :empty-text="allVmsTaken ? 'Все ВМ уже добавлены в эту ИС' : undefined"
           placeholder="— ВМ —"
           :disabled="row.source_type !== 'vm'"
           @update:model-value="(v) => onVmChange(i, v)"
@@ -182,6 +188,7 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
           class="col-container"
           :model-value="row.source_type === 'container' ? row.owner_id : ''"
           :options="containerSelectOptionsFor(row)"
+          :empty-text="allContainersTaken ? 'Все контейнеры уже добавлены в эту ИС' : undefined"
           placeholder="— контейнер —"
           :disabled="row.source_type !== 'container'"
           @update:model-value="(v) => updateRow(i, { owner_id: v })"
