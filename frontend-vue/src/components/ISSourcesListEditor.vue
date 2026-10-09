@@ -36,6 +36,32 @@ function deviceLabel(d: Device): string {
 const deviceSelectOptions = computed<SearchableSelectOption[]>(() => props.deviceOptions.map((d) => ({ value: d.id, label: deviceLabel(d) })))
 const containerSelectOptions = computed<SearchableSelectOption[]>(() => props.containerOptions.map((c) => ({ value: c.id, label: c.name })))
 
+// ВМ и контейнеры, уже добавленные в эту ИС другими строками, повторно для размещения не
+// предлагаются. Наборы считаются один раз на все строки (а не по проходу на каждую), id берутся
+// только у строк соответствующего source_type — owner_id у строки типа "device" это id сервера,
+// а не ВМ. У строки типа "vm" без выбранной ВМ owner_id пуст (выбран только сервер-фильтр,
+// vmHostHint) — такая строка ничего не занимает.
+function ownerIdsOfType(sourceType: ISSourceDraftRow['source_type']): Set<string> {
+  const ids = new Set<string>()
+  for (const row of props.modelValue) {
+    if (row.source_type === sourceType && row.owner_id) ids.add(row.owner_id)
+  }
+  return ids
+}
+const usedVmIds = computed(() => ownerIdsOfType('vm'))
+const usedContainerIds = computed(() => ownerIdsOfType('container'))
+
+/** Опция доступна строке, если не занята другой строкой. Собственное значение строки остаётся
+ * всегда: подпись текущего выбора SearchableSelect берёт именно из options, а у старых данных с
+ * дублем (одна ВМ в двух строках) обе строки должны по-прежнему показывать свою ВМ. */
+function isAvailableForRow(optionId: string, row: ISSourceDraftRow, usedIds: ReadonlySet<string>): boolean {
+  return optionId === row.owner_id || !usedIds.has(optionId)
+}
+
+function containerSelectOptionsFor(row: ISSourceDraftRow): SearchableSelectOption[] {
+  return containerSelectOptions.value.filter((o) => isAvailableForRow(o.value, row, usedContainerIds.value))
+}
+
 // Значение, показываемое в селекте "физический сервер". При source_type='device' owner_id и есть
 // выбранный сервер. При source_type='vm' owner_id хранит id самой ВМ (не её хоста) — если ВМ уже
 // выбрана, хост выводится из vmOptions; если ещё нет, используется чисто клиентский vmHostHint
@@ -47,12 +73,13 @@ function deviceSelectValue(row: ISSourceDraftRow): string {
   return ''
 }
 
-// ВМ, чей текущий хост совпадает с уже выбранным физическим сервером строки, поднимаются
-// наверх списка — тот же приём, что в vanilla-версии, экономит прокрутку в частом случае
+// Из списка исключены ВМ, уже выбранные другими строками (см. usedVmIds). ВМ, чей текущий хост
+// совпадает с уже выбранным физическим сервером строки, поднимаются наверх списка — тот же приём, что в vanilla-версии, экономит прокрутку в частом случае
 // "сначала выбрали сервер, теперь выбираем его ВМ".
 function sortedVms(row: ISSourceDraftRow): VirtualMachine[] {
   const hostId = deviceSelectValue(row)
-  return [...props.vmOptions].sort((a, b) => {
+  const available = props.vmOptions.filter((v) => isAvailableForRow(v.id, row, usedVmIds.value))
+  return available.sort((a, b) => {
     const am = hostId && a.physical_device_id === hostId ? 0 : 1
     const bm = hostId && b.physical_device_id === hostId ? 0 : 1
     return am - bm
@@ -154,7 +181,7 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
         <SearchableSelect
           class="col-container"
           :model-value="row.source_type === 'container' ? row.owner_id : ''"
-          :options="containerSelectOptions"
+          :options="containerSelectOptionsFor(row)"
           placeholder="— контейнер —"
           :disabled="row.source_type !== 'container'"
           @update:model-value="(v) => updateRow(i, { owner_id: v })"
