@@ -405,6 +405,7 @@ def rule_from_payload(payload: Mapping[str, Any], *, base: RuleSpec | None = Non
 # --- стандартные правила -----------------------------------------------------------------------
 
 ALL_VLANS_RULE = "all_vlans_to_neighbor"
+ALL_VLANS_BOTH_RULE = "all_vlans_both_sides_ignore"
 EMPTY_TRUNK_RULE = "empty_trunk_takes_neighbor_vlans"
 ROLE_MATCH_RULE = "role_match"
 MODE_MATCH_RULE = "mode_match"
@@ -430,6 +431,23 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
         target=Side(mode=VLAN_MODE_TRUNK),
         source=Side(mode=VLAN_MODE_TRUNK, vlans="all"),
         vlan_policy="all",
+    ),
+    RuleSpec(
+        code=ALL_VLANS_BOTH_RULE,
+        name="«Все VLAN» на обоих портах — не трогать",
+        description=(
+            "Если на обоих портах подключения trunk с «Все VLAN» (назначены все VLAN их устройств), роли совпадают, а "
+            "номера VLAN различаются, пара не согласовывается: у устройств разные наборы доступных VLAN, и ни «объединить», "
+            "ни «взять набор соседа» это не исправит — для этого нужно изменить VLAN самих устройств. Пара показывается в плане "
+            "как «Исключено правилом», а не как «Нельзя применить». В сверке на дашборде «Подключения» расхождение остаётся — "
+            "его можно одобрить. Если роли различаются, правило не срабатывает, и расхождение роли решается правилом ниже. "
+            "Проверяется сразу после правила «Все VLAN → Все VLAN»."
+        ),
+        action="ignore",
+        priority=6,
+        target=Side(mode=VLAN_MODE_TRUNK, vlans="all"),
+        source=Side(mode=VLAN_MODE_TRUNK, vlans="all"),
+        relation=Side(role="same", vlans="differs"),
     ),
     RuleSpec(
         code=EMPTY_TRUNK_RULE,

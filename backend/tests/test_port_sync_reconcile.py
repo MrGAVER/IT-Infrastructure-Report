@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from app.models import AuditLog, Connection, DeviceInterface, InterfaceGroup, InterfaceVLAN, IPAddress, PhysicalDeviceVLAN, VLAN
-from app.services.port_sync_rules import ALL_VLANS_RULE, EMPTY_TRUNK_RULE, ROLE_MATCH_RULE, TRUNK_VLANS_UNION_RULE
+from app.services.port_sync_rules import ALL_VLANS_BOTH_RULE, ALL_VLANS_RULE, EMPTY_TRUNK_RULE, ROLE_MATCH_RULE, TRUNK_VLANS_UNION_RULE
 
 PREVIEW = "/api/v1/port-sync/preview"
 APPLY = "/api/v1/port-sync/apply"
@@ -618,7 +618,7 @@ def test_a_vlan_the_device_does_not_have_is_skipped_for_that_port_only(world):
 
 
 def test_both_ports_blocked_blocks_the_connection(world):
-    a, b, _c = _trunk_pair(world, a_vlans=(10,), b_vlans=(20,), a_allowed=(10,), b_allowed=(20,))
+    a, b, _c = _trunk_pair(world, a_vlans=(10,), b_vlans=(20,), a_allowed=(10, 50), b_allowed=(20, 60))  # свободные 50/60 — ни один порт не «Все VLAN»
 
     plan = world.preview()
 
@@ -1018,3 +1018,38 @@ def test_offset_past_the_end_gives_an_empty_page(world):
     page = world.preview(limit=1, offset=10, plan_hash=first["plan_hash"])
 
     assert page["items"] == [] and page["page"] == {"offset": 10, "limit": 1, "total": 2, "has_more": False}
+
+
+# --- «Все VLAN» на обоих портах, но номера различаются --------------------------------------------
+
+def test_all_vlans_on_both_ports_with_different_numbers_is_excluded_from_the_plan_not_blocked(world):
+    """У устройств разные наборы VLAN: ни «объединить», ни «взять набор» не поможет — пара остаётся как есть и
+    называется «Исключено правилом», а не «Нельзя применить» с непонятной причиной."""
+    (a,) = world.device("BOTHA", ["Gi0/1"], allowed=(10, 20, 30))
+    (b,) = world.device("BOTHB", ["Gi0/1"], allowed=(10, 20))
+    world.configure(a, mode="trunk", vlans=(10, 20, 30))
+    world.configure(b, mode="trunk", vlans=(10, 20))
+    connection = world.connect(a, b)
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["connection_id"] == connection and item["outcome"] == "ignored"
+    assert item["rule"]["code"] == ALL_VLANS_BOTH_RULE
+    assert plan["summary"]["ignored"] == 1 and plan["summary"]["blocked"] == 0 and plan["summary"]["applicable"] == 0
+    assert world.apply(plan)["applied"] == {"ports": 0, "connections": 0}
+    assert world.port(a)["vlans"] == [10, 20, 30] and world.port(b)["vlans"] == [10, 20]
+    assert world.status(connection) == "mismatch"  # в сверке расхождение остаётся: его можно одобрить на дашборде
+
+
+def test_all_vlans_on_both_ports_still_lets_a_role_mismatch_through(world):
+    (a,) = world.device("ROLEA", ["Gi0/1"], allowed=(10, 20, 30))
+    (b,) = world.device("ROLEB", ["Gi0/1"], allowed=(10, 20, 30))
+    world.configure(a, mode="trunk", vlans=(10, 20, 30))
+    world.configure(b, mode="trunk", vlans=(10, 20, 30), role=(True, False))
+    world.connect(a, b)
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["rule"]["code"] == ROLE_MATCH_RULE and item["outcome"] == "manual"  # роль решает человек, как и раньше
