@@ -32,7 +32,7 @@ def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> Protoc
     return entry
 
 
-_OPEN_PORT_OWNER_LABELS = {OwnerType.VIRTUAL_MACHINE: 'Виртуальная машина', OwnerType.DEVICE_INTERFACE: 'Порт устройства', OwnerType.PHYSICAL_DEVICE: 'Устройство'}
+_OPEN_PORT_OWNER_LABELS = {OwnerType.VIRTUAL_MACHINE: 'Виртуальная машина', OwnerType.DEVICE_INTERFACE: 'Порт устройства', OwnerType.DEVICE_SUBINTERFACE: 'Подинтерфейс порта', OwnerType.PHYSICAL_DEVICE: 'Устройство'}
 
 
 def _validate_open_port_number_is_free(data: dict[str, Any], session: Session, current_id: str | None = None) -> None:

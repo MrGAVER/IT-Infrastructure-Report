@@ -1990,3 +1990,60 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
     })
   })
 })
+
+describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', () => {
+  const vlansForSubs: VLANDefinition[] = [{ id: 'v-10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] }]
+
+  function mountWithPort(patch: Partial<InterfaceDraftRow> = {}) {
+    const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/0', ...patch }]
+    return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vlansForSubs } })
+  }
+
+  it('в раскрытых деталях порта есть блок «Подинтерфейсы»; в свёрнутой строке его нет', async () => {
+    const wrapper = mountWithPort()
+    expect(wrapper.text()).not.toContain('Подинтерфейсы')
+
+    await expandRow(wrapper)
+
+    expect(wrapper.find('.sub-block').exists()).toBe(true)
+    expect(wrapper.find('.sub-block').text()).toContain('Подинтерфейсы не добавлены')
+  })
+
+  it('«+ Подинтерфейс» кладёт в строку порта список с одним подинтерфейсом, остальные поля порта не меняются', async () => {
+    const wrapper = mountWithPort({ description: 'uplink' })
+    await expandRow(wrapper)
+
+    await wrapper.find('.sub-head button').trigger('click')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    const [row] = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+    expect(row).toMatchObject({ name: 'Gi0/0', description: 'uplink' })
+    expect(row.subinterfaces).toHaveLength(1)
+    expect(row.subinterfaces![0]).toMatchObject({ name: '', vlan_id: '', ips: [], open_ports: [] })
+  })
+
+  it('имя порта передаётся редактору подинтерфейсов: выбор VLAN подставляет «<порт>.<VLAN>»', async () => {
+    const wrapper = mountWithPort({ subinterfaces: [{ key: 'k1', name: '', vlan_id: '', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }] })
+    await expandRow(wrapper)
+
+    await wrapper.find('select[aria-label="VLAN подинтерфейса"]').setValue('v-10')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    const [row] = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+    expect(row.subinterfaces![0]).toMatchObject({ vlan_id: 'v-10', name: 'Gi0/0.10' })
+  })
+
+  it('в свёрнутой строке показывается число подинтерфейсов', () => {
+    const wrapper = mountWithPort({
+      subinterfaces: [
+        { key: 'k1', name: 'Gi0/0.10', vlan_id: 'v-10', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] },
+        { key: 'k2', name: 'Gi0/0.20', vlan_id: 'v-20', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] },
+      ],
+    })
+    expect(wrapper.find('.expand-toggle').text()).toContain('2 подинт.')
+  })
+
+  it('у порта без подинтерфейсов счётчика в свёрнутой строке нет', () => {
+    expect(mountWithPort({ subinterfaces: [] }).find('.expand-toggle').text()).not.toContain('подинт.')
+  })
+})

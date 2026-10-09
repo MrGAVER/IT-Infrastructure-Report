@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from ..constants import ErrorCode, OwnerType, SourceType
 from ..models import (
-    Container, DeployedSoftware, DeviceInterface, IPAddress, InformationSystemSource, InterfaceGroup,
+    Container, DeployedSoftware, DeviceInterface, DeviceSubinterface, IPAddress, InformationSystemSource, InterfaceGroup,
     InterfaceGroupOpenPort, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine,
 )
 from ..registry import DISPLAY_NAMES
@@ -145,6 +145,7 @@ _OWNER_MODEL_BY_TYPE: dict[str, type] = {
     OwnerType.PHYSICAL_DEVICE: PhysicalDevice,
     OwnerType.VIRTUAL_MACHINE: VirtualMachine,
     OwnerType.DEVICE_INTERFACE: DeviceInterface,
+    OwnerType.DEVICE_SUBINTERFACE: DeviceSubinterface,
     OwnerType.INFORMATION_SYSTEM_SOURCE: InformationSystemSource,
 }
 _POLYMORPHIC_CHILD_MODELS: tuple[type, ...] = (OpenPort, DeployedSoftware, IPAddress)
@@ -255,4 +256,12 @@ def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[s
             for iface in interfaces:
                 device = devices.get(iface.physical_device_id)
                 names[(owner_type, iface.id)] = f'{device_label(device)} / {iface.name}' if device else iface.name
+        elif owner_type == OwnerType.DEVICE_SUBINTERFACE:
+            subinterfaces = session.scalars(select(DeviceSubinterface).where(DeviceSubinterface.id.in_(ids))).all()
+            parents = {i.id: i for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_({s.parent_interface_id for s in subinterfaces})))}
+            devices = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_({p.physical_device_id for p in parents.values()})))}
+            for sub in subinterfaces:
+                parent = parents.get(sub.parent_interface_id)
+                device = devices.get(parent.physical_device_id) if parent else None
+                names[(owner_type, sub.id)] = f'{device_label(device)} / {sub.name}' if device else sub.name
     return names

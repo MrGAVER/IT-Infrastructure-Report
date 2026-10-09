@@ -64,6 +64,25 @@ export interface DeviceInterface extends CatalogItem {
   vlan_mode: VlanMode
   /** Группа портов (InterfaceGroup), в которую входит порт; null — вне групп. */
   group_id?: string | null
+  /** Подинтерфейсы порта — приходят только в ответе PUT /devices/{id}/interfaces (в generic-списке
+   * /resources/interfaces их нет: подинтерфейс — не физический порт). */
+  subinterfaces?: DeviceSubinterface[]
+}
+
+/** Подинтерфейс порта устройства (backend models.DeviceSubinterface, GET /devices/{id}/subinterfaces и
+ * поле subinterfaces элементов ответа PUT /devices/{id}/interfaces): логический интерфейс на одном VLAN со
+ * своими IP, открытыми портами и флагами роли — как `Gi0/0.10` у маршрутизатора или межсетевого экрана.
+ * vlan_id — id записи справочника VLAN (VLANDefinition.id), не номер VLAN. */
+export interface DeviceSubinterface {
+  id: string
+  parent_interface_id: string
+  name: string
+  vlan_id: string
+  is_management: boolean
+  is_data_transfer: boolean
+  description: string | null
+  ips: { id: string; ip_address: string; prefix_length: number | null; purpose: string | null }[]
+  open_ports: { id: string; protocol_catalog_id: string; transport_protocol: string; description: string | null }[]
 }
 
 /** GET /resources/connections — идёт через общий {items,total,offset,limit}, но
@@ -495,6 +514,21 @@ export interface InterfaceConnectionDraft {
   peer_device_name?: string
 }
 
+/** Черновик подинтерфейса порта внутри DeviceInterfacesEditor.vue (components/InterfaceSubinterfacesEditor.vue).
+ * key — стабильный ключ строки в пределах формы (у новой строки нет id), на сервер не отправляется.
+ * vlan_id пуст, пока VLAN не выбран; сохранить подинтерфейс без VLAN нельзя (utils/subinterfaces.ts). */
+export interface SubinterfaceDraftRow {
+  id?: string
+  key: string
+  name: string
+  vlan_id: string
+  is_management: boolean
+  is_data_transfer: boolean
+  description: string
+  ips: InterfaceIpDraftRow[]
+  open_ports: OpenPortDraftRow[]
+}
+
 export interface InterfaceDraftRow {
   id?: string
   name: string
@@ -525,6 +559,10 @@ export interface InterfaceDraftRow {
    * PUT, что и порт (api/deviceInterfaces.ts:persistDeviceInterfaces, backend
    * services/interface_connections.py), поэтому доступно и для ещё не сохранённых портов. */
   connection?: InterfaceConnectionDraft | null
+  /** Подинтерфейсы порта (логические интерфейсы на VLAN со своими IP и параметрами). Не задано — подинтерфейсы
+   * порта не редактируются этой формой и сервер их не трогает; [] — у порта их нет (сервер удалит прежние).
+   * Загрузка и отправка — api/deviceInterfaces.ts. */
+  subinterfaces?: SubinterfaceDraftRow[]
   /** Стабильный ключ строки в пределах формы (в отличие от индекса не меняется при добавлении и
    * удалении строк). Нужен только строкам без id, на которые ссылается подключение другого порта
    * этой же формы (InterfaceConnectionDraft.peer_row_key). Задаёт редактор портов при создании

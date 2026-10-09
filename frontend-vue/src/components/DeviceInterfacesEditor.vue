@@ -61,6 +61,7 @@ import { portConfigOf, samePortConfig, type PortConfig } from '../utils/portConf
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
+import InterfaceSubinterfacesEditor from './InterfaceSubinterfacesEditor.vue'
 import InterfaceGroupsPanel from './InterfaceGroupsPanel.vue'
 import InterfaceConnectionEditor from './InterfaceConnectionEditor.vue'
 import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
@@ -173,6 +174,8 @@ function emptyRow(): InterfaceDraftRow {
     vlan_mode: 'access',
     ips: [],
     open_ports: [],
+    // subinterfaces у новой строки намеренно нет: undefined = «не трогали» (на сервер не уходит), список
+    // появляется, когда пользователь добавил первый подинтерфейс (см. InterfaceSubinterfacesEditor).
   }
 }
 
@@ -1250,7 +1253,7 @@ function applyBulkEdit() {
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
                   <svg v-if="duplicatePortsByRow[i]?.length" class="icon conflict-icon ports-dup-icon" :aria-label="duplicatePortsText(i)" :title="duplicatePortsText(i)"><use href="/icons.svg#i-alert" /></svg>
                   <svg v-if="rowConflict(row)?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
-                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="row.connection"> · {{ connectionSummary(row) }}</template><template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
+                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="row.subinterfaces?.length"> · {{ row.subinterfaces.length }} подинт.</template><template v-if="row.connection"> · {{ connectionSummary(row) }}</template><template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
                 </button>
               </td>
@@ -1372,6 +1375,17 @@ function applyBulkEdit() {
                       </button>
                     </div>
                   </div>
+
+                  <!-- Подинтерфейсы порта (как у маршрутизаторов и межсетевых экранов: порт + подинтерфейс на
+                       номере VLAN с отдельным IP и параметрами). Не зависят от группы портов: группа задаёт
+                       VLAN/IP/открытые порты самого порта, а подинтерфейсы у каждого порта свои. -->
+                  <InterfaceSubinterfacesEditor
+                    :model-value="row.subinterfaces ?? []"
+                    :parent-name="row.name"
+                    :vlan-options="vlanOptions"
+                    :protocol-port-catalog="protocolPortCatalog"
+                    @update:model-value="(v) => updateRow(i, { subinterfaces: v })"
+                  />
 
                   <!-- Подключение порта к порту другого устройства: создаётся здесь же, при
                        создании/редактировании устройства, и сохраняется тем же PUT, что и порты. -->

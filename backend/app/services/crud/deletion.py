@@ -13,6 +13,7 @@ from ..integrity import format_referenced_message, source_reference_refs
 from .audit_log import audit
 from .columns import model_for
 from .payload import ensure_writable
+from .subinterfaces import purge_subinterfaces_of_interfaces, subinterface_references
 
 
 def _find_referencing_counts(model, item_id: str, session: Session) -> list[tuple[str, int]]:
@@ -79,7 +80,7 @@ def assert_deletable(resource: str, item_id: str, session: Session) -> None:
     (delete_resource() уже вызывает); сама защита на этом не заканчивается — см. before_delete и
     триггеры БД в integrity.py — но понятное сообщение пользователю даёт только этот уровень."""
     model = model_for(resource)
-    refs = _find_referencing_counts(model, item_id, session) + source_reference_refs(resource, item_id, session)
+    refs = _find_referencing_counts(model, item_id, session) + source_reference_refs(resource, item_id, session) + subinterface_references(resource, item_id, session)
     if refs:
         raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': format_referenced_message(refs)})
 
@@ -94,6 +95,9 @@ def delete_resource(resource: str, item_id: str, session: Session):
         # удалял интерфейс, но оставлял открытые порты/IP в БД с owner_id, указывающим на уже не
         # существующую запись. Явно подчищаем перед удалением для каждой полиморфной модели,
         # зарегистрированной для этого resource_key выше.
+        # У порта удаляются и его подинтерфейсы: FK ON DELETE CASCADE убрал бы только их строки, но не
+        # полиморфные IP/открытые порты подинтерфейсов.
+        if resource == 'interfaces': purge_subinterfaces_of_interfaces([item_id], session)
         for cleanup_model, owner_type in _POLYMORPHIC_OWNER_CLEANUP.get(resource, []):
             session.execute(delete(cleanup_model).where(cleanup_model.owner_type == owner_type, cleanup_model.owner_id == item_id))
         session.delete(obj); session.flush(); audit(session, resource, item_id, AuditAction.DELETE, 'Удаление записи'); session.commit(); return {'status': 'deleted', 'id': item_id}

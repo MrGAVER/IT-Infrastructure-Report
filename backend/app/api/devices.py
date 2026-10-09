@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas import DeployedSoftwareSync, DeviceInterfacesSync, DeviceVlansSync
-from ..services.crud import get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
+from ..services.crud import get_device_subinterfaces, get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
 from ..services.device_connectivity import list_device_options, list_free_interfaces, list_interface_connections
 router = APIRouter(prefix='/api/v1/devices', tags=['Devices'])
 @router.put('/{device_id}/interfaces')
@@ -23,6 +23,12 @@ def sync_deployed_software(device_id: str, payload: DeployedSoftwareSync, sessio
 @router.get('/{device_id}/interface-groups')
 def interface_groups(device_id: str, session: Session = Depends(get_db)):
     return get_interface_groups(device_id, session)
+
+
+@router.get('/{device_id}/subinterfaces')
+def device_subinterfaces(device_id: str, session: Session = Depends(get_db)):
+    """Подинтерфейсы всех портов устройства (с IP-адресами и открытыми портами) — для формы устройства."""
+    return get_device_subinterfaces(device_id, session)
 
 
 @router.get('/{device_id}/free-interfaces')

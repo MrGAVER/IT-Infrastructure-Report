@@ -2798,3 +2798,80 @@ describe('подключения между портами одного устр
   })
 })
 
+
+describe('подинтерфейсы портов: сквозное сохранение формы устройства', () => {
+  type Call = { url: string; method: string; body?: any }
+  const donor = { id: 'dev-s', device_type_id: 'dt-server', serial_number: 'SN-S' } as never
+  const ifaceDto = { id: 'if-1', physical_device_id: 'dev-s', name: 'Gi0/0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' }
+  const subDto = {
+    id: 'sub-1',
+    parent_interface_id: 'if-1',
+    name: 'Gi0/0.10',
+    vlan_id: 'v-10',
+    is_management: false,
+    is_data_transfer: true,
+    description: null,
+    ips: [{ id: 'sip-1', ip_address: '10.0.10.1', prefix_length: 24, purpose: null, is_management: false }],
+    open_ports: [],
+  }
+
+  async function mountWithSubinterfaces(props: { device: never | null; copyFrom?: never | null }) {
+    const calls: Call[] = []
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.endsWith('/devices/dev-s/subinterfaces')) return new Response(JSON.stringify({ items: [subDto] }))
+        if (url.includes('/resources/interfaces') && method === 'GET') return new Response(JSON.stringify({ items: [ifaceDto], total: 1, offset: 0, limit: 1000 }))
+        if (method === 'PUT' && url.includes('/devices/dev-copy/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
+        if (method === 'PUT' && url.includes('/devices/dev-s/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
+        if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
+        if (method === 'PUT' && url.includes('/resources/devices/dev-s')) return new Response(JSON.stringify({ id: 'dev-s', serial_number: 'SN-S' }))
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+    const wrapper = mount(DeviceFormModal, { props })
+    await flushPromises()
+    return { wrapper, calls }
+  }
+
+  it('редактирование: загруженные подинтерфейсы показываются у порта и при сохранении уходят с id', async () => {
+    const { wrapper, calls } = await mountWithSubinterfaces({ device: donor })
+
+    expect(wrapper.find('.expand-toggle').text()).toContain('1 подинт.')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-s/interfaces'))
+    expect(put?.body.interfaces[0].subinterfaces).toEqual([
+      {
+        id: 'sub-1',
+        name: 'Gi0/0.10',
+        vlan_id: 'v-10',
+        is_management: false,
+        is_data_transfer: true,
+        description: null,
+        ips: [{ id: 'sip-1', ip_address: '10.0.10.1', prefix_length: 24, purpose: null }],
+        open_ports: [],
+      },
+    ])
+  })
+
+  it('копирование устройства: подинтерфейсы донора создаются заново — без id у самих строк и у их IP', async () => {
+    const { wrapper, calls } = await mountWithSubinterfaces({ device: null, copyFrom: donor })
+
+    await setSerial(wrapper, 'SN-COPY')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-copy/interfaces'))
+    const [sub] = put?.body.interfaces[0].subinterfaces
+    expect(sub).toMatchObject({ name: 'Gi0/0.10', vlan_id: 'v-10', is_data_transfer: true })
+    expect(sub.id).toBeUndefined()
+    expect(sub.ips[0].id).toBeUndefined()
+    expect(sub.ips[0]).toMatchObject({ ip_address: '10.0.10.1', prefix_length: 24 })
+  })
+})

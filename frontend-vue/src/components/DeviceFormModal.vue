@@ -11,6 +11,7 @@ import { ApiError, createResource, listResource, updateResource, ErrorCode } fro
 import { syncDeviceDeployedSoftware } from '../api/deviceDeployedSoftware'
 import { persistDeviceVlans } from '../api/deviceVlans'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
+import { stripSubinterfaceIds } from '../utils/subinterfaces'
 import { cloneGroupsForCopy, validateInterfaceGroups } from '../utils/interfaceGroups'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
@@ -340,7 +341,7 @@ watch(
       // Копия — новое устройство без подключений (connection: null); иначе у каждого порта подключается
       // его активное подключение (utils/interfaceConnections.ts).
       interfaces.value = isCopy
-        ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports), connection: null }))
+        ? ifaceRows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports), subinterfaces: stripSubinterfaceIds(r.subinterfaces), connection: null }))
         : attachConnectionDrafts(ifaceRows, deviceConnections)
       interfaceGroups.value = ifaceGroups
       // Копия: у нового устройства нет групп донора — группы создаются заново (без id, под новыми

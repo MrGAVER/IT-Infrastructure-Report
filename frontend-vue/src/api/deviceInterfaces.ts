@@ -8,7 +8,7 @@
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
 import { api, listResource } from './client'
-import type { DeviceInterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVLAN, InterfaceDraftRow, OpenPort, ProtocolPortCatalogEntry } from './types'
+import type { DeviceInterface, DeviceSubinterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVLAN, InterfaceDraftRow, OpenPort, ProtocolPortCatalogEntry } from './types'
 
 /**
  * Грузит интерфейсы одного устройства вместе с их IP и VLAN-привязками и приводит к формату
@@ -23,7 +23,7 @@ import type { DeviceInterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, I
  * const rows = await loadDeviceInterfaceDraftRows('dev-123')
  */
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
-  const [ifaces, allIps, allVlans, allOpenPorts] = await Promise.all([
+  const [ifaces, allIps, allVlans, allOpenPorts, subinterfaces] = await Promise.all([
     listResource<DeviceInterface>('interfaces', { physical_device_id: deviceId, limit: 1000 }),
     listResource<IPAddress>('ip-addresses', { owner_type: 'device_interface', limit: 1000 }),
     listResource<InterfaceVLAN>('interface-vlans', { limit: 1000 }),
@@ -33,7 +33,11 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
     // _sync_interface_open_ports. Грузятся широким запросом по owner_type, а не по каждому
     // interface_id отдельно — тот же приём, что и allIps/allVlans выше.
     listResource<OpenPort>('open-ports', { owner_type: 'device_interface', limit: 1000 }),
+    // Подинтерфейсы портов — одним запросом по устройству, уже с их IP и открытыми портами (не широкой выборкой
+    // по всем устройствам, как IP и VLAN выше): подинтерфейс не физический порт и в generic-списке портов его нет.
+    api.get<{ items: DeviceSubinterface[] }>(`/devices/${deviceId}/subinterfaces`),
   ])
+  const subinterfacesByParent = groupSubinterfacesByParent(subinterfaces.items)
   return ifaces.items.map((x): InterfaceDraftRow => {
     const links = allVlans.items.filter((v) => v.interface_id === x.id)
     return {
@@ -54,6 +58,7 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
       vlan_mode: x.vlan_mode,
       // Принадлежность порта группе: ключ группы = её id (см. InterfaceGroupDraft.key).
       group_key: x.group_id ?? '',
+      subinterfaces: subinterfacesByParent.get(x.id) ?? [],
       ips: allIps.items
         .filter((ip) => ip.owner_id === x.id)
         .map((ip) => ({
@@ -106,6 +111,7 @@ function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { duplicatePortNumbers } from '../utils/openPorts'
 import { connectionPayload, type ConnectionBaseline } from '../utils/interfaceConnections'
+import { groupSubinterfacesByParent, subinterfacesPayload, validateSubinterfaceRows } from '../utils/subinterfaces'
 
 /** У каждого интерфейса должно быть имя — бэкенд это тоже проверит (422), но лучше показать
  * понятную ошибку до запроса, чем ждать round-trip. UI (DeviceInterfacesEditor.vue) не даёт
@@ -137,7 +143,8 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[], portCatalo
     // больше нечего: несуществующую ссылку отклонит сервер (422), а пустую строку без выбора
     // тихо пропускает toApiPayload() (см. её комментарий) — как и раньше с пустым номером порта.
   }
-  return null
+  // Подинтерфейсы портов: имя и VLAN обязательны, имена уникальны на устройстве, VLAN на порту один раз.
+  return validateSubinterfaceRows(rows, portCatalog)
 }
 
 /**
@@ -216,6 +223,9 @@ export async function persistDeviceInterfaces(
           prefix_length: ip.prefix_length === '' ? null : Number(ip.prefix_length),
           purpose: ip.purpose || null,
         })),
+      // Подинтерфейсы порта — полный список (в т.ч. пустой: «подинтерфейсов нет», сервер удалит прежние). Ключа нет
+      // у строк, чьи подинтерфейсы форма не загружала (subinterfaces не задано): сервер их не трогает.
+      ...(row.subinterfaces ? { subinterfaces: subinterfacesPayload(row.subinterfaces) } : {}),
       // Фикс п.1.4 (батч4): открытые порты round-trip'ятся вместе со своим интерфейсом в том же
       // атомарном PUT — см. backend/app/services/crud.py:_sync_interface_open_ports. Правка
       // "убрать текстовые поля Порт/Протокол": строка без выбранной записи справочника (после
