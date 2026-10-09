@@ -146,6 +146,29 @@ describe('PortSyncRuleFormModal.vue — создание', () => {
     expect(wrapper.find('[data-hint="union"]').exists()).toBe(false)
   })
 
+  it('политика «все VLAN»: подсказка объясняет, что назначаются все VLAN устройства порта, и исчезает при другой политике', async () => {
+    const wrapper = mountForm(null)
+
+    await field(wrapper, 'apply-vlans').setValue('all')
+
+    expect(wrapper.find('[data-hint="all"]').text()).toContain('все VLAN')
+    expect(wrapper.find('[data-hint="all"]').text()).toContain('устройства')
+    await field(wrapper, 'apply-vlans').setValue('keep')
+    expect(wrapper.find('[data-hint="all"]').exists()).toBe(false)
+  })
+
+  it('правило с политикой «все VLAN» отправляется с apply.vlans = all', async () => {
+    const wrapper = mountForm(null)
+    await field(wrapper, 'name').setValue('Все VLAN соседу')
+    await field(wrapper, 'apply-vlans').setValue('all')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const post = calls.find((c) => c.method === 'POST')!
+    expect(post.body.apply).toEqual({ role: false, mode: false, vlans: 'all' })
+  })
+
   it('правило с политикой «объединить» отправляется с apply.vlans = union', async () => {
     const wrapper = mountForm(null)
     await field(wrapper, 'name').setValue('Объединять VLAN')

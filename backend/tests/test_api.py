@@ -702,6 +702,109 @@ class TestInformationSystemDetails:
         assert r.status_code == 422
 
 
+class TestInformationSystemSourceDuplicates:
+    """Серверная страховка к UI (ISSourcesListEditor скрывает уже добавленные ВМ и контейнеры): одна и та же
+    ВМ или контейнер не могут стоять в двух строках sources одной ИС. Без миграции и без удаления данных —
+    уже существующие дубли не мешают сохранению ИС, запрещено только добавлять новые."""
+
+    def _make_is(self, client, name="ИС для дублей источников"):
+        return client.post("/api/v1/resources/information-systems", json={"name": name}).json()
+
+    def _details_url(self, info):
+        return f"/api/v1/resources/information-systems/{info['id']}/details"
+
+    def _vm(self, client, name):
+        return client.post("/api/v1/resources/vms", json={"name": name}).json()
+
+    def _container(self, client, name):
+        return client.post("/api/v1/resources/containers", json={"name": name}).json()
+
+    def test_rejects_same_vm_in_two_rows(self, client):
+        info = self._make_is(client)
+        vm = self._vm(client, "ВМ-дубль")
+
+        r = client.put(
+            self._details_url(info),
+            json={"sources": [{"source_type": "vm", "owner_id": vm["id"]}, {"source_type": "vm", "owner_id": vm["id"]}]},
+        )
+
+        assert r.status_code == 422
+        assert "ВМ-дубль" in r.json()["detail"]
+        # Откат целиком: ни одна из двух строк не сохранилась.
+        assert client.get(self._details_url(info)).json()["sources"] == []
+
+    def test_rejects_same_container_in_two_rows(self, client):
+        info = self._make_is(client)
+        ct = self._container(client, "контейнер-дубль")
+
+        r = client.put(
+            self._details_url(info),
+            json={"sources": [{"source_type": "container", "owner_id": ct["id"]}, {"source_type": "container", "owner_id": ct["id"]}]},
+        )
+
+        assert r.status_code == 422
+        assert "контейнер-дубль" in r.json()["detail"]
+
+    def test_allows_different_vms_and_repeated_manual_and_device_rows(self, client):
+        """Ограничение — только для ВМ и контейнеров: ручные строки и (пока) серверы могут повторяться."""
+        info = self._make_is(client)
+        vm1 = self._vm(client, "ВМ-1 без дубля")
+        vm2 = self._vm(client, "ВМ-2 без дубля")
+        sources = [
+            {"source_type": "vm", "owner_id": vm1["id"]},
+            {"source_type": "vm", "owner_id": vm2["id"]},
+            {"source_type": "manual", "owner_id": "", "ips": [{"ip_address": "10.0.0.1"}]},
+            {"source_type": "manual", "owner_id": "", "ips": [{"ip_address": "10.0.0.2"}]},
+        ]
+
+        r = client.put(self._details_url(info), json={"sources": sources})
+
+        assert r.status_code == 200, r.text
+        assert len(r.json()["sources"]) == 4
+
+    def test_rejects_adding_duplicate_of_already_saved_vm(self, client):
+        info = self._make_is(client)
+        vm = self._vm(client, "ВМ-уже-в-ИС")
+        saved = client.put(self._details_url(info), json={"sources": [{"source_type": "vm", "owner_id": vm["id"]}]})
+        assert saved.status_code == 200, saved.text
+        existing = saved.json()["sources"][0]
+
+        r = client.put(
+            self._details_url(info),
+            json={"sources": [{"id": existing["id"], "source_type": "vm", "owner_id": vm["id"], "external_interaction": False}, {"source_type": "vm", "owner_id": vm["id"]}]},
+        )
+
+        assert r.status_code == 422
+        assert len(client.get(self._details_url(info)).json()["sources"]) == 1
+
+    def test_pre_existing_duplicates_do_not_block_saving(self, client):
+        """Старые данные с повтором (до появления проверки) нельзя превращать в блокировку сохранения ИС:
+        их можно сохранять без изменений и можно убирать, но нельзя наращивать."""
+        info = self._make_is(client)
+        vm = self._vm(client, "ВМ-старый-дубль")
+        for _ in range(2):  # generic-ресурс не проходит через проверку — так появляются «старые» дубли
+            created = client.post(
+                "/api/v1/resources/is-sources",
+                json={"information_system_id": info["id"], "source_type": "vm", "owner_id": vm["id"]},
+            )
+            assert created.status_code in (200, 201), created.text
+        legacy = client.get(self._details_url(info)).json()["sources"]
+        assert len(legacy) == 2
+        # external_interaction шлёт и форма: у существующей строки отсутствие поля записало бы NULL в NOT NULL-колонку.
+        unchanged = [{"id": x["id"], "source_type": "vm", "owner_id": vm["id"], "external_interaction": False} for x in legacy]
+
+        same = client.put(self._details_url(info), json={"sources": unchanged})
+        assert same.status_code == 200, same.text
+        assert len(same.json()["sources"]) == 2
+
+        grown = client.put(self._details_url(info), json={"sources": [*unchanged, {"source_type": "vm", "owner_id": vm["id"]}]})
+        assert grown.status_code == 422
+
+        reduced = client.put(self._details_url(info), json={"sources": unchanged[:1]})
+        assert reduced.status_code == 200, reduced.text
+        assert len(reduced.json()["sources"]) == 1
+
+
 class TestVmIpValidation:
     def test_create_vm_ip_rejects_malformed_ip_address(self, client):
         """Код-ревью п.3.4: IPAddress (владение виртуальной машиной) — единственный путь этой

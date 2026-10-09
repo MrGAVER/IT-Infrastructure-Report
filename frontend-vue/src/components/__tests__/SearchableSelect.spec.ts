@@ -245,4 +245,29 @@ describe('SearchableSelect.vue — режим remote (поиск на серве
     await wrapper.setProps({ options: [], hint: 'не должна показываться без опций', loading: false })
     expect(wrapper.find('.ss-hint').exists()).toBe(false)
   })
+  it('emptyText: при пустом списке опций показывается вместо «Ничего не найдено»', async () => {
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: [], emptyText: 'Все города уже выбраны' } })
+
+    await wrapper.find('input').trigger('focus')
+
+    expect(wrapper.find('.ss-empty').text()).toBe('Все города уже выбраны')
+  })
+
+  it('без emptyText пустой список по-прежнему показывает «Ничего не найдено»', async () => {
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: [] } })
+
+    await wrapper.find('input').trigger('focus')
+
+    expect(wrapper.find('.ss-empty').text()).toBe('Ничего не найдено')
+  })
+
+  it('emptyText не подменяет «Ничего не найдено», когда опции есть, а не подошёл введённый запрос', async () => {
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS, emptyText: 'Все города уже выбраны' } })
+    const input = wrapper.find('input')
+
+    await input.trigger('focus')
+    await input.setValue('несуществующий город')
+
+    expect(wrapper.find('.ss-empty').text()).toBe('Ничего не найдено')
+  })
 })

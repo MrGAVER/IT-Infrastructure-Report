@@ -21,6 +21,13 @@ VLAN). Правила редактируются пользователем (в 
 trunk-портах (стандартное правило `trunk_vlans_union`). Роль и режим направленные (их «берёт»
 один порт у другого), поэтому с `union` в одном правиле не сочетаются.
 
+Политика VLAN `all` («все VLAN») — состояние, а не набор номеров: целевой порт получает ВСЕ VLAN,
+доступные его устройству (как галочка «Все VLAN» в форме устройства), независимо от того, какие номера у
+порта-источника. Так автоматически решается «если на порту „Все VLAN“, то и у соседа „Все VLAN“»
+(стандартное правило `all_vlans_to_neighbor`). Что именно запишется, зависит от VLAN устройства целевого
+порта, поэтому это считает слой согласования (services/port_sync_reconcile.py); здесь правило лишь
+отвечает, нужно ли портy «Все VLAN» (`Changes.all_vlans`). Уже назначенные VLAN порта не снимаются.
+
 Правила проверяются по возрастанию `priority`; решает первое подходящее. Для каждой пары
 проверяются обе ориентации (A ← B и B ← A). `auto` подходит, только если подходит ровно одна
 ориентация, — иначе направление неоднозначно и решение остаётся за человеком. Исключение —
@@ -58,7 +65,7 @@ ROLE_CONDITIONS = ("any", *(r.value for r in PortRole))
 MODE_CONDITIONS = ("any", VLAN_MODE_ACCESS, VLAN_MODE_TRUNK)
 VLAN_CONDITIONS = ("any", "none", "set", "all")
 RELATIONS = ("any", "same", "differs")
-VLAN_POLICIES = ("keep", "copy", "adapt", "union")
+VLAN_POLICIES = ("keep", "copy", "adapt", "union", "all")
 
 MAX_NAME_LENGTH = 200
 MAX_DESCRIPTION_LENGTH = 2000
@@ -154,10 +161,13 @@ class Changes:
     vlans: frozenset[int] | None = None
     # Нарушенное инвариантом ограничение (например, access с несколькими VLAN) — применять нельзя.
     violation: str | None = None
+    # Целевому порту нужно «Все VLAN»: все VLAN его устройства (политика `all`). Номера не заданы —
+    # их определяет устройство порта; `vlans` при этом остаётся None.
+    all_vlans: bool = False
 
     @property
     def is_empty(self) -> bool:
-        return self.role is None and self.mode is None and self.vlans is None
+        return self.role is None and self.mode is None and self.vlans is None and not self.all_vlans
 
 
 @dataclass(frozen=True)
@@ -220,22 +230,26 @@ def compute_changes(rule: RuleSpec, target: PortFacts, source: PortFacts) -> Cha
     VLAN-политика: `copy` — целевой порт получает набор VLAN источника; `adapt` — после смены режима
     приводит свои VLAN к режиму (в access остаётся один VLAN с наименьшим номером, в trunk —
     назначенные сохраняются), как при переключении режима в форме устройства и в каскаде смены режима;
-    `union` — целевой порт получает объединение своих VLAN и VLAN источника (свои не снимаются)."""
+    `union` — целевой порт получает объединение своих VLAN и VLAN источника (свои не снимаются);
+    `all` — целевой порт получает «Все VLAN» (все VLAN своего устройства), если у него их ещё нет."""
     role = source.role if rule.apply_role and target.role != source.role else None
     mode = source.mode if rule.apply_mode and target.mode != source.mode else None
     new_mode = mode or target.mode
     vlans: frozenset[int] | None = None
+    all_vlans = False
     if rule.vlan_policy == "copy" and target.vlans != source.vlans:
         vlans = source.vlans
     elif rule.vlan_policy == "union" and not source.vlans <= target.vlans:
         vlans = target.vlans | source.vlans
     elif rule.vlan_policy == "adapt" and mode == VLAN_MODE_ACCESS and len(target.vlans) > 1:
         vlans = frozenset({min(target.vlans)})
+    elif rule.vlan_policy == "all" and target.vlan_state != "all":
+        all_vlans = True
     final_vlans = vlans if vlans is not None else target.vlans
     violation = None
-    if new_mode == VLAN_MODE_ACCESS and len(final_vlans) > 1:
+    if new_mode == VLAN_MODE_ACCESS and (len(final_vlans) > 1 or all_vlans):
         violation = "В режиме access у порта может быть не более одного VLAN"
-    return Changes(role, mode, vlans, violation)
+    return Changes(role, mode, vlans, violation, all_vlans)
 
 
 def decide(rules: Iterable[RuleSpec], a: PortFacts, b: PortFacts) -> Decision:
@@ -390,6 +404,7 @@ def rule_from_payload(payload: Mapping[str, Any], *, base: RuleSpec | None = Non
 
 # --- стандартные правила -----------------------------------------------------------------------
 
+ALL_VLANS_RULE = "all_vlans_to_neighbor"
 EMPTY_TRUNK_RULE = "empty_trunk_takes_neighbor_vlans"
 ROLE_MATCH_RULE = "role_match"
 MODE_MATCH_RULE = "mode_match"
@@ -397,6 +412,25 @@ VLANS_MATCH_RULE = "vlans_match"
 TRUNK_VLANS_UNION_RULE = "trunk_vlans_union"
 
 DEFAULT_RULES: tuple[RuleSpec, ...] = (
+    RuleSpec(
+        code=ALL_VLANS_RULE,
+        name="«Все VLAN» на порту — «Все VLAN» у соседа",
+        description=(
+            "Если на порту trunk с «Все VLAN» (назначены все VLAN его устройства), а соседний порт тоже в режиме "
+            "trunk, но «Все VLAN» у него нет, соседнему порту назначаются все VLAN его устройства — уже назначенные "
+            "VLAN не снимаются. Номера VLAN соседа не переносятся: у разных устройств наборы доступных VLAN могут "
+            "отличаться, а если у порта-источника есть VLAN, которых нет у устройства соседа, это показывается в "
+            "плане предупреждением. Проверяется раньше правил «пустой trunk» и «объединение наборов VLAN». "
+            "Применяется автоматически — после предпросмотра и подтверждения."
+        ),
+        action="auto",
+        # 5, а не 5-в-цепочке 10, 20…: правило конкретнее «пустого trunk» (источник — именно «Все VLAN») и должно
+        # проверяться раньше него, иначе пустой trunk получил бы только номера VLAN соседа, а не «Все VLAN».
+        priority=5,
+        target=Side(mode=VLAN_MODE_TRUNK),
+        source=Side(mode=VLAN_MODE_TRUNK, vlans="all"),
+        vlan_policy="all",
+    ),
     RuleSpec(
         code=EMPTY_TRUNK_RULE,
         name="Пустой trunk получает VLAN соседа",

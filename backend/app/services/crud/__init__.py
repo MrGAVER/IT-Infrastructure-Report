@@ -115,9 +115,12 @@ from .device_vlans import (  # noqa: F401
 from .information_system import (  # noqa: F401
     get_information_system_details,
     _LINKED_TABLE_SPECS,
+    _UNIQUE_SOURCE_OWNERS,
+    _assert_no_new_duplicate_sources,
     _sync_linked_table,
     _sync_source_ip_addresses,
     _sync_information_system_sources,
+    _unique_source_key,
     sync_information_system_details,
 )
 
@@ -131,8 +134,10 @@ __all__ = [
     '_RESOURCE_VALIDATORS',
     '_SERVICE_PAYLOAD_KEYS',
     '_SOFTWARE_VERSION_MAX_LENGTH',
+    '_UNIQUE_SOURCE_OWNERS',
     '_VLAN_MODES',
     '_apply_group_to_interface',
+    '_assert_no_new_duplicate_sources',
     '_auto_assign_new_domain_vlan_to_domain_devices',
     '_delete_stale_groups',
     '_describe_update',
@@ -160,6 +165,7 @@ __all__ = [
     '_sync_source_ip_addresses',
     '_sync_vm_collection',
     '_unassign_moved_vlan_from_former_domain_devices',
+    '_unique_source_key',
     '_validate_connection_entry',
     '_validate_container_entry',
     '_validate_device_model',

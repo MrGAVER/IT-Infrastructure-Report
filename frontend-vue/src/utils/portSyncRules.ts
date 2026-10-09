@@ -59,6 +59,7 @@ export const VLAN_POLICY_OPTIONS: { value: PortSyncVlanPolicy; label: string }[]
   { value: 'copy', label: 'взять набор VLAN соседа' },
   { value: 'adapt', label: 'привести к режиму (в access — один VLAN)' },
   { value: 'union', label: 'объединить наборы VLAN обоих портов (ничего не снимается)' },
+  { value: 'all', label: 'назначить все VLAN своего устройства («Все VLAN»)' },
 ]
 
 export const OUTCOME_LABELS: Record<PortSyncOutcome, string> = {
@@ -96,14 +97,22 @@ export function describeRelation(relation: PortSyncRule['relation']): string {
   return parts.join(', ')
 }
 
+const ALL_VLANS_APPLY = 'все VLAN его устройства («Все VLAN»)'
+
+/** Что порт берёт у соседа (роль, режим, набор VLAN) и что получает сам, не беря у соседа («Все VLAN»). */
+function applyParts(rule: Pick<PortSyncRule, 'apply'>): { fromNeighbor: string[]; own: string[] } {
+  const fromNeighbor: string[] = []
+  if (rule.apply.role) fromNeighbor.push('роль')
+  if (rule.apply.mode) fromNeighbor.push('режим')
+  if (rule.apply.vlans === 'copy') fromNeighbor.push('набор VLAN')
+  if (rule.apply.vlans === 'adapt') fromNeighbor.push('VLAN приводятся к режиму')
+  if (rule.apply.vlans === 'union') fromNeighbor.push('наборы VLAN объединяются на обоих портах')
+  return { fromNeighbor, own: rule.apply.vlans === 'all' ? [ALL_VLANS_APPLY] : [] }
+}
+
 export function describeApply(rule: Pick<PortSyncRule, 'apply'>): string {
-  const parts: string[] = []
-  if (rule.apply.role) parts.push('роль')
-  if (rule.apply.mode) parts.push('режим')
-  if (rule.apply.vlans === 'copy') parts.push('набор VLAN')
-  if (rule.apply.vlans === 'adapt') parts.push('VLAN приводятся к режиму')
-  if (rule.apply.vlans === 'union') parts.push('наборы VLAN объединяются на обоих портах')
-  return parts.join(', ')
+  const { fromNeighbor, own } = applyParts(rule)
+  return [...fromNeighbor, ...own].join(', ')
 }
 
 type Describable = Pick<PortSyncRule, 'action' | 'target' | 'source' | 'relation' | 'apply'>
@@ -118,11 +127,18 @@ export function describeRule(rule: Describable): string {
   if (source) condition.push(`соседний порт: ${source}`)
   if (relation) condition.push(relation)
   const when = condition.length ? `Если ${condition.join('; ')}` : 'Для любой пары портов подключения'
-  const apply = describeApply(rule)
+  const { fromNeighbor, own } = applyParts(rule)
+  // «из соседа»: роль, режим, набор VLAN берутся у соседнего порта; «Все VLAN» определяет устройство самого порта.
+  const applied = (neighborSuffix: string) =>
+    [...(fromNeighbor.length ? [`${fromNeighbor.join(', ')} ${neighborSuffix}`] : []), ...own].join(', ')
   if (rule.action === 'ignore') return `${when} — пару не согласовывать.`
   if (rule.action === 'auto' && rule.apply.vlans === 'union') return `${when} — оба порта получают объединение наборов VLAN (ни один VLAN не снимается).`
-  if (rule.action === 'manual') return `${when} — расхождение требует решения человека${apply ? ` (порту можно применить: ${apply} соседа)` : ''}.`
-  return `${when} — порту применяется${apply ? `: ${apply} соседнего порта` : ' (изменения не заданы)'}.`
+  if (rule.action === 'manual') {
+    const apply = applied('соседа')
+    return `${when} — расхождение требует решения человека${apply ? ` (порту можно применить: ${apply})` : ''}.`
+  }
+  const apply = applied('соседнего порта')
+  return `${when} — порту применяется${apply ? `: ${apply}` : ' (изменения не заданы)'}.`
 }
 
 // --- черновик формы ---------------------------------------------------------------------------
@@ -240,6 +256,7 @@ export function optionLine(option: PortSyncOption, item: Pick<PortSyncPlanItem, 
   if (option.changes.role) parts.push(`роль → ${roleLabel(option.changes.role)}`)
   if (option.changes.mode) parts.push(`режим → ${option.changes.mode}`)
   if (option.changes.vlans) parts.push(`VLAN → ${formatVlans(option.changes.vlans)}`)
+  else if (option.changes.all_vlans) parts.push('VLAN → все VLAN устройства')
   return `«${port.name}» (${port.device_name}): ${parts.join(', ') || 'изменений нет'}`
 }
 

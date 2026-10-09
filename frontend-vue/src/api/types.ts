@@ -906,8 +906,9 @@ export type PortSyncVlanCondition = 'any' | 'none' | 'set' | 'all'
 export type PortSyncRelation = 'any' | 'same' | 'differs'
 /** Что делать с VLAN: keep — не менять; copy — взять набор соседа; adapt — привести к режиму
  * (в access остаётся один VLAN с наименьшим номером); union — объединить: ОБА порта получают объединение
- * наборов обоих (ни один VLAN не снимается), направление выбирать не нужно. */
-export type PortSyncVlanPolicy = 'keep' | 'copy' | 'adapt' | 'union'
+ * наборов обоих (ни один VLAN не снимается), направление выбирать не нужно; all — «Все VLAN»: порт получает все VLAN
+ * СВОЕГО устройства (номера VLAN соседа не переносятся), уже назначенные не снимаются. */
+export type PortSyncVlanPolicy = 'keep' | 'copy' | 'adapt' | 'union' | 'all'
 
 export interface PortSyncCondition<V> {
   role: PortSyncRoleCondition
@@ -962,7 +963,8 @@ export interface PortSyncChanges {
 
 export interface PortSyncOption {
   target: 'source' | 'destination'
-  changes: { role: PortRole | null; mode: VlanMode | null; vlans: number[] | null }
+  /** all_vlans — порту нужно «Все VLAN» устройства (номера определит устройство порта); у остальных вариантов отсутствует. */
+  changes: { role: PortRole | null; mode: VlanMode | null; vlans: number[] | null; all_vlans?: boolean }
 }
 
 /** Один из портов подключения, которым правило применяет изменения. */
