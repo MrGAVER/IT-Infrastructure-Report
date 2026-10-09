@@ -37,8 +37,8 @@ from sqlalchemy.orm import Session
 
 from ..constants import ErrorCode, OwnerType, SourceType
 from ..models import (
-    Container, DeployedSoftware, DeviceInterface, IPAddress, InformationSystemSource, InterfaceGroup,
-    InterfaceGroupOpenPort, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine,
+    Container, DeployedSoftware, DeviceInterface, IPAddress, InformationSystem, InformationSystemSource, InterfaceGroup,
+    InterfaceGroupOpenPort, ISProtocol, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine,
 )
 from ..registry import DISPLAY_NAMES
 
@@ -197,10 +197,13 @@ def find_orphaned_owner_references(session: Session) -> list[dict[str, Any]]:
 # Владелец у открытых портов ГРУППЫ — не полиморфный OpenPort.owner_type, а отдельная таблица с
 # настоящим FK (InterfaceGroupOpenPort.group_id); в отчёте о дублях помечается этим псевдо-типом.
 INTERFACE_GROUP_OWNER = 'interface_group'
+# Протоколы передачи данных ИС (ISProtocol) — открытые порты информационной системы; тоже отдельная
+# таблица с настоящим FK (information_system_id), в отчёте — этот псевдо-тип.
+INFORMATION_SYSTEM_OWNER = 'information_system'
 
 
 def find_duplicate_open_port_numbers(session: Session) -> list[dict[str, Any]]:
-    """Находит владельцев (ВМ, порты устройств, группы портов), у которых один и тот же НОМЕР порта
+    """Находит владельцев (ВМ, порты устройств, группы портов, информационные системы), у которых один и тот же НОМЕР порта
     добавлен несколько раз — дубликаты, появившиеся до правила уникальности (см. services/
     validation.py:validate_unique_open_port_numbers). Каждый такой владелец и номер — одна запись:
     {'owner_type', 'owner_id', 'owner_name', 'port', 'count'}; owner_name — None, если владельца уже нет.
@@ -223,7 +226,19 @@ def find_duplicate_open_port_numbers(session: Session) -> list[dict[str, Any]]:
         .having(group_count > 1)
     ).all()
 
-    found = [(r.owner_type, r.owner_id, r.port, r.n) for r in owned] + [(INTERFACE_GROUP_OWNER, r.group_id, r.port, r.n) for r in grouped]
+    protocol_count = func.count(ISProtocol.id)
+    protocols = session.execute(
+        select(ISProtocol.information_system_id, ProtocolPortCatalog.port, protocol_count.label('n'))
+        .join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id)
+        .group_by(ISProtocol.information_system_id, ProtocolPortCatalog.port)
+        .having(protocol_count > 1)
+    ).all()
+
+    found = (
+        [(r.owner_type, r.owner_id, r.port, r.n) for r in owned]
+        + [(INTERFACE_GROUP_OWNER, r.group_id, r.port, r.n) for r in grouped]
+        + [(INFORMATION_SYSTEM_OWNER, r.information_system_id, r.port, r.n) for r in protocols]
+    )
     names = _owner_names(session, {(t, i) for t, i, _, _ in found})
     result = [
         {'owner_type': t, 'owner_id': i, 'owner_name': names.get((t, i)), 'port': port, 'count': n}
@@ -247,6 +262,8 @@ def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[s
             names.update({(owner_type, r.id): r.name for r in session.execute(select(VirtualMachine.id, VirtualMachine.name).where(VirtualMachine.id.in_(ids)))})
         elif owner_type == INTERFACE_GROUP_OWNER:
             names.update({(owner_type, r.id): r.name for r in session.execute(select(InterfaceGroup.id, InterfaceGroup.name).where(InterfaceGroup.id.in_(ids)))})
+        elif owner_type == INFORMATION_SYSTEM_OWNER:
+            names.update({(owner_type, r.id): r.name for r in session.execute(select(InformationSystem.id, InformationSystem.name).where(InformationSystem.id.in_(ids)))})
         elif owner_type == OwnerType.PHYSICAL_DEVICE:
             names.update({(owner_type, d.id): device_label(d) for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(ids)))})
         elif owner_type == OwnerType.DEVICE_INTERFACE:

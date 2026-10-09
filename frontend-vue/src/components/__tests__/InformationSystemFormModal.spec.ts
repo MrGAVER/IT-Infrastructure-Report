@@ -350,3 +350,102 @@ describe('фикс п.2: копирование информационной с�
     expect(calls.some((c) => c.url.includes('/information-systems/is-src/details') && c.method === 'PUT')).toBe(false)
   })
 })
+
+describe('InformationSystemFormModal.vue — протоколы ИС как открытые порты ВМ', () => {
+  const system: InformationSystem = {
+    id: 'is-ports', number: null, name: 'ИС с портами', type: 'is', description: null, purpose: null, localization: null,
+    support_organization_id: null, support_method_id: null, process_description: null, siem_enabled: false,
+    crypto_protection_enabled: false, crypto_protection_description_id: null, status: 'active',
+  }
+
+  // created — ответ на POST новой ИС (копирование); без него создание не ожидается.
+  function stubBackend(protocols: unknown[], calls: Array<{ url: string; method: string; body?: unknown }>, created?: { id: string; name: string }) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (url.includes('/information-systems/is-ports/details') && method === 'GET') return jsonResponse({ ...EMPTY_DETAILS, protocols })
+        if (method === 'PUT' && url.includes('/resources/information-systems/is-ports') && !url.includes('/details')) return jsonResponse(system)
+        if (created && method === 'POST' && url.endsWith('/resources/information-systems')) return jsonResponse(created, 201)
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+  }
+
+  function seedCatalog() {
+    useCatalogsStore().protocolPortCatalog = [
+      { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
+      { id: 'cat-http', port: 80, protocol_type: 'HTTP', description: null },
+      { id: 'cat-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+      { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
+    ]
+  }
+
+  it('форма открывается с протоколами по возрастанию номера порта и отправляет их в этом порядке', async () => {
+    seedCatalog()
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    stubBackend(
+      [
+        { id: 'p-https', protocol_catalog_id: 'cat-https', description: null },
+        { id: 'p-ssh', protocol_catalog_id: 'cat-ssh', description: 'админ' },
+      ],
+      calls,
+    )
+
+    const wrapper = mount(InformationSystemFormModal, { props: { system } })
+    await flushPromises()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const body = calls.find((c) => c.method === 'PUT' && c.url.includes('/details'))!.body as { protocols: Array<{ id: string; protocol_catalog_id: string }> }
+    expect(body.protocols.map((p) => p.id)).toEqual(['p-ssh', 'p-https'])
+  })
+
+  it('повторяющийся номер порта блокирует сохранение: запросов на сервер нет, показана ошибка', async () => {
+    seedCatalog()
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    stubBackend(
+      [
+        { id: 'p-1', protocol_catalog_id: 'cat-http', description: null },
+        { id: 'p-2', protocol_catalog_id: 'cat-http-alt', description: null },
+      ],
+      calls,
+    )
+
+    const wrapper = mount(InformationSystemFormModal, { props: { system } })
+    await flushPromises()
+    const before = calls.length
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(calls.slice(before)).toEqual([])
+    expect(wrapper.text()).toContain('Номера открытых портов не должны повторяться: 80.')
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
+  it('копия ИС: протоколы упорядочены и приходят без id (создаются заново под новой ИС)', async () => {
+    seedCatalog()
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    stubBackend(
+      [
+        { id: 'p-https', protocol_catalog_id: 'cat-https', description: null },
+        { id: 'p-ssh', protocol_catalog_id: 'cat-ssh', description: null },
+      ],
+      calls,
+      { id: 'is-copy', name: 'Копия' },
+    )
+
+    const wrapper = mount(InformationSystemFormModal, { props: { system: null, copyFrom: system } })
+    await flushPromises()
+    await wrapper.find('input[type="text"]').setValue('Копия')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const body = calls.find((c) => c.method === 'PUT' && c.url.includes('/details'))!.body as { protocols: Array<{ id?: string; protocol_catalog_id: string }> }
+    expect(body.protocols).toEqual([
+      { protocol_catalog_id: 'cat-ssh', description: null },
+      { protocol_catalog_id: 'cat-https', description: null },
+    ])
+  })
+})
