@@ -226,3 +226,80 @@ describe('OpenPortListEditor.vue — sorted-unique (форма ВМ)', () => {
     expect((emitted[0][0] as OpenPortDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh'])
   })
 })
+
+describe('OpenPortListEditor.vue — сворачивание длинного списка по порогу', () => {
+  const manyCatalog: ProtocolPortCatalogEntry[] = Array.from({ length: 30 }, (_, i) => ({
+    id: `cat-${i + 1}`, port: 1000 + i, protocol_type: `PROTO${i + 1}`, description: null,
+  }))
+  const makeRows = (n: number): OpenPortDraftRow[] =>
+    Array.from({ length: n }, (_, i) => ({ id: `op-${i}`, protocol_catalog_id: `cat-${i + 1}`, transport_protocol: 'TCP', description: '' }))
+  const toggle = (w: ReturnType<typeof mount>) => w.find('[data-testid="ports-collapse-toggle"]')
+  const rowsOf = (w: ReturnType<typeof mount>) => w.findAll('.nested-row')
+
+  it('порог не передан — сворачивания нет, как и раньше (даже для очень длинного списка)', () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(25), catalogEntries: manyCatalog } })
+    expect(rowsOf(wrapper)).toHaveLength(25)
+    expect(toggle(wrapper).exists()).toBe(false)
+    expect(wrapper.find('[data-testid="ports-collapsed"]').exists()).toBe(false)
+  })
+
+  it('на пороге (ровно 10 строк) список развёрнут и кнопки нет', () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(10), catalogEntries: manyCatalog, collapseAfter: 10 } })
+    expect(rowsOf(wrapper)).toHaveLength(10)
+    expect(toggle(wrapper).exists()).toBe(false)
+  })
+
+  it('при 11 строках список свёрнут: строк нет, есть счётчик, номера портов и кнопка «Развернуть»', () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(11), catalogEntries: manyCatalog, collapseAfter: 10 } })
+    expect(rowsOf(wrapper)).toHaveLength(0)
+    const summary = wrapper.find('[data-testid="ports-collapsed"]')
+    expect(summary.text()).toContain('Открытых портов: 11')
+    expect(summary.text()).toContain('1000, 1001, 1002')
+    expect(toggle(wrapper).text()).toContain('Развернуть (11)')
+    expect(toggle(wrapper).attributes('aria-expanded')).toBe('false')
+  })
+
+  it('сводка длинного списка обрезается многоточием', () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(25), catalogEntries: manyCatalog, collapseAfter: 10 } })
+    expect(wrapper.find('.summary-numbers').text()).toBe('1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, …')
+  })
+
+  it('кнопка разворачивает и снова сворачивает список', async () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(12), catalogEntries: manyCatalog, collapseAfter: 10 } })
+    await toggle(wrapper).trigger('click')
+    expect(rowsOf(wrapper)).toHaveLength(12)
+    expect(toggle(wrapper).text()).toContain('Свернуть')
+
+    await toggle(wrapper).trigger('click')
+    expect(rowsOf(wrapper)).toHaveLength(0)
+  })
+
+  it('«+ порт» на свёрнутом списке разворачивает его, чтобы новая строка была видна', async () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(11), catalogEntries: manyCatalog, collapseAfter: 10 } })
+    await wrapper.find('.add-btn').trigger('click')
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')![0][0] as OpenPortDraftRow[] })
+    expect(rowsOf(wrapper)).toHaveLength(12)
+  })
+
+  it('добавление 11-й строки в развёрнутом списке не сворачивает его под руками пользователя', async () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(10), catalogEntries: manyCatalog, collapseAfter: 10 } })
+    await wrapper.find('.add-btn').trigger('click')
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')![0][0] as OpenPortDraftRow[] })
+    expect(rowsOf(wrapper)).toHaveLength(11)
+    expect(wrapper.find('[data-testid="ports-collapsed"]').exists()).toBe(false)
+  })
+
+  it('список с повторяющимся портом не сворачивается: подсветка повторов должна быть видна', () => {
+    const rows = makeRows(12)
+    rows[5] = { ...rows[5], protocol_catalog_id: rows[0].protocol_catalog_id } // порт 1000 дважды
+    // Повторы отслеживаются с sortedUnique — оно включено во всех реальных местах использования редактора.
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: rows, catalogEntries: manyCatalog, collapseAfter: 10, sortedUnique: true } })
+    expect(rowsOf(wrapper)).toHaveLength(12)
+    expect(wrapper.find('.row-duplicate').exists()).toBe(true)
+  })
+
+  it('в режиме readonly (порты задаёт группа) длинный список тоже сворачивается для просмотра', () => {
+    const wrapper = mount(OpenPortListEditor, { props: { modelValue: makeRows(11), catalogEntries: manyCatalog, collapseAfter: 10, readonly: true } })
+    expect(wrapper.find('[data-testid="ports-collapsed"]').exists()).toBe(true)
+  })
+})

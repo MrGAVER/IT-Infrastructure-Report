@@ -118,7 +118,7 @@ describe.each(LISTS)('количество строк на странице — 
 
     // «Перезагрузка страницы»: новое приложение, настройки подтягиваются с сервера до создания стора списка.
     setActivePinia(createPinia())
-    await usePreferencesStore().load({ identity: 'anonymous', canWriteGlobal: false })
+    await usePreferencesStore().load({ userId: 'user-1', canWriteGlobal: false })
     expect(make().pageSize).toBe(defaultSize * 2)
   })
 

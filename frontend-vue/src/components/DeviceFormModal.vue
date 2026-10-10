@@ -1003,7 +1003,7 @@ async function submit() {
           v-if="!loadingNested"
           ref="vlanEditor"
           v-model="deviceVlans"
-          :collapse-after="formPreferences.deviceVlanCollapseRows"
+          :collapse-after="formPreferences.collapseRows"
           :vlan-options="availableVlans"
           :all-vlan-definitions="vlansStore.allDefinitions"
           :device-domain-id="singleDeviceDomainId"

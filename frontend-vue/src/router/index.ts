@@ -127,11 +127,11 @@ router.beforeEach(async (to) => {
     if (to.name === 'login') return true
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  // Настройки интерфейса (тема, размеры страниц, порог сворачивания, название организации) лежат на сервере:
-  // дожидаемся их до первой отрисовки маршрута — иначе списки создали бы свои сторы с умолчаниями. load()
-  // не бросает и повторно для того же пользователя ничего не делает, поэтому на остальных навигациях это
-  // просто проверка.
-  await preferences.load({ identity: auth.user?.id ?? 'anonymous', canWriteGlobal: !auth.enabled || auth.isAdmin })
+  // Настройки интерфейса дожидаемся до первой отрисовки маршрута — иначе списки создали бы свои сторы с
+  // умолчаниями. Название организации всегда серверное; личные настройки (тема, размеры страниц, порог
+  // сворачивания) — серверные с учётной записью и браузерные без аутентификации (userId = null). load() не
+  // бросает и повторно для того же пользователя ничего не делает, поэтому на остальных навигациях это просто проверка.
+  await preferences.load({ userId: auth.enabled ? (auth.user?.id ?? null) : null, canWriteGlobal: !auth.enabled || auth.isAdmin })
   if (to.name === 'login') {
     const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard'
     return redirect

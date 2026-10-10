@@ -6,7 +6,9 @@ import { useToast } from '../../composables/useToast'
 import { stubPreferencesApi, type PreferencesApiStub } from './preferencesApi'
 
 let api: PreferencesApiStub
-const ANON = { identity: 'anonymous', canWriteGlobal: true }
+// Серверный режим: есть учётная запись. Режим без аутентификации (личные настройки в браузере) — LOCAL.
+const SERVER = { userId: 'user-1', canWriteGlobal: true }
+const LOCAL = { userId: null, canWriteGlobal: true }
 
 beforeEach(() => {
   vi.unstubAllGlobals()
@@ -43,8 +45,8 @@ describe('load()', () => {
     const store = usePreferencesStore()
     expect(store.loaded).toBe(false)
 
-    await store.load(ANON)
-    await store.load(ANON)
+    await store.load(SERVER)
+    await store.load(SERVER)
 
     expect(api.gets).toBe(1)
     expect(store.loaded).toBe(true)
@@ -54,21 +56,21 @@ describe('load()', () => {
 
   it('одновременные вызовы делят один запрос', async () => {
     const store = usePreferencesStore()
-    await Promise.all([store.load(ANON), store.load(ANON), store.load(ANON)])
+    await Promise.all([store.load(SERVER), store.load(SERVER), store.load(SERVER)])
     expect(api.gets).toBe(1)
   })
 
   it('для другого пользователя настройки загружаются заново', async () => {
     const store = usePreferencesStore()
-    await store.load({ identity: 'user-1', canWriteGlobal: false })
-    await store.load({ identity: 'user-2', canWriteGlobal: false })
+    await store.load({ userId: 'user-1', canWriteGlobal: false })
+    await store.load({ userId: 'user-2', canWriteGlobal: false })
     expect(api.gets).toBe(2)
   })
 
   it('reset() забывает загруженное: следующий пользователь не видит чужих настроек', async () => {
     api.server.user = { color_scheme: 'copper' }
     const store = usePreferencesStore()
-    await store.load({ identity: 'user-1', canWriteGlobal: false })
+    await store.load({ userId: 'user-1', canWriteGlobal: false })
 
     store.reset()
 
@@ -80,8 +82,8 @@ describe('load()', () => {
     api.failGetWith = 500
     const store = usePreferencesStore()
 
-    await expect(store.load(ANON)).resolves.toBeUndefined()
-    await store.load(ANON)
+    await expect(store.load(SERVER)).resolves.toBeUndefined()
+    await store.load(SERVER)
 
     expect(store.loadFailed).toBe(true)
     expect(store.user).toEqual({})
@@ -111,7 +113,7 @@ describe('сохранение', () => {
   it('сбой записи: уведомление об ошибке и откат к тому, что на сервере', async () => {
     api.server.user = { color_scheme: 'teal' }
     const store = usePreferencesStore()
-    await store.load(ANON)
+    await store.load(SERVER)
     api.failPutsWith = 500
 
     void store.saveUser({ color_scheme: 'copper' })
@@ -149,7 +151,7 @@ describe('разовый перенос значений из localStorage', () 
     seedLegacy()
     const store = usePreferencesStore()
 
-    await store.load(ANON)
+    await store.load(SERVER)
 
     expect(api.server.user).toEqual({ color_scheme: 'indigo', device_vlan_collapse_rows: 25, page_sizes: { vms: 16, devices: 12 } })
     expect(api.server.global).toEqual({ organization_name: 'ООО «Ромашка»' })
@@ -163,7 +165,7 @@ describe('разовый перенос значений из localStorage', () 
     api.server = { user: { color_scheme: 'teal', page_sizes: { vms: 32 } }, global: { organization_name: 'Серверное' } }
     seedLegacy()
 
-    await usePreferencesStore().load(ANON)
+    await usePreferencesStore().load(SERVER)
 
     expect(api.server.user.color_scheme).toBe('teal')
     expect(api.server.user.page_sizes).toEqual({ vms: 32, devices: 12 }) // vms не тронут, devices добавлен
@@ -175,7 +177,7 @@ describe('разовый перенос значений из localStorage', () 
   it('без права менять общие настройки (не администратор) название организации не отправляется и ключ остаётся до входа администратора', async () => {
     seedLegacy()
 
-    await usePreferencesStore().load({ identity: 'viewer-1', canWriteGlobal: false })
+    await usePreferencesStore().load({ userId: 'viewer-1', canWriteGlobal: false })
 
     expect(api.globalPuts).toEqual([])
     expect(api.server.user.color_scheme).toBe('indigo') // личное переносится у любой роли
@@ -186,7 +188,7 @@ describe('разовый перенос значений из localStorage', () 
   it('название организации, равное значению по умолчанию, на сервер не отправляется', async () => {
     localStorage.setItem('itr.organizationName', 'ООО «Организация»')
 
-    await usePreferencesStore().load(ANON)
+    await usePreferencesStore().load(SERVER)
 
     expect(api.globalPuts).toEqual([])
     expect(localStorage.getItem('itr.organizationName')).toBeNull()
@@ -196,7 +198,7 @@ describe('разовый перенос значений из localStorage', () 
     api.failPutsWith = 500
     seedLegacy()
 
-    await usePreferencesStore().load(ANON)
+    await usePreferencesStore().load(SERVER)
 
     expect(localStorage.getItem('itr.colorScheme')).toBe('indigo')
     expect(localStorage.getItem('itr.pageSize.vms')).toBe('16')
@@ -210,7 +212,7 @@ describe('разовый перенос значений из localStorage', () 
     localStorage.setItem('itr:auth-token', 'секретный-токен')
     localStorage.setItem('itr.somethingElse', 'x')
 
-    await usePreferencesStore().load(ANON)
+    await usePreferencesStore().load(SERVER)
 
     expect(api.userPuts).toEqual([])
     expect(localStorage.getItem('itr.colorScheme')).toBeNull()
@@ -221,7 +223,7 @@ describe('разовый перенос значений из localStorage', () 
   })
 
   it('без старых ключей лишних запросов нет', async () => {
-    await usePreferencesStore().load(ANON)
+    await usePreferencesStore().load(SERVER)
     expect(api.userPuts).toEqual([])
     expect(api.globalPuts).toEqual([])
   })
@@ -230,9 +232,116 @@ describe('разовый перенос значений из localStorage', () 
     api.failGetWith = 500
     seedLegacy()
 
-    await usePreferencesStore().load(ANON)
+    await usePreferencesStore().load(SERVER)
 
     expect(api.userPuts).toEqual([])
     expect(localStorage.getItem('itr.colorScheme')).toBe('indigo')
+  })
+})
+
+describe('режим без аутентификации: личные настройки хранит браузер, название организации — сервер', () => {
+  it('личные настройки читаются из localStorage, а не с сервера; общие — с сервера', async () => {
+    localStorage.setItem('itr.colorScheme', 'copper')
+    localStorage.setItem('itr.pageSize.vms', '16')
+    api.server = { user: { color_scheme: 'indigo' }, global: { organization_name: 'ООО «Ромашка»' } }
+    const store = usePreferencesStore()
+
+    await store.load(LOCAL)
+
+    expect(store.userStorage).toBe('local')
+    expect(store.loadedFor).toBe('local')
+    expect(store.user).toEqual({ color_scheme: 'copper', page_sizes: { vms: 16 } })
+    expect(store.global).toEqual({ organization_name: 'ООО «Ромашка»' })
+  })
+
+  it('сохранение личной настройки пишет в localStorage сразу и не отправляет ничего на сервер', async () => {
+    const store = usePreferencesStore()
+    await store.load(LOCAL)
+
+    void store.saveUser({ color_scheme: 'indigo', device_vlan_collapse_rows: 25, page_sizes: { devices: 24 } })
+    await flushPromises()
+
+    expect(localStorage.getItem('itr.colorScheme')).toBe('indigo')
+    expect(localStorage.getItem('itr.deviceVlanCollapseRows')).toBe('25')
+    expect(localStorage.getItem('itr.pageSize.devices')).toBe('24')
+    expect(api.userPuts).toEqual([])
+  })
+
+  it('сброс (null) и удаление размера страницы убирают ключи из localStorage', async () => {
+    localStorage.setItem('itr.colorScheme', 'indigo')
+    localStorage.setItem('itr.pageSize.vms', '16')
+    localStorage.setItem('itr.pageSize.devices', '24')
+    const store = usePreferencesStore()
+    await store.load(LOCAL)
+
+    void store.saveUser({ color_scheme: null, page_sizes: { vms: null } })
+
+    expect(localStorage.getItem('itr.colorScheme')).toBeNull()
+    expect(localStorage.getItem('itr.pageSize.vms')).toBeNull()
+    expect(localStorage.getItem('itr.pageSize.devices')).toBe('24')
+  })
+
+  it('название организации по-прежнему уходит на сервер и откатывается при отказе, не затрагивая браузерные личные настройки', async () => {
+    localStorage.setItem('itr.colorScheme', 'copper')
+    api.server.global = { organization_name: 'Старое' }
+    const store = usePreferencesStore()
+    await store.load(LOCAL)
+    api.failPutsWith = 500
+
+    void store.saveGlobal({ organization_name: 'Новое' })
+    expect(store.global.organization_name).toBe('Новое') // оптимистично
+    await flushPromises()
+
+    expect(store.global.organization_name).toBe('Старое') // откат с сервера
+    expect(store.user.color_scheme).toBe('copper') // личное из браузера не затёрто пустым серверным ответом
+  })
+
+  it('перенос: название организации из браузера уходит на сервер, а личные ключи остаются — это их постоянное место', async () => {
+    localStorage.setItem('itr.organizationName', 'ООО «Ромашка»')
+    localStorage.setItem('itr.colorScheme', 'indigo')
+    localStorage.setItem('itr.deviceVlanCollapseRows', '25')
+    localStorage.setItem('itr.pageSize.vms', '16')
+
+    await usePreferencesStore().load(LOCAL)
+
+    expect(api.server.global).toEqual({ organization_name: 'ООО «Ромашка»' })
+    expect(api.userPuts).toEqual([])
+    expect(localStorage.getItem('itr.organizationName')).toBeNull()
+    expect(localStorage.getItem('itr.colorScheme')).toBe('indigo')
+    expect(localStorage.getItem('itr.deviceVlanCollapseRows')).toBe('25')
+    expect(localStorage.getItem('itr.pageSize.vms')).toBe('16')
+  })
+
+  it('сбой загрузки: личные настройки всё равно берутся из браузера, предупреждение одно', async () => {
+    localStorage.setItem('itr.colorScheme', 'copper')
+    api.failGetWith = 500
+    const store = usePreferencesStore()
+
+    await store.load(LOCAL)
+
+    expect(store.loadFailed).toBe(true)
+    expect(store.user.color_scheme).toBe('copper')
+    expect(useToast().toasts.filter((t) => t.type === 'warning')).toHaveLength(1)
+  })
+
+  it('reset() возвращает серверный режим по умолчанию (следующим войдёт пользователь с учётной записью)', async () => {
+    const store = usePreferencesStore()
+    await store.load(LOCAL)
+    expect(store.userStorage).toBe('local')
+
+    store.reset()
+
+    expect(store.userStorage).toBe('server')
+  })
+
+  it('локальные ключи, оставшиеся от работы без аутентификации, при входе пользователя переезжают на сервер и убираются из браузера', async () => {
+    localStorage.setItem('itr.colorScheme', 'indigo')
+    localStorage.setItem('itr.pageSize.vms', '16')
+
+    await usePreferencesStore().load({ userId: 'user-9', canWriteGlobal: false })
+
+    expect(api.server.user).toEqual({ color_scheme: 'indigo', page_sizes: { vms: 16 } })
+    expect(localStorage.getItem('itr.colorScheme')).toBeNull()
+    expect(localStorage.getItem('itr.pageSize.vms')).toBeNull()
   })
 })

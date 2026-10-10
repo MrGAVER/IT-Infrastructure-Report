@@ -17,8 +17,10 @@
 // stores/catalogs.ts:sortProtocolPortCatalog), а сервер сам подставляет порт/протокол из
 // справочника при сохранении (backend/app/services/crud.py:_apply_open_port_catalog) —
 // хранить их в черновике смысла больше нет, см. OpenPortDraftRow в api/types.ts.
+import { computed } from 'vue'
 import type { OpenPortDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
 import { useUniquePortRows } from '../composables/useUniquePortRows'
+import { useCollapsibleRows } from '../composables/useCollapsibleRows'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
@@ -33,7 +35,17 @@ import type { SearchableSelectOption } from './SearchableSelect.vue'
 // Иначе только что добавленная строка «уезжала» бы из-под курсора сразу после выбора записи
 // справочника, и пользователю было бы неудобно заполнять её транспорт и описание.
 // Выключено по умолчанию: порядок строк остаётся как ввёл пользователь.
-const props = defineProps<{ modelValue: OpenPortDraftRow[]; catalogEntries: ProtocolPortCatalogEntry[]; readonly?: boolean; sortedUnique?: boolean }>()
+// collapseAfter — порог сворачивания: когда строк БОЛЬШЕ этого числа, список скрыт за сводкой и кнопкой
+// «Развернуть» (порог задаёт пользователь в «Настройках», родитель берёт его из stores/formPreferences.ts; сам
+// редактор о сторе не знает). Не передан — сворачивания нет. Список с повторами портов не сворачивается:
+// иначе подсветка повторов была бы скрыта.
+const props = defineProps<{
+  modelValue: OpenPortDraftRow[]
+  catalogEntries: ProtocolPortCatalogEntry[]
+  readonly?: boolean
+  sortedUnique?: boolean
+  collapseAfter?: number
+}>()
 const emit = defineEmits<{ 'update:modelValue': [rows: OpenPortDraftRow[]] }>()
 
 const TRANSPORT_OPTIONS = ['TCP', 'UDP', 'TCP/UDP']
@@ -62,7 +74,24 @@ const { duplicateIndexes, duplicateMessage, sortedForAdd } = useUniquePortRows(
   () => !!props.sortedUnique,
 )
 
+// Сворачивание — общая логика с блоком «VLAN устройства» (composables/useCollapsibleRows.ts).
+const { exceedsLimit, collapsed: belowLimitCollapsed, toggle, expandForAdd } = useCollapsibleRows(
+  () => props.modelValue.length,
+  () => props.collapseAfter,
+)
+const collapsed = computed(() => belowLimitCollapsed.value && duplicateIndexes.value.size === 0)
+
+const SUMMARY_LIMIT = 12
+// Номера портов выбранных строк — краткая сводка вместо скрытого списка (по порядку строк).
+const collapsedSummary = computed(() => {
+  const portById = new Map(props.catalogEntries.map((e) => [e.id, e.port]))
+  const ports = props.modelValue.filter((r) => r.protocol_catalog_id).map((r) => portById.get(r.protocol_catalog_id))
+  const shown = ports.slice(0, SUMMARY_LIMIT).map((p) => (p === undefined ? '?' : String(p)))
+  return ports.length > SUMMARY_LIMIT ? `${shown.join(', ')}, …` : shown.join(', ')
+})
+
 function addRow() {
+  expandForAdd() // пользователь работает со списком — новая строка не должна тут же скрыться из-за порога
   emit('update:modelValue', [...sortedForAdd(), emptyRow()])
 }
 
@@ -96,44 +125,67 @@ function onQuickAdded(index: number, record: CatalogItem) {
 <template>
   <div class="nested-editor">
     <div class="nested-head">
-      <b>Открытые порты / протоколы</b>
-      <span class="hint">Используются при заполнении соответствующего поля отчёта.</span>
+      <div class="nested-title">
+        <b>Открытые порты / протоколы</b>
+        <span class="hint">Используются при заполнении соответствующего поля отчёта.</span>
+      </div>
+      <!-- Кнопка видна только когда строк больше порога: иначе сворачивать нечего. -->
+      <button
+        v-if="exceedsLimit"
+        type="button"
+        class="btn btn-secondary collapse-toggle"
+        :aria-expanded="!collapsed"
+        data-testid="ports-collapse-toggle"
+        @click="toggle"
+      >
+        <svg class="icon chev" :class="{ open: !collapsed }"><use href="/icons.svg#i-chevd" /></svg>
+        {{ collapsed ? `Развернуть (${modelValue.length})` : 'Свернуть' }}
+      </button>
     </div>
 
     <div v-if="!modelValue.length" class="empty">Открытые порты не добавлены</div>
 
-    <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row" :class="{ 'row-duplicate': duplicateIndexes.has(i) }">
-      <div class="col-catalog lookup-row">
-        <SearchableSelect
-          :model-value="row.protocol_catalog_id"
-          :options="catalogOptions()"
-          placeholder="— справочник —"
-          :disabled="readonly"
-          @update:model-value="(v) => onCatalogChange(i, v)"
-        />
-        <QuickAddButton v-if="!readonly" resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
-      </div>
-      <select
-        class="col-transport"
-        title="Транспортный протокол (TCP/UDP) — отдельно от прикладного протокола, который несёт запись справочника слева"
-        :value="row.transport_protocol"
-        :disabled="readonly"
-        @change="updateField(i, { transport_protocol: ($event.target as HTMLSelectElement).value })"
-      >
-        <option v-for="t in TRANSPORT_OPTIONS" :key="t" :value="t">{{ t }}</option>
-      </select>
-      <input
-        class="col-desc"
-        type="text"
-        placeholder="Описание"
-        :value="row.description"
-        :disabled="readonly"
-        @input="updateField(i, { description: ($event.target as HTMLInputElement).value })"
-      />
-      <button v-if="!readonly" type="button" class="icon-btn danger" aria-label="Удалить открытый порт" @click="removeRow(i)">
-        <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-      </button>
+    <!-- Свёрнуто: вместо строк — сводка с номерами портов. -->
+    <div v-else-if="collapsed" class="collapsed-summary" data-testid="ports-collapsed">
+      <span>Открытых портов: <b>{{ modelValue.length }}</b></span>
+      <span v-if="collapsedSummary" class="summary-numbers" :title="collapsedSummary">{{ collapsedSummary }}</span>
+      <span class="hint">Список свёрнут (порог — {{ collapseAfter }} строк, меняется в «Настройках»).</span>
     </div>
+
+    <template v-else>
+      <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row" :class="{ 'row-duplicate': duplicateIndexes.has(i) }">
+        <div class="col-catalog lookup-row">
+          <SearchableSelect
+            :model-value="row.protocol_catalog_id"
+            :options="catalogOptions()"
+            placeholder="— справочник —"
+            :disabled="readonly"
+            @update:model-value="(v) => onCatalogChange(i, v)"
+          />
+          <QuickAddButton v-if="!readonly" resource="protocol-port-catalog" title="Протокол / порт" @created="(r) => onQuickAdded(i, r)" />
+        </div>
+        <select
+          class="col-transport"
+          title="Транспортный протокол (TCP/UDP) — отдельно от прикладного протокола, который несёт запись справочника слева"
+          :value="row.transport_protocol"
+          :disabled="readonly"
+          @change="updateField(i, { transport_protocol: ($event.target as HTMLSelectElement).value })"
+        >
+          <option v-for="t in TRANSPORT_OPTIONS" :key="t" :value="t">{{ t }}</option>
+        </select>
+        <input
+          class="col-desc"
+          type="text"
+          placeholder="Описание"
+          :value="row.description"
+          :disabled="readonly"
+          @input="updateField(i, { description: ($event.target as HTMLInputElement).value })"
+        />
+        <button v-if="!readonly" type="button" class="icon-btn danger" aria-label="Удалить открытый порт" @click="removeRow(i)">
+          <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+        </button>
+      </div>
+    </template>
 
     <div v-if="duplicateMessage" class="dup-error" role="alert">{{ duplicateMessage }}</div>
 
@@ -156,9 +208,49 @@ function onQuickAdded(index: number, record: CatalogItem) {
 }
 .nested-head {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.nested-title {
+  display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-bottom: 2px;
+  min-width: 0;
+}
+.collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 4px 9px;
+}
+.collapse-toggle .chev {
+  transition: transform 0.15s;
+}
+.collapse-toggle .chev.open {
+  transform: rotate(180deg);
+}
+.collapsed-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-s);
+  padding: 7px 9px;
+}
+.summary-numbers {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
 }
 .nested-head b {
   font-size: 12.5px;

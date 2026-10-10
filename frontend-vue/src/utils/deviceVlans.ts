@@ -12,38 +12,6 @@ export interface VlanRow {
   vlan_id: string
 }
 
-/** Порог по умолчанию: блок сворачивается, когда в нём БОЛЬШЕ стольких строк. */
-export const DEFAULT_VLAN_COLLAPSE_ROWS = 10
-export const MIN_VLAN_COLLAPSE_ROWS = 1
-export const MAX_VLAN_COLLAPSE_ROWS = 1000
-
-/**
- * Приводит введённое пользователем значение порога сворачивания к допустимому целому числу
- * (MIN..MAX). Нечисловое, пустое, дробное «как есть» не принимается: дробное округляется вниз,
- * остальное заменяется значением по умолчанию — иначе испорченное значение в localStorage ломало бы форму.
- *
- * @example
- * normalizeVlanCollapseLimit('15')  // 15
- * normalizeVlanCollapseLimit('abc') // 10
- * normalizeVlanCollapseLimit(0)     // 1
- */
-export function normalizeVlanCollapseLimit(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
-  if (!Number.isFinite(parsed)) return DEFAULT_VLAN_COLLAPSE_ROWS
-  return Math.min(MAX_VLAN_COLLAPSE_ROWS, Math.max(MIN_VLAN_COLLAPSE_ROWS, Math.floor(parsed)))
-}
-
-/** Явная проверка для поля ввода: подходит ли значение БЕЗ молчаливой подмены (в отличие от normalize). */
-export function isValidVlanCollapseLimit(value: unknown): boolean {
-  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
-  return Number.isInteger(parsed) && parsed >= MIN_VLAN_COLLAPSE_ROWS && parsed <= MAX_VLAN_COLLAPSE_ROWS
-}
-
-/** Свёрнут ли блок по умолчанию: строк строго больше порога. */
-export function exceedsCollapseLimit(rowCount: number, limit: number): boolean {
-  return rowCount > limit
-}
-
 /** Сравнение определений VLAN: номер по возрастанию, затем домен и имя (одинаковый номер в разных доменах). */
 export function compareVlanDefinitions(a: VLANDefinition, b: VLANDefinition): number {
   if (a.vlan_id !== b.vlan_id) return a.vlan_id < b.vlan_id ? -1 : 1

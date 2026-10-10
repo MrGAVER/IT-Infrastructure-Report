@@ -33,8 +33,9 @@ beforeEach(async () => {
 })
 
 describe('router.beforeEach — настройки интерфейса', () => {
-  it('аутентификация выключена: настройки загружаются один раз на первой навигации и не перезапрашиваются на следующих', async () => {
+  it('аутентификация выключена: настройки загружаются один раз на первой навигации; личные берутся из браузера, а не с сервера', async () => {
     stubServer({ enabled: false })
+    localStorage.setItem('itr.colorScheme', 'copper') // у сервера «своя» схема indigo — она не должна подменить браузерную
 
     await router.push('/devices')
     await router.push('/vms')
@@ -42,8 +43,9 @@ describe('router.beforeEach — настройки интерфейса', () => 
 
     expect(api.gets).toBe(1)
     const prefs = usePreferencesStore()
-    expect(prefs.loadedFor).toBe('anonymous')
-    expect(prefs.user.color_scheme).toBe('indigo')
+    expect(prefs.loadedFor).toBe('local')
+    expect(prefs.userStorage).toBe('local')
+    expect(prefs.user.color_scheme).toBe('copper')
   })
 
   it('вход выполнен: настройки загружаются под конкретного пользователя', async () => {
@@ -52,7 +54,10 @@ describe('router.beforeEach — настройки интерфейса', () => 
 
     await router.push('/containers')
 
-    expect(usePreferencesStore().loadedFor).toBe('user-7')
+    const prefs = usePreferencesStore()
+    expect(prefs.loadedFor).toBe('user-7')
+    expect(prefs.userStorage).toBe('server')
+    expect(prefs.user.color_scheme).toBe('indigo') // личные настройки пользователя — с сервера
     expect(api.gets).toBe(1)
   })
 

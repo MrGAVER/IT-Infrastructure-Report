@@ -7,12 +7,22 @@ import { useAuthStore } from '../stores/auth'
 import { useThemeStore, COLOR_SCHEMES } from '../stores/theme'
 import { useOrganizationStore, DEFAULT_ORGANIZATION_NAME } from '../stores/organization'
 import { useFormPreferencesStore } from '../stores/formPreferences'
-import { DEFAULT_VLAN_COLLAPSE_ROWS, MAX_VLAN_COLLAPSE_ROWS, MIN_VLAN_COLLAPSE_ROWS, isValidVlanCollapseLimit } from '../utils/deviceVlans'
+import { usePreferencesStore } from '../stores/preferences'
+import { DEFAULT_COLLAPSE_ROWS, MAX_COLLAPSE_ROWS, MIN_COLLAPSE_ROWS, isValidCollapseLimit } from '../utils/collapseLimit'
 
 const theme = useThemeStore()
 const organization = useOrganizationStore()
 const auth = useAuthStore()
 const formPreferences = useFormPreferencesStore()
+const preferences = usePreferencesStore()
+
+// Личные настройки (схема, порог сворачивания, размеры страниц) хранятся на сервере, если есть учётная запись,
+// и в этом браузере, если аутентификация выключена, — подпись говорит, где именно, чтобы не вводить в заблуждение.
+const personalStorageNote = computed(() =>
+  preferences.userStorage === 'local'
+    ? 'Личная настройка: аутентификация выключена, поэтому хранится в этом браузере.'
+    : 'Личная настройка: хранится на сервере и одинакова на всех ваших компьютерах.',
+)
 
 // Название организации общее для всех пользователей: при включённой аутентификации его меняет только
 // администратор (сервер ответил бы 403), поэтому остальным поле показывается, но недоступно для правки.
@@ -41,34 +51,34 @@ function resetToDefault() {
   organization.reset()
 }
 
-// Порог сворачивания блока «VLAN устройства»: тоже локальный черновик с явным «Сохранить» — недопустимое
-// значение не подменяется молча, а показывается ошибкой под полем.
-const draftVlanLimit = ref(String(formPreferences.deviceVlanCollapseRows))
-const vlanLimitError = ref('')
-const vlanLimitSaved = ref(false)
+// Общий порог сворачивания длинных списков («VLAN устройства», «Открытые порты»): тоже локальный черновик
+// с явным «Сохранить» — недопустимое значение не подменяется молча, а показывается ошибкой под полем.
+const draftCollapseLimit = ref(String(formPreferences.collapseRows))
+const collapseLimitError = ref('')
+const collapseLimitSaved = ref(false)
 watch(
-  () => formPreferences.deviceVlanCollapseRows,
+  () => formPreferences.collapseRows,
   (value) => {
-    draftVlanLimit.value = String(value)
+    draftCollapseLimit.value = String(value)
   },
 )
 
-function saveVlanLimit() {
-  vlanLimitSaved.value = false
-  if (!isValidVlanCollapseLimit(draftVlanLimit.value)) {
-    vlanLimitError.value = `Укажите целое число от ${MIN_VLAN_COLLAPSE_ROWS} до ${MAX_VLAN_COLLAPSE_ROWS}.`
+function saveCollapseLimit() {
+  collapseLimitSaved.value = false
+  if (!isValidCollapseLimit(draftCollapseLimit.value)) {
+    collapseLimitError.value = `Укажите целое число от ${MIN_COLLAPSE_ROWS} до ${MAX_COLLAPSE_ROWS}.`
     return
   }
-  vlanLimitError.value = ''
-  formPreferences.setDeviceVlanCollapseRows(draftVlanLimit.value)
-  vlanLimitSaved.value = true
-  setTimeout(() => (vlanLimitSaved.value = false), 2000)
+  collapseLimitError.value = ''
+  formPreferences.setCollapseRows(draftCollapseLimit.value)
+  collapseLimitSaved.value = true
+  setTimeout(() => (collapseLimitSaved.value = false), 2000)
 }
 
-function resetVlanLimit() {
-  vlanLimitError.value = ''
+function resetCollapseLimit() {
+  collapseLimitError.value = ''
   formPreferences.reset()
-  draftVlanLimit.value = String(formPreferences.deviceVlanCollapseRows)
+  draftCollapseLimit.value = String(formPreferences.collapseRows)
 }
 </script>
 
@@ -99,27 +109,28 @@ function resetVlanLimit() {
     <section class="card section" data-testid="forms-settings">
       <h2>Формы</h2>
       <p class="hint">
-        Блок «VLAN устройства» в форме физического устройства сворачивается, когда в нём больше указанного
-        количества строк. Развернуть его можно кнопкой в заголовке блока. По умолчанию — {{ DEFAULT_VLAN_COLLAPSE_ROWS }}.
-        Личная настройка: хранится на сервере и одинакова на всех ваших компьютерах.
+        Длинные списки в форме физического устройства — блок «VLAN устройства» и «Открытые порты» — сворачиваются,
+        когда в них больше указанного количества строк (порог общий для обоих). Развернуть список можно кнопкой в его
+        заголовке. По умолчанию — {{ DEFAULT_COLLAPSE_ROWS }}.
       </p>
-      <div class="vlan-limit-row">
-        <label for="vlan-collapse-rows">Сворачивать «VLAN устройства» при количестве строк больше</label>
+      <p class="hint" data-testid="personal-storage-note">{{ personalStorageNote }}</p>
+      <div class="collapse-limit-row">
+        <label for="collapse-rows">Сворачивать списки при количестве строк больше</label>
         <input
-          id="vlan-collapse-rows"
-          v-model="draftVlanLimit"
+          id="collapse-rows"
+          v-model="draftCollapseLimit"
           type="number"
           inputmode="numeric"
-          :min="MIN_VLAN_COLLAPSE_ROWS"
-          :max="MAX_VLAN_COLLAPSE_ROWS"
+          :min="MIN_COLLAPSE_ROWS"
+          :max="MAX_COLLAPSE_ROWS"
           step="1"
-          @keyup.enter="saveVlanLimit"
+          @keyup.enter="saveCollapseLimit"
         />
-        <button type="button" class="btn btn-primary" data-testid="vlan-limit-save" @click="saveVlanLimit">Сохранить</button>
-        <button type="button" class="btn btn-secondary" data-testid="vlan-limit-reset" @click="resetVlanLimit">Сбросить</button>
+        <button type="button" class="btn btn-primary" data-testid="collapse-limit-save" @click="saveCollapseLimit">Сохранить</button>
+        <button type="button" class="btn btn-secondary" data-testid="collapse-limit-reset" @click="resetCollapseLimit">Сбросить</button>
       </div>
-      <p v-if="vlanLimitError" class="field-error" role="alert" data-testid="vlan-limit-error">{{ vlanLimitError }}</p>
-      <p v-else-if="vlanLimitSaved" class="current" data-testid="vlan-limit-saved">Сохранено.</p>
+      <p v-if="collapseLimitError" class="field-error" role="alert" data-testid="collapse-limit-error">{{ collapseLimitError }}</p>
+      <p v-else-if="collapseLimitSaved" class="current" data-testid="collapse-limit-saved">Сохранено.</p>
     </section>
 
     <section class="card section">
@@ -129,7 +140,7 @@ function resetVlanLimit() {
         поверхности остаются тёмными во всех схемах. Меняется только фирменный акцент — цвета
         статусов (норма / внимание / тревога) не зависят от выбора и остаются узнаваемыми.
       </p>
-      <p class="hint">Личная настройка: хранится на сервере и одинакова на всех ваших компьютерах.</p>
+      <p class="hint">{{ personalStorageNote }}</p>
       <ThemeSwitcher />
       <p class="current">Сейчас выбрано: <strong>{{ theme.scheme.name }}</strong></p>
     </section>
@@ -198,17 +209,17 @@ function resetVlanLimit() {
   color: var(--ink);
   font-family: inherit;
 }
-.vlan-limit-row {
+.collapse-limit-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-.vlan-limit-row label {
+.collapse-limit-row label {
   font-size: 12.5px;
   color: var(--ink);
 }
-.vlan-limit-row input {
+.collapse-limit-row input {
   width: 90px;
   background: var(--surface-2);
   border: 1px solid var(--border);

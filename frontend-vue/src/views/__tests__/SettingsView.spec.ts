@@ -5,6 +5,7 @@ import SettingsView from '../SettingsView.vue'
 import { useOrganizationStore, DEFAULT_ORGANIZATION_NAME } from '../../stores/organization'
 import { useFormPreferencesStore } from '../../stores/formPreferences'
 import { useAuthStore } from '../../stores/auth'
+import { usePreferencesStore } from '../../stores/preferences'
 import { stubPreferencesApi } from '../../stores/__tests__/preferencesApi'
 
 beforeEach(() => {
@@ -43,8 +44,8 @@ describe('SettingsView.vue', () => {
     expect(organization.name).toBe(DEFAULT_ORGANIZATION_NAME)
     expect((wrapper.find('.org-name-row input').element as HTMLInputElement).value).toBe(DEFAULT_ORGANIZATION_NAME)
   })
-  describe('порог сворачивания блока «VLAN устройства»', () => {
-    const input = (wrapper: ReturnType<typeof mount>) => wrapper.find('#vlan-collapse-rows')
+  describe('общий порог сворачивания списков', () => {
+    const input = (wrapper: ReturnType<typeof mount>) => wrapper.find('#collapse-rows')
 
     it('поле предзаполнено текущим порогом (по умолчанию 10)', () => {
       const wrapper = mount(SettingsView)
@@ -54,10 +55,10 @@ describe('SettingsView.vue', () => {
     it('сохраняет введённый порог в стор по клику на «Сохранить»', async () => {
       const wrapper = mount(SettingsView)
       await input(wrapper).setValue('25')
-      await wrapper.find('[data-testid="vlan-limit-save"]').trigger('click')
+      await wrapper.find('[data-testid="collapse-limit-save"]').trigger('click')
 
-      expect(useFormPreferencesStore().deviceVlanCollapseRows).toBe(25)
-      expect(wrapper.find('[data-testid="vlan-limit-saved"]').exists()).toBe(true)
+      expect(useFormPreferencesStore().collapseRows).toBe(25)
+      expect(wrapper.find('[data-testid="collapse-limit-saved"]').exists()).toBe(true)
     })
 
     it('недопустимое значение показывает ошибку и не меняет стор', async () => {
@@ -65,21 +66,21 @@ describe('SettingsView.vue', () => {
       const store = useFormPreferencesStore()
       for (const bad of ['0', '', '1001', '2.5']) {
         await input(wrapper).setValue(bad)
-        await wrapper.find('[data-testid="vlan-limit-save"]').trigger('click')
-        expect(wrapper.find('[data-testid="vlan-limit-error"]').text()).toContain('от 1 до 1000')
-        expect(store.deviceVlanCollapseRows).toBe(10)
+        await wrapper.find('[data-testid="collapse-limit-save"]').trigger('click')
+        expect(wrapper.find('[data-testid="collapse-limit-error"]').text()).toContain('от 1 до 1000')
+        expect(store.collapseRows).toBe(10)
       }
     })
 
     it('«Сбросить» возвращает 10 и в поле, и в сторе', async () => {
       const store = useFormPreferencesStore()
-      store.setDeviceVlanCollapseRows(40)
+      store.setCollapseRows(40)
       const wrapper = mount(SettingsView)
       expect((input(wrapper).element as HTMLInputElement).value).toBe('40')
 
-      await wrapper.find('[data-testid="vlan-limit-reset"]').trigger('click')
+      await wrapper.find('[data-testid="collapse-limit-reset"]').trigger('click')
 
-      expect(store.deviceVlanCollapseRows).toBe(10)
+      expect(store.collapseRows).toBe(10)
       expect((input(wrapper).element as HTMLInputElement).value).toBe('10')
     })
   })
@@ -119,12 +120,12 @@ describe('SettingsView.vue — настройки хранятся на серв
     const api = stubPreferencesApi()
     const wrapper = mount(SettingsView)
 
-    await wrapper.find('#vlan-collapse-rows').setValue('30')
-    await wrapper.find('[data-testid="vlan-limit-save"]').trigger('click')
+    await wrapper.find('#collapse-rows').setValue('30')
+    await wrapper.find('[data-testid="collapse-limit-save"]').trigger('click')
     await flushPromises()
 
     expect(api.userPuts).toEqual([{ device_vlan_collapse_rows: 30 }])
-    expect(useFormPreferencesStore().deviceVlanCollapseRows).toBe(30)
+    expect(useFormPreferencesStore().collapseRows).toBe(30)
   })
 
   it('сохранение названия организации уходит на сервер как общая настройка', async () => {
@@ -137,5 +138,26 @@ describe('SettingsView.vue — настройки хранятся на серв
 
     expect(api.globalPuts).toEqual([{ organization_name: 'ООО «Ромашка»' }])
     expect(api.userPuts).toEqual([])
+  })
+})
+
+describe('SettingsView.vue — подпись, где хранятся личные настройки', () => {
+  it('с учётной записью: на сервере, одинаково на всех компьютерах', () => {
+    usePreferencesStore().userStorage = 'server'
+    const wrapper = mount(SettingsView)
+    expect(wrapper.find('[data-testid="personal-storage-note"]').text()).toContain('хранится на сервере')
+  })
+
+  it('без аутентификации: в этом браузере', () => {
+    usePreferencesStore().userStorage = 'local'
+    const wrapper = mount(SettingsView)
+    expect(wrapper.find('[data-testid="personal-storage-note"]').text()).toContain('хранится в этом браузере')
+    expect(wrapper.text()).toContain('аутентификация выключена')
+  })
+
+  it('название организации остаётся общим серверным и в режиме без аутентификации', () => {
+    usePreferencesStore().userStorage = 'local'
+    const wrapper = mount(SettingsView)
+    expect(wrapper.text()).toContain('Общее для всех пользователей и хранится на сервере')
   })
 })

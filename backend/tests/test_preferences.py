@@ -1,7 +1,8 @@
 """Тесты серверных настроек интерфейса (app/services/preferences.py, app/api/preferences.py).
 
 Каждый тест получает изолированную in-memory БД (фикстуры client/db_session из conftest.py), поэтому
-аутентификация стартует выключенной: личные настройки тогда общие (owner='anonymous').
+аутентификация стартует выключенной: личных настроек на сервере тогда нет (их хранит браузер), а общие
+(название организации) работают. Личные настройки проверяются с включённой аутентификацией.
 """
 from __future__ import annotations
 
@@ -35,60 +36,83 @@ def _add_viewer(client, admin_token: str, username: str = "viewer1") -> str:
     return _login(client, username, "Viewer1234")
 
 
-class TestSingleUserMode:
-    """Аутентификация выключена: пользователей нет, личные настройки — одна общая запись."""
+class TestWithoutAuthentication:
+    """Аутентификация выключена: пользователей нет, личные настройки хранит браузер, общие — сервер."""
 
     def test_empty_by_default(self, client):
         r = client.get("/api/v1/preferences")
         assert r.status_code == 200
         assert r.json() == {"global": {}, "user": {}}
 
-    def test_saved_values_come_back_and_survive_a_new_request(self, client):
-        r = client.put("/api/v1/preferences/user", json={"color_scheme": "indigo", "device_vlan_collapse_rows": 25})
-        assert r.status_code == 200, r.text
-        assert r.json()["user"] == {"color_scheme": "indigo", "device_vlan_collapse_rows": 25}
-        assert client.get("/api/v1/preferences").json()["user"] == {"color_scheme": "indigo", "device_vlan_collapse_rows": 25}
+    def test_personal_settings_are_not_stored_on_the_server(self, client, db_session):
+        r = client.put("/api/v1/preferences/user", json={"color_scheme": "indigo"})
+        assert r.status_code == 400
+        assert "только для учётных записей" in r.json()["detail"]
+        assert db_session.query(AppPreference).count() == 0
 
-    def test_omitted_field_is_untouched_and_null_resets_it(self, client):
-        client.put("/api/v1/preferences/user", json={"color_scheme": "copper", "device_vlan_collapse_rows": 5})
-        client.put("/api/v1/preferences/user", json={"device_vlan_collapse_rows": 7})
-        assert client.get("/api/v1/preferences").json()["user"] == {"color_scheme": "copper", "device_vlan_collapse_rows": 7}
-
-        client.put("/api/v1/preferences/user", json={"color_scheme": None})
-        assert client.get("/api/v1/preferences").json()["user"] == {"device_vlan_collapse_rows": 7}
+    def test_rows_left_by_the_old_anonymous_owner_are_ignored(self, client, db_session):
+        db_session.add(AppPreference(owner="anonymous", key="color_scheme", value='"indigo"'))
+        db_session.commit()
+        assert client.get("/api/v1/preferences").json()["user"] == {}
 
     def test_global_organization_name_can_be_changed_without_authentication(self, client):
         r = client.put("/api/v1/preferences/global", json={"organization_name": "  ООО «Ромашка»  "})
         assert r.status_code == 200, r.text
         assert r.json()["global"] == {"organization_name": "ООО «Ромашка»"}
+        assert client.get("/api/v1/preferences").json()["global"] == {"organization_name": "ООО «Ромашка»"}
+
+
+class TestPersonalSettings:
+    """Личные настройки пользователя с включённой аутентификацией."""
+
+    def test_saved_values_come_back_and_survive_a_new_request(self, client):
+        h = _headers(_bootstrap_admin(client))
+        r = client.put("/api/v1/preferences/user", json={"color_scheme": "indigo", "device_vlan_collapse_rows": 25}, headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["user"] == {"color_scheme": "indigo", "device_vlan_collapse_rows": 25}
+        assert client.get("/api/v1/preferences", headers=h).json()["user"] == {"color_scheme": "indigo", "device_vlan_collapse_rows": 25}
+
+    def test_omitted_field_is_untouched_and_null_resets_it(self, client):
+        h = _headers(_bootstrap_admin(client))
+        client.put("/api/v1/preferences/user", json={"color_scheme": "copper", "device_vlan_collapse_rows": 5}, headers=h)
+        client.put("/api/v1/preferences/user", json={"device_vlan_collapse_rows": 7}, headers=h)
+        assert client.get("/api/v1/preferences", headers=h).json()["user"] == {"color_scheme": "copper", "device_vlan_collapse_rows": 7}
+
+        client.put("/api/v1/preferences/user", json={"color_scheme": None}, headers=h)
+        assert client.get("/api/v1/preferences", headers=h).json()["user"] == {"device_vlan_collapse_rows": 7}
 
 
 class TestPageSizesMerge:
     def test_page_sizes_are_merged_per_list_not_replaced(self, client):
-        client.put("/api/v1/preferences/user", json={"page_sizes": {"devices": 50}})
-        client.put("/api/v1/preferences/user", json={"page_sizes": {"vms": 100}})
-        assert client.get("/api/v1/preferences").json()["user"]["page_sizes"] == {"devices": 50, "vms": 100}
+        h = _headers(_bootstrap_admin(client))
+        client.put("/api/v1/preferences/user", json={"page_sizes": {"devices": 50}}, headers=h)
+        client.put("/api/v1/preferences/user", json={"page_sizes": {"vms": 100}}, headers=h)
+        assert client.get("/api/v1/preferences", headers=h).json()["user"]["page_sizes"] == {"devices": 50, "vms": 100}
 
     def test_null_removes_one_list_and_the_last_removal_drops_the_key(self, client):
-        client.put("/api/v1/preferences/user", json={"page_sizes": {"devices": 50, "vms": 100}})
-        client.put("/api/v1/preferences/user", json={"page_sizes": {"devices": None}})
-        assert client.get("/api/v1/preferences").json()["user"]["page_sizes"] == {"vms": 100}
-        client.put("/api/v1/preferences/user", json={"page_sizes": {"vms": None}})
-        assert "page_sizes" not in client.get("/api/v1/preferences").json()["user"]
+        h = _headers(_bootstrap_admin(client))
+        client.put("/api/v1/preferences/user", json={"page_sizes": {"devices": 50, "vms": 100}}, headers=h)
+        client.put("/api/v1/preferences/user", json={"page_sizes": {"devices": None}}, headers=h)
+        assert client.get("/api/v1/preferences", headers=h).json()["user"]["page_sizes"] == {"vms": 100}
+        client.put("/api/v1/preferences/user", json={"page_sizes": {"vms": None}}, headers=h)
+        assert "page_sizes" not in client.get("/api/v1/preferences", headers=h).json()["user"]
 
-    def test_too_many_lists_are_rejected_without_partial_write(self, client, db_session):
-        client.put("/api/v1/preferences/user", json={"page_sizes": {f"l{i}": 10 for i in range(100)}})
-        r = client.put("/api/v1/preferences/user", json={"page_sizes": {"one-more": 10}})
+    def test_too_many_lists_are_rejected_without_partial_write(self, client):
+        h = _headers(_bootstrap_admin(client))
+        client.put("/api/v1/preferences/user", json={"page_sizes": {f"l{i}": 10 for i in range(100)}}, headers=h)
+        r = client.put("/api/v1/preferences/user", json={"page_sizes": {"one-more": 10}}, headers=h)
         assert r.status_code == 422
-        assert len(client.get("/api/v1/preferences").json()["user"]["page_sizes"]) == 100
+        assert len(client.get("/api/v1/preferences", headers=h).json()["user"]["page_sizes"]) == 100
 
 
 class TestValidation:
     def test_unknown_key_is_rejected(self, client):
-        assert client.put("/api/v1/preferences/user", json={"favorite_color": "red"}).status_code == 422
-        assert client.put("/api/v1/preferences/global", json={"color_scheme": "teal"}).status_code == 422
+        h = _headers(_bootstrap_admin(client))
+        assert client.put("/api/v1/preferences/user", json={"favorite_color": "red"}, headers=h).status_code == 422
+        assert client.put("/api/v1/preferences/global", json={"color_scheme": "teal"}, headers=h).status_code == 422
 
     def test_out_of_range_and_malformed_values_are_rejected(self, client):
+        h = _headers(_bootstrap_admin(client))
         for body in (
             {"device_vlan_collapse_rows": 0},
             {"device_vlan_collapse_rows": 1001},
@@ -98,8 +122,8 @@ class TestValidation:
             {"page_sizes": {"devices": 1001}},
             {"page_sizes": {"bad id!": 10}},
         ):
-            assert client.put("/api/v1/preferences/user", json=body).status_code == 422, body
-        assert client.get("/api/v1/preferences").json()["user"] == {}
+            assert client.put("/api/v1/preferences/user", json=body, headers=h).status_code == 422, body
+        assert client.get("/api/v1/preferences", headers=h).json()["user"] == {}
 
     def test_blank_organization_name_is_rejected_but_null_resets_it(self, client):
         client.put("/api/v1/preferences/global", json={"organization_name": "ООО «Х»"})
@@ -108,10 +132,12 @@ class TestValidation:
         assert client.get("/api/v1/preferences").json()["global"] == {}
 
     def test_corrupted_stored_value_is_skipped_instead_of_failing_the_request(self, client, db_session):
-        db_session.add(AppPreference(owner="anonymous", key="color_scheme", value="{не json"))
-        db_session.add(AppPreference(owner="anonymous", key="device_vlan_collapse_rows", value="12"))
+        h = _headers(_bootstrap_admin(client))
+        me = client.get("/api/v1/auth/me", headers=h).json()["user"]["id"]
+        db_session.add(AppPreference(owner=f"user:{me}", key="color_scheme", value="{не json"))
+        db_session.add(AppPreference(owner=f"user:{me}", key="device_vlan_collapse_rows", value="12"))
         db_session.commit()
-        r = client.get("/api/v1/preferences")
+        r = client.get("/api/v1/preferences", headers=h)
         assert r.status_code == 200
         assert r.json()["user"] == {"device_vlan_collapse_rows": 12}
 

@@ -22,8 +22,6 @@ from ..schemas import PAGE_SIZES_MAX_LISTS
 logger = logging.getLogger(__name__)
 
 OWNER_GLOBAL = "global"
-# Аутентификация выключена: пользователей нет, личные настройки общие для всех, кто открыл реестр.
-OWNER_ANONYMOUS = "anonymous"
 
 GLOBAL_KEYS = ("organization_name",)
 USER_KEYS = ("color_scheme", "device_vlan_collapse_rows", "page_sizes")
@@ -32,9 +30,10 @@ MERGED_MAP_KEYS = frozenset({"page_sizes"})
 
 
 
-def user_owner(user: Optional[User]) -> str:
-    """Владелец личных настроек: пользователь, а при выключенной аутентификации — общая запись «anonymous»."""
-    return user_owner_by_id(user.id) if user is not None else OWNER_ANONYMOUS
+def user_owner(user: User) -> str:
+    """Владелец личных настроек — пользователь. При выключенной аутентификации пользователя нет, и личные
+    настройки на сервере не хранятся (они остаются в localStorage браузера)."""
+    return user_owner_by_id(user.id)
 
 
 def require_global_write(*, auth_enabled: bool, user: Optional[User]) -> None:
@@ -64,10 +63,11 @@ def _read_owner(session: Session, owner: str, keys: tuple[str, ...]) -> dict[str
 
 
 def read_preferences(session: Session, user: Optional[User]) -> dict[str, dict[str, Any]]:
-    """{'global': {...}, 'user': {...}} — только заданные значения; умолчания подставляет клиент."""
+    """{'global': {...}, 'user': {...}} — только заданные значения; умолчания подставляет клиент. Без
+    пользователя (аутентификация выключена) личной части на сервере нет — она пустая."""
     return {
         "global": _read_owner(session, OWNER_GLOBAL, GLOBAL_KEYS),
-        "user": _read_owner(session, user_owner(user), USER_KEYS),
+        "user": _read_owner(session, user_owner(user), USER_KEYS) if user is not None else {},
     }
 
 

@@ -36,6 +36,8 @@ const props = withDefaults(
     protocolPortCatalog?: ProtocolPortCatalogEntry[]
     // Индексы портов, отмеченных галочками в таблице: новая группа предлагает их как свой состав.
     selectedIndices?: number[]
+    // Порог сворачивания списка открытых портов группы (общий порог из «Настроек»); не передан — без сворачивания.
+    collapseAfter?: number
   }>(),
   { protocolPortCatalog: () => [], selectedIndices: () => [] },
 )
@@ -372,7 +374,13 @@ function summary(group: InterfaceGroupDraft): string {
               <b>Задать открытые порты / протоколы</b>
               <span class="hint">заменит открытые порты этих портов</span>
             </label>
-            <OpenPortListEditor v-if="draft.manage_open_ports" v-model="draft.open_ports" :catalog-entries="protocolPortCatalog" sorted-unique />
+            <OpenPortListEditor
+              v-if="draft.manage_open_ports"
+              v-model="draft.open_ports"
+              :catalog-entries="protocolPortCatalog"
+              :collapse-after="collapseAfter"
+              sorted-unique
+            />
           </div>
         </section>
       </div>

@@ -25,6 +25,8 @@ const props = withDefaults(
     /** Допустимые VLAN устройства (тот же список, что у VLAN порта). */
     vlanOptions: VLANDefinition[]
     protocolPortCatalog?: ProtocolPortCatalogEntry[]
+    /** Порог сворачивания списка открытых портов подинтерфейса (общий порог из «Настроек»); не передан — без сворачивания. */
+    collapseAfter?: number
     /** Все известные VLAN (справочник), включая уже недоступные устройству: по ним для подинтерфейса на снятом VLAN
      * известен номер (подпись в предупреждении, пересчёт автоимени при переносе). Без него — только vlanOptions. */
     vlanCatalog?: VLANDefinition[]
@@ -221,7 +223,13 @@ function updateOpenPorts(index: number, rows: OpenPortDraftRow[]) {
         </div>
       </div>
 
-      <OpenPortListEditor :model-value="sub.open_ports" :catalog-entries="protocolPortCatalog" sorted-unique @update:model-value="(v) => updateOpenPorts(i, v)" />
+      <OpenPortListEditor
+        :model-value="sub.open_ports"
+        :catalog-entries="protocolPortCatalog"
+        :collapse-after="collapseAfter"
+        sorted-unique
+        @update:model-value="(v) => updateOpenPorts(i, v)"
+      />
     </div>
   </div>
 </template>

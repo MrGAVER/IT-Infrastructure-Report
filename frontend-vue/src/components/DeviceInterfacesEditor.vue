@@ -33,6 +33,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { updateResource } from '../api/client'
 import { fetchAllFreeInterfaces } from '../api/deviceConnectivity'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useFormPreferencesStore } from '../stores/formPreferences'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -114,6 +115,8 @@ const emit = defineEmits<{
 }>()
 const { notify, notifyError } = useToast()
 const catalogs = useCatalogsStore()
+// Общий порог сворачивания длинных списков (из «Настроек») — передаётся вложенным редакторам открытых портов.
+const formPreferences = useFormPreferencesStore()
 
 // Поля генератора — черновой ввод формы, не часть modelValue (как if-count/if-name-template в
 // vanilla). Начальное количество подставляется от уже загруженных интерфейсов один раз при
@@ -1178,6 +1181,7 @@ function applyBulkEdit() {
         :vlan-options="vlanOptions"
         :protocol-port-catalog="protocolPortCatalog"
         :selected-indices="[...selectedIndices]"
+        :collapse-after="formPreferences.collapseRows"
         @change="onGroupsChange"
       />
 
@@ -1458,6 +1462,7 @@ function applyBulkEdit() {
                     :vlan-options="vlanOptions"
                     :vlan-catalog="knownVlans"
                     :protocol-port-catalog="protocolPortCatalog"
+                    :collapse-after="formPreferences.collapseRows"
                     @update:model-value="(v) => updateRow(i, { subinterfaces: v })"
                   />
 
@@ -1516,6 +1521,7 @@ function applyBulkEdit() {
                       :model-value="row.open_ports"
                       :catalog-entries="protocolPortCatalog"
                       :readonly="rowManaged(row).openPorts"
+                      :collapse-after="formPreferences.collapseRows"
                       sorted-unique
                       @update:model-value="(v) => updateRow(i, { open_ports: v })"
                     />
