@@ -73,6 +73,9 @@ const props = withDefaults(
     typeOptions: CatalogItem[]
     speedOptions: CatalogItem[]
     vlanOptions: VLANDefinition[]
+    // Все известные VLAN (справочник), включая уже недоступные устройству: по ним известен номер VLAN у подинтерфейса
+    // на снятом VLAN — подпись в его предупреждении и пересчёт автоимени при переименовании порта и при переносе.
+    vlanCatalog?: VLANDefinition[]
     // п.1.4 (батч4): справочник "порт + протокол" для OpenPortListEditor.vue каждого интерфейса —
     // тот же catalogs.protocolPortCatalog, что раньше прокидывался напрямую в единственный
     // ("на всё устройство") экземпляр редактора в DeviceFormModal.vue.
@@ -210,6 +213,11 @@ function duplicatePortsText(index: number): string {
 // VLAN перенесён в другой домен). Подинтерфейс молча не удаляется — на нём IP-адреса и открытые порты, — а сохранение
 // с таким VLAN сервер отклонит (422), поэтому, как и повторы открытых портов, показываем индикатор на свёрнутой строке.
 const allowedVlanIds = computed(() => new Set(props.vlanOptions.map((v) => v.id)))
+// Справочник VLAN с допустимыми устройству: по нему известны номера и тех VLAN, что устройству уже не разрешены.
+const knownVlans = computed(() => {
+  const byId = new Map([...(props.vlanCatalog ?? []), ...props.vlanOptions].map((v) => [v.id, v]))
+  return [...byId.values()]
+})
 
 function staleSubinterfaceText(row: InterfaceDraftRow): string {
   const names = staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).map((sub) => `«${sub.name.trim() || 'без имени'}»`)
@@ -711,7 +719,20 @@ async function reviewNeighborMismatches(initial: ReadonlyMap<string, PortConfig>
     reviewResolve = resolve
   })
 }
-defineExpose({ reviewNeighborMismatches })
+// «Показать» в уведомлении о подинтерфейсах на снятом VLAN: раскрывает порты с такими подинтерфейсами (остальные
+// раскрытые не сворачивает) и прокручивает к первому предупреждению. Возвращает число найденных портов.
+const rootEl = ref<HTMLElement | null>(null)
+
+async function revealStaleSubinterfaces(): Promise<number> {
+  const indices = props.modelValue.flatMap((row, i) => (staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).length ? [i] : []))
+  if (!indices.length) return 0
+  expandedIndices.value = new Set([...expandedIndices.value, ...indices])
+  await nextTick()
+  rootEl.value?.querySelector('.sub-warn')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  return indices.length
+}
+
+defineExpose({ reviewNeighborMismatches, revealStaleSubinterfaces })
 
 // Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
 // от текущего количества строк при добавлении) — см. её комментарий выше. Пустое поле (юзер
@@ -846,7 +867,7 @@ function updateRow(index: number, patch: Partial<InterfaceDraftRow>) {
 // если пересчитывать нечего — только имя; ключ subinterfaces тогда не появляется («не трогали» остаётся «не трогали»).
 function portNamePatch(row: InterfaceDraftRow, name: string): Partial<InterfaceDraftRow> {
   if (!row.subinterfaces?.length) return { name }
-  const subinterfaces = renameSubinterfacesForPort(row.subinterfaces, row.name, name, props.vlanOptions)
+  const subinterfaces = renameSubinterfacesForPort(row.subinterfaces, row.name, name, knownVlans.value)
   return subinterfaces === row.subinterfaces ? { name } : { name, subinterfaces }
 }
 
@@ -1069,7 +1090,7 @@ function applyBulkEdit() {
 </script>
 
 <template>
-  <div class="nested-editor">
+  <div ref="rootEl" class="nested-editor">
     <div class="nested-head">
       <b>Порты / интерфейсы</b>
       <span class="hint">Управление отмечается на одном или нескольких интерфейсах — все их IP считаются IP управления.</span>
@@ -1410,6 +1431,7 @@ function applyBulkEdit() {
                     :model-value="row.subinterfaces ?? []"
                     :parent-name="row.name"
                     :vlan-options="vlanOptions"
+                    :vlan-catalog="knownVlans"
                     :protocol-port-catalog="protocolPortCatalog"
                     @update:model-value="(v) => updateRow(i, { subinterfaces: v })"
                   />

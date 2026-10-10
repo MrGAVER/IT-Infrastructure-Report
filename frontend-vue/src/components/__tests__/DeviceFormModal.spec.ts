@@ -3076,6 +3076,25 @@ describe('подинтерфейсы портов: сквозное сохран
       expect(wrapper.find('.expand-toggle .stale-sub-icon').exists()).toBe(true)
     })
 
+    it('в уведомлении есть кнопка «Показать»: по ней раскрывается порт с проблемным подинтерфейсом, а перенос на другой VLAN снимает предупреждение', async () => {
+      const { wrapper } = await mountAndRemoveVlan10()
+      const [toast] = useToast().toasts
+      expect(toast.action?.label).toBe('Показать')
+      expect(wrapper.find('.iface-detail-row').exists()).toBe(false) // порт свёрнут
+
+      toast.action!.run()
+      await flushPromises()
+
+      expect(wrapper.find('.iface-detail-row').exists()).toBe(true)
+      expect(wrapper.find('.sub-warn').text()).toContain('(10 — Серверы)') // прежний VLAN назван по справочнику, хотя устройству он уже недоступен
+
+      await wrapper.find('select[aria-label="Перенести подинтерфейс на VLAN"]').setValue('v-20')
+
+      expect(wrapper.find('.sub-warn').exists()).toBe(false)
+      expect(wrapper.find('.stale-sub-icon').exists()).toBe(false)
+      expect((wrapper.find('input[aria-label="Имя подинтерфейса"]').element as HTMLInputElement).value).toBe('Gi0/0.20') // автоимя пересчитано
+    })
+
     it('сохранение блокируется понятным текстом до запроса на сервер', async () => {
       const { wrapper, calls } = await mountAndRemoveVlan10()
 
