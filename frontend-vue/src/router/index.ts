@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { usePreferencesStore } from '../stores/preferences'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
@@ -118,11 +119,19 @@ export const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (!auth.initialized) await auth.init()
+  const preferences = usePreferencesStore()
 
   if (auth.needsLogin) {
+    // Нет сессии — чужие настройки не показываем (экран входа рисуется на умолчаниях).
+    preferences.reset()
     if (to.name === 'login') return true
     return { name: 'login', query: { redirect: to.fullPath } }
   }
+  // Настройки интерфейса (тема, размеры страниц, порог сворачивания, название организации) лежат на сервере:
+  // дожидаемся их до первой отрисовки маршрута — иначе списки создали бы свои сторы с умолчаниями. load()
+  // не бросает и повторно для того же пользователя ничего не делает, поэтому на остальных навигациях это
+  // просто проверка.
+  await preferences.load({ identity: auth.user?.id ?? 'anonymous', canWriteGlobal: !auth.enabled || auth.isAdmin })
   if (to.name === 'login') {
     const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard'
     return redirect

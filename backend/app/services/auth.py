@@ -47,6 +47,7 @@ from ..models import AuthSession, AuthSettings, User
 from .actor_context import Actor, current_actor
 from .crud import audit
 from .login_throttle import LoginThrottle
+from .preferences import delete_user_preferences
 
 __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роутеры берут актора отсюда
 
@@ -246,6 +247,7 @@ def update_user(
 def delete_user(session: Session, user: User) -> None:
     ensure_not_last_admin(session, user)
     username = user.username
+    delete_user_preferences(session, user.id)  # у AppPreference.owner внешнего ключа нет — каскада не будет
     session.delete(user)  # ON DELETE CASCADE (AuthSession.user_id) снимает и его сессии
     audit(session, "users", user.id, AuditAction.DELETE, f"Удалена учётная запись «{username}»")
     session.commit()
@@ -539,7 +541,7 @@ PUBLIC_API_PATHS = frozenset({"/api/v1/health", "/api/v1/auth/status", "/api/v1/
 # Исключения из проверки роли на запись — действия, которые обязаны быть доступны ЛЮБОЙ
 # аутентифицированной роли, включая viewer, которому в остальном запрещены методы записи:
 # выйти из своей же сессии, сменить свой же пароль, отозвать свою же сессию из списка.
-ROLE_CHECK_EXEMPT_PATHS = frozenset({"/api/v1/auth/logout", "/api/v1/auth/me/password"})
+ROLE_CHECK_EXEMPT_PATHS = frozenset({"/api/v1/auth/logout", "/api/v1/auth/me/password", "/api/v1/preferences/user"})
 ROLE_CHECK_EXEMPT_PREFIXES = ("/api/v1/auth/sessions/",)
 
 

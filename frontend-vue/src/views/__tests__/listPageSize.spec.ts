@@ -14,6 +14,7 @@ import { useContainersStore } from '../../stores/containers'
 import { useInformationSystemsStore } from '../../stores/informationSystems'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
+import { reloadPinia } from '../../stores/__tests__/preferencesApi'
 
 const TOTAL = 100
 const range = (n: number) => Array.from({ length: n }, (_, i) => i)
@@ -96,7 +97,7 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
     await select(first).setValue(String(defaultSize * 2))
     first.unmount()
 
-    setActivePinia(createPinia()) // «перезагрузка»: сторы создаются заново и читают localStorage
+    reloadPinia() // «перезагрузка»: сторы создаются заново, настройки подтянуты с сервера
     for (const store of [useDevicesStore(), useVMsStore(), useContainersStore(), useInformationSystemsStore()]) store.loaded = true
     useCatalogsStore().loaded = true
     useCatalogsStore().items['device-types'] = [{ id: 'dt-1', name: 'Коммутатор' }]

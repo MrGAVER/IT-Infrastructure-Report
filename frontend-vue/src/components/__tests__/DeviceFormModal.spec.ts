@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, DOMWrapper, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
 import { useVLANDomainsStore } from '../../stores/vlanDomains'
-import { useFormPreferencesStore } from '../../stores/formPreferences'
+import { usePreferencesStore } from '../../stores/preferences'
 import { useConnectionsStore } from '../../stores/connections'
 import { useDevicesStore } from '../../stores/devices'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
@@ -3113,9 +3113,6 @@ describe('подинтерфейсы портов: сквозное сохран
 
 // Блок «VLAN устройства»: список упорядочен по номеру, повторов нет, длинный список сворачивается по порогу из «Настроек».
 describe('DeviceFormModal.vue — «VLAN устройства»: сортировка, повторы, сворачивание', () => {
-  // Порог сворачивания персистится в localStorage — без чистки значение одного теста утекло бы в следующие.
-  beforeEach(() => localStorage.clear())
-  afterEach(() => localStorage.clear())
   const definition = (id: string, vlanId: number, name: string) => ({
     id, vlan_id: vlanId, name, description: '', domain_id: null, domain_name: '', devices: [],
   })
@@ -3174,13 +3171,12 @@ describe('DeviceFormModal.vue — «VLAN устройства»: сортиро�
   })
 
   it('порог из «Настроек» управляет сворачиванием: при 3 строках и пороге 2 блок свёрнут, при пороге по умолчанию — развёрнут', async () => {
-    useFormPreferencesStore().setDeviceVlanCollapseRows(2)
+    usePreferencesStore().user = { device_vlan_collapse_rows: 2 } // порог из «Настроек» (хранится на сервере)
     const collapsed = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), deviceVlanItem('dv-2', 'v-20'), deviceVlanItem('dv-3', 'v-30')])
     expect(collapsed.editor.find('[data-testid="vlan-collapsed"]').exists()).toBe(true)
     expect(collapsed.editor.findAll('.nested-row')).toHaveLength(0)
 
-    localStorage.clear()
-    setActivePinia(createPinia())
+    setActivePinia(createPinia()) // новое приложение: настройки пользователя не заданы — порог по умолчанию (10)
     document.body.innerHTML = ''
     const expanded = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), deviceVlanItem('dv-2', 'v-20'), deviceVlanItem('dv-3', 'v-30')])
     expect(expanded.editor.find('[data-testid="vlan-collapsed"]').exists()).toBe(false)
@@ -3188,7 +3184,7 @@ describe('DeviceFormModal.vue — «VLAN устройства»: сортиро�
   })
 
   it('ошибка сохранения в скрытой строке раскрывает свёрнутый блок, чтобы строка была видна', async () => {
-    useFormPreferencesStore().setDeviceVlanCollapseRows(2)
+    usePreferencesStore().user = { device_vlan_collapse_rows: 2 } // порог из «Настроек» (хранится на сервере)
     const bad = { ...deviceVlanItem('dv-2', 'v-20'), ip_address: '999.1.1.1' }
     const { wrapper, editor } = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), bad, deviceVlanItem('dv-3', 'v-30')])
     expect(editor.find('[data-testid="vlan-collapsed"]').exists()).toBe(true)

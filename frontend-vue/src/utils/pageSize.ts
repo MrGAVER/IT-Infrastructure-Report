@@ -2,9 +2,12 @@
 //
 // У каждого списка свой размер по умолчанию (в таблицах разная высота строки), поэтому варианты
 // выбора строятся от него: x1, x2, x4, x8 — и текущее значение по умолчанию всегда есть в списке.
-// Выбор пользователя запоминается по каждому списку отдельно в localStorage (как цветовая схема —
-// stores/theme.ts); если хранилище недоступно, работает значение по умолчанию.
-const STORAGE_PREFIX = 'itr.pageSize.'
+// Выбор пользователя запоминается по каждому списку отдельно на сервере (личная настройка, как цветовая
+// схема — stores/theme.ts, см. stores/preferences.ts); пока настройки не загружены или сервер недоступен,
+// работает значение по умолчанию. Стор списка читает размер при создании: к этому моменту роутер уже
+// дождался загрузки настроек (router/index.ts).
+import { usePreferencesStore } from '../stores/preferences'
+
 const MULTIPLIERS = [1, 2, 4, 8] as const
 
 export function pageSizeOptionsFor(defaultSize: number): number[] {
@@ -18,21 +21,13 @@ export function isAllowedPageSize(size: number, defaultSize: number): boolean {
 /** Сохранённый выбор, если он всё ещё допустим для списка; иначе размер по умолчанию (значение
  * могло испортиться или остаться от версии с другими вариантами). */
 export function loadPageSize(listId: string, defaultSize: number): number {
-  try {
-    const stored = Number(localStorage.getItem(STORAGE_PREFIX + listId))
-    if (Number.isInteger(stored) && isAllowedPageSize(stored, defaultSize)) return stored
-  } catch {
-    /* localStorage недоступен (приватный режим и т.п.) — используем значение по умолчанию */
-  }
+  const stored = usePreferencesStore().user.page_sizes?.[listId]
+  if (stored !== undefined && Number.isInteger(stored) && isAllowedPageSize(stored, defaultSize)) return stored
   return defaultSize
 }
 
 export function savePageSize(listId: string, size: number): void {
-  try {
-    localStorage.setItem(STORAGE_PREFIX + listId, String(size))
-  } catch {
-    /* сохранить не удалось — не критично, просто не переживёт перезагрузку */
-  }
+  void usePreferencesStore().saveUser({ page_sizes: { [listId]: size } })
 }
 
 /** Страница после смены размера: та, на которой окажется первая из видимых сейчас записей, —

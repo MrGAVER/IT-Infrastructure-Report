@@ -771,6 +771,24 @@ class AuthSettings(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+class AppPreference(Base):
+    """Серверная настройка интерфейса (раньше жила в localStorage браузера — тема, название организации,
+    размеры страниц списков, порог сворачивания блока «VLAN устройства»). Общий key-value, а не по таблице на
+    настройку: настроек стало несколько, и они одного рода — небольшие значения отображения.
+
+    owner — чьё это значение: 'global' (общее для всех: название организации), 'user:<id пользователя>'
+    (личное) или 'anonymous' (личное при выключенной аутентификации: пользователей нет, все, кто открыл
+    реестр, делят одну запись). Внешнего ключа на users нет, потому что owner бывает не только
+    пользователем; записи удалённого пользователя убирает services/preferences.delete_user_preferences.
+
+    value — JSON-текст (как ReportTemplate.config: портируемость SQLite/PostgreSQL). Допустимые ключи и
+    формы значений проверяет слой схем (schemas.UserPreferencesUpdate / GlobalPreferencesUpdate), а не БД."""
+    __tablename__ = "app_preferences"
+    owner: Mapped[str] = mapped_column(String(50), primary_key=True)
+    key: Mapped[str] = mapped_column(String(60), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
 class CatalogSeedMarker(Base):
     """Отметка «стартовые значения справочников уже заведены» (см. services/catalogs.py:
     seed_defaults). Без неё каждый запуск приложения заново добавлял стандартные записи, которые

@@ -5,6 +5,7 @@ import AuditLogView from '../AuditLogView.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useAuditLogStore } from '../../stores/auditLog'
 import { auditJournal, auditServer } from '../../stores/__tests__/fixtures'
+import { reloadPinia } from '../../stores/__tests__/preferencesApi'
 
 let urls: string[]
 const pageUrls = () => urls.filter((u) => /\/api\/v1\/audit-log\?/.test(u))
@@ -142,7 +143,7 @@ describe('AuditLogView.vue — счётчики и размер страницы
     await flushPromises()
     first.unmount()
 
-    setActivePinia(createPinia()) // «перезагрузка»: стор создаётся заново и читает localStorage
+    reloadPinia() // «перезагрузка»: стор создаётся заново, настройки подтянуты с сервера
     const second = await mountView(100)
 
     expect(lastParams().get('limit')).toBe('24')

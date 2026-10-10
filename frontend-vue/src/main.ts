@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
@@ -18,9 +18,11 @@ const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 
-// Применяем сохранённую цветовую схему до первой отрисовки, чтобы избежать
-// вспышки схемы по умолчанию (FOUC) при повторном визите.
-useThemeStore(pinia).applyToDocument()
+// Цветовая схема хранится на сервере: сначала применяется схема по умолчанию, а когда роутер загрузит
+// настройки (до первой отрисовки маршрута, см. router/index.ts) или пользователь выйдет из учётной записи,
+// watch применит актуальную. Отдельной копии схемы в localStorage нет — осознанно (см. запись о переносе настроек в CHANGELOG.md).
+const theme = useThemeStore(pinia)
+watch(() => theme.schemeId, () => theme.applyToDocument(), { immediate: true })
 
 // Токен истёк/отозван где-то ещё (logout на другой вкладке, смена пароля администратором,
 // TTL сессии) — client.ts не импортирует стор напрямую (см. комментарий там про циклы

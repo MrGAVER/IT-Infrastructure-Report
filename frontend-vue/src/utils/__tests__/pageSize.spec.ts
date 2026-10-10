@@ -1,9 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../pageSize'
+import { usePreferencesStore } from '../../stores/preferences'
+import { stubPreferencesApi, type PreferencesApiStub } from '../../stores/__tests__/preferencesApi'
+
+let api: PreferencesApiStub
 
 beforeEach(() => {
+  vi.unstubAllGlobals()
+  setActivePinia(createPinia())
   localStorage.clear()
-  vi.restoreAllMocks()
+  api = stubPreferencesApi()
 })
 
 describe('pageSizeOptionsFor', () => {
@@ -35,8 +43,8 @@ describe('loadPageSize / savePageSize', () => {
     expect(loadPageSize('containers', 8)).toBe(8)
   })
 
-  it.each(['abc', '', '0', '-8', '10', '16.5', 'NaN', '99999'])('недопустимое сохранённое значение «%s» игнорируется', (garbage) => {
-    localStorage.setItem('itr.pageSize.vms', garbage)
+  it.each([0, -8, 10, 16.5, 99999])('недопустимое сохранённое значение %s игнорируется', (garbage) => {
+    usePreferencesStore().user = { page_sizes: { vms: garbage } }
     expect(loadPageSize('vms', 8)).toBe(8)
   })
 
@@ -45,16 +53,21 @@ describe('loadPageSize / savePageSize', () => {
     expect(loadPageSize('vms', 6)).toBe(6) // при умолчании 6 варианты 6/12/24/48
   })
 
-  it('недоступное хранилище не роняет ни чтение, ни запись', () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('denied')
-    })
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('denied')
-    })
+  it('сохраняет выбор на сервере (только изменённый список — остальные сервер не трогает), а не в localStorage', async () => {
+    savePageSize('vms', 32)
+    await flushPromises()
 
-    expect(loadPageSize('vms', 8)).toBe(8)
+    expect(api.userPuts).toEqual([{ page_sizes: { vms: 32 } }])
+    expect(api.server.user.page_sizes).toEqual({ vms: 32 })
+    expect(localStorage.getItem('itr.pageSize.vms')).toBeNull()
+  })
+
+  it('сбой сервера не роняет запись: размер откатывается к серверному, ошибка не пробрасывается', async () => {
+    api.failPutsWith = 500
     expect(() => savePageSize('vms', 16)).not.toThrow()
+    expect(loadPageSize('vms', 8)).toBe(16) // оптимистично
+    await flushPromises()
+    expect(loadPageSize('vms', 8)).toBe(8) // откат: на сервере выбора нет
   })
 })
 

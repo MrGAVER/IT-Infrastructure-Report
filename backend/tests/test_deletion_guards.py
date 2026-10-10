@@ -47,6 +47,11 @@ ALLOWED_DELETIONS = {
     ("app/services/auth.py", "revoke_all_sessions", "AuthSession"),
     ("app/services/auth.py", "revoke_all_sessions_except", "AuthSession"),
     ("app/services/auth.py", "revoke_session_by_id", "AuthSession"),
+    # настройки интерфейса (AppPreference): листовая таблица, на неё никто не ссылается и она не входит в защищённые
+    # модели. Запись удаляется, когда настройку сбрасывают к умолчанию (null), и все личные записи — вместе с
+    # удаляемым пользователем (внешнего ключа с каскадом у owner нет, см. models.AppPreference)
+    ("app/services/preferences.py", "update_preferences", "row"),
+    ("app/services/preferences.py", "delete_user_preferences", "AppPreference"),
     # диаграммы и шаблоны отчётов
     ("app/api/diagrams.py", "delete_diagram", "diagram"),
     ("app/api/report_builder.py", "delete_template", "ReportTemplateVersion"),
