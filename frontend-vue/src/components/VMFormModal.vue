@@ -13,6 +13,7 @@ import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../a
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
+import { useFormPreferencesStore } from '../stores/formPreferences'
 import { filterHostDevices } from '../utils/deviceFilters'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
@@ -29,6 +30,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
+const formPreferences = useFormPreferencesStore() // общий порог сворачивания списка открытых портов (из «Настроек»)
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.vm !== null)
@@ -260,7 +262,13 @@ async function submit() {
 
         <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов и открытых портов…</p>
         <VmIpListEditor v-else v-model="vmIps" />
-        <OpenPortListEditor v-if="!loadingNested" v-model="openPorts" :catalog-entries="catalogs.protocolPortCatalog" sorted-unique />
+        <OpenPortListEditor
+          v-if="!loadingNested"
+          v-model="openPorts"
+          :catalog-entries="catalogs.protocolPortCatalog"
+          :collapse-after="formPreferences.collapseRows"
+          sorted-unique
+        />
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
       </form>
 

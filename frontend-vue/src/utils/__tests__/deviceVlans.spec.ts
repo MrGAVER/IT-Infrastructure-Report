@@ -1,13 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_VLAN_COLLAPSE_ROWS,
-  MAX_VLAN_COLLAPSE_ROWS,
-  MIN_VLAN_COLLAPSE_ROWS,
   duplicateVlanRowIndexes,
   duplicateVlansMessage,
-  exceedsCollapseLimit,
-  isValidVlanCollapseLimit,
-  normalizeVlanCollapseLimit,
   sortDeviceVlanRows,
   sortVlanDefinitions,
   usedVlanIds,
@@ -79,33 +73,5 @@ describe('повторы VLAN', () => {
     expect(duplicateVlansMessage([row('v-10'), row('v-20')], definitions)).toBe('')
     const message = duplicateVlansMessage([row('v-30'), row('v-10'), row('v-30'), row('v-10'), row('v-10')], definitions)
     expect(message).toBe('VLAN 10, 30 указан несколько раз — каждый VLAN можно добавить устройству только один раз.')
-  })
-})
-
-describe('порог сворачивания', () => {
-  it('значения по умолчанию: порог 10, допустимо 1..1000', () => {
-    expect(DEFAULT_VLAN_COLLAPSE_ROWS).toBe(10)
-    expect(MIN_VLAN_COLLAPSE_ROWS).toBe(1)
-    expect(MAX_VLAN_COLLAPSE_ROWS).toBe(1000)
-  })
-
-  it('exceedsCollapseLimit — строго «больше» порога: ровно на пороге блок не сворачивается', () => {
-    expect(exceedsCollapseLimit(10, 10)).toBe(false)
-    expect(exceedsCollapseLimit(11, 10)).toBe(true)
-    expect(exceedsCollapseLimit(0, 10)).toBe(false)
-  })
-
-  it('normalizeVlanCollapseLimit: строка и число принимаются, дробное округляется вниз, выход за границы — в границы, мусор — значение по умолчанию', () => {
-    expect(normalizeVlanCollapseLimit('15')).toBe(15)
-    expect(normalizeVlanCollapseLimit(7.9)).toBe(7)
-    expect(normalizeVlanCollapseLimit(0)).toBe(1)
-    expect(normalizeVlanCollapseLimit(5000)).toBe(1000)
-    for (const bad of ['', '   ', 'abc', null, undefined, NaN, Infinity]) expect(normalizeVlanCollapseLimit(bad)).toBe(10)
-  })
-
-  it('isValidVlanCollapseLimit принимает только целые из диапазона — без молчаливой подмены', () => {
-    expect(isValidVlanCollapseLimit('10')).toBe(true)
-    expect(isValidVlanCollapseLimit(1000)).toBe(true)
-    for (const bad of ['', 'abc', '0', '1001', '2.5', -3, null, undefined]) expect(isValidVlanCollapseLimit(bad)).toBe(false)
   })
 })

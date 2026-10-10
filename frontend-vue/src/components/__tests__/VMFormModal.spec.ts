@@ -3,6 +3,7 @@ import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import VMFormModal from '../VMFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
+import { usePreferencesStore } from '../../stores/preferences'
 import type { VirtualMachine } from '../../api/types'
 
 const EMPTY_PAGE = { items: [], total: 0, offset: 0, limit: 1000 }
@@ -558,5 +559,45 @@ describe('VMFormModal.vue — открытые порты: сортировка 
 
     const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-1/open-ports'))
     expect(sync?.body).toEqual({ open_ports: [] })
+  })
+})
+
+describe('VMFormModal.vue — открытые порты сворачиваются по общему порогу из «Настроек»', () => {
+  const catalog = Array.from({ length: 4 }, (_, i) => ({ id: `cat-${i}`, port: 8000 + i, protocol_type: `P${i}`, description: null }))
+  const vm: VirtualMachine = {
+    id: 'vm-1', name: 'app-server-01', operating_system_id: null, physical_device_id: null,
+    hypervisor_os_id: null, purpose: null, status: 'active', description: null,
+  }
+  const apiPort = (i: number) => ({
+    id: `op-${i}`, owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', protocol_catalog_id: `cat-${i}`, ip_address: null, description: null,
+  })
+  function stubPorts(items: unknown[]) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'GET' && url.includes('/resources/open-ports')) return jsonResponse({ ...EMPTY_PAGE, items })
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+  }
+
+  it('при 3 портах и пороге 2 список свёрнут, а при пороге по умолчанию (10) — развёрнут', async () => {
+    useCatalogsStore().protocolPortCatalog = catalog
+    stubPorts([apiPort(0), apiPort(1), apiPort(2)])
+    usePreferencesStore().user = { device_vlan_collapse_rows: 2 }
+    const collapsed = mount(VMFormModal, { props: { vm } })
+    await flushPromises()
+    expect(collapsed.find('[data-testid="ports-collapsed"]').exists()).toBe(true)
+    expect(collapsed.findAll('.col-catalog').length).toBe(0)
+    collapsed.unmount()
+
+    setActivePinia(createPinia())
+    useCatalogsStore().protocolPortCatalog = catalog
+    document.body.innerHTML = ''
+    const expanded = mount(VMFormModal, { props: { vm } })
+    await flushPromises()
+    expect(expanded.find('[data-testid="ports-collapsed"]').exists()).toBe(false)
+    expect(expanded.findAll('.col-catalog').length).toBe(3)
   })
 })

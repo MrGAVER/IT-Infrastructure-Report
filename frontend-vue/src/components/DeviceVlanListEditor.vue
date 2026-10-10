@@ -12,13 +12,13 @@
 // не перенесены только эти два узкоспециализированных сценария быстрого доступа прямо из формы
 // устройства, см. "Ещё не сделано" во frontend-vue/README.md.
 import type { CatalogItem, DeviceMemberDomain, DeviceVlanDraftRow, VLANDefinition, VLANDomain } from '../api/types'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { vlanLabel } from '../utils/vlan'
+import { DEFAULT_COLLAPSE_ROWS } from '../utils/collapseLimit'
+import { useCollapsibleRows } from '../composables/useCollapsibleRows'
 import {
-  DEFAULT_VLAN_COLLAPSE_ROWS,
   duplicateVlanRowIndexes,
   duplicateVlansMessage,
-  exceedsCollapseLimit,
   sortDeviceVlanRows,
   sortVlanDefinitions,
   usedVlanIds,
@@ -61,7 +61,7 @@ const props = withDefaults(
     memberDomains?: DeviceMemberDomain[]
     collapseAfter?: number
   }>(),
-  { collapseAfter: DEFAULT_VLAN_COLLAPSE_ROWS },
+  { collapseAfter: DEFAULT_COLLAPSE_ROWS },
 )
 // vlan-created: полный список VLAN (vlanOptions) собирается родителем из useVLANsStore(), а не
 // из catalogs — generic QuickAddModal.vue пишет созданную запись только в catalogs.items['vlans'],
@@ -125,14 +125,12 @@ function rowOptions(row: DeviceVlanDraftRow): SearchableSelectOption[] {
 const duplicateIndexes = computed(() => duplicateVlanRowIndexes(props.modelValue))
 const duplicateMessage = computed(() => duplicateVlansMessage(props.modelValue, definitions.value))
 
-// Сворачивание: свёрнуто, когда строк больше порога и пользователь не развернул блок вручную. Флаг
-// сбрасывается, как только строк снова не больше порога, — следующее превышение опять свернёт блок.
-const expanded = ref(false)
-const exceedsLimit = computed(() => exceedsCollapseLimit(props.modelValue.length, props.collapseAfter))
-const collapsed = computed(() => exceedsLimit.value && !expanded.value)
-watch(exceedsLimit, (exceeds) => {
-  if (!exceeds) expanded.value = false
-})
+// Сворачивание — общая логика с редактором открытых портов (composables/useCollapsibleRows.ts): свёрнуто,
+// когда строк больше порога и пользователь не развернул блок вручную.
+const { exceedsLimit, collapsed, expand, toggle, expandForAdd } = useCollapsibleRows(
+  () => props.modelValue.length,
+  () => props.collapseAfter,
+)
 
 const SUMMARY_LIMIT = 12
 // Номера VLAN выбранных строк — краткая сводка вместо скрытого списка (по порядку строк).
@@ -143,10 +141,7 @@ const collapsedSummary = computed(() => {
   return numbers.length > SUMMARY_LIMIT ? `${shown.join(', ')}, …` : shown.join(', ')
 })
 
-/** Развернуть блок (форма вызывает это, когда ошибка сохранения относится к скрытой строке). */
-function expand() {
-  expanded.value = true
-}
+/** Развернуть блок — форма вызывает это, когда ошибка сохранения относится к скрытой строке. */
 defineExpose({ expand })
 
 function emptyRow(): DeviceVlanDraftRow {
@@ -157,8 +152,7 @@ function emptyRow(): DeviceVlanDraftRow {
 // из-под курсора), а когда пользователь добавляет следующую: заполненные строки встают по возрастанию,
 // новая пустая — в конец. Как у открытых портов (OpenPortListEditor.vue:addRow).
 function addRow() {
-  // Пользователь работает со списком — новая строка не должна тут же скрыться из-за порога.
-  if (exceedsCollapseLimit(props.modelValue.length + 1, props.collapseAfter)) expanded.value = true
+  expandForAdd() // пользователь работает со списком — новая строка не должна тут же скрыться из-за порога
   emit('update:modelValue', [...sortDeviceVlanRows(props.modelValue, definitions.value), emptyRow()])
 }
 
@@ -200,7 +194,7 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
         class="btn btn-secondary collapse-toggle"
         :aria-expanded="!collapsed"
         data-testid="vlan-collapse-toggle"
-        @click="expanded = !expanded"
+        @click="toggle"
       >
         <svg class="icon chev" :class="{ open: !collapsed }"><use href="/icons.svg#i-chevd" /></svg>
         {{ collapsed ? `Развернуть (${modelValue.length})` : 'Свернуть' }}

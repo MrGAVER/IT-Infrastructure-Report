@@ -6,6 +6,7 @@ import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
 import { useCatalogsStore } from '../../stores/catalogs'
+import { usePreferencesStore } from '../../stores/preferences'
 import { groupChange, makePlan, portChange, vlanRef } from '../../utils/__tests__/cascadePlanFixture'
 import type { SelfPortCandidate } from '../../utils/interfaceConnections'
 import type { VlanModeCascadePlan } from '../../api/vlanModeCascade'
@@ -438,6 +439,22 @@ describe('DeviceInterfacesEditor.vue', () => {
       // Правка "убрать текстовые поля Порт/Протокол": подпись выбранной записи справочника
       // теперь рендерится SearchableSelect'ом, отдельных input'ов для порта/протокола больше нет.
       expect((wrapper.find('.ports-block .searchable-select input').element as HTMLInputElement).value).toBe('22 / SSH')
+    })
+
+    it('открытые порты порта сворачиваются по общему порогу из «Настроек»', async () => {
+      const catalog = Array.from({ length: 4 }, (_, i) => ({ id: `cat-${i}`, port: 8000 + i, protocol_type: `P${i}`, description: null }))
+      const openPorts = [0, 1, 2].map((i) => ({ id: `op-${i}`, protocol_catalog_id: `cat-${i}`, transport_protocol: 'TCP', description: '' }))
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: openPorts }]
+      const props = { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: catalog }
+
+      const wide = mount(DeviceInterfacesEditor, { props })
+      await expandRow(wide)
+      expect(wide.find('.ports-block [data-testid="ports-collapsed"]').exists()).toBe(false) // порог по умолчанию 10, портов 3
+
+      usePreferencesStore().user = { device_vlan_collapse_rows: 2 }
+      const narrow = mount(DeviceInterfacesEditor, { props })
+      await expandRow(narrow)
+      expect(narrow.find('.ports-block [data-testid="ports-collapsed"]').exists()).toBe(true)
     })
 
     describe('номера открытых портов интерфейса: порядок и повторы', () => {

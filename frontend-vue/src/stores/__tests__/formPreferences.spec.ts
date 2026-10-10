@@ -16,13 +16,13 @@ beforeEach(() => {
 
 describe('useFormPreferencesStore', () => {
   it('по умолчанию блок «VLAN устройства» сворачивается при количестве строк больше 10', () => {
-    expect(useFormPreferencesStore().deviceVlanCollapseRows).toBe(10)
+    expect(useFormPreferencesStore().collapseRows).toBe(10)
   })
 
   it('сохраняет допустимое значение на сервере (не в localStorage) и применяет его сразу', async () => {
     const store = useFormPreferencesStore()
-    expect(store.setDeviceVlanCollapseRows('25')).toBe(true)
-    expect(store.deviceVlanCollapseRows).toBe(25) // без ожидания ответа сервера
+    expect(store.setCollapseRows('25')).toBe(true)
+    expect(store.collapseRows).toBe(25) // без ожидания ответа сервера
     await flushPromises()
 
     expect(api.userPuts).toEqual([{ device_vlan_collapse_rows: 25 }])
@@ -31,40 +31,40 @@ describe('useFormPreferencesStore', () => {
   })
 
   it('значение переживает «перезагрузку»: после загрузки настроек с сервера порог тот же', async () => {
-    useFormPreferencesStore().setDeviceVlanCollapseRows(25)
+    useFormPreferencesStore().setCollapseRows(25)
     await flushPromises()
 
     reloadPinia()
-    expect(useFormPreferencesStore().deviceVlanCollapseRows).toBe(25)
+    expect(useFormPreferencesStore().collapseRows).toBe(25)
   })
 
   it('недопустимое значение не принимается и не подменяется молча: порог прежний, на сервер ничего не уходит', async () => {
     const store = useFormPreferencesStore()
-    store.setDeviceVlanCollapseRows(25)
+    store.setCollapseRows(25)
     await flushPromises()
     api.userPuts.length = 0
 
-    for (const bad of ['', 'abc', '0', '1001', '2.5']) expect(store.setDeviceVlanCollapseRows(bad)).toBe(false)
+    for (const bad of ['', 'abc', '0', '1001', '2.5']) expect(store.setCollapseRows(bad)).toBe(false)
     await flushPromises()
 
-    expect(store.deviceVlanCollapseRows).toBe(25)
+    expect(store.collapseRows).toBe(25)
     expect(api.userPuts).toEqual([])
   })
 
   it('испорченное значение в серверных настройках заменяется значением по умолчанию', () => {
     usePreferencesStore().user = { device_vlan_collapse_rows: 5000 }
-    expect(useFormPreferencesStore().deviceVlanCollapseRows).toBe(10)
+    expect(useFormPreferencesStore().collapseRows).toBe(10)
   })
 
   it('reset() сбрасывает настройку на сервере (null) и возвращает 10', async () => {
     const store = useFormPreferencesStore()
-    store.setDeviceVlanCollapseRows(3)
+    store.setCollapseRows(3)
     await flushPromises()
 
     store.reset()
     await flushPromises()
 
-    expect(store.deviceVlanCollapseRows).toBe(10)
+    expect(store.collapseRows).toBe(10)
     expect(api.server.user).toEqual({})
   })
 })
