@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .models import (
     Building, Connection, ConnectionType, Container, CryptoProtectionMeans, Department,
-    DeployedSoftware, DeviceInterface, DeviceModel, DeviceType, EmbeddedOperatingSystem,
+    DeployedSoftware, DeviceInterface, DeviceModel, DeviceSubinterface, DeviceType, EmbeddedOperatingSystem,
     IPAddress, ISDepartment, ISPlacementAsset, ISProtocol,
     InformationSystem, InformationSystemSource, InterfaceType, InterfaceVLAN,
     Manufacturer, OpenPort, OperatingSystem, PhysicalDevice, PhysicalDeviceVLAN, PlacementAsset,
@@ -18,7 +18,7 @@ from .models import (
     VirtualMachine,
 )
 from .constants import OwnerType
-from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix
+from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
 from .services.excel_safety import excel_safe_row
 
 HEADERS1 = [
@@ -215,6 +215,12 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     for x in d.interface_ips: d.ips_by_iface[x.owner_id].append(x)
     d.ifaces_by_device=defaultdict(list)
     for x in d.interfaces: d.ifaces_by_device[x.physical_device_id].append(x)
+    # Подинтерфейсы портов (models.DeviceSubinterface) и их IP (owner_type='device_subinterface'); открытые порты
+    # подинтерфейсов лежат в общем d.open_ports_by_owner под ключом ('device_subinterface', id). Раскладка по портам и
+    # устройствам — ниже, когда загружен справочник VLAN (порядок: по номеру VLAN, затем по имени).
+    d.subinterfaces=session.scalars(select(DeviceSubinterface).order_by(DeviceSubinterface.name)).all()
+    d.ips_by_sub=defaultdict(list)
+    for x in session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)).all(): d.ips_by_sub[x.owner_id].append(x)
     d.vmips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all(); d.vmips_by_vm=defaultdict(list)
     for x in d.vmips: d.vmips_by_vm[x.owner_id].append(x)
     d.source_ips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.INFORMATION_SYSTEM_SOURCE)).all(); d.ips_by_source=defaultdict(list)
@@ -230,6 +236,13 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     d.device_vlan_rows=session.scalars(select(PhysicalDeviceVLAN)).all(); d.device_vlan_by_device=defaultdict(list)
     for x in d.device_vlan_rows: d.device_vlan_by_device[x.physical_device_id].append(x)
     for x in d.iface_vlans: d.vlan_by_iface[x.interface_id].append(d.vlan_map.get(x.vlan_id))
+    def _sub_order(sub):
+        vlan=d.vlan_map.get(sub.vlan_id)
+        return (vlan.vlan_id if vlan else 0, (sub.name or "").casefold())
+    d.subs_by_iface=defaultdict(list)
+    for x in sorted(d.subinterfaces, key=_sub_order): d.subs_by_iface[x.parent_interface_id].append(x)
+    d.subs_by_device=defaultdict(list)
+    for iface in d.interfaces: d.subs_by_device[iface.physical_device_id] += d.subs_by_iface.get(iface.id,[])
     d.deployed_software=session.scalars(select(DeployedSoftware)).all(); d.software={x.id:x for x in session.scalars(select(SoftwareAsset)).all()}
     d.software_by_vm=defaultdict(list); d.software_by_device=defaultdict(list)
     for link in d.deployed_software:
@@ -281,6 +294,8 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
     physical_ips=[]
     for dev in physical_names:
         physical_ips += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id,[]) if iface.is_management for ip in d.ips_by_iface.get(iface.id,[])]
+        # Управление может висеть на подинтерфейсе порта (например, Gi0/0.99) — его IP это тоже IP управления устройства.
+        physical_ips += [ip_label(ip) for sub in d.subs_by_device.get(dev.id,[]) if sub.is_management for ip in d.ips_by_sub.get(sub.id,[])]
     vm_names=[v.name for v in linked_vms] + [c.name for c in linked_containers]
     vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])]
     departments_text=join_values([d.dep_map[x.department_id].name for x in d.dep_by_is[obj.id] if x.department_id in d.dep_map])
@@ -304,7 +319,10 @@ def _device_row_values(dev, d: SimpleNamespace) -> list:
     all_ifaces=d.ifaces_by_device.get(dev.id,[])
     mgmt_ifaces=[i for i in all_ifaces if i.is_management]
     mgmt_vlan=[x for x in d.device_vlan_by_device.get(dev.id,[]) if x.is_management]
-    mgmt_port_names,mgmt_ip_values=device_management_ports_and_ips(mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map,vlan_label_with_name=False)
+    mgmt_subs=[x for x in d.subs_by_device.get(dev.id,[]) if x.is_management]
+    mgmt_port_names,mgmt_ip_values=device_management_ports_and_ips(
+        mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map,vlan_label_with_name=False,
+        management_subinterfaces=mgmt_subs,ips_by_subinterface=d.ips_by_sub,port_name_by_id={i.id:i.name for i in all_ifaces})
     mgmt_ports=join_values(mgmt_port_names)
     mgmt_ips=join_values(mgmt_ip_values)
     serial=dev.serial_number or ""; sysname=dev.system_name or ""
@@ -345,8 +363,11 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
         key=tuple(sorted(iface_ids))
         if key in _port_open_info_cache: return _port_open_info_cache[key]
         ports=[p for iid in iface_ids for p in d.open_ports_by_owner.get(('device_interface',iid),[])]
-        open_text=join_values([_open_port_label(p, d) for p in ports])
-        proto_text=join_values([d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports if p.protocol_catalog_id in d.protocol_catalog])
+        # Подинтерфейсы порта выводятся внутри строки порта: открытые порты подинтерфейса — с его именем
+        # («Gi0/0.10: TCP/443 HTTPS»), чтобы было видно, на каком логическом интерфейсе порт открыт.
+        sub_ports=[(sub,p) for iid in iface_ids for sub in d.subs_by_iface.get(iid,[]) for p in d.open_ports_by_owner.get(('device_subinterface',sub.id),[])]
+        open_text=join_values([_open_port_label(p, d) for p in ports]+[f"{sub.name}: {_open_port_label(p, d)}" for sub,p in sub_ports])
+        proto_text=join_values([d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports+[p for _,p in sub_ports] if p.protocol_catalog_id in d.protocol_catalog])
         _port_open_info_cache[key]=(open_text,proto_text)
         return open_text,proto_text
 
@@ -354,8 +375,28 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
         """A device's management IPs: physical management interfaces plus VLAN-based management (incl. VLAN)."""
         mgmt_ifaces=[i for i in d.ifaces_by_device.get(device.id,[]) if i.is_management]
         mgmt_vlan=[x for x in d.device_vlan_by_device.get(device.id,[]) if x.is_management]
-        _,ip_values=device_management_ports_and_ips(mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map)
+        mgmt_subs=[x for x in d.subs_by_device.get(device.id,[]) if x.is_management]
+        _,ip_values=device_management_ports_and_ips(mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map,management_subinterfaces=mgmt_subs,ips_by_subinterface=d.ips_by_sub)
         return ip_values
+
+    # Подинтерфейсы порта выводятся ВНУТРИ строки порта, а не отдельными строками: подпись порта, IP, открытые
+    # порты, VLAN и назначение собираются из самого порта и его подинтерфейсов (шапка колонки «Номер физического
+    # или логического порта» это допускает). Данные подинтерфейса помечаются его именем.
+    def _port_label(iface):
+        return port_label_with_subinterfaces(iface.name,d.subs_by_iface.get(iface.id,[]),d.vlan_map)
+
+    def _port_ip_values(iface):
+        return [ip_label(x) for x in d.ips_by_iface.get(iface.id,[])]+subinterface_ip_values(d.subs_by_iface.get(iface.id,[]),d.ips_by_sub)
+
+    def _port_vlans(iface):
+        """VLAN порта плюс VLAN его подинтерфейсов (без повторов): подинтерфейс на VLAN 10 — это VLAN 10 на линии."""
+        vlans=[v for v in d.vlan_by_iface.get(iface.id,[]) if v]
+        seen={v.id for v in vlans}
+        for sub in d.subs_by_iface.get(iface.id,[]):
+            vlan=d.vlan_map.get(sub.vlan_id)
+            if vlan and vlan.id not in seen:
+                seen.add(vlan.id); vlans.append(vlan)
+        return vlans
 
     def _link_purpose_label(iface):
         mgmt=bool(iface.is_management); data=bool(iface.is_data_transfer)
@@ -364,22 +405,27 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
         if data: return "Передача данных"
         return "-"
 
+    def _purpose_text(iface):
+        """Назначение порта; роли его подинтерфейсов — с именем подинтерфейса («Gi0/0.99: Управление активами»)."""
+        parts=[_link_purpose_label(iface)]+[f"{sub.name}: {_link_purpose_label(sub)}" for sub in d.subs_by_iface.get(iface.id,[]) if _link_purpose_label(sub)!="-"]
+        return join_values([x for x in parts if x!="-"]) or "-"
+
     def _conn_row(own_iface, own_device, neighbor_iface, neighbor_device, c, ct):
-        own_ips=join_values([ip_label(x) for x in d.ips_by_iface.get(own_iface.id,[])])
+        own_ips=join_values(_port_ip_values(own_iface))
         neighbor_mgmt_ips=_device_management_ips(neighbor_device)
-        neighbor_ips=join_values(neighbor_mgmt_ips if neighbor_mgmt_ips else [ip_label(x) for x in d.ips_by_iface.get(neighbor_iface.id,[])])
+        neighbor_ips=join_values(neighbor_mgmt_ips if neighbor_mgmt_ips else _port_ip_values(neighbor_iface))
         open_text,proto_text=_port_open_info((own_iface.id,))
-        own_vlans=[v for v in d.vlan_by_iface.get(own_iface.id,[]) if v]
-        neighbor_vlans=[v for v in d.vlan_by_iface.get(neighbor_iface.id,[]) if v]
+        own_vlans=_port_vlans(own_iface)
+        neighbor_vlans=_port_vlans(neighbor_iface)
         vlan_rows=own_vlans if own_vlans else neighbor_vlans
-        return [0,d.device_types.get(own_device.device_type_id).name if d.device_types.get(own_device.device_type_id) else "",own_device.serial_number,own_device.system_name or "",os_label(d.embedded_os.get(own_device.embedded_os_id)),own_iface.name,own_ips or "не назначен",open_text,proto_text,join_values([str(v.vlan_id) for v in vlan_rows]),join_values([v.name for v in vlan_rows]),ct.name if ct else "",_link_purpose_label(own_iface),d.device_types.get(neighbor_device.device_type_id).name if d.device_types.get(neighbor_device.device_type_id) else "",neighbor_device.serial_number,neighbor_device.system_name or "",os_label(d.embedded_os.get(neighbor_device.embedded_os_id)),neighbor_ips or "не назначен"]
+        return [0,d.device_types.get(own_device.device_type_id).name if d.device_types.get(own_device.device_type_id) else "",own_device.serial_number,own_device.system_name or "",os_label(d.embedded_os.get(own_device.embedded_os_id)),_port_label(own_iface),own_ips or "не назначен",open_text,proto_text,join_values([str(v.vlan_id) for v in vlan_rows]),join_values([v.name for v in vlan_rows]),ct.name if ct else "",_purpose_text(own_iface),d.device_types.get(neighbor_device.device_type_id).name if d.device_types.get(neighbor_device.device_type_id) else "",neighbor_device.serial_number,neighbor_device.system_name or "",os_label(d.embedded_os.get(neighbor_device.embedded_os_id)),neighbor_ips or "не назначен"]
 
     def _disconnected_row(own_device, iface_group):
-        own_ips=join_values([ip_label(x) for i in iface_group for x in d.ips_by_iface.get(i.id,[])])
+        own_ips=join_values([x for i in iface_group for x in _port_ip_values(i)])
         open_text,proto_text=_port_open_info(tuple(i.id for i in iface_group))
-        own_vlans=[v for i in iface_group for v in d.vlan_by_iface.get(i.id,[]) if v]
-        purposes=join_values([_link_purpose_label(i) for i in iface_group if _link_purpose_label(i)!="-"]) or "-"
-        return [0,d.device_types.get(own_device.device_type_id).name if d.device_types.get(own_device.device_type_id) else "",own_device.serial_number,own_device.system_name or "",os_label(d.embedded_os.get(own_device.embedded_os_id)),join_values([i.name for i in iface_group]),own_ips or "не назначен",open_text,proto_text,join_values([str(v.vlan_id) for v in own_vlans]),join_values([v.name for v in own_vlans]),"",purposes,"","","","",""]
+        own_vlans=[v for i in iface_group for v in _port_vlans(i)]
+        purposes=join_values([_purpose_text(i) for i in iface_group if _purpose_text(i)!="-"]) or "-"
+        return [0,d.device_types.get(own_device.device_type_id).name if d.device_types.get(own_device.device_type_id) else "",own_device.serial_number,own_device.system_name or "",os_label(d.embedded_os.get(own_device.embedded_os_id)),join_values([_port_label(i) for i in iface_group]),own_ips or "не назначен",open_text,proto_text,join_values([str(v.vlan_id) for v in own_vlans]),join_values([v.name for v in own_vlans]),"",purposes,"","","","",""]
 
     pending_rows=[]
     connected_iface_ids=set()
@@ -404,7 +450,9 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
         if not own_ifaces: continue
         groups=defaultdict(list)
         for i in own_ifaces:
-            key=tuple(sorted(ip_label(x) for x in d.ips_by_iface.get(i.id,[])))
+            # Порт с подинтерфейсами не склеивается с другими портами по совпавшей «подписи IP»: у каждого свой набор
+            # подинтерфейсов, и объединённая строка потеряла бы, чьи они.
+            key=(i.id,) if d.subs_by_iface.get(i.id) else tuple(sorted(ip_label(x) for x in d.ips_by_iface.get(i.id,[])))
             groups[key].append(i)
         for iface_group in groups.values():
             pending_rows.append((dev, _disconnected_row(dev, iface_group)))

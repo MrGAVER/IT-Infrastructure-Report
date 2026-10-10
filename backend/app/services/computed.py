@@ -9,7 +9,7 @@
 """
 from __future__ import annotations
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional, Sequence
 from uuid import uuid4
 
 
@@ -40,6 +40,9 @@ def device_management_ports_and_ips(
     vlan_map: dict[str, Any],
     *,
     vlan_label_with_name: bool = True,
+    management_subinterfaces: Sequence[Any] = (),
+    ips_by_subinterface: Optional[dict[str, list[Any]]] = None,
+    port_name_by_id: Optional[dict[str, str]] = None,
 ) -> tuple[list[str], list[str]]:
     """
     Считает порты и IP управления устройства из двух источников: физических интерфейсов с
@@ -53,6 +56,13 @@ def device_management_ports_and_ips(
         номер ("VLAN 100") — дашборду нужно первое для наглядности, отчету для строгого поля
         "номер порта" — второе.
 
+    management_subinterfaces / ips_by_subinterface / port_name_by_id (необязательные): подинтерфейсы
+        портов с is_management=True — управление может висеть на логическом интерфейсе (например,
+        Gi0/0.99 на VLAN управления у маршрутизатора), а не на самом порту. В «порты» такой подинтерфейс
+        попадает как «Gi0/0 (подинтерфейс Gi0/0.99)» — внутри своего порта, port_name_by_id даёт имя
+        порта-родителя по parent_interface_id, — а его IP добавляются к IP управления. Без этих
+        аргументов поведение прежнее.
+
     Возвращает (port_names, ip_values) — списки строк без дублей, с сохранением порядка появления.
     """
     # Ссылка на VLAN, которого больше нет в справочнике (осиротевшая запись) — не должна давать
@@ -64,9 +74,38 @@ def device_management_ports_and_ips(
         vlan_labels = [f"VLAN {vlan_map[x.vlan_id].vlan_id} — {vlan_map[x.vlan_id].name}" for x in resolvable_vlan_links]
     else:
         vlan_labels = [f"VLAN {vlan_map[x.vlan_id].vlan_id}" for x in resolvable_vlan_links]
-    port_names = [i.name for i in management_interfaces] + vlan_labels
+    parent_names = port_name_by_id or {}
+    sub_ips = ips_by_subinterface or {}
+    # «Gi0/0 (подинтерфейс Gi0/0.99)»; если имя порта-родителя неизвестно — только имя подинтерфейса.
+    subinterface_labels = [
+        f"{parent_names[sub.parent_interface_id]} (подинтерфейс {sub.name})" if parent_names.get(sub.parent_interface_id) else sub.name
+        for sub in management_subinterfaces
+    ]
+    port_names = [i.name for i in management_interfaces] + subinterface_labels + vlan_labels
 
     ip_values = [ip_label(ip) for iface in management_interfaces for ip in ips_by_interface.get(iface.id, [])]
+    ip_values += [ip_label(ip) for sub in management_subinterfaces for ip in sub_ips.get(sub.id, [])]
     ip_values += [ip_label(x) for x in resolvable_vlan_links if x.ip_address]
 
     return list(dict.fromkeys(port_names)), list(dict.fromkeys(ip_values))
+
+
+def port_label_with_subinterfaces(port_name: str, subinterfaces: Sequence[Any], vlan_map: dict[str, Any]) -> str:
+    """Подпись порта для отчёта с его подинтерфейсами внутри: `Gi0/0` (подинтерфейсов нет) либо
+    `Gi0/0 (подинтерфейсы: Gi0/0.10 [VLAN 10], Gi0/0.20 [VLAN 20])`. Подинтерфейс — логический порт
+    своего физического порта, поэтому отдельной строкой не выводится; VLAN в скобках связывает его
+    с колонками «VLAN ID / VLAN Name». VLAN, которого нет в справочнике (осиротевшая ссылка), даёт
+    подпись без номера, а не ошибку."""
+    if not subinterfaces:
+        return port_name
+    parts = []
+    for sub in subinterfaces:
+        vlan = vlan_map.get(sub.vlan_id)
+        parts.append(f"{sub.name} [VLAN {vlan.vlan_id}]" if vlan else sub.name)
+    return f"{port_name} (подинтерфейсы: {', '.join(parts)})"
+
+
+def subinterface_ip_values(subinterfaces: Sequence[Any], ips_by_subinterface: dict[str, list[Any]]) -> list[str]:
+    """IP подинтерфейсов порта с подписью подинтерфейса: `Gi0/0.10: 10.0.10.1/24` — без подписи было бы
+    не понять, на каком подинтерфейсе какой адрес."""
+    return [f"{sub.name}: {ip_label(ip)}" for sub in subinterfaces for ip in ips_by_subinterface.get(sub.id, [])]
