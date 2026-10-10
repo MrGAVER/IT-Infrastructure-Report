@@ -50,7 +50,8 @@
   в `utils/subinterfaces.ts` (там же пересчёт автоимён при переименовании порта и проверка «VLAN подинтерфейса ещё
   назначен устройству», уведомление о снятом VLAN выдаёт `DeviceFormModal.vue`; кнопка «Показать» в нём вызывает
   `revealStaleSubinterfaces()` редактора портов, а перенос подинтерфейса на другой VLAN использует справочник VLAN
-  `vlanCatalog`, чтобы знать номер уже недоступного VLAN), список грузится из
+  `vlanCatalog`, чтобы знать номер уже недоступного VLAN; массовый перенос — `moveStaleSubinterfaces`, одно правило смены
+  VLAN с пересчётом автоимени — `reassignSubinterfaceVlan`), список грузится из
   `GET /devices/{id}/subinterfaces`; `DeviceVlanListEditor.vue` — назначение
   VLAN устройству, доступные VLAN ограничены членством в VLAN-домене, persist
   через атомарный `PUT /devices/{id}/vlans` по diff'у, ещё не сохранённое

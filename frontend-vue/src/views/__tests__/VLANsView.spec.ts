@@ -5,6 +5,8 @@ import VLANsView from '../VLANsView.vue'
 import { useVLANsStore } from '../../stores/vlans'
 import { useDevicesStore } from '../../stores/devices'
 import { useCatalogsStore } from '../../stores/catalogs'
+import DeviceFormModal from '../../components/DeviceFormModal.vue'
+import { useToast } from '../../composables/useToast'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
@@ -99,5 +101,82 @@ describe('VLANsView.vue — массовое назначение VLAN', () => {
 
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(wrapper.find('.bulk-panel').exists()).toBe(true) // панель осталась открытой
+  })
+})
+
+describe('VLANsView.vue — подинтерфейсы на недоступных VLAN', () => {
+  const staleItem = { subinterface_id: 's-1', subinterface_name: 'Gi0/0.30', port_id: 'p-1', port_name: 'Gi0/0', device_id: 'dev-2', device_name: 'srv-02', vlan_id: 'v-30', vlan_number: 30, vlan_name: 'Резерв' }
+
+  function stubIntegrity(items: unknown[]) {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/integrity/stale-subinterfaces')) return jsonResponse({ ok: items.length === 0, total: items.length, subinterfaces: items })
+      return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+  const staleCalls = (fetchMock: ReturnType<typeof stubIntegrity>) => fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/integrity/stale-subinterfaces')).length
+
+  async function mountView() {
+    seedStores()
+    useToast().toasts.splice(0)
+    const wrapper = mount(VLANsView, { global: { stubs: { DeviceFormModal: true } } })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('без проблемных подинтерфейсов панели на экране нет', async () => {
+    stubIntegrity([])
+    const wrapper = await mountView()
+    expect(wrapper.find('.stale-panel').exists()).toBe(false)
+  })
+
+  it('с проблемными подинтерфейсами панель показана; «Открыть устройство» открывает форму этого устройства', async () => {
+    stubIntegrity([staleItem])
+    const wrapper = await mountView()
+    expect(wrapper.find('.stale-panel').text()).toContain('srv-02')
+    expect(wrapper.findComponent(DeviceFormModal).exists()).toBe(false)
+
+    await wrapper.find('.stale-device-head button').trigger('click')
+
+    const modal = wrapper.findComponent(DeviceFormModal)
+    expect(modal.exists()).toBe(true)
+    expect((modal.props('device') as { id: string }).id).toBe('dev-2')
+  })
+
+  it('устройства нет в загруженном списке — понятная ошибка, форма не открывается', async () => {
+    stubIntegrity([{ ...staleItem, device_id: 'dev-gone' }])
+    const wrapper = await mountView()
+
+    await wrapper.find('.stale-device-head button').trigger('click')
+
+    expect(wrapper.findComponent(DeviceFormModal).exists()).toBe(false)
+    expect(useToast().toasts.map((t) => t.message)).toEqual(['Устройство не найдено — обновите список устройств'])
+  })
+
+  it('после сохранения устройства форма закрывается, а панель перечитывается', async () => {
+    const fetchMock = stubIntegrity([staleItem])
+    const wrapper = await mountView()
+    await wrapper.find('.stale-device-head button').trigger('click')
+    expect(staleCalls(fetchMock)).toBe(1)
+
+    stubIntegrity([]) // подинтерфейс перенесён
+    wrapper.findComponent(DeviceFormModal).vm.$emit('saved', { id: 'dev-2' })
+    await flushPromises()
+
+    expect(wrapper.findComponent(DeviceFormModal).exists()).toBe(false)
+    expect(wrapper.find('.stale-panel').exists()).toBe(false)
+    expect(useToast().toasts.map((t) => t.message)).toContain('Устройство обновлено')
+  })
+
+  it('кнопка «Обновить» экрана перечитывает и панель', async () => {
+    const fetchMock = stubIntegrity([staleItem])
+    const wrapper = await mountView()
+    expect(staleCalls(fetchMock)).toBe(1)
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Обновить'))!.trigger('click')
+    await flushPromises()
+
+    expect(staleCalls(fetchMock)).toBe(2)
   })
 })

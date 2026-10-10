@@ -31,6 +31,73 @@ export function isAutoSubinterfaceName(name: string, parentName: string, vlanNum
   return !name.trim() || name === suggestSubinterfaceName(parentName, vlanNumber)
 }
 
+/** Подинтерфейс после смены VLAN: новый VLAN и — только если имя «автоматическое» (пустое либо `<порт>.<прежний VLAN>`) —
+ * пересчитанное имя `<порт>.<новый VLAN>`; имя, введённое вручную, не трогается. `previous` — прежний VLAN, если он известен
+ * (у подинтерфейса на недоступном VLAN его берут из справочника): без него автоимя не распознать, остаётся только пустое.
+ * Одно правило и для смены VLAN в строке подинтерфейса (InterfaceSubinterfacesEditor), и для массового переноса недоступных
+ * (moveStaleSubinterfaces ниже). */
+export function reassignSubinterfaceVlan(sub: SubinterfaceDraftRow, parentName: string, previous: VLANDefinition | undefined, next: VLANDefinition): SubinterfaceDraftRow {
+  const wasAutoName = !sub.name.trim() || (previous != null && isAutoSubinterfaceName(sub.name, parentName, previous.vlan_id))
+  return { ...sub, vlan_id: next.id, ...(wasAutoName ? { name: suggestSubinterfaceName(parentName, next.vlan_id) } : {}) }
+}
+
+export interface MoveStaleResult {
+  /** Строки портов после переноса — ТОТ ЖЕ массив, если переносить было нечего. */
+  rows: InterfaceDraftRow[]
+  /** Перенесённые подинтерфейсы (их новые имена). */
+  moved: string[]
+  /** Не перенесённые: на порту целевой VLAN уже занят другим подинтерфейсом (на порту VLAN используется один раз). */
+  skipped: string[]
+}
+
+/** Переносит подинтерфейсы на недоступных устройству VLAN (вне `allowedVlanIds`) на выбранный VLAN `target` — массово, одним
+ * действием. Подинтерфейс переносится, только если на его порту `target` ещё не занят (в том числе только что перенесённым
+ * подинтерфейсом): иначе сохранение упало бы на правиле «на порту VLAN один раз», такие подинтерфейсы остаются на месте и
+ * возвращаются в `skipped`. Автоимя пересчитывается как при обычной смене VLAN (reassignSubinterfaceVlan), номер прежнего VLAN
+ * берётся из `knownVlans`. Порты и подинтерфейсы, которых это не касается, не копируются.
+ *
+ * @example
+ * moveStaleSubinterfaces(rows, vlan10, new Set(['v-10']), [vlan10, vlan30]) // Gi0/0.30 → Gi0/0.10 на VLAN 10 */
+export function moveStaleSubinterfaces(
+  rows: readonly InterfaceDraftRow[],
+  target: VLANDefinition,
+  allowedVlanIds: ReadonlySet<string>,
+  knownVlans: readonly VLANDefinition[],
+): MoveStaleResult {
+  const knownById = new Map(knownVlans.map((v) => [v.id, v]))
+  const moved: string[] = []
+  const skipped: string[] = []
+  const nextRows = rows.map((row) => {
+    if (!staleSubinterfaces(row.subinterfaces, allowedVlanIds).length) return row
+    const used = new Set((row.subinterfaces ?? []).map((sub) => sub.vlan_id))
+    const subinterfaces = (row.subinterfaces ?? []).map((sub) => {
+      if (!sub.vlan_id || allowedVlanIds.has(sub.vlan_id)) return sub
+      const label = sub.name.trim() || 'без имени'
+      if (used.has(target.id)) {
+        skipped.push(label)
+        return sub
+      }
+      used.add(target.id)
+      const result = reassignSubinterfaceVlan(sub, row.name, knownById.get(sub.vlan_id), target)
+      moved.push(result.name.trim() || label)
+      return result
+    })
+    return { ...row, subinterfaces }
+  })
+  return { rows: moved.length ? nextRows : (rows as InterfaceDraftRow[]), moved, skipped }
+}
+
+/** Текст и вид уведомления по итогу массового переноса: успех — «Перенесено …», если часть осталась на месте — предупреждение с
+ * перечнем оставшихся и причиной. null — переносить было нечего (ни перенесённых, ни пропущенных). */
+export function moveStaleMessage(result: Pick<MoveStaleResult, 'moved' | 'skipped'>, target: VLANDefinition): { text: string; type: 'success' | 'warning' } | null {
+  const { moved, skipped } = result
+  if (!moved.length && !skipped.length) return null
+  const done = moved.length ? `Перенесено подинтерфейсов: ${moved.length} — на VLAN ${vlanLabel(target)}.` : ''
+  if (!skipped.length) return { text: done, type: 'success' }
+  const left = `Не перенесены (на их порту этот VLAN уже занят другим подинтерфейсом): ${skipped.map((name) => `«${name}»`).join(', ')} — выберите для них другой VLAN.`
+  return { text: [done, left].filter(Boolean).join(' '), type: 'warning' }
+}
+
 /** Подинтерфейсы порта после его переименования `oldPortName` → `newPortName`: автоимена («Gi0/0.10») пересчитываются
  * под новое имя порта («Gi0/1.10»), имена, введённые вручную, остаются как есть. Номер VLAN берётся из `vlans`
  * (допустимые устройству); подинтерфейс на недоступном VLAN не трогаем — его автоимя не восстановить.

@@ -42,7 +42,7 @@ import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
-import { renameSubinterfacesForPort, staleSubinterfaces } from '../utils/subinterfaces'
+import { moveStaleMessage, moveStaleSubinterfaces, renameSubinterfacesForPort, staleSubinterfaces } from '../utils/subinterfaces'
 import {
   SELF_DEVICE,
   changedConnectionRowIds,
@@ -218,6 +218,22 @@ const knownVlans = computed(() => {
   const byId = new Map([...(props.vlanCatalog ?? []), ...props.vlanOptions].map((v) => [v.id, v]))
   return [...byId.values()]
 })
+
+const staleSubinterfaceCount = computed(() => props.modelValue.reduce((sum, row) => sum + staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).length, 0))
+const sortedVlanOptions = computed(() => [...props.vlanOptions].sort((a, b) => a.vlan_id - b.vlan_id))
+const bulkMoveTargetId = ref('')
+
+// Массовый перенос: все подинтерфейсы на недоступных VLAN — на один выбранный VLAN устройства одним действием (вместо правки
+// каждого). Там, где на порту этот VLAN уже занят, подинтерфейс остаётся на месте — о таких говорит предупреждение.
+function moveAllStaleSubinterfaces() {
+  const target = props.vlanOptions.find((v) => v.id === bulkMoveTargetId.value)
+  if (!target) return
+  const result = moveStaleSubinterfaces(props.modelValue, target, allowedVlanIds.value, knownVlans.value)
+  bulkMoveTargetId.value = ''
+  if (result.moved.length) emit('update:modelValue', result.rows)
+  const message = moveStaleMessage(result, target)
+  if (message) notify(message.text, message.type)
+}
 
 function staleSubinterfaceText(row: InterfaceDraftRow): string {
   const names = staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).map((sub) => `«${sub.name.trim() || 'без имени'}»`)
@@ -1096,6 +1112,15 @@ function applyBulkEdit() {
       <span class="hint">Управление отмечается на одном или нескольких интерфейсах — все их IP считаются IP управления.</span>
     </div>
 
+    <div v-if="staleSubinterfaceCount" class="stale-bulk" role="status">
+      <span>Подинтерфейсов на VLAN, не назначенном устройству: {{ staleSubinterfaceCount }}.</span>
+      <select v-model="bulkMoveTargetId" aria-label="Перенести все такие подинтерфейсы на VLAN" :disabled="!vlanOptions.length">
+        <option value="">Перенести все на VLAN…</option>
+        <option v-for="v in sortedVlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
+      </select>
+      <button type="button" class="btn btn-secondary" :disabled="!bulkMoveTargetId" @click="moveAllStaleSubinterfaces">Перенести</button>
+    </div>
+
     <div class="generator">
       <label>
         <span>Количество</span>
@@ -1865,6 +1890,25 @@ function applyBulkEdit() {
   width: 100%;
   min-width: 90px;
   box-sizing: border-box;
+}
+.stale-bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--status-warn);
+  border-radius: var(--r-s);
+  font-size: 12px;
+}
+.stale-bulk select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--ink);
+  font-family: inherit;
 }
 .expand-toggle {
   display: flex;

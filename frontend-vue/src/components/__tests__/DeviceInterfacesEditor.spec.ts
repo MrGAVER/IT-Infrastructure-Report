@@ -2086,6 +2086,75 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     })
   })
 
+  describe('массовый перенос подинтерфейсов с недоступных VLAN', () => {
+    const vlansBulk: VLANDefinition[] = [
+      { id: 'v-20', vlan_id: 20, name: 'Гости', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v-10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] },
+    ]
+    const reserve: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
+
+    function mountBulk(rows: InterfaceDraftRow[]) {
+      useToast().toasts.splice(0)
+      return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vlansBulk, vlanCatalog: [reserve] } })
+    }
+    const bulkSelect = (wrapper: ReturnType<typeof mountBulk>) => wrapper.find('select[aria-label="Перенести все такие подинтерфейсы на VLAN"]')
+    const staleRows = (): InterfaceDraftRow[] => [
+      { ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.30', vlan_id: 'v-30' })] },
+      { ...emptyRow(), name: 'Gi0/1', subinterfaces: [subRow({ key: 'b', name: 'Gi0/1.30', vlan_id: 'v-30' }), subRow({ key: 'c', name: 'Gi0/1.10', vlan_id: 'v-10' })] },
+    ]
+
+    it('панели нет, пока все подинтерфейсы на доступных VLAN', () => {
+      expect(mountBulk([{ ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ name: 'Gi0/0.10' })] }]).find('.stale-bulk').exists()).toBe(false)
+    })
+
+    it('панель показывает число таких подинтерфейсов; список VLAN упорядочен по номеру, «Перенести» выключена, пока VLAN не выбран', () => {
+      const wrapper = mountBulk(staleRows())
+
+      expect(wrapper.find('.stale-bulk').text()).toContain('Подинтерфейсов на VLAN, не назначенном устройству: 2')
+      expect(bulkSelect(wrapper).findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'v-10', 'v-20'])
+      expect(wrapper.find('.stale-bulk button').attributes('disabled')).toBeDefined()
+    })
+
+    it('«Перенести» меняет VLAN и автоимена там, где можно; занятое на порту остаётся, и об этом предупреждает уведомление', async () => {
+      const wrapper = mountBulk(staleRows())
+
+      await bulkSelect(wrapper).setValue('v-10')
+      await wrapper.find('.stale-bulk button').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      const rows = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
+      expect(rows[0].subinterfaces![0]).toMatchObject({ key: 'a', vlan_id: 'v-10', name: 'Gi0/0.10' })
+      expect(rows[1].subinterfaces!.map((s) => [s.name, s.vlan_id])).toEqual([['Gi0/1.30', 'v-30'], ['Gi0/1.10', 'v-10']]) // v-10 на Gi0/1 уже занят
+      const [toast] = useToast().toasts
+      expect(toast.type).toBe('warning')
+      expect(toast.message).toContain('Перенесено подинтерфейсов: 1 — на VLAN 10 — Серверы.')
+      expect(toast.message).toContain('«Gi0/1.30»')
+      expect((bulkSelect(wrapper).element as HTMLSelectElement).value).toBe('') // выбор сброшен
+    })
+
+    it('если переносится всё — уведомление об успехе', async () => {
+      const wrapper = mountBulk([staleRows()[0]])
+
+      await bulkSelect(wrapper).setValue('v-20')
+      await wrapper.find('.stale-bulk button').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      expect((emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0].subinterfaces![0]).toMatchObject({ vlan_id: 'v-20', name: 'Gi0/0.20' })
+      expect(useToast().toasts.map((t) => [t.type, t.message])).toEqual([['success', 'Перенесено подинтерфейсов: 1 — на VLAN 20 — Гости.']])
+    })
+
+    it('если ничего перенести нельзя — строки не меняются (нет update:modelValue), только предупреждение', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10', vlan_id: 'v-10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-30' })] }]
+      const wrapper = mountBulk(rows)
+
+      await bulkSelect(wrapper).setValue('v-10')
+      await wrapper.find('.stale-bulk button').trigger('click')
+
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      expect(useToast().toasts.map((t) => t.type)).toEqual(['warning'])
+    })
+  })
+
   describe('«Показать»: раскрытие портов с подинтерфейсами на недоступном VLAN', () => {
     function mountTwoPorts() {
       const rows: InterfaceDraftRow[] = [
