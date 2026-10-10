@@ -25,13 +25,18 @@ const props = withDefaults(
     /** Допустимые VLAN устройства (тот же список, что у VLAN порта). */
     vlanOptions: VLANDefinition[]
     protocolPortCatalog?: ProtocolPortCatalogEntry[]
+    /** Все известные VLAN (справочник), включая уже недоступные устройству: по ним для подинтерфейса на снятом VLAN
+     * известен номер (подпись в предупреждении, пересчёт автоимени при переносе). Без него — только vlanOptions. */
+    vlanCatalog?: VLANDefinition[]
   }>(),
-  { protocolPortCatalog: () => [] },
+  { protocolPortCatalog: () => [], vlanCatalog: () => [] },
 )
 const emit = defineEmits<{ 'update:modelValue': [rows: SubinterfaceDraftRow[]] }>()
 
 const sortedVlans = computed(() => [...props.vlanOptions].sort((a, b) => a.vlan_id - b.vlan_id))
 const vlanById = computed(() => new Map(props.vlanOptions.map((v) => [v.id, v])))
+// Номер и подпись VLAN, в том числе уже недоступного устройству (его нет в vlanOptions, но он есть в справочнике).
+const knownVlanById = computed(() => new Map([...props.vlanCatalog, ...props.vlanOptions].map((v) => [v.id, v])))
 
 function updateRow(index: number, patch: Partial<SubinterfaceDraftRow>) {
   emit(
@@ -62,6 +67,12 @@ function isStaleVlan(row: SubinterfaceDraftRow): boolean {
   return Boolean(row.vlan_id) && !vlanById.value.has(row.vlan_id)
 }
 
+/** Подпись недоступного VLAN подинтерфейса («10 — Серверы») для предупреждения; пусто, если VLAN нет и в справочнике. */
+function staleVlanLabel(row: SubinterfaceDraftRow): string {
+  const vlan = knownVlanById.value.get(row.vlan_id)
+  return vlan ? vlanLabel(vlan) : ''
+}
+
 // При выборе VLAN имя подставляется само («Gi0/0.10»), но только если пользователь его не правил:
 // имя пустое либо совпадает с подсказкой для предыдущего VLAN — иначе не затираем введённое вручную.
 // (То же правило пересчитывает автоимена при переименовании порта — utils/subinterfaces.ts:renameSubinterfacesForPort.)
@@ -69,11 +80,27 @@ function onVlanChange(index: number, vlanId: string) {
   const row = props.modelValue[index]
   if (!row) return
   const next = vlanById.value.get(vlanId)
-  const previous = vlanById.value.get(row.vlan_id)
+  // Прежний VLAN ищем и в справочнике: у подинтерфейса на снятом VLAN он уже не в vlanOptions, но автоимя
+  // («Gi0/0.20») при переносе на другой VLAN должно обновиться так же, как при обычной смене.
+  const previous = knownVlanById.value.get(row.vlan_id)
   const wasAutoName = !row.name.trim() || (previous != null && isAutoSubinterfaceName(row.name, props.parentName, previous.vlan_id))
   const patch: Partial<SubinterfaceDraftRow> = { vlan_id: vlanId }
   if (next && wasAutoName) patch.name = suggestSubinterfaceName(props.parentName, next.vlan_id)
   updateRow(index, patch)
+}
+
+/** VLAN устройства, свободные для переноса подинтерфейса: не заняты соседними подинтерфейсами порта. */
+function freeVlans(index: number): VLANDefinition[] {
+  return sortedVlans.value.filter((v) => !isVlanTaken(index, v.id))
+}
+
+// Перенос подинтерфейса с недоступного VLAN на выбранный одним действием: та же смена VLAN, что и в основном списке
+// (с пересчётом автоимени), после чего предупреждение исчезает. Список сразу возвращается в исходное положение.
+function moveToVlan(index: number, event: Event) {
+  const select = event.target as HTMLSelectElement
+  const vlanId = select.value
+  select.value = ''
+  if (vlanId) onVlanChange(index, vlanId)
 }
 
 function addIp(index: number) {
@@ -152,7 +179,20 @@ function updateOpenPorts(index: number, rows: OpenPortDraftRow[]) {
       </div>
 
       <div v-if="isStaleVlan(sub)" class="sub-warn" role="alert">
-        VLAN этого подинтерфейса больше не назначен устройству. Выберите другой VLAN или удалите подинтерфейс — иначе сохранить не получится.
+        <span>
+          VLAN этого подинтерфейса<template v-if="staleVlanLabel(sub)"> ({{ staleVlanLabel(sub) }})</template> больше не назначен устройству.
+          Перенесите подинтерфейс на другой VLAN или удалите его — иначе сохранить не получится.
+        </span>
+        <select
+          class="sub-move"
+          aria-label="Перенести подинтерфейс на VLAN"
+          :disabled="!freeVlans(i).length"
+          :title="freeVlans(i).length ? undefined : 'Нет свободных VLAN устройства — назначьте устройству VLAN или удалите подинтерфейс'"
+          @change="moveToVlan(i, $event)"
+        >
+          <option value="">Перенести на VLAN…</option>
+          <option v-for="v in freeVlans(i)" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
+        </select>
       </div>
 
       <label class="sub-field">
@@ -274,8 +314,22 @@ function updateOpenPorts(index: number, rows: OpenPortDraftRow[]) {
   height: 14px;
 }
 .sub-warn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   font-size: 11.5px;
   color: var(--status-crit);
+}
+.sub-move {
+  background: var(--surface-2);
+  border: 1px solid var(--status-crit);
+  border-radius: var(--r-s);
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--ink);
+  font-family: inherit;
 }
 .sub-ips {
   display: flex;

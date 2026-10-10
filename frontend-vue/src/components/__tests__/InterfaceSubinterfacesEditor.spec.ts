@@ -77,6 +77,48 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
     expect(wrapper.find('[role="alert"]').text()).toContain('больше не назначен устройству')
   })
 
+  describe('перенос подинтерфейса с недоступного VLAN прямо из предупреждения', () => {
+    const reserve: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
+    const staleSub = (patch: Partial<SubinterfaceDraftRow> = {}): SubinterfaceDraftRow => ({ ...emptySubinterface('Gi0/0'), name: 'Gi0/0.30', vlan_id: 'v-30', ...patch })
+    const moveSelect = (wrapper: ReturnType<typeof mountEditor>) => wrapper.find('select[aria-label="Перенести подинтерфейс на VLAN"]')
+
+    it('предупреждение называет прежний VLAN по справочнику, а список переноса содержит только свободные VLAN устройства', () => {
+      const taken = emptySubinterface('Gi0/0', vlans[1]) // v-10 занят соседним подинтерфейсом порта
+      const wrapper = mountEditor([staleSub(), taken], { vlanCatalog: [reserve] })
+
+      expect(wrapper.find('.sub-warn').text()).toContain('(30 — Резерв)')
+      const options = moveSelect(wrapper).findAll('option').map((o) => o.attributes('value'))
+      expect(options).toEqual(['', 'v-20']) // v-10 занят соседом, v-30 устройству недоступен
+    })
+
+    it('выбор VLAN переносит подинтерфейс и пересчитывает автоимя по номеру прежнего VLAN из справочника', async () => {
+      const wrapper = mountEditor([staleSub()], { vlanCatalog: [reserve] })
+      await moveSelect(wrapper).setValue('v-10')
+
+      expect(lastEmitted(wrapper)[0]).toMatchObject({ vlan_id: 'v-10', name: 'Gi0/0.10' })
+    })
+
+    it('имя, введённое вручную, при переносе сохраняется; без справочника автоимя (по номеру неизвестного VLAN) не угадывается', async () => {
+      const manual = mountEditor([staleSub({ name: 'wan-uplink' })], { vlanCatalog: [reserve] })
+      await moveSelect(manual).setValue('v-10')
+      expect(lastEmitted(manual)[0]).toMatchObject({ vlan_id: 'v-10', name: 'wan-uplink' })
+
+      const noCatalog = mountEditor([staleSub()])
+      await moveSelect(noCatalog).setValue('v-10')
+      expect(lastEmitted(noCatalog)[0]).toMatchObject({ vlan_id: 'v-10', name: 'Gi0/0.30' })
+    })
+
+    it('если свободных VLAN нет — список переноса выключен и объясняет почему', () => {
+      const wrapper = mountEditor([staleSub()], { vlanOptions: [] })
+      expect(moveSelect(wrapper).attributes('disabled')).toBeDefined()
+      expect(moveSelect(wrapper).attributes('title')).toContain('Нет свободных VLAN')
+    })
+
+    it('у подинтерфейса на доступном VLAN списка переноса нет', () => {
+      expect(moveSelect(mountEditor([emptySubinterface('Gi0/0', vlans[1])])).exists()).toBe(false)
+    })
+  })
+
   it('правка имени, флагов и описания уходит в update:modelValue без потери остальных полей', async () => {
     const wrapper = mountEditor([emptySubinterface('Gi0/0', vlans[1])])
 

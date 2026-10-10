@@ -242,7 +242,9 @@ watch(portVlanOptions, (options, oldOptions) => {
   // Подинтерфейсы, в отличие от VLAN порта и групп, молча не удаляются (на них IP-адреса и открытые порты): остаются на
   // снятом VLAN, подсвечиваются в редакторе портов и блокируют сохранение. Предупреждаем сразу, а не 422 при сохранении.
   const subinterfaceNotice = subinterfaceVlanRemovalMessage(nextRows, previous, options)
-  if (subinterfaceNotice) notify(subinterfaceNotice, 'warning')
+  if (subinterfaceNotice) {
+    notify(subinterfaceNotice, 'warning', { action: { label: 'Показать', run: () => void interfacesEditor.value?.revealStaleSubinterfaces() } })
+  }
 
   const groups = interfaceGroups.value
   const nextGroups = groups.map((group) => {
@@ -988,6 +990,7 @@ async function submit() {
           :type-options="catalogs.items['interface-types'] ?? []"
           :speed-options="catalogs.items['interface-speeds'] ?? []"
           :vlan-options="portVlanOptions"
+          :vlan-catalog="vlansStore.allDefinitions"
           :conflicts="interfaceConflicts"
           :protocol-port-catalog="catalogs.protocolPortCatalog"
           :device-id="props.device?.id ?? null"
