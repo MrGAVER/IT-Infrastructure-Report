@@ -12,8 +12,18 @@
 // не перенесены только эти два узкоспециализированных сценария быстрого доступа прямо из формы
 // устройства, см. "Ещё не сделано" во frontend-vue/README.md.
 import type { CatalogItem, DeviceMemberDomain, DeviceVlanDraftRow, VLANDefinition, VLANDomain } from '../api/types'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { vlanLabel } from '../utils/vlan'
+import {
+  DEFAULT_VLAN_COLLAPSE_ROWS,
+  duplicateVlanRowIndexes,
+  duplicateVlansMessage,
+  exceedsCollapseLimit,
+  sortDeviceVlanRows,
+  sortVlanDefinitions,
+  usedVlanIds,
+  vlanOptionsForRow,
+} from '../utils/deviceVlans'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
@@ -33,18 +43,26 @@ import type { SearchableSelectOption } from './SearchableSelect.vue'
 // (pending: false) либо будет включено при сохранении формы (pending: true). Без этого списка после
 // нажатия "Включить" в блоке ничего не менялось: домен просто пропадал из выпадающего списка, а
 // факт включения виден был только после перезагрузки страницы (на экране доменов VLAN).
-const props = defineProps<{
-  modelValue: DeviceVlanDraftRow[]
-  vlanOptions: VLANDefinition[]
-  // Полный справочник VLAN (без фильтра по домену устройства) — нужен только чтобы подписать УЖЕ
-  // выбранный в строке VLAN, который фильтр vlanOptions скрыл (например, VLAN без домена,
-  // назначенный до включения устройства в домен): иначе поле строки выглядело бы пустым, хотя
-  // значение в черновике осталось. Не расширяет список выбора — см. rowOptions().
-  allVlanDefinitions?: VLANDefinition[]
-  deviceDomainId?: string | null
-  joinableDomains?: VLANDomain[]
-  memberDomains?: DeviceMemberDomain[]
-}>()
+//
+// collapseAfter — порог сворачивания блока: когда строк БОЛЬШЕ этого числа, список строк скрыт за
+// кнопкой «Развернуть» (значение задаётся пользователем в «Настройках», родитель берёт его из
+// stores/formPreferences.ts; сам редактор о сторе не знает).
+const props = withDefaults(
+  defineProps<{
+    modelValue: DeviceVlanDraftRow[]
+    vlanOptions: VLANDefinition[]
+    // Полный справочник VLAN (без фильтра по домену устройства) — нужен только чтобы подписать УЖЕ
+    // выбранный в строке VLAN, который фильтр vlanOptions скрыл (например, VLAN без домена,
+    // назначенный до включения устройства в домен): иначе поле строки выглядело бы пустым, хотя
+    // значение в черновике осталось. Не расширяет список выбора — см. rowOptions().
+    allVlanDefinitions?: VLANDefinition[]
+    deviceDomainId?: string | null
+    joinableDomains?: VLANDomain[]
+    memberDomains?: DeviceMemberDomain[]
+    collapseAfter?: number
+  }>(),
+  { collapseAfter: DEFAULT_VLAN_COLLAPSE_ROWS },
+)
 // vlan-created: полный список VLAN (vlanOptions) собирается родителем из useVLANsStore(), а не
 // из catalogs — generic QuickAddModal.vue пишет созданную запись только в catalogs.items['vlans'],
 // поэтому родителю нужно узнать о создании и перезагрузить vlansStore (см. DeviceFormModal.vue),
@@ -75,11 +93,27 @@ function joinDomain() {
   selectedJoinDomainId.value = ''
 }
 
-/** Опции SearchableSelect для строки: vlanOptions (уже отфильтрованные по домену устройства) плюс
- * сам выбранный в этой строке VLAN, если фильтр его скрыл — чтобы не терять видимость уже
+// Справочник для сортировки строк и подписей: все определения VLAN (allVlanDefinitions), а если они не
+// переданы — хотя бы доступные для выбора (vlanOptions).
+const definitions = computed<VLANDefinition[]>(() => {
+  const byId = new Map<string, VLANDefinition>()
+  for (const d of props.vlanOptions) byId.set(d.id, d)
+  for (const d of props.allVlanDefinitions ?? []) byId.set(d.id, d)
+  return [...byId.values()]
+})
+
+// Правило «как у открытых портов»: уже добавленный VLAN повторно не предлагается, а список выбора
+// упорядочен по номеру VLAN. Считается один раз на изменение черновика, а не на каждую строку.
+const usedIds = computed(() => usedVlanIds(props.modelValue))
+const sortedVlanOptions = computed(() => sortVlanDefinitions(props.vlanOptions))
+// Все доступные VLAN уже добавлены — выбирать не из чего (подсказка вместо «Ничего не найдено»).
+const allVlansTaken = computed(() => props.vlanOptions.length > 0 && props.vlanOptions.every((v) => usedIds.value.has(v.id)))
+
+/** Опции SearchableSelect для строки: доступные VLAN БЕЗ уже выбранных в других строках, плюс сам
+ * выбранный в этой строке VLAN, если фильтр домена его скрыл — чтобы не терять видимость уже
  * сделанного выбора. Другие строки такой "лишний" VLAN в своих опциях не получают. */
 function rowOptions(row: DeviceVlanDraftRow): SearchableSelectOption[] {
-  const options = props.vlanOptions.map((v) => ({ value: v.id, label: vlanLabel(v) }))
+  const options = vlanOptionsForRow(sortedVlanOptions.value, usedIds.value, row.vlan_id).map((v) => ({ value: v.id, label: vlanLabel(v) }))
   if (row.vlan_id && !options.some((o) => o.value === row.vlan_id)) {
     const selected = props.allVlanDefinitions?.find((v) => v.id === row.vlan_id)
     if (selected) options.unshift({ value: selected.id, label: vlanLabel(selected) })
@@ -87,12 +121,45 @@ function rowOptions(row: DeviceVlanDraftRow): SearchableSelectOption[] {
   return options
 }
 
+// Повторы подсвечиваются, а само сохранение блокирует форма-владелец (utils/deviceVlans.ts:duplicateVlansMessage).
+const duplicateIndexes = computed(() => duplicateVlanRowIndexes(props.modelValue))
+const duplicateMessage = computed(() => duplicateVlansMessage(props.modelValue, definitions.value))
+
+// Сворачивание: свёрнуто, когда строк больше порога и пользователь не развернул блок вручную. Флаг
+// сбрасывается, как только строк снова не больше порога, — следующее превышение опять свернёт блок.
+const expanded = ref(false)
+const exceedsLimit = computed(() => exceedsCollapseLimit(props.modelValue.length, props.collapseAfter))
+const collapsed = computed(() => exceedsLimit.value && !expanded.value)
+watch(exceedsLimit, (exceeds) => {
+  if (!exceeds) expanded.value = false
+})
+
+const SUMMARY_LIMIT = 12
+// Номера VLAN выбранных строк — краткая сводка вместо скрытого списка (по порядку строк).
+const collapsedSummary = computed(() => {
+  const byId = new Map(definitions.value.map((d) => [d.id, d]))
+  const numbers = props.modelValue.filter((r) => r.vlan_id).map((r) => byId.get(r.vlan_id)?.vlan_id)
+  const shown = numbers.slice(0, SUMMARY_LIMIT).map((n) => (n === undefined ? '?' : String(n)))
+  return numbers.length > SUMMARY_LIMIT ? `${shown.join(', ')}, …` : shown.join(', ')
+})
+
+/** Развернуть блок (форма вызывает это, когда ошибка сохранения относится к скрытой строке). */
+function expand() {
+  expanded.value = true
+}
+defineExpose({ expand })
+
 function emptyRow(): DeviceVlanDraftRow {
   return { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }
 }
 
+// Список упорядочивается по номеру VLAN не в момент правки строки (иначе заполняемая строка «уезжала» бы
+// из-под курсора), а когда пользователь добавляет следующую: заполненные строки встают по возрастанию,
+// новая пустая — в конец. Как у открытых портов (OpenPortListEditor.vue:addRow).
 function addRow() {
-  emit('update:modelValue', [...props.modelValue, emptyRow()])
+  // Пользователь работает со списком — новая строка не должна тут же скрыться из-за порога.
+  if (exceedsCollapseLimit(props.modelValue.length + 1, props.collapseAfter)) expanded.value = true
+  emit('update:modelValue', [...sortDeviceVlanRows(props.modelValue, definitions.value), emptyRow()])
 }
 
 function removeRow(index: number) {
@@ -122,8 +189,22 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 <template>
   <div class="nested-editor">
     <div class="nested-head">
-      <b>VLAN устройства</b>
-      <span class="hint">VLAN может быть локальным для устройства или принадлежать общему домену. Один VLAN ID может иметь разные названия на разных устройствах.</span>
+      <div class="nested-title">
+        <b>VLAN устройства</b>
+        <span class="hint">VLAN может быть локальным для устройства или принадлежать общему домену. Один VLAN ID может иметь разные названия на разных устройствах.</span>
+      </div>
+      <!-- Кнопка видна только когда строк больше порога: иначе сворачивать нечего. -->
+      <button
+        v-if="exceedsLimit"
+        type="button"
+        class="btn btn-secondary collapse-toggle"
+        :aria-expanded="!collapsed"
+        data-testid="vlan-collapse-toggle"
+        @click="expanded = !expanded"
+      >
+        <svg class="icon chev" :class="{ open: !collapsed }"><use href="/icons.svg#i-chevd" /></svg>
+        {{ collapsed ? `Развернуть (${modelValue.length})` : 'Свернуть' }}
+      </button>
     </div>
 
     <div v-if="memberDomains && memberDomains.length" class="member-domains" data-testid="member-domains">
@@ -145,40 +226,52 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 
     <div v-if="!modelValue.length" class="empty">VLAN не назначены</div>
 
-    <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
-      <div class="col-vlan lookup-row">
-        <SearchableSelect
-          :model-value="row.vlan_id"
-          :options="rowOptions(row)"
-          placeholder="— VLAN —"
-          @update:model-value="(value) => updateField(i, { vlan_id: value })"
-        />
-        <QuickAddButton
-          resource="vlans"
-          title="VLAN"
-          :initial-values="deviceDomainId ? { domain_id: deviceDomainId } : undefined"
-          @created="(r: CatalogItem) => onVlanCreated(i, r)"
-          @nested-created="onNestedCreated"
-        />
-      </div>
-      <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />
-      <input
-        class="col-prefix"
-        type="number"
-        min="0"
-        max="128"
-        placeholder="Префикс"
-        :value="row.prefix_length"
-        @input="updateField(i, { prefix_length: ($event.target as HTMLInputElement).value })"
-      />
-      <label class="col-mgmt">
-        <input type="checkbox" :checked="row.is_management" @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })" />
-        Управление
-      </label>
-      <button type="button" class="icon-btn danger" aria-label="Удалить VLAN" @click="removeRow(i)">
-        <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-      </button>
+    <!-- Свёрнуто: вместо строк — сводка с номерами VLAN. -->
+    <div v-else-if="collapsed" class="collapsed-summary" data-testid="vlan-collapsed">
+      <span>Назначено VLAN: <b>{{ modelValue.length }}</b></span>
+      <span v-if="collapsedSummary" class="summary-numbers" :title="collapsedSummary">{{ collapsedSummary }}</span>
+      <span class="hint">Список свёрнут (порог — {{ collapseAfter }} строк, меняется в «Настройках»).</span>
     </div>
+
+    <template v-else>
+      <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row" :class="{ 'row-duplicate': duplicateIndexes.has(i) }">
+        <div class="col-vlan lookup-row">
+          <SearchableSelect
+            :model-value="row.vlan_id"
+            :options="rowOptions(row)"
+            placeholder="— VLAN —"
+            :empty-text="allVlansTaken ? 'Все доступные VLAN уже добавлены' : undefined"
+            @update:model-value="(value) => updateField(i, { vlan_id: value })"
+          />
+          <QuickAddButton
+            resource="vlans"
+            title="VLAN"
+            :initial-values="deviceDomainId ? { domain_id: deviceDomainId } : undefined"
+            @created="(r: CatalogItem) => onVlanCreated(i, r)"
+            @nested-created="onNestedCreated"
+          />
+        </div>
+        <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />
+        <input
+          class="col-prefix"
+          type="number"
+          min="0"
+          max="128"
+          placeholder="Префикс"
+          :value="row.prefix_length"
+          @input="updateField(i, { prefix_length: ($event.target as HTMLInputElement).value })"
+        />
+        <label class="col-mgmt">
+          <input type="checkbox" :checked="row.is_management" @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })" />
+          Управление
+        </label>
+        <button type="button" class="icon-btn danger" aria-label="Удалить VLAN" @click="removeRow(i)">
+          <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+        </button>
+      </div>
+    </template>
+
+    <div v-if="duplicateMessage" class="dup-error" role="alert">{{ duplicateMessage }}</div>
 
     <button type="button" class="btn btn-secondary add-btn" @click="addRow">
       <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
@@ -212,8 +305,55 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 }
 .nested-head {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.nested-title {
+  display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+}
+.collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 4px 9px;
+}
+.collapse-toggle .chev {
+  transition: transform 0.15s;
+}
+.collapse-toggle .chev.open {
+  transform: rotate(180deg);
+}
+.collapsed-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-s);
+  padding: 7px 9px;
+}
+.summary-numbers {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+}
+.row-duplicate :deep(.searchable-select input) {
+  border-color: var(--status-crit);
+}
+.dup-error {
+  font-size: 11.5px;
+  color: var(--status-crit);
 }
 .nested-head b {
   font-size: 12.5px;
