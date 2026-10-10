@@ -15,6 +15,7 @@ import {
   movedOrder,
   payloadFromDraft,
   validateRuleDraft,
+  VLAN_POLICY_OPTIONS,
 } from '../portSyncRules'
 import type { PortSyncRule } from '../../api/types'
 
@@ -237,5 +238,56 @@ describe('portSyncRules utils — политика «объединить»', ()
     expect(summaryLine({ ...base, partial: 2 })).toBe('проверено подключений: 4 · будет согласовано: 4 · расхождение останется у: 2')
     expect(summaryLine({ ...base, partial: 0 })).toBe('проверено подключений: 4 · будет согласовано: 4') // нулевой счётчик не показывается
     expect(summaryLine(base)).toBe('проверено подключений: 4 · будет согласовано: 4') // старый ответ без partial
+  })
+})
+
+
+describe('portSyncRules utils — политика «все VLAN»', () => {
+  const allVlans = rule({
+    target: { role: 'any', mode: 'trunk', vlans: 'any' },
+    source: { role: 'any', mode: 'trunk', vlans: 'all' },
+    apply: { role: false, mode: false, vlans: 'all' },
+  })
+
+  it('политика есть в списке выбора', () => {
+    expect(VLAN_POLICY_OPTIONS.map((o) => o.value)).toContain('all')
+    expect(VLAN_POLICY_OPTIONS.find((o) => o.value === 'all')?.label).toContain('все VLAN')
+  })
+
+  it('describeApply и describeRule: порту назначаются все VLAN его устройства, а не VLAN соседа', () => {
+    expect(describeApply(allVlans)).toBe('все VLAN его устройства («Все VLAN»)')
+    const sentence = describeRule(allVlans)
+    expect(sentence).toContain('соседний порт: режим trunk, назначены все VLAN')
+    expect(sentence).toContain('порту применяется: все VLAN его устройства («Все VLAN»)')
+    expect(sentence).not.toContain('соседнего порта') // «Все VLAN» не берутся у соседа — их определяет устройство порта
+  })
+
+  it('describeRule: «все VLAN» вместе с ролью и режимом — роль и режим берутся у соседа, «все VLAN» — нет', () => {
+    const sentence = describeRule({ ...allVlans, apply: { role: true, mode: true, vlans: 'all' } })
+
+    expect(sentence).toContain('порту применяется: роль, режим соседнего порта, все VLAN его устройства («Все VLAN»)')
+  })
+
+  it('describeRule: ручное правило с «все VLAN»', () => {
+    const sentence = describeRule({ ...allVlans, action: 'manual' })
+
+    expect(sentence).toContain('расхождение требует решения человека (порту можно применить: все VLAN его устройства («Все VLAN»))')
+  })
+
+  it('optionLine: вариант ручного решения «Все VLAN» без номеров', () => {
+    const item = {
+      source: { interface_id: 'a', name: 'Gi0/1', device_id: null, device_name: 'sw-1', role: 'data' as const, mode: 'trunk' as const, vlans: [10] },
+      destination: { interface_id: 'b', name: 'Gi0/2', device_id: null, device_name: 'sw-2', role: 'data' as const, mode: 'trunk' as const, vlans: [10, 20] },
+    }
+
+    expect(optionLine({ target: 'source', changes: { role: null, mode: null, vlans: null, all_vlans: true } }, item)).toBe(
+      '«Gi0/1» (sw-1): VLAN → все VLAN устройства',
+    )
+  })
+
+  it('validateRuleDraft: правило с политикой «все VLAN» корректно и считается изменяющим для «Автоматически»', () => {
+    const base = { ...emptyRuleDraft(), name: 'Все VLAN соседу', apply: { role: false, mode: false, vlans: 'all' as const } }
+
+    expect(validateRuleDraft(base)).toBeNull()
   })
 })

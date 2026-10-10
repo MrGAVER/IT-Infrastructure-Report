@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft, vlanLabel } from '../vlan'
+import { filterVlansByQuery, filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft, vlanLabel } from '../vlan'
 import type { DeviceVlanDraftRow, VLANDefinition } from '../../api/types'
 
 function vlan(overrides: Partial<VLANDefinition> = {}): VLANDefinition {
@@ -154,5 +154,64 @@ describe('reconcileVlanIds', () => {
     const ids = ['a', 'b']
     reconcileVlanIds(ids, 'trunk', opts('a', 'b'), opts('a', 'b', 'c'))
     expect(ids).toEqual(['a', 'b'])
+  })
+})
+
+describe('filterVlansByQuery', () => {
+  const v = (id: string, vlan_id: number, name: string, domain_name = '') =>
+    ({ id, vlan_id, name, description: '', domain_id: null, domain_name, devices: [] }) as VLANDefinition
+  const list = [v('a', 10, 'Серверы', 'Филиал-1'), v('b', 20, 'Гости'), v('c', 110, 'Серверы управления')]
+
+  it('пустой и пробельный запрос возвращает тот же массив', () => {
+    expect(filterVlansByQuery(list, '')).toBe(list)
+    expect(filterVlansByQuery(list, '   ')).toBe(list)
+  })
+
+  it('ищет по номеру VLAN, имени и домену без учёта регистра', () => {
+    expect(filterVlansByQuery(list, '20').map((x) => x.id)).toEqual(['b'])
+    expect(filterVlansByQuery(list, 'ГОСТ').map((x) => x.id)).toEqual(['b'])
+    expect(filterVlansByQuery(list, 'филиал').map((x) => x.id)).toEqual(['a'])
+  })
+
+  it('несколько слов — все должны встретиться (в любом порядке), порядок исходного списка сохраняется', () => {
+    expect(filterVlansByQuery(list, 'серверы 110').map((x) => x.id)).toEqual(['c'])
+    expect(filterVlansByQuery(list, 'управления серверы').map((x) => x.id)).toEqual(['c'])
+    expect(filterVlansByQuery(list, 'серверы').map((x) => x.id)).toEqual(['a', 'c'])
+  })
+
+  it('ничего не найдено — пустой массив; исходный список не меняется', () => {
+    expect(filterVlansByQuery(list, 'нет такого')).toEqual([])
+    expect(list.map((x) => x.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('groupVlanRemovalMessage', () => {
+  const v = (id: string, vlan_id: number, name: string) =>
+    ({ id, vlan_id, name, description: '', domain_id: null, domain_name: '', devices: [] }) as VLANDefinition
+  const options = [v('a', 10, 'Серверы'), v('b', 20, 'Гости'), v('c', 30, 'Печать')]
+  const g = (name: string, vlan_ids: string[]) => ({ name, vlan_ids })
+
+  it('ни одна группа ничего не потеряла — null', () => {
+    const groups = [g('Транки', ['a', 'b'])]
+    expect(groupVlanRemovalMessage(groups, [g('Транки', ['a', 'b'])], options)).toBeNull()
+    expect(groupVlanRemovalMessage([], [], options)).toBeNull()
+  })
+
+  it('один VLAN убран из одной группы: в сообщении VLAN и название группы', () => {
+    const msg = groupVlanRemovalMessage([g('Транки', ['a', 'b'])], [g('Транки', ['a'])], options)
+    expect(msg).toBe('Снятые с устройства VLAN (20 — Гости) убраны и из групп портов: «Транки».')
+  })
+
+  it('несколько VLAN и групп: VLAN без повторов в порядке списка опций, затронутые группы по порядку, нетронутые не упоминаются', () => {
+    const before = [g('Транки', ['a', 'b', 'c']), g('Серверные', ['a']), g('Прочие', ['c'])]
+    const after = [g('Транки', ['a']), g('Серверные', ['a']), g('Прочие', [])]
+    expect(groupVlanRemovalMessage(before, after, options)).toBe(
+      'Снятые с устройства VLAN (20 — Гости, 30 — Печать) убраны и из групп портов: «Транки», «Прочие».',
+    )
+  })
+
+  it('группа без названия называется «без названия»; неизвестный VLAN показывается идентификатором', () => {
+    const msg = groupVlanRemovalMessage([g('', ['zzz'])], [g('', [])], options)
+    expect(msg).toBe('Снятые с устройства VLAN (zzz) убраны и из групп портов: «без названия».')
   })
 })

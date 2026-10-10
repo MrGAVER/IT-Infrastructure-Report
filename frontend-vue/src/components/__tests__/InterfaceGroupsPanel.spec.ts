@@ -199,6 +199,17 @@ describe('InterfaceGroupsPanel.vue', () => {
       expect(useToast().toasts.map((t) => t.message)).toEqual(['В группе «Серверные» номера открытых портов повторяются: 80.'])
     })
 
+    it('при сохранении открытые порты группы упорядочиваются по номеру и в таком порядке попадают в порты-участники', async () => {
+      const wrapper = mountWithPorts(['cat-https', 'cat-ssh'])
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const change = lastChange(wrapper)
+      expect(change.groups[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+      expect(change.rows[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+    })
+
     it('без повторов группа сохраняется', async () => {
       const wrapper = mountWithPorts(['cat-ssh', 'cat-https'])
 
@@ -402,6 +413,95 @@ describe('InterfaceGroupsPanel.vue', () => {
       expect(allCheckbox(wrapper).exists()).toBe(false)
       expect(pickerButton(wrapper).exists()).toBe(false)
       expect(wrapper.find('.vlan-param .empty').text()).toContain('VLAN не назначены')
+    })
+  })
+
+  describe('поиск в окне выбора VLAN группы', () => {
+    const manyVlans: VLANDefinition[] = [
+      { id: 'v10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v20', vlan_id: 20, name: 'Гости', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v30', vlan_id: 30, name: 'Печать', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v110', vlan_id: 110, name: 'Серверы управления', description: '', domain_id: null, domain_name: '', devices: [] },
+    ]
+
+    async function openPicker() {
+      const wrapper = mount(InterfaceGroupsPanel, { props: { rows: [row('Gi0/1')], groups: [], vlanOptions: manyVlans, protocolPortCatalog: catalog } })
+      await wrapper.find('.groups-head button').trigger('click')
+      await wrapper.findAll('input[name="group-mode"]')[2].trigger('change') // Trunk — все VLAN отмечены
+      await wrapper.find('.vlan-param .vlan-picker-btn').trigger('click')
+      return wrapper
+    }
+    type Wrapper = Awaited<ReturnType<typeof openPicker>>
+    const searchInput = (w: Wrapper) => w.find('.vlan-picker-modal .picker-search input')
+    const visibleLabels = (w: Wrapper) => w.findAll('.vlan-picker-modal .check-inline:not(.vlan-check-all)').map((l) => l.text())
+    const pickerSummary = (w: Wrapper) => w.find('.vlan-picker-modal .vlan-summary').text()
+    const inlineSummary = (w: Wrapper) => w.find('.vlan-param .vlan-summary').text()
+
+    it('в окне выбора есть поле поиска, при открытии оно пустое и показаны все VLAN', async () => {
+      const wrapper = await openPicker()
+      expect(searchInput(wrapper).exists()).toBe(true)
+      expect((searchInput(wrapper).element as HTMLInputElement).value).toBe('')
+      expect(visibleLabels(wrapper)).toEqual(['10 — Серверы', '20 — Гости', '30 — Печать', '110 — Серверы управления'])
+    })
+
+    it('ввод фильтрует список по номеру и имени, несколько слов — по всем сразу', async () => {
+      const wrapper = await openPicker()
+
+      await searchInput(wrapper).setValue('серверы')
+      expect(visibleLabels(wrapper)).toEqual(['10 — Серверы', '110 — Серверы управления'])
+
+      await searchInput(wrapper).setValue('серверы 110')
+      expect(visibleLabels(wrapper)).toEqual(['110 — Серверы управления'])
+
+      await searchInput(wrapper).setValue('30')
+      expect(visibleLabels(wrapper)).toEqual(['30 — Печать'])
+    })
+
+    it('если ничего не найдено — подсказка вместо списка', async () => {
+      const wrapper = await openPicker()
+      await searchInput(wrapper).setValue('нет такого')
+
+      expect(visibleLabels(wrapper)).toEqual([])
+      expect(wrapper.find('.vlan-picker-modal .picker-empty').text()).toBe('Ничего не найдено')
+
+      await searchInput(wrapper).setValue('')
+      expect(wrapper.find('.vlan-picker-modal .picker-empty').exists()).toBe(false)
+    })
+
+    it('отметка найденного VLAN при активном поиске не трогает скрытые; сводка считает все VLAN, а не только найденные', async () => {
+      const wrapper = await openPicker()
+      await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(false) // снять все
+      await searchInput(wrapper).setValue('гост')
+      expect(pickerSummary(wrapper)).toBe('Выбрано VLAN: 0 из 4')
+
+      await wrapper.find('.vlan-picker-modal .check-inline:not(.vlan-check-all) input').setValue(true) // «20 — Гости»
+      expect(pickerSummary(wrapper)).toBe('Выбрано VLAN: 1 из 4')
+      expect(inlineSummary(wrapper)).toBe('Выбрано VLAN: 1 из 4')
+
+      await searchInput(wrapper).setValue('')
+      const states = wrapper.findAll('.vlan-picker-modal .check-inline:not(.vlan-check-all) input').map((c) => (c.element as HTMLInputElement).checked)
+      expect(states).toEqual([false, true, false, false])
+    })
+
+    it('«Все VLAN» при активном поиске действует на ВСЕ VLAN, включая скрытые фильтром', async () => {
+      const wrapper = await openPicker()
+      await searchInput(wrapper).setValue('гост')
+
+      await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(false)
+      expect(pickerSummary(wrapper)).toBe('Выбрано VLAN: 0 из 4')
+
+      await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(true)
+      expect(pickerSummary(wrapper)).toBe('Выбрано VLAN: 4 из 4')
+    })
+
+    it('поиск сбрасывается при повторном открытии окна выбора', async () => {
+      const wrapper = await openPicker()
+      await searchInput(wrapper).setValue('серверы')
+      await wrapper.find('.vlan-picker-modal .modal-foot .btn-primary').trigger('click') // «Готово»
+
+      await wrapper.find('.vlan-param .vlan-picker-btn').trigger('click')
+      expect((searchInput(wrapper).element as HTMLInputElement).value).toBe('')
+      expect(visibleLabels(wrapper)).toHaveLength(4)
     })
   })
 

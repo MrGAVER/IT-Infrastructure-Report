@@ -25,7 +25,7 @@ def integrity_report(session: Session = Depends(get_db)):
 @router.get('/api/v1/integrity/open-port-duplicates')
 def open_port_duplicates_report(session: Session = Depends(get_db)):
     """Диагностика уже существующих повторов номеров открытых портов у одного владельца (ВМ, порт
-    устройства, группа портов) — данные, появившиеся до правила уникальности. Только чтение; новые
+    устройства, группа портов, протоколы информационной системы) — данные, появившиеся до правила уникальности. Только чтение; новые
     повторы API отклоняет с 422. ok=True и пустой duplicates — исправлять нечего."""
     duplicates = find_duplicate_open_port_numbers(session)
     return {'ok': not duplicates, 'total': len(duplicates), 'duplicates': duplicates}

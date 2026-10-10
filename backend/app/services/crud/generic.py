@@ -8,13 +8,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ...models import AuditLog, Connection, DeviceInterface, InformationSystem, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
+from ...models import AuditLog, Connection, DeviceInterface, InformationSystem, ISProtocol, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
 from ...constants import AuditAction
 from ..serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
 from ..integrity import integrity_error_response
 from .audit_log import _describe_update, audit
 from .columns import allowed_columns, model_for
-from .owned_rows import _validate_open_port_catalog, _validate_open_port_number_is_free
+from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
 from .payload import ensure_writable, validate_payload_schema
 from .validators import _release_rack_slot, validate_resource
 from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
@@ -96,6 +96,11 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     if model is OpenPort:
         _validate_open_port_catalog(data, session)
         _validate_open_port_number_is_free(data, session)
+    # Протоколы передачи данных ИС — те же открытые порты, только владелец одна ИС: номер порта в её
+    # пределах не повторяется (см. _validate_is_protocol_number_is_free).
+    if model is ISProtocol:
+        _validate_open_port_catalog(data, session)
+        _validate_is_protocol_number_is_free(data, session)
     validate_resource(model, data, session, confirm_duplicate=bool(payload.get('confirm_system_name_duplicate')), confirm_rack_reassign=bool(payload.get('confirm_rack_position_reassign')))
     _release_rack_slot(model, data, session)
     obj = model(**data); session.add(obj)
@@ -130,6 +135,11 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         # GET /integrity/open-port-duplicates показывает, где они есть).
         if any(proposed.get(k) != before.get(k) for k in ('protocol_catalog_id', 'owner_type', 'owner_id')):
             _validate_open_port_number_is_free(proposed, session, item_id)
+    if model is ISProtocol:
+        _validate_open_port_catalog(proposed, session)
+        # Как у открытых портов: правка только описания записи с уже существующим дублем не блокируется.
+        if any(proposed.get(k) != before.get(k) for k in ('protocol_catalog_id', 'information_system_id')):
+            _validate_is_protocol_number_is_free(proposed, session, item_id)
     validate_resource(model, proposed, session, item_id, bool(payload.get('confirm_system_name_duplicate')), bool(payload.get('confirm_rack_position_reassign')))
     _release_rack_slot(model, proposed, session, item_id)
     for key, value in payload.items():

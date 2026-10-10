@@ -126,3 +126,53 @@ describe('ISProtocolsListEditor.vue', () => {
     expect(lastRows[0]).toMatchObject({ protocol_catalog_id: 'cat-new' })
   })
 })
+
+// Протоколы ИС — те же открытые порты, что у ВМ: сортировка только при добавлении следующей строки,
+// подсветка повторов номера порта (сохранение с повтором блокирует форма ИС).
+describe('ISProtocolsListEditor.vue — как открытые порты ВМ', () => {
+  const wide: ProtocolPortCatalogEntry[] = [
+    { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
+    { id: 'cat-http', port: 80, protocol_type: 'HTTP', description: null },
+    { id: 'cat-http-alt', port: 80, protocol_type: 'HTTP-Proxy', description: null },
+    { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
+  ]
+  const proto = (protocol_catalog_id: string, description = ''): ISProtocolDraftRow => ({ protocol_catalog_id, description })
+
+  it('«+ Протокол» упорядочивает заполненные строки по номеру порта и добавляет пустую в конец', async () => {
+    const rows = [proto('cat-https', 'b'), proto('cat-ssh', 'a'), proto('')]
+    const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: rows, catalogEntries: wide } })
+
+    await wrapper.find('button.add-btn').trigger('click')
+
+    const next = wrapper.emitted('update:modelValue')![0][0] as ISProtocolDraftRow[]
+    expect(next.map((r) => r.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https', '', ''])
+  })
+
+  it('выбор записи справочника и правка описания не переставляют строки', async () => {
+    const rows = [proto('cat-https'), proto('')]
+    const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: rows, catalogEntries: wide } })
+
+    await wrapper.findAll('.col-catalog .searchable-select input')[1].trigger('focus')
+    await wrapper.findAll('.col-catalog')[1].find('.ss-option').trigger('mousedown') // первая в списке — 22 / SSH
+    await wrapper.findAll('input.col-desc')[0].setValue('внешний')
+
+    const emitted = wrapper.emitted('update:modelValue')!
+    expect((emitted[0][0] as ISProtocolDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh'])
+    expect((emitted[1][0] as ISProtocolDraftRow[]).map((r) => r.protocol_catalog_id)).toEqual(['cat-https', ''])
+  })
+
+  it('подсвечивает строки с повторяющимся номером порта (80/HTTP и 80/HTTP-Proxy) и показывает сообщение', () => {
+    const rows = [proto('cat-http'), proto('cat-ssh'), proto('cat-http-alt')]
+    const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: rows, catalogEntries: wide } })
+
+    const marked = wrapper.findAll('.nested-row').map((r) => r.classes('row-duplicate'))
+    expect(marked).toEqual([true, false, true])
+    expect(wrapper.find('.dup-error').text()).toContain('Порт 80')
+  })
+
+  it('без повторов сообщения и подсветки нет; пустые строки повтором не считаются', () => {
+    const wrapper = mount(ISProtocolsListEditor, { props: { modelValue: [proto('cat-ssh'), proto(''), proto('')], catalogEntries: wide } })
+    expect(wrapper.find('.dup-error').exists()).toBe(false)
+    expect(wrapper.find('.row-duplicate').exists()).toBe(false)
+  })
+})

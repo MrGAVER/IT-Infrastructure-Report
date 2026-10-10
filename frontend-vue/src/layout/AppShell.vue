@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
 import ToastHost from '../components/ToastHost.vue'
+import PortSyncPlanHost from '../components/PortSyncPlanHost.vue'
 
 const sidebarOpen = ref(false)
 const route = useRoute()
@@ -44,6 +45,7 @@ const heading = computed(
       </div>
     </div>
     <ToastHost />
+    <PortSyncPlanHost />
   </div>
 </template>
 

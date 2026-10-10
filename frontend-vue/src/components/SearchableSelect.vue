@@ -58,6 +58,8 @@ function matchesSearch(option: SearchableSelectOption, tokens: readonly string[]
   return tokens.every((token) => haystack.includes(token))
 }
 
+const NOT_FOUND_TEXT = 'Ничего не найдено'
+
 const props = withDefaults(
   defineProps<{
     modelValue: string
@@ -70,10 +72,16 @@ const props = withDefaults(
     loading?: boolean
     /** Строка-пояснение под списком опций (например, что показана только часть найденного). */
     hint?: string
+    /** Что показать, когда options пуст ИЗНУТРИ (выбирать не из чего: например, «Все ВМ уже добавлены»). Не
+     * подменяет «Ничего не найдено» там, где опции есть, а не подошёл введённый запрос. */
+    emptyText?: string
   }>(),
-  { placeholder: '— не выбрано —', disabled: false, remote: false, loading: false, hint: '' },
+  { placeholder: '— не выбрано —', disabled: false, remote: false, loading: false, hint: '', emptyText: NOT_FOUND_TEXT },
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string]; search: [query: string] }>()
+
+// Опции есть, но запрос ничего не нашёл — всегда «Ничего не найдено»; свой текст — только когда выбирать не из чего.
+const emptyLabel = computed(() => (props.options.length ? NOT_FOUND_TEXT : props.emptyText))
 
 const open = ref(false)
 const query = ref('')
@@ -221,7 +229,7 @@ function onEnter() {
     </div>
 
     <div v-if="open" class="ss-panel" role="listbox">
-      <div v-if="!filteredOptions.length" class="ss-empty">{{ loading ? 'Загрузка…' : 'Ничего не найдено' }}</div>
+      <div v-if="!filteredOptions.length" class="ss-empty">{{ loading ? 'Загрузка…' : emptyLabel }}</div>
       <template v-for="g in groupedOptions" :key="g.group ?? '__ungrouped'">
         <div v-if="g.group" class="ss-group-label">{{ g.group }}</div>
         <button

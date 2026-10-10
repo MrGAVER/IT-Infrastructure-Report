@@ -77,7 +77,7 @@ ALLOWED_DELETIONS = {
     ("app/services/crud/interfaces.py", "_sync_group_open_ports", "row"),
     ("app/services/crud/interfaces.py", "_apply_group_to_interface", "link"),
     ("app/services/crud/interfaces.py", "_apply_group_to_interface", "extra"),
-    ("app/services/crud/interfaces.py", "_apply_group_to_interface", "row"),
+    ("app/services/crud/interfaces.py", "_apply_group_open_ports", "row"),
     # каскадная смена режима порта (services/vlan_mode_cascade.py): при trunk -> access у порта и группы
     # остаётся один VLAN — снимаются лишние назначения VLAN (InterfaceVLAN у порта, InterfaceGroupVLAN
     # у группы). Это дочерние записи, не входящие в защищаемые модели; сами порты, группы и VLAN не

@@ -131,3 +131,56 @@ export function reconcileVlanIds(
   }
   return next
 }
+
+/**
+ * Фильтрует список VLAN по строке поиска (окно выбора VLAN группы портов). Ищет по тому же тексту, что
+ * видит пользователь, — vlanLabel(): номер, имя и домен, без учёта регистра. Запрос из нескольких слов —
+ * должны встретиться ВСЕ слова, в любом порядке («серверы 110»). Порядок исходного списка сохраняется.
+ * Пустой запрос возвращает ТОТ ЖЕ массив (не создаёт лишнего реактивного апдейта).
+ *
+ * @example
+ * filterVlansByQuery(vlans, 'гост 20') // [{ vlan_id: 20, name: 'Гостевой', ... }]
+ */
+export function filterVlansByQuery<T extends VLANDefinition>(vlans: T[], query: string): T[] {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!tokens.length) return vlans
+  return vlans.filter((v) => {
+    const label = vlanLabel(v).toLowerCase()
+    return tokens.every((token) => label.includes(token))
+  })
+}
+
+/**
+ * Текст уведомления, когда VLAN, снятые с устройства, были убраны и из групп портов (reconcileVlanIds
+ * делает это молча — пользователь должен узнать, что группа изменилась). Возвращает null, если ни одна
+ * группа ничего не потеряла.
+ *
+ * `before` и `after` сопоставляются ПО ИНДЕКСУ (после reconcileVlanIds порядок групп не меняется).
+ * VLAN в сообщении — без повторов, в порядке списка прежних опций (oldOptions); VLAN, которого в опциях
+ * нет, показывается идентификатором. Группы — в порядке списка, нетронутые не упоминаются.
+ *
+ * @example
+ * groupVlanRemovalMessage([{ name: 'Транки', vlan_ids: ['a', 'b'] }], [{ name: 'Транки', vlan_ids: ['a'] }], options)
+ * // 'Снятые с устройства VLAN (20 — Гости) убраны и из групп портов: «Транки».'
+ */
+export function groupVlanRemovalMessage(
+  before: readonly { name: string; vlan_ids: string[] }[],
+  after: readonly { name: string; vlan_ids: string[] }[],
+  oldOptions: readonly VLANDefinition[],
+): string | null {
+  const lostIds = new Set<string>()
+  const groupNames: string[] = []
+  before.forEach((group, i) => {
+    const kept = new Set(after[i]?.vlan_ids ?? [])
+    const lost = group.vlan_ids.filter((id) => !kept.has(id))
+    if (!lost.length) return
+    lost.forEach((id) => lostIds.add(id))
+    groupNames.push(`«${group.name.trim() || 'без названия'}»`)
+  })
+  if (!groupNames.length) return null
+
+  const labelById = new Map(oldOptions.map((v) => [v.id, vlanLabel(v)]))
+  const orderedIds = [...oldOptions.map((v) => v.id).filter((id) => lostIds.has(id)), ...[...lostIds].filter((id) => !labelById.has(id))]
+  const labels = orderedIds.map((id) => labelById.get(id) ?? id)
+  return `Снятые с устройства VLAN (${labels.join(', ')}) убраны и из групп портов: ${groupNames.join(', ')}.`
+}

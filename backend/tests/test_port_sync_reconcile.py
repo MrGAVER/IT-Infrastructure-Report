@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from app.models import AuditLog, Connection, DeviceInterface, InterfaceGroup, InterfaceVLAN, IPAddress, PhysicalDeviceVLAN, VLAN
-from app.services.port_sync_rules import EMPTY_TRUNK_RULE, ROLE_MATCH_RULE, TRUNK_VLANS_UNION_RULE
+from app.services.port_sync_rules import ALL_VLANS_BOTH_RULE, ALL_VLANS_RULE, EMPTY_TRUNK_RULE, ROLE_MATCH_RULE, TRUNK_VLANS_UNION_RULE
 
 PREVIEW = "/api/v1/port-sync/preview"
 APPLY = "/api/v1/port-sync/apply"
@@ -106,8 +106,11 @@ def world(client, db_session) -> World:
     return World(client, db_session)
 
 
-def _empty_trunk_pair(world: World, *, neighbor_vlans=(10, 20), allowed=(10, 20)):
-    """a — порт с пустым trunk, b — trunk с VLAN; оба устройства знают нужные VLAN."""
+def _empty_trunk_pair(world: World, *, neighbor_vlans=(10, 20), allowed=(10, 20, 30)):
+    """a — порт с пустым trunk, b — trunk с VLAN; оба устройства знают нужные VLAN.
+
+    По умолчанию VLAN 30 доступен устройствам, но не назначен соседу: назначь он всё доступное устройству —
+    это было бы «Все VLAN», и порт перехватило бы правило «Все VLAN → Все VLAN у соседа», а не «пустой trunk»."""
     (a,) = world.device("EMPTY-A", ["Gi0/1"], allowed=allowed)
     (b,) = world.device("FULL-B", ["Gi0/1"], allowed=allowed)
     world.configure(b, mode="trunk", vlans=neighbor_vlans)
@@ -587,7 +590,7 @@ def test_apply_merges_vlans_on_both_ports_and_clears_the_mismatch(world):
 
 
 def test_a_trunk_port_that_already_carries_everything_is_left_alone(world):
-    a, b, _c = _trunk_pair(world, a_vlans=(10, 20, 30), b_vlans=(20,))
+    a, b, _c = _trunk_pair(world, a_vlans=(10, 20, 30), b_vlans=(20,), a_allowed=(10, 20, 30, 50))  # A не «Все VLAN»
 
     plan = world.preview()
     assert [t["target"] for t in plan["items"][0]["targets"]] == ["destination"] and plan["items"][0]["target"] == "destination"
@@ -599,7 +602,7 @@ def test_a_trunk_port_that_already_carries_everything_is_left_alone(world):
 
 def test_a_vlan_the_device_does_not_have_is_skipped_for_that_port_only(world):
     # У устройства A нет VLAN 30: A остаётся как есть, B получает VLAN 10 и всё равно применяется.
-    a, b, connection = _trunk_pair(world, a_allowed=(10, 20))
+    a, b, connection = _trunk_pair(world, a_allowed=(10, 20, 50))  # 50 не назначен: A не «Все VLAN»
 
     plan = world.preview()
 
@@ -615,7 +618,7 @@ def test_a_vlan_the_device_does_not_have_is_skipped_for_that_port_only(world):
 
 
 def test_both_ports_blocked_blocks_the_connection(world):
-    a, b, _c = _trunk_pair(world, a_vlans=(10,), b_vlans=(20,), a_allowed=(10,), b_allowed=(20,))
+    a, b, _c = _trunk_pair(world, a_vlans=(10,), b_vlans=(20,), a_allowed=(10, 50), b_allowed=(20, 60))  # свободные 50/60 — ни один порт не «Все VLAN»
 
     plan = world.preview()
 
@@ -740,7 +743,7 @@ def test_a_complete_merge_is_not_partial(world):
 
 
 def test_a_blocked_half_of_the_pair_makes_the_connection_partial(world):
-    _trunk_pair(world, a_allowed=(10, 20))  # у A нет VLAN 30 — изменится только B
+    _trunk_pair(world, a_allowed=(10, 20, 50))  # у A нет VLAN 30 (а 50 свободен, A не «Все VLAN») — изменится только B
 
     plan = world.preview()
 
@@ -776,8 +779,277 @@ def test_partial_counts_connections_across_the_whole_plan_not_only_the_shown_ite
 
 
 def _trunk_pair_numbered(world: World, index: int):
-    (a,) = world.device(f"PART-A{index}", ["Gi0/1"], allowed=(10, 20))  # у A нет VLAN 30
+    (a,) = world.device(f"PART-A{index}", ["Gi0/1"], allowed=(10, 20, 50))  # у A нет VLAN 30; 50 свободен — A не «Все VLAN»
     (b,) = world.device(f"PART-B{index}", ["Gi0/1"], allowed=(10, 20, 30))
     world.configure(a, mode="trunk", vlans=(10, 20))
     world.configure(b, mode="trunk", vlans=(20, 30))
     return a, b, world.connect(a, b)
+
+
+# --- «Все VLAN» на порту → «Все VLAN» у соседа ----------------------------------------------------
+
+def _all_vlans_pair(world: World, *, a_allowed=(10, 20, 30), b_allowed=(10, 20, 30), a_vlans=(10,)):
+    """a — trunk с частью VLAN; b — trunk с «Все VLAN» (назначены все VLAN его устройства)."""
+    (a,) = world.device("ALLA", ["Gi0/1"], allowed=a_allowed)
+    (b,) = world.device("ALLB", ["Gi0/1"], allowed=b_allowed)
+    world.configure(a, mode="trunk", vlans=a_vlans)
+    world.configure(b, mode="trunk", vlans=b_allowed)
+    return a, b, world.connect(a, b)
+
+
+def test_all_vlans_port_gives_the_neighbor_all_vlans_of_its_own_device(world):
+    a, b, connection = _all_vlans_pair(world)
+
+    plan = world.preview()
+    world.apply(plan)
+
+    (item,) = plan["items"]
+    assert item["outcome"] == "auto" and item["rule"]["code"] == ALL_VLANS_RULE  # а не «объединение наборов»
+    assert item["target"] == "source" and item["changes"]["vlans"] == {"from": [10], "to": [10, 20, 30], "skipped": []}
+    assert item["partial"] is False and item["warnings"] == []
+    assert world.port(a)["vlans"] == [10, 20, 30] and world.port(b)["vlans"] == [10, 20, 30]
+    assert world.status(connection) == "ok"
+    assert world.audit("Согласование порта", "Gi0/1", "все")  # в журнале видно, что назначено «Все VLAN»
+
+
+def test_all_vlans_is_decided_by_the_neighbors_device_not_by_the_sources_numbers(world):
+    """У устройства соседа есть VLAN 40, которого нет у порта-источника: «Все VLAN» включает и его."""
+    a, _b, connection = _all_vlans_pair(world, a_allowed=(10, 20, 30, 40))
+
+    plan = world.preview()
+    world.apply(plan)
+
+    (item,) = plan["items"]
+    assert item["changes"]["vlans"]["to"] == [10, 20, 30, 40]
+    assert item["partial"] is True and "40" in item["warnings"][0]  # наборы всё равно различаются — предупреждаем до подтверждения
+    assert world.port(a)["vlans"] == [10, 20, 30, 40]
+    assert world.status(connection) == "mismatch"
+
+
+def test_all_vlans_never_removes_a_vlan_already_assigned_to_the_neighbor(world):
+    (a,) = world.device("KEEPA", ["Gi0/1"], allowed=(10, 20, 30))
+    (b,) = world.device("KEEPB", ["Gi0/1"], allowed=(10, 20, 30))
+    world.configure(a, mode="trunk", vlans=(10, 99))  # 99 есть в справочнике, но недоступен устройству a
+    world.configure(b, mode="trunk", vlans=(10, 20, 30))
+    world.connect(a, b)
+
+    world.apply()
+
+    assert world.port(a)["vlans"] == [10, 20, 30, 99]
+
+
+def test_all_vlans_second_apply_is_a_no_op(world):
+    _all_vlans_pair(world)
+    world.apply()
+
+    again = world.preview()
+
+    assert again["summary"]["connections"] == 0 and again["items"] == []
+
+
+def test_all_vlans_is_not_applied_to_a_port_of_a_group_that_sets_mode_and_vlans(world):
+    a, _b, _c = _all_vlans_pair(world)
+    iface = world.db.get(DeviceInterface, a)
+    group = InterfaceGroup(physical_device_id=iface.physical_device_id, name="Магистраль", vlan_mode="trunk")
+    world.db.add(group)
+    world.db.flush()
+    iface.group_id = group.id
+    world.db.commit()
+
+    plan = world.preview()
+
+    item = plan["items"][0]
+    assert item["outcome"] == "blocked" and "Магистраль" in item["reason"]
+    assert world.apply(plan)["applied"]["ports"] == 0 and world.port(a)["vlans"] == [10]
+
+
+def test_all_vlans_does_not_touch_a_neighbor_in_access_mode(world):
+    a, b, _c = _all_vlans_pair(world)
+    world.configure(a, mode="access", vlans=(10,))
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["rule"]["code"] != ALL_VLANS_RULE and item["outcome"] == "manual"  # «Все VLAN» в access невозможно
+    assert world.apply(plan)["applied"]["ports"] == 0 and world.port(a)["vlans"] == [10]
+
+
+# --- постраничный предпросмотр и кэш плана --------------------------------------------------------
+
+def _auto_pairs(world: World, count: int) -> list[str]:
+    """count подключений с решением auto (пустой trunk получает VLAN соседа)."""
+    ids = []
+    for index in range(count):
+        (a,) = world.device(f"PAGE-A{index}", ["Gi0/1"], allowed=(10, 20))
+        (b,) = world.device(f"PAGE-B{index}", ["Gi0/1"], allowed=(10, 20))
+        world.configure(b, mode="trunk", vlans=(10, 20))
+        ids.append(world.connect(a, b))
+    return ids
+
+
+@pytest.fixture()
+def compute_calls(monkeypatch) -> list[int]:
+    """Список, в который попадает запись при каждом расчёте плана (а не показе страницы из кэша)."""
+    from app.services import port_sync_reconcile
+
+    calls: list[int] = []
+    real = port_sync_reconcile._compute
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(port_sync_reconcile, "_compute", counting)
+    return calls
+
+
+def test_preview_pages_cover_the_whole_plan_once_in_a_stable_order(world):
+    _auto_pairs(world, 5)
+    full = world.preview()
+
+    first = world.preview(limit=2)
+    pages = [first]
+    for offset in (2, 4):
+        pages.append(world.preview(limit=2, offset=offset, plan_hash=first["plan_hash"]))
+
+    assert [len(p["items"]) for p in pages] == [2, 2, 1]
+    assert [p["page"] for p in pages] == [
+        {"offset": 0, "limit": 2, "total": 5, "has_more": True},
+        {"offset": 2, "limit": 2, "total": 5, "has_more": True},
+        {"offset": 4, "limit": 2, "total": 5, "has_more": False},
+    ]
+    assert [i["connection_id"] for p in pages for i in p["items"]] == [i["connection_id"] for i in full["items"]]
+    # Сводка и хеш — по всему плану и одинаковые на каждой странице; shown — число элементов в странице.
+    assert {p["plan_hash"] for p in pages} == {full["plan_hash"]}
+    assert all(p["summary"]["total_items"] == 5 and p["summary"]["applicable"] == 5 for p in pages)
+    assert [p["summary"]["shown"] for p in pages] == [2, 2, 1]
+
+
+def test_next_pages_are_served_from_the_cache_without_recomputing(world, compute_calls):
+    _auto_pairs(world, 4)
+
+    first = world.preview(limit=2)
+    second = world.preview(limit=2, offset=2, plan_hash=first["plan_hash"])
+    again = world.preview(limit=2, offset=0, plan_hash=first["plan_hash"])
+
+    assert len(compute_calls) == 1
+    assert len(second["items"]) == 2 and again["items"] == first["items"]
+
+
+def test_preview_without_plan_hash_always_recomputes(world, compute_calls):
+    _auto_pairs(world, 2)
+
+    world.preview(limit=1)
+    world.preview(limit=1)
+
+    assert len(compute_calls) == 2
+
+
+def test_cache_miss_recomputes_and_serves_the_same_plan(world, compute_calls):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 3)
+    first = world.preview(limit=2)
+    plan_cache.clear()  # срок снимка истёк / он вытеснен / запрос попал в другой воркер
+
+    second = world.preview(limit=2, offset=2, plan_hash=first["plan_hash"])
+
+    assert len(compute_calls) == 2
+    assert [i["connection_id"] for i in second["items"]] == [i["connection_id"] for i in world.preview()["items"]][2:]
+
+
+def test_page_of_a_plan_that_changed_after_a_cache_miss_is_409(world):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 3)
+    first = world.preview(limit=2)
+    plan_cache.clear()
+    # Пока снимка в кэше нет, появляется ещё одно подключение с расхождением — план другой.
+    (a,) = world.device("PAGE-A-NEW", ["Gi0/1"], allowed=(10, 20))
+    (b,) = world.device("PAGE-B-NEW", ["Gi0/1"], allowed=(10, 20))
+    world.configure(b, mode="trunk", vlans=(10, 20))
+    world.connect(a, b)
+
+    response = world.client.post(PREVIEW, json={"limit": 2, "offset": 2, "plan_hash": first["plan_hash"]})
+
+    assert response.status_code == 409, response.text
+
+
+def test_apply_never_uses_the_cache_and_drops_it(world, compute_calls):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 2)
+    plan = world.preview(limit=1)
+    assert len(plan_cache) == 1
+
+    world.apply(plan)
+
+    assert len(compute_calls) == 2  # предпросмотр + пересчёт при применении (кэш не читался)
+    assert len(plan_cache) == 0
+
+
+def test_rule_changes_drop_cached_plans(world):
+    from app.services.port_sync_plan_cache import plan_cache
+
+    _auto_pairs(world, 1)
+    world.preview()
+    assert len(plan_cache) == 1
+
+    rule = world.rule(EMPTY_TRUNK_RULE)
+    response = world.client.put(f"{RULES}/{rule['id']}", json={"enabled": False})
+
+    assert response.status_code == 200, response.text
+    assert len(plan_cache) == 0
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"offset": -1}, {"offset": "0"}, {"offset": True}, {"limit": 0}, {"limit": 100000}, {"limit": 1.5}, {"plan_hash": ""}, {"plan_hash": 5}],
+)
+def test_preview_rejects_malformed_page_parameters(world, body):
+    response = world.client.post(PREVIEW, json=body)
+    assert response.status_code == 422, response.text
+
+
+def test_offset_past_the_end_gives_an_empty_page(world):
+    _auto_pairs(world, 2)
+    first = world.preview(limit=1)
+
+    page = world.preview(limit=1, offset=10, plan_hash=first["plan_hash"])
+
+    assert page["items"] == [] and page["page"] == {"offset": 10, "limit": 1, "total": 2, "has_more": False}
+
+
+# --- «Все VLAN» на обоих портах, но номера различаются --------------------------------------------
+
+def test_all_vlans_on_both_ports_with_different_numbers_is_excluded_from_the_plan_not_blocked(world):
+    """У устройств разные наборы VLAN: ни «объединить», ни «взять набор» не поможет — пара остаётся как есть и
+    называется «Исключено правилом», а не «Нельзя применить» с непонятной причиной."""
+    (a,) = world.device("BOTHA", ["Gi0/1"], allowed=(10, 20, 30))
+    (b,) = world.device("BOTHB", ["Gi0/1"], allowed=(10, 20))
+    world.configure(a, mode="trunk", vlans=(10, 20, 30))
+    world.configure(b, mode="trunk", vlans=(10, 20))
+    connection = world.connect(a, b)
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["connection_id"] == connection and item["outcome"] == "ignored"
+    assert item["rule"]["code"] == ALL_VLANS_BOTH_RULE
+    assert plan["summary"]["ignored"] == 1 and plan["summary"]["blocked"] == 0 and plan["summary"]["applicable"] == 0
+    assert world.apply(plan)["applied"] == {"ports": 0, "connections": 0}
+    assert world.port(a)["vlans"] == [10, 20, 30] and world.port(b)["vlans"] == [10, 20]
+    assert world.status(connection) == "mismatch"  # в сверке расхождение остаётся: его можно одобрить на дашборде
+
+
+def test_all_vlans_on_both_ports_still_lets_a_role_mismatch_through(world):
+    (a,) = world.device("ROLEA", ["Gi0/1"], allowed=(10, 20, 30))
+    (b,) = world.device("ROLEB", ["Gi0/1"], allowed=(10, 20, 30))
+    world.configure(a, mode="trunk", vlans=(10, 20, 30))
+    world.configure(b, mode="trunk", vlans=(10, 20, 30), role=(True, False))
+    world.connect(a, b)
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["rule"]["code"] == ROLE_MATCH_RULE and item["outcome"] == "manual"  # роль решает человек, как и раньше

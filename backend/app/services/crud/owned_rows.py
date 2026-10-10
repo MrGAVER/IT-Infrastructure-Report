@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from ...models import DeployedSoftware, IPAddress, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, SoftwareAsset
+from ...models import DeployedSoftware, IPAddress, ISProtocol, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine, SoftwareAsset
 from ...constants import AuditAction, OwnerType
 from ..serialization import enrich_open_ports, serialize
 from ..integrity import integrity_error_response
@@ -35,6 +35,18 @@ def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> Protoc
 _OPEN_PORT_OWNER_LABELS = {OwnerType.VIRTUAL_MACHINE: 'Виртуальная машина', OwnerType.DEVICE_INTERFACE: 'Порт устройства', OwnerType.DEVICE_SUBINTERFACE: 'Подинтерфейс порта', OwnerType.PHYSICAL_DEVICE: 'Устройство'}
 
 
+def _ensure_port_number_is_free(model: type, owner_filters: list[Any], catalog_id: Any, label: str, session: Session, current_id: str | None) -> None:
+    """Общая проверка «номер порта записи справочника ещё не занят другой записью model с теми же
+    owner_filters» — для открытых портов (OpenPort, владелец — ВМ/порт) и протоколов ИС (ISProtocol).
+    Сверяется только эта запись с остальными (current_id исключается), а не весь список владельца."""
+    port = _resolve_protocol_catalog_entry(catalog_id, session).port
+    stmt = (select(model.id).join(ProtocolPortCatalog, ProtocolPortCatalog.id == model.protocol_catalog_id)
+            .where(*owner_filters, ProtocolPortCatalog.port == port).limit(1))
+    if current_id: stmt = stmt.where(model.id != current_id)
+    if session.scalar(stmt) is not None:
+        raise HTTPException(422, f'{label}: порт {port} уже добавлен — номера открытых портов не должны повторяться')
+
+
 def _validate_open_port_number_is_free(data: dict[str, Any], session: Session, current_id: str | None = None) -> None:
     """Номер порта новой/изменяемой записи open-ports не должен совпадать с номером другой записи
     ТОГО ЖЕ владельца (ВМ, порт устройства). Сверяется только эта запись с остальными, а не весь
@@ -42,13 +54,21 @@ def _validate_open_port_number_is_free(data: dict[str, Any], session: Session, c
     _validate_open_port_catalog() — он гарантирует, что запись справочника существует."""
     owner_type, owner_id = data.get('owner_type'), data.get('owner_id')
     if not owner_type or not owner_id: return
-    port = _resolve_protocol_catalog_entry(data.get('protocol_catalog_id'), session).port
-    stmt = (select(OpenPort.id).join(ProtocolPortCatalog, ProtocolPortCatalog.id == OpenPort.protocol_catalog_id)
-            .where(OpenPort.owner_type == owner_type, OpenPort.owner_id == owner_id, ProtocolPortCatalog.port == port).limit(1))
-    if current_id: stmt = stmt.where(OpenPort.id != current_id)
-    if session.scalar(stmt) is not None:
-        label = _OPEN_PORT_OWNER_LABELS.get(owner_type, 'Владелец')
-        raise HTTPException(422, f'{label}: порт {port} уже добавлен — номера открытых портов не должны повторяться')
+    _ensure_port_number_is_free(
+        OpenPort, [OpenPort.owner_type == owner_type, OpenPort.owner_id == owner_id],
+        data.get('protocol_catalog_id'), _OPEN_PORT_OWNER_LABELS.get(owner_type, 'Владелец'), session, current_id,
+    )
+
+
+def _validate_is_protocol_number_is_free(data: dict[str, Any], session: Session, current_id: str | None = None) -> None:
+    """То же правило для протоколов передачи данных ИС (is-protocols): номер порта не повторяется
+    в пределах одной информационной системы — как у открытых портов ВМ и порта устройства."""
+    system_id = data.get('information_system_id')
+    if not system_id: return
+    _ensure_port_number_is_free(
+        ISProtocol, [ISProtocol.information_system_id == system_id],
+        data.get('protocol_catalog_id'), 'Информационная система', session, current_id,
+    )
 
 
 def _validate_open_port_catalog(data: dict[str, Any], session: Session) -> None:

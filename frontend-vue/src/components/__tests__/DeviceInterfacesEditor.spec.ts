@@ -544,6 +544,27 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result[0].open_ports).toHaveLength(1) // у источника порты остаются как есть — это копирование, не перемещение
     })
 
+    it('копия открытых портов упорядочена по номеру порта, даже если у источника порядок был иной', async () => {
+      const catalog = [
+        { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
+        { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
+      ]
+      const port = (protocol_catalog_id: string, id: string) => ({ id, protocol_catalog_id, transport_protocol: 'TCP', description: '' })
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', open_ports: [port('cat-https', 'op-1'), port('cat-ssh', 'op-2')] },
+        { ...emptyRow(), name: 'eth1' },
+      ]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: catalog } })
+      await expandRow(wrapper, 0)
+
+      await wrapper.find('.copy-target-select').setValue('1')
+      await wrapper.find('.copy-ports-row button').trigger('click')
+
+      const result = wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[]
+      expect(result[1].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+      expect(result[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-https', 'cat-ssh']) // источник не тронут
+    })
+
     it('если у получателя уже есть порты — требует подтверждения и не заменяет их при отказе', async () => {
       vi.stubGlobal('confirm', vi.fn(() => false))
       const rows: InterfaceDraftRow[] = [

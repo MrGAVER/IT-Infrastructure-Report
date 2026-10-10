@@ -36,9 +36,25 @@ export interface PortSyncScope {
   rule_id?: string
 }
 
-/** План согласования — ничего не записывает. */
-export function previewPortSync(scope: PortSyncScope = {}) {
-  return api.post<PortSyncPlan>('/port-sync/preview', scope)
+/** Страница плана: offset/limit — какие элементы вернуть; planHash — хеш плана из ответа на первую страницу. */
+export interface PortSyncPageRequest {
+  offset?: number
+  limit?: number
+  planHash?: string
+}
+
+/**
+ * План согласования — ничего не записывает. Без `page` — первая страница (сервер отдаёт до 300 элементов), и
+ * считается план целиком. Следующие страницы запрашиваются с planHash первой: сервер берёт их из кэша без
+ * пересчёта, а если кэша уже нет и план изменился, отвечает 409 — предпросмотр нужно начать заново.
+ *
+ * @example
+ * const first = await previewPortSync(scope)
+ * const next = await previewPortSync(scope, { offset: first.items.length, planHash: first.plan_hash })
+ */
+export function previewPortSync(scope: PortSyncScope = {}, page: PortSyncPageRequest = {}) {
+  const { planHash, ...range } = page
+  return api.post<PortSyncPlan>('/port-sync/preview', { ...scope, ...range, ...(planHash ? { plan_hash: planHash } : {}) })
 }
 
 /** Применяет план; plan_hash — из предпросмотра, иначе сервер ответит 409. */

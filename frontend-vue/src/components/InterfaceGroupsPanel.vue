@@ -10,7 +10,8 @@ import { computed, ref, watch } from 'vue'
 import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
-import { vlanLabel } from '../utils/vlan'
+import { filterVlansByQuery, vlanLabel } from '../utils/vlan'
+import { sortOpenPortRows } from '../utils/openPorts'
 import {
   applyGroupsToRows,
   copyValuesFromRow,
@@ -94,7 +95,7 @@ watch(copySource, () => {
 function copyFromPort() {
   const row = copyRow.value
   if (!draft.value || !row || !canCopy.value) return
-  draft.value = copyValuesFromRow(draft.value, row, copyWhat.value)
+  draft.value = copyValuesFromRow(draft.value, row, copyWhat.value, props.protocolPortCatalog)
   const label = row.name || `#${Number(copySource.value) + 1}`
   const manyIps = copyWhat.value.ip && row.ips.filter((ip) => ip.ip_address.trim() !== '').length > 1
   notify(manyIps ? `Значения скопированы с порта «${label}». У порта несколько IP-адресов — скопирован первый.` : `Значения скопированы с порта «${label}».`, 'success')
@@ -145,6 +146,12 @@ function toggleAllVlans(checked: boolean) {
 // Выбор отдельных VLAN — во всплывающем окне (как в массовом редактировании портов): при большом числе
 // VLAN инлайновый список растягивал окно группы. В самом окне группы остаются «Все VLAN», сводка и кнопка.
 const vlanPickerOpen = ref(false)
+const vlanSearch = ref('')
+const filteredVlanOptions = computed(() => filterVlansByQuery(props.vlanOptions, vlanSearch.value))
+function openVlanPicker() {
+  vlanSearch.value = '' // поиск не переживает закрытие окна: при повторном открытии список полный
+  vlanPickerOpen.value = true
+}
 const selectedVlanCount = computed(() => (draft.value ? props.vlanOptions.filter((v) => draft.value!.vlan_ids.includes(v.id)).length : 0))
 const { onOverlayPointerDown: onPickerPointerDown, onOverlayClick: onPickerClick } = useOverlayDismiss(() => (vlanPickerOpen.value = false))
 
@@ -159,7 +166,9 @@ function saveDraft() {
     notify(error, 'error')
     return
   }
-  const normalized: InterfaceGroupDraft = { ...group, name: group.name.trim() }
+  // Окно группы закрывается — это «заново открытая» форма: открытые порты группы встают по возрастанию
+  // номера порта (так же они придут и в порты-участники, и при следующем открытии окна).
+  const normalized: InterfaceGroupDraft = { ...group, name: group.name.trim(), open_ports: sortOpenPortRows(group.open_ports, props.protocolPortCatalog) }
   const groups = draftIsNew.value ? [...props.groups, normalized] : props.groups.map((g) => (g.key === normalized.key ? normalized : g))
   // Состав группы → значения группы записываются в каждый её порт.
   const rows = applyGroupsToRows(setGroupMembers(props.rows, normalized.key, members.value), groups)
@@ -325,7 +334,7 @@ function summary(group: InterfaceGroupDraft): string {
                   <b>Все VLAN</b>
                 </label>
                 <span class="vlan-summary">Выбрано VLAN: {{ selectedVlanCount }} из {{ vlanOptions.length }}</span>
-                <button type="button" class="btn btn-secondary vlan-picker-btn" @click="vlanPickerOpen = true">Выбрать VLAN…</button>
+                <button type="button" class="btn btn-secondary vlan-picker-btn" @click="openVlanPicker">Выбрать VLAN…</button>
               </template>
             </div>
           </div>
@@ -383,15 +392,22 @@ function summary(group: InterfaceGroupDraft): string {
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
       </div>
+      <div class="picker-search">
+        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+        <input v-model="vlanSearch" type="text" placeholder="Поиск по номеру, имени, домену…" aria-label="Поиск VLAN" />
+      </div>
+      <div class="vlan-summary picker-summary">Выбрано VLAN: {{ selectedVlanCount }} из {{ vlanOptions.length }}</div>
       <div class="vlan-checks vlan-picker-list">
+        <!-- «Все VLAN» действует на ВСЕ VLAN устройства, а не только на найденные поиском -->
         <label class="check-inline vlan-check-all">
           <input type="checkbox" :checked="isAllVlansSelected" @change="toggleAllVlans(($event.target as HTMLInputElement).checked)" />
           <b>Все VLAN</b>
         </label>
-        <label v-for="v in vlanOptions" :key="v.id" class="check-inline">
+        <label v-for="v in filteredVlanOptions" :key="v.id" class="check-inline">
           <input type="checkbox" :checked="draft.vlan_ids.includes(v.id)" @change="toggleVlan(v.id, ($event.target as HTMLInputElement).checked)" />
           {{ vlanLabel(v) }}
         </label>
+        <span v-if="!filteredVlanOptions.length" class="picker-empty">Ничего не найдено</span>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn btn-primary" @click="vlanPickerOpen = false">Готово</button>
@@ -713,6 +729,34 @@ function summary(group: InterfaceGroupDraft): string {
 }
 .vlan-picker-modal .modal-foot {
   margin-top: 14px;
+}
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 7px 10px;
+  margin-top: 4px;
+}
+.picker-search .icon {
+  color: var(--ink-muted);
+}
+.picker-search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--ink);
+  font-size: 12.5px;
+  width: 100%;
+}
+.picker-summary {
+  margin: 8px 0;
+}
+.picker-empty {
+  font-size: 12.5px;
+  color: var(--ink-muted);
 }
 
 .ip-row {

@@ -41,7 +41,7 @@ import { vlanLabel } from '../utils/vlan'
 import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
-import { duplicatePortNumbers } from '../utils/openPorts'
+import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
 import {
   SELF_DEVICE,
   changedConnectionRowIds,
@@ -881,7 +881,8 @@ function copyPortsTo(sourceIndex: number, targetIndex: number) {
     const ok = confirm(`На порту «${targetLabel}» уже есть открытые порты (${target.open_ports.length} шт.) — заменить их копией с «${sourceLabel}» (${source.open_ports.length} шт.)?`)
     if (!ok) return
   }
-  updateRow(targetIndex, { open_ports: source.open_ports.map((p) => ({ ...p, id: undefined })) })
+  // Копия упорядочивается по номеру порта — как список, к которому пользователь добавил порт кнопкой.
+  updateRow(targetIndex, { open_ports: sortOpenPortRows(source.open_ports.map((p) => ({ ...p, id: undefined })), props.protocolPortCatalog) })
   notify(`Открытые порты скопированы с «${sourceLabel}» на «${targetLabel}».`, 'success')
   setCopyTarget(sourceIndex, '')
 }

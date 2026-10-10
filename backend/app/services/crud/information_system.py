@@ -1,18 +1,30 @@
 """Детали информационной системы: связанные таблицы и источники."""
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ...models import IPAddress, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset
+from ...models import Container, IPAddress, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, ProtocolPortCatalog, VirtualMachine
 from ...constants import AuditAction, SourceType, OwnerType
 from ..serialization import serialize
 from ..integrity import integrity_error_response
-from ..validation import validate_ipv4_field
+from ..validation import validate_ipv4_field, validate_unique_open_port_numbers
 from .audit_log import audit
+
+
+def _load_protocols(system_id: str, session: Session) -> list[ISProtocol]:
+    """Протоколы ИС по возрастанию номера порта (как открытые порты ВМ): форма показывает их в этом
+    порядке без собственной сортировки. Равные номера — по id, чтобы порядок был стабильным."""
+    return list(session.scalars(
+        select(ISProtocol)
+        .join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id)
+        .where(ISProtocol.information_system_id == system_id)
+        .order_by(ProtocolPortCatalog.port, ISProtocol.id)
+    ).all())
 
 
 def get_information_system_details(system_id: str, session: Session) -> dict[str, Any]:
@@ -28,7 +40,7 @@ def get_information_system_details(system_id: str, session: Session) -> dict[str
             ips_by_source.setdefault(ip.owner_id, []).append(serialize(ip))
     return {
         'departments': [serialize(x) for x in session.scalars(select(ISDepartment).where(ISDepartment.information_system_id == system_id)).all()],
-        'protocols': [serialize(x) for x in session.scalars(select(ISProtocol).where(ISProtocol.information_system_id == system_id)).all()],
+        'protocols': [serialize(x) for x in _load_protocols(system_id, session)],
         'sources': [{**serialize(x), 'ips': ips_by_source.get(x.id, [])} for x in sources],
         'placement_assets': [serialize(x) for x in session.scalars(select(ISPlacementAsset).where(ISPlacementAsset.information_system_id == system_id)).all()],
     }
@@ -43,12 +55,8 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
     описывают другой аспект ИС). Вынесено из sync_information_system_details(), чтобы снизить
     цикломатическую сложность внешней функции (была 25) — сама логика не изменена.
 
-    ISProtocol.protocol_catalog_id — обязательное поле (NOT NULL, миграция b7f2c1e5a904) и не
-    проверяется здесь отдельно: generic-цикл ниже просто передаст его как есть, а его отсутствие
-    или ссылка на несуществующую запись справочника упадёт при flush() понятной IntegrityError —
-    информационных систем немного, а отдельная проверка ради чуть более дружелюбного сообщения
-    здесь не стоит лишнего запроса на каждую строку протокола (в отличие от open-ports, где эта
-    проверка уже даёт понятную 422 — см. _validate_open_port_catalog)."""
+    Протоколы ИС до записи проходят _prepare_protocol_items (пропуск пустых строк, проверка записи
+    справочника и уникальности номеров портов) — остальные таблицы пишутся как есть."""
     if not isinstance(items, list): raise HTTPException(422, f'Поле {key} должно быть массивом')
     existing = session.scalars(select(model).where(model.information_system_id == system_id)).all()
     existing_map = {x.id: x for x in existing}; seen=set()
@@ -72,6 +80,21 @@ def _sync_linked_table(key: str, model, items: Any, system_id: str, session: Ses
     session.flush()
     for obj in existing:
         if obj.id not in seen: session.delete(obj)
+
+
+def _prepare_protocol_items(items: Any, system: InformationSystem, session: Session) -> list[dict[str, Any]]:
+    """Протоколы ИС перед записью — те же правила, что у открытых портов ВМ (sync_owner_open_ports):
+    строка без выбранной записи справочника (пустой плейсхолдер формы) пропускается, остальные
+    должны ссылаться на существующую запись справочника «Протоколы и порты» (понятная 422 вместо
+    IntegrityError), а номера портов в пределах ИС не повторяются (по списку целиком, поэтому обмен
+    номерами между двумя строками за один запрос допустим). Три запроса независимо от числа строк."""
+    if not isinstance(items, list): raise HTTPException(422, 'Поле protocols должно быть массивом')
+    rows = [item for item in items if isinstance(item, dict) and item.get('protocol_catalog_id')]
+    catalog_ids = {row['protocol_catalog_id'] for row in rows}
+    known = set(session.scalars(select(ProtocolPortCatalog.id).where(ProtocolPortCatalog.id.in_(catalog_ids))).all()) if catalog_ids else set()
+    if catalog_ids - known: raise HTTPException(422, 'Не выбрана существующая запись справочника «Протоколы и порты»')
+    validate_unique_open_port_numbers((row['protocol_catalog_id'] for row in rows), session, f'ИС «{system.name}»')
+    return rows
 
 
 def _sync_source_ip_addresses(source_id: str, ip_items: Any, session: Session) -> None:
@@ -99,6 +122,41 @@ def _sync_source_ip_addresses(source_id: str, ip_items: Any, session: Session) -
         if old_ip.id not in seen_ip_ids: session.delete(old_ip)
 
 
+# Источники, которые не могут повторяться в одной ИС: ВМ и контейнер — «место размещения», повтор той же ВМ
+# в двух строках ничего не добавляет к отчёту (форма ИС такие повторы уже не предлагает — см.
+# ISSourcesListEditor.vue). Физические серверы/оборудование и ручные строки намеренно не ограничены: решение
+# для них не принято. значение — (подпись для сообщения об ошибке, модель с полем name).
+_UNIQUE_SOURCE_OWNERS = {SourceType.VM: ('ВМ', VirtualMachine), SourceType.CONTAINER: ('Контейнер', Container)}
+
+
+def _unique_source_key(item: Any) -> tuple[str, str] | None:
+    """(source_type, owner_id) строки из запроса, если она занимает ВМ/контейнер; иначе None. Некорректные
+    типы значений пропускаются — их отвергает основной цикл синхронизации своими сообщениями."""
+    if not isinstance(item, dict): return None
+    source_type = item.get('source_type') or SourceType.MANUAL
+    owner_id = item.get('owner_id')
+    if not isinstance(source_type, str) or source_type not in _UNIQUE_SOURCE_OWNERS: return None
+    if not isinstance(owner_id, str) or not owner_id: return None
+    return source_type, owner_id
+
+
+def _assert_no_new_duplicate_sources(source_items: list[Any], existing_sources: list[InformationSystemSource], session: Session) -> None:
+    """422, если запрос ДОБАВЛЯЕТ повтор ВМ/контейнера в той же ИС. Уже сохранённые дубли (данные до появления
+    проверки, БД их допускает) не блокируют сохранение ИС: ключ нарушает правило только когда в запросе его строк
+    больше, чем и одной, и уже сохранённых. Так дубль можно оставить как есть или убрать, но нельзя нарастить —
+    без миграции и без удаления данных пользователя."""
+    requested = Counter(key for item in source_items if (key := _unique_source_key(item)) is not None)
+    persisted = Counter((x.source_type, x.owner_id) for x in existing_sources if x.source_type in _UNIQUE_SOURCE_OWNERS and x.owner_id)
+    clashes = [key for key, count in requested.items() if count > max(1, persisted[key])]
+    if not clashes: return
+    names = []
+    for source_type, owner_id in clashes:
+        label, model = _UNIQUE_SOURCE_OWNERS[source_type]
+        owner = session.get(model, owner_id)  # запрос — только на пути ошибки, не на каждом сохранении
+        names.append(f"{label} «{owner.name if owner else owner_id}»")
+    raise HTTPException(422, 'Уже добавлено в эту ИС: ' + ', '.join(names))
+
+
 def _sync_information_system_sources(system_id: str, source_items: Any, session: Session) -> None:
     """Синхронизирует унифицированные записи InformationSystemSource — единственный (с миграции
     b7f2c1e5a904) механизм связи ИС с оборудованием/ВМ/контейнером и IP-адресом источника, не
@@ -106,6 +164,7 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
     той же причине, что и _sync_linked_table()."""
     if not isinstance(source_items, list): raise HTTPException(422, 'Поле sources должно быть массивом')
     existing_sources = session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()
+    _assert_no_new_duplicate_sources(source_items, existing_sources, session)
     source_map = {x.id: x for x in existing_sources}; seen=set()
     for item in source_items:
         if not isinstance(item, dict): continue
@@ -132,11 +191,14 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
 
 
 def sync_information_system_details(system_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
-    if not session.get(InformationSystem, system_id):
+    system = session.get(InformationSystem, system_id)
+    if not system:
         raise HTTPException(404, 'Информационная система не найдена')
     try:
         for key, model in _LINKED_TABLE_SPECS:
-            _sync_linked_table(key, model, payload.get(key, []), system_id, session)
+            items = payload.get(key, [])
+            if key == 'protocols': items = _prepare_protocol_items(items, system, session)
+            _sync_linked_table(key, model, items, system_id, session)
         _sync_information_system_sources(system_id, payload.get('sources', []), session)
         audit(session, 'information-systems', system_id, AuditAction.UPDATE, 'Обновлены связанные данные ИС (подразделения/протоколы/источники/размещение)')
         session.commit()

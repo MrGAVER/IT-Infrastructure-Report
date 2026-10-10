@@ -23,6 +23,8 @@ import { useConnectionsStore } from '../stores/connections'
 import { useDevicesStore } from '../stores/devices'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
+import { usePortSyncPlanRequest } from '../composables/usePortSyncPlanRequest'
+import { findPortSyncNotice } from '../utils/portSyncNotice'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
@@ -33,7 +35,7 @@ import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
-import { filterVlansForDeviceDomains, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft } from '../utils/vlan'
+import { filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft } from '../utils/vlan'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig, type PortRowLike } from '../utils/portConflicts'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import { attachConnectionDrafts, changedConnectionRowIds, hasConnectionChanges, snapshotConnections, validateConnectionDrafts, type ConnectionBaseline } from '../utils/interfaceConnections'
@@ -48,6 +50,7 @@ const vlanDomainsStore = useVLANDomainsStore()
 const connectionsStore = useConnectionsStore()
 const devicesStore = useDevicesStore()
 const { notify, notifyError } = useToast()
+const portSyncPlan = usePortSyncPlanRequest()
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 // Устройство, которое ЭТА форма уже создала, но не смогла сохранить целиком: после createResource идёт
@@ -236,8 +239,41 @@ watch(portVlanOptions, (options, oldOptions) => {
     const vlan_ids = reconcileVlanIds(group.vlan_ids, group.vlan_mode, previous, options)
     return vlan_ids === group.vlan_ids ? group : { ...group, vlan_ids }
   })
-  if (nextGroups.some((group, i) => group !== groups[i])) interfaceGroups.value = nextGroups
+  if (nextGroups.some((group, i) => group !== groups[i])) {
+    interfaceGroups.value = nextGroups
+    // Из групп VLAN убираются молча — предупреждаем: набор VLAN группы изменился не по действию пользователя в самой группе.
+    const removalNotice = groupVlanRemovalMessage(groups, nextGroups, previous)
+    if (removalNotice) notify(removalNotice, 'warning')
+  }
 })
+
+// Набор VLAN устройства при открытии формы и в черновике: порядок строк не важен, пустые строки не считаются.
+let initialDeviceVlanKey = ''
+function deviceVlanKey(rows: DeviceVlanDraftRow[]): string {
+  return rows
+    .filter((row) => row.vlan_id)
+    .map((row) => row.vlan_id)
+    .sort()
+    .join('|')
+}
+
+// После изменения списка VLAN устройства порты подхватывают их сами, а согласование с соседями идёт только вручную —
+// подсказываем, если у подключений устройства теперь есть что согласовать. Не блокирует сохранение: ошибка проверки
+// не отменяет уже сохранённое, о ней говорим отдельным предупреждением.
+async function notifyAboutPortSync(deviceId: string): Promise<void> {
+  try {
+    const found = await findPortSyncNotice(deviceId)
+    if (!found) return
+    const scope = found.connectionIds.length > 0 ? { connection_ids: found.connectionIds } : {}
+    notify(found.message, 'warning', {
+      timeoutMs: 30000, // по уведомлению нужно решение — оно живёт дольше обычного предупреждения
+      action: { label: 'Показать план', run: () => portSyncPlan.open(scope, 'Согласование портов после изменения VLAN устройства') },
+    })
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    notify(`Устройство сохранено, но проверить, нужно ли согласование портов, не удалось: ${reason}`, 'warning')
+  }
+}
 
 function toSoftwareDraftRow(x: DeployedSoftware): SoftwareAssetDraftRow {
   return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
@@ -356,6 +392,7 @@ watch(
       initialConnections.value = snapshotConnections(interfaces.value)
       savedConnections.value = deviceConnections
       deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
+      initialDeviceVlanKey = deviceVlanKey(deviceVlans.value)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
       // п.1.3.8), а не как уже подтверждённое: иначе availableVlans выше решит, что устройство
@@ -731,6 +768,7 @@ async function submit() {
         // allowed_vlans в backend/app/services/crud.py). Если VLAN только что добавлен в блок
         // "VLAN устройства" и тут же назначен порту в этом же сохранении, к моменту проверки он
         // должен уже быть в БД — иначе 422 "VLAN не разрешён" на ровном месте для пользователя.
+        const deviceVlansChanged = !!props.device && deviceVlanKey(deviceVlans.value) !== initialDeviceVlanKey
         await persistDeviceVlans(saved.id, deviceVlans.value)
         // Атомарный PUT (не через generic createResource/deleteResource) — см.
         // api/deviceInterfaces.ts:persistDeviceInterfaces.
@@ -766,6 +804,8 @@ async function submit() {
         const conflictNotice = buildPortConflictNotice(noticeRows, noticeConflicts, initialPortConfigs, changedConnectionIds)
         if (conflictNotice) notify(conflictNotice, 'warning')
         emit('saved', saved)
+        // Проверка идёт уже после закрытия формы и не задерживает его; сама ловит свои ошибки.
+        if (deviceVlansChanged) void notifyAboutPortSync(saved.id)
         return
       } catch (err) {
         if (err instanceof ApiError && err.code === ErrorCode.DUPLICATE_SYSTEM_NAME && confirm(err.message + '\n\nОК — сохранить дубликат.')) {

@@ -332,16 +332,35 @@ def _apply_group_to_interface(iface: DeviceInterface, state: _GroupState, sessio
         ip_obj.purpose = group.ip_purpose
         for extra in ips[1:]: session.delete(extra)
     if group.manage_open_ports:
-        rows = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id)).all()
-        wanted_ports = {(p['protocol_catalog_id'], p['transport_protocol']): p for p in state.open_ports}
-        kept_ports: set[tuple[str, str]] = set()
-        for row in rows:
-            key = (row.protocol_catalog_id, row.transport_protocol)
-            if key in wanted_ports and key not in kept_ports: row.description = wanted_ports[key]['description']; kept_ports.add(key)
-            else: session.delete(row)
-        for key, data in wanted_ports.items():
-            if key not in kept_ports:
-                session.add(OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=iface.id, protocol_catalog_id=data['protocol_catalog_id'], transport_protocol=data['transport_protocol'], description=data['description']))
+        _apply_group_open_ports(iface, state.open_ports, session)
+
+
+def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, Any]], session: Session) -> None:
+    """Приводит открытые порты интерфейса в точное соответствие списку группы, не пересоздавая записи:
+    строка с тем же (запись справочника, транспорт) остаётся как есть (обновляется только описание);
+    оставшиеся лишние строки порта переиспользуются под ещё не размещённые порты группы — меняется
+    запись справочника/транспорт, id и дата создания сохраняются (как при правке порта вручную и у ВМ);
+    удаляются только строки, которым не хватило пары, создаются только порты группы без пары."""
+    rows = session.scalars(
+        select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(OpenPort.created_at, OpenPort.id)
+    ).all()
+    wanted = {(p['protocol_catalog_id'], p['transport_protocol']): p for p in group_ports}
+    kept: set[tuple[str, str]] = set()
+    spare: list[OpenPort] = []
+    for row in rows:
+        key = (row.protocol_catalog_id, row.transport_protocol)
+        if key in wanted and key not in kept:
+            row.description = wanted[key]['description']; kept.add(key)
+        else:
+            spare.append(row)
+    for key, data in wanted.items():
+        if key in kept: continue
+        if spare:
+            row = spare.pop(0)
+            row.protocol_catalog_id = data['protocol_catalog_id']; row.transport_protocol = data['transport_protocol']; row.description = data['description']
+        else:
+            session.add(OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=iface.id, protocol_catalog_id=data['protocol_catalog_id'], transport_protocol=data['transport_protocol'], description=data['description']))
+    for row in spare: session.delete(row)
 
 
 def _delete_stale_groups(device_id: str, kept_group_ids: set[str], session: Session) -> None:

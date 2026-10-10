@@ -301,3 +301,55 @@ describe('назначение общего IP-адреса группы', () =>
     expect(groups[0].ip_purpose).toBe('Администрирование')
   })
 })
+
+describe('открытые порты группы: строки порта не пересоздаются, список упорядочен', () => {
+  const tcp = (protocol_catalog_id: string, description = '', id?: string) => ({ id, protocol_catalog_id, transport_protocol: 'TCP', description })
+  const catalogEntries = [
+    { id: 'ssh', port: 22, protocol_type: 'SSH', description: null },
+    { id: 'telnet', port: 23, protocol_type: 'Telnet', description: null },
+    { id: 'https', port: 443, protocol_type: 'HTTPS', description: null },
+  ]
+
+  it('applyGroupToRow: лишняя сохранённая строка переиспользуется под новый порт группы (id сохраняется), остаток удаляется', () => {
+    const existing = row('Gi0/1', { open_ports: [tcp('ssh', '', 'op-ssh'), tcp('https', '', 'op-https'), tcp('telnet', '', 'op-extra')] })
+    // Группа: оставить https и добавить новый порт; ssh и telnet группе больше не нужны.
+    const g = group({ manage_open_ports: true, open_ports: [tcp('https', 'внешний'), tcp('new-port', 'новый')] })
+
+    const result = applyGroupToRow(existing, g)
+
+    // https остался на своей строке, новый порт занял первую «лишнюю» строку (ssh), строка telnet пропадёт (её нет в списке).
+    expect(result.open_ports).toEqual([
+      { id: 'op-https', protocol_catalog_id: 'https', transport_protocol: 'TCP', description: 'внешний' },
+      { id: 'op-ssh', protocol_catalog_id: 'new-port', transport_protocol: 'TCP', description: 'новый' },
+    ])
+  })
+
+  it('applyGroupToRow: портов больше, чем строк у порта, — недостающие создаются без id', () => {
+    const existing = row('Gi0/1', { open_ports: [tcp('ssh', '', 'op-ssh')] })
+    const g = group({ manage_open_ports: true, open_ports: [tcp('ssh'), tcp('telnet'), tcp('https')] })
+
+    expect(applyGroupToRow(existing, g).open_ports.map((p) => p.id)).toEqual(['op-ssh', undefined, undefined])
+  })
+
+  it('applyGroupToRow: несохранённые строки порта (без id) не дают чужих id', () => {
+    const existing = row('Gi0/1', { open_ports: [tcp('ssh'), tcp('https', '', 'op-https')] })
+    const g = group({ manage_open_ports: true, open_ports: [tcp('telnet')] })
+
+    // ssh — черновая строка без id; под telnet освобождается сохранённая строка https.
+    expect(applyGroupToRow(existing, g).open_ports).toEqual([{ id: 'op-https', protocol_catalog_id: 'telnet', transport_protocol: 'TCP', description: '' }])
+  })
+
+  it('copyValuesFromRow: открытые порты, скопированные с порта, упорядочиваются по номеру порта', () => {
+    const source = row('a', { open_ports: [tcp('https'), tcp(''), tcp('ssh'), tcp('telnet')] })
+
+    const result = copyValuesFromRow(group(), source, { vlan: false, ip: false, openPorts: true }, catalogEntries)
+
+    expect(result.open_ports.map((p) => p.protocol_catalog_id)).toEqual(['ssh', 'telnet', 'https'])
+  })
+
+  it('copyValuesFromRow без справочника сохраняет порядок порта (номер не определить)', () => {
+    const source = row('a', { open_ports: [tcp('https'), tcp('ssh')] })
+    const result = copyValuesFromRow(group(), source, { vlan: false, ip: false, openPorts: true })
+    expect(result.open_ports.map((p) => p.protocol_catalog_id)).toEqual(['https', 'ssh'])
+  })
+})

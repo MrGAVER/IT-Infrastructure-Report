@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { useToast } from '../composables/useToast'
+import { useToast, type Toast } from '../composables/useToast'
 
 const { toasts, dismiss } = useToast()
+
+function runAction(toast: Toast) {
+  dismiss(toast.id)
+  toast.action?.run()
+}
 </script>
 
 <template>
@@ -9,6 +14,7 @@ const { toasts, dismiss } = useToast()
     <TransitionGroup name="toast">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
         <span>{{ t.message }}</span>
+        <button v-if="t.action" type="button" class="toast-action" @click="runAction(t)">{{ t.action.label }}</button>
         <button type="button" aria-label="Закрыть" @click="dismiss(t.id)">×</button>
       </div>
     </TransitionGroup>
@@ -60,6 +66,14 @@ const { toasts, dismiss } = useToast()
   font-size: 16px;
   line-height: 1;
   padding: 0;
+}
+.toast .toast-action {
+  color: var(--brand);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .toast-enter-active,
 .toast-leave-active {

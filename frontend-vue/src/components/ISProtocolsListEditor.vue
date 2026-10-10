@@ -3,7 +3,14 @@
 // protocol-port-catalog, что в OpenPortListEditor.vue); protocol/port больше не отдельные поля ни
 // в форме, ни в backend-модели (см. models.py, миграция b7f2c1e5a904) — их показывает
 // SearchableSelect из caталога, а бэкенд резолвит их join'ом на каждое чтение.
+//
+// Это те же открытые порты, только информационной системы, поэтому поведение как у открытых портов
+// ВМ (OpenPortListEditor.vue с sorted-unique): строки упорядочиваются по номеру порта ТОЛЬКО когда
+// добавляется следующий протокол (или форма открывается заново — это делает форма ИС), строки с
+// повторяющимся номером порта подсвечиваются, а сохранение с повтором блокирует форма-владелец
+// (duplicatePortNumbers). Правило общее для обоих редакторов: composables/useUniquePortRows.ts.
 import type { ISProtocolDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
+import { useUniquePortRows } from '../composables/useUniquePortRows'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
@@ -16,8 +23,15 @@ const emit = defineEmits<{ 'update:modelValue': [rows: ISProtocolDraftRow[]] }>(
 // пересортировки, тем же приёмом, что и в OpenPortListEditor.vue для того же справочника.
 const catalogOptions = (): SearchableSelectOption[] => props.catalogEntries.map((e) => ({ value: e.id, label: `${e.port} / ${e.protocol_type}` }))
 
+const { duplicateIndexes, duplicateMessage, sortedForAdd } = useUniquePortRows(
+  () => props.modelValue,
+  () => props.catalogEntries,
+)
+
+// Единственный момент упорядочивания списка: пользователь добавляет следующий протокол. Заполненные
+// строки встают по возрастанию номера порта, новая пустая — в конец и остаётся там, пока заполняется.
 function addRow() {
-  emit('update:modelValue', [...props.modelValue, { protocol_catalog_id: '', description: '' }])
+  emit('update:modelValue', [...sortedForAdd(), { protocol_catalog_id: '', description: '' }])
 }
 
 function removeRow(index: number) {
@@ -52,7 +66,7 @@ function onQuickAdded(index: number, record: CatalogItem) {
 
     <div v-if="!modelValue.length" class="empty">Не добавлено</div>
 
-    <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row">
+    <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row" :class="{ 'row-duplicate': duplicateIndexes.has(i) }">
       <div class="col-catalog lookup-row">
         <SearchableSelect
           :model-value="row.protocol_catalog_id"
@@ -73,6 +87,8 @@ function onQuickAdded(index: number, record: CatalogItem) {
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
       </button>
     </div>
+
+    <div v-if="duplicateMessage" class="dup-error" role="alert">{{ duplicateMessage }}</div>
 
     <button type="button" class="btn btn-secondary add-btn" @click="addRow">
       <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
@@ -125,6 +141,13 @@ function onQuickAdded(index: number, record: CatalogItem) {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+.row-duplicate :deep(.searchable-select input) {
+  border-color: var(--status-crit);
+}
+.dup-error {
+  font-size: 11.5px;
+  color: var(--status-crit);
 }
 .icon-btn.danger {
   color: var(--status-crit);

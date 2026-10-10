@@ -11,6 +11,8 @@ import pytest
 
 from app.services.port_config import PortConfig, PortRole, config_differences
 from app.services.port_sync_rules import (
+    ALL_VLANS_BOTH_RULE,
+    ALL_VLANS_RULE,
     DEFAULT_RULES,
     DEFAULT_RULES_BY_CODE,
     EMPTY_TRUNK_RULE,
@@ -106,10 +108,14 @@ def test_empty_trunk_takes_the_vlans_of_a_trunk_neighbor():
 
 
 def test_empty_trunk_also_takes_all_vlans_of_the_neighbor():
-    decision = decide(RULES, facts(), facts(vlans=(10, 20, 30), all_vlans=True))
+    # само правило «пустой trunk»: «Все VLAN» соседа для него — просто назначенные VLAN, берутся их номера
+    decision = decide([DEFAULT_RULES_BY_CODE[EMPTY_TRUNK_RULE]], facts(), facts(vlans=(10, 20, 30), all_vlans=True))
 
     assert decision.outcome is Outcome.AUTO
     assert decision.options[0].changes.vlans == frozenset({10, 20, 30})
+    # а в общей цепочке пустой trunk рядом с «Все VLAN» получает «Все VLAN» (правило проверяется раньше)
+    chain = decide(RULES, facts(), facts(vlans=(10, 20, 30), all_vlans=True))
+    assert chain.outcome is Outcome.AUTO and chain.rule.code == ALL_VLANS_RULE
 
 
 @pytest.mark.parametrize(
@@ -354,7 +360,7 @@ def test_service_fields_in_the_payload_are_ignored():
 # --- стандартные правила ------------------------------------------------------------------------
 
 def test_default_rules_have_unique_codes_names_and_priorities():
-    assert len({r.code for r in DEFAULT_RULES}) == len(DEFAULT_RULES) == 5
+    assert len({r.code for r in DEFAULT_RULES}) == len(DEFAULT_RULES) == 7
     assert len({r.name for r in DEFAULT_RULES}) == len(DEFAULT_RULES)
     assert len({r.priority for r in DEFAULT_RULES}) == len(DEFAULT_RULES)
     assert all(r.code and r.enabled and r.description for r in DEFAULT_RULES)
@@ -377,7 +383,8 @@ def test_new_standard_rule_matches_the_requested_definition():
     assert (rule.target.mode, rule.target.vlans) == ("trunk", "none")      # на порту trunk совсем без VLAN
     assert (rule.source.mode, rule.source.vlans) == ("trunk", "set")       # у соседа trunk с VLAN (или «все VLAN»)
     assert rule.apply_mode and rule.vlan_policy == "copy" and not rule.apply_role
-    assert rule.priority == min(r.priority for r in DEFAULT_RULES)         # конкретное правило проверяется раньше общих
+    others = [r for r in DEFAULT_RULES if r.code not in (EMPTY_TRUNK_RULE, ALL_VLANS_RULE, ALL_VLANS_BOTH_RULE)]
+    assert rule.priority < min(r.priority for r in others)                 # конкретное правило проверяется раньше общих
 
 
 def test_rules_equal_ignoring_state_ignores_priority_and_enabled_only():
@@ -420,7 +427,9 @@ def test_merge_never_removes_a_vlan():
 
 
 def test_merge_treats_all_vlans_state_as_assigned():
-    decision = decide(RULES, facts(vlans=(10, 20), all_vlans=True), facts(vlans=(30,)))
+    only_merge = [DEFAULT_RULES_BY_CODE[TRUNK_VLANS_UNION_RULE]]
+
+    decision = decide(only_merge, facts(vlans=(10, 20), all_vlans=True), facts(vlans=(30,)))
 
     assert decision.outcome is Outcome.AUTO and decision.rule.code == TRUNK_VLANS_UNION_RULE
 
@@ -454,3 +463,112 @@ def test_user_merge_rule_applies_to_both_ports_without_manual_direction():
 
     assert decision.outcome is Outcome.AUTO and len(decision.options) == 2
     assert all(o.changes.violation for o in decision.options)  # в access по-прежнему не более одного VLAN — применить нельзя
+
+
+# --- «Все VLAN» на порту → «Все VLAN» у соседа ----------------------------------------------------
+
+def all_port(*vlans: int, mode: str = "trunk") -> PortFacts:
+    return facts(PortRole.DATA, mode, vlans, all_vlans=True)
+
+
+def test_all_vlans_standard_rule_matches_the_requested_definition():
+    rule = DEFAULT_RULES_BY_CODE[ALL_VLANS_RULE]
+
+    assert rule.action == "auto" and rule.vlan_policy == "all"
+    assert (rule.source.mode, rule.source.vlans) == ("trunk", "all")  # на порту установлено «Все VLAN»
+    assert (rule.target.mode, rule.target.vlans) == ("trunk", "any")  # сосед тоже trunk; уже «все» — менять нечего
+    assert not rule.apply_role and not rule.apply_mode and not rule.symmetric
+    assert rule.priority == min(r.priority for r in DEFAULT_RULES)  # конкретнее «пустого trunk» и «объединения» — проверяется первым
+
+
+@pytest.mark.parametrize("neighbor", [facts(vlans=(10,)), facts(vlans=()), facts(vlans=(10, 20), all_vlans=False)])
+def test_all_vlans_port_makes_the_neighbor_all_vlans(neighbor):
+    decision = decide(RULES, neighbor, all_port(10, 20, 30))  # a — сосед, b — порт с «Все VLAN»
+
+    assert decision.outcome is Outcome.AUTO and decision.rule.code == ALL_VLANS_RULE
+    (option,) = decision.options
+    assert option.apply_to == APPLY_TO_SOURCE  # меняется a, у b берётся состояние «Все VLAN»
+    assert option.changes.all_vlans and option.changes.vlans is None
+    assert option.changes.role is None and option.changes.mode is None and option.changes.violation is None
+
+
+def test_all_vlans_rule_works_in_both_orientations():
+    decision = decide(RULES, all_port(10, 20), facts(vlans=(10,)))
+
+    assert decision.rule.code == ALL_VLANS_RULE
+    assert [o.apply_to for o in decision.options] == [APPLY_TO_DESTINATION]
+
+
+def test_all_vlans_rule_does_nothing_when_both_ports_are_already_all_vlans():
+    decision = decide(RULES, all_port(10, 20), all_port(10, 20))
+
+    assert decision.outcome is Outcome.NONE  # менять нечего — правило неприменимо, расхождения нет
+    assert compute_changes(DEFAULT_RULES_BY_CODE[ALL_VLANS_RULE], all_port(10, 20), all_port(10, 20, 30)).is_empty
+
+
+def test_all_vlans_rule_does_not_touch_access_ports_or_ports_without_all_vlans():
+    # сосед в access: «Все VLAN» в access невозможно — расхождение режимов остаётся за ручным правилом
+    assert decide(RULES, facts(PortRole.DATA, "access", (10,)), all_port(10, 20)).rule.code == MODE_MATCH_RULE
+    # у источника просто набор VLAN, не «все» — как раньше, наборы объединяются
+    assert decide(RULES, facts(vlans=(10,)), facts(vlans=(20, 30))).rule.code == TRUNK_VLANS_UNION_RULE
+    # access-источник с единственным VLAN, даже если он «все» устройства, правило не запускает
+    assert decide([DEFAULT_RULES_BY_CODE[ALL_VLANS_RULE]], facts(vlans=(10,)), all_port(10, mode="access")).outcome is Outcome.NONE
+
+
+def test_all_vlans_rule_takes_precedence_over_empty_trunk_and_merge_rules():
+    assert decide(RULES, facts(vlans=()), all_port(10, 20)).rule.code == ALL_VLANS_RULE  # не «пустой trunk получает VLAN соседа»
+    assert decide(RULES, facts(vlans=(30,)), all_port(10, 20)).rule.code == ALL_VLANS_RULE  # не «объединение наборов»
+    # а у соседа без «Все VLAN» поведение прежнее
+    assert decide(RULES, facts(vlans=()), facts(vlans=(10, 20))).rule.code == EMPTY_TRUNK_RULE
+
+
+def test_all_vlans_policy_is_never_valid_for_an_access_result():
+    rule = rule_from_payload({"name": "Все VLAN везде", "action": "auto", "apply": {"vlans": "all"}})
+
+    changes = compute_changes(rule, facts(PortRole.DATA, "access", (10,)), all_port(10, 20))
+
+    assert changes.all_vlans and changes.violation  # в access не более одного VLAN — применить нельзя
+    assert compute_changes(replace(rule, apply_mode=True), facts(PortRole.DATA, "trunk", (10,)), all_port(10, 20, mode="access")).violation
+
+
+def test_all_vlans_policy_is_accepted_by_validation_and_unknown_policy_is_not():
+    rule = rule_from_payload({"name": "Все VLAN соседу", "action": "auto", "apply": {"vlans": "all"}})
+
+    assert rule.vlan_policy == "all" and not rule.symmetric
+    with pytest.raises(RuleValidationError, match="apply.vlans"):
+        rule_from_payload({"name": "Плохое", "action": "auto", "apply": {"vlans": "everything"}})
+
+
+# --- «Все VLAN» на обоих портах, но номера различаются: пару не трогаем ------------------------------
+
+def test_all_vlans_on_both_ports_standard_rule_matches_the_requested_definition():
+    rule = DEFAULT_RULES_BY_CODE[ALL_VLANS_BOTH_RULE]
+
+    assert rule.action == "ignore"
+    assert (rule.target.mode, rule.target.vlans) == ("trunk", "all") and (rule.source.mode, rule.source.vlans) == ("trunk", "all")
+    # Роль и режим не затрагиваются: правило не должно скрывать расхождение роли — оно решается правилом ниже.
+    assert (rule.relation.role, rule.relation.vlans) == ("same", "differs")
+    all_rule = DEFAULT_RULES_BY_CODE[ALL_VLANS_RULE]
+    others = [r for r in DEFAULT_RULES if r.code not in (ALL_VLANS_RULE, ALL_VLANS_BOTH_RULE)]
+    assert all_rule.priority < rule.priority < min(r.priority for r in others)  # после «Все VLAN → Все VLAN», раньше остальных
+
+
+@pytest.mark.parametrize("a, b", [
+    (all_port(10, 20, 30), all_port(10, 20)),  # у устройства соседа нет VLAN 30
+    (all_port(10, 20), all_port(10, 20, 30)),  # то же в другую сторону
+    (all_port(10, 20), all_port(30, 40)),      # наборы вообще не пересекаются
+])
+def test_all_vlans_on_both_ports_with_different_numbers_is_left_alone(a, b):
+    decision = decide(RULES, a, b)
+
+    assert decision.outcome is Outcome.IGNORED and decision.rule.code == ALL_VLANS_BOTH_RULE
+    assert decision.options == ()  # без попыток «объединить» или «взять набор» — менять нечего: это разные VLAN устройств
+
+
+def test_all_vlans_on_both_ports_does_not_hide_a_role_difference_or_other_cases():
+    management = facts(PortRole.MANAGEMENT, "trunk", (10, 20, 30), all_vlans=True)
+
+    assert decide(RULES, all_port(10, 20), management).rule.code != ALL_VLANS_BOTH_RULE  # роль различается — не «не трогать»
+    assert decide(RULES, facts(vlans=(10,)), all_port(10, 20)).rule.code == ALL_VLANS_RULE  # у соседа не «все» — как прежде
+    assert decide(RULES, all_port(10, 20), all_port(10, 20)).outcome is Outcome.NONE  # одинаковые наборы — расхождения нет
+    assert decide(RULES, all_port(10, 20), all_port(10, 20, mode="access")).rule.code != ALL_VLANS_BOTH_RULE  # не trunk
