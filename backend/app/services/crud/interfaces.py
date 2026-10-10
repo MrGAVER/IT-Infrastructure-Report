@@ -15,6 +15,7 @@ from ..interface_connections import assert_interfaces_not_connected, sync_interf
 from ..validation import validate_ipv4_field, validate_prefix_length_field, validate_unique_open_port_numbers
 from .audit_log import audit
 from .owned_rows import _IP_PURPOSE_MAX_LENGTH, _validate_open_port_catalog, sync_owner_open_ports
+from .subinterfaces import purge_subinterfaces_of_interfaces, subinterfaces_by_parent, sync_subinterfaces, validate_device_subinterfaces
 
 
 _VLAN_MODES = frozenset({"access", "trunk"})
@@ -113,6 +114,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     # services/interface_connections.py): применяются после записи всех портов — у новых уже есть id.
     connection_requests: list[tuple[DeviceInterface, Any]] = []
     row_objects: list[DeviceInterface] = []  # порты всех элементов payload по порядку — на них ссылается connection.peer_row
+    subinterface_total = 0  # подинтерфейсов в payload — для записи в журнал аудита
     try:
         group_states = _sync_interface_groups(device_id, groups_payload, allowed_vlans, session) if manage_groups else {}
         for item in items:
@@ -126,6 +128,9 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             group_state = _resolve_interface_group(item, group_states) if manage_groups else None
             if manage_groups: obj.group_id = group_state.obj.id if group_state else None
             _sync_single_interface(obj, item, device, session, allowed_vlans)
+            # Подинтерфейсы порта: ключ subinterfaces — полный список подинтерфейсов этого порта (как ips и
+            # open_ports); без ключа (старый клиент, окно без их редактирования) подинтерфейсы не трогаются.
+            if 'subinterfaces' in item: subinterface_total += sync_subinterfaces(obj, item['subinterfaces'], allowed_vlans, session)
             # Параметры группы применяются ПОСЛЕ значений из payload и перекрывают их: группа —
             # источник истины для заданных ею параметров, что бы ни прислал клиент.
             if group_state: _apply_group_to_interface(obj, group_state, session)
@@ -133,6 +138,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             if 'connection' in item: connection_requests.append((obj, item['connection']))
         stale = [obj for obj in existing if obj.id not in incoming_ids]
         assert_interfaces_not_connected(stale, session)
+        purge_subinterfaces_of_interfaces([obj.id for obj in stale], session)
         for obj in existing:
             if obj.id not in incoming_ids:
                 session.execute(delete(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == obj.id))
@@ -141,14 +147,17 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
                 session.execute(delete(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == obj.id))
                 session.delete(obj)
         session.flush()
+        validate_device_subinterfaces(device_id, session)
         if manage_groups: _delete_stale_groups(device_id, {state.obj.id for state in group_states.values()}, session)
         connections_changed = sync_interface_connections(connection_requests, session, row_objects) if connection_requests else 0
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces: session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).values(is_management=bool(iface.is_management)))
-        audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}' + (f', групп: {len(groups_payload)}' if manage_groups else '') + (f', подключений изменено: {connections_changed}' if connections_changed else '')); session.commit()
+        audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}' + (f', групп: {len(groups_payload)}' if manage_groups else '') + (f', подинтерфейсов: {subinterface_total}' if subinterface_total else '') + (f', подключений изменено: {connections_changed}' if connections_changed else '')); session.commit()
         result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name)).all()
+        subinterfaces = subinterfaces_by_parent([iface.id for iface in result], session)
         return {'groups': list_interface_groups(device_id, session), 'items': [{
             **serialize(iface),
+            'subinterfaces': subinterfaces.get(iface.id, []),
             'ips': [serialize(ip) for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.ip_address)).all()],
             # port больше не колонка OpenPort (см. models.py) — сортируем по номеру порта из
             # справочника через join, а не по несуществующей больше колонке.

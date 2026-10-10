@@ -11,6 +11,7 @@
   - deletion: Удаление записей: проверка ссылающихся записей, очистка полиморфных владельцев.
   - owned_rows: Синхронизация «собственных» строк владельца: открытые порты, IP-адреса, развёрнутое ПО (устройства, ВМ, интерфейсы).
   - interfaces: Синхронизация портов (интерфейсов) устройства и их групп.
+  - subinterfaces: Подинтерфейсы портов устройства: синхронизация, чтение, удаление.
   - device_vlans: Синхронизация VLAN физического устройства.
   - information_system: Детали информационной системы: связанные таблицы и источники.
 
@@ -111,6 +112,19 @@ from .interfaces import (  # noqa: F401
     _apply_group_to_interface,
     _delete_stale_groups,
 )
+from .subinterfaces import (  # noqa: F401
+    _NAME_MAX_LENGTH,
+    _normalize_subinterface_item,
+    _sync_subinterface_children,
+    sync_subinterfaces,
+    validate_device_subinterfaces,
+    delete_subinterfaces,
+    purge_subinterfaces_of_interfaces,
+    subinterface_references,
+    enrich_subinterfaces,
+    subinterfaces_by_parent,
+    get_device_subinterfaces,
+)
 from .device_vlans import (  # noqa: F401
     _normalize_device_vlan_item,
     sync_device_vlans,
@@ -134,6 +148,7 @@ __all__ = [
     '_GroupState',
     '_IP_PURPOSE_MAX_LENGTH',
     '_LINKED_TABLE_SPECS',
+    '_NAME_MAX_LENGTH',
     '_OPEN_PORT_OWNER_LABELS',
     '_POLYMORPHIC_OWNER_CLEANUP',
     '_RESOURCE_VALIDATORS',
@@ -156,6 +171,7 @@ __all__ = [
     '_normalize_device_vlan_item',
     '_load_protocols',
     '_normalize_group_item',
+    '_normalize_subinterface_item',
     '_parse_range_datetime',
     '_prepare_protocol_items',
     '_reject_unknown_keys',
@@ -172,6 +188,7 @@ __all__ = [
     '_sync_owner_collection',
     '_sync_single_interface',
     '_sync_source_ip_addresses',
+    '_sync_subinterface_children',
     '_sync_vm_collection',
     '_unassign_moved_vlan_from_former_domain_devices',
     '_unique_source_key',
@@ -198,12 +215,18 @@ __all__ = [
     'columns_for',
     'create_resource',
     'delete_resource',
+    'delete_subinterfaces',
+    'enrich_subinterfaces',
     'ensure_writable',
+    'get_device_subinterfaces',
     'get_information_system_details',
     'get_interface_groups',
     'list_interface_groups',
     'list_resource',
     'model_for',
+    'purge_subinterfaces_of_interfaces',
+    'subinterface_references',
+    'subinterfaces_by_parent',
     'sync_device_deployed_software',
     'sync_device_vlans',
     'sync_information_system_details',
@@ -211,10 +234,12 @@ __all__ = [
     'sync_owner_deployed_software',
     'sync_owner_ip_addresses',
     'sync_owner_open_ports',
+    'sync_subinterfaces',
     'sync_vm_deployed_software',
     'sync_vm_ip_addresses',
     'sync_vm_open_ports',
     'update_resource',
+    'validate_device_subinterfaces',
     'validate_payload_schema',
     'validate_resource',
 ]

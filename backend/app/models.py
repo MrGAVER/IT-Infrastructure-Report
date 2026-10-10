@@ -303,6 +303,42 @@ class DeviceInterface(TimestampMixin, Base):
     group_id: Mapped[Optional[str]] = mapped_column(ForeignKey("interface_groups.id", ondelete="SET NULL"), index=True)
 
 
+class DeviceSubinterface(TimestampMixin, Base):
+    """Подинтерфейс физического порта устройства — логический интерфейс на одном VLAN со своими IP,
+    открытыми портами и флагами роли (как у маршрутизаторов и межсетевых экранов: на одном порту
+    несколько подинтерфейсов `Gi0/0.10`, `Gi0/0.20`, каждый со своим VLAN ID и адресом).
+
+    Отдельная таблица, а не строки device_interfaces с parent_id: подинтерфейс — не физический
+    порт, у него нет кабеля, подключения к соседу, группы портов и режима access/trunk, и все
+    существующие потребители device_interfaces (Лист 2/3 отчёта, диаграмма, подключения, сверка
+    портов, каскад режима порта) должны продолжать видеть только физические порты. Физическое
+    подключение подинтерфейса — это подключение его родителя-порта.
+
+    IP-адреса и открытые порты — те же полиморфные IPAddress/OpenPort, но с
+    owner_type=DEVICE_SUBINTERFACE (constants.OwnerType). FK parent_interface_id с ondelete CASCADE:
+    у подинтерфейса нет своего пути удаления через generic CRUD (ресурс не зарегистрирован в
+    MODEL_MAP), он уходит вместе с портом или через PUT /devices/{id}/interfaces; полиморфные строки
+    при этом удаляет services/subinterfaces.py:purge_subinterfaces (без FK они сами не каскадируются).
+
+    vlan_id — запись справочника VLAN (vlans.id), разрешённая устройству так же, как VLAN порта
+    (тип устройства ∪ VLAN самого устройства); без ondelete — VLAN, на котором есть подинтерфейс,
+    удалить нельзя.
+
+    Уникальность (имя в пределах устройства; VLAN в пределах родителя — два подинтерфейса одного
+    порта на одном VLAN ID бессмысленны) проверяет services/subinterfaces.py, а не ограничения БД:
+    форма сохраняет устройство целиком, и обмен VLAN или именами между двумя подинтерфейсами одним
+    запросом — законная правка, которую построчные UNIQUE-ограничения отвергли бы на промежуточном
+    состоянии, не допускающем отложенной проверки на SQLite."""
+    __tablename__ = "device_subinterfaces"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    parent_interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
+    is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_data_transfer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+
 class InterfaceGroup(TimestampMixin, Base):
     """Группа портов одного физического устройства с общими параметрами, которые задаются один раз
     и применяются ко всем портам группы (правка формы устройства, п.4: не дублировать одинаковые

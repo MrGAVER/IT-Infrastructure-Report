@@ -449,3 +449,115 @@ describe('persistDeviceInterfaces: подключения портов (ключ
     expect(sent[1]).not.toHaveProperty('key') // служебный ключ строки на сервер не уходит
   })
 })
+
+describe('подинтерфейсы портов', () => {
+  const serverSub = (patch: Record<string, unknown> = {}) => ({
+    id: 'sub-1',
+    parent_interface_id: 'if-1',
+    name: 'eth0.10',
+    vlan_id: 'vlan-10',
+    is_management: false,
+    is_data_transfer: true,
+    description: null,
+    ips: [{ id: 'sip-1', ip_address: '10.0.10.1', prefix_length: 24, purpose: null, is_management: false }],
+    open_ports: [],
+    ...patch,
+  })
+
+  function mockLoad(subinterfaces: unknown[]) {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/resources/interfaces')) {
+        return jsonResponse({
+          items: [
+            { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' },
+            { id: 'if-2', physical_device_id: 'dev-1', name: 'eth1', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' },
+          ],
+          total: 2,
+          offset: 0,
+          limit: 1000,
+        })
+      }
+      if (url.endsWith('/devices/dev-1/subinterfaces')) return jsonResponse({ items: subinterfaces })
+      return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('загрузка: подинтерфейсы приходят из GET /devices/{id}/subinterfaces и раскладываются по портам', async () => {
+    const fetchMock = mockLoad([serverSub(), serverSub({ id: 'sub-2', name: 'eth0.20', vlan_id: 'vlan-20', ips: [] })])
+
+    const [first, second] = await loadDeviceInterfaceDraftRows('dev-1')
+
+    expect(fetchMock.mock.calls.some(([url]) => (url as string).endsWith('/devices/dev-1/subinterfaces'))).toBe(true)
+    expect(first.subinterfaces?.map((s) => [s.id, s.name, s.vlan_id])).toEqual([
+      ['sub-1', 'eth0.10', 'vlan-10'],
+      ['sub-2', 'eth0.20', 'vlan-20'],
+    ])
+    expect(first.subinterfaces![0].ips).toEqual([{ id: 'sip-1', ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }])
+    // порт без подинтерфейсов получает пустой список (а не undefined): устройство загружено целиком
+    expect(second.subinterfaces).toEqual([])
+  })
+
+  it('persist: подинтерфейсы уходят в ключе subinterfaces порта; порт без этого ключа — без ключа (сервер его не трогает)', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ items: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await persistDeviceInterfaces('dev-1', [
+      {
+        ...emptyRow(),
+        id: 'if-1',
+        name: 'eth0',
+        subinterfaces: [
+          {
+            id: 'sub-1',
+            key: 'sub-1',
+            name: ' eth0.10 ',
+            vlan_id: 'vlan-10',
+            is_management: false,
+            is_data_transfer: true,
+            description: '',
+            ips: [{ ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }],
+            open_ports: [],
+          },
+        ],
+      },
+      { ...emptyRow(), id: 'if-2', name: 'eth1' },
+      { ...emptyRow(), id: 'if-3', name: 'eth2', subinterfaces: [] },
+    ])
+
+    const sent = JSON.parse(fetchMock.mock.calls[0][1]!.body as string).interfaces as Array<Record<string, unknown>>
+    expect(sent[0].subinterfaces).toEqual([
+      {
+        id: 'sub-1',
+        name: 'eth0.10',
+        vlan_id: 'vlan-10',
+        is_management: false,
+        is_data_transfer: true,
+        description: null,
+        ips: [{ ip_address: '10.0.10.1', prefix_length: 24, purpose: null }],
+        open_ports: [],
+      },
+    ])
+    expect(sent[0].subinterfaces).not.toContainEqual(expect.objectContaining({ key: expect.anything() }))
+    expect(sent[1]).not.toHaveProperty('subinterfaces')
+    expect(sent[2].subinterfaces).toEqual([]) // [] = «удалить все подинтерфейсы порта»
+  })
+
+  it('validateInterfaceDraftRows: ошибки подинтерфейсов блокируют сохранение (имя, VLAN, дубли)', () => {
+    const base = { key: 'k', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }
+    const withSubs = (subs: Array<{ name: string; vlan_id: string }>): InterfaceDraftRow[] => [{ ...emptyRow(), name: 'eth0', subinterfaces: subs.map((s, i) => ({ ...base, key: `k${i}`, ...s })) }]
+
+    expect(validateInterfaceDraftRows(withSubs([{ name: 'eth0.10', vlan_id: 'vlan-10' }]))).toBeNull()
+    expect(validateInterfaceDraftRows(withSubs([{ name: '', vlan_id: 'vlan-10' }]))).toMatch(/должно быть имя/)
+    expect(validateInterfaceDraftRows(withSubs([{ name: 'eth0.10', vlan_id: '' }]))).toMatch(/не выбран VLAN/)
+    expect(
+      validateInterfaceDraftRows(
+        withSubs([
+          { name: 'a', vlan_id: 'vlan-10' },
+          { name: 'b', vlan_id: 'vlan-10' },
+        ]),
+      ),
+    ).toMatch(/на одном VLAN/)
+  })
+})

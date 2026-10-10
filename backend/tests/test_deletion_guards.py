@@ -94,6 +94,11 @@ ALLOWED_DELETIONS = {
     # удаление ПОЛЬЗОВАТЕЛЬСКОГО правила согласования (services/port_sync_store.py): на port_sync_rules
     # нет ни FK, ни полиморфных ссылок; стандартное правило (code задан) код удалять отказывается (409)
     ("app/services/port_sync_store.py", "delete_rule", "row"),
+    # подинтерфейсы порта (DeviceSubinterface) и их IP/открытые порты (полиморфные, owner_type='device_subinterface'):
+    # дочерние записи порта, на них не ссылается ни один FK (проверка — test_subinterface_has_no_incoming_foreign_keys), а полиморфные
+    # строки удаляются здесь же, в той же функции; сам порт и VLAN не затрагиваются
+    ("app/services/crud/subinterfaces.py", "delete_subinterfaces", "DeviceSubinterface"),
+    ("app/services/crud/subinterfaces.py", "delete_subinterfaces", "model"),
     ("app/services/crud/interfaces.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
     ("app/services/crud/interfaces.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
     ("app/services/crud/interfaces.py", "_delete_stale_groups", "group"),
