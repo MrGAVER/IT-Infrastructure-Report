@@ -7,7 +7,7 @@ from ..config import APP_VERSION
 from ..db import get_db
 from ..models import Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine
 from ..services.catalogs import seed_defaults
-from ..services.integrity import find_duplicate_open_port_numbers, find_orphaned_owner_references
+from ..services.integrity import find_duplicate_open_port_numbers, find_orphaned_owner_references, find_stale_subinterfaces
 
 router = APIRouter(tags=['System'])
 
@@ -29,6 +29,15 @@ def open_port_duplicates_report(session: Session = Depends(get_db)):
     повторы API отклоняет с 422. ok=True и пустой duplicates — исправлять нечего."""
     duplicates = find_duplicate_open_port_numbers(session)
     return {'ok': not duplicates, 'total': len(duplicates), 'duplicates': duplicates}
+
+@router.get('/api/v1/integrity/stale-subinterfaces')
+def stale_subinterfaces_report(session: Session = Depends(get_db)):
+    """Диагностика подинтерфейсов портов на VLAN, который их устройству больше не разрешён (VLAN сняли с устройства,
+    убрали из его типа или перенесли в другой домен). Такие подинтерфейсы система не удаляет сама — на них IP-адреса и
+    открытые порты; форма устройства покажет их с предупреждением и потребует выбрать другой VLAN или удалить
+    подинтерфейс. Только чтение. ok=True и пустой subinterfaces — исправлять нечего."""
+    stale = find_stale_subinterfaces(session)
+    return {'ok': not stale, 'total': len(stale), 'subinterfaces': stale}
 
 @router.get('/api/v1/dashboard')
 def dashboard(session: Session = Depends(get_db)):

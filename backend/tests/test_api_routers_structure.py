@@ -19,6 +19,7 @@ API_DIR = Path(system.__file__).parent
 EXPECTED_ROUTES = {
     "system": (system, {
         ("GET", "/api/v1/health"), ("GET", "/api/v1/integrity"), ("GET", "/api/v1/integrity/open-port-duplicates"),
+        ("GET", "/api/v1/integrity/stale-subinterfaces"),
         ("GET", "/api/v1/dashboard"), ("POST", "/api/v1/seed"),
     }),
     "listings": (listings, {

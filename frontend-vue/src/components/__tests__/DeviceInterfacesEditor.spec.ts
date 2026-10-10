@@ -2086,6 +2086,38 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     })
   })
 
+  describe('«Показать»: раскрытие портов с подинтерфейсами на недоступном VLAN', () => {
+    function mountTwoPorts() {
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10' })] },
+        { ...emptyRow(), name: 'Gi0/1', subinterfaces: [subRow({ key: 'b', name: 'Gi0/1.30', vlan_id: 'v-gone' })] },
+        { ...emptyRow(), name: 'Gi0/2' },
+      ]
+      return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vlansForSubs } })
+    }
+
+    it('раскрывает только порты с такими подинтерфейсами, уже раскрытые не сворачивает, возвращает их число', async () => {
+      const wrapper = mountTwoPorts()
+      await expandRow(wrapper, 2) // пользователь уже раскрыл третий порт сам
+      expect(wrapper.findAll('.iface-detail-row')).toHaveLength(1)
+
+      const found = await (wrapper.vm as unknown as { revealStaleSubinterfaces: () => Promise<number> }).revealStaleSubinterfaces()
+
+      expect(found).toBe(1)
+      expect(wrapper.findAll('.iface-detail-row')).toHaveLength(2) // Gi0/1 и ранее раскрытый Gi0/2; Gi0/0 (VLAN доступен) не тронут
+      expect(wrapper.find('.sub-warn').text()).toContain('больше не назначен устройству')
+    })
+
+    it('без проблемных подинтерфейсов ничего не раскрывает и возвращает 0', async () => {
+      const wrapper = mountWithPort({ subinterfaces: [subRow({ name: 'Gi0/0.10' })] })
+
+      const found = await (wrapper.vm as unknown as { revealStaleSubinterfaces: () => Promise<number> }).revealStaleSubinterfaces()
+
+      expect(found).toBe(0)
+      expect(wrapper.find('.iface-detail-row').exists()).toBe(false)
+    })
+  })
+
   describe('переименование порта', () => {
     function lastRow(wrapper: ReturnType<typeof mountWithPort>): InterfaceDraftRow {
       const emitted = wrapper.emitted('update:modelValue')!
@@ -2108,6 +2140,16 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
       await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('Gi0/1')
 
       expect(lastRow(wrapper)).not.toHaveProperty('subinterfaces')
+    })
+
+    it('автоимя подинтерфейса на недоступном VLAN тоже следует за портом, если VLAN есть в справочнике', async () => {
+      const reserve: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ name: 'Gi0/0.30', vlan_id: 'v-30' })] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vlansForSubs, vlanCatalog: [reserve] } })
+
+      await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('Gi0/1')
+
+      expect(lastRow(wrapper as never).subinterfaces![0].name).toBe('Gi0/1.30')
     })
 
     it('если у подинтерфейсов автоимён нет, список остаётся тем же (только имя порта меняется)', async () => {

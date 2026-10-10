@@ -37,8 +37,9 @@ from sqlalchemy.orm import Session
 
 from ..constants import ErrorCode, OwnerType, SourceType
 from ..models import (
-    Container, DeployedSoftware, DeviceInterface, DeviceSubinterface, IPAddress, InformationSystem, InformationSystemSource,
-    InterfaceGroup, InterfaceGroupOpenPort, ISProtocol, OpenPort, PhysicalDevice, ProtocolPortCatalog, VirtualMachine,
+    Container, DeployedSoftware, DeviceInterface, DeviceSubinterface, DeviceTypeVLAN, IPAddress, InformationSystem,
+    InformationSystemSource, InterfaceGroup, InterfaceGroupOpenPort, ISProtocol, OpenPort, PhysicalDevice, PhysicalDeviceVLAN,
+    ProtocolPortCatalog, VLAN, VirtualMachine,
 )
 from ..registry import DISPLAY_NAMES
 
@@ -246,6 +247,61 @@ def find_duplicate_open_port_numbers(session: Session) -> list[dict[str, Any]]:
         for t, i, port, n in found
     ]
     return sorted(result, key=lambda d: (d['owner_type'], d['owner_name'] or '', d['port']))
+
+
+def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> list[dict[str, Any]]:
+    """Находит подинтерфейсы на VLAN, который их устройству больше не разрешён: VLAN не назначен устройству
+    (PhysicalDeviceVLAN) и не разрешён его типом (DeviceTypeVLAN) — ровно тот набор допустимых VLAN, по которому
+    sync_interfaces проверяет подинтерфейсы при сохранении. Каждая запись — один подинтерфейс:
+    {'subinterface_id', 'subinterface_name', 'port_id', 'port_name', 'device_id', 'device_name', 'vlan_id',
+    'vlan_number', 'vlan_name'}; vlan_id — id записи справочника VLAN, vlan_number — номер VLAN (802.1Q).
+
+    Такие подинтерфейсы возникают, когда VLAN снимают с устройства, убирают из его типа или переносят в другой
+    домен: подинтерфейс — самостоятельная запись со своими IP и открытыми портами, поэтому система не удаляет его
+    молча (в отличие от связей VLAN с портами и группами), а следующее сохранение формы устройства требует выбрать
+    другой VLAN или удалить подинтерфейс. Эта диагностика показывает все такие случаи по реестру сразу.
+
+    vlan_id — ограничить поиск одним VLAN (так перечень для журнала аудита при переносе VLAN в другой домен
+    строится тем же кодом, что и общий отчёт). Только чтение. Запросов — константа, не зависит от числа строк.
+    Порядок: устройство, порт, подинтерфейс."""
+    query = (
+        select(
+            DeviceSubinterface.id.label('subinterface_id'), DeviceSubinterface.name.label('subinterface_name'),
+            DeviceSubinterface.vlan_id, DeviceInterface.id.label('port_id'), DeviceInterface.name.label('port_name'),
+            PhysicalDevice.id.label('device_id'), PhysicalDevice.device_type_id, PhysicalDevice.system_name, PhysicalDevice.serial_number,
+            VLAN.vlan_id.label('vlan_number'), VLAN.name.label('vlan_name'),
+        )
+        .join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id)
+        .join(PhysicalDevice, PhysicalDevice.id == DeviceInterface.physical_device_id)
+        .join(VLAN, VLAN.id == DeviceSubinterface.vlan_id)
+    )
+    if vlan_id is not None:
+        query = query.where(DeviceSubinterface.vlan_id == vlan_id)
+    rows = session.execute(query).all()
+    if not rows:
+        return []
+
+    # Допустимые пары считаем только по VLAN, на которых реально есть подинтерфейсы (подзапрос, а не список id:
+    # так не упереться в предел числа параметров SQL при большом реестре).
+    used_vlans = select(DeviceSubinterface.vlan_id)
+    if vlan_id is not None:
+        used_vlans = used_vlans.where(DeviceSubinterface.vlan_id == vlan_id)
+    assigned = {(r.physical_device_id, r.vlan_id) for r in session.execute(
+        select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.vlan_id.in_(used_vlans)))}
+    by_type = {(r.device_type_id, r.vlan_id) for r in session.execute(
+        select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.vlan_id.in_(used_vlans)))}
+
+    stale = [
+        {
+            'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
+            'port_id': r.port_id, 'port_name': r.port_name,
+            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
+        }
+        for r in rows
+        if (r.device_id, r.vlan_id) not in assigned and (r.device_type_id, r.vlan_id) not in by_type
+    ]
+    return sorted(stale, key=lambda d: (d['device_name'], d['port_name'], d['subinterface_name']))
 
 
 def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[str, str], str]:
