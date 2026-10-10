@@ -16,7 +16,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
 
 MODEL_NAMES = [
-    "Building", "Connection", "ConnectionType", "Container", "Department", "DeviceInterface",
+    "Building", "Connection", "ConnectionType", "Container", "Department", "DeviceInterface", "DeviceSubinterface",
     "DeployedSoftware", "DeviceModel", "DeviceType", "EmbeddedOperatingSystem", "IPAddress",
     "ISDepartment", "ISPlacementAsset", "ISProtocol",
     "InformationSystem", "InformationSystemSource", "InterfaceType",

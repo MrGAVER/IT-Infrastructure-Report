@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 
 from app.models import (
-    Building, Connection, ConnectionType, DeviceInterface, DeviceType, DiagramGroupState, IPAddress,
+    Building, Connection, ConnectionType, DeviceInterface, DeviceSubinterface, DeviceType, DiagramGroupState, IPAddress,
     InterfaceVLAN, PhysicalDevice, PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN, VLANDomain,
 )
 from app.services.catalogs import seed_defaults
@@ -329,3 +329,63 @@ def test_edge_excluded_when_other_end_outside_scope_filter(db_session):
     assert device_in.id in node_ids
     assert device_out.id not in node_ids
     assert graph["edges"] == []  # другой конец физически отсутствует на этой диаграмме
+
+
+def _router_with_subinterfaces(db_session):
+    """Маршрутизатор с портом Gi0/0 (подинтерфейсы на VLAN 10 и 20) — к коммутатору; возвращает (router, switch, connection)."""
+    server_type, switch_type = _seed_base_catalogs(db_session)
+    router = _make_device(db_session, server_type.id, "RTR-1")
+    switch = _make_device(db_session, switch_type.id, "SW-9")
+    router_port = _make_interface(db_session, router.id, "Gi0/0")
+    switch_port = _make_interface(db_session, switch.id, "Gi1/0/1")
+    conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
+    connection = Connection(source_interface_id=router_port.id, destination_interface_id=switch_port.id, connection_type_id=conn_type.id, is_active=True)
+    domain = VLANDomain(name="Домен подинтерфейсов")
+    db_session.add_all([connection, domain])
+    db_session.flush()
+    vlan10, vlan20 = VLAN(vlan_id=10, name="data", domain_id=domain.id), VLAN(vlan_id=20, name="voice", domain_id=domain.id)
+    db_session.add_all([vlan10, vlan20])
+    db_session.flush()
+    sub10 = DeviceSubinterface(parent_interface_id=router_port.id, name="Gi0/0.10", vlan_id=vlan10.id)
+    sub20 = DeviceSubinterface(parent_interface_id=router_port.id, name="Gi0/0.20", vlan_id=vlan20.id)
+    db_session.add_all([sub10, sub20])
+    db_session.flush()
+    db_session.add(IPAddress(owner_type="device_subinterface", owner_id=sub10.id, ip_address="10.0.10.1", prefix_length=24, purpose="Шлюз", is_management=False))
+    db_session.add(IPAddress(owner_type="device_subinterface", owner_id=sub20.id, ip_address="10.0.20.1", prefix_length=24, is_management=True))
+    return router, switch, connection
+
+
+def test_device_node_ip_addresses_include_subinterface_ips_labeled_with_subinterface_name(db_session):
+    router, _, _ = _router_with_subinterfaces(db_session)
+    diagram = SavedDiagram(name="Диаграмма подинтерфейсов 1", scope_filter="{}", group_by="building", collapse_threshold=20)
+    db_session.add(diagram)
+    db_session.commit()
+
+    node = next(n for n in build_graph(db_session, diagram)["nodes"] if n["id"] == router.id)
+
+    assert node["ip_addresses"] == [
+        {"address": "10.0.10.1/24", "purpose": "Gi0/0.10: Шлюз", "is_management": False},
+        {"address": "10.0.20.1/24", "purpose": "Gi0/0.20", "is_management": True},
+    ]
+
+
+def test_edge_vlans_include_subinterface_vlans_of_the_port_without_duplicates(db_session):
+    router, _, connection = _router_with_subinterfaces(db_session)
+    router_port = db_session.query(DeviceInterface).filter_by(physical_device_id=router.id).one()
+    vlan10 = db_session.query(VLAN).filter_by(vlan_id=10).one()
+    db_session.add(InterfaceVLAN(interface_id=router_port.id, vlan_id=vlan10.id))  # VLAN 10 уже на самом порту
+    diagram = SavedDiagram(name="Диаграмма подинтерфейсов 2", scope_filter="{}", group_by="building", collapse_threshold=20)
+    db_session.add(diagram)
+    db_session.commit()
+
+    edge = next(e for e in build_graph(db_session, diagram)["edges"] if e["id"] == connection.id)
+
+    assert sorted(v["vlan_id"] for v in edge["vlans"]) == [10, 20]
+
+
+def test_subinterfaces_do_not_count_as_ports_of_the_device_icon(db_session):
+    router, _, _ = _router_with_subinterfaces(db_session)
+    db_session.commit()
+
+    assert GraphContext(db_session).interface_count(router.id) == 1
+

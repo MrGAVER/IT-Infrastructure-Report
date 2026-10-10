@@ -51,7 +51,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import (
-    Building, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceType,
+    Building, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceSubinterface, DeviceType,
     DiagramGroupState, DiagramIcon, IPAddress, InterfaceVLAN, Manufacturer, PhysicalDevice,
     PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN,
 )
@@ -110,6 +110,17 @@ class GraphContext:
         self.interface_ips_by_interface: dict[str, list[IPAddress]] = defaultdict(list)
         for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE)).all():
             self.interface_ips_by_interface[ip.owner_id].append(ip)
+
+        # Подинтерфейсы портов: их IP попадают в IP узла устройства, а VLAN — во VLAN ребра порта-родителя
+        # (подинтерфейс на VLAN 10 — это VLAN 10 на линии). Порядок — по номеру VLAN, затем по имени.
+        self.subinterfaces_by_interface: dict[str, list[DeviceSubinterface]] = defaultdict(list)
+        subinterfaces = session.scalars(select(DeviceSubinterface)).all()
+        subinterfaces.sort(key=lambda sub: (self.vlans[sub.vlan_id].vlan_id if sub.vlan_id in self.vlans else 0, sub.name.casefold(), sub.id))
+        for sub in subinterfaces:
+            self.subinterfaces_by_interface[sub.parent_interface_id].append(sub)
+        self.subinterface_ips_by_subinterface: dict[str, list[IPAddress]] = defaultdict(list)
+        for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE)).all():
+            self.subinterface_ips_by_subinterface[ip.owner_id].append(ip)
 
         self.device_vlans_by_device: dict[str, list[PhysicalDeviceVLAN]] = defaultdict(list)
         for link in session.scalars(select(PhysicalDeviceVLAN)).all():
@@ -272,6 +283,15 @@ def _build_ip_addresses(device: PhysicalDevice, ctx: GraphContext) -> list[dict]
                 continue
             seen.add(address)
             addresses.append({"address": address, "purpose": ip.purpose, "is_management": ip.is_management})
+        # IP подинтерфейсов порта — тем же списком; назначение начинается с имени подинтерфейса
+        # («Gi0/0.10: Шлюз»), иначе на узле не видно, на каком логическом интерфейсе адрес.
+        for sub in ctx.subinterfaces_by_interface.get(iface.id, []):
+            for ip in ctx.subinterface_ips_by_subinterface.get(sub.id, []):
+                address = ip_label(ip)
+                if address in seen:
+                    continue
+                seen.add(address)
+                addresses.append({"address": address, "purpose": f"{sub.name}: {ip.purpose}" if ip.purpose else sub.name, "is_management": ip.is_management})
     for link in ctx.device_vlans_by_device.get(device.id, []):
         if not link.ip_address:
             continue
@@ -350,6 +370,11 @@ def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, t
             continue
         for link in ctx.interface_vlans_by_interface.get(iface.id, []):
             vlan = ctx.vlans.get(link.vlan_id)
+            if vlan and vlan.id not in vlans:
+                vlans[vlan.id] = {"id": vlan.id, "vlan_id": vlan.vlan_id, "name": vlan.name}
+        # VLAN подинтерфейсов порта: тегированный трафик подинтерфейса идёт по той же линии.
+        for sub in ctx.subinterfaces_by_interface.get(iface.id, []):
+            vlan = ctx.vlans.get(sub.vlan_id)
             if vlan and vlan.id not in vlans:
                 vlans[vlan.id] = {"id": vlan.id, "vlan_id": vlan.vlan_id, "name": vlan.name}
 
