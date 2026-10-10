@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AccountPanel from '../components/AccountPanel.vue'
 import AuthSettingsPanel from '../components/AuthSettingsPanel.vue'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
@@ -14,8 +14,12 @@ const organization = useOrganizationStore()
 const auth = useAuthStore()
 const formPreferences = useFormPreferencesStore()
 
+// Название организации общее для всех пользователей: при включённой аутентификации его меняет только
+// администратор (сервер ответил бы 403), поэтому остальным поле показывается, но недоступно для правки.
+const canEditOrganization = computed(() => !auth.enabled || auth.isAdmin)
+
 // Локальный черновик, а не прямой v-model на organization.name — иначе каждое нажатие клавиши
-// тут же переписывало бы шапку сайдбара (и localStorage) посимвольно; сохраняем осознанным
+// тут же переписывало бы шапку сайдбара (и отправляло запрос на сервер) посимвольно; сохраняем осознанным
 // действием, как и остальные формы в приложении.
 const draftName = ref(organization.name)
 const saved = ref(false)
@@ -72,12 +76,23 @@ function resetVlanLimit() {
   <div class="settings-view">
     <section class="card section">
       <h2>Наименование организации</h2>
-      <p class="hint">Отображается в шапке слева, под названием реестра. По умолчанию — «{{ DEFAULT_ORGANIZATION_NAME }}».</p>
+      <p class="hint">
+        Отображается в шапке слева, под названием реестра. Общее для всех пользователей и хранится на сервере.
+        По умолчанию — «{{ DEFAULT_ORGANIZATION_NAME }}».
+      </p>
       <div class="org-name-row">
-        <input v-model.trim="draftName" type="text" maxlength="255" placeholder="Наименование организации" @keyup.enter="save" />
-        <button type="button" class="btn btn-primary" @click="save">Сохранить</button>
-        <button type="button" class="btn btn-secondary" @click="resetToDefault">Сбросить</button>
+        <input
+          v-model.trim="draftName"
+          type="text"
+          maxlength="200"
+          placeholder="Наименование организации"
+          :disabled="!canEditOrganization"
+          @keyup.enter="save"
+        />
+        <button type="button" class="btn btn-primary" :disabled="!canEditOrganization" @click="save">Сохранить</button>
+        <button type="button" class="btn btn-secondary" :disabled="!canEditOrganization" @click="resetToDefault">Сбросить</button>
       </div>
+      <p v-if="!canEditOrganization" class="hint" data-testid="org-readonly-hint">Менять наименование организации может только администратор.</p>
       <p v-if="saved" class="current">Сохранено.</p>
     </section>
 
@@ -86,6 +101,7 @@ function resetVlanLimit() {
       <p class="hint">
         Блок «VLAN устройства» в форме физического устройства сворачивается, когда в нём больше указанного
         количества строк. Развернуть его можно кнопкой в заголовке блока. По умолчанию — {{ DEFAULT_VLAN_COLLAPSE_ROWS }}.
+        Личная настройка: хранится на сервере и одинакова на всех ваших компьютерах.
       </p>
       <div class="vlan-limit-row">
         <label for="vlan-collapse-rows">Сворачивать «VLAN устройства» при количестве строк больше</label>
@@ -113,6 +129,7 @@ function resetVlanLimit() {
         поверхности остаются тёмными во всех схемах. Меняется только фирменный акцент — цвета
         статусов (норма / внимание / тревога) не зависят от выбора и остаются узнаваемыми.
       </p>
+      <p class="hint">Личная настройка: хранится на сервере и одинакова на всех ваших компьютерах.</p>
       <ThemeSwitcher />
       <p class="current">Сейчас выбрано: <strong>{{ theme.scheme.name }}</strong></p>
     </section>

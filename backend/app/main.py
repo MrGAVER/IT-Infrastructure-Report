@@ -17,6 +17,7 @@ from .api.frontend_assets import router as frontend_assets_router
 from .api.listings import router as listings_router
 from .api.port_config import router as port_config_router
 from .api.port_sync import router as port_sync_router
+from .api.preferences import router as preferences_router
 from .api.report_builder import router as report_builder_router
 from .api.reports import router as reports_router
 from .api.resources import router as resources_router
@@ -60,6 +61,7 @@ def install_http_security(app: FastAPI, *, allowed_hosts: list[str], cors_origin
 app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
 install_http_security(app, allowed_hosts=ALLOWED_HOSTS, cors_origins=CORS_ALLOWED_ORIGINS)
 app.include_router(auth_router)
+app.include_router(preferences_router)
 # Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
 app.include_router(system_router)
 app.include_router(listings_router)

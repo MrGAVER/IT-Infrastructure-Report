@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { DEFAULT_PAGE_SIZE, useConnectionsDashboardStore } from '../connectionsDashboard'
 import type { Connection, ConnectionsPage } from '../../api/types'
+import { usePreferencesStore } from '../preferences'
+import { reloadPinia } from './preferencesApi'
 
 function row(id: string, overrides: Partial<Connection> = {}): Connection {
   return {
@@ -263,9 +265,9 @@ describe('useConnectionsDashboardStore — количество строк на 
 
   it('выбор запоминается и восстанавливается новым стором', async () => {
     await useConnectionsDashboardStore().setPageSize(64)
-    expect(localStorage.getItem('itr.pageSize.connections')).toBe('64')
+    expect(usePreferencesStore().user.page_sizes).toEqual({ connections: 64 })
 
-    setActivePinia(createPinia())
+    reloadPinia() // «перезагрузка»: настройки подтянуты с сервера
     expect(useConnectionsDashboardStore().pageSize).toBe(64)
   })
 

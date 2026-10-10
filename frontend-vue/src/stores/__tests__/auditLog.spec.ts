@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { DEFAULT_PAGE_SIZE, useAuditLogStore } from '../auditLog'
 import { auditJournal, auditServer } from './fixtures'
 import type { AuditLogPage } from '../../api/types'
+import { usePreferencesStore } from '../preferences'
+import { reloadPinia } from './preferencesApi'
 
 const PAGE_URL = /\/api\/v1\/audit-log\?/
 
@@ -16,6 +18,9 @@ function stubApi(handler: (url: string) => AuditLogPage | Promise<AuditLogPage> 
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
+      // Сохранение размера страницы теперь уходит на сервер (stores/preferences.ts) — это не запросы журнала,
+      // которые считают и разбирают тесты ниже, поэтому в `urls` они не попадают.
+      if (url.includes('/preferences')) return new Response(JSON.stringify({ global: {}, user: {} }))
       urls.push(url)
       return new Response(JSON.stringify(await handler(url)))
     }),
@@ -217,9 +222,9 @@ describe('useAuditLogStore — размер страницы', () => {
   it('выбор запоминается для этого списка и применяется после «перезагрузки»', async () => {
     const store = useAuditLogStore()
     await store.setPageSize(24)
-    expect(localStorage.getItem('itr.pageSize.auditLog')).toBe('24')
+    expect(usePreferencesStore().user.page_sizes).toEqual({ auditLog: 24 })
 
-    setActivePinia(createPinia())
+    reloadPinia() // «перезагрузка»: настройки подтянуты с сервера
 
     expect(useAuditLogStore().pageSize).toBe(24)
   })
@@ -236,7 +241,7 @@ describe('useAuditLogStore — размер страницы', () => {
     expect(store.pageSize).toBe(12)
     expect(store.page).toBe(2)
     expect(urls).toHaveLength(before)
-    expect(localStorage.getItem('itr.pageSize.auditLog')).toBeNull()
+    expect(usePreferencesStore().user.page_sizes).toBeUndefined()
   })
 
   it('limit не превышает серверный максимум (200) для всех допустимых размеров', () => {

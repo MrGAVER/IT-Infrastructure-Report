@@ -1,40 +1,27 @@
-// Стор наименования организации, отображаемого в шапке сайдбара (см. Sidebar.vue). Раньше
-// строка "ООО «Организация»" была захардкожена в шаблоне — п.6 фикса просит вынести её в
-// настройки. Персистится в localStorage по тому же принципу, что и stores/theme.ts
-// (клиентская настройка отображения, не доменные данные — заводить ради одной строки
-// отдельный ресурс на бэкенде и гонять его через /api/v1/resources избыточно).
+// Стор наименования организации, отображаемого в шапке сайдбара (см. Sidebar.vue). Название ОБЩЕЕ для всех
+// пользователей и хранится на сервере (stores/preferences.ts, общие настройки); менять его при включённой
+// аутентификации может только администратор. Раньше оно лежало в localStorage каждого браузера отдельно.
 import { defineStore } from 'pinia'
+import { usePreferencesStore } from './preferences'
+import { DEFAULT_ORGANIZATION_NAME } from '../utils/preferenceDefaults'
 
-export const DEFAULT_ORGANIZATION_NAME = 'ООО «Организация»'
-
-const STORAGE_KEY = 'itr.organizationName'
-
-function readStoredName(): string {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored && stored.trim()) return stored
-  } catch {
-    /* localStorage недоступен (приватный режим и т.п.) — используем значение по умолчанию */
-  }
-  return DEFAULT_ORGANIZATION_NAME
-}
+export { DEFAULT_ORGANIZATION_NAME }
 
 export const useOrganizationStore = defineStore('organization', {
-  state: () => ({
-    name: readStoredName(),
-  }),
+  getters: {
+    name(): string {
+      const stored = usePreferencesStore().global.organization_name
+      return stored && stored.trim() ? stored : DEFAULT_ORGANIZATION_NAME
+    },
+  },
   actions: {
+    /** Пустая строка и значение по умолчанию сбрасывают настройку (на сервере запись удаляется). */
     setName(name: string) {
       const trimmed = name.trim()
-      this.name = trimmed || DEFAULT_ORGANIZATION_NAME
-      try {
-        localStorage.setItem(STORAGE_KEY, this.name)
-      } catch {
-        /* сохранить не удалось — не критично, просто не переживёт перезагрузку */
-      }
+      void usePreferencesStore().saveGlobal({ organization_name: trimmed && trimmed !== DEFAULT_ORGANIZATION_NAME ? trimmed : null })
     },
     reset() {
-      this.setName(DEFAULT_ORGANIZATION_NAME)
+      void usePreferencesStore().saveGlobal({ organization_name: null })
     },
   },
 })

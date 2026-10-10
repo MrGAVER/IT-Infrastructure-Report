@@ -1,8 +1,11 @@
 // Выбор количества строк на странице — общее поведение четырёх клиентских списков (устройства,
 // ВМ, контейнеры, информационные системы). Подключения и журнал аудита — постраничная выборка с
 // сервера, их проверяют connectionsDashboard.spec.ts и auditLog.spec.ts.
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
+import { usePreferencesStore } from '../preferences'
+import { stubPreferencesApi, type PreferencesApiStub } from './preferencesApi'
 import { useDevicesStore } from '../devices'
 import { useAuditLogStore } from '../auditLog'
 import { useVMsStore } from '../vms'
@@ -56,9 +59,13 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
   },
 ]
 
+let api: PreferencesApiStub
+
 beforeEach(() => {
+  vi.unstubAllGlobals()
   localStorage.clear()
   setActivePinia(createPinia())
+  api = stubPreferencesApi()
 })
 
 describe.each(LISTS)('количество строк на странице — $name', ({ listId, defaultSize, make }) => {
@@ -103,11 +110,15 @@ describe.each(LISTS)('количество строк на странице — 
     expect(store.pageItems.length).toBeGreaterThan(0)
   })
 
-  it('выбор запоминается для этого списка и восстанавливается новым стором', () => {
+  it('выбор запоминается на сервере для этого списка и восстанавливается новым стором после загрузки настроек', async () => {
     make().setPageSize(defaultSize * 2)
-    expect(localStorage.getItem(`itr.pageSize.${listId}`)).toBe(String(defaultSize * 2))
+    await flushPromises()
+    expect(api.server.user.page_sizes).toEqual({ [listId]: defaultSize * 2 })
+    expect(localStorage.getItem(`itr.pageSize.${listId}`)).toBeNull()
 
+    // «Перезагрузка страницы»: новое приложение, настройки подтягиваются с сервера до создания стора списка.
     setActivePinia(createPinia())
+    await usePreferencesStore().load({ identity: 'anonymous', canWriteGlobal: false })
     expect(make().pageSize).toBe(defaultSize * 2)
   })
 
@@ -119,7 +130,7 @@ describe.each(LISTS)('количество строк на странице — 
 
     expect(store.pageSize).toBe(defaultSize)
     expect(store.page).toBe(2)
-    expect(localStorage.getItem(`itr.pageSize.${listId}`)).toBeNull()
+    expect(api.userPuts).toEqual([])
   })
 
   it('то же значение — ничего не меняет (страница остаётся)', () => {

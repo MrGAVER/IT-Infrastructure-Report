@@ -13,10 +13,11 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PhysicalDeviceCreate(BaseModel):
@@ -160,6 +161,53 @@ class ChangePasswordRequest(BaseModel):
 class AuthSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     enabled: bool
+
+
+# --- Настройки интерфейса (services/preferences.py, api/preferences.py) -----------------------------
+# extra="forbid": набор ключей фиксирован — опечатка или чужой ключ дают 422, а не молча сохраняются.
+# Поле, которого нет в теле запроса, не трогается; поле со значением null сбрасывает настройку к значению
+# по умолчанию (запись удаляется) — для этого эндпоинты читают тело через model_dump(exclude_unset=True).
+PREFERENCE_NUMBER_MAX = 1000  # порог сворачивания строк и размер страницы списка: от 1 до 1000
+PAGE_SIZES_MAX_LISTS = 100  # сколько списков с запомненным размером страницы допускается у одного владельца
+
+
+class UserPreferencesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    color_scheme: Optional[str] = Field(default=None, pattern=r"^[a-z0-9_-]{1,32}$")
+    device_vlan_collapse_rows: Optional[int] = Field(default=None, ge=1, le=PREFERENCE_NUMBER_MAX)
+    # {идентификатор списка: размер страницы}; значение null убирает запомненный размер этого списка.
+    # Словарь СЛИВАЕТСЯ с сохранённым, а не заменяет его: так вкладки/устройства не затирают друг у друга
+    # размеры разных списков.
+    page_sizes: Optional[dict[str, Optional[int]]] = None
+
+    @field_validator("page_sizes")
+    @classmethod
+    def _check_page_sizes(cls, value: Optional[dict[str, Optional[int]]]) -> Optional[dict[str, Optional[int]]]:
+        if value is None:
+            return value
+        if len(value) > PAGE_SIZES_MAX_LISTS:
+            raise ValueError(f"Не больше {PAGE_SIZES_MAX_LISTS} списков за один запрос.")
+        for list_id, size in value.items():
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", list_id):
+                raise ValueError(f"Недопустимый идентификатор списка «{list_id}».")
+            if size is not None and not 1 <= size <= PREFERENCE_NUMBER_MAX:
+                raise ValueError(f"Размер страницы списка «{list_id}» должен быть от 1 до {PREFERENCE_NUMBER_MAX}.")
+        return value
+
+
+class GlobalPreferencesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    organization_name: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("organization_name")
+    @classmethod
+    def _strip_organization_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Название организации не может быть пустым (чтобы вернуть значение по умолчанию, передайте null).")
+        return stripped
 
 
 # --- Тела запросов синхронизации и массовых операций (код-ревью п. 8) -------------------------

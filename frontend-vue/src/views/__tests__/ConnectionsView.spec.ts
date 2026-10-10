@@ -9,6 +9,7 @@ import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
 import { DEFAULT_PAGE_SIZE } from '../../stores/connectionsDashboard'
 import type { Connection, ConnectionsSummary } from '../../api/types'
+import { usePreferencesStore } from '../../stores/preferences'
 
 // DevicePortsModal.vue телепортируется в body (см. DevicePortsModal.spec.ts) — ищем там же.
 function body(): DOMWrapper<HTMLElement> {
@@ -241,7 +242,7 @@ describe('ConnectionsView.vue — постраничная выборка с с�
     expect(lastPageParams().get('offset')).toBe('0')
     expect(wrapper.find('.table-foot').text()).toContain('из 100')
     expect(wrapper.findAll('.pager button').filter((b) => /^\d+$/.test(b.text()))).toHaveLength(4) // 100 / 32 → 4 страницы
-    expect(localStorage.getItem('itr.pageSize.connections')).toBe('32')
+    expect(usePreferencesStore().user.page_sizes).toEqual({ connections: 32 })
   })
 
   it('после смены размера следующая страница запрашивается со смещением от нового размера', async () => {
