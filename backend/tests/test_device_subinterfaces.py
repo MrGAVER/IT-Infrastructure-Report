@@ -248,3 +248,21 @@ def test_subinterface_has_no_incoming_foreign_keys():
         if fk.column.table.name == "device_subinterfaces"
     )
     assert referencing == []
+
+
+def test_device_list_shows_management_port_and_ip_from_a_management_subinterface(client):
+    """Дашборд устройств: управление на подинтерфейсе даёт порт «Gi0/0 (подинтерфейс Gi0/0.99)» и его IP —
+    как в отчётах; подинтерфейс без роли «Управление» и физические порты счётчик/управление не меняют."""
+    v99, v10 = _vlan(client, 99), _vlan(client, 10)
+    dev = _device(client, vlans=(v99, v10))
+    r = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[
+        _sub("Gi0/0.99", v99, is_management=True, ips=[{"ip_address": "10.0.99.1", "prefix_length": 24}]),
+        _sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}]),
+    ])])
+    assert r.status_code == 200, r.text
+
+    listed = next(d for d in client.get(f"{API}/resources/devices", params={"limit": 1000}).json()["items"] if d["id"] == dev["id"])
+
+    assert listed["management_interface"] == "Gi0/0 (подинтерфейс Gi0/0.99)"
+    assert listed["management_ips"] == "10.0.99.1/24"
+    assert listed["interface_count"] == 1

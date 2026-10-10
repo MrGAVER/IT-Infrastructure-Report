@@ -2977,16 +2977,29 @@ describe('подинтерфейсы портов: сквозное сохран
     open_ports: [],
   }
 
-  async function mountWithSubinterfaces(props: { device: never | null; copyFrom?: never | null }) {
+  const vlanDef = (id: string, vlan_id: number, name: string) => ({ id, vlan_id, name, description: '', domain_id: null, domain_name: '', devices: [] })
+
+  async function mountWithSubinterfaces(props: { device: never | null; copyFrom?: never | null }, deviceVlanIds: string[] = ['v-10']) {
     const calls: Call[] = []
     stubCatalogsFetch()
     await useCatalogsStore().ensureLoaded()
+    // Подинтерфейс живёт на VLAN устройства: VLAN должен быть и в справочнике, и в «VLAN устройства» донора.
+    const vlans = useVLANsStore()
+    vlans.groups = [
+      { vlan_id: 10, definitions: [vlanDef('v-10', 10, 'Серверы')] },
+      { vlan_id: 20, definitions: [vlanDef('v-20', 20, 'Гости')] },
+    ]
+    vlans.loaded = true
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (url.endsWith('/devices/dev-s/subinterfaces')) return new Response(JSON.stringify({ items: [subDto] }))
+        if (url.includes('/resources/device-vlans') && method === 'GET') {
+          const items = deviceVlanIds.map((vlan_id, i) => ({ id: `dv-${i + 1}`, physical_device_id: 'dev-s', vlan_id, ip_address: null, prefix_length: null, is_management: false, description: null }))
+          return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
+        }
         if (url.includes('/resources/interfaces') && method === 'GET') return new Response(JSON.stringify({ items: [ifaceDto], total: 1, offset: 0, limit: 1000 }))
         if (method === 'PUT' && url.includes('/devices/dev-copy/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
         if (method === 'PUT' && url.includes('/devices/dev-s/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
@@ -3035,5 +3048,59 @@ describe('подинтерфейсы портов: сквозное сохран
     expect(sub.id).toBeUndefined()
     expect(sub.ips[0].id).toBeUndefined()
     expect(sub.ips[0]).toMatchObject({ ip_address: '10.0.10.1', prefix_length: 24 })
+  })
+
+  describe('снятие VLAN устройства, на котором есть подинтерфейс', () => {
+    async function mountAndRemoveVlan10() {
+      const mounted = await mountWithSubinterfaces({ device: donor }, ['v-10', 'v-20'])
+      useToast().toasts.splice(0)
+      const vlanEditor = mounted.wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.findAll('button[aria-label="Удалить VLAN"]')[0].trigger('click') // первая строка — «10 — Серверы»
+      await flushPromises()
+      return mounted
+    }
+
+    it('сразу предупреждает: называет VLAN и подинтерфейс; подинтерфейс не удаляется, на строке порта — значок', async () => {
+      const { wrapper } = await mountAndRemoveVlan10()
+
+      const toasts = useToast().toasts
+      expect(toasts.map((t) => t.type)).toEqual(['warning'])
+      expect(toasts[0].message).toContain('Сняты VLAN (10 — Серверы), но на них остались подинтерфейсы: «Gi0/0.10»')
+      expect(wrapper.find('.expand-toggle').text()).toContain('1 подинт.')
+      expect(wrapper.find('.expand-toggle .stale-sub-icon').exists()).toBe(true)
+    })
+
+    it('сохранение блокируется понятным текстом до запроса на сервер', async () => {
+      const { wrapper, calls } = await mountAndRemoveVlan10()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.find('.form-error').text()).toContain('VLAN подинтерфейса «Gi0/0.10» не назначен устройству')
+      expect(calls.some((c) => c.method !== 'GET')).toBe(false)
+    })
+
+    it('если на снятом VLAN подинтерфейсов нет — предупреждения нет', async () => {
+      const { wrapper } = await mountWithSubinterfaces({ device: donor }, ['v-10', 'v-20'])
+      useToast().toasts.splice(0)
+      const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+      await vlanEditor.findAll('button[aria-label="Удалить VLAN"]')[1].trigger('click') // «20 — Гости»
+      await flushPromises()
+
+      expect(useToast().toasts).toHaveLength(0)
+      expect(wrapper.find('.stale-sub-icon').exists()).toBe(false)
+    })
+  })
+
+  it('переименование порта в форме пересчитывает автоимя подинтерфейса — в запрос уходит «Gi0/1.10»', async () => {
+    const { wrapper, calls } = await mountWithSubinterfaces({ device: donor })
+
+    await wrapper.find('.iface-table input.cell-input').setValue('Gi0/1')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-s/interfaces'))
+    expect(put?.body.interfaces[0]).toMatchObject({ name: 'Gi0/1' })
+    expect(put?.body.interfaces[0].subinterfaces[0]).toMatchObject({ id: 'sub-1', name: 'Gi0/1.10' })
   })
 })

@@ -118,11 +118,16 @@ import { groupSubinterfacesByParent, subinterfacesPayload, validateSubinterfaceR
  * набрать больше одного VLAN в режиме access, но проверка здесь — защита на случай данных,
  * загруженных из БД в уже несогласованном виде (см. комментарий к InterfaceDraftRow.vlan_mode).
  * Возвращает текст ошибки либо null. portCatalog — справочник «порт + протокол» (catalogs.protocolPortCatalog),
- * нужен для проверки повторов номеров открытых портов.
+ * нужен для проверки повторов номеров открытых портов. allowedVlanIds — VLAN, доступные устройству (опции VLAN
+ * порта формы): подинтерфейс на другом VLAN блокирует сохранение (необязателен — DevicePortsModal списка не знает).
  *
  * Фикс п.2.1.3: IP-адреса/префиксы интерфейса (InterfaceDraftRow.ips) — та же причина, что и у
  * остальных проверок здесь: показать понятную ошибку сразу, а не ждать 422 с бэкенда. */
-export function validateInterfaceDraftRows(rows: InterfaceDraftRow[], portCatalog: readonly ProtocolPortCatalogEntry[] = []): string | null {
+export function validateInterfaceDraftRows(
+  rows: InterfaceDraftRow[],
+  portCatalog: readonly ProtocolPortCatalogEntry[] = [],
+  allowedVlanIds?: ReadonlySet<string>,
+): string | null {
   if (rows.some((row) => !row.name.trim())) return 'У каждого интерфейса должно быть имя.'
   if (rows.some((row) => row.vlan_mode === 'access' && row.vlan_ids.length > 1)) {
     return 'В режиме access у порта может быть не более одного VLAN.'
@@ -143,8 +148,9 @@ export function validateInterfaceDraftRows(rows: InterfaceDraftRow[], portCatalo
     // больше нечего: несуществующую ссылку отклонит сервер (422), а пустую строку без выбора
     // тихо пропускает toApiPayload() (см. её комментарий) — как и раньше с пустым номером порта.
   }
-  // Подинтерфейсы портов: имя и VLAN обязательны, имена уникальны на устройстве, VLAN на порту один раз.
-  return validateSubinterfaceRows(rows, portCatalog)
+  // Подинтерфейсы портов: имя и VLAN обязательны, имена уникальны на устройстве, VLAN на порту один раз;
+  // с allowedVlanIds — ещё и VLAN должен быть доступен устройству (см. validateSubinterfaceRows).
+  return validateSubinterfaceRows(rows, portCatalog, allowedVlanIds)
 }
 
 /**

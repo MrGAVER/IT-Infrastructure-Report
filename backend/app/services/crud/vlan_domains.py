@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-from ...models import DeviceInterface, PhysicalDevice, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice, InterfaceGroup, InterfaceGroupVLAN
+from ...models import DeviceInterface, DeviceSubinterface, PhysicalDevice, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice, InterfaceGroup, InterfaceGroupVLAN
 
 
 def _domain_device_ids(domain_id: str, session: Session) -> set[str]:
@@ -47,6 +47,30 @@ def _unassign_moved_vlan_from_former_domain_devices(vlan: 'VLAN', old_domain_id:
         group_ids = select(InterfaceGroup.id).where(InterfaceGroup.physical_device_id.in_(strip_ports_of))
         session.execute(delete(InterfaceGroupVLAN).where(InterfaceGroupVLAN.vlan_id == vlan.id, InterfaceGroupVLAN.group_id.in_(group_ids)))
     return len(assigned)
+
+
+def _stale_subinterfaces_on_vlan(vlan_id: str, session: Session) -> list[str]:
+    """Подинтерфейсы на VLAN, который их устройству больше не разрешён: у устройства нет назначения этого VLAN
+    и тип устройства не разрешает его каталогом (DeviceTypeVLAN) — тот же набор допустимых VLAN, что проверяет
+    sync_interfaces. Возвращает подписи «устройство / порт / подинтерфейс».
+
+    Подинтерфейсы при снятии VLAN с устройства не удаляются и не переносятся сами (в отличие от связей VLAN с
+    портами и группами): подинтерфейс — самостоятельная запись со своими IP и открытыми портами, молча удалять её
+    нельзя. Остаётся «устаревший» подинтерфейс; форма устройства покажет его с предупреждением, а следующее
+    сохранение потребует выбрать другой VLAN или удалить подинтерфейс. Эта функция нужна, чтобы такие подинтерфейсы
+    не остались незамеченными — перечень уходит в журнал аудита при переносе VLAN в другой домен."""
+    rows = session.execute(
+        select(PhysicalDevice.id, PhysicalDevice.device_type_id, PhysicalDevice.system_name, PhysicalDevice.serial_number, DeviceInterface.name.label('port_name'), DeviceSubinterface.name.label('sub_name'))
+        .join(DeviceInterface, DeviceInterface.physical_device_id == PhysicalDevice.id)
+        .join(DeviceSubinterface, DeviceSubinterface.parent_interface_id == DeviceInterface.id)
+        .where(DeviceSubinterface.vlan_id == vlan_id)
+        .order_by(PhysicalDevice.serial_number, DeviceInterface.name, DeviceSubinterface.name)
+    ).all()
+    if not rows:
+        return []
+    assigned = set(session.scalars(select(PhysicalDeviceVLAN.physical_device_id).where(PhysicalDeviceVLAN.vlan_id == vlan_id)).all())
+    type_allowed = set(session.scalars(select(DeviceTypeVLAN.device_type_id).where(DeviceTypeVLAN.vlan_id == vlan_id)).all())
+    return [f"{r.system_name or r.serial_number} / {r.port_name} / {r.sub_name}" for r in rows if r.id not in assigned and r.device_type_id not in type_allowed]
 
 
 def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:

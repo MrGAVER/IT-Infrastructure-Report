@@ -560,4 +560,13 @@ describe('подинтерфейсы портов', () => {
       ),
     ).toMatch(/на одном VLAN/)
   })
+
+  it('validateInterfaceDraftRows: с допустимыми VLAN устройства подинтерфейс на снятом VLAN блокирует сохранение', () => {
+    const base = { key: 'k', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }
+    const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', subinterfaces: [{ ...base, name: 'eth0.10', vlan_id: 'vlan-10' }] }]
+
+    expect(validateInterfaceDraftRows(rows, [], new Set(['vlan-10']))).toBeNull()
+    expect(validateInterfaceDraftRows(rows, [], new Set(['vlan-20']))).toMatch(/VLAN подинтерфейса «eth0\.10» не назначен устройству/)
+    expect(validateInterfaceDraftRows(rows)).toBeNull() // без списка допустимых VLAN (DevicePortsModal) проверка пропускается
+  })
 })

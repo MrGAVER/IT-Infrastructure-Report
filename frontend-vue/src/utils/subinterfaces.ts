@@ -7,6 +7,7 @@
 import type { DeviceSubinterface, InterfaceDraftRow, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
 import { isValidIPv4, isValidPrefixLength } from './ipValidation'
 import { duplicatePortNumbers } from './openPorts'
+import { vlanLabel } from './vlan'
 
 let keyCounter = 0
 
@@ -21,6 +22,83 @@ export function newSubinterfaceKey(): string {
 export function suggestSubinterfaceName(parentName: string, vlanNumber: number): string {
   const parent = parentName.trim()
   return parent ? `${parent}.${vlanNumber}` : ''
+}
+
+/** Имя подинтерфейса ещё «автоматическое» — пустое либо равное подсказке `<порт>.<VLAN>` для заданных порта и VLAN.
+ * Только такие имена приложение вправе пересчитывать само (смена VLAN, переименование порта): введённое вручную
+ * (`wan-uplink`, `mgmt`) не трогаем. */
+export function isAutoSubinterfaceName(name: string, parentName: string, vlanNumber: number): boolean {
+  return !name.trim() || name === suggestSubinterfaceName(parentName, vlanNumber)
+}
+
+/** Подинтерфейсы порта после его переименования `oldPortName` → `newPortName`: автоимена («Gi0/0.10») пересчитываются
+ * под новое имя порта («Gi0/1.10»), имена, введённые вручную, остаются как есть. Номер VLAN берётся из `vlans`
+ * (допустимые устройству); подинтерфейс на недоступном VLAN не трогаем — его автоимя не восстановить.
+ *
+ * Если порт остался без имени, автоимя тоже пустеет (подсказывать нечего), а при следующем вводе имени порта
+ * восстанавливается — цепочка «набираю имя порта по буквам» работает без потери автоимён. Возвращает ТОТ ЖЕ
+ * массив, если менять нечего (без лишнего реактивного обновления).
+ *
+ * @example
+ * renameSubinterfacesForPort(subs, 'Gi0/0', 'Gi0/1', vlans) // «Gi0/0.10» → «Gi0/1.10», «wan-uplink» без изменений */
+export function renameSubinterfacesForPort(
+  subs: readonly SubinterfaceDraftRow[],
+  oldPortName: string,
+  newPortName: string,
+  vlans: readonly VLANDefinition[],
+): SubinterfaceDraftRow[] {
+  if (oldPortName.trim() === newPortName.trim()) return subs as SubinterfaceDraftRow[]
+  const vlanById = new Map(vlans.map((v) => [v.id, v]))
+  let changed = false
+  const next = subs.map((sub) => {
+    const vlan = vlanById.get(sub.vlan_id)
+    if (!vlan || !isAutoSubinterfaceName(sub.name, oldPortName, vlan.vlan_id)) return sub
+    const name = suggestSubinterfaceName(newPortName, vlan.vlan_id)
+    if (name === sub.name) return sub
+    changed = true
+    return { ...sub, name }
+  })
+  return changed ? next : (subs as SubinterfaceDraftRow[])
+}
+
+/** Подинтерфейсы порта, VLAN которых не входит в `allowedVlanIds` (снят с устройства, убран из типа устройства,
+ * перенесён в другой домен): сервер такое сохранение отклонит (422), поэтому форма показывает их заранее. */
+export function staleSubinterfaces(subs: readonly SubinterfaceDraftRow[] | undefined, allowedVlanIds: ReadonlySet<string>): SubinterfaceDraftRow[] {
+  return (subs ?? []).filter((sub) => sub.vlan_id && !allowedVlanIds.has(sub.vlan_id))
+}
+
+/** Текст уведомления, когда VLAN сняли с устройства (или сменили тип устройства), а подинтерфейсы на нём остались.
+ * В отличие от VLAN порта и групп подинтерфейс молча не удаляется — на нём IP-адреса и открытые порты, — поэтому
+ * пользователя нужно предупредить сразу, а не на 422 при сохранении. Сравнивает прежний и новый списки опций
+ * (как reconcileVlanIds): упоминаются только подинтерфейсы на VLAN, которые ТОЛЬКО ЧТО перестали быть доступны.
+ * Возвращает null, если таких нет.
+ *
+ * @example
+ * subinterfaceVlanRemovalMessage(rows, oldOptions, newOptions)
+ * // 'Сняты VLAN (20 — Гости), но на них остались подинтерфейсы: «Gi0/0.20». Выберите другой VLAN или удалите их — иначе сохранить не получится.' */
+export function subinterfaceVlanRemovalMessage(
+  rows: readonly InterfaceDraftRow[],
+  oldOptions: readonly VLANDefinition[],
+  newOptions: readonly VLANDefinition[],
+): string | null {
+  const stillAllowed = new Set(newOptions.map((v) => v.id))
+  const removed = oldOptions.filter((v) => !stillAllowed.has(v.id))
+  if (!removed.length) return null
+  const removedIds = new Set(removed.map((v) => v.id))
+
+  const lostIds = new Set<string>()
+  const names: string[] = []
+  for (const row of rows) {
+    for (const sub of row.subinterfaces ?? []) {
+      if (!removedIds.has(sub.vlan_id)) continue
+      lostIds.add(sub.vlan_id)
+      names.push(`«${sub.name.trim() || 'без имени'}»`)
+    }
+  }
+  if (!names.length) return null
+
+  const labels = removed.filter((v) => lostIds.has(v.id)).map((v) => vlanLabel(v))
+  return `Сняты VLAN (${labels.join(', ')}), но на них остались подинтерфейсы: ${names.join(', ')}. Выберите другой VLAN или удалите их — иначе сохранить не получится.`
 }
 
 /** Новая пустая строка подинтерфейса. Если VLAN известен — сразу подставляет его и подсказку имени. */
@@ -77,8 +155,14 @@ export function stripSubinterfaceIds(rows: readonly SubinterfaceDraftRow[] | und
 }
 
 /** Текст первой найденной ошибки подинтерфейсов всех портов формы либо null. portCatalog нужен для проверки
- * повторов номеров открытых портов (без него — пропускается, остаётся серверная проверка). */
-export function validateSubinterfaceRows(rows: readonly InterfaceDraftRow[], portCatalog: readonly ProtocolPortCatalogEntry[] = []): string | null {
+ * повторов номеров открытых портов (без него — пропускается, остаётся серверная проверка). allowedVlanIds — VLAN,
+ * доступные устройству (опции VLAN порта): подинтерфейс на другом VLAN блокирует сохранение с понятным текстом вместо
+ * 422 с сервера. Без него проверка пропускается (форма без списка VLAN устройства, например DevicePortsModal). */
+export function validateSubinterfaceRows(
+  rows: readonly InterfaceDraftRow[],
+  portCatalog: readonly ProtocolPortCatalogEntry[] = [],
+  allowedVlanIds?: ReadonlySet<string>,
+): string | null {
   const portNames = new Set(rows.map((row) => row.name.trim().toLowerCase()).filter(Boolean))
   const seenNames = new Set<string>()
   for (const row of rows) {
@@ -89,6 +173,9 @@ export function validateSubinterfaceRows(rows: readonly InterfaceDraftRow[], por
       if (!name) return `У каждого подинтерфейса должно быть имя (порт «${parent}»).`
       if (name.length > 100) return `Имя подинтерфейса «${name.slice(0, 30)}…» не должно превышать 100 символов.`
       if (!sub.vlan_id) return `У подинтерфейса «${name}» не выбран VLAN.`
+      if (allowedVlanIds && !allowedVlanIds.has(sub.vlan_id)) {
+        return `VLAN подинтерфейса «${name}» не назначен устройству — выберите другой VLAN или удалите подинтерфейс.`
+      }
       const key = name.toLowerCase()
       if (seenNames.has(key)) return `Имя подинтерфейса «${name}» повторяется — имена подинтерфейсов на устройстве должны быть уникальны.`
       seenNames.add(key)
