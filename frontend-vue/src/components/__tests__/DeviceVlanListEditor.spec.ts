@@ -279,4 +279,158 @@ describe('DeviceVlanListEditor.vue', () => {
       expect(wrapper.find('[data-testid="member-domains"]').exists()).toBe(false)
     })
   })
+  describe('правило «как у открытых портов»: отсев добавленных, сортировка при добавлении, повторы', () => {
+    const blank = (): DeviceVlanDraftRow => ({ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' })
+    const filled = (vlan_id: string, id?: string): DeviceVlanDraftRow => ({ ...(id ? { id } : {}), vlan_id, ip_address: '', prefix_length: '', is_management: false, description: '' })
+    const options: VLANDefinition[] = [
+      { id: 'v-30', vlan_id: 30, name: 'Гости', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v-20', vlan_id: 20, name: 'Управление', description: '', domain_id: null, domain_name: '', devices: [] },
+    ]
+
+    async function choices(wrapper: ReturnType<typeof mount>, rowIndex: number): Promise<string[]> {
+      const select = wrapper.findAll('.col-vlan .searchable-select')[rowIndex]
+      await select.find('input').trigger('focus')
+      return select.findAll('.ss-option').map((o) => o.text())
+    }
+
+    it('VLAN, уже добавленный в другой строке, не предлагается в списке выбора; собственный выбор строки остаётся; список по возрастанию номера', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [filled('v-20'), blank()], vlanOptions: options } })
+      expect(await choices(wrapper, 1)).toEqual(['10 — Мониторинг', '30 — Гости'])
+      expect(await choices(wrapper, 0)).toEqual(['10 — Мониторинг', '20 — Управление', '30 — Гости'])
+    })
+
+    it('когда все VLAN уже добавлены, в пустой строке показывается пояснение вместо «Ничего не найдено»', async () => {
+      const rows = [filled('v-10'), filled('v-20'), filled('v-30'), blank()]
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions: options } })
+      const select = wrapper.findAll('.col-vlan .searchable-select')[3]
+      await select.find('input').trigger('focus')
+      expect(select.text()).toContain('Все доступные VLAN уже добавлены')
+    })
+
+    it('«+ VLAN» упорядочивает заполненные строки по номеру и ставит новую пустую в конец', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [filled('v-30', 'dv-3'), filled('v-10', 'dv-1'), blank()], vlanOptions: options } })
+      await wrapper.find('button.add-btn').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')![0][0] as DeviceVlanDraftRow[]
+      expect(emitted.map((r) => r.vlan_id)).toEqual(['v-10', 'v-30', '', ''])
+      expect(emitted[0].id).toBe('dv-1')
+    })
+
+    it('выбор VLAN в строке НЕ переставляет строки (порядок меняется только при добавлении следующей)', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [filled('v-30'), blank()], vlanOptions: options } })
+      const select = wrapper.findAll('.col-vlan .searchable-select')[1]
+      await select.find('input').trigger('focus')
+      await select.findAll('.ss-option')[0].trigger('mousedown')
+
+      const emitted = wrapper.emitted('update:modelValue')![0][0] as DeviceVlanDraftRow[]
+      expect(emitted.map((r) => r.vlan_id)).toEqual(['v-30', 'v-10'])
+    })
+
+    it('повторяющиеся строки подсвечиваются и под списком показывается одно сообщение', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [filled('v-10'), filled('v-20'), filled('v-10')], vlanOptions: options } })
+      const rows = wrapper.findAll('.nested-row')
+      expect(rows.map((r) => r.classes().includes('row-duplicate'))).toEqual([true, false, true])
+      expect(wrapper.find('.dup-error').text()).toContain('VLAN 10 указан несколько раз')
+    })
+
+    it('без повторов сообщения и подсветки нет', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [filled('v-10'), filled('v-20')], vlanOptions: options } })
+      expect(wrapper.find('.dup-error').exists()).toBe(false)
+      expect(wrapper.find('.row-duplicate').exists()).toBe(false)
+    })
+  })
+
+  describe('сворачивание блока по порогу строк', () => {
+    const makeRows = (n: number): DeviceVlanDraftRow[] =>
+      Array.from({ length: n }, (_, i) => ({ id: `dv-${i}`, vlan_id: `v-${i + 1}`, ip_address: '', prefix_length: '', is_management: false, description: '' }))
+    const manyOptions: VLANDefinition[] = Array.from({ length: 30 }, (_, i) => ({
+      id: `v-${i + 1}`, vlan_id: i + 1, name: `Сеть ${i + 1}`, description: '', domain_id: null, domain_name: '', devices: [],
+    }))
+    const toggle = (w: ReturnType<typeof mount>) => w.find('[data-testid="vlan-collapse-toggle"]')
+
+    it('по умолчанию порог 10: на пороге (ровно 10 строк) блок развёрнут и кнопки сворачивания нет', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(10), vlanOptions: manyOptions } })
+      expect(wrapper.findAll('.nested-row')).toHaveLength(10)
+      expect(wrapper.find('[data-testid="vlan-collapsed"]').exists()).toBe(false)
+      expect(toggle(wrapper).exists()).toBe(false)
+    })
+
+    it('при 11 строках блок свёрнут: строк нет, есть счётчик, сводка номеров и кнопка «Развернуть»', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(11), vlanOptions: manyOptions } })
+      expect(wrapper.findAll('.nested-row')).toHaveLength(0)
+      const summary = wrapper.find('[data-testid="vlan-collapsed"]')
+      expect(summary.text()).toContain('Назначено VLAN: 11')
+      expect(summary.text()).toContain('1, 2, 3')
+      expect(toggle(wrapper).text()).toContain('Развернуть (11)')
+      expect(toggle(wrapper).attributes('aria-expanded')).toBe('false')
+    })
+
+    it('сводка длинного списка обрезается многоточием', () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(25), vlanOptions: manyOptions } })
+      expect(wrapper.find('.summary-numbers').text()).toBe('1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, …')
+    })
+
+    it('порог берётся из collapseAfter: при 3 свёрнуто уже 4 строки, при 50 — 30 строк развёрнуты', () => {
+      expect(mount(DeviceVlanListEditor, { props: { modelValue: makeRows(4), vlanOptions: manyOptions, collapseAfter: 3 } }).find('[data-testid="vlan-collapsed"]').exists()).toBe(true)
+      expect(mount(DeviceVlanListEditor, { props: { modelValue: makeRows(30), vlanOptions: manyOptions, collapseAfter: 50 } }).findAll('.nested-row')).toHaveLength(30)
+    })
+
+    it('кнопка разворачивает и снова сворачивает блок', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(12), vlanOptions: manyOptions } })
+      await toggle(wrapper).trigger('click')
+      expect(wrapper.findAll('.nested-row')).toHaveLength(12)
+      expect(toggle(wrapper).text()).toContain('Свернуть')
+      expect(toggle(wrapper).attributes('aria-expanded')).toBe('true')
+
+      await toggle(wrapper).trigger('click')
+      expect(wrapper.findAll('.nested-row')).toHaveLength(0)
+    })
+
+    it('«+ VLAN» на свёрнутом блоке разворачивает его, чтобы новая строка была видна', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(11), vlanOptions: manyOptions } })
+      await wrapper.find('button.add-btn').trigger('click')
+      await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')![0][0] as DeviceVlanDraftRow[] })
+
+      expect(wrapper.findAll('.nested-row')).toHaveLength(12)
+    })
+
+    it('добавление 11-й строки в развёрнутом блоке не сворачивает его под руками пользователя', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(10), vlanOptions: manyOptions } })
+      await wrapper.find('button.add-btn').trigger('click')
+      await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')![0][0] as DeviceVlanDraftRow[] })
+
+      expect(wrapper.findAll('.nested-row')).toHaveLength(11)
+      expect(wrapper.find('[data-testid="vlan-collapsed"]').exists()).toBe(false)
+    })
+
+    it('после удаления строк ниже порога флаг ручного раскрытия сбрасывается: следующее превышение снова сворачивает блок', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(11), vlanOptions: manyOptions } })
+      await toggle(wrapper).trigger('click') // развернули вручную
+      await wrapper.setProps({ modelValue: makeRows(5) })
+      await wrapper.setProps({ modelValue: makeRows(15) }) // например, «Включить в домен» добавило много VLAN
+
+      expect(wrapper.find('[data-testid="vlan-collapsed"]').exists()).toBe(true)
+    })
+
+    it('expand() (вызывается формой при ошибке в скрытой строке) раскрывает блок', async () => {
+      const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: makeRows(11), vlanOptions: manyOptions } })
+      ;(wrapper.vm as unknown as { expand: () => void }).expand()
+      await wrapper.vm.$nextTick()
+      expect(wrapper.findAll('.nested-row')).toHaveLength(11)
+    })
+
+    it('домены VLAN и блок «Включить в домен» остаются видны на свёрнутом блоке', () => {
+      const wrapper = mount(DeviceVlanListEditor, {
+        props: {
+          modelValue: makeRows(11),
+          vlanOptions: manyOptions,
+          memberDomains: [{ id: 'dom-1', name: 'Ядро сети', pending: false }],
+          joinableDomains: [{ id: 'dom-2', name: 'Филиал' } as never],
+        },
+      })
+      expect(wrapper.find('[data-testid="member-domains"]').exists()).toBe(true)
+      expect(wrapper.find('.join-domain-row').exists()).toBe(true)
+    })
+  })
 })

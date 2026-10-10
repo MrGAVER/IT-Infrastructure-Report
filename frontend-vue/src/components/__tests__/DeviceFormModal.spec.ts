@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, DOMWrapper, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceFormModal from '../DeviceFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
 import { useVLANDomainsStore } from '../../stores/vlanDomains'
+import { useFormPreferencesStore } from '../../stores/formPreferences'
 import { useConnectionsStore } from '../../stores/connections'
 import { useDevicesStore } from '../../stores/devices'
 import { deviceTypesFixture } from '../../stores/__tests__/fixtures'
@@ -707,10 +708,14 @@ describe('DeviceFormModal.vue', () => {
 
     // Фикс п.1.3.8, часть 1: VLAN не выпал из опций сразу после создания — он подставился в
     // строку подписью, а не "висящим" vlan_id без неё (что визуально выглядело бы как сброс
-    // выбора), и доступен для выбора в другой (новой) строке — т.е. именно в списке опций.
+    // выбора), и остаётся в списке доступных VLAN: пока он занят первой строкой, в новой его не
+    // предлагают (правило «как у открытых портов»), а стоит строку убрать — он снова в списке выбора.
     expect(vlanRowLabels(wrapper)).toEqual(['55 — Гостевой-X [Домен X]'])
     await vlanEditor.find('.add-btn').trigger('click')
-    expect(await vlanChoices(wrapper, 1)).toContain('55 — Гостевой-X [Домен X]')
+    expect(await vlanChoices(wrapper, 1)).not.toContain('55 — Гостевой-X [Домен X]')
+    await vlanEditor.find('.nested-row .icon-btn.danger').trigger('click') // убрать первую строку с VLAN 55
+    expect(await vlanChoices(wrapper, 0)).toContain('55 — Гостевой-X [Домен X]')
+    await pickVlan(wrapper, '55 — Гостевой-X [Домен X]', 0) // назначаем снова — дальше проверяется сохранение
 
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -2067,8 +2072,9 @@ describe('правки формы физического устройства: �
     await vlanEditor().find('.join-domain-row button').trigger('click')
     await flushPromises()
     expect(vlanEditor().findAll('[data-testid="member-domain"]')).toHaveLength(1)
-    // v-30 (без домена) скрыт фильтром по домену, но остаётся подписан в своей строке.
-    expect(vlanRowLabels(vlanEditor())).toEqual(['30 — VLAN 30', '10 — VLAN 10 [Ядро сети]'])
+    // v-30 (без домена) скрыт фильтром по домену, но остаётся подписан в своей строке; добавленные VLAN домена
+    // встают в список по номеру (как при добавлении строки вручную), а не дописываются в конец.
+    expect(vlanRowLabels(vlanEditor())).toEqual(['10 — VLAN 10 [Ядро сети]', '30 — VLAN 30'])
 
     await vlanEditor().find('[data-testid="cancel-join-domain"]').trigger('click')
     await flushPromises()
@@ -3035,5 +3041,96 @@ describe('подинтерфейсы портов: сквозное сохран
     expect(sub.id).toBeUndefined()
     expect(sub.ips[0].id).toBeUndefined()
     expect(sub.ips[0]).toMatchObject({ ip_address: '10.0.10.1', prefix_length: 24 })
+  })
+})
+
+// Блок «VLAN устройства»: список упорядочен по номеру, повторов нет, длинный список сворачивается по порогу из «Настроек».
+describe('DeviceFormModal.vue — «VLAN устройства»: сортировка, повторы, сворачивание', () => {
+  // Порог сворачивания персистится в localStorage — без чистки значение одного теста утекло бы в следующие.
+  beforeEach(() => localStorage.clear())
+  afterEach(() => localStorage.clear())
+  const definition = (id: string, vlanId: number, name: string) => ({
+    id, vlan_id: vlanId, name, description: '', domain_id: null, domain_name: '', devices: [],
+  })
+  interface DeviceVlanItem {
+    id: string; physical_device_id: string; vlan_id: string; ip_address: string | null; prefix_length: number | null; is_management: boolean; description: string | null
+  }
+  const deviceVlanItem = (id: string, vlanId: string): DeviceVlanItem => ({
+    id, physical_device_id: 'dev-v', vlan_id: vlanId, ip_address: null, prefix_length: null, is_management: false, description: null,
+  })
+
+  // Устройство с уже сохранёнными VLAN (в порядке items) и журналом запросов; PUT /devices/dev-v/vlans отвечает пустым списком.
+  async function mountDeviceWithVlans(items: DeviceVlanItem[], count = 4) {
+    const vlans = useVLANsStore()
+    vlans.groups = Array.from({ length: count }, (_, i) => ({ vlan_id: (i + 1) * 10, definitions: [definition(`v-${(i + 1) * 10}`, (i + 1) * 10, `Сеть ${(i + 1) * 10}`)] }))
+    vlans.loaded = true
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    const calls: { method: string; url: string }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url })
+        if (method === 'GET' && url.includes('/resources/device-vlans')) return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
+        if (method === 'PUT' && url.endsWith('/devices/dev-v/vlans')) return new Response(JSON.stringify({ items: [] }))
+        if (method === 'PUT' && url.includes('/resources/devices/dev-v')) return new Response(JSON.stringify({ id: 'dev-v', device_type_id: 'dt-server', serial_number: 'SN-V-1' }))
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+    const device = { id: 'dev-v', device_type_id: 'dt-server', serial_number: 'SN-V-1' } as never
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+    const editor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    return { wrapper, editor, calls }
+  }
+
+  it('при открытии формы VLAN устройства идут по возрастанию номера, даже если с сервера пришли в другом порядке', async () => {
+    const { editor } = await mountDeviceWithVlans([deviceVlanItem('dv-3', 'v-30'), deviceVlanItem('dv-1', 'v-10'), deviceVlanItem('dv-2', 'v-20')])
+    expect(vlanRowLabels(editor)).toEqual(['10 — Сеть 10', '20 — Сеть 20', '30 — Сеть 30'])
+  })
+
+  it('уже добавленные VLAN не предлагаются в новой строке', async () => {
+    const { editor } = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), deviceVlanItem('dv-2', 'v-20')])
+    await editor.find('.add-btn').trigger('click')
+    expect(await vlanChoices(editor, 2)).toEqual(['30 — Сеть 30', '40 — Сеть 40'])
+  })
+
+  it('повтор VLAN блокирует сохранение: сообщение об ошибке, запрос VLAN устройства не отправляется', async () => {
+    const { wrapper, calls } = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), deviceVlanItem('dv-2', 'v-10')])
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('VLAN 10 указан несколько раз')
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+    expect(wrapper.emitted('saved')).toBeFalsy()
+  })
+
+  it('порог из «Настроек» управляет сворачиванием: при 3 строках и пороге 2 блок свёрнут, при пороге по умолчанию — развёрнут', async () => {
+    useFormPreferencesStore().setDeviceVlanCollapseRows(2)
+    const collapsed = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), deviceVlanItem('dv-2', 'v-20'), deviceVlanItem('dv-3', 'v-30')])
+    expect(collapsed.editor.find('[data-testid="vlan-collapsed"]').exists()).toBe(true)
+    expect(collapsed.editor.findAll('.nested-row')).toHaveLength(0)
+
+    localStorage.clear()
+    setActivePinia(createPinia())
+    document.body.innerHTML = ''
+    const expanded = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), deviceVlanItem('dv-2', 'v-20'), deviceVlanItem('dv-3', 'v-30')])
+    expect(expanded.editor.find('[data-testid="vlan-collapsed"]').exists()).toBe(false)
+    expect(expanded.editor.findAll('.nested-row')).toHaveLength(3)
+  })
+
+  it('ошибка сохранения в скрытой строке раскрывает свёрнутый блок, чтобы строка была видна', async () => {
+    useFormPreferencesStore().setDeviceVlanCollapseRows(2)
+    const bad = { ...deviceVlanItem('dv-2', 'v-20'), ip_address: '999.1.1.1' }
+    const { wrapper, editor } = await mountDeviceWithVlans([deviceVlanItem('dv-1', 'v-10'), bad, deviceVlanItem('dv-3', 'v-30')])
+    expect(editor.find('[data-testid="vlan-collapsed"]').exists()).toBe(true)
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Некорректный IP-адрес «999.1.1.1»')
+    expect(editor.find('[data-testid="vlan-collapsed"]').exists()).toBe(false)
+    expect(editor.findAll('.nested-row')).toHaveLength(3)
   })
 })

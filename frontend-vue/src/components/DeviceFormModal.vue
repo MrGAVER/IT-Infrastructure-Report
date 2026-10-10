@@ -19,6 +19,7 @@ import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftw
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
+import { useFormPreferencesStore } from '../stores/formPreferences'
 import { useConnectionsStore } from '../stores/connections'
 import { useDevicesStore } from '../stores/devices'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -35,6 +36,7 @@ import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
+import { duplicateVlansMessage, sortDeviceVlanRows } from '../utils/deviceVlans'
 import { filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft } from '../utils/vlan'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig, type PortRowLike } from '../utils/portConflicts'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
@@ -47,6 +49,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
 const vlanDomainsStore = useVLANDomainsStore()
+const formPreferences = useFormPreferencesStore()
 const connectionsStore = useConnectionsStore()
 const devicesStore = useDevicesStore()
 const { notify, notifyError } = useToast()
@@ -104,6 +107,8 @@ const interfacesEditor = ref<InstanceType<typeof DeviceInterfacesEditor> | null>
 // IP и открытые порты для нескольких портов. Грузятся с портами и сохраняются с ними одним PUT.
 const interfaceGroups = ref<InterfaceGroupDraft[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
+// Блок «VLAN устройства»: форма раскрывает его, когда ошибка сохранения относится к строке, скрытой сворачиванием.
+const vlanEditor = ref<InstanceType<typeof DeviceVlanListEditor> | null>(null)
 // Пункт 5: конфигурация (Управление/Передача данных/режим порта) уже сохранённых портов на момент
 // открытия формы — по ней при сохранении определяется, что конфигурация порта с расхождением
 // относительно соседа сохраняется ВПЕРВЫЕ (см. utils/portConflicts.ts). Не реактивна намеренно: это
@@ -391,7 +396,10 @@ watch(
       initialPortConfigs = snapshotPortConfigs(interfaces.value)
       initialConnections.value = snapshotConnections(interfaces.value)
       savedConnections.value = deviceConnections
-      deviceVlans.value = isCopy ? stripIds(vlans.items.map(toDeviceVlanDraftRow)) : vlans.items.map(toDeviceVlanDraftRow)
+      // Список VLAN устройства упорядочен по номеру VLAN (как открытые порты): vlansStore к этому моменту уже
+      // загружен (ensureLoaded выше), так что номера известны.
+      const vlanRows = vlans.items.map(toDeviceVlanDraftRow)
+      deviceVlans.value = sortDeviceVlanRows(isCopy ? stripIds(vlanRows) : vlanRows, vlansStore.allDefinitions)
       initialDeviceVlanKey = deviceVlanKey(deviceVlans.value)
       // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
       // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
@@ -648,7 +656,9 @@ async function onJoinDomainRequested(domainId: string) {
   // были бы тут же убраны при этом же сохранении. Стор перезагружается (а не ensureLoaded), чтобы набор
   // VLAN домена был актуален на момент нажатия, а не на момент первой загрузки экрана.
   await vlansStore.reload()
-  deviceVlans.value = mergeDomainVlansIntoDraft(deviceVlans.value, vlansStore.allDefinitions, domainId)
+  // Добавленные VLAN домена встают в общий список по номеру — как при добавлении строки вручную.
+  const merged = mergeDomainVlansIntoDraft(deviceVlans.value, vlansStore.allDefinitions, domainId)
+  deviceVlans.value = merged === deviceVlans.value ? merged : sortDeviceVlanRows(merged, vlansStore.allDefinitions)
 }
 
 // Отмена ещё не сохранённого включения в домен (кнопка × на pending-чипе в DeviceVlanListEditor):
@@ -720,13 +730,23 @@ async function submit() {
   // Фикс п.3 ("применить исправление [валидации IP] ко всем полям с ip"): "VLAN устройства"
   // (DeviceVlanListEditor.vue) — свой собственный IP/префикс на связи устройство-VLAN, отдельный
   // от IP на портах (interfaces.value.*.ips, уже проверены выше в validateInterfaceDraftRows).
+  // Повторы VLAN — как повторы портов (бэкенд всё равно ответил бы 422): сообщаем сразу и раскрываем блок,
+  // чтобы подсвеченные строки были видны, даже если список свёрнут по порогу.
+  const duplicateVlans = duplicateVlansMessage(deviceVlans.value, vlansStore.allDefinitions)
+  if (duplicateVlans) {
+    errorMessage.value = duplicateVlans
+    vlanEditor.value?.expand()
+    return
+  }
   for (const row of deviceVlans.value) {
     if (!isValidIPv4(row.ip_address)) {
       errorMessage.value = `Некорректный IP-адрес «${row.ip_address}» в блоке "VLAN устройства".`
+      vlanEditor.value?.expand()
       return
     }
     if (!isValidPrefixLength(row.prefix_length)) {
       errorMessage.value = `Некорректный префикс «${row.prefix_length}» в блоке "VLAN устройства" — допустимо 0-32.`
+      vlanEditor.value?.expand()
       return
     }
   }
@@ -973,7 +993,9 @@ async function submit() {
         />
         <DeviceVlanListEditor
           v-if="!loadingNested"
+          ref="vlanEditor"
           v-model="deviceVlans"
+          :collapse-after="formPreferences.deviceVlanCollapseRows"
           :vlan-options="availableVlans"
           :all-vlan-definitions="vlansStore.allDefinitions"
           :device-domain-id="singleDeviceDomainId"
