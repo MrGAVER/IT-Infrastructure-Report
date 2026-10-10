@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   emptySubinterface,
   groupSubinterfacesByParent,
+  isAutoSubinterfaceName,
+  renameSubinterfacesForPort,
+  staleSubinterfaces,
   stripSubinterfaceIds,
+  subinterfaceVlanRemovalMessage,
   subinterfacesPayload,
   suggestSubinterfaceName,
   toSubinterfaceDraftRow,
@@ -11,6 +15,7 @@ import {
 import type { DeviceSubinterface, InterfaceDraftRow, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../../api/types'
 
 const vlan10: VLANDefinition = { id: 'v-10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] }
+const vlan20: VLANDefinition = { id: 'v-20', vlan_id: 20, name: 'Гости', description: '', domain_id: null, domain_name: '', devices: [] }
 
 const catalog: ProtocolPortCatalogEntry[] = [
   { id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null },
@@ -167,6 +172,110 @@ describe('validateSubinterfaceRows', () => {
       ],
     })
     expect(validateSubinterfaceRows([port('Gi0/0', [dup])], catalog)).toMatch(/повторяются: 22/)
+  })
+})
+
+describe('validateSubinterfaceRows: VLAN, недоступный устройству', () => {
+  it('подинтерфейс на VLAN вне допустимых блокирует сохранение понятным текстом', () => {
+    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })])]
+    expect(validateSubinterfaceRows(rows, [], new Set(['v-20']))).toMatch(/«Gi0\/0\.10» не назначен устройству/)
+  })
+
+  it('допустимый VLAN проходит; без списка допустимых проверка пропускается (серверная остаётся)', () => {
+    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })])]
+    expect(validateSubinterfaceRows(rows, [], new Set(['v-10']))).toBeNull()
+    expect(validateSubinterfaceRows(rows)).toBeNull()
+  })
+
+  it('«VLAN не выбран» сообщается раньше, чем «VLAN недоступен»', () => {
+    const rows = [port('Gi0/0', [sub({ name: 'x', vlan_id: '' })])]
+    expect(validateSubinterfaceRows(rows, [], new Set())).toMatch(/не выбран VLAN/)
+  })
+})
+
+describe('isAutoSubinterfaceName', () => {
+  it('автоимя — пустое либо «<порт>.<VLAN>»; введённое вручную — нет', () => {
+    expect(isAutoSubinterfaceName('', 'Gi0/0', 10)).toBe(true)
+    expect(isAutoSubinterfaceName('   ', 'Gi0/0', 10)).toBe(true)
+    expect(isAutoSubinterfaceName('Gi0/0.10', 'Gi0/0', 10)).toBe(true)
+    expect(isAutoSubinterfaceName('Gi0/0.20', 'Gi0/0', 10)).toBe(false)
+    expect(isAutoSubinterfaceName('wan-uplink', 'Gi0/0', 10)).toBe(false)
+  })
+})
+
+describe('renameSubinterfacesForPort', () => {
+  const vlans = [vlan10, vlan20]
+
+  it('автоимена следуют за новым именем порта, вручную заданные остаются; остальные поля и id не теряются', () => {
+    const auto = sub({ id: 'sub-1', key: 'sub-1', name: 'Gi0/0.10', vlan_id: 'v-10', is_data_transfer: true })
+    const manual = sub({ name: 'wan-uplink', vlan_id: 'v-20' })
+    const result = renameSubinterfacesForPort([auto, manual], 'Gi0/0', 'Gi0/1', vlans)
+
+    expect(result.map((s) => s.name)).toEqual(['Gi0/1.10', 'wan-uplink'])
+    expect(result[0]).toMatchObject({ id: 'sub-1', key: 'sub-1', vlan_id: 'v-10', is_data_transfer: true })
+    expect(auto.name).toBe('Gi0/0.10') // исходные строки не мутируются
+  })
+
+  it('подинтерфейс с автоимененем от ДРУГОГО VLAN (имя от прежнего порта, но с чужим номером) считается ручным', () => {
+    const odd = sub({ name: 'Gi0/0.99', vlan_id: 'v-10' })
+    expect(renameSubinterfacesForPort([odd], 'Gi0/0', 'Gi0/1', vlans)[0].name).toBe('Gi0/0.99')
+  })
+
+  it('пустое имя подинтерфейса заполняется именем по новому порту', () => {
+    const empty = sub({ name: '', vlan_id: 'v-20' })
+    expect(renameSubinterfacesForPort([empty], '', 'Gi0/1', vlans)[0].name).toBe('Gi0/1.20')
+  })
+
+  it('имя порта набирается по буквам: автоимя не теряется на каждом шаге, в том числе через пустое имя порта', () => {
+    let subs = [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })]
+    let previous = 'Gi0/0'
+    for (const typed of ['', 'e', 'et', 'eth', 'eth1']) {
+      subs = renameSubinterfacesForPort(subs, previous, typed, vlans)
+      previous = typed
+    }
+    expect(subs[0].name).toBe('eth1.10')
+  })
+
+  it('подинтерфейс на недоступном VLAN не трогаем; нечего менять (то же имя порта, пробелы) — возвращается тот же массив', () => {
+    const stale = sub({ name: 'Gi0/0.10', vlan_id: 'v-gone' })
+    const subs = [stale]
+    expect(renameSubinterfacesForPort(subs, 'Gi0/0', 'Gi0/1', vlans)).toBe(subs)
+    expect(renameSubinterfacesForPort([sub({ name: 'Gi0/0.10' })], 'Gi0/0', ' Gi0/0 ', vlans)[0].name).toBe('Gi0/0.10')
+    const same = [sub({ name: 'Gi0/0.10' })]
+    expect(renameSubinterfacesForPort(same, 'Gi0/0', 'Gi0/0', vlans)).toBe(same)
+  })
+})
+
+describe('staleSubinterfaces / subinterfaceVlanRemovalMessage', () => {
+  const vlans = [vlan10, vlan20]
+
+  it('staleSubinterfaces: подинтерфейсы вне допустимых VLAN; undefined и пустой VLAN — не «устаревшие»', () => {
+    const subs = [sub({ name: 'a', vlan_id: 'v-10' }), sub({ name: 'b', vlan_id: 'v-20' }), sub({ name: 'c', vlan_id: '' })]
+    expect(staleSubinterfaces(subs, new Set(['v-10'])).map((s) => s.name)).toEqual(['b'])
+    expect(staleSubinterfaces(undefined, new Set())).toEqual([])
+  })
+
+  it('сообщение называет снятый VLAN и подинтерфейсы на нём; нетронутые VLAN и порты без подинтерфейсов не упоминаются', () => {
+    const rows = [
+      port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' }), sub({ name: 'Gi0/0.20', vlan_id: 'v-20' })]),
+      port('Gi0/1'),
+      port('Gi0/2', [sub({ name: 'Gi0/2.20', vlan_id: 'v-20' })]),
+    ]
+    expect(subinterfaceVlanRemovalMessage(rows, vlans, [vlan10])).toBe(
+      'Сняты VLAN (20 — Гости), но на них остались подинтерфейсы: «Gi0/0.20», «Gi0/2.20». Выберите другой VLAN или удалите их — иначе сохранить не получится.',
+    )
+  })
+
+  it('null, если снятых VLAN нет или подинтерфейсов на них нет', () => {
+    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })])]
+    expect(subinterfaceVlanRemovalMessage(rows, vlans, vlans)).toBeNull() // ничего не снято
+    expect(subinterfaceVlanRemovalMessage(rows, vlans, [vlan10])).toBeNull() // снят v-20, на нём ничего нет
+    expect(subinterfaceVlanRemovalMessage([port('Gi0/0')], vlans, [])).toBeNull()
+  })
+
+  it('уже «устаревший» подинтерфейс (VLAN не был в прежних опциях) повторно не упоминается', () => {
+    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.99', vlan_id: 'v-gone' })])]
+    expect(subinterfaceVlanRemovalMessage(rows, vlans, [vlan10])).toBeNull()
   })
 })
 

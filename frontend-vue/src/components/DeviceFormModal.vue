@@ -11,7 +11,7 @@ import { ApiError, createResource, listResource, updateResource, ErrorCode } fro
 import { syncDeviceDeployedSoftware } from '../api/deviceDeployedSoftware'
 import { persistDeviceVlans } from '../api/deviceVlans'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
-import { stripSubinterfaceIds } from '../utils/subinterfaces'
+import { stripSubinterfaceIds, subinterfaceVlanRemovalMessage } from '../utils/subinterfaces'
 import { cloneGroupsForCopy, validateInterfaceGroups } from '../utils/interfaceGroups'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
@@ -238,6 +238,11 @@ watch(portVlanOptions, (options, oldOptions) => {
     return vlan_ids === row.vlan_ids ? row : { ...row, vlan_ids }
   })
   if (nextRows.some((row, i) => row !== rows[i])) interfaces.value = nextRows
+
+  // Подинтерфейсы, в отличие от VLAN порта и групп, молча не удаляются (на них IP-адреса и открытые порты): остаются на
+  // снятом VLAN, подсвечиваются в редакторе портов и блокируют сохранение. Предупреждаем сразу, а не 422 при сохранении.
+  const subinterfaceNotice = subinterfaceVlanRemovalMessage(nextRows, previous, options)
+  if (subinterfaceNotice) notify(subinterfaceNotice, 'warning')
 
   const groups = interfaceGroups.value
   const nextGroups = groups.map((group) => {
@@ -722,7 +727,7 @@ async function submit() {
     return
   }
   const interfaceError =
-    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog) ?? validateConnectionDrafts(interfaces.value, initialConnections.value)
+    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog, new Set(portVlanOptions.value.map((v) => v.id))) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog) ?? validateConnectionDrafts(interfaces.value, initialConnections.value)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return

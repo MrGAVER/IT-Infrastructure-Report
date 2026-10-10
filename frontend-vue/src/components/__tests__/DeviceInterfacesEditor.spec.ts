@@ -2067,4 +2067,55 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
   it('у порта без подинтерфейсов счётчика в свёрнутой строке нет', () => {
     expect(mountWithPort({ subinterfaces: [] }).find('.expand-toggle').text()).not.toContain('подинт.')
   })
+
+  const subRow = (patch: Record<string, unknown>) => ({ key: 'k', name: '', vlan_id: 'v-10', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [], ...patch })
+
+  describe('подинтерфейс на VLAN, которого у устройства больше нет', () => {
+    it('свёрнутая строка порта показывает значок со списком таких подинтерфейсов', () => {
+      const wrapper = mountWithPort({ subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-gone' })] })
+
+      const icon = wrapper.find('.expand-toggle .stale-sub-icon')
+      expect(icon.exists()).toBe(true)
+      expect(icon.attributes('title')).toContain('«Gi0/0.30»')
+      expect(icon.attributes('title')).not.toContain('«Gi0/0.10»')
+    })
+
+    it('значка нет, если все VLAN подинтерфейсов доступны, и у порта без подинтерфейсов', () => {
+      expect(mountWithPort({ subinterfaces: [subRow({ name: 'Gi0/0.10' })] }).find('.stale-sub-icon').exists()).toBe(false)
+      expect(mountWithPort().find('.stale-sub-icon').exists()).toBe(false)
+    })
+  })
+
+  describe('переименование порта', () => {
+    function lastRow(wrapper: ReturnType<typeof mountWithPort>): InterfaceDraftRow {
+      const emitted = wrapper.emitted('update:modelValue')!
+      return (emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0]
+    }
+
+    it('автоимена подинтерфейсов пересчитываются под новое имя порта, вручную заданные остаются', async () => {
+      const wrapper = mountWithPort({ subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10', description: 'Серверы' }), subRow({ key: 'b', name: 'wan-uplink', vlan_id: 'v-gone' })] })
+
+      await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('Gi0/1')
+
+      const row = lastRow(wrapper)
+      expect(row.name).toBe('Gi0/1')
+      expect(row.subinterfaces!.map((s) => s.name)).toEqual(['Gi0/1.10', 'wan-uplink'])
+      expect(row.subinterfaces![0]).toMatchObject({ key: 'a', vlan_id: 'v-10', description: 'Серверы' })
+    })
+
+    it('у порта без подинтерфейсов ключ subinterfaces не появляется («не трогали» остаётся «не трогали»)', async () => {
+      const wrapper = mountWithPort()
+      await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('Gi0/1')
+
+      expect(lastRow(wrapper)).not.toHaveProperty('subinterfaces')
+    })
+
+    it('если у подинтерфейсов автоимён нет, список остаётся тем же (только имя порта меняется)', async () => {
+      const subs = [subRow({ name: 'wan-uplink' })]
+      const wrapper = mountWithPort({ subinterfaces: subs })
+      await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('Gi0/1')
+
+      expect(lastRow(wrapper).subinterfaces).toStrictEqual(subs)
+    })
+  })
 })

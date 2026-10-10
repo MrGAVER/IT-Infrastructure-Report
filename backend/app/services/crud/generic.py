@@ -17,7 +17,7 @@ from .columns import allowed_columns, model_for
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
 from .payload import ensure_writable, validate_payload_schema
 from .validators import _release_rack_slot, validate_resource
-from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
+from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _stale_subinterfaces_on_vlan, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
 
 
 def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
@@ -161,6 +161,11 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         audit(session, resource, str(obj.id), AuditAction.UPDATE, _describe_update(before, proposed))
         if unassigned_devices:
             audit(session, resource, str(obj.id), AuditAction.UPDATE, f'VLAN снят с устройств прежнего домена: {unassigned_devices}')
+            # Подинтерфейсы на этом VLAN при снятии не удаляются (у них свои IP и открытые порты) — фиксируем, какие
+            # остались без разрешённого VLAN: в форме устройства их придётся перенести на другой VLAN или удалить.
+            stale = _stale_subinterfaces_on_vlan(str(obj.id), session)
+            if stale:
+                audit(session, resource, str(obj.id), AuditAction.UPDATE, f'Подинтерфейсы остались на VLAN, не разрешённом устройству ({len(stale)}): ' + '; '.join(stale[:20]) + ('…' if len(stale) > 20 else ''))
         session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:

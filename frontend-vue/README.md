@@ -47,7 +47,9 @@
   генерацией по шаблону и вложенными IP, persist через атомарный
   `PUT /devices/{id}/interfaces`; подинтерфейсы порта (отдельный VLAN, свои IP и открытые порты)
   редактирует `InterfaceSubinterfacesEditor.vue` в раскрытых деталях порта, правила и payload —
-  в `utils/subinterfaces.ts`, список грузится из `GET /devices/{id}/subinterfaces`; `DeviceVlanListEditor.vue` — назначение
+  в `utils/subinterfaces.ts` (там же пересчёт автоимён при переименовании порта и проверка «VLAN подинтерфейса ещё
+  назначен устройству», уведомление о снятом VLAN выдаёт `DeviceFormModal.vue`), список грузится из
+  `GET /devices/{id}/subinterfaces`; `DeviceVlanListEditor.vue` — назначение
   VLAN устройству, доступные VLAN ограничены членством в VLAN-домене, persist
   через атомарный `PUT /devices/{id}/vlans` по diff'у, ещё не сохранённое
   включение в домен можно отменить крестиком на чипе) —

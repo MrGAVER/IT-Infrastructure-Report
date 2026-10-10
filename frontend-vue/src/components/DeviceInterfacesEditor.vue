@@ -42,6 +42,7 @@ import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
+import { renameSubinterfacesForPort, staleSubinterfaces } from '../utils/subinterfaces'
 import {
   SELF_DEVICE,
   changedConnectionRowIds,
@@ -203,6 +204,16 @@ const duplicatePortsByRow = computed(() => props.modelValue.map((row) => duplica
 
 function duplicatePortsText(index: number): string {
   return `Повторяются номера открытых портов: ${duplicatePortsByRow.value[index].join(', ')}`
+}
+
+// Подинтерфейсы на VLAN, которого у устройства больше нет (снят в блоке «VLAN устройства», сменили тип устройства,
+// VLAN перенесён в другой домен). Подинтерфейс молча не удаляется — на нём IP-адреса и открытые порты, — а сохранение
+// с таким VLAN сервер отклонит (422), поэтому, как и повторы открытых портов, показываем индикатор на свёрнутой строке.
+const allowedVlanIds = computed(() => new Set(props.vlanOptions.map((v) => v.id)))
+
+function staleSubinterfaceText(row: InterfaceDraftRow): string {
+  const names = staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).map((sub) => `«${sub.name.trim() || 'без имени'}»`)
+  return names.length ? `Подинтерфейсы на VLAN, не назначенном устройству: ${names.join(', ')} — выберите другой VLAN или удалите их` : ''
 }
 
 // Подключение порта (блок «Подключение», InterfaceConnectionEditor.vue): порты соседей, уже выбранные в
@@ -760,7 +771,7 @@ function generate() {
     const existing = props.modelValue[i] ?? emptyRow()
     return {
       ...existing,
-      name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
+      ...portNamePatch(existing, applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i)),
       interface_type_id: genTypeId.value || existing.interface_type_id,
       speed_id: genSpeedId.value || existing.speed_id,
     }
@@ -828,6 +839,20 @@ function updateRow(index: number, patch: Partial<InterfaceDraftRow>) {
     'update:modelValue',
     props.modelValue.map((row, i) => (i === index ? { ...row, ...patch } : row)),
   )
+}
+
+// Новое имя порта вместе с подинтерфейсами: их автоимена («Gi0/0.10») следуют за именем порта («Gi0/1.10»), а имена,
+// введённые вручную, остаются как есть (utils/subinterfaces.ts:renameSubinterfacesForPort). Без подинтерфейсов или
+// если пересчитывать нечего — только имя; ключ subinterfaces тогда не появляется («не трогали» остаётся «не трогали»).
+function portNamePatch(row: InterfaceDraftRow, name: string): Partial<InterfaceDraftRow> {
+  if (!row.subinterfaces?.length) return { name }
+  const subinterfaces = renameSubinterfacesForPort(row.subinterfaces, row.name, name, props.vlanOptions)
+  return subinterfaces === row.subinterfaces ? { name } : { name, subinterfaces }
+}
+
+function renamePort(index: number, name: string) {
+  const row = props.modelValue[index]
+  if (row) updateRow(index, portNamePatch(row, name))
 }
 
 function addIp(index: number) {
@@ -1217,7 +1242,7 @@ function applyBulkEdit() {
               </td>
               <td class="col-index">{{ i + 1 }}</td>
               <td>
-                <input type="text" class="cell-input" v-truncate-tooltip="row.name" :value="row.name" @input="updateRow(i, { name: ($event.target as HTMLInputElement).value })" />
+                <input type="text" class="cell-input" v-truncate-tooltip="row.name" :value="row.name" @input="renamePort(i, ($event.target as HTMLInputElement).value)" />
               </td>
               <td>
                 <select class="cell-input" :value="row.interface_type_id" @change="updateRow(i, { interface_type_id: ($event.target as HTMLSelectElement).value })">
@@ -1254,6 +1279,7 @@ function applyBulkEdit() {
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
                   <svg v-if="duplicatePortsByRow[i]?.length" class="icon conflict-icon ports-dup-icon" :aria-label="duplicatePortsText(i)" :title="duplicatePortsText(i)"><use href="/icons.svg#i-alert" /></svg>
                   <svg v-if="rowConflict(row)?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
+                  <svg v-if="staleSubinterfaceText(row)" class="icon conflict-icon stale-sub-icon" :aria-label="staleSubinterfaceText(row)" :title="staleSubinterfaceText(row)"><use href="/icons.svg#i-alert" /></svg>
                   <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="row.subinterfaces?.length"> · {{ row.subinterfaces.length }} подинт.</template><template v-if="row.connection"> · {{ connectionSummary(row) }}</template><template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
                 </button>

@@ -221,3 +221,49 @@ class TestVlanMovedBetweenDomains:
 
         details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
         assert "VLAN снят с устройств прежнего домена: 2" in details
+
+
+class TestSubinterfacesOnMovedVlan:
+    """Подинтерфейс на перенесённом VLAN не удаляется (у него свои IP и открытые порты), но остаётся без
+    разрешённого VLAN — об этом пишется запись аудита, а форма устройства покажет его с предупреждением."""
+
+    def _router_with_subinterface(self, client, vlan: dict, device_type: dict, serial: str, domain: dict) -> dict:
+        """Устройство — участник домена (VLAN домена назначается ему при включении), на порту подинтерфейс на этом VLAN."""
+        device = _device(client, device_type, serial)
+        assert client.post(f"{API}/vlan-domains/{domain['id']}/members", json={"physical_device_id": device["id"]}).status_code == 200
+        assert vlan["id"] in _assigned(client, device)
+        r = client.put(f"{API}/devices/{device['id']}/interfaces", json={"interfaces": [
+            {"name": "Gi0/0", "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": vlan["id"], "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}]}]},
+        ]})
+        assert r.status_code == 200, r.text
+        return device
+
+    def test_audit_lists_subinterfaces_left_on_the_vlan_the_device_no_longer_has(self, client, db_session):
+        dt = _device_type(client, "Тип подинтерфейсов переноса")
+        source = _device(client, dt, "MV-SUB-SRC")
+        old_domain = _domain(client, "Старый для подинтерфейсов", source)
+        new_domain = _domain(client, "Новый для подинтерфейсов")
+        vlan = _vlan(client, 410, old_domain)
+        assert vlan["id"] in _assigned(client, source)
+        router = self._router_with_subinterface(client, vlan, dt, "MV-SUB-RTR", old_domain)
+
+        _move(client, vlan, new_domain)
+
+        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        stale = [d for d in details if d.startswith("Подинтерфейсы остались на VLAN, не разрешённом устройству")]
+        assert stale and "MV-SUB-RTR / Gi0/0 / Gi0/0.10" in stale[0]
+        # подинтерфейс не удалён и не перенесён
+        subs = client.get(f"{API}/devices/{router['id']}/subinterfaces").json()["items"]
+        assert [(s["name"], s["vlan_id"]) for s in subs] == [("Gi0/0.10", vlan["id"])]
+
+    def test_no_subinterface_note_when_the_device_type_still_allows_the_vlan(self, client, db_session):
+        vlan_domain = _domain(client, "Старый домен каталога")
+        new_domain = _domain(client, "Новый домен каталога")
+        vlan = _vlan(client, 411, vlan_domain)
+        dt = _device_type(client, "Тип с VLAN в каталоге", allow_vlan=vlan)
+        self._router_with_subinterface(client, vlan, dt, "MV-SUB-CAT", vlan_domain)
+
+        _move(client, vlan, new_domain)
+
+        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        assert not [d for d in details if d.startswith("Подинтерфейсы остались")]

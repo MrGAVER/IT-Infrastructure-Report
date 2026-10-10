@@ -13,7 +13,7 @@
 // выключены), имя подинтерфейса уникально на устройстве (это проверяет форма при сохранении).
 import { computed } from 'vue'
 import type { InterfaceIpDraftRow, OpenPortDraftRow, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
-import { emptySubinterface, suggestSubinterfaceName } from '../utils/subinterfaces'
+import { emptySubinterface, isAutoSubinterfaceName, suggestSubinterfaceName } from '../utils/subinterfaces'
 import { vlanLabel } from '../utils/vlan'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 
@@ -64,12 +64,13 @@ function isStaleVlan(row: SubinterfaceDraftRow): boolean {
 
 // При выборе VLAN имя подставляется само («Gi0/0.10»), но только если пользователь его не правил:
 // имя пустое либо совпадает с подсказкой для предыдущего VLAN — иначе не затираем введённое вручную.
+// (То же правило пересчитывает автоимена при переименовании порта — utils/subinterfaces.ts:renameSubinterfacesForPort.)
 function onVlanChange(index: number, vlanId: string) {
   const row = props.modelValue[index]
   if (!row) return
   const next = vlanById.value.get(vlanId)
   const previous = vlanById.value.get(row.vlan_id)
-  const wasAutoName = !row.name.trim() || (previous != null && row.name === suggestSubinterfaceName(props.parentName, previous.vlan_id))
+  const wasAutoName = !row.name.trim() || (previous != null && isAutoSubinterfaceName(row.name, props.parentName, previous.vlan_id))
   const patch: Partial<SubinterfaceDraftRow> = { vlan_id: vlanId }
   if (next && wasAutoName) patch.name = suggestSubinterfaceName(props.parentName, next.vlan_id)
   updateRow(index, patch)

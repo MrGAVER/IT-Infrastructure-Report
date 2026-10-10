@@ -5,7 +5,7 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN)
+from ..models import (Connection, ConnectionType, DeviceInterface, DeviceSubinterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN)
 from .port_config import PortConfigStatus, evaluate_port_config, config_differences
 from .port_config_db import load_port_configs
 from ..constants import OwnerType, SourceType
@@ -60,6 +60,20 @@ def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[
     ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(interface_ids)).order_by(IPAddress.ip_address)).all() if interface_ids else []
     ips_by_interface: dict[str, list[IPAddress]] = {}
     for ip in ips: ips_by_interface.setdefault(ip.owner_id, []).append(ip)
+    # Управление может висеть на подинтерфейсе порта (например, Gi0/0.99 на VLAN управления): подинтерфейс с ролью
+    # «Управление» даёт порт и IP управления устройства так же, как в отчётах (reporting.py). Берём только такие
+    # подинтерфейсы — остальные на дашборде устройств не нужны. Порт-родитель -> устройство, чтобы разложить по устройствам.
+    device_by_interface = {i.id: i.physical_device_id for i in interfaces}
+    mgmt_subinterfaces = session.scalars(
+        select(DeviceSubinterface).where(DeviceSubinterface.parent_interface_id.in_(interface_ids), DeviceSubinterface.is_management.is_(True)).order_by(DeviceSubinterface.name, DeviceSubinterface.id)
+    ).all() if interface_ids else []
+    mgmt_subs_by_device: dict[str, list[DeviceSubinterface]] = {}
+    for sub in mgmt_subinterfaces: mgmt_subs_by_device.setdefault(device_by_interface[sub.parent_interface_id], []).append(sub)
+    sub_ids = [x.id for x in mgmt_subinterfaces]
+    sub_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id.in_(sub_ids)).order_by(IPAddress.ip_address)).all() if sub_ids else []
+    ips_by_subinterface: dict[str, list[IPAddress]] = {}
+    for ip in sub_ips: ips_by_subinterface.setdefault(ip.owner_id, []).append(ip)
+    port_name_by_id = {i.id: i.name for i in interfaces}
     embedded_ids = {d.embedded_os_id for d in devices if getattr(d, 'embedded_os_id', None)}
     embedded_map = {x.id: x for x in session.scalars(select(EmbeddedOperatingSystem).where(EmbeddedOperatingSystem.id.in_(embedded_ids))).all()} if embedded_ids else {}
     vlan_links = session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(device_ids))).all()
@@ -80,7 +94,9 @@ def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[
     for device in devices:
         data=serialize(device); management=[i for i in by_device.get(device.id, []) if i.is_management]
         mgmt_vlan_links=[x for x in vlans_by_device.get(device.id, []) if x.is_management]
-        mgmt_names, mgmt_ips = device_management_ports_and_ips(management, ips_by_interface, mgmt_vlan_links, vlan_map)
+        mgmt_names, mgmt_ips = device_management_ports_and_ips(
+            management, ips_by_interface, mgmt_vlan_links, vlan_map,
+            management_subinterfaces=mgmt_subs_by_device.get(device.id, []), ips_by_subinterface=ips_by_subinterface, port_name_by_id=port_name_by_id)
         data['management_interface']='; '.join(mgmt_names)
         data['management_ips']='; '.join(mgmt_ips)
         data['interface_count']=len(by_device.get(device.id, []))
