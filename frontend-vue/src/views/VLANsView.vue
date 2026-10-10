@@ -5,10 +5,12 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { api, deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
-import type { VLANDefinition } from '../api/types'
+import type { Device, VLANDefinition } from '../api/types'
 import StatCard from '../components/StatCard.vue'
 import VLANFormModal from '../components/VLANFormModal.vue'
 import VLANDomainsPanel from '../components/VLANDomainsPanel.vue'
+import StaleSubinterfacesPanel from '../components/StaleSubinterfacesPanel.vue'
+import DeviceFormModal from '../components/DeviceFormModal.vue'
 
 const vlans = useVLANsStore()
 const catalogs = useCatalogsStore()
@@ -32,6 +34,25 @@ const bulkDescription = ref('')
 const bulkSelectedDeviceIds = ref<Set<string>>(new Set())
 const bulkAssigning = ref(false)
 const domainsPanelOpen = ref(false)
+
+// Панель «подинтерфейсы на недоступных VLAN»: из неё открывается форма устройства, где подинтерфейс переносят на другой VLAN
+// или удаляют; после сохранения панель перечитывается — исправленные строки исчезают.
+const stalePanel = ref<InstanceType<typeof StaleSubinterfacesPanel> | null>(null)
+const deviceModal = ref<Device | null>(null)
+
+function openStaleDevice(deviceId: string) {
+  const device = devices.all.find((d) => d.id === deviceId)
+  if (device) deviceModal.value = device
+  else notify('Устройство не найдено — обновите список устройств', 'error')
+}
+async function onStaleDeviceSaved() {
+  deviceModal.value = null
+  await Promise.all([devices.reload(), vlans.reload(), stalePanel.value?.reload()])
+  notify('Устройство обновлено', 'success')
+}
+async function reloadAll() {
+  await Promise.all([vlans.reload(), stalePanel.value?.reload()])
+}
 
 const allVlanDefinitions = computed(() => vlans.allDefinitions)
 const allDeviceIds = computed(() => devices.all.map((d) => d.id))
@@ -135,7 +156,7 @@ async function removeDefinition(d: VLANDefinition) {
         <input v-model="vlans.search" type="text" placeholder="Поиск по VLAN ID, имени, домену, устройству…" />
       </div>
       <div class="spacer"></div>
-      <button class="btn btn-secondary" :disabled="vlans.loading" @click="vlans.reload()">
+      <button class="btn btn-secondary" :disabled="vlans.loading" @click="reloadAll">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
@@ -152,6 +173,8 @@ async function removeDefinition(d: VLANDefinition) {
     </div>
 
     <VLANDomainsPanel v-if="domainsPanelOpen" />
+
+    <StaleSubinterfacesPanel ref="stalePanel" @open-device="openStaleDevice" />
 
     <div v-if="bulkAssignOpen" class="bulk-panel card">
       <div class="bulk-fields">
@@ -228,6 +251,7 @@ async function removeDefinition(d: VLANDefinition) {
     </div>
 
     <VLANFormModal v-if="modalOpen" :definition="modalDefinition" @close="closeModal" @saved="onSaved" />
+    <DeviceFormModal v-if="deviceModal" :device="deviceModal" @close="deviceModal = null" @saved="onStaleDeviceSaved" />
   </div>
 </template>
 

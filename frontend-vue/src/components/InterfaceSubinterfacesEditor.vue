@@ -13,7 +13,7 @@
 // выключены), имя подинтерфейса уникально на устройстве (это проверяет форма при сохранении).
 import { computed } from 'vue'
 import type { InterfaceIpDraftRow, OpenPortDraftRow, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
-import { emptySubinterface, isAutoSubinterfaceName, suggestSubinterfaceName } from '../utils/subinterfaces'
+import { emptySubinterface, reassignSubinterfaceVlan } from '../utils/subinterfaces'
 import { vlanLabel } from '../utils/vlan'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 
@@ -80,13 +80,15 @@ function onVlanChange(index: number, vlanId: string) {
   const row = props.modelValue[index]
   if (!row) return
   const next = vlanById.value.get(vlanId)
+  // Выбрано «— выберите VLAN —»: VLAN снимается, имя не трогаем.
+  if (!next) {
+    updateRow(index, { vlan_id: vlanId })
+    return
+  }
   // Прежний VLAN ищем и в справочнике: у подинтерфейса на снятом VLAN он уже не в vlanOptions, но автоимя
   // («Gi0/0.20») при переносе на другой VLAN должно обновиться так же, как при обычной смене.
-  const previous = knownVlanById.value.get(row.vlan_id)
-  const wasAutoName = !row.name.trim() || (previous != null && isAutoSubinterfaceName(row.name, props.parentName, previous.vlan_id))
-  const patch: Partial<SubinterfaceDraftRow> = { vlan_id: vlanId }
-  if (next && wasAutoName) patch.name = suggestSubinterfaceName(props.parentName, next.vlan_id)
-  updateRow(index, patch)
+  const { vlan_id, name } = reassignSubinterfaceVlan(row, props.parentName, knownVlanById.value.get(row.vlan_id), next)
+  updateRow(index, { vlan_id, name })
 }
 
 /** VLAN устройства, свободные для переноса подинтерфейса: не заняты соседними подинтерфейсами порта. */

@@ -3,6 +3,9 @@ import {
   emptySubinterface,
   groupSubinterfacesByParent,
   isAutoSubinterfaceName,
+  moveStaleMessage,
+  moveStaleSubinterfaces,
+  reassignSubinterfaceVlan,
   renameSubinterfacesForPort,
   staleSubinterfaces,
   stripSubinterfaceIds,
@@ -243,6 +246,97 @@ describe('renameSubinterfacesForPort', () => {
     expect(renameSubinterfacesForPort([sub({ name: 'Gi0/0.10' })], 'Gi0/0', ' Gi0/0 ', vlans)[0].name).toBe('Gi0/0.10')
     const same = [sub({ name: 'Gi0/0.10' })]
     expect(renameSubinterfacesForPort(same, 'Gi0/0', 'Gi0/0', vlans)).toBe(same)
+  })
+})
+
+describe('reassignSubinterfaceVlan', () => {
+  const vlan30: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
+
+  it('автоимя («<порт>.<прежний VLAN>») пересчитывается под новый VLAN, прочие поля остаются', () => {
+    const source = sub({ id: 'sub-1', name: 'Gi0/0.30', vlan_id: 'v-30', description: 'Резерв', is_data_transfer: true })
+    const result = reassignSubinterfaceVlan(source, 'Gi0/0', vlan30, vlan10)
+
+    expect(result).toMatchObject({ id: 'sub-1', vlan_id: 'v-10', name: 'Gi0/0.10', description: 'Резерв', is_data_transfer: true })
+    expect(source.vlan_id).toBe('v-30') // исходная строка не мутируется
+  })
+
+  it('имя, введённое вручную, остаётся; пустое имя заполняется; без известного прежнего VLAN автоимя не угадывается', () => {
+    expect(reassignSubinterfaceVlan(sub({ name: 'wan-uplink', vlan_id: 'v-30' }), 'Gi0/0', vlan30, vlan10).name).toBe('wan-uplink')
+    expect(reassignSubinterfaceVlan(sub({ name: '', vlan_id: 'v-30' }), 'Gi0/0', undefined, vlan10).name).toBe('Gi0/0.10')
+    expect(reassignSubinterfaceVlan(sub({ name: 'Gi0/0.30', vlan_id: 'v-30' }), 'Gi0/0', undefined, vlan10).name).toBe('Gi0/0.30')
+  })
+})
+
+describe('moveStaleSubinterfaces', () => {
+  const vlan30: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
+  const vlan40: VLANDefinition = { id: 'v-40', vlan_id: 40, name: 'Архив', description: '', domain_id: null, domain_name: '', devices: [] }
+  const allowed = new Set(['v-10', 'v-20'])
+  const known = [vlan10, vlan20, vlan30, vlan40]
+  const staleOn = (vlan: VLANDefinition, parent: string, patch: Partial<SubinterfaceDraftRow> = {}) => sub({ name: `${parent}.${vlan.vlan_id}`, vlan_id: vlan.id, ...patch })
+
+  it('переносит подинтерфейсы всех портов с недоступных VLAN на выбранный, пересчитывая автоимена; остальное не трогает', () => {
+    const rows = [
+      port('Gi0/0', [staleOn(vlan30, 'Gi0/0'), sub({ name: 'Gi0/0.20', vlan_id: 'v-20' })]),
+      port('Gi0/1', [staleOn(vlan40, 'Gi0/1', { name: 'wan-uplink' })]),
+      port('Gi0/2'),
+    ]
+    const result = moveStaleSubinterfaces(rows, vlan10, allowed, known)
+
+    expect(result.rows[0].subinterfaces!.map((s) => [s.name, s.vlan_id])).toEqual([['Gi0/0.10', 'v-10'], ['Gi0/0.20', 'v-20']])
+    expect(result.rows[1].subinterfaces![0]).toMatchObject({ name: 'wan-uplink', vlan_id: 'v-10' })
+    expect(result.rows[2]).toBe(rows[2]) // порт без подинтерфейсов — тот же объект
+    expect(result.moved).toEqual(['Gi0/0.10', 'wan-uplink'])
+    expect(result.skipped).toEqual([])
+    expect(rows[0].subinterfaces![0].vlan_id).toBe('v-30') // исходные строки не мутируются
+  })
+
+  it('если на порту целевой VLAN уже занят — подинтерфейс остаётся и попадает в skipped (на порту VLAN один раз)', () => {
+    const rows = [
+      port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' }), staleOn(vlan30, 'Gi0/0')]), // v-10 уже занят
+      port('Gi0/1', [staleOn(vlan30, 'Gi0/1'), staleOn(vlan40, 'Gi0/1')]), // только первый получит v-10
+    ]
+    const result = moveStaleSubinterfaces(rows, vlan10, allowed, known)
+
+    expect(result.rows[0].subinterfaces![1]).toMatchObject({ name: 'Gi0/0.30', vlan_id: 'v-30' })
+    expect(result.rows[1].subinterfaces!.map((s) => s.vlan_id)).toEqual(['v-10', 'v-40'])
+    expect(result.moved).toEqual(['Gi0/1.10'])
+    expect(result.skipped).toEqual(['Gi0/0.30', 'Gi0/1.40'])
+    // итог проходит проверку формы: VLAN на порту не повторяется
+    expect(validateSubinterfaceRows(result.rows, [], new Set(['v-10', 'v-20', 'v-30', 'v-40']))).toBeNull()
+  })
+
+  it('переносить нечего — возвращается тот же массив строк', () => {
+    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })]), port('Gi0/1')]
+    const result = moveStaleSubinterfaces(rows, vlan20, allowed, known)
+
+    expect(result.rows).toBe(rows)
+    expect(result.moved).toEqual([])
+    expect(result.skipped).toEqual([])
+  })
+
+  it('все недоступные подинтерфейсы пропущены — rows тот же, но skipped заполнен', () => {
+    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' }), staleOn(vlan30, 'Gi0/0')])]
+    const result = moveStaleSubinterfaces(rows, vlan10, allowed, known)
+
+    expect(result.rows).toBe(rows)
+    expect(result.skipped).toEqual(['Gi0/0.30'])
+  })
+})
+
+describe('moveStaleMessage', () => {
+  it('успех, частичный успех (предупреждение с перечнем), только пропуски и «нечего переносить»', () => {
+    expect(moveStaleMessage({ moved: ['a', 'b'], skipped: [] }, vlan10)).toEqual({ text: 'Перенесено подинтерфейсов: 2 — на VLAN 10 — Серверы.', type: 'success' })
+
+    const partial = moveStaleMessage({ moved: ['a'], skipped: ['Gi0/0.30'] }, vlan10)!
+    expect(partial.type).toBe('warning')
+    expect(partial.text).toContain('Перенесено подинтерфейсов: 1 — на VLAN 10 — Серверы.')
+    expect(partial.text).toContain('Не перенесены (на их порту этот VLAN уже занят другим подинтерфейсом): «Gi0/0.30»')
+
+    const none = moveStaleMessage({ moved: [], skipped: ['Gi0/0.30'] }, vlan10)!
+    expect(none.type).toBe('warning')
+    expect(none.text).not.toContain('Перенесено')
+
+    expect(moveStaleMessage({ moved: [], skipped: [] }, vlan10)).toBeNull()
   })
 })
 
