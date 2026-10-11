@@ -375,3 +375,17 @@ def test_sql_status_matches_python_status_for_roles_modes_vlans_and_approvals(cl
     summary = _page(client)["summary"]
     assert summary["mismatch"] == sum(v is PortConfigStatus.MISMATCH for v in expected.values())
     assert summary["approved"] == sum(v is PortConfigStatus.APPROVED for v in expected.values())
+
+
+def test_status_expression_checks_for_an_approval_before_building_the_signature():
+    """Оптимизация горячего пути: подпись расхождения (с отпечатками VLAN обоих портов) строится, только если у подключения
+    вообще есть одобрение. Без `IS NOT NULL` впереди СУБД считала бы отпечатки четыре лишних раза на каждое неодобренное
+    подключение — счётчики и фильтр по статусу замедлялись втрое-вчетверо на реестре в десятки тысяч подключений."""
+    from sqlalchemy.dialects import sqlite
+
+    from app.services.connection_query import _Joined
+
+    sql = str(_Joined().status.compile(dialect=sqlite.dialect()))
+
+    guard = sql.index("connections.port_config_approved_signature IS NOT NULL AND connections.port_config_approved_signature =")
+    assert guard > 0

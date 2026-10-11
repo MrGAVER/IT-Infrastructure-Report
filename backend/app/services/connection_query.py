@@ -146,7 +146,10 @@ class _Joined:
         self.status = case(
             (or_(Connection.is_active.is_(False), self.src.id.is_(None), self.dst.id.is_(None)), _text(PortConfigStatus.OK.value)),
             (configs_match, _text(PortConfigStatus.OK.value)),
-            (Connection.port_config_approved_signature == self.signature, _text(PortConfigStatus.APPROVED.value)),
+            # IS NOT NULL первым: у подавляющего большинства подключений одобрения нет, и сравнение подписи (а в ней отпечатки
+            # VLAN обоих портов) вычислять незачем — NULL == подпись и так не истина. AND в SQL вычисляется слева направо с
+            # прерыванием, поэтому для неодобренных подключений четыре из шести вычислений отпечатка отпадают.
+            (and_(Connection.port_config_approved_signature.is_not(None), Connection.port_config_approved_signature == self.signature), _text(PortConfigStatus.APPROVED.value)),
             else_=_text(PortConfigStatus.MISMATCH.value),
         )
 
