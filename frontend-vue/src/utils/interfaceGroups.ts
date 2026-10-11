@@ -20,7 +20,7 @@ export function newGroupKey(): string {
 }
 
 export function emptyGroup(name = ''): InterfaceGroupDraft {
-  return { key: newGroupKey(), name, vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }
+  return { key: newGroupKey(), name, vlan_mode: '', vlan_ids: [], all_vlans: false, ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }
 }
 
 export interface ManagedFields {
@@ -56,7 +56,9 @@ export function applyGroupToRow(row: InterfaceDraftRow, group: InterfaceGroupDra
   const managed = managedFields(group)
   let next = row
   if (managed.vlan) {
-    next = { ...next, vlan_mode: group.vlan_mode as 'access' | 'trunk', vlan_ids: [...group.vlan_ids] }
+    // «Все VLAN» группы — тот же признак у порта (сервер хранит только его); vlan_ids группы при этом зеркалит все
+    // допустимые VLAN устройства, поэтому форма показывает их отмеченными.
+    next = { ...next, vlan_mode: group.vlan_mode as 'access' | 'trunk', vlan_ids: [...group.vlan_ids], all_vlans: group.vlan_mode === 'trunk' && group.all_vlans === true }
   }
   if (managed.ip) {
     const first = row.ips[0]
@@ -106,7 +108,7 @@ export function applyGroupsToRows(rows: InterfaceDraftRow[], groups: InterfaceGr
 export function eraseGroupValues(row: InterfaceDraftRow, group: InterfaceGroupDraft): InterfaceDraftRow {
   const managed = managedFields(group)
   let next = row
-  if (managed.vlan) next = { ...next, vlan_mode: 'access', vlan_ids: [] }
+  if (managed.vlan) next = { ...next, vlan_mode: 'access', vlan_ids: [], all_vlans: false }
   if (managed.ip) next = { ...next, ips: [] }
   if (managed.openPorts) next = { ...next, open_ports: [] }
   return next
@@ -134,7 +136,7 @@ export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraf
   const available = copyableFields(row)
   let next = group
   if (what.vlan && available.vlan) {
-    next = { ...next, vlan_mode: row.vlan_mode, vlan_ids: row.vlan_mode === 'access' ? row.vlan_ids.slice(0, 1) : [...row.vlan_ids] }
+    next = { ...next, vlan_mode: row.vlan_mode, vlan_ids: row.vlan_mode === 'access' ? row.vlan_ids.slice(0, 1) : [...row.vlan_ids], all_vlans: row.vlan_mode === 'trunk' && row.all_vlans === true }
   }
   if (what.ip && available.ip) {
     const ip = row.ips.find((x) => x.ip_address.trim() !== '')!
@@ -169,7 +171,7 @@ export function setGroupMembers(rows: InterfaceDraftRow[], groupKey: string, mem
 export function describeGroup(group: InterfaceGroupDraft, vlanLabel: (vlanDefinitionId: string) => string, portLabel: (catalogId: string) => string): string {
   const parts: string[] = []
   if (group.vlan_mode) {
-    const vlans = group.vlan_ids.map(vlanLabel).join(', ')
+    const vlans = group.vlan_mode === 'trunk' && group.all_vlans ? 'все VLAN' : group.vlan_ids.map(vlanLabel).join(', ')
     parts.push(`${group.vlan_mode === 'access' ? 'Access' : 'Trunk'}${vlans ? ` · ${vlans}` : ''}`)
   }
   if (group.ip_address.trim()) {

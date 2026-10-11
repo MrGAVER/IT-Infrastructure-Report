@@ -15,7 +15,7 @@ import type { VLANDefinition } from '../../api/types'
 
 const vlan = (id: string, number: number, name = ''): VLANDefinition => ({ id, vlan_id: number, name, description: '', domain_id: null, domain_name: '', devices: [] })
 const OPTIONS = [vlan('a', 10), vlan('b', 20), vlan('c', 30), vlan('c2', 30, 'дубль в другом домене')]
-const draft = (overrides: Partial<PortDraft> = {}): PortDraft => ({ role: 'data', mode: 'trunk', vlanIds: [], ...overrides })
+const draft = (overrides: Partial<PortDraft> = {}): PortDraft => ({ role: 'data', mode: 'trunk', vlanIds: [], allVlans: false, ...overrides })
 
 describe('portEdit — наборы VLAN', () => {
   it('sameIds сравнивает без учёта порядка и повторов', () => {
@@ -91,6 +91,28 @@ describe('portEdit — тело запроса и проверка', () => {
   it('порт в группе: набор VLAN не отправляется никогда, роль — отправляется', () => {
     expect(buildPortConfigPatch(initial, draft({ vlanIds: ['b'] }), { modeChanged: false, vlansLocked: true })).toBeNull()
     expect(buildPortConfigPatch(initial, draft({ role: 'none', vlanIds: ['b'] }), { modeChanged: true, vlansLocked: true })).toEqual({ role: 'none', mode: 'trunk' })
+  })
+
+  it('«Все VLAN»: признак уходит без набора, а его снятие — набором вместе с all_vlans: false', () => {
+    const flagged = draft({ vlanIds: ['a', 'b'], allVlans: true })
+    expect(buildPortConfigPatch(initial, flagged, { modeChanged: false, vlansLocked: false })).toEqual({ all_vlans: true, mode: 'trunk' })
+    // признак уже стоял и не менялся — отправлять нечего (набор зеркалит VLAN устройства, а не правка пользователя)
+    expect(buildPortConfigPatch(flagged, cloneDraft(flagged), { modeChanged: false, vlansLocked: false })).toBeNull()
+    // тот же полный набор вручную: признак снимается, набор уходит явно — без all_vlans: false сервер оставил бы признак
+    expect(buildPortConfigPatch(flagged, draft({ vlanIds: ['a', 'b'], allVlans: false }), { modeChanged: false, vlansLocked: false })).toEqual({ vlan_ids: ['a', 'b'], all_vlans: false, mode: 'trunk' })
+    expect(buildPortConfigPatch(flagged, draft({ vlanIds: [], allVlans: false }), { modeChanged: false, vlansLocked: false })).toEqual({ vlan_ids: [], all_vlans: false, mode: 'trunk' })
+  })
+
+  it('«Все VLAN» после смены режима отправляется заново, у порта в группе — не отправляется вовсе', () => {
+    const flagged = draft({ vlanIds: ['a', 'b'], allVlans: true })
+    expect(buildPortConfigPatch(draft({ mode: 'access', vlanIds: ['a'] }), flagged, { modeChanged: true, vlansLocked: false })).toEqual({ all_vlans: true, mode: 'trunk' })
+    expect(buildPortConfigPatch(initial, flagged, { modeChanged: false, vlansLocked: true })).toBeNull()
+  })
+
+  it('isDirty учитывает признак «Все VLAN», даже когда набор совпал', () => {
+    const manual = draft({ vlanIds: ['a', 'b'], allVlans: false })
+    expect(isDirty(manual, draft({ vlanIds: ['b', 'a'], allVlans: true }))).toBe(true)
+    expect(isDirty(manual, cloneDraft(manual))).toBe(false)
   })
 
   it('isDirty: роль, режим и набор VLAN (без учёта порядка)', () => {

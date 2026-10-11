@@ -59,7 +59,7 @@ function openCreate() {
 }
 
 function openEdit(group: InterfaceGroupDraft) {
-  draft.value = { ...group, vlan_ids: [...group.vlan_ids], open_ports: group.open_ports.map((p) => ({ ...p })) }
+  draft.value = { ...group, vlan_ids: [...group.vlan_ids], all_vlans: group.all_vlans === true, open_ports: group.open_ports.map((p) => ({ ...p })) }
   draftIsNew.value = false
   members.value = new Set(memberIndices(props.rows, group.key))
   resetCopy()
@@ -123,8 +123,10 @@ function setMode(mode: '' | 'access' | 'trunk') {
   // Смена режима на access оставляет не более одного VLAN (тот же инвариант, что у порта).
   // Переключение на trunk сразу отмечает «Все VLAN» — как у порта (DeviceInterfacesEditor.vue:
   // setVlanMode): пустой trunk — бесполезное стартовое состояние, а нужные VLAN снимаются в окне выбора.
+  // «Все VLAN» — сохраняемый признак группы (all_vlans); в access и без режима его быть не может. Если у устройства
+  // VLAN ещё нет, признак не ставится (как у порта).
   const vlan_ids = mode === 'access' ? draft.value.vlan_ids.slice(0, 1) : mode === 'trunk' ? props.vlanOptions.map((v) => v.id) : []
-  draft.value = { ...draft.value, vlan_mode: mode, vlan_ids }
+  draft.value = { ...draft.value, vlan_mode: mode, vlan_ids, all_vlans: mode === 'trunk' && props.vlanOptions.length > 0 }
 }
 
 function toggleVlan(vlanId: string, checked: boolean) {
@@ -132,17 +134,18 @@ function toggleVlan(vlanId: string, checked: boolean) {
   const ids = new Set(draft.value.vlan_ids)
   if (checked) ids.add(vlanId)
   else ids.delete(vlanId)
-  draft.value = { ...draft.value, vlan_ids: [...ids] }
+  // Ручной выбор VLAN снимает признак «Все VLAN» — даже если в итоге выбраны все: признак не выводится из набора.
+  draft.value = { ...draft.value, vlan_ids: [...ids], all_vlans: false }
 }
 
 /** «Все VLAN» в Trunk-режиме — как у порта (DeviceInterfacesEditor.vue: isAllVlansSelected()/toggleAllVlans()):
- * не отдельный флаг в данных группы, а состояние, когда vlan_ids покрывает весь vlanOptions. Галочка —
- * способ проставить/снять его одним кликом вместо отметки каждого VLAN по отдельности. */
-const isAllVlansSelected = computed(() => !!draft.value && props.vlanOptions.length > 0 && props.vlanOptions.every((v) => draft.value!.vlan_ids.includes(v.id)))
+ * сохраняемый признак группы (InterfaceGroupDraft.all_vlans), а не вывод из числа выбранных VLAN. Пока он стоит,
+ * vlan_ids зеркалит все допустимые VLAN устройства, а сервер хранит только признак; порты группы получают его же. */
+const isAllVlansSelected = computed(() => draft.value?.all_vlans === true)
 
 function toggleAllVlans(checked: boolean) {
   if (!draft.value) return
-  draft.value = { ...draft.value, vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] }
+  draft.value = { ...draft.value, all_vlans: checked, vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] }
 }
 
 // Выбор отдельных VLAN — во всплывающем окне (как в массовом редактировании портов): при большом числе
@@ -326,7 +329,7 @@ function summary(group: InterfaceGroupDraft): string {
               :model-value="draft.vlan_ids[0] ?? ''"
               :options="vlanSelectOptions"
               placeholder="— VLAN не выбран —"
-              @update:model-value="(v) => (draft = { ...draft!, vlan_ids: v ? [v] : [] })"
+              @update:model-value="(v) => (draft = { ...draft!, vlan_ids: v ? [v] : [], all_vlans: false })"
             />
             <div v-else-if="draft.vlan_mode === 'trunk'" class="trunk-row">
               <span v-if="!vlanOptions.length" class="empty">Для типа устройства VLAN не назначены</span>

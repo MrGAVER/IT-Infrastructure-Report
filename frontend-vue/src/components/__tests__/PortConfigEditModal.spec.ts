@@ -50,6 +50,8 @@ interface Call { url: string; method: string; body?: Record<string, unknown> }
 interface Server {
   iface: Record<string, unknown>
   linkedVlanIds: string[]
+  /** «Все VLAN» порта: сервер отдаёт все VLAN устройства (у такого порта связей в БД нет). */
+  allVlans: boolean
   groups: Array<Record<string, unknown>>
   plan: ReturnType<typeof makePlan>
   putResponse: () => Response
@@ -66,6 +68,7 @@ function resetServer(): Server {
   return {
     iface: { id: 'if-1', name: 'Gi0/1', physical_device_id: 'dev-1', is_management: false, is_data_transfer: true, vlan_mode: 'trunk', group_id: null },
     linkedVlanIds: ['v10', 'v20'],
+    allVlans: false,
     groups: [],
     plan: makePlan({ target_mode: 'access', start_interface_id: 'if-1', ports: [portChange({ id: 'if-2', device_id: 'dev-2' })] }),
     putResponse: () => jsonResponse(server.iface),
@@ -86,9 +89,9 @@ function stubApi() {
       const p = path(url)
       if (method === 'GET' && p === '/resources/interfaces/if-1') return jsonResponse(server.iface)
       if (method === 'GET' && p === '/resources/devices/dev-1') return jsonResponse({ id: 'dev-1', device_type_id: 'dt-1', name: 'sw-01' })
-      if (method === 'GET' && p === '/resources/interface-vlans') {
-        const items = server.linkedVlanIds.map((vlan_id) => ({ id: `l-${vlan_id}`, interface_id: 'if-1', vlan_id, mode: server.iface.vlan_mode }))
-        return jsonResponse({ items, total: items.length, offset: 0, limit: 1000 })
+      // VLAN порта — запросом устройства (а не общим списком связей реестра): он знает и про признак «Все VLAN».
+      if (method === 'GET' && p === '/devices/dev-1/interface-vlans') {
+        return jsonResponse({ items: [{ interface_id: 'if-1', all_vlans: server.allVlans, vlan_ids: server.allVlans ? ['v10', 'v20', 'v30'] : server.linkedVlanIds }] })
       }
       if (method === 'GET' && p === '/resources/device-type-vlans') {
         const items = ['v10', 'v20', 'v30'].map((vlan_id) => ({ id: `t-${vlan_id}`, device_type_id: 'dt-1', vlan_id }))
@@ -195,6 +198,74 @@ describe('PortConfigEditModal.vue', () => {
     await body().find('[data-action="clear"]').trigger('click')
     expect(checkedVlans()).toEqual([])
     expect(body().find('[data-count]').text()).toBe('Выбрано: 0 из 3')
+  })
+
+  it('«Все VLAN» — сохраняемый признак: «Все VLAN» уходит как all_vlans без набора, ручной выбор всех VLAN — нет', async () => {
+    await openModal()
+
+    await body().find('[data-action="select-all"]').trigger('click')
+    expect(body().find('[data-count]').text()).toContain('признак «Все VLAN»')
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(putCalls()).toHaveLength(1)
+    expect(putCalls()[0].body).toEqual({ all_vlans: true, mode: 'trunk' })
+  })
+
+  it('все VLAN, отмеченные по одному, признаком не становятся: уходит набор', async () => {
+    await openModal()
+
+    await checkbox('v30').setValue(true) // были v10, v20 — теперь все три, но вручную
+
+    expect(body().find('[data-count]').text()).toBe('Выбрано: 3 из 3')
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(putCalls()[0].body).toEqual({ vlan_ids: ['v10', 'v20', 'v30'], mode: 'trunk' })
+  })
+
+  it('порт с признаком открывается с отмеченными VLAN устройства; снятие любого VLAN снимает признак и отправляет набор вместе с all_vlans: false', async () => {
+    server.allVlans = true
+    await openModal()
+
+    expect(checkedVlans()).toEqual(['v10', 'v20', 'v30']) // у порта нет связей, но VLAN не «пропали»
+    expect(body().find('[data-count]').text()).toContain('признак «Все VLAN»')
+    expect(saveButton().attributes('disabled')).toBeDefined() // менять нечего
+
+    await checkbox('v30').setValue(false)
+    expect(body().find('[data-count]').text()).toBe('Выбрано: 2 из 3')
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(putCalls()[0].body).toEqual({ vlan_ids: ['v10', 'v20'], all_vlans: false, mode: 'trunk' })
+  })
+
+  it('порт с признаком: тот же полный набор вручную — это уже правка (признак снимается), а не «менять нечего»', async () => {
+    server.allVlans = true
+    await openModal()
+
+    await body().find('[data-action="clear"]').trigger('click')
+    await checkbox('v10').setValue(true)
+    await checkbox('v20').setValue(true)
+    await checkbox('v30').setValue(true)
+
+    expect(saveButton().attributes('disabled')).toBeUndefined()
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(putCalls()[0].body).toEqual({ vlan_ids: ['v10', 'v20', 'v30'], all_vlans: false, mode: 'trunk' })
+  })
+
+  it('порт с признаком: переход в access снимает признак, остаётся VLAN с наименьшим номером', async () => {
+    server.allVlans = true
+    server.previewResponse = () => jsonResponse(makePlan({ target_mode: 'access', start_interface_id: 'if-1', empty: true, ports: [], devices: [] }))
+    await openModal()
+
+    await body().find('[data-field="mode-access"]').trigger('click')
+    await flushPromises()
+
+    expect(checkedVlans()).toEqual(['v10'])
+    expect(body().find('[data-count]').text()).not.toContain('признак')
   })
 
   it('«Задать как у соседа» переносит роль, режим и VLAN по номеру; VLAN, которых нет у устройства, не назначает и сообщает об этом', async () => {

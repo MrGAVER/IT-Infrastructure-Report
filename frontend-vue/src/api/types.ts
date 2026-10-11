@@ -62,6 +62,10 @@ export interface DeviceInterface extends CatalogItem {
   is_data_transfer: boolean
   description: string | null
   vlan_mode: VlanMode
+  /** «Все VLAN» — сохраняемый признак (backend models.DeviceInterface.all_vlans), а не вывод из числа выбранных VLAN.
+   * Порт с признаком (только trunk) не хранит связей: его VLAN — все VLAN устройства, их отдаёт
+   * GET /devices/{id}/interface-vlans. */
+  all_vlans?: boolean
   /** Группа портов (InterfaceGroup), в которую входит порт; null — вне групп. */
   group_id?: string | null
   /** Подинтерфейсы порта — приходят только в ответе PUT /devices/{id}/interfaces (в generic-списке
@@ -450,6 +454,16 @@ export interface InterfaceVLAN {
   mode: string | null
 }
 
+/** Элемент ответа GET /api/v1/devices/{id}/interface-vlans — VLAN одного порта с учётом «Все VLAN». У порта с признаком
+ * vlan_ids — все VLAN его устройства (набор вычисляется на сервере, связей у такого порта нет), у остальных — выбранные.
+ * Номера VLAN отсортированы по номеру. Запрос ограничен устройством: общий список связей реестра
+ * (/resources/interface-vlans) отдаёт не больше 1000 записей, и при их превышении VLAN свежих портов «пропадали». */
+export interface InterfaceVlansEntry {
+  interface_id: string
+  all_vlans: boolean
+  vlan_ids: string[]
+}
+
 /** Черновая строка IP-адреса интерфейса внутри DeviceInterfacesEditor.vue. Конвертируется в
  * payload IPAddress при сохранении (owner_type='device_interface', is_management наследуется от
  * самого интерфейса — не редактируется на уровне отдельного IP, см. _sync_interface_ips). */
@@ -540,6 +554,10 @@ export interface InterfaceDraftRow {
   description: string
   vlan_ids: string[]
   vlan_mode: 'access' | 'trunk'
+  /** «Все VLAN» (только trunk): сохраняемый признак порта. Пока он стоит, vlan_ids зеркалит ВСЕ допустимые VLAN
+   * устройства (форма показывает их отмеченными и сверяет с изменением VLAN устройства), а сервер хранит только
+   * признак. Любой ручной выбор VLAN снимает признак — даже если выбраны все. Не задано = false. */
+  all_vlans?: boolean
   ips: InterfaceIpDraftRow[]
   /** Фикс п.1.4 (батч4): "Открытые порты" переехали с уровня всего устройства на уровень
    * КОНКРЕТНОГО интерфейса — раньше один общий список (DeviceFormModal.vue) относился ко всему
@@ -583,6 +601,9 @@ export interface InterfaceGroupDraft {
   name: string
   vlan_mode: '' | 'access' | 'trunk'
   vlan_ids: string[]
+  /** «Все VLAN» группы (только trunk) — тот же признак, что у порта (InterfaceDraftRow.all_vlans): сервер хранит
+   * только его, а порты группы получают такой же признак. Не задано = false. */
+  all_vlans?: boolean
   ip_address: string
   prefix_length: string
   /** Назначение общего IP («Назначение» рядом с «IP-адрес» и «Префикс»); хранится, только пока задан ip_address. */
@@ -598,6 +619,8 @@ export interface InterfaceGroup {
   name: string
   vlan_mode: 'access' | 'trunk' | null
   vlan_ids: string[]
+  /** «Все VLAN» группы: при признаке vlan_ids — все VLAN устройства (вычисляются сервером, связей у группы нет). */
+  all_vlans?: boolean
   ip_address: string | null
   prefix_length: number | null
   ip_purpose: string | null

@@ -171,6 +171,7 @@ function emptyRow(): InterfaceDraftRow {
     is_data_transfer: false,
     description: '',
     vlan_ids: [],
+    all_vlans: false,
     // access по умолчанию — п.1.3.1 ("'Режим порта' по умолчанию должен быть 'Access'"). Ранее
     // здесь стоял 'trunk' как "нейтральный старт, раз есть все VLAN" (см. историю), но по новой
     // явной формулировке требования старт должен быть access — trunk теперь осознанный выбор
@@ -962,7 +963,8 @@ function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
   const row = props.modelValue[index]
   if (!row) return
   const vlan_ids = checked ? [...row.vlan_ids, vlanDefId] : row.vlan_ids.filter((id) => id !== vlanDefId)
-  updateRow(index, { vlan_ids })
+  // Ручной выбор VLAN снимает признак «Все VLAN» — даже если в итоге выбраны все: признак не выводится из числа VLAN.
+  updateRow(index, { vlan_ids, all_vlans: false })
 }
 
 // п.1.4.3.2: режим порта — access (ровно один VLAN) или trunk (несколько, в т.ч. "все").
@@ -972,14 +974,15 @@ function setVlanMode(index: number, mode: 'access' | 'trunk') {
   if (mode === 'access') {
     // При переключении в access оставляем только первый уже отмеченный VLAN — сохранить
     // несколько было бы некорректным сочетанием (см. validateInterfaceDraftRows).
-    updateRow(index, { vlan_mode: 'access', vlan_ids: row.vlan_ids.slice(0, 1) })
+    updateRow(index, { vlan_mode: 'access', vlan_ids: row.vlan_ids.slice(0, 1), all_vlans: false })
   } else {
     // Фикс п.2.1.1: переключение на trunk сразу отмечает "Все VLAN" — раньше vlan_ids оставался
     // как есть (пустым для новой строки), и пользователю приходилось ещё и сообразить, что нужно
-    // отдельно поставить галочку "Все VLAN" самому. "Все VLAN" — не флаг, а состояние, когда
-    // vlan_ids покрывает весь vlanOptions (см. isAllVlansSelected ниже), поэтому здесь просто
-    // сразу проставляем этот набор целиком.
-    updateRow(index, { vlan_mode: 'trunk', vlan_ids: props.vlanOptions.map((v) => v.id) })
+    // отдельно поставить галочку "Все VLAN" самому. Теперь это сохраняемый признак (all_vlans): он ставится
+    // сразу, а vlan_ids зеркалит все допустимые VLAN, чтобы форма показывала их отмеченными. Если у устройства
+    // VLAN ещё нет, признак не ставится — «всех» пока нет, а порт не должен подхватывать VLAN, которые
+    // пользователь потом добавит, не выбирая «Все VLAN» осознанно.
+    updateRow(index, { vlan_mode: 'trunk', vlan_ids: props.vlanOptions.map((v) => v.id), all_vlans: props.vlanOptions.length > 0 })
   }
 }
 
@@ -987,16 +990,16 @@ function setAccessVlan(index: number, vlanDefId: string) {
   updateRow(index, { vlan_ids: vlanDefId ? [vlanDefId] : [] })
 }
 
-/** "Все VLAN" в trunk-режиме — не отдельный флаг в данных (backend его не хранит), а просто
- * состояние, когда vlan_ids порта покрывает весь текущий vlanOptions. Чекбокс "Все VLAN" —
- * удобный способ проставить/снять это состояние одним кликом, вместо того чтобы отмечать
- * каждый VLAN по отдельности. */
-function isAllVlansSelected(vlanIds: string[]): boolean {
-  return props.vlanOptions.length > 0 && props.vlanOptions.every((v) => vlanIds.includes(v.id))
+/** "Все VLAN" в trunk-режиме — сохраняемый признак порта (InterfaceDraftRow.all_vlans, колонка
+ * device_interfaces.all_vlans), а НЕ вывод из числа выбранных VLAN: порт, у которого вручную отмечены все VLAN,
+ * признака не имеет, и наоборот. Пока признак стоит, vlan_ids зеркалит все допустимые VLAN устройства (так форма
+ * показывает их отмеченными), а в БД хранится только признак — набор вычисляется из VLAN устройства. */
+function isAllVlansSelected(row: InterfaceDraftRow): boolean {
+  return row.all_vlans === true
 }
 
 function toggleAllVlans(index: number, checked: boolean) {
-  updateRow(index, { vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] })
+  updateRow(index, { all_vlans: checked, vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] })
 }
 
 /** Краткая сводка для свёрнутой строки таблицы (ячейка "VLAN / IP") — показывает режим порта,
@@ -1007,7 +1010,7 @@ function vlanCellSummary(row: InterfaceDraftRow): string {
     const vlan = props.vlanOptions.find((v) => v.id === row.vlan_ids[0])
     return vlan ? `Access: ${vlanLabel(vlan)}` : 'Access'
   }
-  return `Trunk · ${row.vlan_ids.length} VLAN`
+  return row.all_vlans ? `Trunk · все VLAN (${row.vlan_ids.length})` : `Trunk · ${row.vlan_ids.length} VLAN`
 }
 
 const selectedIndices = ref<Set<number>>(new Set())
@@ -1021,12 +1024,15 @@ const bulkManagement = ref('') // '' — не менять, 'true'/'false' — �
 const bulkDataTransfer = ref('')
 const bulkVlanMode = ref('') // '' — не менять, 'access'/'trunk' — режим порта (п.1.4.3.2)
 const bulkVlanIds = ref<Set<string>>(new Set())
+// «Все VLAN» панели — тот же признак, что у порта (all_vlans), а не вывод из набора bulkVlanIds: ставится кликом по чекбоксу и
+// снимается любым ручным выбором VLAN.
+const bulkAllVlans = ref(false)
 // Пункт 3 правки "физическое устройство: массовое редактирование" — при большом числе VLAN на
 // устройстве инлайновый список чекбоксов в ячейке "растягивал" всю строку массового
 // редактирования (а с ней — и всю таблицу). Список чекбоксов переехал во всплывающее окно,
 // открываемое кнопкой; сама ячейка показывает только краткую сводку (сколько выбрано).
 const bulkVlanPickerOpen = ref(false)
-const bulkVlanSummary = computed(() => (bulkVlanIds.value.size ? `Выбрано VLAN: ${bulkVlanIds.value.size}` : '— выбрать VLAN —'))
+const bulkVlanSummary = computed(() => (bulkAllVlans.value ? 'Все VLAN' : bulkVlanIds.value.size ? `Выбрано VLAN: ${bulkVlanIds.value.size}` : '— выбрать VLAN —'))
 const { onOverlayPointerDown: onVlanPickerOverlayPointerDown, onOverlayClick: onVlanPickerOverlayClick } = useOverlayDismiss(() => (bulkVlanPickerOpen.value = false))
 
 function toggleSelect(index: number, checked: boolean) {
@@ -1046,17 +1052,18 @@ function toggleExpand(index: number) {
 function toggleBulkVlan(vlanDefId: string, checked: boolean) {
   if (checked) bulkVlanIds.value.add(vlanDefId)
   else bulkVlanIds.value.delete(vlanDefId)
+  bulkAllVlans.value = false
 }
 
 // Пункт 4 правки "создание физического устройства": та же механика "Все VLAN", что и у
-// isAllVlansSelected()/toggleAllVlans() для одиночного порта выше — тот же способ проставить/
-// снять полный набор VLAN одним кликом, только применительно к bulkVlanIds панели массового
-// редактирования, а не к vlan_ids конкретной строки.
+// isAllVlansSelected()/toggleAllVlans() для одиночного порта выше, только применительно к панели массового
+// редактирования: отмеченные порты получают признак «Все VLAN» (а не просто набор из всех VLAN).
 function isBulkAllVlansSelected(): boolean {
-  return props.vlanOptions.length > 0 && props.vlanOptions.every((v) => bulkVlanIds.value.has(v.id))
+  return bulkAllVlans.value
 }
 
 function toggleBulkAllVlans(checked: boolean) {
+  bulkAllVlans.value = checked
   bulkVlanIds.value = new Set(checked ? props.vlanOptions.map((v) => v.id) : [])
 }
 
@@ -1083,6 +1090,13 @@ function applyBulkEdit() {
       // access (или строка уже была в access, а панель добавляет VLAN), лишние отбрасываем,
       // чтобы не сохранить некорректную комбинацию (см. validateInterfaceDraftRows).
       if (vlan_mode === 'access' && vlan_ids.length > 1) vlan_ids = vlan_ids.slice(0, 1)
+      // Признак «Все VLAN» держится, пока порт в trunk и его набор не менялся вручную; панель с «Все VLAN» ставит его
+      // отмеченным trunk-портам (vlan_ids при этом зеркалит все допустимые VLAN), в access он невозможен.
+      let all_vlans = vlan_mode === 'trunk' && row.all_vlans === true
+      if (!vlanLocked && bulkAllVlans.value && vlan_mode === 'trunk') {
+        all_vlans = true
+        vlan_ids = props.vlanOptions.map((v) => v.id)
+      }
       return {
         ...row,
         interface_type_id: bulkTypeId.value || row.interface_type_id,
@@ -1091,6 +1105,7 @@ function applyBulkEdit() {
         is_data_transfer: bulkDataTransfer.value === '' ? row.is_data_transfer : bulkDataTransfer.value === 'true',
         vlan_mode,
         vlan_ids,
+        all_vlans,
       }
     }),
   )
@@ -1104,6 +1119,7 @@ function applyBulkEdit() {
   bulkDataTransfer.value = ''
   bulkVlanMode.value = ''
   bulkVlanIds.value = new Set()
+  bulkAllVlans.value = false
   bulkVlanPickerOpen.value = false
 }
 </script>
@@ -1399,7 +1415,7 @@ function applyBulkEdit() {
                         <label class="vlan-check vlan-check-all">
                           <input
                             type="checkbox"
-                            :checked="isAllVlansSelected(row.vlan_ids)"
+                            :checked="isAllVlansSelected(row)"
                             :disabled="rowManaged(row).vlan"
                             @change="toggleAllVlans(i, ($event.target as HTMLInputElement).checked)"
                           />
