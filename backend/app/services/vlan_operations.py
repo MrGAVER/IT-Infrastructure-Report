@@ -67,21 +67,23 @@ def add_domain_member(session: Session, domain_id: str, physical_device_id: str 
     session.commit(); session.refresh(obj); return serialize(obj)
 
 
-def sync_domain(session: Session, domain_id: str, replace: bool) -> dict[str, Any]:
-    """Синхронизирует VLAN устройства-источника на участников домена; replace=True ещё и убирает лишние VLAN домена."""
-
+def _load_domain_for_sync(session: Session, domain_id: str) -> VLANDomain:
     domain = session.get(VLANDomain, domain_id)
     if not domain: raise HTTPException(404, 'Домен VLAN не найден')
     if not domain.source_device_id: raise HTTPException(422, 'Для домена не задано устройство-источник')
-    member_ids = session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain_id)).all()
-    source_ids = session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == domain.source_device_id)).all()
-    source_vlans = session.scalars(select(VLAN).where(VLAN.id.in_(source_ids))).all() if source_ids else []
-    created=0; updated=0
-    # Domain-local VLAN definitions are shared by every member device, so each source VLAN is
-    # resolved/created here once — not once per (device, source VLAN) pair as before, which was an
-    # N+1 query (member devices × source VLANs) inside the loop below.
+    return domain
+
+
+def _ensure_domain_vlan_definitions(session: Session, domain_id: str, source_vlans: list[VLAN]) -> tuple[dict[str, VLAN], dict[int, VLAN], int]:
+    """Для каждого VLAN источника находит или создаёт определение VLAN в домене.
+
+    Возвращает (определение домена по id VLAN источника, определения домена по номеру, сколько создано).
+    Domain-local VLAN definitions are shared by every member device, so each source VLAN is
+    resolved/created here once — not once per (device, source VLAN) pair as before, which was an
+    N+1 query (member devices × source VLANs) inside the loop of the caller."""
     domain_vlans_by_number = {v.vlan_id: v for v in session.scalars(select(VLAN).where(VLAN.domain_id == domain_id)).all()}
-    target_by_source_id = {}
+    target_by_source_id: dict[str, VLAN] = {}
+    created = 0
     for sv in source_vlans:
         target = domain_vlans_by_number.get(sv.vlan_id)
         if not target:
@@ -89,29 +91,57 @@ def sync_domain(session: Session, domain_id: str, replace: bool) -> dict[str, An
             session.add(target); session.flush(); created += 1
             domain_vlans_by_number[sv.vlan_id] = target
         target_by_source_id[sv.id] = target
-    # Existing assignments for all member devices, loaded once instead of once per device.
-    existing_by_device = {}
-    if member_ids:
-        for row in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(member_ids))).all():
+    return target_by_source_id, domain_vlans_by_number, created
+
+
+def _existing_vlan_ids_by_device(session: Session, device_ids: list[str]) -> dict[str, set[str]]:
+    """Существующие назначения VLAN для всех устройств сразу (одним запросом, а не по устройству)."""
+    existing_by_device: dict[str, set[str]] = {}
+    if device_ids:
+        for row in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(device_ids))).all():
             existing_by_device.setdefault(row.physical_device_id, set()).add(row.vlan_id)
+    return existing_by_device
+
+
+def _sync_member_device(session: Session, device_id: str, existing_ids: set[str], source_vlans: list[VLAN], target_by_source_id: dict[str, VLAN],
+                        domain_vlan_ids: set[str], keep_ids: set[str], replace: bool) -> tuple[int, int]:
+    """Назначает участнику недостающие VLAN источника; при replace убирает VLAN этого домена, которых у источника нет.
+
+    Возвращает (сколько назначено, сколько убрано)."""
+    assigned = 0
+    for sv in source_vlans:
+        target = target_by_source_id[sv.id]
+        if target.id not in existing_ids:
+            session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=target.id, description=sv.description))
+            assigned += 1
+    removed = 0
+    if replace:
+        # Только VLAN ЭТОГО домена (domain_vlan_ids) — VLAN участника из ДРУГИХ доменов или
+        # локальные (без domain_id вовсе) синхронизация трогать не должна ни в каком режиме.
+        stale_ids = (existing_ids & domain_vlan_ids) - keep_ids
+        if stale_ids:
+            session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id, PhysicalDeviceVLAN.vlan_id.in_(stale_ids)))
+            removed = len(stale_ids)
+    return assigned, removed
+
+
+def sync_domain(session: Session, domain_id: str, replace: bool) -> dict[str, Any]:
+    """Синхронизирует VLAN устройства-источника на участников домена; replace=True ещё и убирает лишние VLAN домена."""
+
+    domain = _load_domain_for_sync(session, domain_id)
+    member_ids = session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain_id)).all()
+    source_ids = session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == domain.source_device_id)).all()
+    source_vlans = session.scalars(select(VLAN).where(VLAN.id.in_(source_ids))).all() if source_ids else []
+    target_by_source_id, domain_vlans_by_number, created = _ensure_domain_vlan_definitions(session, domain_id, source_vlans)
+    existing_by_device = _existing_vlan_ids_by_device(session, member_ids)
     domain_vlan_ids = {v.id for v in domain_vlans_by_number.values()}
     keep_ids = {t.id for t in target_by_source_id.values()}
-    removed = 0
+    updated = removed = 0
     for device_id in member_ids:
         if device_id == domain.source_device_id: continue
-        existing_ids = existing_by_device.get(device_id, set())
-        for sv in source_vlans:
-            target = target_by_source_id[sv.id]
-            if target.id not in existing_ids:
-                session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=target.id, description=sv.description))
-                updated += 1
-        if replace:
-            # Только VLAN ЭТОГО домена (domain_vlan_ids) — VLAN участника из ДРУГИХ доменов или
-            # локальные (без domain_id вовсе) синхронизация трогать не должна ни в каком режиме.
-            stale_ids = (existing_ids & domain_vlan_ids) - keep_ids
-            if stale_ids:
-                session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id, PhysicalDeviceVLAN.vlan_id.in_(stale_ids)))
-                removed += len(stale_ids)
+        assigned, stale_removed = _sync_member_device(session, device_id, existing_by_device.get(device_id, set()), source_vlans, target_by_source_id,
+                                                      domain_vlan_ids, keep_ids, replace)
+        updated += assigned; removed += stale_removed
     detail = f'Синхронизация VLAN-домена: создано определений {created}, назначено {updated}'
     if replace: detail += f', убрано {removed}'
     audit(session, 'vlan-domains', domain_id, AuditAction.SYNC, detail)

@@ -76,7 +76,10 @@ def test_dependencies_between_modules_have_no_cycles():
         visit(module, [])
 
 
-def test_all_lists_every_top_level_definition():
+def test_all_lists_every_public_definition_and_every_name_resolves():
+    # Публичные имена (без «_») обязаны быть в __all__: так внешний код видит весь API пакета. Приватные помощники,
+    # добавленные при рефакторинге (например, _apply_filters), переэкспортировать не нужно: в __all__ остаются только
+    # приватные имена, существовавшие до разбиения crud.py (на них ссылались тесты).
     defined: set[str] = set()
     for module in SUBMODULES:
         tree = ast.parse((PACKAGE_DIR / f"{module}.py").read_text(encoding="utf-8"))
@@ -86,7 +89,10 @@ def test_all_lists_every_top_level_definition():
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 target = node.targets[0] if isinstance(node, ast.Assign) else node.target
                 defined.add(target.id)
-    assert defined == set(crud.__all__)
+    public = {name for name in defined if not name.startswith("_")}
+    assert public <= set(crud.__all__), f"публичные имена вне __all__: {sorted(public - set(crud.__all__))}"
+    for name in crud.__all__:
+        assert hasattr(crud, name), f"{name} есть в __all__, но не импортируется из пакета"
 
 
 def test_every_name_in_all_resolves_to_its_defining_module():
