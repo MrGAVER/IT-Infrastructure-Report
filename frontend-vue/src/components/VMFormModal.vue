@@ -11,17 +11,18 @@ import { computed, reactive, ref, watch } from 'vue'
 import { createResource, listResource, updateResource } from '../api/client'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
-import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
+import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useFormPreferencesStore } from '../stores/formPreferences'
 import { filterHostDevices } from '../utils/deviceFilters'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
+import { sortOptionsByLabel } from '../utils/selectOptions'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
-import SearchableSelect, { type SearchableSelectOption } from './SearchableSelect.vue'
+import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { stripIds } from '../utils/copyEntity'
 
@@ -125,16 +126,29 @@ const hostCandidates = computed<Device[]>(() => filterHostDevices(devicesStore.a
 // «Операционная система» и «Физическое устройство (хост)» — SearchableSelect (поиск вводом текста).
 // Порядок опций задаём здесь, а не берём из источника: справочник ОС в сторе отсортирован только при
 // загрузке (и по полям name/version, а не по показываемой подписи), а devicesStore.all — в порядке
-// ответа API (серверной сортировки у GET /devices нет, см. stores/devices.ts). Сравнение — общий
-// RU_COLLATOR (регистр не важен, числа натурально: «srv-2» раньше «srv-10»); равные подписи
-// различаются по id, чтобы порядок не зависел от порядка в источнике.
-function sortedOptions(options: SearchableSelectOption[]): SearchableSelectOption[] {
-  return [...options].sort((a, b) => RU_COLLATOR.compare(a.label, b.label) || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
-}
+// ответа API (серверной сортировки у GET /devices нет, см. stores/devices.ts). Правило сортировки —
+// общее для всех выпадающих списков, см. utils/selectOptions.ts.
 const operatingSystemOptions = computed(() =>
-  sortedOptions((catalogs.items['operating-systems'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('operating-systems', os.id) }))),
+  sortOptionsByLabel((catalogs.items['operating-systems'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('operating-systems', os.id) }))),
 )
-const hostOptions = computed(() => sortedOptions(hostCandidates.value.map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))))
+
+// Хост, уже выбранный у ВМ, но не проходящий фильтр хостов (у устройства сменили тип, фильтр
+// filterHostDevices смотрит на название типа), остаётся в списке с пометкой, пока он выбран. Без этого
+// SearchableSelect не нашёл бы подпись выбранного значения и показал пустое поле, хотя physical_device_id
+// по-прежнему уходит на сервер — пользователь видел бы пустой «Хост» и непонятную ошибку 422 при сохранении.
+// Пометка нейтральная («вне списка хостов»): допустимость хоста окончательно решает сервер
+// (validate_vm_host), а не этот клиентский фильтр. Выбрали другой хост — «лишний» вариант исчезает.
+const OUTSIDE_HOST_LIST_SUFFIX = ' (вне списка хостов)'
+const hostLabel = (d: Device): string => d.system_name || d.serial_number
+const hostOptions = computed(() => {
+  const options = hostCandidates.value.map((d) => ({ value: d.id, label: hostLabel(d) }))
+  const selectedId = form.physical_device_id
+  if (selectedId && !options.some((o) => o.value === selectedId)) {
+    const selected = devicesStore.all.find((d) => d.id === selectedId)
+    if (selected) options.push({ value: selected.id, label: hostLabel(selected) + OUTSIDE_HOST_LIST_SUFFIX })
+  }
+  return sortOptionsByLabel(options)
+})
 
 const derivedHypervisor = computed(() => {
   if (!form.physical_device_id) return null

@@ -24,7 +24,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
 import { approvePortConfig, previewPortConfig, setPortRole } from '../api/portConfig'
 import type { Connection, Device, DeviceInterface, PortConfigFacet, PortConfigPreview, PortConfigStatus, PortRole, VlanMode } from '../api/types'
-import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
+import { useCatalogsStore } from '../stores/catalogs'
+import { sortOptionsByLabel } from '../utils/selectOptions'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import QuickAddButton from './QuickAddButton.vue'
@@ -193,7 +194,7 @@ const destinationInterfaces = computed(() => interfacesFor(form.destinationDevic
 // приходят отсортированными natural sort'ом (см. фикс п.3.5 в stores/catalogs.ts) — allInterfaces
 // читает catalogs.items['interfaces'], .filter() порядок не меняет.
 const deviceOptions = computed(() =>
-  [...devicesStore.all].map((d) => ({ value: d.id, label: deviceLabel(d) })).sort((a, b) => RU_COLLATOR.compare(a.label, b.label)),
+  sortOptionsByLabel(devicesStore.all.map((d) => ({ value: d.id, label: deviceLabel(d) }))),
 )
 const sourcePortOptions = computed(() => sourceInterfaces.value.map((i) => ({ value: i.id, label: i.name })))
 const destinationPortOptions = computed(() => destinationInterfaces.value.map((i) => ({ value: i.id, label: i.name })))

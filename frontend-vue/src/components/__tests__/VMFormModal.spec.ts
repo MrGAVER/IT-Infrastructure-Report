@@ -729,6 +729,54 @@ describe('VMFormModal.vue — «Операционная система» и «�
     expect(create?.body?.physical_device_id).toBe('d10')
   })
 
+  describe('выбранный хост, который не входит в список допустимых', () => {
+    // Тип «Коммутатор» не проходит фильтр хостов, но у ВМ он мог остаться в БД (сменили тип устройства).
+    const staleVm: VirtualMachine = {
+      id: 'vm-1', name: 'app-01', operating_system_id: null, physical_device_id: 'd-sw',
+      hypervisor_os_id: null, purpose: null, status: 'active', description: null,
+    }
+    function seedDevices() {
+      seedCatalogs()
+      useDevicesStore().all = [serverDevice('d2', 'srv-2'), serverDevice('d-sw', 'sw-core-01', 'SN-SW', 'dt-switch'), serverDevice('d10', 'srv-10')]
+    }
+
+    it('сохранённый хост вне фильтра показывается в поле с пометкой, а не пустым полем', async () => {
+      seedDevices()
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+      const wrapper = mount(VMFormModal, { props: { vm: staleVm } })
+      await flushPromises()
+      const select = fieldSelect(wrapper, 'Физическое устройство')
+      expect((select.find('input').element as HTMLInputElement).value).toBe('sw-core-01 (вне списка хостов)')
+      // В списке он стоит на своём месте по сортировке вместе с допустимыми хостами.
+      expect(await openAndList(select)).toEqual(['srv-2', 'srv-10', 'sw-core-01 (вне списка хостов)'])
+    })
+
+    it('после выбора допустимого хоста «лишний» вариант исчезает из списка', async () => {
+      seedDevices()
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+      const wrapper = mount(VMFormModal, { props: { vm: staleVm } })
+      await flushPromises()
+      const select = fieldSelect(wrapper, 'Физическое устройство')
+      await select.find('input').trigger('focus')
+      await select.findAll('.ss-option').find((o) => o.text() === 'srv-2')!.trigger('mousedown')
+      expect(await openAndList(select)).toEqual(['srv-2', 'srv-10'])
+    })
+
+    it('допустимый хост пометки не получает; id, которого нет в реестре устройств, ничего не добавляет и не ломает форму', async () => {
+      seedDevices()
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+      const okVm = mount(VMFormModal, { props: { vm: { ...staleVm, physical_device_id: 'd2' } } })
+      await flushPromises()
+      expect((fieldSelect(okVm, 'Физическое устройство').find('input').element as HTMLInputElement).value).toBe('srv-2')
+      okVm.unmount()
+
+      const ghostVm = mount(VMFormModal, { props: { vm: { ...staleVm, physical_device_id: 'd-missing' } } })
+      await flushPromises()
+      const select = fieldSelect(ghostVm, 'Физическое устройство')
+      expect(await openAndList(select)).toEqual(['srv-2', 'srv-10'])
+    })
+  })
+
   it('«Физическое устройство (хост)»: подсказка «нет доступных серверов» остаётся, пока в реестре нет серверов/СХД', () => {
     seedCatalogs()
     useDevicesStore().all = [serverDevice('d-sw', 'sw-core-01', 'SN-SW', 'dt-switch')]

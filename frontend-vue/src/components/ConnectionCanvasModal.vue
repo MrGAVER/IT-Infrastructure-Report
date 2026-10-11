@@ -13,7 +13,8 @@
 // перерасчёта после каждого рендера.
 import { computed, reactive, ref } from 'vue'
 import type { Connection, Device, DeviceInterface } from '../api/types'
-import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
+import { useCatalogsStore } from '../stores/catalogs'
+import { sortOptionsByLabel } from '../utils/selectOptions'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -73,10 +74,9 @@ const positions = reactive<Record<string, { x: number; y: number }>>({})
 const addDeviceId = ref('')
 
 const availableDeviceOptions = computed(() =>
-  devicesStore.all
-    .filter((d) => !canvasDeviceIds.value.includes(d.id))
-    .map((d) => ({ value: d.id, label: deviceLabel(d) }))
-    .sort((a, b) => RU_COLLATOR.compare(a.label, b.label)),
+  sortOptionsByLabel(
+    devicesStore.all.filter((d) => !canvasDeviceIds.value.includes(d.id)).map((d) => ({ value: d.id, label: deviceLabel(d) })),
+  ),
 )
 
 function nextGridPosition(): { x: number; y: number } {
