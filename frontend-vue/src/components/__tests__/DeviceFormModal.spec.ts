@@ -203,7 +203,7 @@ describe('DeviceFormModal.vue', () => {
             }),
           )
         }
-        if (url.includes('/resources/open-ports')) {
+        if (url.includes('/interface-open-ports')) {
           return new Response(
             JSON.stringify({
               items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }],
@@ -395,7 +395,7 @@ describe('DeviceFormModal.vue', () => {
             }),
           )
         }
-        if (url.includes('/resources/ip-addresses')) {
+        if (url.includes('/interface-ips')) {
           return new Response(
             JSON.stringify({ items: [{ id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '192.168.1.1', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }),
           )
@@ -435,7 +435,7 @@ describe('DeviceFormModal.vue', () => {
           if (url.includes('/resources/interfaces') && method === 'GET') {
             return new Response(JSON.stringify({ items: [ifaceDto('if-1', 'Gi0/1', 'g-1'), ifaceDto('if-2', 'Gi0/2', null)], total: 2, offset: 0, limit: 1000 }))
           }
-          if (url.includes('/resources/ip-addresses') && method === 'GET') {
+          if (url.includes('/interface-ips') && method === 'GET') {
             return new Response(JSON.stringify({ items: [{ id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }))
           }
           if (method === 'PUT' && url.includes('/devices/dev-g/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
@@ -1456,7 +1456,7 @@ describe('DeviceFormModal.vue', () => {
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
           // Фикс п.1.4 (батч4): открытый порт донора висит на его интерфейсе (owner_type=
           // 'device_interface', owner_id интерфейса), а не на самом устройстве.
-          if (url.includes('/resources/open-ports') && method === 'GET') {
+          if (url.includes('/interface-open-ports') && method === 'GET') {
             return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
           }
           if (url.includes('/resources/interfaces') && method === 'GET') {

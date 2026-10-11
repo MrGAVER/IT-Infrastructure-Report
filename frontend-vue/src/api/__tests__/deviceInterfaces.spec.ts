@@ -23,7 +23,7 @@ function emptyRow(): InterfaceDraftRow {
 }
 
 describe('loadDeviceInterfaceDraftRows', () => {
-  it('фильтрует IP общего списка по interface_id, берёт VLAN запросом устройства и приводит числа к строкам формы', async () => {
+  it('раскладывает IP устройства по портам (interface_id), берёт VLAN запросом устройства и приводит числа к строкам формы', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes('/resources/interfaces')) {
         return jsonResponse({
@@ -35,17 +35,14 @@ describe('loadDeviceInterfaceDraftRows', () => {
           limit: 1000,
         })
       }
-      if (url.includes('/resources/ip-addresses')) {
-        // Общий список по ВСЕМ устройствам — включает IP чужого интерфейса (if-2), который
-        // не должен попасть в результат для if-1.
+      if (url.includes('/devices/dev-1/interface-ips')) {
+        // Запрос ограничен устройством: IP портов других устройств сюда не попадают. IP порта if-2 (тоже dev-1,
+        // но другого порта) не должен оказаться в строке if-1 — раскладка идёт по owner_id.
         return jsonResponse({
           items: [
             { id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '10.0.0.1', prefix_length: 24, purpose: 'Управление', is_management: true },
             { id: 'ip-2', owner_type: 'device_interface', owner_id: 'if-2', ip_address: '10.0.0.2', prefix_length: 24, purpose: '', is_management: false },
           ],
-          total: 2,
-          offset: 0,
-          limit: 1000,
         })
       }
       if (url.includes('/devices/dev-1/interface-vlans')) {
@@ -69,9 +66,9 @@ describe('loadDeviceInterfaceDraftRows', () => {
   })
 
   // Фикс п.1.4 (батч4): открытые порты интерфейса грузятся тем же приёмом, что IP/VLAN выше —
-  // широким запросом по owner_type='device_interface' (без owner_id), с фильтрацией по
-  // interface_id на клиенте (см. комментарий к самому запросу в loadDeviceInterfaceDraftRows).
-  it('фикс п.1.4: подгружает открытые порты интерфейса, отфильтрованные по owner_id и отсортированные по номеру порта', async () => {
+  // одним запросом по устройству, с раскладкой по interface_id на клиенте (см. комментарий к самому
+  // запросу в loadDeviceInterfaceDraftRows).
+  it('фикс п.1.4: подгружает открытые порты устройства, раскладывает по owner_id порта и сортирует по номеру порта', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes('/resources/interfaces')) {
         return jsonResponse({
@@ -81,9 +78,8 @@ describe('loadDeviceInterfaceDraftRows', () => {
           limit: 1000,
         })
       }
-      if (url.includes('/resources/open-ports')) {
-        expect(url).toContain('owner_type=device_interface')
-        // Порт чужого интерфейса (if-2) не должен попасть в результат для if-1; порядок в
+      if (url.includes('/devices/dev-1/interface-open-ports')) {
+        // Порт другого интерфейса (if-2) не должен попасть в результат для if-1; порядок в
         // ответе намеренно "неправильный" — 443 раньше 22 — чтобы проверить сортировку.
         return jsonResponse({
           items: [
@@ -91,9 +87,6 @@ describe('loadDeviceInterfaceDraftRows', () => {
             { id: 'op-3', owner_type: 'device_interface', owner_id: 'if-2', port: 22, protocol: 'SSH', transport_protocol: 'TCP', protocol_catalog_id: null, description: null },
             { id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', port: 22, protocol: 'SSH', transport_protocol: 'TCP', protocol_catalog_id: null, description: null },
           ],
-          total: 3,
-          offset: 0,
-          limit: 1000,
         })
       }
       return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
@@ -105,6 +98,38 @@ describe('loadDeviceInterfaceDraftRows', () => {
       { id: 'op-1', protocol_catalog_id: '', transport_protocol: 'TCP', description: '' },
       { id: 'op-2', protocol_catalog_id: '', transport_protocol: 'TCP', description: '' },
     ])
+  })
+
+  it('IP, открытые порты и VLAN читаются запросами по устройству, а не generic-списками реестра с лимитом 1000', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/resources/interfaces')) {
+        return jsonResponse({
+          items: [{ id: 'if-9', physical_device_id: 'dev-9', name: 'eth9', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' }],
+          total: 1,
+          offset: 0,
+          limit: 1000,
+        })
+      }
+      if (url.includes('/devices/dev-9/interface-ips')) {
+        return jsonResponse({ items: [{ id: 'ip-9', owner_type: 'device_interface', owner_id: 'if-9', ip_address: '10.9.0.1', prefix_length: 24, purpose: null }] })
+      }
+      if (url.includes('/devices/dev-9/interface-open-ports')) {
+        return jsonResponse({ items: [{ id: 'op-9', owner_type: 'device_interface', owner_id: 'if-9', port: 22, protocol: 'SSH', transport_protocol: 'TCP', protocol_catalog_id: 'cat-22', description: null }] })
+      }
+      return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const [row] = await loadDeviceInterfaceDraftRows('dev-9')
+
+    expect(row.ips).toEqual([{ id: 'ip-9', ip_address: '10.9.0.1', prefix_length: '24', purpose: '' }])
+    expect(row.open_ports).toEqual([{ id: 'op-9', protocol_catalog_id: 'cat-22', transport_protocol: 'TCP', description: '' }])
+    const urls = fetchMock.mock.calls.map(([url]) => url as string)
+    // Общие списки «ip-addresses» / «open-ports» отдают не больше 1000 записей реестра: у устройства, чьи строки лежат за
+    // этим пределом, форма открывалась бы без IP и открытых портов, а сохранение удаляло бы их.
+    expect(urls.some((url) => /\/resources\/(ip-addresses|open-ports)/.test(url))).toBe(false)
+    expect(urls.some((url) => url.includes('/devices/dev-9/interface-ips'))).toBe(true)
+    expect(urls.some((url) => url.includes('/devices/dev-9/interface-open-ports'))).toBe(true)
   })
 
   it('«Все VLAN» — признак с сервера, а не вывод из набора; VLAN читаются запросом устройства, а не общим списком связей (лимит 1000)', async () => {

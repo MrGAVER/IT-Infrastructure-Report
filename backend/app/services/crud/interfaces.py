@@ -203,3 +203,28 @@ def get_device_interface_vlans(device_id: str, session: Session) -> dict[str, An
     ]}
 
 
+def _interface_owned_rows(model: type[IPAddress] | type[OpenPort], device_id: str, session: Session) -> list[Any]:
+    """Строки `model` (IPAddress / OpenPort), принадлежащие ПОРТАМ одного устройства (owner_type = device_interface).
+    Порядок тот же, что у generic-списка (создание, затем id), — форма не должна менять порядок строк."""
+    if not session.get(PhysicalDevice, device_id): raise HTTPException(404, 'Физическое устройство не найдено')
+    return list(session.scalars(
+        select(model)
+        .join(DeviceInterface, DeviceInterface.id == model.owner_id)
+        .where(model.owner_type == OwnerType.DEVICE_INTERFACE, DeviceInterface.physical_device_id == device_id)
+        .order_by(model.created_at, model.id)
+    ).all())
+
+
+def get_device_interface_ips(device_id: str, session: Session) -> dict[str, Any]:
+    """IP-адреса портов устройства для формы: `{items: [...]}` в том же виде, что generic-список `ip-addresses`.
+    Запрос ограничен устройством: форма больше не читает IP всех портов реестра общим списком с потолком записей —
+    при его превышении IP свежих портов отрезались, форма открывалась без них, а сохранение их удаляло."""
+    return {'items': [serialize(ip) for ip in _interface_owned_rows(IPAddress, device_id, session)]}
+
+
+def get_device_interface_open_ports(device_id: str, session: Session) -> dict[str, Any]:
+    """Открытые порты портов устройства для формы: `{items: [...]}` в том же виде, что generic-список `open-ports`
+    (с port/protocol из справочника). Ограничены устройством по той же причине, что и IP (get_device_interface_ips)."""
+    return {'items': enrich_open_ports(_interface_owned_rows(OpenPort, device_id, session), session)}
+
+
