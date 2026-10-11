@@ -37,7 +37,7 @@ jobs:
         run: npm ci
         working-directory: frontend-vue
 
-      - name: ruff (только реальные ошибки — pyflakes F + синтаксис E9, см. pyproject.toml)
+      - name: ruff (реальные ошибки — pyflakes F + синтаксис E9 — и сложность функций C901 ≤ 12, см. pyproject.toml)
         run: ruff check backend
 
       - name: Lock-файлы backend актуальны (requirements.lock / requirements-dev.lock соответствуют requirements*.txt)
