@@ -60,6 +60,7 @@ from ..constants import AuditAction
 from ..models import Connection, DeviceInterface, InterfaceGroup, InterfaceGroupVLAN, InterfaceVLAN, PhysicalDevice, VLAN
 from .crud import audit
 from .port_edit import PreparedPortChange, parse_port_change, prepare_port_change, write_port_change
+from .port_vlans import effective_group_vlan_ids, effective_vlan_ids
 from .serialization import enrich_interfaces
 
 VLAN_MODES = ("access", "trunk")
@@ -339,9 +340,9 @@ def _load_details(change: _Change) -> None:
             change.group_vlans[key] = list(dict.fromkeys(info.vlan_ids))
         else:
             stored_groups.append(key)
-    for chunk in _chunks(stored_groups):
-        for row in session.scalars(select(InterfaceGroupVLAN).where(InterfaceGroupVLAN.group_id.in_(chunk))).all():
-            change.group_vlans.setdefault(row.group_id, []).append(row.vlan_id)
+    # VLAN сохранённых групп и портов: выбранные связями или, при «Все VLAN», все VLAN их устройства (services/port_vlans.py).
+    for group_id, ids in effective_group_vlan_ids([loader.groups[k] for k in stored_groups if k in loader.groups], session).items():
+        change.group_vlans.setdefault(group_id, []).extend(sorted(ids))
     stored_ports: list[str] = []
     for port_id in change.changed_ports:
         if port_id in change.group_of_port:
@@ -351,9 +352,8 @@ def _load_details(change: _Change) -> None:
             change.port_vlans[port_id] = list(dict.fromkeys(state.vlan_ids))
         else:
             stored_ports.append(port_id)
-    for chunk in _chunks(stored_ports):
-        for row in session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id.in_(chunk))).all():
-            change.port_vlans.setdefault(row.interface_id, []).append(row.vlan_id)
+    for port_id, ids in effective_vlan_ids(session, stored_ports).items():
+        change.port_vlans.setdefault(port_id, []).extend(sorted(ids))
     vlan_ids = {v for ids in change.group_vlans.values() for v in ids} | {v for ids in change.port_vlans.values() for v in ids}
     for chunk in _chunks(list(vlan_ids)):
         for vlan in session.scalars(select(VLAN).where(VLAN.id.in_(chunk))).all():
@@ -582,6 +582,9 @@ def _prepare_port(interface_id: str, payload: dict[str, Any], mode: str, session
 
 def _write_port(port: DeviceInterface, target: str, keep: list[str], session: Session) -> None:
     port.vlan_mode = target
+    # Каскад меняет режим, а при смене режима «Все VLAN» не сохраняется (в access его нет, а из access порт приходит без
+    # него): порт получает явный набор keep — у порта с признаком он вычислен из VLAN устройства (services/port_vlans.py).
+    port.all_vlans = False
     session.flush()
     links = session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id == port.id)).all()
     kept: set[str] = set()
@@ -647,9 +650,17 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
         group = loader.groups[g["id"]]
         keep = [v["id"] for v in g["vlans_after"]]
         group.vlan_mode = mode
+        group.all_vlans = False  # при смене режима «Все VLAN» группы не сохраняется (см. _write_port)
+        have: set[str] = set()
         for row in session.scalars(select(InterfaceGroupVLAN).where(InterfaceGroupVLAN.group_id == group.id)).all():
-            if row.vlan_id not in keep:
+            if row.vlan_id not in keep or row.vlan_id in have:
                 session.delete(row)
+            else:
+                have.add(row.vlan_id)
+        # У группы с «Все VLAN» строк не было — явный набор после смены режима записывается заново.
+        for vlan_id in keep:
+            if vlan_id not in have:
+                session.add(InterfaceGroupVLAN(group_id=group.id, vlan_id=vlan_id))
         for member in g["ports"]:
             port = loader.ports[member["id"]]
             _write_port(port, mode, keep, session)

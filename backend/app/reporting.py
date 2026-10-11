@@ -20,6 +20,7 @@ from .models import (
 from .constants import OwnerType
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
 from .services.excel_safety import excel_safe_row
+from .services.port_vlans import carries_all_vlans, effective_vlan_ids
 
 HEADERS1 = [
 "№","Наименование информационной системы (подситемы/информационного ресурса)","Общее описание информационной системы (подситемы/информационного ресурса)","Назначение использования информационной системы (подсистемы/информационного ресурса) для ИС Организация","Работники, группы работников или подразделения, которые используют в своей работе информационную систему (подсистему/информационный ресурс)","Локализация информационной системы (подсистемы/информационного ресурса)","Оборудование ООО \"Организация\", на котором размещается информационная ситема (подсистема/информационный ресурс), а также прикладное программное обеспечение или интерфейс взаимодействия с внешней информационной системой.","Протокол передачи данных, по которому осуществляется взаимодействие информационной системы (подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними информационными системами","IP адрес , по которому осуществляется взаимодействие информационной системы (подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними информационными системами","Применение сертифицированных программных и/или программно-аппаратных средств криптографической защиты информации, применяемых при осуществлении внешнего взаимодействия, в том числе с внешними информационными системами.","Признак получения событий в SIEM","Наименование организации, информационная система которой осуществляет взаимодействие и (или) обеспечивает техническую поддержку","Способ оказания технической поддержки","Описание процесса функционирования ИС, особенности организации направления потоков для обеспечения функционирования ИС","Название физического сервера (ПК, выполняющего роль сервера), на котором установлена информационная система (подсистема/информационный ресурс) или установлена виртуальная машина (контейнер), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)","IP-адрес физического сервера, на котором установлена информационная система (подсистема/информационный ресурс)","Наименование виртуальной машины или контейнера, обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)","IP-адрес виртуальной машины (контейнера), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)"]
@@ -235,7 +236,14 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     d.vlans=session.scalars(select(VLAN)).all(); d.vlan_map={x.id:x for x in d.vlans}; d.iface_vlans=session.scalars(select(InterfaceVLAN)).all(); d.vlan_by_iface=defaultdict(list)
     d.device_vlan_rows=session.scalars(select(PhysicalDeviceVLAN)).all(); d.device_vlan_by_device=defaultdict(list)
     for x in d.device_vlan_rows: d.device_vlan_by_device[x.physical_device_id].append(x)
-    for x in d.iface_vlans: d.vlan_by_iface[x.interface_id].append(d.vlan_map.get(x.vlan_id))
+    # Порт с «Все VLAN» хранит только признак: его VLAN — все VLAN устройства (тип ∪ собственные), по номеру
+    # (services/port_vlans.py). Связи такого порта (их быть не должно) игнорируются, у остальных — выбранные.
+    all_vlans_ports=[x for x in d.interfaces if carries_all_vlans(x)]; all_vlans_ids={x.id for x in all_vlans_ports}
+    for x in d.iface_vlans:
+        if x.interface_id not in all_vlans_ids: d.vlan_by_iface[x.interface_id].append(d.vlan_map.get(x.vlan_id))
+    if all_vlans_ports:
+        derived=effective_vlan_ids(session,[x.id for x in all_vlans_ports])
+        for x in all_vlans_ports: d.vlan_by_iface[x.id]=[d.vlan_map[v] for v in sorted((v for v in derived.get(x.id,()) if v in d.vlan_map),key=lambda v:(d.vlan_map[v].vlan_id,v))]
     def _sub_order(sub):
         vlan=d.vlan_map.get(sub.vlan_id)
         return (vlan.vlan_id if vlan else 0, (sub.name or "").casefold())

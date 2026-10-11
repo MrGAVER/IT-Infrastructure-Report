@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -295,6 +295,12 @@ class DeviceInterface(TimestampMixin, Base):
     # этого поля access-порт без VLAN после сохранения и перезагрузки формы молча превращался в
     # trunk (см. миграцию 5b5ea0e81d32 для бэкфилла существующих данных).
     vlan_mode: Mapped[str] = mapped_column(String(10), default="trunk", server_default="trunk", nullable=False)
+    # Галочка «Все VLAN» (только trunk): порт несёт ВСЕ VLAN, доступные его устройству (VLAN типа ∪ VLAN
+    # устройства), — и те, что появятся позже. Это отдельный сохраняемый признак, а не вывод из числа
+    # выбранных VLAN: набор из всех VLAN, выбранных вручную, «Все VLAN» не включает. Связи interface_vlans
+    # при этом по-прежнему материализованы (отчёты, диаграмма и подключения читают их), а
+    # services/port_all_vlans.py приводит их в соответствие, когда набор доступных VLAN устройства меняется.
+    all_vlans: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     # Группа портов (InterfaceGroup): параметры группы (режим порта/VLAN, общий IP, открытые
     # порты) записываются в сам порт при каждом сохранении (см. services/crud/:
     # _apply_group_to_interface), поэтому отчёты, диаграммы и подключения по-прежнему читают
@@ -364,6 +370,9 @@ class InterfaceGroup(TimestampMixin, Base):
     physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
     vlan_mode: Mapped[Optional[str]] = mapped_column(String(10))
+    # «Все VLAN» группы (только trunk при заданном vlan_mode): как DeviceInterface.all_vlans, но для всех
+    # портов группы — каждому порту записывается и сам признак, и все доступные его устройству VLAN.
+    all_vlans: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
     manage_open_ports: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -26,7 +26,7 @@ trunk-портах (стандартное правило `trunk_vlans_union`). 
 порта-источника. Так автоматически решается «если на порту „Все VLAN“, то и у соседа „Все VLAN“»
 (стандартное правило `all_vlans_to_neighbor`). Что именно запишется, зависит от VLAN устройства целевого
 порта, поэтому это считает слой согласования (services/port_sync_reconcile.py); здесь правило лишь
-отвечает, нужно ли портy «Все VLAN» (`Changes.all_vlans`). Уже назначенные VLAN порта не снимаются.
+отвечает, нужно ли порту «Все VLAN» (`Changes.all_vlans`): порту ставится признак «Все VLAN», а набор — все VLAN его устройства.
 
 Правила проверяются по возрастанию `priority`; решает первое подходящее. Для каждой пары
 проверяются обе ориентации (A ← B и B ← A). `auto` подходит, только если подходит ровно одна
@@ -90,8 +90,8 @@ def flags_from_role(role: PortRole) -> tuple[bool, bool]:
 @dataclass(frozen=True)
 class PortFacts:
     """Данные порта, по которым проверяются условия правил. VLAN — номера (802.1Q-теги), как и в
-    сверке подключений (services/port_config.py). all_vlans считает слой БД: назначены ли порту
-    все VLAN, доступные его устройству."""
+    сверке подключений (services/port_config.py). all_vlans — сохраняемый признак порта «Все VLAN»
+    (models.DeviceInterface.all_vlans), а не вывод из набора VLAN."""
 
     role: PortRole = PortRole.NONE
     mode: str = DEFAULT_VLAN_MODE

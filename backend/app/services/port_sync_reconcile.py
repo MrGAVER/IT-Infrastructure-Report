@@ -61,7 +61,6 @@ from ..models import (
     DeviceInterface,
     DeviceTypeVLAN,
     InterfaceGroup,
-    InterfaceVLAN,
     PhysicalDevice,
     PhysicalDeviceVLAN,
     VLAN,
@@ -89,6 +88,7 @@ from .port_sync_rules import (
     decide,
 )
 from .port_sync_store import rules_for_reconcile
+from .port_vlans import carries_all_vlans, effective_vlan_ids
 from .port_writes import load_vlan_links, write_port_roles, write_port_vlans
 
 MAX_CONNECTION_IDS = 500
@@ -121,10 +121,8 @@ def _load_ports(session: Session, interface_ids: Sequence[str]) -> tuple[dict[st
     VLAN и VLAN, доступные устройству. Несколько запросов на весь набор портов, а не по запросу на порт."""
     ids = list(dict.fromkeys(interface_ids))
     interfaces: list[DeviceInterface] = []
-    links: list[tuple[str, str]] = []
     for chunk in _chunks(ids):
         interfaces += session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(chunk))).all()
-        links += [tuple(r) for r in session.execute(select(InterfaceVLAN.interface_id, InterfaceVLAN.vlan_id).where(InterfaceVLAN.interface_id.in_(chunk))).all()]
     device_ids = list({i.physical_device_id for i in interfaces})
     devices: dict[str, PhysicalDevice] = {}
     device_vlans: dict[str, set[str]] = {}
@@ -143,9 +141,8 @@ def _load_ports(session: Session, interface_ids: Sequence[str]) -> tuple[dict[st
     for chunk in _chunks(group_ids):
         for group in session.scalars(select(InterfaceGroup).where(InterfaceGroup.id.in_(chunk))).all():
             groups[group.id] = group
-    by_iface: dict[str, set[str]] = {}
-    for interface_id, vlan_id in links:
-        by_iface.setdefault(interface_id, set()).add(vlan_id)
+    # VLAN порта: выбранные (interface_vlans) или, у порта с «Все VLAN», все VLAN его устройства (services/port_vlans.py).
+    by_iface = effective_vlan_ids(session, ids)
     vlan_ids_needed = set().union(*by_iface.values(), *device_vlans.values(), *type_vlans.values()) if (by_iface or device_vlans or type_vlans) else set()
     vlans: dict[str, VLAN] = {}
     for chunk in _chunks(list(vlan_ids_needed)):
@@ -162,8 +159,8 @@ def _load_ports(session: Session, interface_ids: Sequence[str]) -> tuple[dict[st
             role=port_role(iface),
             mode=iface.vlan_mode or DEFAULT_VLAN_MODE,
             vlans=numbers,
-            # «Все VLAN» — назначены все VLAN, доступные устройству (как в форме устройства).
-            all_vlans=bool(allowed) and allowed <= assigned,
+            # «Все VLAN» — сохраняемый признак порта (галочка в форме устройства), а не вывод из набора VLAN.
+            all_vlans=carries_all_vlans(iface),
         )
         ports[iface.id] = _Port(iface, device, groups.get(iface.group_id) if iface.group_id else None, assigned, allowed, facts)
     return ports, vlans
@@ -207,6 +204,7 @@ class _Planned:
     mode: str | None
     vlan_ids: list[str] | None  # итоговые записи VLAN; None — набор не меняется
     description: str
+    all_vlans: bool = False  # порту ставится «Все VLAN»: хранится только признак, набор — VLAN его устройства
 
 
 @dataclass
@@ -296,10 +294,10 @@ def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: 
         if final_numbers == target.facts.vlans:
             resolved_ids = None  # из доступных устройству VLAN менять нечего
     elif changes.all_vlans:
-        # «Все VLAN»: все VLAN, доступные устройству порта, плюс уже назначенные (ни один не снимается). Записи берутся
-        # по id, а не по номерам: состояние «все» — это «назначены все записи, доступные устройству».
-        everything = target.allowed_ids | target.vlan_ids
-        if everything != target.vlan_ids:
+        # «Все VLAN»: порту ставится признак (хранится только он), набор — все VLAN, доступные устройству порта. Записи
+        # берутся по id, а не по номерам. Запись нужна, если признака ещё нет — даже когда те же VLAN выбраны вручную.
+        everything = target.allowed_ids
+        if everything and (everything != target.vlan_ids or not target.facts.all_vlans):
             resolved_ids = sorted(everything)
             final_numbers = frozenset(vlans[v].vlan_id for v in resolved_ids if v in vlans)
         skipped = sorted(source.facts.vlans - final_numbers)  # VLAN соседа, которых нет у устройства порта
@@ -335,7 +333,7 @@ def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: 
     if extra and not blocked:
         warnings.append("Порту назначаются все VLAN его устройства; у соседнего порта нет VLAN: " + ", ".join(map(str, extra)))
     description = _describe(role_pair, mode_pair, vlan_pair, all_vlans=changes.all_vlans)
-    planned = None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, resolved_ids, description)
+    planned = None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, resolved_ids, description, all_vlans=changes.all_vlans)
     return _TargetPlan(option.apply_to, target, view, warnings, blocked, planned, diverges)
 
 
@@ -569,7 +567,8 @@ def apply_reconcile(payload: Any, session: Session) -> dict[str, Any]:
     for planned in vlan_writes:
         port = planned.port.iface
         keep = planned.vlan_ids if planned.vlan_ids is not None else list(planned.port.vlan_ids)
-        write_port_vlans(port, planned.mode or planned.port.facts.mode, keep, session, links=links[port.id])
+        # «Все VLAN» пишется как признак (связи порта снимаются); явный набор — без признака (см. write_port_vlans).
+        write_port_vlans(port, planned.mode or planned.port.facts.mode, keep, session, links=links[port.id], all_vlans=planned.all_vlans)
     for planned in plan.planned:
         port = planned.port.iface
         audit(session, "interfaces", port.id, AuditAction.UPDATE, f"Согласование порта «{port.name}» по правилу «{planned.rule.name}»: {planned.description}")

@@ -59,6 +59,7 @@ from ..constants import OwnerType
 from ..reporting import _expand_structural_unit_ids, device_label
 from ..services.computed import ip_label
 from .diagram_icons import MAX_PORT_TICKS, IconLookups, build_device_icon
+from .port_vlans import carries_all_vlans, effective_vlan_ids
 
 GROUP_DIMENSIONS = ("structural_unit", "vlan", "building", "device_category")
 UNASSIGNED_DIMENSION_VALUE = "none"
@@ -126,9 +127,15 @@ class GraphContext:
         for link in session.scalars(select(PhysicalDeviceVLAN)).all():
             self.device_vlans_by_device[link.physical_device_id].append(link)
 
-        self.interface_vlans_by_interface: dict[str, list[InterfaceVLAN]] = defaultdict(list)
+        # VLAN порта: выбранные (interface_vlans) или, у порта с «Все VLAN», — все VLAN его устройства (services/port_vlans.py).
+        self.interface_vlan_ids_by_interface: dict[str, list[str]] = defaultdict(list)
+        all_vlans_ids = {i.id for i in self.interfaces_by_id.values() if carries_all_vlans(i)}
         for link in session.scalars(select(InterfaceVLAN)).all():
-            self.interface_vlans_by_interface[link.interface_id].append(link)
+            if link.interface_id not in all_vlans_ids:
+                self.interface_vlan_ids_by_interface[link.interface_id].append(link.vlan_id)
+        if all_vlans_ids:
+            for interface_id, vlan_ids in effective_vlan_ids(session, all_vlans_ids).items():
+                self.interface_vlan_ids_by_interface[interface_id] = sorted(vlan_ids, key=lambda v: (self.vlans[v].vlan_id if v in self.vlans else 0, v))
 
         self.connections = list(session.scalars(select(Connection)).all())
 
@@ -151,7 +158,7 @@ class GraphContext:
     def device_vlan_ids(self, device_id: str) -> set[str]:
         ids = {link.vlan_id for link in self.device_vlans_by_device.get(device_id, [])}
         for iface in self.interfaces_by_device.get(device_id, []):
-            ids.update(link.vlan_id for link in self.interface_vlans_by_interface.get(iface.id, []))
+            ids.update(self.interface_vlan_ids_by_interface.get(iface.id, []))
         return ids
 
     def management_vlan_id(self, device_id: str) -> Optional[str]:
@@ -368,8 +375,8 @@ def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, t
     for iface in (source_iface, target_iface):
         if iface is None:
             continue
-        for link in ctx.interface_vlans_by_interface.get(iface.id, []):
-            vlan = ctx.vlans.get(link.vlan_id)
+        for vlan_id in ctx.interface_vlan_ids_by_interface.get(iface.id, []):
+            vlan = ctx.vlans.get(vlan_id)
             if vlan and vlan.id not in vlans:
                 vlans[vlan.id] = {"id": vlan.id, "vlan_id": vlan.vlan_id, "name": vlan.name}
         # VLAN подинтерфейсов порта: тегированный трафик подинтерфейса идёт по той же линии.

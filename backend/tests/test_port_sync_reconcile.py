@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from app.models import AuditLog, Connection, DeviceInterface, InterfaceGroup, InterfaceVLAN, IPAddress, PhysicalDeviceVLAN, VLAN
+from app.services.port_vlans import effective_vlan_ids
 from app.services.port_sync_rules import ALL_VLANS_BOTH_RULE, ALL_VLANS_RULE, EMPTY_TRUNK_RULE, ROLE_MATCH_RULE, TRUNK_VLANS_UNION_RULE
 
 PREVIEW = "/api/v1/port-sync/preview"
@@ -46,12 +47,16 @@ class World:
         by_name = {i["name"]: i["id"] for i in response.json()["items"]}
         return [by_name[n] for n in port_names]
 
-    def configure(self, interface_id: str, *, mode: str | None = None, vlans: tuple[int, ...] | None = None, role: tuple[bool, bool] | None = None) -> None:
+    def configure(self, interface_id: str, *, mode: str | None = None, vlans: tuple[int, ...] | None = None, role: tuple[bool, bool] | None = None, all_vlans: bool = False) -> None:
+        """all_vlans=True — порту ставится «Все VLAN»: хранится только признак (связей нет), набор — VLAN его устройства."""
         iface = self.db.get(DeviceInterface, interface_id)
         if mode is not None:
             iface.vlan_mode = mode
         if role is not None:
             iface.is_management, iface.is_data_transfer = role
+        if all_vlans:
+            iface.all_vlans = True
+            vlans = ()
         if vlans is not None:
             for link in self.db.query(InterfaceVLAN).filter_by(interface_id=interface_id).all():
                 self.db.delete(link)
@@ -74,7 +79,10 @@ class World:
         return {
             "mode": iface.vlan_mode,
             "role": (iface.is_management, iface.is_data_transfer),
-            "vlans": sorted(self.db.get(VLAN, link.vlan_id).vlan_id for link in links),
+            # Набор порта: выбранные VLAN или, при «Все VLAN», все VLAN его устройства (services/port_vlans.py).
+            "vlans": sorted(self.db.get(VLAN, vlan_id).vlan_id for vlan_id in effective_vlan_ids(self.db, [interface_id]).get(interface_id, ())),
+            "all_vlans": iface.all_vlans,
+            "stored_links": len(links),
             "link_modes": {link.mode for link in links},
         }
 
@@ -149,7 +157,11 @@ def test_apply_gives_the_empty_trunk_the_neighbors_vlans_and_clears_the_discrepa
     result = world.apply()
 
     assert result["applied"] == {"ports": 1, "connections": 1} and result["connection_ids"] == [connection]
-    assert world.port(a) == {"mode": "trunk", "role": (False, True), "vlans": [10, 20], "link_modes": {"trunk"}}
+    # Набор выбран явно (не «Все VLAN»): признак не выставлен, VLAN хранятся связями.
+    assert world.port(a) == {
+        "mode": "trunk", "role": (False, True), "vlans": [10, 20],
+        "all_vlans": False, "stored_links": 2, "link_modes": {"trunk"},
+    }
     assert world.port(b)["vlans"] == [10, 20]  # сосед не тронут
     assert world.status(connection) == "ok"
     assert world.audit("Согласование порта «Gi0/1»", "Пустой trunk получает VLAN соседа", "VLAN нет → 10, 20")
@@ -447,7 +459,10 @@ def test_mode_rule_adapts_vlans_when_the_target_becomes_access(world):
 
     world.apply()
 
-    assert world.port(a) == {"mode": "access", "role": (False, True), "vlans": [10], "link_modes": {"access"}}
+    assert world.port(a) == {
+        "mode": "access", "role": (False, True), "vlans": [10],
+        "all_vlans": False, "stored_links": 1, "link_modes": {"access"},
+    }
     assert world.status(connection) == "ok"
     assert world.audit("режим trunk → access", "VLAN 10, 20, 30 → 10")
 
@@ -789,11 +804,11 @@ def _trunk_pair_numbered(world: World, index: int):
 # --- «Все VLAN» на порту → «Все VLAN» у соседа ----------------------------------------------------
 
 def _all_vlans_pair(world: World, *, a_allowed=(10, 20, 30), b_allowed=(10, 20, 30), a_vlans=(10,)):
-    """a — trunk с частью VLAN; b — trunk с «Все VLAN» (назначены все VLAN его устройства)."""
+    """a — trunk с частью VLAN; b — trunk с «Все VLAN» (признак; набор — все VLAN его устройства)."""
     (a,) = world.device("ALLA", ["Gi0/1"], allowed=a_allowed)
     (b,) = world.device("ALLB", ["Gi0/1"], allowed=b_allowed)
     world.configure(a, mode="trunk", vlans=a_vlans)
-    world.configure(b, mode="trunk", vlans=b_allowed)
+    world.configure(b, mode="trunk", all_vlans=True)
     return a, b, world.connect(a, b)
 
 
@@ -808,6 +823,8 @@ def test_all_vlans_port_gives_the_neighbor_all_vlans_of_its_own_device(world):
     assert item["target"] == "source" and item["changes"]["vlans"] == {"from": [10], "to": [10, 20, 30], "skipped": []}
     assert item["partial"] is False and item["warnings"] == []
     assert world.port(a)["vlans"] == [10, 20, 30] and world.port(b)["vlans"] == [10, 20, 30]
+    # Порту a записан признак «Все VLAN», а не набор связей: хранится только он.
+    assert world.port(a)["all_vlans"] is True and world.port(a)["stored_links"] == 0
     assert world.status(connection) == "ok"
     assert world.audit("Согласование порта", "Gi0/1", "все")  # в журнале видно, что назначено «Все VLAN»
 
@@ -826,16 +843,32 @@ def test_all_vlans_is_decided_by_the_neighbors_device_not_by_the_sources_numbers
     assert world.status(connection) == "mismatch"
 
 
-def test_all_vlans_never_removes_a_vlan_already_assigned_to_the_neighbor(world):
+def test_all_vlans_is_the_devices_vlans_and_does_not_keep_a_vlan_the_device_cannot_carry(world):
+    """«Все VLAN» хранится признаком, а набор — все VLAN устройства: VLAN 99 есть в справочнике, но недоступен
+    устройству a, поэтому у порта со «Все VLAN» его нет (раньше «все» дописывались к уже назначенным)."""
     (a,) = world.device("KEEPA", ["Gi0/1"], allowed=(10, 20, 30))
     (b,) = world.device("KEEPB", ["Gi0/1"], allowed=(10, 20, 30))
-    world.configure(a, mode="trunk", vlans=(10, 99))  # 99 есть в справочнике, но недоступен устройству a
-    world.configure(b, mode="trunk", vlans=(10, 20, 30))
+    world.configure(a, mode="trunk", vlans=(10, 99))
+    world.configure(b, mode="trunk", all_vlans=True)
     world.connect(a, b)
 
     world.apply()
 
-    assert world.port(a)["vlans"] == [10, 20, 30, 99]
+    assert world.port(a)["vlans"] == [10, 20, 30] and world.port(a)["all_vlans"] is True
+
+
+def test_the_same_vlans_chosen_by_hand_are_not_all_vlans_and_do_not_trigger_the_rule(world):
+    """Набор из всех VLAN устройства, выбранных вручную, «Все VLAN» не включает: галочка — отдельный признак."""
+    (a,) = world.device("HANDA", ["Gi0/1"], allowed=(10, 20, 30))
+    (b,) = world.device("HANDB", ["Gi0/1"], allowed=(10, 20, 30))
+    world.configure(a, mode="trunk", vlans=(10,))
+    world.configure(b, mode="trunk", vlans=(10, 20, 30))  # все VLAN устройства, но без признака
+    world.connect(a, b)
+
+    plan = world.preview()
+
+    (item,) = plan["items"]
+    assert item["rule"]["code"] != ALL_VLANS_RULE
 
 
 def test_all_vlans_second_apply_is_a_no_op(world):
@@ -1027,8 +1060,8 @@ def test_all_vlans_on_both_ports_with_different_numbers_is_excluded_from_the_pla
     называется «Исключено правилом», а не «Нельзя применить» с непонятной причиной."""
     (a,) = world.device("BOTHA", ["Gi0/1"], allowed=(10, 20, 30))
     (b,) = world.device("BOTHB", ["Gi0/1"], allowed=(10, 20))
-    world.configure(a, mode="trunk", vlans=(10, 20, 30))
-    world.configure(b, mode="trunk", vlans=(10, 20))
+    world.configure(a, mode="trunk", all_vlans=True)
+    world.configure(b, mode="trunk", all_vlans=True)
     connection = world.connect(a, b)
 
     plan = world.preview()
@@ -1045,8 +1078,8 @@ def test_all_vlans_on_both_ports_with_different_numbers_is_excluded_from_the_pla
 def test_all_vlans_on_both_ports_still_lets_a_role_mismatch_through(world):
     (a,) = world.device("ROLEA", ["Gi0/1"], allowed=(10, 20, 30))
     (b,) = world.device("ROLEB", ["Gi0/1"], allowed=(10, 20, 30))
-    world.configure(a, mode="trunk", vlans=(10, 20, 30))
-    world.configure(b, mode="trunk", vlans=(10, 20, 30), role=(True, False))
+    world.configure(a, mode="trunk", all_vlans=True)
+    world.configure(b, mode="trunk", all_vlans=True, role=(True, False))
     world.connect(a, b)
 
     plan = world.preview()
