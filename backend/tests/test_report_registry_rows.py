@@ -20,6 +20,8 @@ import unittest
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from xlsx_helpers import expanded_rows
 
 try:
     sys.path.insert(0, str(APP_DIR.parent))
@@ -232,7 +234,12 @@ def _seed_rich_dataset(session):
 @unittest.skipUnless(DEPS_AVAILABLE, "sqlalchemy/openpyxl не установлены в этом окружении")
 class ExactParityTestCase(unittest.TestCase):
     """Строит оба отчёта (регламентированный и шаблон-заготовку конструктора) на одних данных и
-    построчно/поколоночно сравнивает содержимое, включая заголовки — не только структуру."""
+    построчно/поколоночно сравнивает содержимое, включая заголовки — не только структуру.
+
+    Сравниваются данные, а не оформление: регламентированный отчёт объединяет по строкам портов
+    данные устройства на листе 'Организация подключений' (services/excel_layout.py), шаблон
+    конструктора — нет, поэтому значения читаются через expanded_rows (ячейки объединения
+    повторяют значение верхней левой)."""
 
     def _build_both_and_compare(self, tmp_path):
         engine = create_engine("sqlite:///:memory:")
@@ -260,8 +267,8 @@ class ExactParityTestCase(unittest.TestCase):
                 self.assertEqual(orig_headers, expected_headers, f"{name}: заголовки оригинала разошлись с HEADERSn")
                 self.assertEqual(grid_headers, expected_headers, f"{name}: заголовки шаблона не совпадают с оригиналом")
 
-                orig_rows = [[c.value for c in row] for row in ws_o.iter_rows(min_row=2)]
-                grid_rows = [[c.value for c in row] for row in ws_g.iter_rows(min_row=2)]
+                orig_rows = expanded_rows(ws_o, min_row=2)
+                grid_rows = expanded_rows(ws_g, min_row=2)
                 self.assertEqual(orig_rows, grid_rows, f"{name}: данные шаблона разошлись с оригиналом")
                 self.assertGreater(len(orig_rows), 0, f"{name}: тестовые данные не дали ни одной строки")
         finally:
@@ -300,14 +307,14 @@ class ExactParityTestCase(unittest.TestCase):
                 wb_grid = openpyxl.load_workbook(grid_path)
 
                 for name in wb_orig.sheetnames:
-                    orig_rows = list(wb_orig[name].iter_rows(min_row=2, values_only=True))
-                    grid_rows = list(wb_grid[name].iter_rows(min_row=2, values_only=True))
+                    orig_rows = expanded_rows(wb_orig[name], min_row=2)
+                    grid_rows = expanded_rows(wb_grid[name], min_row=2)
                     self.assertEqual(orig_rows, grid_rows, f"{name}: расхождение при активном фильтре структурной единицы")
 
                 # Устройство вне единицы (sw-01, без building_id) не должно попасть в отфильтрованный
                 # вывод ни одного из движков — иначе тест мог бы пройти даже при полностью
                 # игнорируемом фильтре (сравнение "пусто == пусто").
-                device_rows = list(wb_orig["Инвентаризац. физ. устройств ИС"].iter_rows(min_row=2, values_only=True))
+                device_rows = expanded_rows(wb_orig["Инвентаризац. физ. устройств ИС"], min_row=2)
                 self.assertEqual(len(device_rows), 1)
                 self.assertNotIn("sw-01", device_rows[0])
         finally:
@@ -328,8 +335,8 @@ class ExactParityTestCase(unittest.TestCase):
                                              template_name=TEMPLATE_NAME, params={})
                 wb_grid = openpyxl.load_workbook(grid_path)
                 for name in wb_orig.sheetnames:
-                    orig_rows = list(wb_orig[name].iter_rows(min_row=2, values_only=True))
-                    grid_rows = list(wb_grid[name].iter_rows(min_row=2, values_only=True))
+                    orig_rows = expanded_rows(wb_orig[name], min_row=2)
+                    grid_rows = expanded_rows(wb_grid[name], min_row=2)
                     self.assertEqual(orig_rows, grid_rows, f"{name}: пустой реестр — расхождение")
         finally:
             session.close()

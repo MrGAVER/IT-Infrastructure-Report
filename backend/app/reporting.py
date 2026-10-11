@@ -19,6 +19,7 @@ from .models import (
 )
 from .constants import OwnerType
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
+from .services.excel_layout import apply_sheet_layout
 from .services.excel_safety import excel_safe_row
 from .services.port_vlans import carries_all_vlans, effective_vlan_ids
 
@@ -349,10 +350,14 @@ def _populate_sheet2(ws2, d: SimpleNamespace) -> None:
         ws2.append(excel_safe_row([n, *_device_row_values(dev, d)]))
 
 
-def _connection_row_values_list(d: SimpleNamespace) -> list:
-    """Пронумерованные строки листа 'Организация подключений' (первый элемент каждой строки — №,
-    как ждёт _populate_sheet3) — вынесено из неё же, см. _is_row_values про переиспользование в
-    конструкторе отчётов."""
+def _connection_rows_by_device(d: SimpleNamespace) -> list:
+    """Пронумерованные строки листа 'Организация подключений' в виде пар (id устройства-владельца
+    строки, строка); первый элемент каждой строки — №, как ждёт _populate_sheet3. Строки одного
+    устройства идут подряд (см. сортировку ниже), поэтому по id устройства _populate_sheet3 находит
+    границы блока устройства на листе: сравнивать для этого значения колонок нельзя — пустые поля
+    заменяются на "-", и два разных устройства без серийного номера и системного имени выглядели
+    бы одним. Вынесено из _populate_sheet3, см. _is_row_values про переиспользование в конструкторе
+    отчётов (он берёт строки без id устройства через _connection_row_values_list)."""
     # Every physical port must appear — connected ports show both ends of the link (own device +
     # neighbor), disconnected ports still get a row of their own, though ports on the same device
     # with no connection that share an IP signature (including "no IP") may be grouped into a
@@ -471,16 +476,36 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
     pending_rows.sort(key=lambda pair: device_order.get(pair[0].id, len(d.devices)))
 
     numbered=[]
-    for i,(_,row) in enumerate(pending_rows,1):
+    for i,(dev,row) in enumerate(pending_rows,1):
         row=[cell if cell not in (None,"") else "-" for cell in row]
         row[0]=i
-        numbered.append(row)
+        numbered.append((dev.id,row))
     return numbered
 
 
-def _populate_sheet3(ws3, d: SimpleNamespace) -> None:
-    for row in _connection_row_values_list(d):
+def _connection_row_values_list(d: SimpleNamespace) -> list:
+    """Пронумерованные строки листа 'Организация подключений' (первый элемент каждой строки — №)
+    без привязки к устройству — контракт, на который опирается конструктор отчётов
+    (services/report_registry_rows.py), поэтому форму результата менять нельзя."""
+    return [row for _,row in _connection_rows_by_device(d)]
+
+
+# Колонки листа 'Организация подключений' (номера с 1), описывающие само устройство-владельца строки:
+# вид, серийный номер, системное имя, ОС. У устройства с несколькими портами они повторяются в каждой
+# строке порта, и в отчёте объединяются по вертикали на весь блок устройства.
+SHEET3_DEVICE_COLUMNS=(2,3,4,5)
+
+
+def _populate_sheet3(ws3, d: SimpleNamespace) -> list:
+    """Лист 'Организация подключений': по строке на порт. Возвращает блоки строк листа — по одному
+    на устройство, в виде (первая строка, последняя строка): по ним build_report объединяет данные
+    устройства и обводит блок рамкой."""
+    spans=[]; previous=object()
+    for device_id,row in _connection_rows_by_device(d):
         ws3.append(excel_safe_row(row))
+        if device_id==previous: spans[-1]=(spans[-1][0], ws3.max_row)
+        else: spans.append((ws3.max_row, ws3.max_row)); previous=device_id
+    return spans
 
 
 def _vm_row_values(v, d: SimpleNamespace) -> list:
@@ -522,10 +547,20 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
 
     _populate_sheet1(ws1, data)
     _populate_sheet2(ws2, data)
-    _populate_sheet3(ws3, data)
+    device_spans=_populate_sheet3(ws3, data)
     _populate_sheet4(ws4, data)
 
     for ws in wb.worksheets: finalize_sheet(ws)
+
+    # Оформление (см. services/excel_layout.py): шапка и каждая запись — ИС (лист 1), устройство
+    # (лист 2), ВМ (лист 4) — обведены рамкой, шапка закреплена. На листе 3 запись — устройство с
+    # несколькими строками портов: рамка вокруг всего блока устройства, данные самого устройства
+    # (вид, серийный номер, имя, ОС) объединены по строкам блока. Оформление накладывается после
+    # finalize_sheet: тот перебирает ячейки готового листа для выравнивания и ширины колонок.
+    apply_sheet_layout(ws1)
+    apply_sheet_layout(ws2)
+    apply_sheet_layout(ws3, spans=device_spans, merge_columns=SHEET3_DEVICE_COLUMNS)
+    apply_sheet_layout(ws4)
     report_dir.mkdir(parents=True,exist_ok=True)
     path=report_dir/f"Инвентаризация_ИС_{local_timestamp_suffix()}.xlsx"
     wb.save(path)
