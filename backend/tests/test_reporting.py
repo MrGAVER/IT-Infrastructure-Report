@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mock_sqlalchemy import FakeSession, empty_table, load_reporting_module
+from xlsx_helpers import expanded_rows
 
 import openpyxl
 
@@ -30,7 +31,8 @@ class ReportingTestCase(unittest.TestCase):
         return openpyxl.load_workbook(out)
 
     def sheet_rows(self, wb, name):
-        return list(wb[name].iter_rows(values_only=True))
+        # Объединённые ячейки (данные устройства на листе 3) раскрываются в значения каждой строки.
+        return expanded_rows(wb[name])
 
     def col_index(self, header, substring):
         for i, h in enumerate(header):
