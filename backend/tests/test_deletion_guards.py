@@ -58,7 +58,7 @@ ALLOWED_DELETIONS = {
     ("app/api/report_builder.py", "delete_template", "t"),
     # назначения VLAN
     # replace=true при синхронизации домена снимает VLAN у участников (дочерние назначения; устройства не удаляются)
-    ("app/services/vlan_operations.py", "sync_domain", "PhysicalDeviceVLAN"),
+    ("app/services/vlan_operations.py", "_sync_member_device", "PhysicalDeviceVLAN"),
     # generic-удаление: перед ним вызывается assert_deletable(), затем очистка полиморфных дочерних
     ("app/services/crud/deletion.py", "delete_resource", "cleanup_model"),
     ("app/services/crud/deletion.py", "delete_resource", "obj"),
