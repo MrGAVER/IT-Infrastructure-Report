@@ -30,11 +30,12 @@ export function vlansForMode(current: string[], mode: VlanMode, serverKeep: stri
 }
 
 function setRowMode(row: InterfaceDraftRow, mode: VlanMode, serverKeep: string[]): InterfaceDraftRow {
-  return { ...row, vlan_mode: mode, vlan_ids: vlansForMode(row.vlan_ids, mode, serverKeep) }
+  // В access «Все VLAN» невозможно: признак снимается вместе со сменой режима (сервер делает то же).
+  return { ...row, vlan_mode: mode, vlan_ids: vlansForMode(row.vlan_ids, mode, serverKeep), all_vlans: mode === 'access' ? false : row.all_vlans === true }
 }
 
 function setGroupMode(group: InterfaceGroupDraft, plan: CascadeGroupChange, mode: VlanMode): InterfaceGroupDraft {
-  return { ...group, vlan_mode: mode, vlan_ids: vlansForMode(group.vlan_ids, mode, plan.vlans_after.map((v) => v.id)) }
+  return { ...group, vlan_mode: mode, vlan_ids: vlansForMode(group.vlan_ids, mode, plan.vlans_after.map((v) => v.id)), all_vlans: mode === 'access' ? false : group.all_vlans === true }
 }
 
 /** Применяет к черновику формы изменения плана, помеченные deferred. Группа в плане задана ключом (у

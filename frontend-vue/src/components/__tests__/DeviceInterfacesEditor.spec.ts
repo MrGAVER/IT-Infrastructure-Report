@@ -34,6 +34,7 @@ function emptyRow(): InterfaceDraftRow {
     is_data_transfer: false,
     description: '',
     vlan_ids: [],
+    all_vlans: false,
     vlan_mode: 'access',
     ips: [],
     open_ports: [],
@@ -426,6 +427,56 @@ describe('DeviceInterfacesEditor.vue', () => {
       emitted = wrapper.emitted('update:modelValue')!
       expect((emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0].vlan_ids).toEqual([])
     })
+
+    describe('«Все VLAN» — сохраняемый признак порта (all_vlans), а не вывод из числа выбранных VLAN', () => {
+      const mountTrunk = (patch: Partial<InterfaceDraftRow> = {}) =>
+        mount(DeviceInterfacesEditor, { props: { modelValue: [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', ...patch }], typeOptions, speedOptions, vlanOptions: vOptions } })
+      const lastRow = (wrapper: ReturnType<typeof mountTrunk>) => {
+        const emitted = wrapper.emitted('update:modelValue')!
+        return (emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0]
+      }
+      const allChecked = (wrapper: ReturnType<typeof mountTrunk>) => (wrapper.find('.iface-detail .vlan-check-all input').element as HTMLInputElement).checked
+
+      it('галочка «Все VLAN» ставит признак и отмечает все VLAN, её снятие — убирает и признак, и набор', async () => {
+        const wrapper = mountTrunk()
+        await expandRow(wrapper)
+
+        await wrapper.find('.iface-detail .vlan-check-all input').setValue(true)
+        expect(lastRow(wrapper)).toMatchObject({ all_vlans: true, vlan_ids: ['v-mgmt', 'v-guest'] })
+
+        await wrapper.setProps({ modelValue: [lastRow(wrapper)] })
+        await wrapper.find('.iface-detail .vlan-check-all input').setValue(false)
+        expect(lastRow(wrapper)).toMatchObject({ all_vlans: false, vlan_ids: [] })
+      })
+
+      it('порт с сохранённым признаком показывается с галочкой, а те же VLAN, выбранные вручную, — без неё', async () => {
+        const flagged = mountTrunk({ all_vlans: true, vlan_ids: ['v-mgmt', 'v-guest'] })
+        await expandRow(flagged)
+        expect(allChecked(flagged)).toBe(true)
+
+        const manual = mountTrunk({ all_vlans: false, vlan_ids: ['v-mgmt', 'v-guest'] })
+        await expandRow(manual)
+        expect(allChecked(manual)).toBe(false)
+      })
+
+      it('полный набор, отмеченный по одному, признаком не становится', async () => {
+        const wrapper = mountTrunk({ vlan_ids: ['v-mgmt'] })
+        await expandRow(wrapper)
+
+        await wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input')[1].setValue(true)
+
+        expect(lastRow(wrapper)).toMatchObject({ vlan_ids: ['v-mgmt', 'v-guest'], all_vlans: false })
+      })
+
+      it('снятие любого VLAN у порта с признаком снимает признак', async () => {
+        const wrapper = mountTrunk({ all_vlans: true, vlan_ids: ['v-mgmt', 'v-guest'] })
+        await expandRow(wrapper)
+
+        await wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input')[1].setValue(false)
+
+        expect(lastRow(wrapper)).toMatchObject({ vlan_ids: ['v-mgmt'], all_vlans: false })
+      })
+    })
   })
 
   describe('п.1.4 (батч4): открытые порты интерфейса и копирование на другой интерфейс', () => {
@@ -694,6 +745,37 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(summaries[0]).toContain('Trunk · 2 VLAN')
       expect(summaries[1]).toContain('Access: 10 — Управление')
     })
+
+    it('сводка порта с признаком «Все VLAN» так и называет его', () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', all_vlans: true, vlan_ids: ['v-mgmt', 'v-guest'] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+      expect(wrapper.find('.expand-toggle span').text()).toContain('Trunk · все VLAN (2)')
+    })
+
+    it('«Все VLAN» как признак: переключение на Trunk ставит его сразу, переключение на Access — снимает', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'access', vlan_ids: ['v-mgmt'] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+      await expandRow(wrapper)
+
+      await wrapper.findAll('.vlan-mode-row input[type="radio"]')[0].setValue(true) // Trunk
+      const trunk = (wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[])[0]
+      expect(trunk).toMatchObject({ vlan_mode: 'trunk', all_vlans: true })
+
+      await wrapper.setProps({ modelValue: [trunk] })
+      await wrapper.findAll('.vlan-mode-row input[type="radio"]')[1].setValue(true) // Access
+      const access = (wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[])[0]
+      expect(access).toMatchObject({ vlan_mode: 'access', all_vlans: false, vlan_ids: ['v-mgmt'] })
+    })
+
+    it('у устройства без VLAN переключение на Trunk признак «Все VLAN» не ставит — «всех» пока нет', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'access' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: [] } })
+      await expandRow(wrapper)
+
+      await wrapper.findAll('.vlan-mode-row input[type="radio"]')[0].setValue(true) // Trunk
+
+      expect((wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[])[0]).toMatchObject({ vlan_mode: 'trunk', all_vlans: false, vlan_ids: [] })
+    })
   })
 
   describe('фикс п.1.3.4 (было п.1.4.1): без галочки "Заменить все порты" кнопка добавляет, не заменяя', () => {
@@ -838,6 +920,33 @@ describe('DeviceInterfacesEditor.vue', () => {
       const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
       expect(result[1].vlan_mode).toBe('trunk')
       expect(new Set(result[1].vlan_ids)).toEqual(new Set(vOptions.map((v) => v.id)))
+    })
+
+    it('пункт 4: «Все VLAN» панели ставит отмеченным trunk-портам признак all_vlans, а полный набор, отмеченный по одному, — нет', async () => {
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: threeRows(), typeOptions, speedOptions, vlanOptions: vOptions } })
+      const apply = async (pickVlans: () => Promise<void>) => {
+        await wrapper.find('select[aria-label="Режим порта — массовое редактирование"]').setValue('trunk')
+        await wrapper.find('.vlan-picker-btn').trigger('click')
+        await pickVlans()
+        await wrapper.find('.vlan-picker-modal .conflict-modal-actions button').trigger('click')
+        await wrapper.findAll('.iface-table tbody tr:not(.bulk-edit-row) .col-select input')[1].setValue(true)
+        await wrapper.find('.bulk-edit-row td.col-actions button').trigger('click')
+        const emitted = wrapper.emitted('update:modelValue')!
+        return (emitted[emitted.length - 1][0] as InterfaceDraftRow[])[1]
+      }
+
+      const manual = await apply(async () => {
+        for (const input of wrapper.findAll('.vlan-picker-modal .vlan-check:not(.vlan-check-all) input')) await input.setValue(true)
+      })
+      expect(manual).toMatchObject({ vlan_mode: 'trunk', all_vlans: false })
+      expect(new Set(manual.vlan_ids)).toEqual(new Set(vOptions.map((v) => v.id)))
+
+      await wrapper.setProps({ modelValue: threeRows() })
+      const flagged = await apply(async () => {
+        await wrapper.find('.vlan-picker-modal .vlan-check-all input').setValue(true)
+      })
+      expect(flagged).toMatchObject({ vlan_mode: 'trunk', all_vlans: true })
+      expect(new Set(flagged.vlan_ids)).toEqual(new Set(vOptions.map((v) => v.id)))
     })
 
     it('после применения панель сбрасывается — выбор, поля и выбранные VLAN возвращаются к значениям по умолчанию', async () => {

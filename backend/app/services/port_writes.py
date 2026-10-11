@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from ..constants import OwnerType
 from ..models import DeviceInterface, IPAddress, InterfaceVLAN
-from .port_config import PortRole
+from .port_config import VLAN_MODE_ACCESS, PortRole
 from .port_sync_rules import flags_from_role
 
 # Число id в одном IN-запросе (у SQLite/psycopg число параметров ограничено).
@@ -79,15 +79,22 @@ def write_port_vlans(
     session: Session,
     *,
     links: Sequence[InterfaceVLAN] | None = None,
+    all_vlans: bool = False,
 ) -> None:
     """Режим порта и ровно этот набор VLAN (id записей справочника): лишние связи удаляются, недостающие
     добавляются, у остающихся выставляется режим. Дубликаты в `vlan_ids` игнорируются.
 
+    `all_vlans` — «Все VLAN» (models.DeviceInterface.all_vlans): порт хранит только признак, а набор VLAN
+    вычисляется из VLAN устройства при чтении (services/port_vlans.py), поэтому `vlan_ids` игнорируются, а
+    все связи порта удаляются. В режиме access признак невозможен и всегда снимается. Явно заданный набор
+    («выбраны вручную») пишется с all_vlans=False — признак не выводится из числа VLAN.
+
     `links` — текущие связи этого порта, уже загруженные `load_vlan_links` (массовая запись): тогда запроса
     по порту нет. Без него связи читаются здесь. Изменения уходят в БД при ближайшем flush сессии."""
     port.vlan_mode = mode
+    port.all_vlans = bool(all_vlans) and mode != VLAN_MODE_ACCESS
     current = links if links is not None else session.scalars(select(InterfaceVLAN).where(InterfaceVLAN.interface_id == port.id)).all()
-    keep = list(dict.fromkeys(vlan_ids))
+    keep = [] if port.all_vlans else list(dict.fromkeys(vlan_ids))
     kept: set[str] = set()
     for link in current:
         if link.vlan_id in keep and link.vlan_id not in kept:

@@ -8,38 +8,44 @@
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
 import { api, listResource } from './client'
-import type { DeviceInterface, DeviceSubinterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVLAN, InterfaceDraftRow, OpenPort, ProtocolPortCatalogEntry } from './types'
+import type { DeviceInterface, DeviceSubinterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVlansEntry, InterfaceDraftRow, OpenPort, ProtocolPortCatalogEntry } from './types'
 
 /**
  * Грузит интерфейсы одного устройства вместе с их IP и VLAN-привязками и приводит к формату
  * InterfaceDraftRow, который понимает DeviceInterfacesEditor.vue.
  *
- * IP и VLAN грузятся целиком по всем устройствам одним широким запросом, а не по каждому
- * interface_id отдельно (интерфейсов на устройство обычно немного десятков, и один такой запрос
- * дешевле N дополнительных round-trip'ов) — тот же приём, что и в vanilla-версии
- * (loadInterfaceEditor() в frontend/static/device-interfaces.js).
+ * IP и открытые порты портов читаются запросами ПО УСТРОЙСТВУ (GET /devices/{id}/interface-ips и
+ * /interface-open-ports) одним запросом на всё устройство, а не generic-списками по owner_type: те отдают не
+ * больше 1000 записей реестра (oldest-first), и когда строк у портов всех устройств больше 1000, строки свежих
+ * портов отрезались — форма открывалась без их IP и открытых портов, а повторное сохранение удаляло их из БД.
+ *
+ * VLAN портов читаются запросом ПО УСТРОЙСТВУ (GET /devices/{id}/interface-vlans), а не общим списком
+ * связей реестра: тот отдаёт не больше 1000 записей (oldest-first), и когда в реестре больше 1000
+ * связей, связи свежих портов отрезались — порт открывался с 0 VLAN, а повторное сохранение удаляло
+ * их из БД. Запрос устройства возвращает и признак «Все VLAN» (all_vlans), и VLAN порта с его учётом:
+ * у порта с признаком связей в БД нет, набор — все VLAN устройства.
  *
  * @example
  * const rows = await loadDeviceInterfaceDraftRows('dev-123')
  */
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
-  const [ifaces, allIps, allVlans, allOpenPorts, subinterfaces] = await Promise.all([
+  const [ifaces, allIps, portVlans, allOpenPorts, subinterfaces] = await Promise.all([
     listResource<DeviceInterface>('interfaces', { physical_device_id: deviceId, limit: 1000 }),
-    listResource<IPAddress>('ip-addresses', { owner_type: 'device_interface', limit: 1000 }),
-    listResource<InterfaceVLAN>('interface-vlans', { limit: 1000 }),
+    api.get<{ items: IPAddress[] }>(`/devices/${deviceId}/interface-ips`),
+    api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${deviceId}/interface-vlans`),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
     // 'device_interface', owner_id=id интерфейса), не всего устройства, см. комментарий к
     // InterfaceDraftRow.open_ports в types.ts и backend/app/services/crud.py:
-    // _sync_interface_open_ports. Грузятся широким запросом по owner_type, а не по каждому
-    // interface_id отдельно — тот же приём, что и allIps/allVlans выше.
-    listResource<OpenPort>('open-ports', { owner_type: 'device_interface', limit: 1000 }),
-    // Подинтерфейсы портов — одним запросом по устройству, уже с их IP и открытыми портами (не широкой выборкой
-    // по всем устройствам, как IP и VLAN выше): подинтерфейс не физический порт и в generic-списке портов его нет.
+    // _sync_interface_open_ports. Читаются по устройству, как IP и VLAN выше.
+    api.get<{ items: OpenPort[] }>(`/devices/${deviceId}/interface-open-ports`),
+    // Подинтерфейсы портов — тоже одним запросом по устройству, уже с их IP и открытыми портами: подинтерфейс
+    // не физический порт и в generic-списке портов его нет.
     api.get<{ items: DeviceSubinterface[] }>(`/devices/${deviceId}/subinterfaces`),
   ])
   const subinterfacesByParent = groupSubinterfacesByParent(subinterfaces.items)
+  const vlansByPort = new Map(portVlans.items.map((entry) => [entry.interface_id, entry]))
   return ifaces.items.map((x): InterfaceDraftRow => {
-    const links = allVlans.items.filter((v) => v.interface_id === x.id)
+    const vlans = vlansByPort.get(x.id)
     return {
       id: x.id,
       name: x.name,
@@ -49,7 +55,9 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
       is_management: x.is_management,
       is_data_transfer: x.is_data_transfer,
       description: x.description ?? '',
-      vlan_ids: links.map((v) => v.vlan_id),
+      vlan_ids: vlans ? [...vlans.vlan_ids] : [],
+      // «Все VLAN» — сохранённый признак порта, а не вывод из числа VLAN (vlan_ids у такого порта — все VLAN устройства).
+      all_vlans: vlans?.all_vlans ?? false,
       // Фикс п.1.3.9: раньше режим порта выводился из InterfaceVLAN.mode ("trunk", если связей
       // нет или их mode не везде 'access') — при 0 VLAN на порту связей не было вовсе, и
       // access-режим без выбранного VLAN откатывался в trunk после каждого сохранения+
@@ -100,6 +108,7 @@ function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
     name: g.name,
     vlan_mode: g.vlan_mode ?? '',
     vlan_ids: [...g.vlan_ids],
+    all_vlans: g.all_vlans ?? false,
     ip_address: g.ip_address ?? '',
     prefix_length: g.prefix_length == null ? '' : String(g.prefix_length),
     ip_purpose: g.ip_purpose ?? '',
@@ -154,8 +163,8 @@ export function validateInterfaceDraftRows(
 }
 
 /**
- * Сохраняет набор интерфейсов устройства через атомарный PUT. vlan_ids каждого ряда отправляется
- * как пришло из loadDeviceInterfaceDraftRows (см. комментарий к InterfaceDraftRow в types.ts) —
+ * Сохраняет набор интерфейсов устройства через атомарный PUT. vlan_ids и all_vlans каждого ряда отправляются
+ * как пришли из loadDeviceInterfaceDraftRows (см. комментарий к InterfaceDraftRow в types.ts) —
  * если вызывающий компонент их не редактирует (как DevicePortsModal.vue), они просто
  * round-trip'ятся туда-обратно неизменными и НЕ стираются молча. vlan_mode round-trip'ится по
  * тому же принципу (п.1.4.3.2).
@@ -194,6 +203,8 @@ export async function persistDeviceInterfaces(
             key: g.key,
             name: g.name.trim(),
             vlan_mode: g.vlan_mode || null,
+            // «Все VLAN» только в trunk; с признаком сервер хранит лишь его (vlan_ids игнорируется).
+            all_vlans: g.vlan_mode === 'trunk' && g.all_vlans === true,
             vlan_ids: g.vlan_mode ? g.vlan_ids : [],
             ip_address: g.ip_address.trim() || null,
             prefix_length: g.ip_address.trim() && g.prefix_length !== '' ? Number(g.prefix_length) : null,
@@ -221,6 +232,9 @@ export async function persistDeviceInterfaces(
       description: row.description || null,
       vlan_ids: row.vlan_ids,
       vlan_mode: row.vlan_mode,
+      // Признак «Все VLAN» уходит ВСЕГДА (в том числе false): ключа нет — сервер читает это как «выбраны вручную».
+      // В access он невозможен и не отправляется как true.
+      all_vlans: row.vlan_mode === 'trunk' && row.all_vlans === true,
       ips: row.ips
         .filter((ip) => ip.ip_address.trim())
         .map((ip) => ({

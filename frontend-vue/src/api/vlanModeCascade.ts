@@ -89,6 +89,8 @@ export interface VlanModeCascadeResult {
 export interface CascadePortRequest {
   role?: PortRole
   vlan_ids?: string[]
+  /** «Все VLAN» порта-инициатора (после смены режима на trunk); см. PortConfigPatch.all_vlans. */
+  all_vlans?: boolean
 }
 
 /** Порт устройства с открытой формой — как он выглядит в ЧЕРНОВИКЕ. */

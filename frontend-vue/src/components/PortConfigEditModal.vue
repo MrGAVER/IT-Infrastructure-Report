@@ -16,11 +16,11 @@
 //
 // Статус сверки и таблицу после правки пересчитывает сервер — окно только просит дашборд перечитать список.
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, listResource } from '../api/client'
+import { api } from '../api/client'
 import { loadDeviceInterfaceGroups } from '../api/deviceInterfaces'
 import { setPortConfig } from '../api/portConfig'
 import { computePortVlanOptions, loadAssignedDeviceVlanIds, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Connection, Device, DeviceInterface, InterfaceGroupDraft, InterfaceVLAN, PortRole, VLANDefinition, VlanMode } from '../api/types'
+import type { Connection, Device, DeviceInterface, InterfaceGroupDraft, InterfaceVlansEntry, PortRole, VLANDefinition, VlanMode } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useVLANsStore } from '../stores/vlans'
@@ -83,8 +83,8 @@ const notice = ref<string | null>(null)
 
 const vlanOptions = ref<VLANDefinition[]>([])
 const group = ref<InterfaceGroupDraft | null>(null)
-const initial = ref<PortDraft>({ role: 'none', mode: 'trunk', vlanIds: [] })
-const draft = reactive<PortDraft>({ role: 'none', mode: 'trunk', vlanIds: [] })
+const initial = ref<PortDraft>({ role: 'none', mode: 'trunk', vlanIds: [], allVlans: false })
+const draft = reactive<PortDraft>({ role: 'none', mode: 'trunk', vlanIds: [], allVlans: false })
 
 // Группа, задающая режим и VLAN порта, — источник истины: набор VLAN порта здесь не правится.
 const vlansLocked = computed(() => Boolean(group.value?.vlan_mode))
@@ -97,24 +97,30 @@ function setDraft(next: PortDraft) {
   draft.role = next.role
   draft.mode = next.mode
   draft.vlanIds = [...next.vlanIds]
+  draft.allVlans = next.allVlans
 }
 
 /** Текущее состояние порта с сервера: роль, режим, VLAN и группа — не из строки таблицы, которая могла устареть. */
 async function loadPort() {
   const id = own.value.interfaceId
   const iface = await api.get<DeviceInterface>(`/resources/interfaces/${id}`)
-  const [device, links, groups] = await Promise.all([
+  // VLAN порта — запросом устройства: он учитывает признак «Все VLAN» (у такого порта связей в БД нет, набор — все VLAN
+  // устройства), которого generic-список связей не знает.
+  const [device, portVlans, groups] = await Promise.all([
     api.get<Device>(`/resources/devices/${iface.physical_device_id}`),
-    listResource<InterfaceVLAN>('interface-vlans', { interface_id: id, limit: 1000 }),
+    api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${iface.physical_device_id}/interface-vlans`),
     iface.group_id ? loadDeviceInterfaceGroups(iface.physical_device_id) : Promise.resolve([] as InterfaceGroupDraft[]),
   ])
   const [typeVlanIds, assignedVlanIds] = await Promise.all([loadDeviceTypeVlanIds(device.device_type_id), loadAssignedDeviceVlanIds(iface.physical_device_id)])
   vlanOptions.value = computePortVlanOptions(vlansStore.allDefinitions, typeVlanIds, assignedVlanIds)
   group.value = groups.find((g) => g.id === iface.group_id) ?? null
+  const portEntry = portVlans.items.find((item) => item.interface_id === id)
+  const mode = (iface.vlan_mode as VlanMode) || 'trunk'
   initial.value = {
     role: portRoleOf(iface),
-    mode: (iface.vlan_mode as VlanMode) || 'trunk',
-    vlanIds: [...new Set(links.items.map((l) => l.vlan_id))],
+    mode,
+    vlanIds: [...new Set(portEntry?.vlan_ids ?? [])],
+    allVlans: mode === 'trunk' && portEntry?.all_vlans === true,
   }
   setDraft(initial.value)
 }
@@ -136,6 +142,7 @@ watch(
   () => draft.mode,
   (mode) => {
     if (loading.value || vlansLocked.value) return
+    if (mode === 'access') draft.allVlans = false // «Все VLAN» только в trunk
     const adapted = adaptVlanIdsToMode(vlanOptions.value, draft.vlanIds, mode)
     if (adapted.length !== draft.vlanIds.length) {
       notice.value = 'В режиме access у порта один VLAN — оставлен VLAN с наименьшим номером.'
@@ -148,16 +155,19 @@ function toggleVlan(id: string, checked: boolean) {
   notice.value = null
   if (draft.mode === 'access') draft.vlanIds = checked ? [id] : []
   else draft.vlanIds = checked ? [...new Set([...draft.vlanIds, id])] : draft.vlanIds.filter((v) => v !== id)
+  draft.allVlans = false // ручной выбор снимает «Все VLAN», даже если выбраны все
 }
 
 function selectAllVlans() {
   notice.value = null
   draft.vlanIds = vlanOptions.value.map((o) => o.id)
+  draft.allVlans = true // сохраняемый признак, а не просто полный набор
 }
 
 function clearVlans() {
   notice.value = null
   draft.vlanIds = []
+  draft.allVlans = false
 }
 
 /** Роль, режим и VLAN как у порта на другом конце подключения. VLAN сопоставляются по НОМЕРУ — как и при
@@ -170,6 +180,7 @@ function copyFromNeighbor() {
   if (!vlansLocked.value) {
     const { ids, missing } = vlanIdsForNumbers(vlanOptions.value, n.vlans)
     draft.vlanIds = adaptVlanIdsToMode(vlanOptions.value, ids, draft.mode)
+    draft.allVlans = false // набор сопоставлен по номерам — это выбор вручную, не «Все VLAN»
     if (missing.length) notice.value = `У устройства порта нет VLAN ${formatVlans(missing)} — они не назначены.`
   }
 }
@@ -203,6 +214,7 @@ function cascadePortRequest(): CascadePortRequest | null {
   const request: CascadePortRequest = {}
   if (patch.role !== undefined) request.role = patch.role
   if (patch.vlan_ids !== undefined) request.vlan_ids = patch.vlan_ids
+  if (patch.all_vlans !== undefined) request.all_vlans = patch.all_vlans
   return request
 }
 
@@ -340,7 +352,7 @@ const vlanLabel = (o: VLANDefinition) => `VLAN ${o.vlan_id}${o.name ? ` · ${o.n
               <div class="vlan-tools">
                 <button type="button" class="link-btn" data-action="select-all" :disabled="saving || draft.mode === 'access'" @click="selectAllVlans">Все VLAN</button>
                 <button type="button" class="link-btn" data-action="clear" :disabled="saving || !draft.vlanIds.length" @click="clearVlans">Снять все</button>
-                <span class="count" data-count>Выбрано: {{ draft.vlanIds.length }} из {{ vlanOptions.length }}</span>
+                <span class="count" data-count>Выбрано: {{ draft.vlanIds.length }} из {{ vlanOptions.length }}<template v-if="draft.allVlans"> · признак «Все VLAN»</template></span>
               </div>
               <!-- key по режиму: при смене checkbox ↔ radio список пересоздаётся. Иначе у живых input с общим name
                    браузер сбрасывает «выбранность» у остальных радиокнопок, и на экране не отмечено ничего, хотя

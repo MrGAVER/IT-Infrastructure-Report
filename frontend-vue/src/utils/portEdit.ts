@@ -5,15 +5,18 @@
 // то, что нужно окну, чтобы не дать выбрать заведомо неверное и показать, что получится.
 import type { PortConfigFacet, PortRole, VLANDefinition, VlanMode } from '../api/types'
 
-/** Что редактируется: роль, режим и набор VLAN (id записей справочника) одного порта. */
+/** Что редактируется: роль, режим и набор VLAN (id записей справочника) одного порта. `allVlans` — «Все VLAN»
+ * (только trunk): сохраняемый признак порта, а не вывод из набора; пока он стоит, vlanIds — все VLAN устройства
+ * (так окно показывает их отмеченными), а сервер хранит только признак. */
 export interface PortDraft {
   role: PortRole
   mode: VlanMode
   vlanIds: string[]
+  allVlans: boolean
 }
 
 export function cloneDraft(draft: PortDraft): PortDraft {
-  return { role: draft.role, mode: draft.mode, vlanIds: [...draft.vlanIds] }
+  return { role: draft.role, mode: draft.mode, vlanIds: [...draft.vlanIds], allVlans: draft.allVlans }
 }
 
 /** Совпадают ли наборы без учёта порядка и повторов. */
@@ -77,24 +80,35 @@ export function differencesFromNeighbor(
 /** Тело PUT /interfaces/{id}/port-config для роли и VLAN. Режим сюда не входит — его меняет каскад
  * (до этого запроса); поле `mode` в теле лишь сообщает серверу, для какого режима выбран набор.
  *
- * `modeChanged` — режим меняли в этой правке: после каскада набор VLAN порта мог быть урезан, поэтому
- * желаемый набор отправляется заново и целиком, даже если он совпадает с исходным. `vlansLocked` — порт в
+ * «Все VLAN» уходит признаком `all_vlans: true` без набора (сервер берёт все VLAN устройства), а снятие — набором
+ * `vlan_ids` вместе с `all_vlans: false`: набор, совпавший с прежним, без явного снятия признак не сбросил бы.
+ *
+ * `modeChanged` — режим меняли в этой правке: после каскада набор VLAN порта (и признак) мог быть сброшен, поэтому
+ * желаемое состояние отправляется заново и целиком, даже если оно совпадает с исходным. `vlansLocked` — порт в
  * группе, которая задаёт режим и VLAN: набор не отправляется вовсе (группа — источник истины).
  * null — отправлять нечего. */
 export function buildPortConfigPatch(
   initial: PortDraft,
   draft: PortDraft,
   { modeChanged, vlansLocked }: { modeChanged: boolean; vlansLocked: boolean },
-): { role?: PortRole; vlan_ids?: string[]; mode: VlanMode } | null {
-  const patch: { role?: PortRole; vlan_ids?: string[]; mode: VlanMode } = { mode: draft.mode }
+): { role?: PortRole; vlan_ids?: string[]; all_vlans?: boolean; mode: VlanMode } | null {
+  const patch: { role?: PortRole; vlan_ids?: string[]; all_vlans?: boolean; mode: VlanMode } = { mode: draft.mode }
   if (draft.role !== initial.role) patch.role = draft.role
-  if (!vlansLocked && (modeChanged || !sameIds(draft.vlanIds, initial.vlanIds))) patch.vlan_ids = [...new Set(draft.vlanIds)]
-  return patch.role !== undefined || patch.vlan_ids !== undefined ? patch : null
+  if (!vlansLocked) {
+    const flagChanged = draft.allVlans !== initial.allVlans
+    if (draft.allVlans) {
+      if (flagChanged || modeChanged) patch.all_vlans = true
+    } else if (modeChanged || flagChanged || !sameIds(draft.vlanIds, initial.vlanIds)) {
+      patch.vlan_ids = [...new Set(draft.vlanIds)]
+      if (flagChanged) patch.all_vlans = false
+    }
+  }
+  return patch.role !== undefined || patch.vlan_ids !== undefined || patch.all_vlans !== undefined ? patch : null
 }
 
-/** Что-нибудь отличается от исходного состояния (роль, режим или набор VLAN). */
+/** Что-нибудь отличается от исходного состояния (роль, режим, набор VLAN или признак «Все VLAN»). */
 export function isDirty(initial: PortDraft, draft: PortDraft): boolean {
-  return initial.role !== draft.role || initial.mode !== draft.mode || !sameIds(initial.vlanIds, draft.vlanIds)
+  return initial.role !== draft.role || initial.mode !== draft.mode || initial.allVlans !== draft.allVlans || !sameIds(initial.vlanIds, draft.vlanIds)
 }
 
 /** Проверка до отправки — те же правила, что на сервере. Текст ошибки или null. */

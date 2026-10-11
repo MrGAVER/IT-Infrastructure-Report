@@ -206,12 +206,10 @@ const portVlanOptions = computed(() =>
 // иначе сохранение упадёт 422 "VLAN не разрешён для типа данного устройства", а пользователь не
 // поймёт, откуда ошибка. То же поведение, что syncDeviceVlanOptionsFromRows() в vanilla-версии.
 //
-// Фикс п.2.1.2: симметричный случай — если VLAN устройства ДОБАВИЛСЯ (пользователь завёл новый
-// VLAN в блоке "VLAN устройства"), порты, у которых уже были выбраны АБСОЛЮТНО ВСЕ старые опции
-// ("Все VLAN" в DeviceInterfacesEditor.vue — не отдельный флаг, а именно это состояние, см. её
-// isAllVlansSelected()), должны автоматически подхватить и новый VLAN тоже — иначе "Все VLAN"
-// тут же перестаёт быть правдой при первом же добавлении нового VLAN на устройство, и
-// пользователю пришлось бы вручную донастраивать уже отмеченный как "все" порт.
+// «Все VLAN» (порт или группа с признаком all_vlans, trunk) — сохраняемый признак: его vlan_ids зеркалит ВСЕ
+// допустимые VLAN устройства, поэтому при добавлении нового VLAN в блоке "VLAN устройства" порт подхватывает
+// его сам, а при снятии — теряет. Вручную выбранный полный набор признаком не является и новых VLAN не получает
+// (раньше «все» выводилось из набора — это и ломалось: признак нельзя было ни сохранить, ни отличить от выбора).
 //
 // КРИТИЧНО: сравниваем НОВЫЙ список опций со СТАРЫМ (аргумент oldOptions от Vue) и трогаем
 // только vlan_ids, которые были разрешены раньше и перестали быть разрешены сейчас — а не
@@ -221,10 +219,7 @@ const portVlanOptions = computed(() =>
 // тронет. Если бы вместо диффа проверялось только текущее значение, при первой же загрузке
 // стёрлись бы vlan_ids, назначенные через /legacy, но не входящие в этот более узкий каталог
 // (тип устройства ∪ уже назначенные) — ровно такой баг поймал регрессионный тест в
-// DeviceFormModal.spec.ts ("не стирает VLAN интерфейса, назначенные через /legacy..."). По той
-// же причине пункт 2.1.2 применяется только когда oldOptions уже был непуст — на самой первой
-// загрузке "все опции уже выбраны" было бы истинно вырожденно (для пустого множества) и
-// разложило бы новые VLAN на все trunk-порты без разбора.
+// DeviceFormModal.spec.ts ("не стирает VLAN интерфейса, назначенные через /legacy...").
 //
 // Те же правила применяются и к ГРУППАМ портов (interfaceGroups): группа хранит свой vlan_ids, и
 // сервер при сохранении записывает его во все порты группы — не обновлённая группа затёрла бы
@@ -234,7 +229,7 @@ watch(portVlanOptions, (options, oldOptions) => {
   const previous = oldOptions ?? []
   const rows = interfaces.value
   const nextRows = rows.map((row) => {
-    const vlan_ids = reconcileVlanIds(row.vlan_ids, row.vlan_mode, previous, options)
+    const vlan_ids = reconcileVlanIds(row.vlan_ids, row.vlan_mode, row.all_vlans === true, previous, options)
     return vlan_ids === row.vlan_ids ? row : { ...row, vlan_ids }
   })
   if (nextRows.some((row, i) => row !== rows[i])) interfaces.value = nextRows
@@ -248,7 +243,7 @@ watch(portVlanOptions, (options, oldOptions) => {
 
   const groups = interfaceGroups.value
   const nextGroups = groups.map((group) => {
-    const vlan_ids = reconcileVlanIds(group.vlan_ids, group.vlan_mode, previous, options)
+    const vlan_ids = reconcileVlanIds(group.vlan_ids, group.vlan_mode, group.all_vlans === true, previous, options)
     return vlan_ids === group.vlan_ids ? group : { ...group, vlan_ids }
   })
   if (nextGroups.some((group, i) => group !== groups[i])) {

@@ -5,9 +5,10 @@ from typing import Any, Callable
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ...models import Connection, Container, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, PhysicalDevice, VirtualMachine, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
+from ...models import Connection, Container, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, InterfaceVLAN, PhysicalDevice, VirtualMachine, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
 from ...constants import ErrorCode
 from ..diagram_icons import validate_svg_markup
+from ..port_config import DEFAULT_VLAN_MODE, VLAN_MODE_ACCESS, VLAN_MODE_TRUNK
 from ..validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
 
 
@@ -106,6 +107,34 @@ def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id
     validate_svg_markup(data.get('svg_markup'))
 
 
+def _validate_device_interface_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    """Порт через generic-ресурс `interfaces`: те же инварианты режима и «Все VLAN», что держит sync_interfaces.
+
+    «Все VLAN» (all_vlans) — булев признак порта, допустимый только в trunk; у порта с признаком нет выбранных VLAN
+    (набор вычисляется из VLAN устройства, services/port_vlans.py). Без проверок generic-запись могла создать то, чего
+    sync_interfaces не допускает: access-порт с признаком, признак не-булева типа (500 из драйвера БД), порт с
+    признаком и со связями (после снятия признака связи «воскресли» бы). `data` — payload при создании и payload,
+    дополненный текущими значениями, при правке, поэтому переключение режима у порта с признаком без снятия
+    признака тоже отклоняется (в sync_interfaces признак и режим приходят вместе)."""
+    all_vlans = data.get('all_vlans', False)
+    if not isinstance(all_vlans, bool): raise HTTPException(422, 'Поле all_vlans интерфейса должно быть true или false')
+    mode = data.get('vlan_mode')
+    if mode not in (None, '', VLAN_MODE_ACCESS, VLAN_MODE_TRUNK): raise HTTPException(422, "Поле vlan_mode интерфейса должно быть 'access' или 'trunk'")
+    if not all_vlans: return
+    if (mode or DEFAULT_VLAN_MODE) != VLAN_MODE_TRUNK:
+        raise HTTPException(422, "«Все VLAN» возможно только в режиме trunk: снимите all_vlans, если порт переводится в access")
+    if item_id and session.scalar(select(InterfaceVLAN.id).where(InterfaceVLAN.interface_id == item_id).limit(1)) is not None:
+        raise HTTPException(422, "У порта есть выбранные VLAN: «Все VLAN» хранится без них — задайте признак через форму устройства (PUT /devices/{id}/interfaces)")
+
+
+def _validate_interface_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    """Связь «порт — VLAN» через generic-ресурс `interface-vlans`: у порта с «Все VLAN» связей нет, его набор — это VLAN
+    устройства (см. _validate_device_interface_entry), поэтому добавить такому порту связь нельзя."""
+    port = session.get(DeviceInterface, data['interface_id']) if data.get('interface_id') else None
+    if port is not None and port.all_vlans:
+        raise HTTPException(422, "У порта включено «Все VLAN»: его набор берётся из VLAN устройства и в связях не хранится — снимите признак, чтобы выбрать VLAN вручную")
+
+
 def _validate_ip_address_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     # Код-ревью п.3.4 + объединение InterfaceIP/VMIP в IPAddress (owner_type/owner_id, миграция
     # d8e35a1c7f60): владение интерфейсом синхронизируется отдельной функцией
@@ -152,6 +181,8 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     DeviceType: _validate_device_type_entry,
     DiagramIcon: _validate_diagram_icon_entry,
     IPAddress: _validate_ip_address_entry,
+    DeviceInterface: _validate_device_interface_entry,
+    InterfaceVLAN: _validate_interface_vlan_entry,
     InformationSystem: _validate_information_system_entry,
     DeviceStackMember: _validate_device_stack_member_entry,
 }

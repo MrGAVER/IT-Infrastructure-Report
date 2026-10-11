@@ -78,11 +78,11 @@ ALLOWED_DELETIONS = {
     # Удаляются не защищённые модели (PhysicalDevice/VM/контейнер/интерфейс не затрагиваются);
     # link/extra/row в _apply_group_to_interface — VLAN-связи, IP и открытые порты ПОРТА, которые
     # группа приводит к своим значениям (то же, что уже делает _sync_single_interface для порта)
-    ("app/services/crud/interfaces.py", "_sync_group_vlans", "row"),
-    ("app/services/crud/interfaces.py", "_sync_group_open_ports", "row"),
-    ("app/services/crud/interfaces.py", "_apply_group_to_interface", "link"),
-    ("app/services/crud/interfaces.py", "_apply_group_to_interface", "extra"),
-    ("app/services/crud/interfaces.py", "_apply_group_open_ports", "row"),
+    ("app/services/crud/interface_groups.py", "_sync_group_vlans", "row"),
+    ("app/services/crud/interface_groups.py", "_sync_group_open_ports", "row"),
+    ("app/services/crud/interface_groups.py", "_apply_group_to_interface", "link"),
+    ("app/services/crud/interface_groups.py", "_apply_group_to_interface", "extra"),
+    ("app/services/crud/interface_groups.py", "_apply_group_open_ports", "row"),
     # каскадная смена режима порта (services/vlan_mode_cascade.py): при trunk -> access у порта и группы
     # остаётся один VLAN — снимаются лишние назначения VLAN (InterfaceVLAN у порта, InterfaceGroupVLAN
     # у группы). Это дочерние записи, не входящие в защищаемые модели; сами порты, группы и VLAN не
@@ -104,9 +104,9 @@ ALLOWED_DELETIONS = {
     # строки удаляются здесь же, в той же функции; сам порт и VLAN не затрагиваются
     ("app/services/crud/subinterfaces.py", "delete_subinterfaces", "DeviceSubinterface"),
     ("app/services/crud/subinterfaces.py", "delete_subinterfaces", "model"),
-    ("app/services/crud/interfaces.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
-    ("app/services/crud/interfaces.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
-    ("app/services/crud/interfaces.py", "_delete_stale_groups", "group"),
+    ("app/services/crud/interface_groups.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
+    ("app/services/crud/interface_groups.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
+    ("app/services/crud/interface_groups.py", "_delete_stale_groups", "group"),
     # VLAN устройства (PhysicalDeviceVLAN) — дочерняя запись без входящих ссылок (ни FK, ни
     # полиморфных: проверено reflection'ом по MODEL_MAP), поэтому assert_deletable() ей не нужен
     ("app/services/crud/device_vlans.py", "sync_device_vlans", "obj"),

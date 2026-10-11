@@ -10,7 +10,8 @@
   - generic: Generic CRUD: список с фильтрами и пагинацией, создание и изменение записей любого ресурса.
   - deletion: Удаление записей: проверка ссылающихся записей, очистка полиморфных владельцев.
   - owned_rows: Синхронизация «собственных» строк владельца: открытые порты, IP-адреса, развёрнутое ПО (устройства, ВМ, интерфейсы).
-  - interfaces: Синхронизация портов (интерфейсов) устройства и их групп.
+  - interfaces: Синхронизация портов (интерфейсов) устройства и чтение VLAN портов формы.
+  - interface_groups: Группы портов устройства: чтение, синхронизация и применение значений группы к её портам.
   - subinterfaces: Подинтерфейсы портов устройства: синхронизация, чтение, удаление.
   - device_vlans: Синхронизация VLAN физического устройства.
   - information_system: Детали информационной системы: связанные таблицы и источники.
@@ -52,6 +53,8 @@ from .validators import (  # noqa: F401
     _validate_device_type_entry,
     _validate_diagram_icon_entry,
     _validate_ip_address_entry,
+    _validate_device_interface_entry,
+    _validate_interface_vlan_entry,
     _validate_information_system_entry,
     _validate_device_stack_member_entry,
     _RESOURCE_VALIDATORS,
@@ -97,10 +100,16 @@ from .owned_rows import (  # noqa: F401
     sync_device_deployed_software,
 )
 from .interfaces import (  # noqa: F401
-    _VLAN_MODES,
     _sync_single_interface,
     _sync_interface_open_ports,
+    _interface_owned_rows,
     sync_interfaces,
+    get_device_interface_ips,
+    get_device_interface_open_ports,
+    get_device_interface_vlans,
+)
+from .interface_groups import (  # noqa: F401
+    _VLAN_MODES,
     list_interface_groups,
     get_interface_groups,
     _GroupState,
@@ -185,6 +194,7 @@ __all__ = [
     '_sync_information_system_sources',
     '_sync_interface_groups',
     '_sync_interface_open_ports',
+    '_interface_owned_rows',
     '_sync_linked_table',
     '_sync_owned_rows',
     '_sync_owner_collection',
@@ -204,6 +214,8 @@ __all__ = [
     '_validate_information_system_entry',
     '_validate_is_protocol_number_is_free',
     '_validate_ip_address_entry',
+    '_validate_device_interface_entry',
+    '_validate_interface_vlan_entry',
     '_validate_open_port_catalog',
     '_validate_open_port_number_is_free',
     '_validate_physical_device',
@@ -223,6 +235,9 @@ __all__ = [
     'get_device_subinterfaces',
     'get_information_system_details',
     'get_interface_groups',
+    'get_device_interface_ips',
+    'get_device_interface_open_ports',
+    'get_device_interface_vlans',
     'list_interface_groups',
     'list_resource',
     'model_for',
