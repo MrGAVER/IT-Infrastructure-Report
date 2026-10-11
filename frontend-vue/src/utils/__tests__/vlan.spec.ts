@@ -116,43 +116,45 @@ describe('filterVlansForDeviceDomains', () => {
 describe('reconcileVlanIds', () => {
   const opts = (...ids: string[]) => ids.map((id) => ({ id }))
 
-  it('trunk с выбранными всеми прежними VLAN получает новые VLAN в конец', () => {
-    expect(reconcileVlanIds(['a', 'b'], 'trunk', opts('a', 'b'), opts('a', 'b', 'c', 'd'))).toEqual(['a', 'b', 'c', 'd'])
+  it('«Все VLAN» (признак) в trunk зеркалит все допустимые VLAN: новые появляются, снятые пропадают', () => {
+    expect(reconcileVlanIds(['a', 'b'], 'trunk', true, opts('a', 'b'), opts('a', 'b', 'c', 'd'))).toEqual(['a', 'b', 'c', 'd'])
+    expect(reconcileVlanIds(['a', 'b', 'c'], 'trunk', true, opts('a', 'b', 'c'), opts('a', 'c'))).toEqual(['a', 'c'])
   })
 
-  it('trunk, где выбраны не все прежние VLAN, новые VLAN не получает — «Все VLAN» там и не было', () => {
-    const ids = ['a']
-    expect(reconcileVlanIds(ids, 'trunk', opts('a', 'b'), opts('a', 'b', 'c'))).toBe(ids)
-  })
-
-  it('access и пустой режим новых VLAN не получают', () => {
+  it('полный набор, выбранный вручную (без признака), новых VLAN не получает', () => {
     const ids = ['a', 'b']
-    expect(reconcileVlanIds(ids, 'access', opts('a', 'b'), opts('a', 'b', 'c'))).toBe(ids)
-    expect(reconcileVlanIds(ids, '', opts('a', 'b'), opts('a', 'b', 'c'))).toBe(ids)
+    expect(reconcileVlanIds(ids, 'trunk', false, opts('a', 'b'), opts('a', 'b', 'c'))).toBe(ids)
   })
 
-  it('первая загрузка (прежних опций не было) ничего не раздаёт: «все выбраны» вырожденно истинно', () => {
-    const ids: string[] = []
-    expect(reconcileVlanIds(ids, 'trunk', [], opts('a', 'b'))).toBe(ids)
+  it('признак значим только в trunk: access и пустой режим новых VLAN не получают', () => {
+    const ids = ['a']
+    expect(reconcileVlanIds(ids, 'access', true, opts('a', 'b'), opts('a', 'b', 'c'))).toBe(ids)
+    expect(reconcileVlanIds(ids, '', true, opts('a', 'b'), opts('a', 'b', 'c'))).toBe(ids)
+  })
+
+  it('с признаком на первой загрузке (прежних опций не было) набор становится всеми допустимыми VLAN', () => {
+    expect(reconcileVlanIds([], 'trunk', true, [], opts('a', 'b'))).toEqual(['a', 'b'])
+  })
+
+  it('с признаком возвращает тот же массив, если набор уже совпадает с опциями (порядок не важен)', () => {
+    const ids = ['b', 'a']
+    expect(reconcileVlanIds(ids, 'trunk', true, opts('a', 'b'), opts('a', 'b'))).toBe(ids)
   })
 
   it('убирает VLAN, переставшие быть допустимыми, в любом режиме', () => {
-    expect(reconcileVlanIds(['a', 'b'], 'trunk', opts('a', 'b'), opts('a'))).toEqual(['a'])
-    expect(reconcileVlanIds(['b'], 'access', opts('a', 'b'), opts('a'))).toEqual([])
-  })
-
-  it('одновременное удаление и добавление: «Все VLAN» уже неполное — новые VLAN не добавляются', () => {
-    expect(reconcileVlanIds(['a', 'b'], 'trunk', opts('a', 'b'), opts('a', 'c'))).toEqual(['a'])
+    expect(reconcileVlanIds(['a', 'b'], 'trunk', false, opts('a', 'b'), opts('a'))).toEqual(['a'])
+    expect(reconcileVlanIds(['b'], 'access', false, opts('a', 'b'), opts('a'))).toEqual([])
   })
 
   it('не трогает VLAN вне каталога опций, если опции не менялись (VLAN, назначенные ранее), и возвращает тот же массив', () => {
     const ids = ['legacy', 'a']
-    expect(reconcileVlanIds(ids, 'trunk', opts('a'), opts('a'))).toBe(ids)
+    expect(reconcileVlanIds(ids, 'trunk', false, opts('a'), opts('a'))).toBe(ids)
   })
 
   it('не мутирует входной массив', () => {
     const ids = ['a', 'b']
-    reconcileVlanIds(ids, 'trunk', opts('a', 'b'), opts('a', 'b', 'c'))
+    reconcileVlanIds(ids, 'trunk', true, opts('a', 'b'), opts('a', 'b', 'c'))
+    reconcileVlanIds(ids, 'trunk', false, opts('a', 'b'), opts('a'))
     expect(ids).toEqual(['a', 'b'])
   })
 })

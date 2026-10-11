@@ -164,7 +164,7 @@ def test_nothing_changed_writes_nothing_and_leaves_no_audit_entry(lab):
 @pytest.mark.parametrize(
     ("body", "fragment"),
     [
-        ({}, "role и/или vlan_ids"),
+        ({}, "role, vlan_ids и/или all_vlans"),
         ({"role": "boss"}, "role"),
         ({"role": 5}, "role"),
         ({"vlan_ids": "10"}, "vlan_ids"),

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..models import (Connection, ConnectionType, DeviceInterface, DeviceSubinterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN)
 from .port_config import PortConfigStatus, evaluate_port_config, config_differences
 from .port_config_db import load_port_configs
+from .port_vlans import carries_all_vlans, effective_group_vlan_ids
 from ..constants import OwnerType, SourceType
 from .computed import device_management_ports_and_ips
 
@@ -159,6 +160,14 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
     vlans_by_group: dict[str, list[str]] = {}
     for group_id, vlan_id in vlan_links:
         vlans_by_group.setdefault(group_id, []).append(vlan_id)
+    # Группа с «Все VLAN» хранит только признак: её набор — все VLAN устройства (services/port_vlans.py), по номеру VLAN.
+    flagged = [g for g in groups if carries_all_vlans(g)]
+    if flagged:
+        derived = effective_group_vlan_ids(flagged, session)
+        wanted = set().union(*derived.values()) if derived else set()
+        number_of = {vlan_id: number for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted))).all()} if wanted else {}
+        for g in flagged:
+            vlans_by_group[g.id] = sorted(derived.get(g.id, ()), key=lambda v: (number_of.get(v, 0), v))
     ports_by_group: dict[str, list[dict[str, Any]]] = {}
     for port in ports:
         ports_by_group.setdefault(port.group_id, []).append(serialize(port))

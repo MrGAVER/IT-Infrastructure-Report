@@ -10,7 +10,8 @@
   - generic: Generic CRUD: список с фильтрами и пагинацией, создание и изменение записей любого ресурса.
   - deletion: Удаление записей: проверка ссылающихся записей, очистка полиморфных владельцев.
   - owned_rows: Синхронизация «собственных» строк владельца: открытые порты, IP-адреса, развёрнутое ПО (устройства, ВМ, интерфейсы).
-  - interfaces: Синхронизация портов (интерфейсов) устройства и их групп.
+  - interfaces: Синхронизация портов (интерфейсов) устройства и чтение VLAN портов формы.
+  - interface_groups: Группы портов устройства: чтение, синхронизация и применение значений группы к её портам.
   - subinterfaces: Подинтерфейсы портов устройства: синхронизация, чтение, удаление.
   - device_vlans: Синхронизация VLAN физического устройства.
   - information_system: Детали информационной системы: связанные таблицы и источники.
@@ -97,10 +98,13 @@ from .owned_rows import (  # noqa: F401
     sync_device_deployed_software,
 )
 from .interfaces import (  # noqa: F401
-    _VLAN_MODES,
     _sync_single_interface,
     _sync_interface_open_ports,
     sync_interfaces,
+    get_device_interface_vlans,
+)
+from .interface_groups import (  # noqa: F401
+    _VLAN_MODES,
     list_interface_groups,
     get_interface_groups,
     _GroupState,
@@ -223,6 +227,7 @@ __all__ = [
     'get_device_subinterfaces',
     'get_information_system_details',
     'get_interface_groups',
+    'get_device_interface_vlans',
     'list_interface_groups',
     'list_resource',
     'model_for',

@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import BigInteger, ColumnElement, String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from ..models import Connection, ConnectionType, DeviceInterface, InterfaceVLAN, PhysicalDevice, VLAN
+from ..models import Connection, ConnectionType, DeviceInterface, DeviceTypeVLAN, InterfaceVLAN, PhysicalDevice, PhysicalDeviceVLAN, VLAN
 from .port_config import (
     DEFAULT_VLAN_MODE,
     FINGERPRINT_AFFINE,
@@ -30,6 +30,7 @@ from .port_config import (
     PORT_ROLE_LABELS,
     PortConfigStatus,
     PortRole,
+    VLAN_MODE_TRUNK,
 )
 from .serialization import enrich_connections
 
@@ -69,9 +70,9 @@ def _mode_sql(iface: Any) -> ColumnElement[str]:
 
 def _vlan_fingerprint_sql(iface: Any) -> ColumnElement[int]:
     """SQL-аналог port_config.vlan_fingerprint() для порта `iface` — коррелированный скалярный
-    подзапрос по индексу interface_vlans.interface_id. Считается лениво: только там, где выражение
-    реально вычисляется (страница без фильтра по статусу его не касается). Формулу менять только
-    вместе с Python-версией."""
+    подзапрос по индексу interface_vlans.interface_id (у порта с «Все VLAN» — по VLAN его устройства, см.
+    ниже). Считается лениво: только там, где выражение реально вычисляется (страница без фильтра по
+    статусу его не касается). Формулу менять только вместе с Python-версией."""
     def big(value: int) -> ColumnElement[int]:
         return literal(value, type_=BigInteger)  # явный BIGINT: без неявного приведения параметров в PostgreSQL
 
@@ -82,16 +83,33 @@ def _vlan_fingerprint_sql(iface: Any) -> ColumnElement[int]:
     shuffled = (number * big(multiplier) + big(offset)) % big(FINGERPRINT_MODULUS)
     for addend in FINGERPRINT_SQUARE_ADDENDS:
         shuffled = (shuffled * shuffled + big(addend)) % big(FINGERPRINT_MODULUS)
-    return (
-        select(
-            func.coalesce(func.sum(shuffled.distinct()), 0)
-            + func.count(number.distinct()) * big(FINGERPRINT_COUNT_WEIGHT)
-        )
+    aggregate = func.coalesce(func.sum(shuffled.distinct()), 0) + func.count(number.distinct()) * big(FINGERPRINT_COUNT_WEIGHT)
+    chosen = (
+        select(aggregate)
         .select_from(InterfaceVLAN)
         .join(VLAN, VLAN.id == InterfaceVLAN.vlan_id)
         .where(InterfaceVLAN.interface_id == iface.id)
         .scalar_subquery()
     )
+    # «Все VLAN»: порт хранит только признак, а набор — все VLAN устройства (VLAN типа ∪ VLAN самого устройства,
+    # services/port_vlans.py:effective_vlan_ids). Ветка CASE вычисляется только для портов с признаком.
+    # Вложенные подзапросы ссылаются на порт `iface` через ДВА уровня select'ов, а автокорреляция SQLAlchemy
+    # работает только на один: без явного .correlate(iface) порт попадает в их FROM и перемножается со всеми
+    # портами реестра — отпечаток «Все VLAN» тогда один и тот же у любого порта (расхождения не находятся).
+    device = aliased(PhysicalDevice)
+    own = (
+        select(PhysicalDeviceVLAN.vlan_id)
+        .where(PhysicalDeviceVLAN.physical_device_id == iface.physical_device_id)
+        .correlate(iface)
+    )
+    typed = (
+        select(DeviceTypeVLAN.vlan_id)
+        .join(device, device.device_type_id == DeviceTypeVLAN.device_type_id)
+        .where(device.id == iface.physical_device_id)
+        .correlate(iface)
+    )
+    every = select(aggregate).select_from(VLAN).where(or_(VLAN.id.in_(own), VLAN.id.in_(typed))).scalar_subquery()
+    return case((and_(iface.all_vlans.is_(True), _mode_sql(iface) == _text(VLAN_MODE_TRUNK)), every), else_=chosen)
 
 
 class _Joined:

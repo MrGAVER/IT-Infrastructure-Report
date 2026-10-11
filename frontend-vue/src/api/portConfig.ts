@@ -16,6 +16,9 @@ export function setPortRole(interfaceId: string, role: PortRole) {
 export interface PortConfigPatch {
   role?: PortRole
   vlan_ids?: string[]
+  /** «Все VLAN»: true — порт несёт все VLAN устройства (набор не нужен, сервер его игнорирует); false вместе с
+   * vlan_ids — снять признак и задать набор вручную. Только trunk. */
+  all_vlans?: boolean
   mode?: VlanMode
 }
 
