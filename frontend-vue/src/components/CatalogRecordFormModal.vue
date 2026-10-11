@@ -9,7 +9,8 @@
 // применения, см. README).
 import { computed, reactive, ref } from 'vue'
 import { createResource, deleteResource, updateResource } from '../api/client'
-import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
+import { useCatalogsStore } from '../stores/catalogs'
+import { sortOptionsByLabel } from '../utils/selectOptions'
 import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { QuickField } from '../quickAdd/schema'
@@ -60,9 +61,7 @@ function fkSelectOptions(f: QuickField): SearchableSelectOption[] {
   // отсортированы" (фикс п.4.2 в stores/catalogs.ts), т.к. порядок в devicesStore.all —
   // порядок ответа API, а не алфавитный.
   if (f.fkSource === 'devices') {
-    return [...devicesStore.all]
-      .map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))
-      .sort((a, b) => RU_COLLATOR.compare(a.label, b.label))
+    return sortOptionsByLabel(devicesStore.all.map((d) => ({ value: d.id, label: d.system_name || d.serial_number })))
   }
   const fkResource = f.fkResource
   if (!fkResource) return []

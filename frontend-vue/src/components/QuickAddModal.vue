@@ -5,7 +5,8 @@
 // (см. schema.ts про то, что сознательно не перенесено).
 import { computed, reactive, ref } from 'vue'
 import { createResource } from '../api/client'
-import { useCatalogsStore, RU_COLLATOR, sortProtocolPortCatalog } from '../stores/catalogs'
+import { useCatalogsStore, sortProtocolPortCatalog } from '../stores/catalogs'
+import { sortOptionsByLabel } from '../utils/selectOptions'
 import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS, QUICK_ADD_SINGLE_COLUMN } from '../quickAdd/schema'
 import type { QuickField } from '../quickAdd/schema'
@@ -68,9 +69,7 @@ function fkOptions(fkResource: string | undefined): CatalogItem[] {
  * InformationSystemsView.vue. */
 function fkSelectOptions(f: QuickField): SearchableSelectOption[] {
   if (f.fkSource === 'devices') {
-    return [...devicesStore.all]
-      .map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))
-      .sort((a, b) => RU_COLLATOR.compare(a.label, b.label))
+    return sortOptionsByLabel(devicesStore.all.map((d) => ({ value: d.id, label: d.system_name || d.serial_number })))
   }
   return fkOptions(f.fkResource).map((opt) => ({ value: opt.id, label: opt.name }))
 }

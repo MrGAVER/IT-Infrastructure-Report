@@ -17,10 +17,12 @@ import { useFormPreferencesStore } from '../stores/formPreferences'
 import { filterHostDevices } from '../utils/deviceFilters'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
+import { sortOptionsByLabel } from '../utils/selectOptions'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { stripIds } from '../utils/copyEntity'
 
@@ -120,6 +122,33 @@ watch(
 )
 
 const hostCandidates = computed<Device[]>(() => filterHostDevices(devicesStore.all, catalogs))
+
+// «Операционная система» и «Физическое устройство (хост)» — SearchableSelect (поиск вводом текста).
+// Порядок опций задаём здесь, а не берём из источника: справочник ОС в сторе отсортирован только при
+// загрузке (и по полям name/version, а не по показываемой подписи), а devicesStore.all — в порядке
+// ответа API (серверной сортировки у GET /devices нет, см. stores/devices.ts). Правило сортировки —
+// общее для всех выпадающих списков, см. utils/selectOptions.ts.
+const operatingSystemOptions = computed(() =>
+  sortOptionsByLabel((catalogs.items['operating-systems'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('operating-systems', os.id) }))),
+)
+
+// Хост, уже выбранный у ВМ, но не проходящий фильтр хостов (у устройства сменили тип, фильтр
+// filterHostDevices смотрит на название типа), остаётся в списке с пометкой, пока он выбран. Без этого
+// SearchableSelect не нашёл бы подпись выбранного значения и показал пустое поле, хотя physical_device_id
+// по-прежнему уходит на сервер — пользователь видел бы пустой «Хост» и непонятную ошибку 422 при сохранении.
+// Пометка нейтральная («вне списка хостов»): допустимость хоста окончательно решает сервер
+// (validate_vm_host), а не этот клиентский фильтр. Выбрали другой хост — «лишний» вариант исчезает.
+const OUTSIDE_HOST_LIST_SUFFIX = ' (вне списка хостов)'
+const hostLabel = (d: Device): string => d.system_name || d.serial_number
+const hostOptions = computed(() => {
+  const options = hostCandidates.value.map((d) => ({ value: d.id, label: hostLabel(d) }))
+  const selectedId = form.physical_device_id
+  if (selectedId && !options.some((o) => o.value === selectedId)) {
+    const selected = devicesStore.all.find((d) => d.id === selectedId)
+    if (selected) options.push({ value: selected.id, label: hostLabel(selected) + OUTSIDE_HOST_LIST_SUFFIX })
+  }
+  return sortOptionsByLabel(options)
+})
 
 const derivedHypervisor = computed(() => {
   if (!form.physical_device_id) return null
@@ -226,22 +255,14 @@ async function submit() {
         <label class="field">
           <span>Операционная система</span>
           <div class="lookup-row">
-            <select v-model="form.operating_system_id">
-              <option value="">— не указана —</option>
-              <option v-for="os in catalogs.items['operating-systems'] ?? []" :key="os.id" :value="os.id">
-                {{ catalogs.label('operating-systems', os.id) }}
-              </option>
-            </select>
+            <SearchableSelect v-model="form.operating_system_id" :options="operatingSystemOptions" placeholder="— не указана —" />
             <QuickAddButton resource="operating-systems" title="Операционная система" @created="(r) => (form.operating_system_id = r.id)" />
           </div>
         </label>
 
         <label class="field">
           <span>Физическое устройство (хост)</span>
-          <select v-model="form.physical_device_id">
-            <option value="">— не указано —</option>
-            <option v-for="d in hostCandidates" :key="d.id" :value="d.id">{{ d.system_name || d.serial_number }}</option>
-          </select>
+          <SearchableSelect v-model="form.physical_device_id" :options="hostOptions" placeholder="— не указано —" />
           <small v-if="!hostCandidates.length" class="hint-small">Нет доступных серверов/СХД в реестре устройств.</small>
         </label>
 
