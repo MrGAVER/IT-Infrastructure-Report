@@ -14,9 +14,10 @@ import type { DeviceInterface, DeviceSubinterface, IPAddress, InterfaceGroup, In
  * Грузит интерфейсы одного устройства вместе с их IP и VLAN-привязками и приводит к формату
  * InterfaceDraftRow, который понимает DeviceInterfacesEditor.vue.
  *
- * IP грузятся целиком по всем устройствам одним широким запросом, а не по каждому interface_id
- * отдельно (один такой запрос дешевле N дополнительных round-trip'ов) — тот же приём, что и в
- * vanilla-версии (loadInterfaceEditor() в frontend/static/device-interfaces.js).
+ * IP и открытые порты портов читаются запросами ПО УСТРОЙСТВУ (GET /devices/{id}/interface-ips и
+ * /interface-open-ports) одним запросом на всё устройство, а не generic-списками по owner_type: те отдают не
+ * больше 1000 записей реестра (oldest-first), и когда строк у портов всех устройств больше 1000, строки свежих
+ * портов отрезались — форма открывалась без их IP и открытых портов, а повторное сохранение удаляло их из БД.
  *
  * VLAN портов читаются запросом ПО УСТРОЙСТВУ (GET /devices/{id}/interface-vlans), а не общим списком
  * связей реестра: тот отдаёт не больше 1000 записей (oldest-first), и когда в реестре больше 1000
@@ -30,16 +31,15 @@ import type { DeviceInterface, DeviceSubinterface, IPAddress, InterfaceGroup, In
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
   const [ifaces, allIps, portVlans, allOpenPorts, subinterfaces] = await Promise.all([
     listResource<DeviceInterface>('interfaces', { physical_device_id: deviceId, limit: 1000 }),
-    listResource<IPAddress>('ip-addresses', { owner_type: 'device_interface', limit: 1000 }),
+    api.get<{ items: IPAddress[] }>(`/devices/${deviceId}/interface-ips`),
     api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${deviceId}/interface-vlans`),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
     // 'device_interface', owner_id=id интерфейса), не всего устройства, см. комментарий к
     // InterfaceDraftRow.open_ports в types.ts и backend/app/services/crud.py:
-    // _sync_interface_open_ports. Грузятся широким запросом по owner_type, а не по каждому
-    // interface_id отдельно — тот же приём, что и allIps выше.
-    listResource<OpenPort>('open-ports', { owner_type: 'device_interface', limit: 1000 }),
-    // Подинтерфейсы портов — одним запросом по устройству, уже с их IP и открытыми портами (не широкой выборкой
-    // по всем устройствам, как IP и VLAN выше): подинтерфейс не физический порт и в generic-списке портов его нет.
+    // _sync_interface_open_ports. Читаются по устройству, как IP и VLAN выше.
+    api.get<{ items: OpenPort[] }>(`/devices/${deviceId}/interface-open-ports`),
+    // Подинтерфейсы портов — тоже одним запросом по устройству, уже с их IP и открытыми портами: подинтерфейс
+    // не физический порт и в generic-списке портов его нет.
     api.get<{ items: DeviceSubinterface[] }>(`/devices/${deviceId}/subinterfaces`),
   ])
   const subinterfacesByParent = groupSubinterfacesByParent(subinterfaces.items)

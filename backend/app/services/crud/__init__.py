@@ -100,7 +100,10 @@ from .owned_rows import (  # noqa: F401
 from .interfaces import (  # noqa: F401
     _sync_single_interface,
     _sync_interface_open_ports,
+    _interface_owned_rows,
     sync_interfaces,
+    get_device_interface_ips,
+    get_device_interface_open_ports,
     get_device_interface_vlans,
 )
 from .interface_groups import (  # noqa: F401
@@ -189,6 +192,7 @@ __all__ = [
     '_sync_information_system_sources',
     '_sync_interface_groups',
     '_sync_interface_open_ports',
+    '_interface_owned_rows',
     '_sync_linked_table',
     '_sync_owned_rows',
     '_sync_owner_collection',
@@ -227,6 +231,8 @@ __all__ = [
     'get_device_subinterfaces',
     'get_information_system_details',
     'get_interface_groups',
+    'get_device_interface_ips',
+    'get_device_interface_open_ports',
     'get_device_interface_vlans',
     'list_interface_groups',
     'list_resource',

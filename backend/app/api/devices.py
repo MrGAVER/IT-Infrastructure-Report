@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas import DeployedSoftwareSync, DeviceInterfacesSync, DeviceVlansSync
-from ..services.crud import get_device_interface_vlans, get_device_subinterfaces, get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
+from ..services.crud import get_device_interface_ips, get_device_interface_open_ports, get_device_interface_vlans, get_device_subinterfaces, get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
 from ..services.device_connectivity import list_device_options, list_free_interfaces, list_interface_connections
 router = APIRouter(prefix='/api/v1/devices', tags=['Devices'])
 @router.put('/{device_id}/interfaces')
@@ -29,6 +29,18 @@ def interface_groups(device_id: str, session: Session = Depends(get_db)):
 def device_interface_vlans(device_id: str, session: Session = Depends(get_db)):
     """VLAN всех портов устройства (с учётом «Все VLAN») — для формы устройства; ответ ограничен одним устройством."""
     return get_device_interface_vlans(device_id, session)
+
+
+@router.get('/{device_id}/interface-ips')
+def device_interface_ips(device_id: str, session: Session = Depends(get_db)):
+    """IP-адреса всех портов устройства — для формы устройства; ответ ограничен одним устройством."""
+    return get_device_interface_ips(device_id, session)
+
+
+@router.get('/{device_id}/interface-open-ports')
+def device_interface_open_ports(device_id: str, session: Session = Depends(get_db)):
+    """Открытые порты всех портов устройства — для формы устройства; ответ ограничен одним устройством."""
+    return get_device_interface_open_ports(device_id, session)
 
 
 @router.get('/{device_id}/subinterfaces')
