@@ -11,7 +11,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { createResource, listResource, updateResource } from '../api/client'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
-import { useCatalogsStore } from '../stores/catalogs'
+import { useCatalogsStore, RU_COLLATOR } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useFormPreferencesStore } from '../stores/formPreferences'
 import { filterHostDevices } from '../utils/deviceFilters'
@@ -21,6 +21,7 @@ import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
+import SearchableSelect, { type SearchableSelectOption } from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { stripIds } from '../utils/copyEntity'
 
@@ -120,6 +121,20 @@ watch(
 )
 
 const hostCandidates = computed<Device[]>(() => filterHostDevices(devicesStore.all, catalogs))
+
+// «Операционная система» и «Физическое устройство (хост)» — SearchableSelect (поиск вводом текста).
+// Порядок опций задаём здесь, а не берём из источника: справочник ОС в сторе отсортирован только при
+// загрузке (и по полям name/version, а не по показываемой подписи), а devicesStore.all — в порядке
+// ответа API (серверной сортировки у GET /devices нет, см. stores/devices.ts). Сравнение — общий
+// RU_COLLATOR (регистр не важен, числа натурально: «srv-2» раньше «srv-10»); равные подписи
+// различаются по id, чтобы порядок не зависел от порядка в источнике.
+function sortedOptions(options: SearchableSelectOption[]): SearchableSelectOption[] {
+  return [...options].sort((a, b) => RU_COLLATOR.compare(a.label, b.label) || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
+}
+const operatingSystemOptions = computed(() =>
+  sortedOptions((catalogs.items['operating-systems'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('operating-systems', os.id) }))),
+)
+const hostOptions = computed(() => sortedOptions(hostCandidates.value.map((d) => ({ value: d.id, label: d.system_name || d.serial_number }))))
 
 const derivedHypervisor = computed(() => {
   if (!form.physical_device_id) return null
@@ -226,22 +241,14 @@ async function submit() {
         <label class="field">
           <span>Операционная система</span>
           <div class="lookup-row">
-            <select v-model="form.operating_system_id">
-              <option value="">— не указана —</option>
-              <option v-for="os in catalogs.items['operating-systems'] ?? []" :key="os.id" :value="os.id">
-                {{ catalogs.label('operating-systems', os.id) }}
-              </option>
-            </select>
+            <SearchableSelect v-model="form.operating_system_id" :options="operatingSystemOptions" placeholder="— не указана —" />
             <QuickAddButton resource="operating-systems" title="Операционная система" @created="(r) => (form.operating_system_id = r.id)" />
           </div>
         </label>
 
         <label class="field">
           <span>Физическое устройство (хост)</span>
-          <select v-model="form.physical_device_id">
-            <option value="">— не указано —</option>
-            <option v-for="d in hostCandidates" :key="d.id" :value="d.id">{{ d.system_name || d.serial_number }}</option>
-          </select>
+          <SearchableSelect v-model="form.physical_device_id" :options="hostOptions" placeholder="— не указано —" />
           <small v-if="!hostCandidates.length" class="hint-small">Нет доступных серверов/СХД в реестре устройств.</small>
         </label>
 

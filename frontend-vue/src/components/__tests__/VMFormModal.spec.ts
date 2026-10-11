@@ -4,7 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import VMFormModal from '../VMFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { usePreferencesStore } from '../../stores/preferences'
-import type { VirtualMachine } from '../../api/types'
+import { useDevicesStore } from '../../stores/devices'
+import type { Device, VirtualMachine } from '../../api/types'
 
 const EMPTY_PAGE = { items: [], total: 0, offset: 0, limit: 1000 }
 
@@ -342,7 +343,10 @@ describe('VMFormModal.vue', () => {
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('os-new')
+    // Поле «Операционная система» — SearchableSelect: выбранное значение показывается подписью опции
+    // («название версия»), а не id, как у нативного <select>.
+    expect(wrapper.find('select').exists()).toBe(false)
+    expect((wrapper.find('.lookup-row .searchable-select input').element as HTMLInputElement).value).toBe('Astra Linux 1.7')
   })
 
   describe('фикс п.2: копирование ВМ ("copyFrom")', () => {
@@ -379,7 +383,8 @@ describe('VMFormModal.vue', () => {
 
       expect(wrapper.find('h2').text()).not.toContain('Редактировать')
       expect(wrapper.find('input[required]').element).toHaveProperty('value', '') // Название — уникально, очищено
-      expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('os-1') // ОС скопирована как есть
+      // ОС скопирована как есть: SearchableSelect показывает подпись выбранной ОС, а не её id
+      expect((wrapper.find('.lookup-row .searchable-select input').element as HTMLInputElement).value).toBe('Astra Linux')
     })
 
     it('IP-адреса и открытые порты донора подгружаются, но сохраняются без его id', async () => {
@@ -599,5 +604,135 @@ describe('VMFormModal.vue — открытые порты сворачивают
     await flushPromises()
     expect(expanded.find('[data-testid="ports-collapsed"]').exists()).toBe(false)
     expect(expanded.findAll('.col-catalog').length).toBe(3)
+  })
+})
+
+describe('VMFormModal.vue — «Операционная система» и «Физическое устройство (хост)»: поиск и сортировка', () => {
+  const serverDevice = (id: string, systemName: string | null, serial = `SN-${id}`, typeId = 'dt-server'): Device =>
+    ({ id, device_type_id: typeId, system_name: systemName, serial_number: serial, operating_system_id: null }) as Device
+
+  function seedCatalogs() {
+    const catalogs = useCatalogsStore()
+    catalogs.items['device-types'] = [
+      { id: 'dt-server', name: 'Сервер' },
+      { id: 'dt-storage', name: 'Система хранения данных' },
+      { id: 'dt-switch', name: 'Коммутатор' },
+    ]
+    // Намеренно НЕ по алфавиту: форма не должна полагаться на порядок, в котором справочник пришёл в стор.
+    catalogs.items['operating-systems'] = [
+      { id: 'os-win', name: 'Windows Server', version: '2019' },
+      { id: 'os-astra', name: 'Astra Linux', version: '1.7' },
+      { id: 'os-ubuntu', name: 'Ubuntu', version: '22.04' },
+      { id: 'os-alt', name: 'Альт Сервер', version: '10' },
+    ]
+  }
+
+  /** SearchableSelect внутри <label class="field">, в заголовке которого есть title. */
+  function fieldSelect(wrapper: ReturnType<typeof mount>, title: string) {
+    const field = wrapper.findAll('label.field').find((l) => l.find('span').text().startsWith(title))
+    if (!field) throw new Error(`Поле «${title}» не найдено`)
+    return field.find('.searchable-select')
+  }
+  async function openAndList(select: ReturnType<typeof fieldSelect>): Promise<string[]> {
+    await select.find('input').trigger('focus')
+    return select.findAll('.ss-option').map((o) => o.text())
+  }
+
+  it('«Операционная система» — SearchableSelect, а не нативный select', () => {
+    seedCatalogs()
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    expect(fieldSelect(wrapper, 'Операционная система').exists()).toBe(true)
+    expect(wrapper.find('select').exists()).toBe(false)
+  })
+
+  it('«Операционная система»: список отсортирован по подписи независимо от порядка в справочнике', async () => {
+    seedCatalogs()
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    // Порядок — общий RU_COLLATOR приложения (как в остальных списках): кириллица раньше латиницы.
+    expect(await openAndList(fieldSelect(wrapper, 'Операционная система'))).toEqual([
+      'Альт Сервер 10',
+      'Astra Linux 1.7',
+      'Ubuntu 22.04',
+      'Windows Server 2019',
+    ])
+  })
+
+  it('«Операционная система»: ввод текста оставляет только подходящие варианты, выбор записывает ОС в ВМ', async () => {
+    seedCatalogs()
+    const calls: { url: string; method: string; body: Record<string, unknown> | undefined }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.endsWith('/resources/vms')) return jsonResponse({ id: 'vm-new', name: 'vm' }, 201)
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    const select = fieldSelect(wrapper, 'Операционная система')
+    await select.find('input').trigger('focus')
+    await select.find('input').setValue('win')
+    expect(select.findAll('.ss-option').map((o) => o.text())).toEqual(['Windows Server 2019'])
+
+    await select.find('.ss-option').trigger('mousedown')
+    await wrapper.find('input[maxlength="255"]').setValue('vm')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/vms'))
+    expect(create?.body?.operating_system_id).toBe('os-win')
+  })
+
+  it('«Физическое устройство (хост)» — SearchableSelect, в нём только серверы и СХД, отсортированные по подписи', async () => {
+    seedCatalogs()
+    // Порядок как в ответе API — не алфавитный; srv-10 должен идти после srv-2 (натуральная сортировка).
+    useDevicesStore().all = [
+      serverDevice('d10', 'srv-10'),
+      serverDevice('d-sw', 'sw-core-01', 'SN-SW', 'dt-switch'),
+      serverDevice('d2', 'srv-2'),
+      serverDevice('d-nas', 'nas-01', 'SN-NAS', 'dt-storage'),
+      serverDevice('d-noname', null, 'ABC-123'), // без системного имени — подпись по серийному номеру
+    ]
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    const select = fieldSelect(wrapper, 'Физическое устройство')
+    expect(wrapper.findAll('select').length).toBe(0)
+    expect(await openAndList(select)).toEqual(['ABC-123', 'nas-01', 'srv-2', 'srv-10'])
+  })
+
+  it('«Физическое устройство (хост)»: поиск вводом текста и выбор хоста, подпись выбранного остаётся в поле', async () => {
+    seedCatalogs()
+    useDevicesStore().all = [serverDevice('d10', 'srv-10'), serverDevice('d2', 'srv-2'), serverDevice('d3', 'db-01')]
+    const calls: { url: string; method: string; body: Record<string, unknown> | undefined }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'POST' && url.endsWith('/resources/vms')) return jsonResponse({ id: 'vm-new', name: 'vm' }, 201)
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    const select = fieldSelect(wrapper, 'Физическое устройство')
+    await select.find('input').trigger('focus')
+    await select.find('input').setValue('srv')
+    expect(select.findAll('.ss-option').map((o) => o.text())).toEqual(['srv-2', 'srv-10'])
+
+    await select.findAll('.ss-option')[1].trigger('mousedown')
+    expect((select.find('input').element as HTMLInputElement).value).toBe('srv-10')
+
+    await wrapper.find('input[maxlength="255"]').setValue('vm')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/resources/vms'))
+    expect(create?.body?.physical_device_id).toBe('d10')
+  })
+
+  it('«Физическое устройство (хост)»: подсказка «нет доступных серверов» остаётся, пока в реестре нет серверов/СХД', () => {
+    seedCatalogs()
+    useDevicesStore().all = [serverDevice('d-sw', 'sw-core-01', 'SN-SW', 'dt-switch')]
+    const wrapper = mount(VMFormModal, { props: { vm: null } })
+    expect(wrapper.text()).toContain('Нет доступных серверов/СХД в реестре устройств.')
   })
 })
