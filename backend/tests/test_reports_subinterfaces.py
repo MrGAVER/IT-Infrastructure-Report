@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mock_sqlalchemy import FakeSession, empty_table, load_reporting_module
+from xlsx_helpers import expanded_rows
 
 import openpyxl
 
@@ -33,7 +34,7 @@ class SubinterfaceReportCase(unittest.TestCase):
 
     @staticmethod
     def rows(wb, sheet):
-        data = list(wb[sheet].iter_rows(values_only=True))
+        data = expanded_rows(wb[sheet])
         return data[0], data[1:]
 
     @staticmethod

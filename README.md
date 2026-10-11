@@ -590,7 +590,9 @@ backend/
     services/        — crud/ (пакет: generic CRUD и синхронизация вложенных коллекций, см. ниже),
                         vlan_operations (VLAN: панель, домены, копирование, массовое назначение), device_stacks,
                         validation, serialization, catalogs, computed, constants,
-                        report_meta/report_engine/report_grid/report_render (конструктор отчётов)
+                        report_meta/report_engine/report_grid/report_render (конструктор отчётов),
+                        excel_layout (оформление листов регламентированного Excel-отчёта: рамки записей,
+                        объединение повторяющихся ячеек, закрепление шапки), excel_safety
     main.py          — application factory
     config.py        — конфигурация, версия приложения
     db.py             — подключение к БД
@@ -661,7 +663,7 @@ CI проверяет, что lock-файлы актуальны (пересбо
 Два слоя тестов:
 
 - **Лёгкие тесты бизнес-логики** (`test_computed.py`, `test_constants.py`, `test_referential_integrity.py`,
-  `test_report_builder.py`, `test_report_grid.py`, `test_report_registry_rows.py`, `test_report_seed_templates.py`, `test_report_seed_word_template.py`, `test_reporting.py`) — `unittest`, часть на облегчённом моке SQLAlchemy
+  `test_report_builder.py`, `test_report_grid.py`, `test_report_layout.py`, `test_report_registry_rows.py`, `test_report_seed_templates.py`, `test_report_seed_word_template.py`, `test_reporting.py`) — `unittest`, часть на облегчённом моке SQLAlchemy
   (`mock_sqlalchemy.py`) без тяжёлых зависимостей, не требуют `pip install`:
   ```bash
   cd backend

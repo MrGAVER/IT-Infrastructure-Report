@@ -138,6 +138,13 @@ def load_reporting_module():
     excel_safety_spec.loader.exec_module(excel_safety_module)
     fake_modules["app.services.excel_safety"] = excel_safety_module
 
+    # excel_layout.py — оформление листов (рамки/объединение/закрепление шапки), зависит только от
+    # openpyxl, поэтому тоже подключается настоящим модулем: его результат проверяют те же тесты.
+    excel_layout_spec = importlib.util.spec_from_file_location("app.services.excel_layout", APP_DIR / "services" / "excel_layout.py")
+    excel_layout_module = importlib.util.module_from_spec(excel_layout_spec)
+    excel_layout_spec.loader.exec_module(excel_layout_module)
+    fake_modules["app.services.excel_layout"] = excel_layout_module
+
     saved_modules = {name: sys.modules.get(name) for name in fake_modules}
     sys.modules.update(fake_modules)
     try:
@@ -153,6 +160,10 @@ def load_reporting_module():
         src = src.replace(
             "from .services.excel_safety import excel_safe_row",
             "from app.services.excel_safety import excel_safe_row",
+        )
+        src = src.replace(
+            "from .services.excel_layout import apply_sheet_layout",
+            "from app.services.excel_layout import apply_sheet_layout",
         )
         mod = types.ModuleType("app.reporting")
         exec(compile(src, str(APP_DIR / "reporting.py"), "exec"), mod.__dict__)
