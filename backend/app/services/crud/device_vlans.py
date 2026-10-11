@@ -31,6 +31,29 @@ def _normalize_device_vlan_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _incoming_vlan_id(item: Any, incoming: set[str]) -> str:
+    """Проверяет одну запись payload['vlans'] и возвращает её vlan_id (повтор в одном запросе — ошибка)."""
+    if not isinstance(item, dict): raise HTTPException(422, 'Каждая запись VLAN устройства должна быть объектом')
+    vlan_id = item.get('vlan_id')
+    if not vlan_id: raise HTTPException(422, 'Для каждой записи VLAN устройства необходимо указать vlan_id')
+    if vlan_id in incoming: raise HTTPException(422, 'Один и тот же VLAN указан для устройства несколько раз')
+    return vlan_id
+
+
+def _apply_device_vlan_item(device_id: str, vlan_id: str, item: dict[str, Any], existing: dict[str, PhysicalDeviceVLAN], session: Session) -> str | None:
+    """Создаёт или обновляет назначение VLAN; возвращает 'added', 'updated' или None, если запись не изменилась."""
+    values = _normalize_device_vlan_item(item)
+    _validate_physical_device_vlan({'physical_device_id': device_id, 'vlan_id': vlan_id}, session)
+    obj = existing.get(vlan_id)
+    if obj is None:
+        session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan_id, **values))
+        return 'added'
+    if any(getattr(obj, k) != v for k, v in values.items()):
+        for k, v in values.items(): setattr(obj, k, v)
+        return 'updated'
+    return None
+
+
 def sync_device_vlans(device_id: str, payload: dict[str, Any], session: Session):
     """Атомарная синхронизация блока «VLAN устройства» (PhysicalDeviceVLAN) с переданным списком
     payload['vlans'] — по образцу sync_interfaces(). Заменяет схему «удалить все записи, затем создать
@@ -54,19 +77,10 @@ def sync_device_vlans(device_id: str, payload: dict[str, Any], session: Session)
     incoming: set[str] = set(); added = updated = 0
     try:
         for item in items:
-            if not isinstance(item, dict): raise HTTPException(422, 'Каждая запись VLAN устройства должна быть объектом')
-            vlan_id = item.get('vlan_id')
-            if not vlan_id: raise HTTPException(422, 'Для каждой записи VLAN устройства необходимо указать vlan_id')
-            if vlan_id in incoming: raise HTTPException(422, 'Один и тот же VLAN указан для устройства несколько раз')
+            vlan_id = _incoming_vlan_id(item, incoming)
             incoming.add(vlan_id)
-            values = _normalize_device_vlan_item(item)
-            _validate_physical_device_vlan({'physical_device_id': device_id, 'vlan_id': vlan_id}, session)
-            obj = existing.get(vlan_id)
-            if obj is None:
-                session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan_id, **values)); added += 1
-            elif any(getattr(obj, k) != v for k, v in values.items()):
-                for k, v in values.items(): setattr(obj, k, v)
-                updated += 1
+            outcome = _apply_device_vlan_item(device_id, vlan_id, item, existing, session)
+            added += outcome == 'added'; updated += outcome == 'updated'
         removed = 0
         for vlan_id, obj in existing.items():
             if vlan_id not in incoming: session.delete(obj); removed += 1

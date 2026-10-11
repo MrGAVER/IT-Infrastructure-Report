@@ -120,14 +120,59 @@ def _validate_style(style: Any, location: str) -> None:
             raise ReportBuilderError(f"{location}: цвет '{key}' должен быть в формате #RRGGBB")
 
 
+def _cell_spans(cell: dict[str, Any], col: int, n_cols: int, where: str) -> tuple[int, int, int]:
+    """Колонка уже проверена; возвращает (colspan, rowspan, конец объединения по колонкам)."""
+    colspan = int(cell.get("colspan") or 1)
+    rowspan = int(cell.get("rowspan") or 1)
+    if colspan < 1 or rowspan < 1:
+        raise ReportBuilderError(f"{where}, колонка {col} — colspan/rowspan должны быть ≥ 1")
+    end_col = col + colspan
+    if end_col > n_cols:
+        raise ReportBuilderError(f"{where}, колонка {col} — объединение выходит за границы листа")
+    return colspan, rowspan, end_col
+
+
+def _validate_vertical_merge(rows: list[Any], ri: int, rowspan: int, col: int, repeat: bool, where: str) -> None:
+    """Объединение по вертикали: не в повторяющейся строке, в пределах листа и не поверх повторяющихся строк."""
+    if repeat:
+        raise ReportBuilderError(f"{where} — объединение по вертикали недопустимо в повторяющейся строке")
+    if ri + rowspan > len(rows):
+        raise ReportBuilderError(f"{where}, колонка {col} — объединение выходит за последнюю строку листа")
+    for j in range(ri + 1, ri + rowspan):
+        if bool(rows[j].get("repeat")):
+            raise ReportBuilderError(f"{where} — объединение по вертикали не может охватывать повторяющуюся строку")
+
+
+def _validate_cell_content(meta: dict[str, dict[str, Any]], cell: dict[str, Any], col: int, repeat: bool, root_entity: str | None, where: str,
+                           style_where: str) -> None:
+    """Тип ячейки и то, что для него обязательно (путь поля, формула), плюс стиль.
+
+    style_where — префикс сообщений о стиле: у них формат «<лист>, строка N», отличный от where («<лист>: строка N»)."""
+    kind = cell.get("kind", "static")
+    if kind not in _CELL_KINDS:
+        raise ReportBuilderError(f"{where}, колонка {col} — неизвестный тип ячейки '{kind}'")
+    if kind == "field":
+        if not repeat:
+            raise ReportBuilderError(f"{where}, колонка {col} — поле из БД допустимо только в повторяющейся строке")
+        if not cell.get("path"):
+            raise ReportBuilderError(f"{where}, колонка {col} — не задан путь поля")
+        validate_path(meta, root_entity, cell["path"])
+    elif kind == "index" and not repeat:
+        raise ReportBuilderError(f"{where}, колонка {col} — «№ строки» допустим только в повторяющейся строке")
+    elif kind == "formula" and not cell.get("text"):
+        raise ReportBuilderError(f"{where}, колонка {col} — не задана формула")
+    _validate_style(cell.get("style"), f"{style_where}, колонка {col}")
+
+
 def _validate_row(meta: dict[str, dict[str, Any]], n_cols: int, rows: list[Any], ri: int,
                    pending_spans: list[tuple[int, int, int]], location: str) -> None:
     row = rows[ri]
+    where = f"{location}: строка {ri + 1}"
     if not isinstance(row, dict):
-        raise ReportBuilderError(f"{location}: строка {ri + 1} задана некорректно")
+        raise ReportBuilderError(f"{where} задана некорректно")
     cells = row.get("cells") or []
     if not cells:
-        raise ReportBuilderError(f"{location}: строка {ri + 1} без единой ячейки")
+        raise ReportBuilderError(f"{where} без единой ячейки")
     repeat = bool(row.get("repeat"))
     root_entity = _validate_data_source(meta, row.get("data_source"), f"{location}, строка {ri + 1}") if repeat else None
 
@@ -138,56 +183,19 @@ def _validate_row(meta: dict[str, dict[str, Any]], n_cols: int, rows: list[Any],
     occupied: list[tuple[int, int]] = []
     for cell in cells:
         if not isinstance(cell, dict):
-            raise ReportBuilderError(f"{location}: строка {ri + 1} содержит некорректную ячейку")
+            raise ReportBuilderError(f"{where} содержит некорректную ячейку")
         col = cell.get("col")
         if not isinstance(col, int) or isinstance(col, bool) or col < 0 or col >= n_cols:
-            raise ReportBuilderError(f"{location}: строка {ri + 1} — некорректный номер колонки {col!r}")
-        colspan = int(cell.get("colspan") or 1)
-        rowspan = int(cell.get("rowspan") or 1)
-        if colspan < 1 or rowspan < 1:
-            raise ReportBuilderError(f"{location}: строка {ri + 1}, колонка {col} — colspan/rowspan должны быть ≥ 1")
-        end_col = col + colspan
-        if end_col > n_cols:
-            raise ReportBuilderError(f"{location}: строка {ri + 1}, колонка {col} — объединение выходит за границы листа")
+            raise ReportBuilderError(f"{where} — некорректный номер колонки {col!r}")
+        _colspan, rowspan, end_col = _cell_spans(cell, col, n_cols, where)
         if rowspan > 1:
-            if repeat:
-                raise ReportBuilderError(
-                    f"{location}: строка {ri + 1} — объединение по вертикали недопустимо в повторяющейся строке"
-                )
-            if ri + rowspan > len(rows):
-                raise ReportBuilderError(
-                    f"{location}: строка {ri + 1}, колонка {col} — объединение выходит за последнюю строку листа"
-                )
-            for j in range(ri + 1, ri + rowspan):
-                if bool(rows[j].get("repeat")):
-                    raise ReportBuilderError(
-                        f"{location}: строка {ri + 1} — объединение по вертикали не может охватывать повторяющуюся строку"
-                    )
+            _validate_vertical_merge(rows, ri, rowspan, col, repeat, where)
         if any(c in consumed_above for c in range(col, end_col)):
-            raise ReportBuilderError(f"{location}: строка {ri + 1}, колонка {col} уже занята объединением из строки выше")
+            raise ReportBuilderError(f"{where}, колонка {col} уже занята объединением из строки выше")
         if any(col < e and s < end_col for s, e in occupied):
-            raise ReportBuilderError(f"{location}: строка {ri + 1} — ячейки в колонке {col} перекрываются")
+            raise ReportBuilderError(f"{where} — ячейки в колонке {col} перекрываются")
         occupied.append((col, end_col))
-
-        kind = cell.get("kind", "static")
-        if kind not in _CELL_KINDS:
-            raise ReportBuilderError(f"{location}: строка {ri + 1}, колонка {col} — неизвестный тип ячейки '{kind}'")
-        if kind == "field":
-            if not repeat:
-                raise ReportBuilderError(
-                    f"{location}: строка {ri + 1}, колонка {col} — поле из БД допустимо только в повторяющейся строке"
-                )
-            if not cell.get("path"):
-                raise ReportBuilderError(f"{location}: строка {ri + 1}, колонка {col} — не задан путь поля")
-            validate_path(meta, root_entity, cell["path"])
-        elif kind == "index" and not repeat:
-            raise ReportBuilderError(
-                f"{location}: строка {ri + 1}, колонка {col} — «№ строки» допустим только в повторяющейся строке"
-            )
-        elif kind == "formula" and not cell.get("text"):
-            raise ReportBuilderError(f"{location}: строка {ri + 1}, колонка {col} — не задана формула")
-        _validate_style(cell.get("style"), f"{location}, строка {ri + 1}, колонка {col}")
-
+        _validate_cell_content(meta, cell, col, repeat, root_entity, where, f"{location}, строка {ri + 1}")
         if rowspan > 1:
             pending_spans.append((ri + rowspan, col, end_col))
 
