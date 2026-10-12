@@ -20,6 +20,7 @@ try:
     from sqlalchemy.orm import sessionmaker
 
     from app.models import Base, Department, DeviceCategory, DeviceType, InformationSystem, ISDepartment
+    from app.services.excel_layout import text_capacity, wrap_lines
     from app.services.report_engine import ReportBuilderError
     from app.services.report_grid import _estimate_row_height, build_xlsx_grid, preview_grid, validate_grid_config
     from app.services.report_meta import build_entity_metadata
@@ -239,6 +240,18 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
+    def test_font_name_and_size_are_explicit(self):
+        """Font(bold=True) без имени LibreOffice рисует другим, более широким шрифтом — оценка высоты
+        строки (рассчитана на Calibri 11) оказывалась заниженной, и текст обрезался."""
+        import openpyxl
+        path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
+        try:
+            ws = openpyxl.load_workbook(path)["Лист1"]
+            for coordinate in ("A1", "A2"):
+                self.assertEqual((ws[coordinate].font.name, ws[coordinate].font.sz), ("Calibri", 11))
+        finally:
+            path.unlink(missing_ok=True)
+
     def test_merged_static_header_cell(self):
         import openpyxl
         config = {"sheets": [{
@@ -424,6 +437,28 @@ class EstimateRowHeightTestCase(unittest.TestCase):
         narrow_height = _estimate_row_height(cells_narrow, columns, 18)
         wide_height = _estimate_row_height(cells_wide, columns, 18)
         self.assertGreaterEqual(narrow_height, wide_height)
+
+    def test_bold_text_needs_more_height_than_regular_text(self):
+        """Жирные символы шире: тот же заголовок в той же колонке в жирном начертании переносится на
+        большее число строк (раньше жирность не учитывалась, и шапка обрезалась)."""
+        text = "аааааааааа " * 12                      # 12 слов по 10 символов
+        regular = _estimate_row_height([{"col": 0, "value": text, "style": {}}], [{"width": 36}], 18)
+        bold = _estimate_row_height([{"col": 0, "value": text, "style": {"bold": True}}], [{"width": 36}], 18)
+        self.assertGreater(bold, regular)
+
+    def test_wraps_by_words_not_by_characters(self):
+        """Три слова по 12 символов в колонке на ~17 символов — по слову на строку (3 строки), а не
+        ceil(38 / 20) = 2 строки, как при подсчёте по символам."""
+        cells = [{"col": 0, "value": " ".join(["аааааааааааа"] * 3), "style": {}}]
+        self.assertGreaterEqual(_estimate_row_height(cells, [{"width": 20}], 18), 3 * 15 + 5)
+
+    def test_realistic_long_bold_header_is_not_underestimated(self):
+        """Заголовок регламентированной формы (~300 символов) в узкой колонке: высота — не меньше числа
+        строк модели переноса, умноженного на строку Calibri 11 (15 пт)."""
+        header = " ".join(["Идентификаторы виртуальных локальных вычислительных сетей"] * 5)
+        cells = [{"col": 0, "value": header, "style": {"bold": True}}]
+        lines = wrap_lines(header, text_capacity(26, bold=True))
+        self.assertGreaterEqual(_estimate_row_height(cells, [{"width": 26}], 46), lines * 15)
 
     def test_never_exceeds_sanity_cap(self):
         cells = [{"col": 0, "value": "x" * 100000, "style": {}}]

@@ -592,7 +592,9 @@ backend/
                         validation, serialization, catalogs, computed, constants,
                         report_meta/report_engine/report_grid/report_render (конструктор отчётов),
                         excel_layout (оформление листов регламентированного Excel-отчёта: рамки записей,
-                        объединение повторяющихся ячеек, закрепление шапки), excel_safety
+                        объединение повторяющихся ячеек, закрепление шапки, подбор ширины колонок и высоты
+                        шапки по переносу строк — заголовки не обрезаются; общая модель переноса используется
+                        и конструктором отчётов), excel_safety
     main.py          — application factory
     config.py        — конфигурация, версия приложения
     db.py             — подключение к БД

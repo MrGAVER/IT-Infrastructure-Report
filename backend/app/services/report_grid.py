@@ -67,6 +67,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from .computed import local_timestamp_suffix
+from .excel_layout import text_capacity, wrap_lines
 from .excel_safety import excel_safe
 from .report_engine import (
     ReportBuilderError, ReportContext, iter_report_rows, resolve_value, safe_report_filename,
@@ -341,7 +342,10 @@ def _hex(value: str | None) -> str | None:
 
 def _apply_style(xl_cell, style: dict[str, Any] | None, *, is_datetime: bool) -> None:
     style = style or {}
-    xl_cell.font = Font(bold=bool(style.get("bold")), italic=bool(style.get("italic")),
+    # Имя и размер шрифта заданы явно (Calibri 11 — шрифт книги по умолчанию в Excel): Font(bold=True) без
+    # имени LibreOffice рисует другим, более широким шрифтом, и оценка высоты строки (_estimate_row_height,
+    # рассчитана на Calibri 11) оказывалась заниженной — текст обрезался.
+    xl_cell.font = Font(name="Calibri", size=11, bold=bool(style.get("bold")), italic=bool(style.get("italic")),
                          underline="single" if style.get("underline") else None,
                          color=_hex(style.get("color")))
     align_v = {"top": "top", "middle": "center", "bottom": "bottom"}.get(style.get("valign"), "top")
@@ -368,10 +372,11 @@ def _estimate_row_height(cells: list[dict[str, Any]], columns: list[dict[str, An
     физические строки заведомо разной длины контента, и автоподбор Excel при открытии срабатывает не
     во всех версиях/просмотрщиках предсказуемо. Поэтому берём осторожную оценку СНИЗУ: если по
     расчёту нужно больше высоты, чем задано — используем расчётную, а не наоборот (не сжимаем то,
-    что задано намеренно). Оценка "символов на юнит ширины колонки" — тот же приём, что и в основном
-    регламентированном отчёте (reporting.py: finalize_sheet подбирает ширину колонки по факту
-    символов содержимого) — не пиксель-идеально, но заведомо лучше жёсткого значения без учёта
-    контента вовсе."""
+    что задано намеренно). Число строк переноса считается той же моделью, что и в регламентированном
+    отчёте (services/excel_layout.py: wrap_lines/text_capacity — жадный перенос по словам для
+    Calibri 11, параметры сверены с LibreOffice на заголовках отчёта), с поправкой на жирный шрифт:
+    раньше считалось «длина / ширина колонки» без учёта слов и жирности, и длинные жирные
+    заголовки шапки обрезались на несколько строк — не пиксель-идеально, но без занижения."""
     max_lines = 0
     for cell in cells:
         style = cell.get("style") or {}
@@ -383,11 +388,7 @@ def _estimate_row_height(cells: list[dict[str, Any]], columns: list[dict[str, An
         col = cell.get("col", 0)
         colspan = max(1, cell.get("colspan", 1))
         width_chars = sum((columns[i].get("width", 15) if i < len(columns) else 15) for i in range(col, col + colspan))
-        chars_per_line = max(6, int(width_chars))
-        lines = 0
-        for segment in str(text).split("\n"):
-            lines += max(1, -(-len(segment) // chars_per_line))  # деление с округлением вверх
-        max_lines = max(max_lines, lines)
+        max_lines = max(max_lines, wrap_lines(str(text), text_capacity(width_chars, bold=bool(style.get("bold")))))
     if max_lines <= 1:
         # Либо контента, требующего оценки, не было вовсе, либо он и так укладывается в одну
         # строку — ничего не пересчитываем, оставляем высоту как задано в конфигурации.

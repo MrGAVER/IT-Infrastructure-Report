@@ -80,6 +80,33 @@ class DefaultRegistryTemplateConfigTestCase(unittest.TestCase):
         self.assertNotEqual(cfg1["sheets"][0]["rows"][0]["cells"][0]["text"],
                              cfg2["sheets"][0]["rows"][0]["cells"][0]["text"])
 
+    def test_every_header_fits_in_its_column(self):
+        """Заголовки регламентированной формы — жирные, до 300 символов; в колонках по 20-30 символов они
+        занимали 15-25 строк и обрезались. Ширина колонок шаблона подогнана под заголовки: ни одно слово
+        не рвётся посередине, а шапка не выше MAX_HEADER_LINES строк."""
+        from app.services.excel_layout import MAX_COLUMN_WIDTH, MAX_HEADER_LINES, text_capacity, wrap_lines
+
+        for sheet in default_registry_template_config()["sheets"]:
+            header_cells = sheet["rows"][0]["cells"]
+            for cell, column in zip(header_cells, sheet["columns"]):
+                width, text = column["width"], cell["text"]
+                capacity = text_capacity(width, bold=True)
+                self.assertGreaterEqual(capacity, max(len(word) for word in text.split()), f"{sheet['title']}: {text[:30]}")
+                if width < MAX_COLUMN_WIDTH:
+                    self.assertLessEqual(wrap_lines(text, capacity), MAX_HEADER_LINES, f"{sheet['title']}: {text[:30]}")
+
+    def test_widths_never_shrink_below_the_data_minimum(self):
+        """Заданная вручную ширина — минимум под данные: подгонка под заголовки только расширяет колонки."""
+        from app.services.excel_layout import MAX_COLUMN_WIDTH
+
+        manual = {"Перечень ИС": [5, 26, 32, 26, 24, 18, 42, 30, 30, 16, 12, 24, 20, 30, 30, 24, 26, 26],
+                  "Организация управления ВМ": [22, 20, 20, 24, 20, 28, 22, 32, 20, 32]}
+        for sheet in default_registry_template_config()["sheets"]:
+            if sheet["title"] in manual:
+                for column, minimum in zip(sheet["columns"], manual[sheet["title"]]):
+                    self.assertGreaterEqual(column["width"], minimum)
+                    self.assertLessEqual(column["width"], max(minimum, MAX_COLUMN_WIDTH))
+
     def test_description_mentions_original_report_is_unaffected(self):
         # Ключевое требование: пользователь не должен подумать, что этот шаблон заменяет собой
         # регламентированный отчёт (кнопка "Отчёт Excel" на дашборде) — см. описание задачи.
