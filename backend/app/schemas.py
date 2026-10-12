@@ -278,6 +278,14 @@ class DeviceStackMemberRequest(_StrictBody):
     position: int = Field(default=1, ge=1)
 
 
+class DeviceStackVlanIpRequest(_StrictBody):
+    """PUT /device-stacks/{id}/vlans/{vlan_id} — общие IP-адрес и префикс VLAN для всех устройств стека.
+
+    Оба поля пустые — очистить адрес у всех участников; одно без другого сервис отклоняет (422)."""
+    ip_address: Optional[str] = None
+    prefix_length: Optional[int] = Field(default=None, ge=0, le=32)
+
+
 # Ресурс (ключ registry.MODEL_MAP) -> (схема для create, схема для update).
 # Ресурсы, не перечисленные здесь, продолжают проходить через generic CRUD как сырой dict —
 # это осознанное инкрементальное покрытие, а не временное состояние одного ресурса.

@@ -18,6 +18,7 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import SearchableSelect from './SearchableSelect.vue'
+import DeviceStackVlanIpEditor from './DeviceStackVlanIpEditor.vue'
 import DeviceFormModal from './DeviceFormModal.vue'
 import ConnectionFormModal from './ConnectionFormModal.vue'
 
@@ -38,6 +39,8 @@ function emptyForm() {
 const form = reactive(emptyForm())
 
 const detail = ref<DeviceStackDetail | null>(null)
+// Растёт при каждой успешной загрузке состава: блок общих IP VLAN перечитывает свои данные вместе с составом стека.
+const vlanReloadToken = ref(0)
 const loadingDetail = ref(false)
 const addMemberDeviceId = ref('')
 const addMemberPosition = ref(1)
@@ -57,6 +60,7 @@ async function loadDetail(stackId: string) {
   try {
     detail.value = await api.get<DeviceStackDetail>(`/device-stacks/${stackId}/detail`)
     addMemberPosition.value = (detail.value.members.length ?? 0) + 1
+    vlanReloadToken.value += 1
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить состав стека'
   } finally {
@@ -113,6 +117,11 @@ async function removeMember(member: DeviceStackMemberDetail) {
   } finally {
     memberBusyId.value = null
   }
+}
+
+/** Общий IP применён: назначения VLAN у устройств могли появиться/измениться — обновляем таблицу устройств (VLAN, управляющие адреса). */
+async function onSharedVlanIpApplied() {
+  await devicesStore.reload()
 }
 
 async function onDeviceSaved() {
@@ -271,6 +280,13 @@ async function submit() {
               </button>
               <p v-if="detail.members.length < 2" class="hint">Нужно минимум два устройства в стеке, чтобы их соединить.</p>
             </div>
+
+            <DeviceStackVlanIpEditor
+              :stack-id="props.stack!.id"
+              :member-count="detail.members.length"
+              :reload-token="vlanReloadToken"
+              @applied="onSharedVlanIpApplied"
+            />
           </template>
         </template>
         <p v-else class="loading-hint field-wide">Состав и топологию стека можно настроить после первого сохранения.</p>

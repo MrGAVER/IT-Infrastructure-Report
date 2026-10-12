@@ -707,6 +707,43 @@ export interface DeviceStackDetail {
   connections: Connection[]
 }
 
+/** Состояние одного VLAN у одного участника стека — GET /api/v1/device-stacks/{id}/vlans (members). */
+export interface StackVlanMemberState {
+  physical_device_id: string
+  device_name: string
+  assigned: boolean
+  ip_address: string | null
+  prefix_length: number | null
+}
+
+/** VLAN, назначенный хотя бы одному участнику стека (кластера). ip_address/prefix_length — значение, на котором сошлись
+ * все участники с этим VLAN (null при разногласии); is_uniform — VLAN назначен каждому участнику и адрес у всех одинаков. */
+export interface StackVlanRow {
+  vlan_id: string
+  vlan_number: number
+  vlan_name: string
+  domain_id: string | null
+  ip_address: string | null
+  prefix_length: number | null
+  is_uniform: boolean
+  assigned_count: number
+  member_count: number
+  members: StackVlanMemberState[]
+}
+
+/** VLAN справочника, который ещё не назначен участникам стека и может быть назначен каждому из них. */
+export interface StackVlanOption {
+  vlan_id: string
+  vlan_number: number
+  vlan_name: string
+}
+
+/** Ответ GET /api/v1/device-stacks/{id}/vlans и PUT /api/v1/device-stacks/{id}/vlans/{vlan_id}. */
+export interface DeviceStackVlans {
+  items: StackVlanRow[]
+  available: StackVlanOption[]
+}
+
 /** Черновая строка DeviceVlanListEditor.vue. */
 export interface DeviceVlanDraftRow {
   id?: string
