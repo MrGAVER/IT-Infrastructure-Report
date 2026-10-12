@@ -707,6 +707,80 @@ export interface DeviceStackDetail {
   connections: Connection[]
 }
 
+/** Состояние одного VLAN у одного участника стека — GET /api/v1/device-stacks/{id}/vlans (members). */
+export interface StackVlanMemberState {
+  physical_device_id: string
+  device_name: string
+  assigned: boolean
+  ip_address: string | null
+  prefix_length: number | null
+  is_management: boolean
+  description: string | null
+}
+
+/** Общая настройка VLAN стека (кластера): IP-адрес, префикс и «Управление» заданы стеку и записаны каждому участнику.
+ * is_uniform — у каждого участника VLAN назначен и значения равны настройке (иначе нужно «Применить ко всем»). */
+export interface StackVlanRow {
+  vlan_id: string
+  vlan_number: number
+  vlan_name: string
+  domain_id: string | null
+  is_shared: true
+  ip_address: string | null
+  prefix_length: number | null
+  is_management: boolean
+  is_uniform: boolean
+  assigned_count: number
+  member_count: number
+  members: StackVlanMemberState[]
+}
+
+/** VLAN справочника, который ещё можно сделать общим для стека (его можно назначить каждому участнику). Адрес с префиксом —
+ * подсказка: значение, на котором сошлись участники с этим VLAN; is_management — «Управление» включено хотя бы у одного. */
+export interface StackVlanOption {
+  vlan_id: string
+  vlan_number: number
+  vlan_name: string
+  ip_address: string | null
+  prefix_length: number | null
+  is_management: boolean
+  assigned_count: number
+}
+
+/** Ответ GET/PUT/DELETE /api/v1/device-stacks/{id}/vlans[/{vlan_id}]. */
+export interface DeviceStackVlans {
+  stack_name: string
+  member_count: number
+  items: StackVlanRow[]
+  available: StackVlanOption[]
+}
+
+/** Значения, которые общая настройка задаёт устройству. */
+export interface StackVlanValues {
+  ip_address: string | null
+  prefix_length: number | null
+  is_management: boolean
+}
+
+/** Одна строка предпросмотра добавления устройства в стек: 'add' — VLAN будет назначен, 'update' — значения заменятся (before → after). */
+export interface StackMemberChange {
+  vlan_id: string
+  vlan_number: number
+  vlan_name: string
+  action: 'add' | 'update'
+  before: StackVlanValues | null
+  after: StackVlanValues
+}
+
+/** GET /api/v1/device-stacks/{id}/members/preview — что произойдёт с данными устройства при добавлении в стек. */
+export interface StackMemberPreview {
+  stack_name: string
+  device_name: string
+  already_member: boolean
+  changes: StackMemberChange[]
+  unchanged_count: number
+}
+
 /** Черновая строка DeviceVlanListEditor.vue. */
 export interface DeviceVlanDraftRow {
   id?: string

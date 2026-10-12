@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceStackFormModal from '../DeviceStackFormModal.vue'
 import ConnectionFormModal from '../ConnectionFormModal.vue'
+import DeviceStackVlanIpEditor from '../DeviceStackVlanIpEditor.vue'
 import { useDevicesStore } from '../../stores/devices'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useConnectionsStore } from '../../stores/connections'
@@ -355,5 +356,188 @@ describe('DeviceStackFormModal.vue', () => {
     await flushPromises()
 
     expect(wrapper.findAllComponents({ name: 'DeviceFormModal' }).length).toBeGreaterThan(0)
+  })
+
+  describe('подтверждение добавления в стек при заданных общих настройках VLAN', () => {
+    const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
+    const member = { id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never
+    const PREVIEW = {
+      stack_name: 'Стек ядра',
+      device_name: 'core-sw-02',
+      already_member: false,
+      unchanged_count: 0,
+      changes: [{ vlan_id: 'v-10', vlan_number: 10, vlan_name: 'mgmt', action: 'add', before: null, after: { ip_address: '10.0.10.1', prefix_length: 24, is_management: true } }],
+    }
+
+    function stubApi(calls: Array<{ url: string; method: string }>, preview: unknown | Response) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method })
+          if (url.includes('/device-stacks/stack-1/detail')) return jsonResponse(detailResponse({ members: [member] }))
+          if (url.includes('/members/preview')) return preview instanceof Response ? preview : jsonResponse(preview)
+          if (url.includes('/device-stacks/stack-1/vlans')) return jsonResponse({ stack_name: 'Стек ядра', member_count: 1, items: [], available: [] })
+          if (method === 'POST' && url.includes('/device-stacks/stack-1/members')) return jsonResponse({ id: 'sm-2' }, 201)
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+    }
+
+    async function pickDeviceAndAdd(wrapper: ReturnType<typeof mount>) {
+      await wrapper.find('.add-member-row .searchable-select input').trigger('focus')
+      await wrapper.find('.add-member-row .ss-option').trigger('mousedown')
+      await wrapper.find('.add-member-row > button.btn-secondary').trigger('click')
+      await flushPromises()
+    }
+
+    const byId = (id: string) => document.body.querySelector(`[data-testid="${id}"]`) as HTMLElement | null
+    afterEach(() => {
+      document.body.innerHTML = ''
+    })
+
+    it('если данные устройства изменятся — показывает окно и НЕ добавляет, пока не подтверждено', async () => {
+      seedDevices()
+      const calls: Array<{ url: string; method: string }> = []
+      stubApi(calls, PREVIEW)
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+
+      await pickDeviceAndAdd(wrapper)
+
+      expect(byId('stack-member-confirm')).not.toBeNull()
+      expect(byId('stack-member-confirm')?.textContent).toContain('Будет назначен VLAN: 10.0.10.1/24, «Управление»')
+      expect(calls.some((c) => c.method === 'POST' && c.url.includes('/members') && !c.url.includes('preview'))).toBe(false)
+    })
+
+    it('«Добавить в стек» в окне выполняет POST и закрывает окно', async () => {
+      seedDevices()
+      const calls: Array<{ url: string; method: string }> = []
+      stubApi(calls, PREVIEW)
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+      await pickDeviceAndAdd(wrapper)
+
+      byId('stack-member-accept')!.click()
+      await flushPromises()
+
+      expect(calls.filter((c) => c.method === 'POST' && c.url.includes('/device-stacks/stack-1/members'))).toHaveLength(1)
+      expect(byId('stack-member-confirm')).toBeNull()
+    })
+
+    it('«Отказаться» закрывает окно, ничего не добавляя', async () => {
+      seedDevices()
+      const calls: Array<{ url: string; method: string }> = []
+      stubApi(calls, PREVIEW)
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+      await pickDeviceAndAdd(wrapper)
+
+      byId('stack-member-cancel')!.click()
+      await flushPromises()
+
+      expect(byId('stack-member-confirm')).toBeNull()
+      expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0)
+    })
+
+    it('если менять нечего — добавляет сразу, без окна', async () => {
+      seedDevices()
+      const calls: Array<{ url: string; method: string }> = []
+      stubApi(calls, { ...PREVIEW, changes: [], unchanged_count: 2 })
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+
+      await pickDeviceAndAdd(wrapper)
+
+      expect(byId('stack-member-confirm')).toBeNull()
+      expect(calls.filter((c) => c.method === 'POST' && c.url.includes('/device-stacks/stack-1/members'))).toHaveLength(1)
+    })
+
+    it('отказ предпросмотра (устройство в другом стеке / VLAN вне домена) показывается в форме, без окна и без POST', async () => {
+      seedDevices()
+      const calls: Array<{ url: string; method: string }> = []
+      stubApi(calls, jsonResponse({ detail: 'Устройство не входит в домен VLAN: 70' }, 422))
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+
+      await pickDeviceAndAdd(wrapper)
+
+      expect(byId('stack-member-confirm')).toBeNull()
+      expect(wrapper.text()).toContain('не входит в домен VLAN')
+      expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0)
+    })
+  })
+
+  describe('общие IP-адреса VLAN стека', () => {
+    const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
+    const member = { id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never
+
+    function stubStackApi(calls: string[]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          calls.push(url)
+          if (url.includes('/device-stacks/stack-1/detail')) return jsonResponse(detailResponse({ members: [member] }))
+          if (url.includes('/device-stacks/stack-1/vlans')) return jsonResponse({ items: [], available: [] })
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+    }
+
+    it('при редактировании показывает блок и загружает VLAN стека; при создании блока нет', async () => {
+      seedDevices()
+      const calls: string[] = []
+      stubStackApi(calls)
+
+      const editing = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+      expect(editing.find('[data-testid="stack-vlan-ip-editor"]').exists()).toBe(true)
+      expect(calls.some((u) => u.includes('/device-stacks/stack-1/vlans'))).toBe(true)
+
+      const creating = mount(DeviceStackFormModal, { props: { stack: null } })
+      await flushPromises()
+      expect(creating.find('[data-testid="stack-vlan-ip-editor"]').exists()).toBe(false)
+    })
+
+    it('после добавления устройства в стек заново читает VLAN стека (новый участник мог не получить общий адрес)', async () => {
+      seedDevices()
+      const calls: Array<{ url: string; method: string }> = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method })
+          if (url.includes('/device-stacks/stack-1/detail')) return jsonResponse(detailResponse({ members: [member] }))
+          if (url.includes('/device-stacks/stack-1/vlans')) return jsonResponse({ items: [], available: [] })
+          if (method === 'POST' && url.includes('/device-stacks/stack-1/members')) return jsonResponse({ id: 'sm-2' }, 201)
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+      const vlanReads = () => calls.filter((c) => c.method === 'GET' && c.url.includes('/device-stacks/stack-1/vlans')).length
+      expect(vlanReads()).toBe(1)
+
+      await wrapper.find('.add-member-row .searchable-select input').trigger('focus')
+      await wrapper.find('.add-member-row .ss-option').trigger('mousedown')
+      await wrapper.find('.add-member-row > button.btn-secondary').trigger('click')
+      await flushPromises()
+
+      expect(vlanReads()).toBe(2)
+    })
+
+    it('после применения общего адреса перезагружает список устройств (VLAN и управляющие адреса могли измениться)', async () => {
+      seedDevices()
+      const calls: string[] = []
+      stubStackApi(calls)
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+      const devicesBefore = calls.filter((u) => u.endsWith('/devices')).length
+
+      wrapper.getComponent(DeviceStackVlanIpEditor).vm.$emit('applied')
+      await flushPromises()
+
+      expect(calls.filter((u) => u.endsWith('/devices')).length).toBe(devicesBefore + 1)
+    })
   })
 })

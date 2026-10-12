@@ -59,6 +59,11 @@ ALLOWED_DELETIONS = {
     # назначения VLAN
     # replace=true при синхронизации домена снимает VLAN у участников (дочерние назначения; устройства не удаляются)
     ("app/services/vlan_operations.py", "_sync_member_device", "PhysicalDeviceVLAN"),
+    # снятие общей настройки VLAN стека: сама настройка (DeviceStackVLAN — листовая запись) и, по явному запросу, назначения
+    # этого VLAN участникам стека (дочерние строки; устройства не удаляются). Назначения удаляются только если VLAN не
+    # используется портами, группами портов и подинтерфейсами участников — иначе 409 до любого удаления
+    ("app/services/device_stack_vlans.py", "remove_stack_vlan", "setting"),
+    ("app/services/device_stack_vlans.py", "remove_stack_vlan", "link"),
     # generic-удаление: перед ним вызывается assert_deletable(), затем очистка полиморфных дочерних
     ("app/services/crud/deletion.py", "delete_resource", "cleanup_model"),
     ("app/services/crud/deletion.py", "delete_resource", "obj"),

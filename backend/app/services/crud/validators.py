@@ -9,6 +9,7 @@ from ...models import Connection, Container, DeviceInterface, DeviceModel, Devic
 from ...constants import ErrorCode
 from ..diagram_icons import validate_svg_markup
 from ..port_config import DEFAULT_VLAN_MODE, VLAN_MODE_ACCESS, VLAN_MODE_TRUNK
+from .stack_vlan_settings import assert_device_vlan_editable, locked_vlan_ids, normalize_ip
 from ..validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
 
 
@@ -78,6 +79,13 @@ def _validate_container_entry(data: dict[str, Any], session: Session, item_id: s
 
 def _validate_physical_device_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     _validate_physical_device_vlan(data, session)
+    # Значения VLAN, заданные общей настройкой стека, не меняются и этим путём (data — запись целиком, в том числе при правке).
+    device_id, vlan_id = data.get('physical_device_id'), data.get('vlan_id')
+    if device_id and vlan_id and vlan_id in locked_vlan_ids(session, device_id):
+        prefix = data.get('prefix_length')
+        try: prefix = None if prefix in (None, '') else int(prefix)
+        except (TypeError, ValueError): pass  # нечисловое значение заведомо не равно настройке — получит понятный 409
+        assert_device_vlan_editable(session, device_id, {vlan_id: (normalize_ip(data.get('ip_address')), prefix, bool(data.get('is_management')))}, set())
 
 
 def _validate_device_model_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:

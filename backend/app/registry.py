@@ -1,7 +1,7 @@
 from __future__ import annotations
 from .models import (
     AuditLog, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface,
-    DeployedSoftware, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InterfaceSpeed, InterfaceType,
+    DeployedSoftware, DeviceModel, DeviceStack, DeviceStackMember, DeviceStackVLAN, DeviceType, DiagramIcon, IPAddress, InterfaceSpeed, InterfaceType,
     ISDepartment, ISProtocol, InformationSystem, InformationSystemSource, InterfaceVLAN, OpenPort, ProtocolPortCatalog,
     Manufacturer, OperatingSystem, OperatingSystemCategory, EmbeddedOperatingSystem, DeviceTypeVLAN, PhysicalDeviceVLAN, SupportOrganization, SupportMethod, CryptoProtectionMeans, PlacementAsset, ISPlacementAsset, PhysicalDevice,
     Rack, Room, SoftwareAsset, StructuralUnit, VLAN, VLANDomain, VLANDomainDevice, VirtualMachine,
@@ -12,7 +12,7 @@ from .models import (
 # generic-эндпоинты POST/PUT/DELETE /api/v1/resources/{resource} (services/crud/:
 # create_resource/update_resource/delete_resource) обязаны проверять этот набор — иначе любой
 # клиент может подделать или стереть журнал аудита через /api/v1/resources/audit-log.
-READONLY_RESOURCES = frozenset({'audit-log'})
+READONLY_RESOURCES = frozenset({'audit-log', 'device-stack-vlans'})
 
 MODEL_MAP = {
     # Фикс: справочник 'organizations' удалён целиком (снят из MODEL_MAP/DISPLAY_NAMES здесь, см.
@@ -30,7 +30,7 @@ MODEL_MAP = {
     'connection-types': ConnectionType, 'connections': Connection, 'vms': VirtualMachine, 'ip-addresses': IPAddress,
     'containers': Container, 'software-assets': SoftwareAsset, 'deployed-software': DeployedSoftware, 'is-sources': InformationSystemSource,
     'open-ports': OpenPort, 'audit-log': AuditLog,
-    'device-stacks': DeviceStack, 'device-stack-members': DeviceStackMember,
+    'device-stacks': DeviceStack, 'device-stack-members': DeviceStackMember, 'device-stack-vlans': DeviceStackVLAN,
 }
 
 DISPLAY_NAMES = {
@@ -44,5 +44,5 @@ DISPLAY_NAMES = {
     'vms':'Виртуальные машины', 'ip-addresses':'IP-адреса (интерфейсов устройств, ВМ и источников ИС — owner_type/owner_id, см. models.IPAddress)', 'containers':'Контейнеры', 'software-assets':'Программные активы',
     'deployed-software':'ПО, развёрнутое на устройствах и ВМ (owner_type/owner_id — см. models.DeployedSoftware)',
     'is-sources':'ИС ↔ источники размещения', 'open-ports':'Открытые порты', 'audit-log':'Аудит',
-    'device-stacks':'Стеки устройств', 'device-stack-members':'Устройства в стеках',
+    'device-stacks':'Стеки устройств', 'device-stack-members':'Устройства в стеках', 'device-stack-vlans':'Общие VLAN стеков',
 }

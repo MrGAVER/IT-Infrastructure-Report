@@ -433,4 +433,62 @@ describe('DeviceVlanListEditor.vue', () => {
       expect(wrapper.find('.join-domain-row').exists()).toBe(true)
     })
   })
+
+  describe('VLAN, заданные общей настройкой стека: правка запрещена', () => {
+    const rows: DeviceVlanDraftRow[] = [
+      { vlan_id: 'v-10', ip_address: '10.0.10.1', prefix_length: '24', is_management: true, description: '' },
+      { vlan_id: 'v-20', ip_address: '10.0.20.7', prefix_length: '24', is_management: false, description: '' },
+    ]
+    const lockedVlans = { 'v-10': 'Задано для стека «Ядро»: меняется в общих настройках VLAN стека' }
+
+    function mountLocked() {
+      return mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions, lockedVlans } })
+    }
+
+    it('у общей строки заблокированы IP, префикс, «Управление», выбор VLAN и удаление; соседняя строка редактируется', () => {
+      const wrapper = mountLocked()
+      const [locked, free] = wrapper.findAll('.nested-row')
+
+      expect(locked.attributes('data-locked')).toBe('true')
+      expect(locked.attributes('title')).toContain('«Ядро»')
+      expect((locked.find('input.col-ip').element as HTMLInputElement).disabled).toBe(true)
+      expect((locked.find('input[type="number"]').element as HTMLInputElement).disabled).toBe(true)
+      expect((locked.find('input[type="checkbox"]').element as HTMLInputElement).disabled).toBe(true)
+      expect((locked.find('.col-vlan .searchable-select input').element as HTMLInputElement).disabled).toBe(true)
+      expect((locked.find('button[aria-label="Удалить VLAN"]').element as HTMLButtonElement).disabled).toBe(true)
+
+      expect(free.attributes('data-locked')).toBeUndefined()
+      expect((free.find('input.col-ip').element as HTMLInputElement).disabled).toBe(false)
+      expect((free.find('input[type="checkbox"]').element as HTMLInputElement).disabled).toBe(false)
+      expect((free.find('button[aria-label="Удалить VLAN"]').element as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    it('показывает пояснение со счётчиком заблокированных VLAN; без блокировок пояснения нет', () => {
+      expect(mountLocked().get('[data-testid="vlan-locked-note"]').text()).toContain('1')
+      const plain = mount(DeviceVlanListEditor, { props: { modelValue: rows, vlanOptions } })
+      expect(plain.find('[data-testid="vlan-locked-note"]').exists()).toBe(false)
+      expect(plain.findAll('.nested-row').every((r) => r.attributes('data-locked') === undefined)).toBe(true)
+    })
+
+    it('заблокированная строка не эмитит изменений при попытке правки или удаления', async () => {
+      const wrapper = mountLocked()
+      const [locked] = wrapper.findAll('.nested-row')
+
+      await locked.find('input.col-ip').setValue('9.9.9.9')
+      await locked.find('button[aria-label="Удалить VLAN"]').trigger('click')
+
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    })
+
+    it('у свободной строки правка и удаление работают как раньше', async () => {
+      const wrapper = mountLocked()
+      const [, free] = wrapper.findAll('.nested-row')
+
+      await free.find('input.col-ip').setValue('10.0.20.9')
+
+      const emitted = wrapper.emitted('update:modelValue')!
+      expect((emitted.at(-1)![0] as DeviceVlanDraftRow[])[1].ip_address).toBe('10.0.20.9')
+      expect((emitted.at(-1)![0] as DeviceVlanDraftRow[])[0].ip_address).toBe('10.0.10.1') // общая строка не тронута
+    })
+  })
 })
