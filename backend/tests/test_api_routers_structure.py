@@ -40,7 +40,9 @@ EXPECTED_ROUTES = {
     }),
     "device_stacks": (device_stacks, {
         ("GET", "/api/v1/device-stacks/{stack_id}/detail"), ("POST", "/api/v1/device-stacks/{stack_id}/members"),
+        ("GET", "/api/v1/device-stacks/{stack_id}/members/preview"),
         ("GET", "/api/v1/device-stacks/{stack_id}/vlans"), ("PUT", "/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}"),
+        ("DELETE", "/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}"),
     }),
     "frontend_assets": (frontend_assets, {("GET", "/icons.svg"), ("GET", "/favicon.ico")}),
 }

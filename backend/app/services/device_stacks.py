@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..constants import AuditAction
 from ..models import Connection, DeviceInterface, DeviceStack, DeviceStackMember, PhysicalDevice
 from .crud import audit, validate_resource
+from .crud.stack_vlan_settings import apply_stack_settings_to_device
 from .serialization import enrich_connections, enrich_devices, serialize
 
 
@@ -60,7 +61,13 @@ def add_stack_member(session: Session, stack_id: str, physical_device_id: str | 
     if existing and existing.stack_id == stack_id: return serialize(existing)
     data = {'stack_id': stack_id, 'physical_device_id': device.id, 'position': position}
     validate_resource(DeviceStackMember, data, session, item_id=None)
+    # Общие настройки VLAN стека записываются устройству той же транзакцией (до добавления: VLAN вне домена устройства — 422,
+    # и участник не создаётся). Окно подтверждения в интерфейсе перед этим показывает, что будет добавлено и заменено.
+    applied = apply_stack_settings_to_device(session, stack_id, device)
     obj = DeviceStackMember(**data)
     session.add(obj); session.flush()
-    audit(session, 'device-stack-members', obj.id, AuditAction.CREATE, f'Устройство добавлено в стек «{stack.name}»')
+    details = f'Устройство добавлено в стек «{stack.name}»'
+    if applied['added'] or applied['updated']:
+        details += f'; общие настройки VLAN: назначено {applied["added"]}, заменено {applied["updated"]}'
+    audit(session, 'device-stack-members', obj.id, AuditAction.CREATE, details)
     session.commit(); session.refresh(obj); return serialize(obj)

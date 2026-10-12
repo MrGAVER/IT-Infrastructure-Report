@@ -12,6 +12,7 @@ from ..serialization import serialize
 from ..integrity import integrity_error_response
 from ..validation import validate_ipv4_field, validate_prefix_length_field
 from .audit_log import audit
+from .stack_vlan_settings import Values, assert_device_vlan_editable
 from .validators import _validate_physical_device_vlan
 
 
@@ -29,6 +30,16 @@ def _normalize_device_vlan_item(item: dict[str, Any]) -> dict[str, Any]:
         'is_management': bool(item.get('is_management', False)),
         'description': item.get('description') or None,
     }
+
+
+def _incoming_values(items: list[Any]) -> dict[str, Values]:
+    """vlan_id -> (IP, префикс, «Управление») из запроса — для сверки с общими настройками стека."""
+    result: dict[str, Values] = {}
+    for item in items:
+        if isinstance(item, dict) and item.get('vlan_id'):
+            values = _normalize_device_vlan_item(item)
+            result[item['vlan_id']] = (values['ip_address'], values['prefix_length'], values['is_management'])
+    return result
 
 
 def _incoming_vlan_id(item: Any, incoming: set[str]) -> str:
@@ -76,6 +87,8 @@ def sync_device_vlans(device_id: str, payload: dict[str, Any], session: Session)
     existing = {x.vlan_id: x for x in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id)).all()}
     incoming: set[str] = set(); added = updated = 0
     try:
+        # Значения VLAN, заданные общей настройкой стека, на отдельном устройстве не меняются (409 до любой записи).
+        assert_device_vlan_editable(session, device_id, _incoming_values(items), set(existing))
         for item in items:
             vlan_id = _incoming_vlan_id(item, incoming)
             incoming.add(vlan_id)

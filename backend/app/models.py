@@ -229,6 +229,25 @@ class DeviceStackMember(TimestampMixin, Base):
     # физической замене одного члена стека на другой).
     position: Mapped[int] = mapped_column(Integer, default=1)
 
+class DeviceStackVLAN(TimestampMixin, Base):
+    """Общая настройка VLAN стека (кластера): один IP-адрес, префикс и признак «Управление» на VLAN для ВСЕХ
+    устройств стека. Строка есть — настройка «задана»: значения записаны каждому участнику (PhysicalDeviceVLAN) и у
+    участников не редактируются по отдельности (services/device_stack_vlans.py:assert_device_vlan_editable); новый
+    участник получает их при добавлении в стек. Источник значений — эта строка, а копии на устройствах нужны отчётам,
+    управляющим адресам и диаграмме, которые читают PhysicalDeviceVLAN.
+
+    stack_id с ondelete CASCADE — настройка принадлежит стеку; vlan_id без каскада: VLAN, заданный стеку, нельзя
+    удалить, пока настройка не снята (ресурс зарегистрирован в registry.MODEL_MAP только для этой проверки и
+    сообщений, запись через generic CRUD закрыта — registry.READONLY_RESOURCES)."""
+    __tablename__ = "device_stack_vlans"
+    __table_args__ = (UniqueConstraint("stack_id", "vlan_id", name="uq_device_stack_vlan"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    stack_id: Mapped[str] = mapped_column(ForeignKey("device_stacks.id", ondelete="CASCADE"), index=True)
+    vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+    prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
+    is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
 class InformationSystem(TimestampMixin, Base):
     __tablename__ = "information_systems"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

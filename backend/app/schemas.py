@@ -279,11 +279,12 @@ class DeviceStackMemberRequest(_StrictBody):
 
 
 class DeviceStackVlanIpRequest(_StrictBody):
-    """PUT /device-stacks/{id}/vlans/{vlan_id} — общие IP-адрес и префикс VLAN для всех устройств стека.
+    """PUT /device-stacks/{id}/vlans/{vlan_id} — общая настройка VLAN для всех устройств стека: IP-адрес, префикс и «Управление».
 
-    Оба поля пустые — очистить адрес у всех участников; одно без другого сервис отклоняет (422)."""
+    IP-адрес и префикс — только вместе (либо оба пустые: адреса нет); одно без другого сервис отклоняет (422)."""
     ip_address: Optional[str] = None
     prefix_length: Optional[int] = Field(default=None, ge=0, le=32)
+    is_management: bool = False
 
 
 # Ресурс (ключ registry.MODEL_MAP) -> (схема для create, схема для update).

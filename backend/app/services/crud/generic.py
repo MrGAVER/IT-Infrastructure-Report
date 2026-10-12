@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ...models import AuditLog, Connection, DeviceInterface, InformationSystem, ISProtocol, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
+from ...models import AuditLog, Connection, DeviceInterface, DeviceStackMember, InformationSystem, ISProtocol, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
 from ...constants import AuditAction
 from ..serialization import enrich_devices, enrich_interfaces, enrich_connections, enrich_information_systems, enrich_open_port, enrich_open_ports, serialize
 from ..integrity import integrity_error_response
@@ -16,6 +16,7 @@ from .audit_log import _describe_update, audit
 from .columns import allowed_columns, model_for
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
 from .payload import ensure_writable, validate_payload_schema
+from .stack_vlan_settings import apply_stack_settings_to_device
 from .validators import _release_rack_slot, validate_resource
 from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _stale_subinterfaces_on_vlan, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
 
@@ -163,6 +164,10 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
             _auto_assign_new_domain_vlan_to_domain_devices(obj, session)
         if model is VLANDomainDevice:
             assign_domain_vlans_to_device(obj.domain_id, obj.physical_device_id, session)
+        if model is DeviceStackMember:
+            # Тот же результат, что у POST /device-stacks/{id}/members: общие настройки VLAN стека — новому участнику.
+            member = session.get(PhysicalDevice, obj.physical_device_id)
+            if member: apply_stack_settings_to_device(session, obj.stack_id, member)
         audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:

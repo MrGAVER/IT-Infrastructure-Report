@@ -3232,3 +3232,109 @@ describe('DeviceFormModal.vue — «VLAN устройства»: сортиро�
     expect(editor.findAll('.nested-row')).toHaveLength(3)
   })
 })
+
+describe('DeviceFormModal.vue — общие настройки VLAN стека на самом устройстве', () => {
+  const definition = (id: string, vlanId: number, name: string) => ({
+    id, vlan_id: vlanId, name, description: '', domain_id: null, domain_name: '', devices: [],
+  })
+  const sharedRow = (overrides: Record<string, unknown> = {}) => ({
+    vlan_id: 'v-10', vlan_number: 10, vlan_name: 'Сеть 10', domain_id: null, is_shared: true as const, ip_address: '10.0.10.1', prefix_length: 24,
+    is_management: true, is_uniform: true, assigned_count: 2, member_count: 2,
+    members: [{ physical_device_id: 'dev-s', device_name: 'sw-1', assigned: true, ip_address: '10.0.10.1', prefix_length: 24, is_management: true, description: 'кластер' }],
+    ...overrides,
+  })
+  const stackState = (items: unknown[]) => ({ stack_name: 'Ядро', member_count: 2, items, available: [] })
+  const ownVlans = [
+    { id: 'dv-1', physical_device_id: 'dev-s', vlan_id: 'v-10', ip_address: '10.0.10.1', prefix_length: 24, is_management: true, description: 'кластер' },
+    { id: 'dv-2', physical_device_id: 'dev-s', vlan_id: 'v-20', ip_address: '10.0.20.7', prefix_length: 24, is_management: false, description: null },
+  ]
+
+  interface Call { method: string; url: string; body?: unknown }
+
+  // Устройство-участник стека «Ядро» (или обычное устройство, если inStack = false); состояние стека и PUT настройки отдаёт мок.
+  async function mountDevice(inStack: boolean, opts: { applied?: unknown; afterDelete?: unknown } = {}) {
+    const vlans = useVLANsStore()
+    vlans.groups = [10, 20].map((n) => ({ vlan_id: n, definitions: [definition(`v-${n}`, n, `Сеть ${n}`)] }))
+    vlans.loaded = true
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'GET' && url.includes('/resources/device-vlans')) return new Response(JSON.stringify({ items: ownVlans, total: 2, offset: 0, limit: 1000 }))
+        if (method === 'GET' && url.includes('/device-stacks/stack-1/vlans')) return new Response(JSON.stringify(stackState([sharedRow()])))
+        if (method === 'PUT' && url.includes('/device-stacks/stack-1/vlans/v-10')) return new Response(JSON.stringify(opts.applied ?? stackState([sharedRow()])))
+        if (method === 'DELETE' && url.includes('/device-stacks/stack-1/vlans/v-10')) return new Response(JSON.stringify(opts.afterDelete ?? stackState([])))
+        if (method === 'PUT' && url.endsWith('/devices/dev-s/vlans')) return new Response(JSON.stringify({ items: [] }))
+        if (method === 'PUT' && url.includes('/resources/devices/dev-s')) return new Response(JSON.stringify({ id: 'dev-s', device_type_id: 'dt-server', serial_number: 'SN-S-1' }))
+        return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+      }),
+    )
+    const device = { id: 'dev-s', device_type_id: 'dt-server', serial_number: 'SN-S-1', ...(inStack ? { stack_id: 'stack-1', stack_name: 'Ядро' } : {}) } as never
+    const wrapper = mount(DeviceFormModal, { props: { device } })
+    await flushPromises()
+    const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!
+    return { wrapper, vlanEditor, calls }
+  }
+
+  it('у устройства вне стека блока общих настроек нет и настройки стека не запрашиваются', async () => {
+    const { wrapper, calls } = await mountDevice(false)
+    expect(wrapper.find('[data-testid="stack-vlan-ip-editor"]').exists()).toBe(false)
+    expect(calls.some((c) => c.url.includes('/device-stacks/'))).toBe(false)
+  })
+
+  it('у участника стека блок показан, а общий VLAN в «VLAN устройства» заблокирован (остальные строки — нет)', async () => {
+    const { wrapper, vlanEditor } = await mountDevice(true)
+    expect(wrapper.find('[data-testid="stack-vlan-ip-editor"]').text()).toContain('«Ядро»')
+
+    const [shared, own] = vlanEditor.findAll('.nested-row')
+    expect(shared.attributes('data-locked')).toBe('true')
+    expect((shared.find('input.col-ip').element as HTMLInputElement).disabled).toBe(true)
+    expect((shared.find('input[type="checkbox"]').element as HTMLInputElement).disabled).toBe(true)
+    expect(own.attributes('data-locked')).toBeUndefined()
+    expect((own.find('input.col-ip').element as HTMLInputElement).disabled).toBe(false)
+  })
+
+  it('после «Применить ко всем» новые значения попадают в черновик устройства, и сохранение отправляет именно их', async () => {
+    const applied = stackState([sharedRow({ ip_address: '10.0.10.5' })])
+    const { wrapper, vlanEditor, calls } = await mountDevice(true, { applied })
+
+    const block = wrapper.find('[data-testid="stack-vlan-ip-editor"]')
+    await block.find('[data-testid="stack-vlan-ip"]').setValue('10.0.10.5')
+    await block.find('[data-testid="stack-vlan-apply"]').trigger('click')
+    await flushPromises()
+
+    const shared = vlanEditor.findAll('.nested-row')[0]
+    expect((shared.find('input.col-ip').element as HTMLInputElement).value).toBe('10.0.10.5')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const save = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-s/vlans'))!
+    const rows = (save.body as { vlans: { vlan_id: string; ip_address: string | null }[] }).vlans
+    expect(rows.find((r) => r.vlan_id === 'v-10')?.ip_address).toBe('10.0.10.5')
+  })
+
+  it('«Снять настройку» (значения остаются) разблокирует строку; «убрать и у устройств» удаляет её из черновика', async () => {
+    const kept = await mountDevice(true)
+    await kept.wrapper.find('[data-testid="stack-vlan-remove"]').trigger('click')
+    ;(document.body.querySelector('[data-testid="stack-vlan-remove-confirm"]') as HTMLElement).click()
+    await flushPromises()
+    const [unlocked] = kept.vlanEditor.findAll('.nested-row')
+    expect(unlocked.attributes('data-locked')).toBeUndefined()
+    expect((unlocked.find('input.col-ip').element as HTMLInputElement).value).toBe('10.0.10.1') // значения на устройстве сохранены
+    expect((unlocked.find('input.col-ip').element as HTMLInputElement).disabled).toBe(false)
+
+    setActivePinia(createPinia())
+    document.body.innerHTML = ''
+    const removed = await mountDevice(true)
+    await removed.wrapper.find('[data-testid="stack-vlan-remove"]').trigger('click')
+    ;(document.body.querySelector('[data-testid="stack-vlan-remove-from-devices"]') as HTMLElement).click()
+    ;(document.body.querySelector('[data-testid="stack-vlan-remove-confirm"]') as HTMLElement).click()
+    await flushPromises()
+    expect(removed.vlanEditor.findAll('.nested-row')).toHaveLength(1) // осталась только собственная строка VLAN 20
+    expect(removed.vlanEditor.text()).not.toContain('10 — Сеть 10')
+  })
+})

@@ -1,16 +1,20 @@
-"""Общие IP-адрес и маска VLAN для всех устройств стека (кластера).
+"""Общие IP-адрес, префикс и «Управление» VLAN для всех устройств стека (кластера).
 
-Участники стека/кластера делят один адрес на VLAN (общий управляющий адрес стека коммутаторов, виртуальный адрес
-пары межсетевых экранов). Отдельной сущности «общий адрес» нет: источник истины остаётся прежним — IP и префикс
-в PhysicalDeviceVLAN каждого участника (на них уже опираются отчёты, управляющие адреса и диаграмма). Сервис лишь
-- показывает, как этот VLAN настроен на участниках (общий адрес, «не у всех», «различается»);
-- одной транзакцией записывает один и тот же адрес и префикс всем участникам, создавая недостающие назначения VLAN.
-
-Такой подход не может рассинхронизироваться с формой устройства: правка адреса на отдельном устройстве просто
-отобразится в стеке как расхождение. Флаг «Управление» и описание существующих назначений не меняются.
+Участники стека/кластера делят один адрес на VLAN (общий управляющий адрес стека коммутаторов, виртуальный адрес пары
+межсетевых экранов). Настройка пары «стек — VLAN» хранится в models.DeviceStackVLAN и копируется каждому участнику
+(PhysicalDeviceVLAN) одной транзакцией. Пока настройка задана:
+- IP-адрес, префикс и «Управление» этого VLAN у участников не редактируются по отдельности (409 из
+  crud/stack_vlan_settings.py:assert_device_vlan_editable);
+- новый участник стека получает значения при добавлении, а окно подтверждения в интерфейсе заранее показывает, что
+  будет добавлено и заменено (preview_member_addition);
+- снять настройку можно отдельно (значения на устройствах остаются, поля снова редактируются) или вместе с VLAN у
+  всех устройств стека (remove_stack_vlan).
+Устройства, у которых значения разошлись с настройкой (например, VLAN убрали при выходе из домена), стек показывает
+как «не у всех»/«различаются» — «Применить ко всем» приводит их обратно.
 """
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from fastapi import HTTPException
@@ -19,12 +23,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..constants import AuditAction
-from ..models import DeviceStack, DeviceStackMember, PhysicalDevice, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
-from .crud import audit
+from ..models import (
+    DeviceInterface, DeviceStack, DeviceStackMember, DeviceStackVLAN, DeviceSubinterface, InterfaceGroup, InterfaceGroupVLAN, InterfaceVLAN,
+    PhysicalDevice, PhysicalDeviceVLAN, VLAN,
+)
+from .crud import audit, validate_resource
+from .crud.stack_vlan_settings import (
+    Values, device_label, domain_members, link_values, member_devices, normalize_ip, outside_domain, plan_member_settings, setting_values,
+    stack_settings, vlan_sort_key, write_link,
+)
 from .integrity import integrity_error_response
 from .validation import validate_ipv4_field
-
-IpPrefix = tuple[str | None, int | None]
 
 
 def _get_stack(session: Session, stack_id: str) -> DeviceStack:
@@ -34,159 +43,201 @@ def _get_stack(session: Session, stack_id: str) -> DeviceStack:
     return stack
 
 
-def _member_devices(session: Session, stack_id: str) -> list[PhysicalDevice]:
-    """Участники стека по позиции (при равных позициях — по id, чтобы порядок был стабильным)."""
-    return list(session.scalars(
-        select(PhysicalDevice)
-        .join(DeviceStackMember, DeviceStackMember.physical_device_id == PhysicalDevice.id)
-        .where(DeviceStackMember.stack_id == stack_id)
-        .order_by(DeviceStackMember.position, PhysicalDevice.id)
-    ).all())
+def _member_state(device: PhysicalDevice, link: PhysicalDeviceVLAN | None) -> dict[str, Any]:
+    return {
+        'physical_device_id': device.id,
+        'device_name': device_label(device),
+        'assigned': link is not None,
+        'ip_address': normalize_ip(link.ip_address) if link else None,
+        'prefix_length': link.prefix_length if link else None,
+        'is_management': bool(link.is_management) if link else False,
+        'description': link.description if link else None,
+    }
 
 
-def _device_label(device: PhysicalDevice) -> str:
-    return device.system_name or device.serial_number
-
-
-def _domain_members(session: Session, device_ids: list[str]) -> dict[str, set[str]]:
-    """domain_id -> id участников стека, входящих в этот домен VLAN (один запрос на весь стек)."""
-    result: dict[str, set[str]] = {}
-    if not device_ids:
-        return result
-    rows = session.execute(
-        select(VLANDomainDevice.domain_id, VLANDomainDevice.physical_device_id).where(VLANDomainDevice.physical_device_id.in_(device_ids))
-    ).all()
-    for domain_id, device_id in rows:
-        result.setdefault(domain_id, set()).add(device_id)
-    return result
-
-
-def _outside_domain(vlan: VLAN, members: list[PhysicalDevice], domain_members: dict[str, set[str]]) -> list[PhysicalDevice]:
-    """Участники, которым VLAN назначить нельзя: VLAN доменный, а устройство в домен не входит.
-
-    То же правило, что в crud/validators.py:_validate_physical_device_vlan, но для всех участников за раз."""
-    if not vlan.domain_id:
-        return []
-    inside = domain_members.get(vlan.domain_id, set())
-    return [d for d in members if d.id not in inside]
-
-
-def _normalize_ip(value: str | None) -> str | None:
-    return value or None
-
-
-def _vlan_row(vlan: VLAN, members: list[PhysicalDevice], links: dict[str, PhysicalDeviceVLAN]) -> dict[str, Any]:
-    """Состояние одного VLAN на участниках стека.
-
-    ip_address/prefix_length — значение, на котором сошлись ВСЕ участники, у которых VLAN назначен (даже если он
-    назначен не у всех: форма подставляет его, чтобы «Применить ко всем» достроило остальных); при разногласии — None.
-    is_uniform — VLAN назначен каждому участнику и адрес с префиксом у всех одинаковые."""
-    states = []
-    for device in members:
-        link = links.get(device.id)
-        states.append({
-            'physical_device_id': device.id,
-            'device_name': _device_label(device),
-            'assigned': link is not None,
-            'ip_address': _normalize_ip(link.ip_address) if link else None,
-            'prefix_length': link.prefix_length if link else None,
-        })
-    assigned_values: set[IpPrefix] = {(s['ip_address'], s['prefix_length']) for s in states if s['assigned']}
-    common: IpPrefix = next(iter(assigned_values)) if len(assigned_values) == 1 else (None, None)
-    assigned_count = sum(1 for s in states if s['assigned'])
+def _shared_row(vlan: VLAN, setting: DeviceStackVLAN, members: list[PhysicalDevice], links: dict[str, PhysicalDeviceVLAN]) -> dict[str, Any]:
+    """Заданная настройка и то, как она применена к участникам. is_uniform — у каждого участника VLAN назначен и
+    значения равны настройке; иначе стек показывает расхождение, а «Применить ко всем» его устраняет."""
+    want = setting_values(setting)
+    states = [_member_state(d, links.get(d.id)) for d in members]
+    matching = sum(1 for d in members if d.id in links and link_values(links[d.id]) == want)
     return {
         'vlan_id': vlan.id,
         'vlan_number': vlan.vlan_id,
         'vlan_name': vlan.name,
         'domain_id': vlan.domain_id,
-        'ip_address': common[0],
-        'prefix_length': common[1],
-        'is_uniform': assigned_count == len(members) and len(assigned_values) == 1,
-        'assigned_count': assigned_count,
+        'is_shared': True,
+        'ip_address': want[0],
+        'prefix_length': want[1],
+        'is_management': want[2],
+        'is_uniform': bool(members) and matching == len(members),
+        'assigned_count': sum(1 for s in states if s['assigned']),
         'member_count': len(members),
         'members': states,
     }
 
 
-def _sort_key(vlan: VLAN) -> tuple[int, str, str]:
-    return (vlan.vlan_id, vlan.name, vlan.id)
+def _candidate(vlan: VLAN, members: list[PhysicalDevice], links: dict[str, PhysicalDeviceVLAN]) -> dict[str, Any]:
+    """VLAN, который ещё можно сделать общим: подсказка для формы — адрес с префиксом, на которых сошлись участники с
+    этим VLAN (иначе пусто), и «Управление», если оно включено хотя бы у одного: флаг у одного устройства означает
+    флаг у всех, при применении он выставляется каждому участнику."""
+    assigned = [links[d.id] for d in members if d.id in links]
+    pairs = {(normalize_ip(l.ip_address), l.prefix_length) for l in assigned}
+    ip, prefix = next(iter(pairs)) if len(pairs) == 1 else (None, None)
+    return {
+        'vlan_id': vlan.id,
+        'vlan_number': vlan.vlan_id,
+        'vlan_name': vlan.name,
+        'ip_address': ip,
+        'prefix_length': prefix,
+        'is_management': any(l.is_management for l in assigned),
+        'assigned_count': len(assigned),
+    }
 
 
 def stack_vlans(session: Session, stack_id: str) -> dict[str, Any]:
-    """VLAN стека и их адреса на участниках.
+    """Общие настройки VLAN стека и состояние их применения.
 
-    items — VLAN, назначенные хотя бы одному участнику (по номеру VLAN); available — остальные VLAN справочника,
-    которые можно назначить КАЖДОМУ участнику (без домена либо из домена, куда входят все участники). Запросов
-    фиксированное число, не зависящее от размера стека."""
-    _get_stack(session, stack_id)
-    members = _member_devices(session, stack_id)
-    if not members:
-        return {'items': [], 'available': []}
+    items — заданные настройки (по номеру VLAN); available — остальные VLAN справочника, которые можно сделать общими
+    (без домена либо из домена, куда входят все участники), с подсказкой значений. Запросов фиксированное число, не
+    зависящее от размера стека."""
+    stack = _get_stack(session, stack_id)
+    members = member_devices(session, stack_id)
+    settings = stack_settings(session, stack_id)
     member_ids = [d.id for d in members]
     links_by_vlan: dict[str, dict[str, PhysicalDeviceVLAN]] = {}
-    for link in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(member_ids))).all():
-        links_by_vlan.setdefault(link.vlan_id, {})[link.physical_device_id] = link
+    if member_ids:
+        for link in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id.in_(member_ids))).all():
+            links_by_vlan.setdefault(link.vlan_id, {})[link.physical_device_id] = link
+    result: dict[str, Any] = {'stack_name': stack.name, 'member_count': len(members), 'items': [], 'available': []}
+    if not settings and not members:
+        return result
+    catalog = sorted(session.scalars(select(VLAN)).all(), key=vlan_sort_key)
+    result['items'] = [_shared_row(v, settings[v.id], members, links_by_vlan.get(v.id, {})) for v in catalog if v.id in settings]
+    if members:
+        members_by_domain = domain_members(session, member_ids)
+        result['available'] = [
+            _candidate(v, members, links_by_vlan.get(v.id, {}))
+            for v in catalog
+            if v.id not in settings and not outside_domain(v, members, members_by_domain)
+        ]
+    return result
 
-    catalog = sorted(session.scalars(select(VLAN)).all(), key=_sort_key)
-    domain_members = _domain_members(session, member_ids)
-    items = [_vlan_row(v, members, links_by_vlan[v.id]) for v in catalog if v.id in links_by_vlan]
-    available = [
-        {'vlan_id': v.id, 'vlan_number': v.vlan_id, 'vlan_name': v.name}
-        for v in catalog
-        if v.id not in links_by_vlan and not _outside_domain(v, members, domain_members)
-    ]
-    return {'items': items, 'available': available}
 
-
-def _validated_ip_prefix(ip_address: str | None, prefix_length: int | None) -> IpPrefix:
+def _validated_values(ip_address: str | None, prefix_length: int | None, is_management: bool) -> Values:
     """Адрес и префикс — только вместе: «общий IP без маски» не описывает сеть, а маска без адреса бессмысленна.
-    Оба пустые — осознанная очистка адреса у всех участников."""
+    Оба пустые — адреса нет (VLAN всё равно назначается, можно задать только «Управление»)."""
     validate_ipv4_field(ip_address, 'IP-адрес VLAN стека')
-    ip = _normalize_ip(ip_address)
+    ip = normalize_ip(ip_address)
     if (ip is None) != (prefix_length is None):
-        raise HTTPException(422, 'Укажите IP-адрес и префикс вместе либо оставьте оба поля пустыми, чтобы очистить адрес')
-    return ip, prefix_length
+        raise HTTPException(422, 'Укажите IP-адрес и префикс вместе либо оставьте оба поля пустыми')
+    return ip, prefix_length, bool(is_management)
 
 
-def apply_stack_vlan_ip(session: Session, stack_id: str, vlan_id: str, ip_address: str | None, prefix_length: int | None) -> dict[str, Any]:
-    """Записывает один адрес и префикс VLAN всем участникам стека; возвращает свежее состояние (как stack_vlans).
+def apply_stack_vlan(session: Session, stack_id: str, vlan_id: str, ip_address: str | None, prefix_length: int | None, is_management: bool = False) -> dict[str, Any]:
+    """Задаёт (или меняет) общую настройку VLAN стека и записывает её всем участникам; возвращает stack_vlans().
 
-    Недостающие назначения VLAN создаются (описание — из VLAN, как при массовом назначении), существующие
-    обновляются на месте, а уже совпадающие не трогаются (нет лишнего UPDATE). Все проверки идут ДО записи:
-    если VLAN доменный и хотя бы один участник в домен не входит, не меняется никто. Операция идемпотентна."""
-    ip, prefix = _validated_ip_prefix(ip_address, prefix_length)
+    Недостающие назначения VLAN создаются, существующие обновляются на месте (IP, префикс и «Управление»; описание не
+    меняется), совпадающие не трогаются. Все проверки идут ДО записи: если VLAN доменный и хотя бы один участник в
+    домен не входит, не меняется ничего. Операция идемпотентна — повтор «чинит» устройства, у которых значения разошлись."""
+    values = _validated_values(ip_address, prefix_length, is_management)
     stack = _get_stack(session, stack_id)
-    members = _member_devices(session, stack_id)
+    members = member_devices(session, stack_id)
     if not members:
-        raise HTTPException(409, 'В стеке нет устройств: добавьте участников, чтобы задать общий IP-адрес VLAN')
+        raise HTTPException(409, 'В стеке нет устройств: добавьте участников, чтобы задать общие настройки VLAN')
     vlan = session.get(VLAN, vlan_id)
     if not vlan:
         raise HTTPException(404, 'VLAN не найден')
-    outside = _outside_domain(vlan, members, _domain_members(session, [d.id for d in members]))
+    outside = outside_domain(vlan, members, domain_members(session, [d.id for d in members]))
     if outside:
-        names = ', '.join(_device_label(d) for d in outside)
+        names = ', '.join(device_label(d) for d in outside)
         raise HTTPException(422, f'VLAN {vlan.vlan_id} «{vlan.name}» принадлежит домену, в который не входят устройства стека: {names}. Включите их в домен или выберите другой VLAN')
 
-    existing = {
-        link.physical_device_id: link
-        for link in session.scalars(select(PhysicalDeviceVLAN).where(
-            PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members]))).all()
-    }
-    created = updated = 0
-    for device in members:
-        link = existing.get(device.id)
-        if link is None:
-            session.add(PhysicalDeviceVLAN(physical_device_id=device.id, vlan_id=vlan.id, ip_address=ip, prefix_length=prefix, description=vlan.description))
-            created += 1
-        elif (_normalize_ip(link.ip_address), link.prefix_length) != (ip, prefix):
-            link.ip_address, link.prefix_length = ip, prefix
-            updated += 1
-    address = f'{ip}/{prefix}' if ip else 'адрес очищен'
+    setting = session.scalar(select(DeviceStackVLAN).where(DeviceStackVLAN.stack_id == stack.id, DeviceStackVLAN.vlan_id == vlan.id))
+    if setting is None:
+        setting = DeviceStackVLAN(stack_id=stack.id, vlan_id=vlan.id)
+        session.add(setting)
+    setting.ip_address, setting.prefix_length, setting.is_management = values
+    links = {l.physical_device_id: l for l in session.scalars(
+        select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members]))).all()}
+    outcomes = Counter(write_link(session, d.id, vlan, links.get(d.id), values) for d in members)
+    address = f'{values[0]}/{values[1]}' if values[0] else 'адрес не задан'
+    flag = ', «Управление»' if values[2] else ''
     audit(session, 'device-stacks', stack.id, AuditAction.SYNC,
-          f'Общий IP VLAN {vlan.vlan_id} «{vlan.name}» для стека «{stack.name}»: {address}; назначено устройствам {created}, изменено {updated}, без изменений {len(members) - created - updated}')
+          f'Общая настройка VLAN {vlan.vlan_id} «{vlan.name}» для стека «{stack.name}»: {address}{flag}; назначено устройствам {outcomes["added"]}, изменено {outcomes["updated"]}, без изменений {outcomes[None]}')
     try:
         session.commit()
-    except IntegrityError as exc:  # параллельный запрос успел создать то же назначение (uq_physical_device_vlan)
+    except IntegrityError as exc:  # параллельный запрос успел создать то же назначение или настройку
         session.rollback()
-        raise integrity_error_response('device-vlans', exc) from exc
+        raise integrity_error_response('device-stack-vlans', exc) from exc
     return stack_vlans(session, stack_id)
+
+
+def _vlan_usage_by_device(session: Session, device_ids: list[str], vlan_id: str) -> Counter:
+    """Сколько связей портов, групп портов и подинтерфейсов каждого устройства используют VLAN."""
+    usage: Counter = Counter()
+    queries = (
+        select(DeviceInterface.physical_device_id).join(InterfaceVLAN, InterfaceVLAN.interface_id == DeviceInterface.id)
+        .where(InterfaceVLAN.vlan_id == vlan_id, DeviceInterface.physical_device_id.in_(device_ids)),
+        select(InterfaceGroup.physical_device_id).join(InterfaceGroupVLAN, InterfaceGroupVLAN.group_id == InterfaceGroup.id)
+        .where(InterfaceGroupVLAN.vlan_id == vlan_id, InterfaceGroup.physical_device_id.in_(device_ids)),
+        select(DeviceInterface.physical_device_id).join(DeviceSubinterface, DeviceSubinterface.parent_interface_id == DeviceInterface.id)
+        .where(DeviceSubinterface.vlan_id == vlan_id, DeviceInterface.physical_device_id.in_(device_ids)),
+    )
+    for query in queries:
+        usage.update(session.scalars(query).all())
+    return usage
+
+
+def remove_stack_vlan(session: Session, stack_id: str, vlan_id: str, remove_from_devices: bool = False) -> dict[str, Any]:
+    """Снимает общую настройку VLAN со стека; возвращает stack_vlans().
+
+    remove_from_devices=False (по умолчанию): значения на устройствах остаются, поля у них снова редактируются.
+    remove_from_devices=True: VLAN убирается и у всех участников стека — но только если ни порт, ни группа портов, ни
+    подинтерфейс участника его не используют (иначе 409 со списком устройств: сначала снимите VLAN с портов)."""
+    stack = _get_stack(session, stack_id)
+    setting = session.scalar(select(DeviceStackVLAN).where(DeviceStackVLAN.stack_id == stack.id, DeviceStackVLAN.vlan_id == vlan_id))
+    if not setting:
+        raise HTTPException(404, 'Общая настройка этого VLAN для стека не задана')
+    vlan = session.get(VLAN, vlan_id)
+    label = f'{vlan.vlan_id} «{vlan.name}»' if vlan else vlan_id
+    removed = 0
+    if remove_from_devices:
+        members = member_devices(session, stack_id)
+        names = {d.id: device_label(d) for d in members}
+        busy = _vlan_usage_by_device(session, list(names), vlan_id)
+        if busy:
+            listing = ', '.join(f'{names[device_id]} ({count})' for device_id, count in sorted(busy.items(), key=lambda item: names[item[0]]))
+            raise HTTPException(409, f'VLAN {label} нельзя убрать с устройств стека: он используется на портах, в группах портов или подинтерфейсах ({listing}). Сначала снимите VLAN с них или снимите настройку без удаления VLAN с устройств')
+        for link in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan_id, PhysicalDeviceVLAN.physical_device_id.in_(list(names)))).all():
+            session.delete(link)
+            removed += 1
+    session.delete(setting)
+    outcome = f'VLAN убран у устройств: {removed}' if remove_from_devices else 'значения на устройствах сохранены'
+    audit(session, 'device-stacks', stack.id, AuditAction.SYNC, f'Снята общая настройка VLAN {label} со стека «{stack.name}»: {outcome}')
+    session.commit()
+    return stack_vlans(session, stack_id)
+
+
+def preview_member_addition(session: Session, stack_id: str, physical_device_id: str, position: int = 1) -> dict[str, Any]:
+    """Что произойдёт с данными устройства при добавлении в стек — для окна подтверждения.
+
+    changes — только изменяющие данные строки по общим настройкам стека: 'add' (VLAN будет назначен) и 'update'
+    (значения устройства заменятся: before → after); unchanged_count — сколько настроек у устройства уже совпадает.
+    Те же проверки, что у самого добавления (устройство в другом стеке — 409, VLAN вне домена устройства — 422)."""
+    stack = _get_stack(session, stack_id)
+    device = session.get(PhysicalDevice, physical_device_id)
+    if not device:
+        raise HTTPException(404, 'Физическое устройство не найдено')
+    base = {'stack_name': stack.name, 'device_name': device_label(device)}
+    existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == device.id))
+    if existing and existing.stack_id == stack_id:
+        return {**base, 'already_member': True, 'changes': [], 'unchanged_count': 0}
+    validate_resource(DeviceStackMember, {'stack_id': stack_id, 'physical_device_id': device.id, 'position': position}, session, item_id=None)
+    plan = plan_member_settings(session, stack_id, device)
+    return {
+        **base,
+        'already_member': False,
+        'changes': [item for item in plan if item['action'] != 'keep'],
+        'unchanged_count': sum(1 for item in plan if item['action'] == 'keep'),
+    }

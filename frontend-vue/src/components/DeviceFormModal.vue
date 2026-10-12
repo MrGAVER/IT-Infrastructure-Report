@@ -15,7 +15,7 @@ import { stripSubinterfaceIds, subinterfaceVlanRemovalMessage } from '../utils/s
 import { cloneGroupsForCopy, validateInterfaceGroups } from '../utils/interfaceGroups'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { computePortVlanOptions, loadDeviceTypeVlanIds } from '../api/portVlans'
-import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, InterfaceGroupDraft, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, PortConflictInfo } from '../api/types'
+import type { Device, DeviceMemberDomain, DeviceModel, Rack, Room, DeployedSoftware, SoftwareAssetDraftRow, InterfaceDraftRow, InterfaceGroupDraft, DeviceStackVlans, DeviceVLAN, DeviceVlanDraftRow, VLANDomainDeviceLink, PortConflictInfo } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
@@ -30,6 +30,7 @@ import { vTruncateTooltip } from '../directives/truncateTooltip'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
+import DeviceStackVlanIpEditor from './DeviceStackVlanIpEditor.vue'
 import DeviceIconPicker from './DeviceIconPicker.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
@@ -37,6 +38,7 @@ import type { SearchableSelectOption } from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
 import { stripIds } from '../utils/copyEntity'
 import { duplicateVlansMessage, sortDeviceVlanRows } from '../utils/deviceVlans'
+import { lockedVlanReasons, mergeSharedSettingsIntoDraft } from '../utils/stackVlans'
 import { filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft } from '../utils/vlan'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig, type PortRowLike } from '../utils/portConflicts'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
@@ -109,6 +111,29 @@ const interfaceGroups = ref<InterfaceGroupDraft[]>([])
 const deviceVlans = ref<DeviceVlanDraftRow[]>([])
 // Блок «VLAN устройства»: форма раскрывает его, когда ошибка сохранения относится к строке, скрытой сворачиванием.
 const vlanEditor = ref<InstanceType<typeof DeviceVlanListEditor> | null>(null)
+// Общие настройки VLAN стека (блок «Общие настройки VLAN стека» показывается, только если устройство состоит в стеке).
+// Пока настройка VLAN задана, IP-адрес, префикс и «Управление» этого VLAN у устройства не редактируются — состояние берётся
+// у самого блока (update:state) и превращается в блокировку строк «VLAN устройства».
+const deviceStackId = computed(() => props.device?.stack_id ?? null)
+const stackVlanState = ref<DeviceStackVlans | null>(null)
+const lockedStackVlans = computed(() => (stackVlanState.value ? lockedVlanReasons(stackVlanState.value.items, stackVlanState.value.stack_name) : {}))
+
+function onStackVlanState(state: DeviceStackVlans) {
+  stackVlanState.value = state
+}
+
+// Настройка применена: сервер записал значения и этому устройству (и создал недостающие назначения) — переносим их в черновик
+// «VLAN устройства», иначе сохранение формы отправило бы устаревшие значения (сервер такую правку отклонит, 409).
+async function onStackVlanApplied(state: DeviceStackVlans) {
+  if (props.device) deviceVlans.value = sortDeviceVlanRows(mergeSharedSettingsIntoDraft(deviceVlans.value, state.items, props.device.id), vlansStore.allDefinitions)
+  await devicesStore.reload()
+}
+
+// Настройка снята: значения на устройстве остаются (поля снова редактируются), а при «убрать и у устройств» строка исчезает.
+async function onStackVlanRemoved(info: { vlanId: string; fromDevices: boolean }) {
+  if (info.fromDevices) deviceVlans.value = deviceVlans.value.filter((row) => row.vlan_id !== info.vlanId)
+  await devicesStore.reload()
+}
 // Пункт 5: конфигурация (Управление/Передача данных/режим порта) уже сохранённых портов на момент
 // открытия формы — по ней при сохранении определяется, что конфигурация порта с расхождением
 // относительно соседа сохраняется ВПЕРВЫЕ (см. utils/portConflicts.ts). Не реактивна намеренно: это
@@ -1004,10 +1029,19 @@ async function submit() {
           :device-domain-id="singleDeviceDomainId"
           :joinable-domains="joinableDomains"
           :member-domains="memberDomains"
+          :locked-vlans="lockedStackVlans"
           @cancel-join-domain="onCancelJoinDomain"
           @vlan-created="onVlanCreated"
           @vlan-domain-created="onVlanDomainCreated"
           @join-domain="onJoinDomainRequested"
+        />
+        <DeviceStackVlanIpEditor
+          v-if="deviceStackId && !loadingNested"
+          :stack-id="deviceStackId"
+          :reload-token="0"
+          @update:state="onStackVlanState"
+          @applied="onStackVlanApplied"
+          @removed="onStackVlanRemoved"
         />
       </form>
 

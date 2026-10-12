@@ -12,13 +12,14 @@
 // POST /device-stacks/{id}/members, которому нужен реальный id стека.
 import { computed, reactive, ref, watch } from 'vue'
 import { api, createResource, deleteResource, updateResource } from '../api/client'
-import type { Connection, Device, DeviceStack, DeviceStackDetail, DeviceStackMemberDetail } from '../api/types'
+import type { Connection, Device, DeviceStack, DeviceStackDetail, DeviceStackMemberDetail, StackMemberPreview } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsStore } from '../stores/connections'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import SearchableSelect from './SearchableSelect.vue'
 import DeviceStackVlanIpEditor from './DeviceStackVlanIpEditor.vue'
+import StackMemberAddConfirmModal from './StackMemberAddConfirmModal.vue'
 import DeviceFormModal from './DeviceFormModal.vue'
 import ConnectionFormModal from './ConnectionFormModal.vue'
 
@@ -92,17 +93,45 @@ watch(
   { immediate: true },
 )
 
+// Добавление участника: если у стека заданы общие настройки VLAN, устройство получит их значения — перед записью
+// показываем окно с тем, что будет добавлено и заменено (GET .../members/preview ничего не пишет). Нет изменений данных
+// устройства — добавляем сразу, без лишнего окна.
+const pendingAdd = ref<StackMemberPreview | null>(null)
+const addBusy = ref(false)
+
 async function addMember() {
   if (!props.stack || !addMemberDeviceId.value) return
   errorMessage.value = null
   try {
+    const query = `physical_device_id=${encodeURIComponent(addMemberDeviceId.value)}&position=${addMemberPosition.value}`
+    const preview = await api.get<StackMemberPreview>(`/device-stacks/${props.stack.id}/members/preview?${query}`)
+    // Ответ без поля changes (например, у старого сервера) трактуем как «данные не меняются».
+    if (preview.changes?.length) {
+      pendingAdd.value = preview
+      return
+    }
+    await commitAddMember()
+  } catch (err) {
+    // Сюда же приходит понятная 409 "Устройство уже состоит в стеке «...»" и 422 про VLAN вне домена устройства.
+    errorMessage.value = err instanceof Error ? err.message : 'Не удалось добавить устройство в стек'
+  }
+}
+
+async function commitAddMember() {
+  if (!props.stack || !addMemberDeviceId.value) return
+  addBusy.value = true
+  try {
     await api.post(`/device-stacks/${props.stack.id}/members`, { physical_device_id: addMemberDeviceId.value, position: addMemberPosition.value })
     addMemberDeviceId.value = ''
+    pendingAdd.value = null
     await loadDetail(props.stack.id)
+    // Устройство могло получить VLAN и значения общих настроек — обновляем и общий список устройств.
+    await devicesStore.reload()
   } catch (err) {
-    // Сюда же приходит понятная 409 "Устройство уже состоит в стеке «...»" —
-    // _validate_device_stack_member_entry в backend/app/services/crud.py.
+    pendingAdd.value = null
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось добавить устройство в стек'
+  } finally {
+    addBusy.value = false
   }
 }
 
@@ -119,7 +148,7 @@ async function removeMember(member: DeviceStackMemberDetail) {
   }
 }
 
-/** Общий IP применён: назначения VLAN у устройств могли появиться/измениться — обновляем таблицу устройств (VLAN, управляющие адреса). */
+/** Общая настройка применена или снята: назначения VLAN у устройств могли появиться, измениться или исчезнуть — обновляем таблицу устройств (VLAN, управляющие адреса). */
 async function onSharedVlanIpApplied() {
   await devicesStore.reload()
 }
@@ -283,9 +312,9 @@ async function submit() {
 
             <DeviceStackVlanIpEditor
               :stack-id="props.stack!.id"
-              :member-count="detail.members.length"
               :reload-token="vlanReloadToken"
               @applied="onSharedVlanIpApplied"
+              @removed="onSharedVlanIpApplied"
             />
           </template>
         </template>
@@ -301,6 +330,7 @@ async function submit() {
     </div>
 
     <DeviceFormModal v-if="viewingDevice" :device="viewingDevice" @close="viewingDevice = null" @saved="onDeviceSaved" />
+    <StackMemberAddConfirmModal v-if="pendingAdd" :preview="pendingAdd" :busy="addBusy" @confirm="commitAddMember" @cancel="pendingAdd = null" />
     <ConnectionFormModal v-if="addingConnection" :connection="null" @close="addingConnection = false" @saved="onConnectionSaved" />
   </div>
 </template>

@@ -60,6 +60,10 @@ const props = withDefaults(
     joinableDomains?: VLANDomain[]
     memberDomains?: DeviceMemberDomain[]
     collapseAfter?: number
+    // VLAN, значения которых заданы общей настройкой стека (id VLAN → причина). У такой строки IP-адрес, префикс,
+    // «Управление» и сам VLAN не редактируются и строка не удаляется: меняется это в блоке общих настроек стека (сервер
+    // тоже отклоняет такую правку). Пусто/не передано — устройство вне стека или настроек нет.
+    lockedVlans?: Record<string, string>
   }>(),
   { collapseAfter: DEFAULT_COLLAPSE_ROWS },
 )
@@ -144,6 +148,11 @@ const collapsedSummary = computed(() => {
 /** Развернуть блок — форма вызывает это, когда ошибка сохранения относится к скрытой строке. */
 defineExpose({ expand })
 
+function lockReason(row: DeviceVlanDraftRow): string | undefined {
+  return row.vlan_id ? props.lockedVlans?.[row.vlan_id] : undefined
+}
+const lockedCount = computed(() => props.modelValue.filter((row) => lockReason(row)).length)
+
 function emptyRow(): DeviceVlanDraftRow {
   return { vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }
 }
@@ -157,6 +166,7 @@ function addRow() {
 }
 
 function removeRow(index: number) {
+  if (lockReason(props.modelValue[index])) return
   emit(
     'update:modelValue',
     props.modelValue.filter((_, i) => i !== index),
@@ -164,6 +174,7 @@ function removeRow(index: number) {
 }
 
 function updateField(index: number, patch: Partial<DeviceVlanDraftRow>) {
+  if (lockReason(props.modelValue[index])) return
   emit(
     'update:modelValue',
     props.modelValue.map((row, i) => (i === index ? { ...row, ...patch } : row)),
@@ -218,6 +229,10 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
       </span>
     </div>
 
+    <div v-if="lockedCount" class="locked-note" data-testid="vlan-locked-note">
+      VLAN, заданных общими настройками стека: {{ lockedCount }}. IP-адрес, префикс и «Управление» у них меняются в блоке общих настроек стека ниже.
+    </div>
+
     <div v-if="!modelValue.length" class="empty">VLAN не назначены</div>
 
     <!-- Свёрнуто: вместо строк — сводка с номерами VLAN. -->
@@ -228,16 +243,25 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
     </div>
 
     <template v-else>
-      <div v-for="(row, i) in modelValue" :key="row.id ?? i" class="nested-row" :class="{ 'row-duplicate': duplicateIndexes.has(i) }">
+      <div
+        v-for="(row, i) in modelValue"
+        :key="row.id ?? i"
+        class="nested-row"
+        :class="{ 'row-duplicate': duplicateIndexes.has(i), 'row-locked': !!lockReason(row) }"
+        :title="lockReason(row)"
+        :data-locked="lockReason(row) ? 'true' : undefined"
+      >
         <div class="col-vlan lookup-row">
           <SearchableSelect
             :model-value="row.vlan_id"
             :options="rowOptions(row)"
             placeholder="— VLAN —"
             :empty-text="allVlansTaken ? 'Все доступные VLAN уже добавлены' : undefined"
+            :disabled="!!lockReason(row)"
             @update:model-value="(value) => updateField(i, { vlan_id: value })"
           />
           <QuickAddButton
+            v-if="!lockReason(row)"
             resource="vlans"
             title="VLAN"
             :initial-values="deviceDomainId ? { domain_id: deviceDomainId } : undefined"
@@ -245,7 +269,7 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
             @nested-created="onNestedCreated"
           />
         </div>
-        <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />
+        <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" :disabled="!!lockReason(row)" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />
         <input
           class="col-prefix"
           type="number"
@@ -253,13 +277,14 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
           max="128"
           placeholder="Префикс"
           :value="row.prefix_length"
+          :disabled="!!lockReason(row)"
           @input="updateField(i, { prefix_length: ($event.target as HTMLInputElement).value })"
         />
         <label class="col-mgmt">
-          <input type="checkbox" :checked="row.is_management" @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })" />
+          <input type="checkbox" :checked="row.is_management" :disabled="!!lockReason(row)" @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })" />
           Управление
         </label>
-        <button type="button" class="icon-btn danger" aria-label="Удалить VLAN" @click="removeRow(i)">
+        <button type="button" class="icon-btn danger" aria-label="Удалить VLAN" :disabled="!!lockReason(row)" @click="removeRow(i)">
           <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
         </button>
       </div>
@@ -344,6 +369,19 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 }
 .row-duplicate :deep(.searchable-select input) {
   border-color: var(--status-crit);
+}
+.locked-note {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-s);
+  padding: 7px 9px;
+}
+.row-locked input:disabled,
+.row-locked :deep(.searchable-select input:disabled) {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 .dup-error {
   font-size: 11.5px;

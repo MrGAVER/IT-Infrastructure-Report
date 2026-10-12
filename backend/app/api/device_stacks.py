@@ -2,12 +2,12 @@
 
 Обработчики только разбирают запрос и вызывают services/device_stacks.py — вся логика там.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..schemas import DeviceStackMemberRequest, DeviceStackVlanIpRequest
-from ..services.device_stack_vlans import apply_stack_vlan_ip, stack_vlans
+from ..services.device_stack_vlans import apply_stack_vlan, preview_member_addition, remove_stack_vlan, stack_vlans
 from ..services.device_stacks import add_stack_member, stack_detail
 
 router = APIRouter(tags=['Device stacks'])
@@ -37,20 +37,34 @@ def add_device_stack_member(stack_id: str, payload: DeviceStackMemberRequest, se
     return add_stack_member(session, stack_id, payload.physical_device_id, payload.position)
 
 
+@router.get('/api/v1/device-stacks/{stack_id}/members/preview')
+def preview_device_stack_member(stack_id: str, physical_device_id: str = Query(...), position: int = Query(1, ge=1), session: Session = Depends(get_db)):
+    """Что произойдёт с данными устройства при добавлении в стек: какие VLAN общих настроек будут назначены ему
+    ('add') и у каких заменятся значения ('update', before → after). Ничего не записывает — для окна подтверждения."""
+    return preview_member_addition(session, stack_id, physical_device_id, position)
+
+
 @router.get('/api/v1/device-stacks/{stack_id}/vlans')
 def device_stack_vlans(stack_id: str, session: Session = Depends(get_db)):
-    """VLAN стека (кластера) и их IP-адреса на участниках: у каждого VLAN — общее значение, если участники
-    сошлись, признак is_uniform (назначен всем и одинаков), счётчики и состояние каждого участника. Поле
-    available — VLAN справочника, которые можно назначить каждому участнику (для выбора нового VLAN в форме)."""
+    """Общие настройки VLAN стека (кластера): items — заданные настройки и состояние применения к участникам
+    (is_uniform, счётчики, значения каждого участника); available — VLAN, которые можно сделать общими, с подсказкой
+    значений (адрес, на котором сошлись участники; «Управление», если оно включено хотя бы у одного)."""
     return stack_vlans(session, stack_id)
 
 
 @router.put('/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}')
-def set_device_stack_vlan_ip(stack_id: str, vlan_id: str, payload: DeviceStackVlanIpRequest, session: Session = Depends(get_db)):
-    """Задаёт один IP-адрес и префикс VLAN сразу всем устройствам стека (одной транзакцией, идемпотентно).
+def set_device_stack_vlan(stack_id: str, vlan_id: str, payload: DeviceStackVlanIpRequest, session: Session = Depends(get_db)):
+    """Задаёт общую настройку VLAN (IP-адрес, префикс, «Управление») и записывает её всем устройствам стека одной
+    транзакцией, идемпотентно. Недостающие назначения VLAN создаются; описание существующих не меняется. Пока
+    настройка задана, эти значения у участников по отдельности не редактируются (409). Ответ — как GET .../vlans.
 
-    Недостающие назначения VLAN создаются; флаг «Управление» и описание существующих не меняются. Оба поля
-    пустые — адрес очищается у всех, назначения остаются. Ответ — то же, что GET .../vlans.
+    Пример: PUT /api/v1/device-stacks/{id}/vlans/{vlan_uuid}  {"ip_address": "10.0.10.5", "prefix_length": 24, "is_management": true}"""
+    return apply_stack_vlan(session, stack_id, vlan_id, payload.ip_address, payload.prefix_length, payload.is_management)
 
-    Пример: PUT /api/v1/device-stacks/{id}/vlans/{vlan_uuid}  {"ip_address": "10.0.10.5", "prefix_length": 24}"""
-    return apply_stack_vlan_ip(session, stack_id, vlan_id, payload.ip_address, payload.prefix_length)
+
+@router.delete('/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}')
+def delete_device_stack_vlan(stack_id: str, vlan_id: str, remove_from_devices: bool = Query(False), session: Session = Depends(get_db)):
+    """Снимает общую настройку VLAN со стека. По умолчанию значения на устройствах остаются (поля снова редактируются);
+    remove_from_devices=true убирает VLAN и у всех участников — 409, если он используется на их портах, группах
+    портов или подинтерфейсах. Ответ — как GET .../vlans."""
+    return remove_stack_vlan(session, stack_id, vlan_id, remove_from_devices)

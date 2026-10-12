@@ -1,43 +1,56 @@
 <script setup lang="ts">
-// Общие IP-адрес и маска VLAN для всех устройств стека (кластера): вводятся один раз и записываются каждому участнику.
+// Общие настройки VLAN стека (кластера): IP-адрес, префикс и «Управление» вводятся один раз и записываются каждому
+// устройству стека. Блок показывается и в форме стека, и в форме самого устройства (если оно в стеке) — это один и тот же
+// компонент с одним источником данных (GET/PUT/DELETE /device-stacks/{id}/vlans).
 //
-// Источник истины — IP/префикс в «VLAN устройства» каждого участника (PhysicalDeviceVLAN), отдельного «общего»
-// значения нет: блок показывает, как VLAN настроен на участниках, и по кнопке «Применить ко всем» одним запросом
-// (PUT /device-stacks/{id}/vlans/{vlan_id}) приводит всех к введённой паре. Если адрес потом поправили на одном
-// устройстве (форма устройства), здесь это видно как «Адреса различаются» — молча ничего не перезаписывается.
-// Недостающие назначения VLAN создаются; флаг «Управление» и описание у существующих не меняются.
+// Пока настройка задана, у участников эти значения по отдельности не редактируются (форма устройства блокирует поля, а
+// сервер возвращает 409). Расхождение, возникшее в обход (например, VLAN переписала операция домена), видно как
+// «значения отличаются» — «Применить ко всем» приводит устройства к настройке. Снятие настройки — отдельное действие с
+// подтверждением (StackVlanRemoveDialog): по умолчанию значения на устройствах остаются.
+// Родителям: update:state — свежее состояние после каждой загрузки/изменения (по нему форма устройства блокирует поля),
+// applied — настройка записана устройствам, removed — настройка снята (fromDevices — VLAN убран и у устройств).
 import { computed, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { DeviceStackVlans, StackVlanOption, StackVlanRow } from '../api/types'
 import { useToast } from '../composables/useToast'
-import { matchesSharedValue, sharedIpPayload, stackVlanStatus, validateSharedIp } from '../utils/stackVlans'
+import { matchesSharedSetting, sharedSettingPayload, stackVlanStatus, validateSharedIp } from '../utils/stackVlans'
 import SearchableSelect from './SearchableSelect.vue'
+import StackVlanRemoveDialog from './StackVlanRemoveDialog.vue'
 
 const props = defineProps<{
   stackId: string
-  memberCount: number
-  /** Меняется при любой перезагрузке состава стека (добавили/убрали участника, сохранили устройство) — блок перечитывает VLAN. */
+  /** Меняется при перезагрузке состава стека (добавили/убрали участника, сохранили устройство) — блок перечитывает настройки. */
   reloadToken: number
 }>()
-const emit = defineEmits<{ applied: [] }>()
+const emit = defineEmits<{
+  'update:state': [state: DeviceStackVlans]
+  applied: [state: DeviceStackVlans]
+  removed: [info: { vlanId: string; fromDevices: boolean; state: DeviceStackVlans }]
+}>()
 const { notify } = useToast()
 
-/** Строка блока: server — состояние на участниках (null у только что добавленной в форме), ip/prefix — вводимые значения. */
+/** Строка блока: server — применённая настройка (null у строки, добавленной в форме и ещё не применённой); ip/prefix/management — вводимое. */
 interface DraftRow {
   vlanId: string
   label: string
   server: StackVlanRow | null
   ip: string
   prefix: string
+  management: boolean
   busy: boolean
   error: string | null
 }
 
 const rows = ref<DraftRow[]>([])
 const available = ref<StackVlanOption[]>([])
+const stackName = ref('')
+const memberCount = ref(0)
 const loading = ref(false)
 const loadError = ref<string | null>(null)
 const pickedVlanId = ref('')
+const removing = ref<DraftRow | null>(null)
+const removeBusy = ref(false)
+const removeError = ref<string | null>(null)
 
 function vlanText(number: number, name: string): string {
   return `${number} — ${name}`
@@ -50,9 +63,16 @@ function draftFromServer(row: StackVlanRow): DraftRow {
     server: row,
     ip: row.ip_address ?? '',
     prefix: row.prefix_length === null ? '' : String(row.prefix_length),
+    management: row.is_management,
     busy: false,
     error: null,
   }
+}
+
+function takeState(res: DeviceStackVlans) {
+  available.value = res.available ?? []
+  stackName.value = res.stack_name ?? ''
+  memberCount.value = res.member_count ?? 0
 }
 
 async function load() {
@@ -61,10 +81,11 @@ async function load() {
   try {
     const res = await api.get<DeviceStackVlans>(`/device-stacks/${props.stackId}/vlans`)
     rows.value = (res.items ?? []).map(draftFromServer)
-    available.value = res.available ?? []
+    takeState(res)
     pickedVlanId.value = ''
+    emit('update:state', { ...res, items: res.items ?? [], available: res.available ?? [] })
   } catch (err) {
-    loadError.value = err instanceof Error ? err.message : 'Не удалось загрузить VLAN стека'
+    loadError.value = err instanceof Error ? err.message : 'Не удалось загрузить настройки VLAN стека'
   } finally {
     loading.value = false
   }
@@ -72,21 +93,27 @@ async function load() {
 
 watch(() => [props.stackId, props.reloadToken], load, { immediate: true })
 
-// Ещё не добавленные в блок VLAN, которые можно назначить каждому участнику (список приходит с сервера).
+// Ещё не добавленные в блок VLAN, которые можно сделать общими (список приходит с сервера, уже с учётом доменов VLAN).
 const pickOptions = computed(() => {
   const taken = new Set(rows.value.map((r) => r.vlanId))
   return available.value.filter((v) => !taken.has(v.vlan_id)).map((v) => ({ value: v.vlan_id, label: vlanText(v.vlan_number, v.vlan_name) }))
 })
 
+/** Новая строка подставляет то, на чём уже сошлись устройства: адрес с префиксом и «Управление» (включено хотя бы у одного — значит у всех). */
 function addRow() {
   const option = available.value.find((v) => v.vlan_id === pickedVlanId.value)
   if (!option) return
-  rows.value.push({ vlanId: option.vlan_id, label: vlanText(option.vlan_number, option.vlan_name), server: null, ip: '', prefix: '', busy: false, error: null })
+  rows.value.push({
+    vlanId: option.vlan_id,
+    label: vlanText(option.vlan_number, option.vlan_name),
+    server: null,
+    ip: option.ip_address ?? '',
+    prefix: option.prefix_length === null ? '' : String(option.prefix_length),
+    management: option.is_management,
+    busy: false,
+    error: null,
+  })
   pickedVlanId.value = ''
-}
-
-function removeDraft(row: DraftRow) {
-  rows.value = rows.value.filter((r) => r !== row)
 }
 
 function inputError(row: DraftRow): string | null {
@@ -94,7 +121,7 @@ function inputError(row: DraftRow): string | null {
 }
 
 function canApply(row: DraftRow): boolean {
-  return !row.busy && inputError(row) === null && !matchesSharedValue(row.server, row.ip, row.prefix)
+  return !row.busy && inputError(row) === null && !matchesSharedSetting(row.server, row.ip, row.prefix, row.management)
 }
 
 /** Подставляет свежее состояние сервера: применённая строка пересоздаётся целиком, остальные сохраняют вводимые значения. */
@@ -105,7 +132,7 @@ function mergeServerState(res: DeviceStackVlans, appliedVlanId: string) {
     if (r.vlanId === appliedVlanId && fresh) return draftFromServer(fresh)
     return fresh ? { ...r, server: fresh } : r
   })
-  available.value = res.available ?? []
+  takeState(res)
 }
 
 async function apply(row: DraftRow) {
@@ -117,39 +144,71 @@ async function apply(row: DraftRow) {
   row.busy = true
   row.error = null
   try {
-    const res = await api.put<DeviceStackVlans>(`/device-stacks/${props.stackId}/vlans/${row.vlanId}`, sharedIpPayload(row.ip, row.prefix))
+    const res = await api.put<DeviceStackVlans>(`/device-stacks/${props.stackId}/vlans/${row.vlanId}`, sharedSettingPayload(row.ip, row.prefix, row.management))
     mergeServerState(res, row.vlanId)
     notify(`VLAN ${row.label}: настройка применена ко всем устройствам стека`, 'success')
-    emit('applied')
+    emit('update:state', res)
+    emit('applied', res)
   } catch (err) {
-    row.error = err instanceof Error ? err.message : 'Не удалось применить адрес ко всем устройствам стека'
+    row.error = err instanceof Error ? err.message : 'Не удалось применить настройку ко всем устройствам стека'
   } finally {
     row.busy = false
   }
 }
 
-function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_length: number | null }): string {
+/** Строка без применённой настройки просто убирается из формы; применённая — после подтверждения в диалоге. */
+function askRemove(row: DraftRow) {
+  if (!row.server) {
+    rows.value = rows.value.filter((r) => r !== row)
+    return
+  }
+  removeError.value = null
+  removing.value = row
+}
+
+async function confirmRemove(fromDevices: boolean) {
+  const row = removing.value
+  if (!row) return
+  removeBusy.value = true
+  removeError.value = null
+  try {
+    const res = await api.delete<DeviceStackVlans>(`/device-stacks/${props.stackId}/vlans/${row.vlanId}?remove_from_devices=${fromDevices}`)
+    // Настройки больше нет: строка исчезает из списка, а VLAN появляется среди доступных для выбора.
+    rows.value = rows.value.filter((r) => r.vlanId !== row.vlanId)
+    takeState(res)
+    removing.value = null
+    notify(fromDevices ? `VLAN ${row.label} снят со стека и убран у его устройств` : `Общая настройка VLAN ${row.label} снята, значения на устройствах сохранены`, 'success')
+    emit('update:state', res)
+    emit('removed', { vlanId: row.vlanId, fromDevices, state: res })
+  } catch (err) {
+    removeError.value = err instanceof Error ? err.message : 'Не удалось снять настройку'
+  } finally {
+    removeBusy.value = false
+  }
+}
+
+function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_length: number | null; is_management: boolean }): string {
   if (!m.assigned) return 'VLAN не назначен'
-  if (!m.ip_address) return 'адрес не задан'
-  return m.prefix_length === null ? m.ip_address : `${m.ip_address}/${m.prefix_length}`
+  const address = !m.ip_address ? 'адрес не задан' : m.prefix_length === null ? m.ip_address : `${m.ip_address}/${m.prefix_length}`
+  return m.is_management ? `${address}, «Управление»` : address
 }
 </script>
 
 <template>
   <div class="nested-editor field-wide" data-testid="stack-vlan-ip-editor">
     <div class="nested-head">
-      <b>Общие IP-адреса VLAN стека</b>
+      <b>Общие настройки VLAN стека{{ stackName ? ` «${stackName}»` : '' }}</b>
       <span class="hint">
-        Один IP-адрес и префикс (маска) для VLAN записываются каждому устройству стека — например, общий адрес кластера. Недостающие
-        назначения VLAN создаются, флаг «Управление» и описание не меняются.
+        IP-адрес (IPv4), префикс и «Управление» задаются один раз и записываются каждому устройству стека — например, общий адрес кластера.
+        Пока настройка задана, у устройств эти значения по отдельности не меняются. Недостающие назначения VLAN создаются.
       </span>
     </div>
 
-    <p v-if="memberCount === 0" class="empty">Добавьте устройства в стек, чтобы задать им общий IP-адрес VLAN.</p>
+    <div v-if="loadError" class="form-error" role="alert">{{ loadError }}</div>
+    <p v-else-if="loading && !rows.length" class="empty">Загрузка настроек VLAN стека…</p>
+    <p v-else-if="memberCount === 0" class="empty" data-testid="stack-vlan-no-members">Добавьте устройства в стек, чтобы задать им общие настройки VLAN.</p>
     <template v-else>
-      <div v-if="loadError" class="form-error" role="alert">{{ loadError }}</div>
-      <p v-else-if="loading && !rows.length" class="empty">Загрузка VLAN стека…</p>
-      <p v-else-if="!rows.length" class="empty">VLAN устройствам стека не назначены. Добавьте VLAN ниже.</p>
+      <p v-if="!rows.length" class="empty">Общие настройки VLAN не заданы. Добавьте VLAN ниже.</p>
 
       <div v-for="row in rows" :key="row.vlanId" class="vlan-block" data-testid="stack-vlan-row">
         <div class="vlan-row">
@@ -174,18 +233,22 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
             @input="row.prefix = ($event.target as HTMLInputElement).value"
             @keydown.enter.prevent="canApply(row) && apply(row)"
           />
+          <label class="col-mgmt">
+            <input v-model="row.management" type="checkbox" data-testid="stack-vlan-management" />
+            Управление
+          </label>
           <button type="button" class="btn btn-secondary" :disabled="!canApply(row)" data-testid="stack-vlan-apply" @click="apply(row)">
             Применить ко всем
           </button>
           <button
-            v-if="!row.server"
             type="button"
             class="icon-btn danger"
-            aria-label="Убрать строку"
-            data-testid="stack-vlan-remove-draft"
-            @click="removeDraft(row)"
+            :aria-label="row.server ? 'Снять общую настройку' : 'Убрать строку'"
+            :title="row.server ? 'Снять общую настройку' : 'Убрать строку'"
+            data-testid="stack-vlan-remove"
+            @click="askRemove(row)"
           >
-            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+            <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
           </button>
         </div>
         <div class="status-line">
@@ -206,7 +269,7 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
         <SearchableSelect
           v-model="pickedVlanId"
           :options="pickOptions"
-          placeholder="— VLAN для общего адреса —"
+          placeholder="— VLAN для общей настройки —"
           :empty-text="available.length ? 'Все доступные VLAN уже добавлены' : 'Нет VLAN, которые можно назначить всем устройствам стека'"
         />
         <button type="button" class="btn btn-secondary" :disabled="!pickedVlanId" data-testid="stack-vlan-add" @click="addRow">
@@ -215,6 +278,17 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
         </button>
       </div>
     </template>
+
+    <StackVlanRemoveDialog
+      v-if="removing"
+      :vlan-label="removing.label"
+      :stack-name="stackName"
+      :member-count="memberCount"
+      :busy="removeBusy"
+      :error="removeError"
+      @confirm="confirmRemove"
+      @cancel="removing = null"
+    />
   </div>
 </template>
 
@@ -262,7 +336,7 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
 }
 .vlan-row {
   display: grid;
-  grid-template-columns: 1.3fr 1.2fr 0.7fr auto auto;
+  grid-template-columns: 1.2fr 1.1fr 0.7fr auto auto auto;
   align-items: center;
   gap: 8px;
 }
@@ -273,7 +347,8 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.vlan-row input {
+.vlan-row input[type='text'],
+.vlan-row input[type='number'] {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-s);
@@ -283,6 +358,14 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
   font-family: inherit;
   width: 100%;
   min-width: 0;
+}
+.col-mgmt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
 }
 .status-line {
   display: flex;
