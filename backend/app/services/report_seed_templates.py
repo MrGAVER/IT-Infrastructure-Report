@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..reporting import HEADERS1, HEADERS2, HEADERS3, HEADERS4
+from .excel_layout import header_width
 from .report_registry_rows import VIRTUAL_ENTITIES
 
 TEMPLATE_NAME = "Регламентированный отчёт — заготовка (4 листа)"
@@ -71,6 +72,11 @@ def _sheet(title: str, entity_key: str, headers: list[str], widths: list[int]) -
     numbered = len(headers) == len(fields) + 1
     n_cols = len(headers)
     assert len(widths) == n_cols, (title, len(widths), n_cols)
+    # Заданная ширина — минимум под данные колонки. Заголовки регламентированной формы — жирные, до 300
+    # символов: в колонке шириной 20-30 они занимали 15-25 строк и обрезались. Колонка расширяется
+    # ровно настолько, чтобы заголовок уложился в лимит строк шапки и ни одно слово не рвалось
+    # (services/excel_layout.py; кнопки автофильтра в шаблонах конструктора нет).
+    widths = [header_width(h, w, filter_button=False) for h, w in zip(headers, widths)]
 
     cells = []
     if numbered:

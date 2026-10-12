@@ -4,8 +4,7 @@ from types import SimpleNamespace
 from typing import Optional
 from collections import defaultdict, Counter
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .models import (
@@ -19,7 +18,7 @@ from .models import (
 )
 from .constants import OwnerType
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
-from .services.excel_layout import apply_sheet_layout
+from .services.excel_layout import apply_sheet_layout, fit_sheet_size, style_header
 from .services.excel_safety import excel_safe_row
 from .services.port_vlans import carries_all_vlans, effective_vlan_ids
 
@@ -92,21 +91,18 @@ def interface_port_count_label(ifaces, interface_types):
 
 def setup_sheet(ws, headers):
     ws.append(headers)
-    for cell in ws[1]:
-        cell.font=Font(bold=True)
-        cell.alignment=Alignment(horizontal="center", vertical="center", wrap_text=True)
+    style_header(ws)
     ws.freeze_panes="A2"
 
 def finalize_sheet(ws):
-    for row in ws.iter_rows():
+    # Данные — по верхнему краю с переносом. Шапку (строка 1) не трогаем: раньше общий проход затирал её
+    # выравнивание по центру, заданное в setup_sheet, и все шапки оказывались прижаты к левому верхнему углу.
+    for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.alignment=Alignment(vertical="top", wrap_text=True)
-    for col in range(1, ws.max_column+1):
-        max_len=12
-        for cell in ws.iter_rows(min_col=col, max_col=col, values_only=True):
-            max_len=max(max_len, min(len(str(cell[0] or "")), 55))
-        ws.column_dimensions[get_column_letter(col)].width=min(max_len+2, 55)
-    ws.row_dimensions[1].height=72
+    # Ширина колонок — по данным, а не по заголовку (заголовки до 300 символов раздували каждую колонку до
+    # максимума), высота шапки — по реальному числу строк переноса: заголовки не обрезаются. См. excel_layout.
+    fit_sheet_size(ws)
     if ws.max_row > 1: ws.auto_filter.ref=ws.dimensions
 
 def _expand_structural_unit_ids(structural_units: dict, selected_ids: list) -> set:
