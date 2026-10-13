@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import InterfaceSubinterfacesEditor from '../InterfaceSubinterfacesEditor.vue'
+import SearchableSelect from '../SearchableSelect.vue'
 import { emptySubinterface } from '../../utils/subinterfaces'
 import type { ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../../api/types'
 
@@ -13,6 +14,17 @@ const catalog: ProtocolPortCatalogEntry[] = [{ id: 'cat-ssh', port: 22, protocol
 
 function mountEditor(modelValue: SubinterfaceDraftRow[] = [], extra: Record<string, unknown> = {}) {
   return mount(InterfaceSubinterfacesEditor, { props: { modelValue, parentName: 'Gi0/0', vlanOptions: vlans, protocolPortCatalog: catalog, ...extra } })
+}
+
+// Список VLAN строки — SearchableSelect: выбор моделируем событием компонента, варианты читаем из его options.
+function vlanSelects(wrapper: ReturnType<typeof mountEditor>) {
+  return wrapper.findAllComponents(SearchableSelect)
+}
+function optionValues(select: ReturnType<typeof vlanSelects>[number]): string[] {
+  return (select.props('options') as { value: string }[]).map((o) => o.value)
+}
+async function expandRow(wrapper: ReturnType<typeof mountEditor>, index = 0) {
+  await wrapper.findAll('.expand-toggle')[index].trigger('click')
 }
 
 function lastEmitted(wrapper: ReturnType<typeof mountEditor>): SubinterfaceDraftRow[] {
@@ -36,45 +48,150 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
     expect(added.id).toBeUndefined()
   })
 
-  it('если у устройства нет VLAN — добавить подинтерфейс нельзя, подсказка объясняет почему', () => {
+  it('если на порту не выбраны VLAN — добавить подинтерфейс нельзя, подсказка объясняет почему', () => {
     const wrapper = mountEditor([], { vlanOptions: [] })
     expect(wrapper.find('.sub-head button').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('назначьте устройству VLAN')
+    expect(wrapper.text()).toContain('выберите VLAN порта')
+  })
+
+  it('если все VLAN порта уже заняты подинтерфейсами — новый добавить нельзя', () => {
+    const wrapper = mountEditor([emptySubinterface('Gi0/0', vlans[1]), emptySubinterface('Gi0/0', vlans[0])])
+    expect(wrapper.find('.sub-head button').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.sub-head button').attributes('title')).toContain('Все VLAN порта уже использованы')
+  })
+
+  it('таблица: столбцы «Имя», «VLAN», «Управление», «Данные» и разворачиваемый «IP-адреса / маски»', () => {
+    const wrapper = mountEditor([emptySubinterface('Gi0/0', vlans[1])])
+    expect(wrapper.findAll('thead th').map((th) => th.text())).toEqual(['Имя', 'VLAN', 'Управление', 'Данные', 'IP-адреса / маски', ''])
+  })
+
+  it('поле VLAN — SearchableSelect, в нём только VLAN, выбранные на порту, по возрастанию номера', () => {
+    const portOnly = [vlans[1]] // на порту выбран один VLAN (10); VLAN 20 порту не принадлежит
+    const wrapper = mountEditor([emptySubinterface('Gi0/0')], { vlanOptions: portOnly })
+
+    expect(vlanSelects(wrapper)).toHaveLength(1)
+    expect(wrapper.find('select[aria-label="VLAN подинтерфейса"]').exists()).toBe(false) // нативного select больше нет
+    expect(optionValues(vlanSelects(wrapper)[0])).toEqual(['v-10'])
+
+    const two = mountEditor([emptySubinterface('Gi0/0')])
+    expect(optionValues(vlanSelects(two)[0])).toEqual(['v-10', 'v-20']) // порядок по номеру, а не по порядку в списке
   })
 
   it('выбор VLAN подставляет имя «<порт>.<VLAN>», если имя пустое', async () => {
     const wrapper = mountEditor([emptySubinterface('Gi0/0')])
-    await wrapper.find('select[aria-label="VLAN подинтерфейса"]').setValue('v-10')
+    vlanSelects(wrapper)[0].vm.$emit('update:modelValue', 'v-10')
 
     expect(lastEmitted(wrapper)[0]).toMatchObject({ vlan_id: 'v-10', name: 'Gi0/0.10' })
   })
 
   it('смена VLAN обновляет автоимя, но не затирает имя, введённое вручную', async () => {
     const auto = mountEditor([emptySubinterface('Gi0/0', vlans[1])]) // Gi0/0.10 — автоимя
-    await auto.find('select[aria-label="VLAN подинтерфейса"]').setValue('v-20')
+    vlanSelects(auto)[0].vm.$emit('update:modelValue', 'v-20')
     expect(lastEmitted(auto)[0]).toMatchObject({ vlan_id: 'v-20', name: 'Gi0/0.20' })
 
     const manual = mountEditor([{ ...emptySubinterface('Gi0/0', vlans[1]), name: 'wan-uplink' }])
-    await manual.find('select[aria-label="VLAN подинтерфейса"]').setValue('v-20')
+    vlanSelects(manual)[0].vm.$emit('update:modelValue', 'v-20')
     expect(lastEmitted(manual)[0]).toMatchObject({ vlan_id: 'v-20', name: 'wan-uplink' })
   })
 
-  it('VLAN, занятый соседним подинтерфейсом порта, в списке выключен; свой собственный — доступен', () => {
+  it('VLAN, уже выбранные другими подинтерфейсами порта, скрыты из списка; свой собственный остаётся', () => {
+    const third: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
     const first = emptySubinterface('Gi0/0', vlans[1]) // v-10
     const second = emptySubinterface('Gi0/0', vlans[0]) // v-20
-    const wrapper = mountEditor([first, second])
+    const wrapper = mountEditor([first, second], { vlanOptions: [...vlans, third] })
 
-    const selects = wrapper.findAll('select[aria-label="VLAN подинтерфейса"]')
-    const optionOf = (selectIndex: number, vlanId: string) => selects[selectIndex].find(`option[value="${vlanId}"]`)
-    expect(optionOf(0, 'v-20').attributes('disabled')).toBeDefined() // занят вторым
-    expect(optionOf(0, 'v-10').attributes('disabled')).toBeUndefined() // свой
-    expect(optionOf(1, 'v-10').attributes('disabled')).toBeDefined()
+    const [firstSelect, secondSelect] = vlanSelects(wrapper)
+    expect(optionValues(firstSelect)).toEqual(['v-10', 'v-30']) // v-20 занят вторым — скрыт, свой v-10 доступен
+    expect(optionValues(secondSelect)).toEqual(['v-20', 'v-30'])
   })
 
-  it('VLAN, недоступный устройству, не пропадает молча: пометка и предупреждение', () => {
-    const wrapper = mountEditor([{ ...emptySubinterface('Gi0/0'), name: 'Gi0/0.99', vlan_id: 'v-gone' }])
-    expect(wrapper.find('select[aria-label="VLAN подинтерфейса"]').classes()).toContain('is-stale')
+  it('VLAN, не выбранный на порту, не пропадает молча: пометка и предупреждение', () => {
+    // VLAN 99 есть у устройства, но с порта убран: в списке порта его нет
+    const wrapper = mountEditor([{ ...emptySubinterface('Gi0/0'), name: 'Gi0/0.99', vlan_id: 'v-gone' }], { deviceVlanIds: new Set(['v-gone', 'v-10', 'v-20']) })
+
+    expect(vlanSelects(wrapper)[0].classes()).toContain('is-stale')
+    expect(wrapper.find('[role="alert"]').text()).toContain('не выбран на этом порту')
+  })
+
+  it('VLAN, снятый с устройства, объясняется отдельным текстом', () => {
+    const wrapper = mountEditor([{ ...emptySubinterface('Gi0/0'), name: 'Gi0/0.99', vlan_id: 'v-gone' }], { deviceVlanIds: new Set(['v-10', 'v-20']) })
+
     expect(wrapper.find('[role="alert"]').text()).toContain('больше не назначен устройству')
+  })
+
+  describe('разворачиваемый столбец IP-адресов и масок', () => {
+    const withIps = () => ({
+      ...emptySubinterface('Gi0/0', vlans[1]),
+      ips: [
+        { id: 'ip-1', ip_address: '10.0.10.1', prefix_length: '24', purpose: '' },
+        { id: 'ip-2', ip_address: '10.0.10.2', prefix_length: '', purpose: '' },
+      ],
+    })
+
+    it('по умолчанию свёрнут: в строке адреса с масками, форм IP и открытых портов нет', () => {
+      const wrapper = mountEditor([withIps()])
+
+      expect(wrapper.find('.expand-toggle').text()).toContain('10.0.10.1/24, 10.0.10.2')
+      expect(wrapper.find('.sub-detail-row').exists()).toBe(false)
+      expect(wrapper.find('input[aria-label="IP-адрес подинтерфейса"]').exists()).toBe(false)
+    })
+
+    it('без адресов в свёрнутом столбце написано «нет IP»; число открытых портов видно и в свёрнутом виде', () => {
+      const wrapper = mountEditor([{ ...emptySubinterface('Gi0/0', vlans[1]), open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }])
+
+      expect(wrapper.find('.expand-toggle').text()).toContain('нет IP')
+      expect(wrapper.find('.expand-toggle').text()).toContain('портов: 1')
+    })
+
+    it('по клику разворачивается: формы IP-адресов и открытых портов, повторный клик сворачивает', async () => {
+      const wrapper = mountEditor([withIps()])
+
+      await expandRow(wrapper)
+      expect(wrapper.find('.expand-toggle').attributes('aria-expanded')).toBe('true')
+      expect(wrapper.findAll('input[aria-label="IP-адрес подинтерфейса"]')).toHaveLength(2)
+      expect(wrapper.find('.add-btn').exists()).toBe(true) // «+ Открытый порт» вложенного редактора
+
+      await expandRow(wrapper)
+      expect(wrapper.find('.sub-detail-row').exists()).toBe(false)
+    })
+
+    it('раскрывается только нажатая строка', async () => {
+      const wrapper = mountEditor([withIps(), emptySubinterface('Gi0/0', vlans[0])])
+
+      await expandRow(wrapper, 1)
+
+      expect(wrapper.findAll('.sub-detail-row')).toHaveLength(1)
+      expect(wrapper.findAll('.expand-toggle')[0].attributes('aria-expanded')).toBe('false')
+    })
+  })
+
+  describe('подинтерфейсы заданы группой (readonly) и шаблон группы (mode="group")', () => {
+    it('readonly: поля выключены, добавления и удаления нет, пояснение показано', () => {
+      const wrapper = mountEditor([emptySubinterface('Gi0/0', vlans[1])], { readonly: true, readonlyNote: 'Список подинтерфейсов задан группой «Серверные»' })
+
+      expect(wrapper.text()).toContain('задан группой «Серверные»')
+      expect(wrapper.find('.sub-head button').exists()).toBe(false)
+      expect(wrapper.find('button[aria-label="Удалить подинтерфейс"]').exists()).toBe(false)
+      expect(wrapper.find('input[aria-label="Имя подинтерфейса"]').attributes('disabled')).toBeDefined()
+      expect(vlanSelects(wrapper)[0].props('disabled')).toBe(true)
+    })
+
+    it('mode="group": вместо имени — образец «‹порт›.<VLAN>», поля имени нет; выбор VLAN имя не пишет', async () => {
+      const wrapper = mountEditor([emptySubinterface('', vlans[1])], { mode: 'group', parentName: '' })
+
+      expect(wrapper.find('input[aria-label="Имя подинтерфейса"]').exists()).toBe(false)
+      expect(wrapper.find('.name-pattern').text()).toBe('‹порт›.10')
+
+      vlanSelects(wrapper)[0].vm.$emit('update:modelValue', 'v-20')
+      expect(lastEmitted(wrapper)[0]).toMatchObject({ vlan_id: 'v-20', name: '' })
+    })
+
+    it('mode="group" без VLAN группы: подсказка просит задать режим порта и VLAN группы', () => {
+      const wrapper = mountEditor([], { mode: 'group', parentName: '', vlanOptions: [] })
+
+      expect(wrapper.text()).toContain('задайте режим порта и VLAN группы')
+      expect(wrapper.find('.sub-head button').attributes('disabled')).toBeDefined()
+    })
   })
 
   describe('перенос подинтерфейса с недоступного VLAN прямо из предупреждения', () => {
@@ -125,23 +242,25 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
     await wrapper.find('input[aria-label="Имя подинтерфейса"]').setValue('mgmt.10')
     expect(lastEmitted(wrapper)[0]).toMatchObject({ name: 'mgmt.10', vlan_id: 'v-10' })
 
-    const [management, dataTransfer] = wrapper.findAll('.flag input')
-    await management.setValue(true)
+    await wrapper.find('input[aria-label="Подинтерфейс: управление"]').setValue(true)
     expect(lastEmitted(wrapper)[0].is_management).toBe(true)
-    await dataTransfer.setValue(true)
+    await wrapper.find('input[aria-label="Подинтерфейс: передача данных"]').setValue(true)
     expect(lastEmitted(wrapper)[0].is_data_transfer).toBe(true)
 
+    await expandRow(wrapper) // описание — в раскрытой части строки
     await wrapper.find('input[aria-label="Описание подинтерфейса"]').setValue('Сеть серверов')
     expect(lastEmitted(wrapper)[0].description).toBe('Сеть серверов')
   })
 
   it('IP-адреса: добавление, правка и удаление', async () => {
     const wrapper = mountEditor([emptySubinterface('Gi0/0', vlans[1])])
+    await expandRow(wrapper)
 
     await wrapper.find('.sub-ips-head button').trigger('click')
     expect(lastEmitted(wrapper)[0].ips).toEqual([{ ip_address: '', prefix_length: '', purpose: '' }])
 
     const withIp = mountEditor([{ ...emptySubinterface('Gi0/0', vlans[1]), ips: [{ id: 'ip-1', ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }] }])
+    await expandRow(withIp)
     await withIp.find('input[aria-label="IP-адрес подинтерфейса"]').setValue('10.0.10.2')
     expect(lastEmitted(withIp)[0].ips).toEqual([{ id: 'ip-1', ip_address: '10.0.10.2', prefix_length: '24', purpose: '' }])
 
@@ -151,6 +270,7 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
 
   it('открытые порты подинтерфейса редактируются вложенным редактором', async () => {
     const wrapper = mountEditor([emptySubinterface('Gi0/0', vlans[1])])
+    await expandRow(wrapper)
     await wrapper.find('.add-btn').trigger('click') // «+ Открытый порт» вложенного OpenPortListEditor
 
     expect(lastEmitted(wrapper)[0].open_ports).toEqual([{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }])

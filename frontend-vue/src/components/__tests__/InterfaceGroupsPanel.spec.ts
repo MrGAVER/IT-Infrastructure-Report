@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import InterfaceGroupsPanel from '../InterfaceGroupsPanel.vue'
+import InterfaceSubinterfacesEditor from '../InterfaceSubinterfacesEditor.vue'
+import SearchableSelect from '../SearchableSelect.vue'
 import { useToast } from '../../composables/useToast'
 import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, VLANDefinition } from '../../api/types'
 
@@ -744,6 +746,88 @@ describe('InterfaceGroupsPanel.vue', () => {
 
       expect(wrapper.find('.delete-modal').exists()).toBe(false)
       expect(lastChange(wrapper).groups).toEqual([])
+    })
+  })
+
+  describe('подинтерфейсы группы', () => {
+    type Wrapper = ReturnType<typeof mountPanel>
+    const manageCheck = (w: Wrapper) => w.find('input[aria-label="Задать подинтерфейсы"]')
+    const editor = (w: Wrapper) => w.findComponent(InterfaceSubinterfacesEditor)
+    const vlanSelect = (w: Wrapper) => editor(w).findComponent(SearchableSelect)
+    const optionValues = (w: Wrapper) => (vlanSelect(w).props('options') as { value: string }[]).map((o) => o.value)
+    const template = (patch = {}) => ({ key: 't1', name: '', vlan_id: 'v10', is_management: true, is_data_transfer: false, description: '', ips: [{ ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }], open_ports: [], ...patch })
+    const trunkGroup = (patch: Partial<InterfaceGroupDraft> = {}) => savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v10'], ip_address: '', prefix_length: '', ...patch })
+
+    it('редактор подинтерфейсов появляется только после галочки «Задать подинтерфейсы»', async () => {
+      const wrapper = mountPanel({ rows: [row('Gi0/1', { group_key: 'g1' })], groups: [trunkGroup()] })
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+
+      expect(editor(wrapper).exists()).toBe(false)
+      await manageCheck(wrapper).setValue(true)
+
+      expect(editor(wrapper).exists()).toBe(true)
+      expect(editor(wrapper).props('mode')).toBe('group')
+    })
+
+    it('VLAN шаблона выбирается только из VLAN группы; без режима порта и VLAN группы список пуст', async () => {
+      const wrapper = mountPanel({ rows: [row('Gi0/1', { group_key: 'g1' })], groups: [trunkGroup({ manage_subinterfaces: true, subinterfaces: [template({ vlan_id: '' })] })] })
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect(optionValues(wrapper)).toEqual(['v10']) // v20 в VLAN группы не входит
+
+      const none = mountPanel({ rows: [], groups: [savedGroup({ manage_subinterfaces: true })] }) // режим порта не задан
+      await none.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect(editor(none).props('vlanOptions')).toEqual([])
+      expect(editor(none).text()).toContain('задайте режим порта и VLAN группы')
+    })
+
+    it('«Все VLAN» у группы: в списке подинтерфейса все VLAN устройства', async () => {
+      const wrapper = mountPanel({ rows: [], groups: [trunkGroup({ all_vlans: true, vlan_ids: ['v10', 'v20'], manage_subinterfaces: true, subinterfaces: [template({ vlan_id: '' })] })] })
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+
+      expect(optionValues(wrapper)).toEqual(['v10', 'v20'])
+    })
+
+    it('сохранение записывает в каждый порт группы подинтерфейс «<порт>.<VLAN>» с общими значениями', async () => {
+      const rows = [row('Gi0/1', { group_key: 'g1' }), row('Gi0/2', { group_key: 'g1' }), row('Gi0/3')]
+      const wrapper = mountPanel({ rows, groups: [trunkGroup({ manage_subinterfaces: true, subinterfaces: [template()] })] })
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      const change = lastChange(wrapper)
+      expect(change.rows[0].subinterfaces!.map((s) => [s.name, s.vlan_id, s.is_management])).toEqual([['Gi0/1.10', 'v10', true]])
+      expect(change.rows[1].subinterfaces![0]).toMatchObject({ name: 'Gi0/2.10', ips: [{ ip_address: '10.0.10.1', prefix_length: '24' }] })
+      expect(change.rows[2].subinterfaces).toBeUndefined() // порт вне группы не тронут
+      expect(change.groups[0]).toMatchObject({ manage_subinterfaces: true })
+      expect(change.groups[0].subinterfaces).toHaveLength(1)
+    })
+
+    it('шаблоны сохраняются по возрастанию номера VLAN', async () => {
+      const rows = [row('Gi0/1', { group_key: 'g1' })]
+      const wrapper = mountPanel({ rows, groups: [trunkGroup({ vlan_ids: ['v10', 'v20'], manage_subinterfaces: true, subinterfaces: [template({ key: 't20', vlan_id: 'v20' }), template({ key: 't10' })] })] })
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      expect(lastChange(wrapper).groups[0].subinterfaces!.map((s) => s.vlan_id)).toEqual(['v10', 'v20'])
+    })
+
+    it('подинтерфейс на VLAN, не входящем в VLAN группы, не сохраняется: ошибка, окно открыто', async () => {
+      const wrapper = mountPanel({ rows: [], groups: [trunkGroup({ manage_subinterfaces: true, subinterfaces: [template({ vlan_id: 'v20' })] })] })
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
+
+      expect(wrapper.emitted('change')).toBeUndefined()
+      expect(wrapper.find('.group-modal').text()).toContain('не входит в VLAN группы')
+    })
+
+    it('удаление группы с подинтерфейсами предупреждает, что значения останутся или будут стёрты', async () => {
+      const wrapper = mountPanel({ rows: [row('Gi0/1', { group_key: 'g1' })], groups: [trunkGroup({ manage_subinterfaces: true, subinterfaces: [template()] })] })
+
+      await wrapper.find('button[aria-label="Удалить группу"]').trigger('click')
+
+      expect(wrapper.find('.delete-modal').text()).toContain('подинтерфейсы')
     })
   })
 })

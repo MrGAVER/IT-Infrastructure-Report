@@ -3,8 +3,10 @@ import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceInterfacesEditor from '../DeviceInterfacesEditor.vue'
 import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
+import SearchableSelect from '../SearchableSelect.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
+import { emptyGroup } from '../../utils/interfaceGroups'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { usePreferencesStore } from '../../stores/preferences'
 import { groupChange, makePlan, portChange, vlanRef } from '../../utils/__tests__/cascadePlanFixture'
@@ -2157,7 +2159,7 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
   })
 
   it('«+ Подинтерфейс» кладёт в строку порта список с одним подинтерфейсом, остальные поля порта не меняются', async () => {
-    const wrapper = mountWithPort({ description: 'uplink' })
+    const wrapper = mountWithPort({ description: 'uplink', vlan_ids: ['v-10'] })
     await expandRow(wrapper)
 
     await wrapper.find('.sub-head button').trigger('click')
@@ -2170,10 +2172,11 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
   })
 
   it('имя порта передаётся редактору подинтерфейсов: выбор VLAN подставляет «<порт>.<VLAN>»', async () => {
-    const wrapper = mountWithPort({ subinterfaces: [{ key: 'k1', name: '', vlan_id: '', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }] })
+    const wrapper = mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [{ key: 'k1', name: '', vlan_id: '', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }] })
     await expandRow(wrapper)
 
-    await wrapper.find('select[aria-label="VLAN подинтерфейса"]').setValue('v-10')
+    wrapper.findComponent(SearchableSelect).vm.$emit('update:modelValue', 'v-10')
+    await flushPromises()
 
     const emitted = wrapper.emitted('update:modelValue')!
     const [row] = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
@@ -2196,9 +2199,9 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
 
   const subRow = (patch: Record<string, unknown>) => ({ key: 'k', name: '', vlan_id: 'v-10', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [], ...patch })
 
-  describe('подинтерфейс на VLAN, которого у устройства больше нет', () => {
+  describe('подинтерфейс на VLAN, которого нет на порту или у устройства', () => {
     it('свёрнутая строка порта показывает значок со списком таких подинтерфейсов', () => {
-      const wrapper = mountWithPort({ subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-gone' })] })
+      const wrapper = mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-gone' })] })
 
       const icon = wrapper.find('.expand-toggle .stale-sub-icon')
       expect(icon.exists()).toBe(true)
@@ -2206,9 +2209,73 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
       expect(icon.attributes('title')).not.toContain('«Gi0/0.10»')
     })
 
-    it('значка нет, если все VLAN подинтерфейсов доступны, и у порта без подинтерфейсов', () => {
-      expect(mountWithPort({ subinterfaces: [subRow({ name: 'Gi0/0.10' })] }).find('.stale-sub-icon').exists()).toBe(false)
+    it('значок появляется и для VLAN устройства, который не выбран на самом порту', () => {
+      const wrapper = mountWithPort({ vlan_ids: [], subinterfaces: [subRow({ name: 'Gi0/0.10' })] }) // v-10 есть у устройства, но с порта убран
+
+      expect(wrapper.find('.expand-toggle .stale-sub-icon').attributes('title')).toContain('«Gi0/0.10»')
+    })
+
+    it('значка нет, если все VLAN подинтерфейсов выбраны на порту, и у порта без подинтерфейсов', () => {
+      expect(mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [subRow({ name: 'Gi0/0.10' })] }).find('.stale-sub-icon').exists()).toBe(false)
       expect(mountWithPort().find('.stale-sub-icon').exists()).toBe(false)
+    })
+
+    it('«Все VLAN» на порту: подинтерфейс на любом VLAN устройства считается выбранным', () => {
+      const wrapper = mountWithPort({ vlan_mode: 'trunk', all_vlans: true, subinterfaces: [subRow({ name: 'Gi0/0.10' })] })
+
+      expect(wrapper.find('.stale-sub-icon').exists()).toBe(false)
+    })
+  })
+
+  describe('VLAN подинтерфейса выбирается из VLAN порта', () => {
+    const twoVlans: VLANDefinition[] = [
+      { id: 'v-10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] },
+      { id: 'v-20', vlan_id: 20, name: 'Гости', description: '', domain_id: null, domain_name: '', devices: [] },
+    ]
+    function mountPorts(rows: InterfaceDraftRow[], groups: InterfaceGroupDraft[] = []) {
+      return mount(DeviceInterfacesEditor, { props: { modelValue: rows, groups, typeOptions, speedOptions, vlanOptions: twoVlans } })
+    }
+    const options = (wrapper: ReturnType<typeof mountPorts>) => (wrapper.findComponent(SearchableSelect).props('options') as { value: string }[]).map((o) => o.value)
+
+    it('в списке только VLAN, выбранные на этом порту (не все VLAN устройства)', async () => {
+      const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', vlan_ids: ['v-20'], subinterfaces: [subRow({ vlan_id: '' })] }])
+      await expandRow(wrapper)
+
+      expect(options(wrapper)).toEqual(['v-20'])
+    })
+
+    it('у порта с «Все VLAN» (trunk) в списке все VLAN устройства', async () => {
+      const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', vlan_mode: 'trunk', all_vlans: true, vlan_ids: ['v-10', 'v-20'], subinterfaces: [subRow({ vlan_id: '' })] }])
+      await expandRow(wrapper)
+
+      expect(options(wrapper)).toEqual(['v-10', 'v-20'])
+    })
+
+    it('если на порту нет VLAN — добавить подинтерфейс нельзя', async () => {
+      const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', vlan_ids: [] }])
+      await expandRow(wrapper)
+
+      expect(wrapper.find('.sub-head button').attributes('disabled')).toBeDefined()
+      expect(wrapper.find('.sub-block').text()).toContain('выберите VLAN порта')
+    })
+
+    it('порт в группе, которая задаёт подинтерфейсы, показывает их только для просмотра с пояснением', async () => {
+      const group: InterfaceGroupDraft = { ...emptyGroup('Серверные'), key: 'g1', vlan_mode: 'trunk', vlan_ids: ['v-10'], manage_subinterfaces: true }
+      const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', group_key: 'g1', vlan_ids: ['v-10'], subinterfaces: [subRow({ name: 'Gi0/0.10' })] }], [group])
+      await expandRow(wrapper)
+
+      expect(wrapper.find('.sub-block').text()).toContain('Список подинтерфейсов задан группой «Серверные»')
+      expect(wrapper.find('.sub-head button').exists()).toBe(false)
+      expect(wrapper.find('.sub-block input[aria-label="Имя подинтерфейса"]').attributes('disabled')).toBeDefined()
+    })
+
+    it('порт в группе, которая подинтерфейсами не управляет, редактируется как обычно', async () => {
+      const group: InterfaceGroupDraft = { ...emptyGroup('Серверные'), key: 'g1', vlan_mode: 'trunk', vlan_ids: ['v-10'] }
+      const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', group_key: 'g1', vlan_ids: ['v-10'] }], [group])
+      await expandRow(wrapper)
+
+      expect(wrapper.find('.sub-head button').exists()).toBe(true)
+      expect(wrapper.find('.sub-block .group-lock').exists()).toBe(false)
     })
   })
 
@@ -2225,8 +2292,8 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     }
     const bulkSelect = (wrapper: ReturnType<typeof mountBulk>) => wrapper.find('select[aria-label="Перенести все такие подинтерфейсы на VLAN"]')
     const staleRows = (): InterfaceDraftRow[] => [
-      { ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.30', vlan_id: 'v-30' })] },
-      { ...emptyRow(), name: 'Gi0/1', subinterfaces: [subRow({ key: 'b', name: 'Gi0/1.30', vlan_id: 'v-30' }), subRow({ key: 'c', name: 'Gi0/1.10', vlan_id: 'v-10' })] },
+      { ...emptyRow(), name: 'Gi0/0', vlan_ids: ['v-10', 'v-20'], subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.30', vlan_id: 'v-30' })] },
+      { ...emptyRow(), name: 'Gi0/1', vlan_ids: ['v-10', 'v-20'], subinterfaces: [subRow({ key: 'b', name: 'Gi0/1.30', vlan_id: 'v-30' }), subRow({ key: 'c', name: 'Gi0/1.10', vlan_id: 'v-10' })] },
     ]
 
     it('панели нет, пока все подинтерфейсы на доступных VLAN', () => {
@@ -2256,6 +2323,19 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
       expect(toast.message).toContain('Перенесено подинтерфейсов: 1 — на VLAN 10 — Серверы.')
       expect(toast.message).toContain('«Gi0/1.30»')
       expect((bulkSelect(wrapper).element as HTMLSelectElement).value).toBe('') // выбор сброшен
+    })
+
+    it('на порт, где целевой VLAN не выбран, подинтерфейс массовым переносом не попадает', async () => {
+      const rows = staleRows()
+      rows[0] = { ...rows[0], vlan_ids: ['v-20'] } // на Gi0/0 нет VLAN 10
+      const wrapper = mountBulk(rows)
+
+      await bulkSelect(wrapper).setValue('v-10')
+      await wrapper.find('.stale-bulk button').trigger('click')
+
+      const emitted = wrapper.emitted('update:modelValue')
+      expect(emitted === undefined || (emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0].subinterfaces![0].vlan_id === 'v-30').toBe(true)
+      expect(useToast().toasts[0].message).toContain('«Gi0/0.30»')
     })
 
     it('если переносится всё — уведомление об успехе', async () => {

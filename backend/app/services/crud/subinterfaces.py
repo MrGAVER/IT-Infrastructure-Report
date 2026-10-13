@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from ...constants import OwnerType
-from ...models import DeviceInterface, DeviceSubinterface, IPAddress, OpenPort, PhysicalDevice, ProtocolPortCatalog, VLAN
+from ...models import DeviceInterface, DeviceSubinterface, InterfaceGroupSubinterface, IPAddress, OpenPort, PhysicalDevice, ProtocolPortCatalog, VLAN
 from ..serialization import enrich_open_ports, serialize
 from .owned_rows import sync_owner_ip_addresses, sync_owner_open_ports
 
@@ -157,7 +157,8 @@ def subinterface_references(resource: str, item_id: str, session: Session) -> li
     поиск ссылок их не видит. Сейчас на подинтерфейсы ссылается только VLAN."""
     if resource != 'vlans': return []
     count = len(session.scalars(select(DeviceSubinterface.id).where(DeviceSubinterface.vlan_id == item_id)).all())
-    return [('Подинтерфейсы устройств', count)] if count else []
+    group_count = len(session.scalars(select(InterfaceGroupSubinterface.id).where(InterfaceGroupSubinterface.vlan_id == item_id)).all())
+    return [pair for pair in (('Подинтерфейсы устройств', count), ('Подинтерфейсы групп портов', group_count)) if pair[1]]
 
 
 def enrich_subinterfaces(subinterfaces: Sequence[DeviceSubinterface], session: Session) -> list[dict[str, Any]]:
