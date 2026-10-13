@@ -1,7 +1,8 @@
 """
 Оформление Excel-отчёта (backend/app/services/excel_layout.py + его применение в reporting.build_report):
 рамка вокруг шапки и каждой записи (ИС / устройство / ВМ), объединение повторяющихся данных устройства на
-листе 'Организация подключений', закрепление шапки.
+листе 'Организация подключений', закрепление шапки, ширина колонок по данным и высота шапки по числу строк
+переноса (заголовки не обрезаются).
 
 Запуск:  python3 -m unittest discover -s backend/tests -v   (или pytest)
 Интеграционная часть использует тот же мок SQLAlchemy, что и test_reporting.py (tests/mock_sqlalchemy.py).
@@ -20,9 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import openpyxl
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 from app.services.excel_layout import (
-    FRAME_SIDE, THIN_SIDE, apply_borders, apply_sheet_layout, freeze_header, merge_vertical, single_row_spans,
+    FRAME_SIDE, LINE_HEIGHT_PT, MAX_COLUMN_WIDTH, MAX_HEADER_LINES, MIN_COLUMN_WIDTH, THIN_SIDE,
+    apply_borders, apply_sheet_layout, fit_column_widths, fit_header_height, fit_merged_block_heights,
+    fit_sheet_size, freeze_header, header_capacity, merge_vertical, single_row_spans, style_header, text_capacity,
+    wrap_lines,
 )
 from mock_sqlalchemy import FakeSession, empty_table, load_reporting_module
 from xlsx_helpers import expanded_rows
@@ -139,6 +144,175 @@ class SheetLayoutTestCase(unittest.TestCase):
         ws = _sheet([["№", "Название"], [1, "x"], [2, "y"]])
         apply_sheet_layout(ws, spans=[])
         self.assertEqual(ws["B2"].border.bottom.style, "thin")
+
+
+def _width(ws, column):
+    return ws.column_dimensions[get_column_letter(column)].width
+
+
+class WrapLinesTestCase(unittest.TestCase):
+    """Оценка числа строк переноса — основа подбора высоты шапки."""
+
+    def test_empty_and_short_text_is_one_line(self):
+        self.assertEqual(wrap_lines("", 10), 1)
+        self.assertEqual(wrap_lines("коротко", 10), 1)
+
+    def test_greedy_wrap_by_words(self):
+        self.assertEqual(wrap_lines("aaaa bbbb cccc", 10), 2)
+        self.assertEqual(wrap_lines("aaaa bbbbb cccc", 10), 2)    # «aaaa bbbbb» ровно 10 — помещается
+        self.assertEqual(wrap_lines("aaaa bbbbbb cccc", 10), 3)   # 11 символов — слово уходит на новую строку
+
+    def test_explicit_newlines_are_kept(self):
+        self.assertEqual(wrap_lines("a\nb\nc", 10), 3)
+        self.assertEqual(wrap_lines("a\n\nb", 10), 3)            # пустая строка — тоже строка
+
+    def test_word_longer_than_line_is_split_by_characters(self):
+        self.assertEqual(wrap_lines("x" * 25, 10), 3)
+        self.assertEqual(wrap_lines("ab " + "x" * 25, 10), 4)
+
+    def test_capacity(self):
+        self.assertLess(header_capacity(30), text_capacity(30))   # жирный шрифт и кнопка фильтра
+        self.assertEqual(header_capacity(1), 1.0)                 # не меньше одного символа
+
+
+class FitColumnWidthsTestCase(unittest.TestCase):
+    def test_narrow_column_for_short_header_and_short_data(self):
+        ws = _sheet([["№", "Да/Нет"], [1, "Да"], [2, "Нет"]])
+        fit_column_widths(ws)
+        self.assertEqual(_width(ws, 1), MIN_COLUMN_WIDTH)
+
+    def test_width_follows_data(self):
+        ws = _sheet([["Имя"], ["x" * 30]])
+        fit_column_widths(ws)
+        self.assertEqual(_width(ws, 1), 32)    # самая длинная строка данных + 2
+
+    def test_long_data_is_capped_so_text_wraps_instead(self):
+        ws = _sheet([["Описание"], ["слово " * 60]])
+        fit_column_widths(ws)
+        self.assertEqual(_width(ws, 1), MAX_COLUMN_WIDTH)
+
+    def test_header_text_is_not_counted_as_data(self):
+        """Раньше заголовок в 200+ символов раздувал колонку с короткими данными до максимума."""
+        ws = _sheet([["слово " * 40], ["12"]])
+        fit_column_widths(ws)
+        self.assertLess(_width(ws, 1), MAX_COLUMN_WIDTH)
+
+    def test_column_is_never_narrower_than_the_longest_header_word(self):
+        ws = _sheet([["Идентификаторы сетей"], ["1"]])
+        fit_column_widths(ws)
+        self.assertGreaterEqual(header_capacity(_width(ws, 1)), len("Идентификаторы"))
+
+    def test_long_header_widens_column_just_enough_for_the_line_limit(self):
+        header = " ".join(["слово"] * 50)
+        ws = _sheet([[header], ["1"]])
+        fit_column_widths(ws)
+        width = _width(ws, 1)
+        self.assertLessEqual(wrap_lines(header, header_capacity(width)), MAX_HEADER_LINES)
+        self.assertGreater(wrap_lines(header, header_capacity(width - 1)), MAX_HEADER_LINES)  # уже нельзя
+
+    def test_header_that_cannot_fit_gets_max_width_and_a_taller_row(self):
+        ws = _sheet([[" ".join(["слово"] * 400)], ["1"]])
+        fit_sheet_size(ws)
+        self.assertEqual(_width(ws, 1), MAX_COLUMN_WIDTH)
+        self.assertGreater(ws.row_dimensions[1].height, MAX_HEADER_LINES * LINE_HEIGHT_PT)
+
+
+class FitHeaderHeightTestCase(unittest.TestCase):
+    def test_one_line_header_is_one_line_high(self):
+        ws = _sheet([["№", "Имя"], [1, "a"]])
+        fit_sheet_size(ws)
+        self.assertEqual(ws.row_dimensions[1].height, LINE_HEIGHT_PT)
+
+    def test_height_follows_the_tallest_header(self):
+        short, long_ = "Имя", " ".join(["слово"] * 30)
+        ws = _sheet([[short, long_], ["a", "b"]])
+        fit_sheet_size(ws)
+        lines = wrap_lines(long_, header_capacity(_width(ws, 2)))
+        self.assertGreater(lines, 1)
+        self.assertEqual(ws.row_dimensions[1].height, lines * LINE_HEIGHT_PT)
+
+    def test_no_header_needs_more_lines_than_the_row_has(self):
+        headers = ["№", "Название", "слово " * 25, "Идентификаторы виртуальных локальных вычислительных сетей", "a " * 70]
+        ws = _sheet([headers, [1, "x", "y", "z", "w"]])
+        fit_sheet_size(ws)
+        for column, header in enumerate(headers, 1):
+            lines = wrap_lines(header, header_capacity(_width(ws, column)))
+            self.assertLessEqual(lines * LINE_HEIGHT_PT, ws.row_dimensions[1].height, header)
+
+    def test_height_is_computed_from_final_widths(self):
+        """Высота считается после ширины: тот же заголовок в узкой колонке даёт более высокую шапку."""
+        header = " ".join(["слово"] * 30)
+        ws = _sheet([[header], ["1"]])
+        ws.column_dimensions["A"].width = 12
+        fit_header_height(ws)
+        narrow = ws.row_dimensions[1].height
+        ws.column_dimensions["A"].width = 40
+        fit_header_height(ws)
+        self.assertGreater(narrow, ws.row_dimensions[1].height)
+
+
+class StyleHeaderTestCase(unittest.TestCase):
+    def test_header_font_and_alignment(self):
+        ws = _sheet([["а", "б"], [1, 2]])
+        style_header(ws)
+        for cell in ws[1]:
+            self.assertEqual((cell.font.name, cell.font.sz, cell.font.bold), ("Calibri", 11, True))
+            self.assertEqual((cell.alignment.horizontal, cell.alignment.vertical, cell.alignment.wrap_text), ("center", "center", True))
+        self.assertFalse(ws["A2"].font.bold)
+
+
+class MergedBlockHeightTestCase(unittest.TestCase):
+    TEXT = "слово " * 30
+
+    def _sheet(self, text, rows=2):
+        ws = _sheet([["№", "Устройство", "Порт"]] + [[i + 1, text, f"p{i}"] for i in range(rows)])
+        for letter, width in (("A", 8), ("B", 14), ("C", 10)):
+            ws.column_dimensions[letter].width = width
+        return ws
+
+    def test_block_is_stretched_when_merged_text_does_not_fit(self):
+        ws = self._sheet(self.TEXT)
+        merge_vertical(ws, [(2, 3)], [2])
+        fit_merged_block_heights(ws, [(2, 3)], [2])
+        needed = wrap_lines(self.TEXT, text_capacity(14))
+        self.assertGreater(needed, 2)
+        self.assertEqual(ws.row_dimensions[2].height + ws.row_dimensions[3].height, needed * LINE_HEIGHT_PT)
+
+    def test_extra_lines_are_shared_between_rows_of_the_block(self):
+        ws = self._sheet(self.TEXT, rows=3)
+        merge_vertical(ws, [(2, 4)], [2])
+        fit_merged_block_heights(ws, [(2, 4)], [2])
+        heights = [ws.row_dimensions[r].height for r in (2, 3, 4)]
+        self.assertLessEqual(max(heights) - min(heights), LINE_HEIGHT_PT)
+
+    def test_block_with_enough_room_keeps_automatic_heights(self):
+        ws = self._sheet("sw1")
+        merge_vertical(ws, [(2, 3)], [2])
+        fit_merged_block_heights(ws, [(2, 3)], [2])
+        self.assertIsNone(ws.row_dimensions[2].height)
+        self.assertIsNone(ws.row_dimensions[3].height)
+
+    def test_own_content_of_the_rows_counts_as_room(self):
+        """Строки блока и так высокие из-за других ячеек — растягивать их под объединённый текст не нужно."""
+        ws = self._sheet("слово " * 8)                   # объединённому тексту хватит ~4 строк
+        for row in (2, 3):
+            ws.cell(row=row, column=3).value = "слово " * 12   # в колонке шириной 10 — много строк
+        merge_vertical(ws, [(2, 3)], [2])
+        fit_merged_block_heights(ws, [(2, 3)], [2])
+        self.assertIsNone(ws.row_dimensions[2].height)
+
+    def test_single_row_groups_and_no_columns_are_ignored(self):
+        ws = self._sheet(self.TEXT, rows=1)
+        fit_merged_block_heights(ws, [(2, 2)], [2])
+        self.assertIsNone(ws.row_dimensions[2].height)
+        ws = self._sheet(self.TEXT)
+        fit_merged_block_heights(ws, [(2, 3)], [])
+        self.assertIsNone(ws.row_dimensions[2].height)
+
+    def test_apply_sheet_layout_stretches_blocks_after_merging(self):
+        ws = self._sheet(self.TEXT)
+        apply_sheet_layout(ws, spans=[(2, 3)], merge_columns=(2,))
+        self.assertEqual(ws.row_dimensions[2].height + ws.row_dimensions[3].height, wrap_lines(self.TEXT, text_capacity(14)) * LINE_HEIGHT_PT)
 
 
 class ReportLayoutTestCase(unittest.TestCase):
@@ -299,6 +473,78 @@ class ReportLayoutTestCase(unittest.TestCase):
         self.assertEqual(ws["C2"].value, "S-1")
         self.assertEqual(ws["C2"].border.top.style, "medium")
         self.assertEqual(ws["C2"].border.bottom.style, "medium")
+
+    def test_header_row_fits_every_header_on_every_sheet(self):
+        """Регрессия: высота шапки была жёстко 72 пт, а заголовки в 200-300 символов при максимальной ширине
+        колонки занимали 5-6+ строк и обрезались по нижнему краю."""
+        self._seed_two_devices_two_ports()
+        wb = self.build("header_fit")
+        for ws in wb.worksheets:
+            for column in range(1, ws.max_column + 1):
+                lines = wrap_lines(ws.cell(row=1, column=column).value, header_capacity(_width(ws, column)))
+                self.assertLessEqual(lines * LINE_HEIGHT_PT, ws.row_dimensions[1].height, f"{ws.title}, колонка {column}")
+        self.assertGreater(wb[SHEET1].row_dimensions[1].height, 72)
+
+    def test_header_row_fits_on_empty_registry_too(self):
+        wb = self.build("header_fit_empty")
+        for ws in wb.worksheets:
+            for column in range(1, ws.max_column + 1):
+                lines = wrap_lines(ws.cell(row=1, column=column).value, header_capacity(_width(ws, column)))
+                self.assertLessEqual(lines * LINE_HEIGHT_PT, ws.row_dimensions[1].height, f"{ws.title}, колонка {column}")
+
+    def test_no_header_word_is_broken_in_the_middle(self):
+        self._seed_two_devices_two_ports()
+        for ws in self.build("header_words").worksheets:
+            for column in range(1, ws.max_column + 1):
+                longest = max(len(word) for word in ws.cell(row=1, column=column).value.split())
+                self.assertGreaterEqual(header_capacity(_width(ws, column)), longest, f"{ws.title}, колонка {column}")
+
+    def test_columns_are_not_inflated_by_headers(self):
+        """Ширина — по данным: колонка «№» узкая, а лист в целом заметно уже, чем при ширине всех колонок
+        по заголовку (раньше почти все колонки были 55)."""
+        self._seed_two_devices_two_ports()
+        wb = self.build("widths")
+        for title in (SHEET1, SHEET2, SHEET3):
+            self.assertEqual(_width(wb[title], 1), MIN_COLUMN_WIDTH, title)
+        for ws in wb.worksheets:
+            widths = [_width(ws, column) for column in range(1, ws.max_column + 1)]
+            self.assertLessEqual(max(widths), MAX_COLUMN_WIDTH, ws.title)
+            self.assertLess(sum(widths), 0.8 * MAX_COLUMN_WIDTH * len(widths), ws.title)
+
+    def test_header_style_is_kept_and_data_is_aligned_to_top(self):
+        """Регрессия: общий проход выравнивания данных затирал центрирование шапки, и шапки прижимались влево."""
+        self._seed_two_devices_two_ports()
+        for ws in self.build("styles").worksheets:
+            for cell in ws[1]:
+                self.assertEqual((cell.font.name, cell.font.sz, cell.font.bold), ("Calibri", 11, True), ws.title)
+                self.assertEqual((cell.alignment.horizontal, cell.alignment.vertical), ("center", "center"), ws.title)
+                self.assertTrue(cell.alignment.wrap_text)
+        data_cell = self.build("styles2")[SHEET3]["F2"]
+        self.assertEqual((data_cell.alignment.vertical, data_cell.alignment.wrap_text), ("top", True))
+
+    def test_autofilter_still_covers_the_whole_table(self):
+        self._seed_two_devices_two_ports()
+        ws = self.build("filter")[SHEET3]
+        self.assertEqual(ws.auto_filter.ref, f"A1:{get_column_letter(ws.max_column)}{ws.max_row}")
+
+    def test_data_rows_keep_automatic_height_when_nothing_is_clipped(self):
+        self._seed_two_devices_two_ports()
+        ws = self.build("auto_rows")[SHEET3]
+        self.assertTrue(all(ws.row_dimensions[row].height is None for row in range(2, ws.max_row + 1)))
+
+    def test_device_block_is_stretched_when_its_merged_data_does_not_fit(self):
+        """Длинное имя ОС устройства с двумя портами: объединённая ячейка (в подборе высоты строк она не
+        участвует) не должна обрезаться — строки блока растягиваются, у соседнего устройства всё по-прежнему."""
+        self._seed_two_devices_two_ports()
+        os_name = "очень длинное наименование встроенной операционной системы " * 3
+        self.table["EmbeddedOperatingSystem"] = [self.C["EmbeddedOperatingSystem"](id="eos1", name=os_name, version="1.0")]
+        self.table["PhysicalDevice"][0].embedded_os_id = "eos1"
+        ws = self.build("stretch")[SHEET3]
+        needed = wrap_lines(ws["E2"].value, text_capacity(_width(ws, 5)))
+        self.assertGreater(needed, 2)
+        self.assertGreaterEqual(ws.row_dimensions[2].height + ws.row_dimensions[3].height, needed * LINE_HEIGHT_PT)
+        self.assertIsNone(ws.row_dimensions[4].height)
+        self.assertIsNone(ws.row_dimensions[5].height)
 
     def test_merging_does_not_change_report_data(self):
         """Объединение только визуальное: «логические» строки листа 3 содержат данные устройства в каждой строке."""
