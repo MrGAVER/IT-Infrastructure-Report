@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
@@ -17,6 +17,7 @@ from ...models import DeviceInterface, IPAddress, OpenPort, PhysicalDevice, Inte
 from ...constants import OwnerType
 from ..serialization import enrich_interface_groups
 from ..validation import validate_ipv4_field, validate_prefix_length_field, validate_unique_open_port_numbers
+from .interface_group_subinterfaces import apply_group_subinterfaces, group_subinterfaces_by_group, normalize_group_subinterfaces, purge_subinterfaces_of_groups, sync_group_subinterfaces
 from .owned_rows import _IP_PURPOSE_MAX_LENGTH, _validate_open_port_catalog
 
 
@@ -27,7 +28,8 @@ def list_interface_groups(device_id: str, session: Session) -> list[dict[str, An
     """Группы портов устройства с их VLAN и открытыми портами (GET /devices/{id}/interface-groups и
     поле groups ответа PUT /devices/{id}/interfaces). Порядок — по наименованию."""
     groups = session.scalars(select(InterfaceGroup).where(InterfaceGroup.physical_device_id == device_id).order_by(InterfaceGroup.name)).all()
-    return enrich_interface_groups(groups, session)
+    subinterfaces = group_subinterfaces_by_group([g.id for g in groups], session)
+    return [{**data, 'subinterfaces': subinterfaces.get(data['id'], [])} for data in enrich_interface_groups(groups, session)]
 
 
 def get_interface_groups(device_id: str, session: Session) -> dict[str, Any]:
@@ -42,6 +44,7 @@ class _GroupState:
     obj: InterfaceGroup
     vlan_ids: list[str]
     open_ports: list[dict[str, Any]]
+    subinterfaces: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) -> dict[str, Any]:
@@ -86,7 +89,11 @@ def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) 
         _validate_open_port_catalog(port_data, session)
         open_ports.append({'id': port_data.get('id'), 'protocol_catalog_id': port_data['protocol_catalog_id'], 'transport_protocol': port_data.get('transport_protocol') or 'TCP', 'description': port_data.get('description') or None})
     validate_unique_open_port_numbers((p['protocol_catalog_id'] for p in open_ports), session, f'Группа портов «{name}»')
-    return {'name': name, 'vlan_mode': vlan_mode, 'all_vlans': all_vlans, 'vlan_ids': unique_vlan_ids, 'ip_address': ip_address, 'prefix_length': prefix_length, 'ip_purpose': ip_purpose, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports}
+    # Подинтерфейсы группы: как и открытые порты, хранятся только пока группа ими управляет. Допустимые VLAN подинтерфейса —
+    # те, что группа записывает портам (при «Все VLAN» — все VLAN устройства).
+    manage_subinterfaces = bool(item.get('manage_subinterfaces'))
+    subinterfaces = normalize_group_subinterfaces(item.get('subinterfaces') or [], group_name=name, vlan_mode=vlan_mode, group_vlans=set(allowed_vlans) if all_vlans else set(unique_vlan_ids), session=session) if manage_subinterfaces else []
+    return {'name': name, 'vlan_mode': vlan_mode, 'all_vlans': all_vlans, 'vlan_ids': unique_vlan_ids, 'ip_address': ip_address, 'prefix_length': prefix_length, 'ip_purpose': ip_purpose, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports, 'manage_subinterfaces': manage_subinterfaces, 'subinterfaces': subinterfaces}
 
 
 def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vlans: set[str], session: Session) -> dict[str, _GroupState]:
@@ -113,10 +120,12 @@ def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vl
             obj = InterfaceGroup(physical_device_id=device_id); session.add(obj)
         obj.name = norm['name']; obj.vlan_mode = norm['vlan_mode']; obj.all_vlans = norm['all_vlans']; obj.ip_address = norm['ip_address']
         obj.prefix_length = norm['prefix_length']; obj.ip_purpose = norm['ip_purpose']; obj.manage_open_ports = norm['manage_open_ports']
+        obj.manage_subinterfaces = norm['manage_subinterfaces']
         session.flush()
         _sync_group_vlans(obj, norm['vlan_ids'], session)
         _sync_group_open_ports(obj, norm['open_ports'], session)
-        states[key] = _GroupState(obj, norm['vlan_ids'], norm['open_ports'])
+        sync_group_subinterfaces(obj.id, norm['subinterfaces'], session)
+        states[key] = _GroupState(obj, norm['vlan_ids'], norm['open_ports'], norm['subinterfaces'])
     return states
 
 
@@ -157,7 +166,7 @@ def _resolve_interface_group(item: dict[str, Any], states: dict[str, _GroupState
 def _apply_group_to_interface(iface: DeviceInterface, state: _GroupState, session: Session) -> None:
     """Записывает в порт значения тех параметров, которыми управляет его группа (заданы в группе):
     режим порта + VLAN, единственный общий IP (адрес, префикс и назначение), полный список
-    открытых портов. Повторный вызов с теми
+    открытых портов, полный список подинтерфейсов. Повторный вызов с теми
     же значениями ничего не меняет (строки порта обновляются на месте, лишние удаляются, id не
     пересоздаются). Незаданные группой параметры порта не трогаются."""
     group = state.obj
@@ -186,6 +195,9 @@ def _apply_group_to_interface(iface: DeviceInterface, state: _GroupState, sessio
         for extra in ips[1:]: session.delete(extra)
     if group.manage_open_ports:
         _apply_group_open_ports(iface, state.open_ports, session)
+    # Подинтерфейсы — последними: их VLAN входят в VLAN группы, которые порту записаны выше.
+    if group.manage_subinterfaces:
+        apply_group_subinterfaces(iface, state.subinterfaces, session)
 
 
 def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, Any]], session: Session) -> None:
@@ -223,6 +235,7 @@ def _delete_stale_groups(device_id: str, kept_group_ids: set[str], session: Sess
     клиент — форма шлёт значения, ранее записанные из группы («оставить»), либо пустые («стереть»,
     выбор пользователя при удалении группы)."""
     stale = [g for g in session.scalars(select(InterfaceGroup).where(InterfaceGroup.physical_device_id == device_id)).all() if g.id not in kept_group_ids]
+    purge_subinterfaces_of_groups([g.id for g in stale], session)
     for group in stale:
         session.execute(update(DeviceInterface).where(DeviceInterface.group_id == group.id).values(group_id=None))
         session.execute(delete(InterfaceGroupVLAN).where(InterfaceGroupVLAN.group_id == group.id))

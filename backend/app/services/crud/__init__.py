@@ -13,6 +13,7 @@
   - interfaces: Синхронизация портов (интерфейсов) устройства и чтение VLAN портов формы.
   - interface_groups: Группы портов устройства: чтение, синхронизация и применение значений группы к её портам.
   - subinterfaces: Подинтерфейсы портов устройства: синхронизация, чтение, удаление.
+  - interface_group_subinterfaces: Подинтерфейсы групп портов: проверка, шаблоны группы, запись в порты.
   - device_vlans: Синхронизация VLAN физического устройства.
   - information_system: Детали информационной системы: связанные таблицы и источники.
 
@@ -152,6 +153,14 @@ from .subinterfaces import (  # noqa: F401
     subinterfaces_by_parent,
     get_device_subinterfaces,
 )
+from .interface_group_subinterfaces import (  # noqa: F401
+    apply_group_subinterfaces,
+    delete_group_subinterfaces,
+    group_subinterfaces_by_group,
+    normalize_group_subinterfaces,
+    purge_subinterfaces_of_groups,
+    sync_group_subinterfaces,
+)
 from .device_vlans import (  # noqa: F401
     _normalize_device_vlan_item,
     sync_device_vlans,
@@ -242,14 +251,17 @@ __all__ = [
     'allowed_columns',
     'assert_deletable',
     'assign_domain_vlans_to_device',
+    'apply_group_subinterfaces',
     'audit',
     'columns_for',
     'create_resource',
+    'delete_group_subinterfaces',
     'delete_resource',
     'delete_subinterfaces',
     'enrich_subinterfaces',
     'ensure_writable',
     'get_device_subinterfaces',
+    'group_subinterfaces_by_group',
     'get_information_system_details',
     'get_interface_groups',
     'get_device_interface_ips',
@@ -258,11 +270,14 @@ __all__ = [
     'list_interface_groups',
     'list_resource',
     'model_for',
+    'normalize_group_subinterfaces',
+    'purge_subinterfaces_of_groups',
     'purge_subinterfaces_of_interfaces',
     'subinterface_references',
     'subinterfaces_by_parent',
     'sync_device_deployed_software',
     'sync_device_vlans',
+    'sync_group_subinterfaces',
     'sync_information_system_details',
     'sync_interfaces',
     'sync_owner_deployed_software',

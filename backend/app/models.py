@@ -399,6 +399,10 @@ class InterfaceGroup(TimestampMixin, Base):
     # prefix_length: хранится, только пока задан ip_address, и тогда безусловно записывается в IP
     # каждого порта группы (пустое значение — очищает назначение).
     ip_purpose: Mapped[Optional[str]] = mapped_column(String(255))
+    # Группа задаёт полный список подинтерфейсов своих портов (interface_group_subinterfaces): каждому порту группы
+    # записываются подинтерфейсы `<порт>.<номер VLAN>` с общими IP и открытыми портами, лишние подинтерфейсы порта
+    # удаляются — как manage_open_ports для открытых портов. Без признака подинтерфейсы портов группа не трогает.
+    manage_subinterfaces: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
 
 
 class InterfaceGroupVLAN(TimestampMixin, Base):
@@ -420,6 +424,47 @@ class InterfaceGroupOpenPort(TimestampMixin, Base):
     __tablename__ = "interface_group_open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
+    protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id", ondelete="CASCADE"), index=True)
+    transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class InterfaceGroupSubinterface(TimestampMixin, Base):
+    """Подинтерфейс группы портов (manage_subinterfaces): шаблон, который группа записывает в каждый свой порт как
+    models.DeviceSubinterface с именем `<порт>.<номер VLAN>` (значения материализуются в порты, как и остальные параметры
+    группы, — отчёты и схемы читают итоговые подинтерфейсы портов и о группах ничего не знают).
+
+    Строки порта и шаблона сопоставляются по VLAN: на порту один VLAN используется один раз, поэтому и в группе VLAN
+    уникален. VLAN обязан входить в VLAN группы (режим порта и VLAN задаёт сама группа) — это проверяет
+    services/crud/interface_group_subinterfaces.py. vlan_id без каскада: VLAN, на котором есть подинтерфейс группы, удалить
+    нельзя. group_id — ON DELETE CASCADE: шаблон принадлежит группе (вместе со своими IP и открытыми портами ниже).
+
+    IP-адреса и открытые порты шаблона — отдельные таблицы с настоящим FK (как у interface_group_open_ports), а не
+    полиморфные ip_addresses/open_ports: шаблон не должен попадать в общие списки IP и открытых портов реестра."""
+    __tablename__ = "interface_group_subinterfaces"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
+    vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
+    is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_data_transfer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class InterfaceGroupSubinterfaceIP(TimestampMixin, Base):
+    """IP-адрес подинтерфейса группы портов (см. InterfaceGroupSubinterface): записывается в IP каждого подинтерфейса порта."""
+    __tablename__ = "interface_group_subinterface_ips"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    subinterface_id: Mapped[str] = mapped_column(ForeignKey("interface_group_subinterfaces.id", ondelete="CASCADE"), index=True)
+    ip_address: Mapped[str] = mapped_column(String(64))
+    prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
+    purpose: Mapped[Optional[str]] = mapped_column(String(255))
+
+
+class InterfaceGroupSubinterfaceOpenPort(TimestampMixin, Base):
+    """Открытый порт/протокол подинтерфейса группы портов (см. InterfaceGroupSubinterface); port/protocol — только из справочника."""
+    __tablename__ = "interface_group_subinterface_open_ports"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    subinterface_id: Mapped[str] = mapped_column(ForeignKey("interface_group_subinterfaces.id", ondelete="CASCADE"), index=True)
     protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id", ondelete="CASCADE"), index=True)
     transport_protocol: Mapped[str] = mapped_column(String(10), default="TCP", server_default="TCP")
     description: Mapped[Optional[str]] = mapped_column(Text)
