@@ -4,14 +4,19 @@ import {
   groupSubinterfacesByParent,
   isAutoSubinterfaceName,
   moveStaleMessage,
+  groupSubinterfacesPayload,
   moveStaleSubinterfaces,
+  portVlanIdSet,
+  portVlanOptions,
   reassignSubinterfaceVlan,
   renameSubinterfacesForPort,
   staleSubinterfaces,
   stripSubinterfaceIds,
   subinterfaceVlanRemovalMessage,
+  subinterfacesOffPortVlans,
   subinterfacesPayload,
   suggestSubinterfaceName,
+  toGroupSubinterfaceDraftRow,
   toSubinterfaceDraftRow,
   validateSubinterfaceRows,
 } from '../subinterfaces'
@@ -29,7 +34,7 @@ function sub(patch: Partial<SubinterfaceDraftRow> = {}): SubinterfaceDraftRow {
   return { ...emptySubinterface('Gi0/0', vlan10), ...patch }
 }
 
-function port(name: string, subinterfaces?: SubinterfaceDraftRow[]): InterfaceDraftRow {
+function port(name: string, subinterfaces?: SubinterfaceDraftRow[], vlanIds: string[] = []): InterfaceDraftRow {
   return {
     name,
     interface_type_id: '',
@@ -38,7 +43,7 @@ function port(name: string, subinterfaces?: SubinterfaceDraftRow[]): InterfaceDr
     is_management: false,
     is_data_transfer: false,
     description: '',
-    vlan_ids: [],
+    vlan_ids: vlanIds,
     vlan_mode: 'trunk',
     ips: [],
     open_ports: [],
@@ -185,7 +190,7 @@ describe('validateSubinterfaceRows: VLAN, недоступный устройс�
   })
 
   it('допустимый VLAN проходит; без списка допустимых проверка пропускается (серверная остаётся)', () => {
-    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })])]
+    const rows = [port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })], ['v-10'])]
     expect(validateSubinterfaceRows(rows, [], new Set(['v-10']))).toBeNull()
     expect(validateSubinterfaceRows(rows)).toBeNull()
   })
@@ -193,6 +198,60 @@ describe('validateSubinterfaceRows: VLAN, недоступный устройс�
   it('«VLAN не выбран» сообщается раньше, чем «VLAN недоступен»', () => {
     const rows = [port('Gi0/0', [sub({ name: 'x', vlan_id: '' })])]
     expect(validateSubinterfaceRows(rows, [], new Set())).toMatch(/не выбран VLAN/)
+  })
+})
+
+describe('VLAN подинтерфейса — один из VLAN порта', () => {
+  const allowedAll = new Set(['v-10', 'v-20'])
+
+  it('portVlanIdSet: выбранные на порту; с «Все VLAN» (trunk) — все VLAN устройства; в access «Все VLAN» не действует', () => {
+    expect([...portVlanIdSet(port('Gi0/0', [], ['v-10']), allowedAll)]).toEqual(['v-10'])
+    expect([...portVlanIdSet({ ...port('Gi0/0'), all_vlans: true }, allowedAll)].sort()).toEqual(['v-10', 'v-20'])
+    expect([...portVlanIdSet({ ...port('Gi0/0', [], ['v-10']), all_vlans: true, vlan_mode: 'access' }, allowedAll)]).toEqual(['v-10'])
+  })
+
+  it('portVlanOptions: определения VLAN порта в порядке справочника', () => {
+    expect(portVlanOptions(port('Gi0/0', [], ['v-20']), [vlan10, vlan20])).toEqual([vlan20])
+    expect(portVlanOptions({ ...port('Gi0/0'), all_vlans: true }, [vlan10, vlan20])).toEqual([vlan10, vlan20])
+    expect(portVlanOptions(port('Gi0/0'), [vlan10, vlan20])).toEqual([])
+  })
+
+  it('subinterfacesOffPortVlans: подинтерфейсы на VLAN, которого нет на порту или у устройства', () => {
+    const row = port('Gi0/0', [sub({ vlan_id: 'v-10' }), sub({ name: 'Gi0/0.20', vlan_id: 'v-20' }), sub({ name: 'Gi0/0.30', vlan_id: 'v-30' })], ['v-10', 'v-30'])
+
+    expect(subinterfacesOffPortVlans(row, allowedAll).map((s) => s.vlan_id)).toEqual(['v-20', 'v-30']) // v-20 не на порту, v-30 снят с устройства
+    expect(subinterfacesOffPortVlans(row).map((s) => s.vlan_id)).toEqual(['v-20']) // без VLAN устройства — только «не на порту»
+    expect(subinterfacesOffPortVlans(port('Gi0/0'))).toEqual([])
+  })
+
+  it('сохранение блокируется, если VLAN подинтерфейса не выбран на порту, и проходит, когда выбран', () => {
+    const subs = [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })]
+
+    expect(validateSubinterfaceRows([port('Gi0/0', subs, ['v-20'])], [], allowedAll)).toMatch(/«Gi0\/0\.10» не выбран на порту «Gi0\/0»/)
+    expect(validateSubinterfaceRows([port('Gi0/0', subs, ['v-10', 'v-20'])], [], allowedAll)).toBeNull()
+    expect(validateSubinterfaceRows([{ ...port('Gi0/0', subs), all_vlans: true }], [], allowedAll)).toBeNull() // «Все VLAN» — любой VLAN устройства
+  })
+
+  it('без списка VLAN устройства (окно портов без формы устройства) правило не применяется', () => {
+    expect(validateSubinterfaceRows([port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' })])])).toBeNull()
+  })
+})
+
+describe('подинтерфейсы группы портов', () => {
+  const groupSub = { id: 'gs-1', group_id: 'g-1', vlan_id: 'v-10', is_management: true, is_data_transfer: false, description: null, ips: [{ id: 'gip-1', ip_address: '10.0.10.1', prefix_length: 24, purpose: null }], open_ports: [] }
+
+  it('toGroupSubinterfaceDraftRow: шаблон без имени, значения как у обычной строки', () => {
+    expect(toGroupSubinterfaceDraftRow(groupSub)).toMatchObject({ id: 'gs-1', key: 'gs-1', name: '', vlan_id: 'v-10', is_management: true, description: '' })
+    expect(toGroupSubinterfaceDraftRow(groupSub).ips).toEqual([{ id: 'gip-1', ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }])
+  })
+
+  it('groupSubinterfacesPayload: без имени, пустые плейсхолдеры IP и открытых портов не уходят', () => {
+    const rows = [sub({ id: 'gs-1', name: 'не уходит', ips: [{ ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }, { ip_address: '', prefix_length: '', purpose: '' }], open_ports: [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }] })]
+
+    const [payload] = groupSubinterfacesPayload(rows)
+
+    expect(payload).not.toHaveProperty('name')
+    expect(payload).toEqual({ id: 'gs-1', vlan_id: 'v-10', is_management: false, is_data_transfer: false, description: null, ips: [{ id: undefined, ip_address: '10.0.10.1', prefix_length: 24, purpose: null }], open_ports: [] })
   })
 })
 
@@ -276,8 +335,8 @@ describe('moveStaleSubinterfaces', () => {
 
   it('переносит подинтерфейсы всех портов с недоступных VLAN на выбранный, пересчитывая автоимена; остальное не трогает', () => {
     const rows = [
-      port('Gi0/0', [staleOn(vlan30, 'Gi0/0'), sub({ name: 'Gi0/0.20', vlan_id: 'v-20' })]),
-      port('Gi0/1', [staleOn(vlan40, 'Gi0/1', { name: 'wan-uplink' })]),
+      port('Gi0/0', [staleOn(vlan30, 'Gi0/0'), sub({ name: 'Gi0/0.20', vlan_id: 'v-20' })], ['v-10', 'v-20']),
+      port('Gi0/1', [staleOn(vlan40, 'Gi0/1', { name: 'wan-uplink' })], ['v-10']),
       port('Gi0/2'),
     ]
     const result = moveStaleSubinterfaces(rows, vlan10, allowed, known)
@@ -292,8 +351,8 @@ describe('moveStaleSubinterfaces', () => {
 
   it('если на порту целевой VLAN уже занят — подинтерфейс остаётся и попадает в skipped (на порту VLAN один раз)', () => {
     const rows = [
-      port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' }), staleOn(vlan30, 'Gi0/0')]), // v-10 уже занят
-      port('Gi0/1', [staleOn(vlan30, 'Gi0/1'), staleOn(vlan40, 'Gi0/1')]), // только первый получит v-10
+      port('Gi0/0', [sub({ name: 'Gi0/0.10', vlan_id: 'v-10' }), staleOn(vlan30, 'Gi0/0')], ['v-10', 'v-30']), // v-10 уже занят
+      port('Gi0/1', [staleOn(vlan30, 'Gi0/1'), staleOn(vlan40, 'Gi0/1')], ['v-10', 'v-30', 'v-40']), // только первый получит v-10
     ]
     const result = moveStaleSubinterfaces(rows, vlan10, allowed, known)
 
@@ -303,6 +362,19 @@ describe('moveStaleSubinterfaces', () => {
     expect(result.skipped).toEqual(['Gi0/0.30', 'Gi0/1.40'])
     // итог проходит проверку формы: VLAN на порту не повторяется
     expect(validateSubinterfaceRows(result.rows, [], new Set(['v-10', 'v-20', 'v-30', 'v-40']))).toBeNull()
+  })
+
+  it('на порт, где целевой VLAN не выбран, подинтерфейс не переносится: он остаётся и попадает в skipped', () => {
+    const rows = [
+      port('Gi0/0', [staleOn(vlan30, 'Gi0/0')], ['v-20']), // v-10 на порту нет
+      port('Gi0/1', [staleOn(vlan30, 'Gi0/1')], ['v-10']),
+    ]
+    const result = moveStaleSubinterfaces(rows, vlan10, allowed, known)
+
+    expect(result.rows[0].subinterfaces![0]).toMatchObject({ name: 'Gi0/0.30', vlan_id: 'v-30' })
+    expect(result.rows[1].subinterfaces![0]).toMatchObject({ name: 'Gi0/1.10', vlan_id: 'v-10' })
+    expect(result.moved).toEqual(['Gi0/1.10'])
+    expect(result.skipped).toEqual(['Gi0/0.30'])
   })
 
   it('переносить нечего — возвращается тот же массив строк', () => {
@@ -330,7 +402,7 @@ describe('moveStaleMessage', () => {
     const partial = moveStaleMessage({ moved: ['a'], skipped: ['Gi0/0.30'] }, vlan10)!
     expect(partial.type).toBe('warning')
     expect(partial.text).toContain('Перенесено подинтерфейсов: 1 — на VLAN 10 — Серверы.')
-    expect(partial.text).toContain('Не перенесены (на их порту этот VLAN уже занят другим подинтерфейсом): «Gi0/0.30»')
+    expect(partial.text).toContain('Не перенесены (на их порту этот VLAN не выбран или уже занят другим подинтерфейсом): «Gi0/0.30»')
 
     const none = moveStaleMessage({ moved: [], skipped: ['Gi0/0.30'] }, vlan10)!
     expect(none.type).toBe('warning')

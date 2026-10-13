@@ -114,13 +114,15 @@ function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
     ip_purpose: g.ip_purpose ?? '',
     manage_open_ports: g.manage_open_ports,
     open_ports: g.open_ports.map((p) => ({ id: p.id, protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol, description: p.description ?? '' })),
+    manage_subinterfaces: g.manage_subinterfaces ?? false,
+    subinterfaces: (g.subinterfaces ?? []).map(toGroupSubinterfaceDraftRow),
   }
 }
 
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { duplicatePortNumbers } from '../utils/openPorts'
 import { connectionPayload, type ConnectionBaseline } from '../utils/interfaceConnections'
-import { groupSubinterfacesByParent, subinterfacesPayload, validateSubinterfaceRows } from '../utils/subinterfaces'
+import { groupSubinterfacesByParent, groupSubinterfacesPayload, subinterfacesPayload, toGroupSubinterfaceDraftRow, validateSubinterfaceRows } from '../utils/subinterfaces'
 
 /** У каждого интерфейса должно быть имя — бэкенд это тоже проверит (422), но лучше показать
  * понятную ошибку до запроса, чем ждать round-trip. UI (DeviceInterfacesEditor.vue) не даёт
@@ -216,6 +218,9 @@ export async function persistDeviceInterfaces(
                   .filter((p) => p.protocol_catalog_id)
                   .map((p) => ({ id: p.id, protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description || null }))
               : [],
+            // Подинтерфейсы группы — полный список, пока группа ими управляет (пустой тоже значение); без признака не уходят.
+            manage_subinterfaces: g.manage_subinterfaces === true,
+            subinterfaces: g.manage_subinterfaces === true && g.vlan_mode ? groupSubinterfacesPayload(g.subinterfaces ?? []) : [],
           })),
         }
       : {}),

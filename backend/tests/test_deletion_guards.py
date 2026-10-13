@@ -64,6 +64,12 @@ ALLOWED_DELETIONS = {
     # используется портами, группами портов и подинтерфейсами участников — иначе 409 до любого удаления
     ("app/services/device_stack_vlans.py", "remove_stack_vlan", "setting"),
     ("app/services/device_stack_vlans.py", "remove_stack_vlan", "link"),
+    # подинтерфейсы групп портов: шаблоны группы (InterfaceGroupSubinterface и их IP/открытые порты) — дочерние строки группы,
+    # на них никто не ссылается; удаляются diff'ом при сохранении группы, вместе с группой и при снятии «Задать подинтерфейсы».
+    # Устройства при этом не удаляются, а VLAN с шаблоном удалить нельзя (FK без каскада, 409 до любого удаления)
+    ("app/services/crud/interface_group_subinterfaces.py", "_sync_children", "row"),
+    ("app/services/crud/interface_group_subinterfaces.py", "delete_group_subinterfaces", "InterfaceGroupSubinterface"),
+    ("app/services/crud/interface_group_subinterfaces.py", "delete_group_subinterfaces", "model"),
     # generic-удаление: перед ним вызывается assert_deletable(), затем очистка полиморфных дочерних
     ("app/services/crud/deletion.py", "delete_resource", "cleanup_model"),
     ("app/services/crud/deletion.py", "delete_resource", "obj"),

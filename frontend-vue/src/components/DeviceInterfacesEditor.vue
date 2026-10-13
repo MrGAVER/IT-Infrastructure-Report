@@ -43,7 +43,7 @@ import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
-import { moveStaleMessage, moveStaleSubinterfaces, renameSubinterfacesForPort, staleSubinterfaces } from '../utils/subinterfaces'
+import { moveStaleMessage, moveStaleSubinterfaces, portVlanOptions, renameSubinterfacesForPort, staleSubinterfaces, subinterfacesOffPortVlans } from '../utils/subinterfaces'
 import {
   SELF_DEVICE,
   changedConnectionRowIds,
@@ -239,9 +239,17 @@ function moveAllStaleSubinterfaces() {
   if (message) notify(message.text, message.type)
 }
 
+// Значок на свёрнутой строке порта: подинтерфейсы, VLAN которых выбрать уже нельзя, — он не выбран на порту (убран с порта)
+// либо снят с устройства. VLAN подинтерфейса выбирается из VLAN порта (см. InterfaceSubinterfacesEditor), поэтому такой
+// подинтерфейс нужно перенести на другой VLAN порта или удалить — иначе форма не сохранится.
 function staleSubinterfaceText(row: InterfaceDraftRow): string {
-  const names = staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).map((sub) => `«${sub.name.trim() || 'без имени'}»`)
-  return names.length ? `Подинтерфейсы на VLAN, не назначенном устройству: ${names.join(', ')} — выберите другой VLAN или удалите их` : ''
+  const names = subinterfacesOffPortVlans(row, allowedVlanIds.value).map((sub) => `«${sub.name.trim() || 'без имени'}»`)
+  return names.length ? `Подинтерфейсы на VLAN, не выбранном на порту или не назначенном устройству: ${names.join(', ')} — выберите другой VLAN или удалите их` : ''
+}
+
+// VLAN, из которых выбирается VLAN подинтерфейса порта: выбранные на самом порту (с «Все VLAN» — все VLAN устройства).
+function subinterfaceVlanOptions(row: InterfaceDraftRow) {
+  return portVlanOptions(row, props.vlanOptions)
 }
 
 // Подключение порта (блок «Подключение», InterfaceConnectionEditor.vue): порты соседей, уже выбранные в
@@ -1470,15 +1478,19 @@ function applyBulkEdit() {
                   </div>
 
                   <!-- Подинтерфейсы порта (как у маршрутизаторов и межсетевых экранов: порт + подинтерфейс на
-                       номере VLAN с отдельным IP и параметрами). Не зависят от группы портов: группа задаёт
-                       VLAN/IP/открытые порты самого порта, а подинтерфейсы у каждого порта свои. -->
+                       номере VLAN с отдельным IP и параметрами). VLAN подинтерфейса — один из VLAN, выбранных на
+                       этом порту. Если порт в группе, которая задаёт подинтерфейсы, список только для просмотра:
+                       группа записывает в каждый свой порт полный набор «<порт>.<VLAN>». -->
                   <InterfaceSubinterfacesEditor
                     :model-value="row.subinterfaces ?? []"
                     :parent-name="row.name"
-                    :vlan-options="vlanOptions"
+                    :vlan-options="subinterfaceVlanOptions(row)"
                     :vlan-catalog="knownVlans"
+                    :device-vlan-ids="allowedVlanIds"
                     :protocol-port-catalog="protocolPortCatalog"
                     :collapse-after="formPreferences.collapseRows"
+                    :readonly="rowManaged(row).subinterfaces"
+                    :readonly-note="rowManaged(row).subinterfaces ? groupLockNote(row, 'Список подинтерфейсов') : ''"
                     @update:model-value="(v) => updateRow(i, { subinterfaces: v })"
                   />
 

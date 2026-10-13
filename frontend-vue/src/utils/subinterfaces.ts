@@ -3,8 +3,8 @@
 // компонентов ради тестов без монтирования и чтобы форма (проверка при сохранении) и редактор
 // (InterfaceSubinterfacesEditor.vue) использовали одни правила. Правила проверки зеркальны серверным
 // (backend/app/services/crud/subinterfaces.py): имя и VLAN обязательны, имя уникально на устройстве и
-// не совпадает с именем порта, на одном порту VLAN используется один раз.
-import type { DeviceSubinterface, InterfaceDraftRow, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
+// не совпадает с именем порта, на одном порту VLAN используется один раз; VLAN подинтерфейса — один из VLAN порта (клиентское правило).
+import type { DeviceSubinterface, InterfaceDraftRow, InterfaceGroupSubinterface, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
 import { isValidIPv4, isValidPrefixLength } from './ipValidation'
 import { duplicatePortNumbers } from './openPorts'
 import { vlanLabel } from './vlan'
@@ -46,7 +46,7 @@ export interface MoveStaleResult {
   rows: InterfaceDraftRow[]
   /** Перенесённые подинтерфейсы (их новые имена). */
   moved: string[]
-  /** Не перенесённые: на порту целевой VLAN уже занят другим подинтерфейсом (на порту VLAN используется один раз). */
+  /** Не перенесённые: на порту целевой VLAN уже занят другим подинтерфейсом (на порту VLAN используется один раз) либо не выбран на порту. */
   skipped: string[]
 }
 
@@ -70,10 +70,12 @@ export function moveStaleSubinterfaces(
   const nextRows = rows.map((row) => {
     if (!staleSubinterfaces(row.subinterfaces, allowedVlanIds).length) return row
     const used = new Set((row.subinterfaces ?? []).map((sub) => sub.vlan_id))
+    const portVlans = portVlanIdSet(row, allowedVlanIds)
     const subinterfaces = (row.subinterfaces ?? []).map((sub) => {
       if (!sub.vlan_id || allowedVlanIds.has(sub.vlan_id)) return sub
       const label = sub.name.trim() || 'без имени'
-      if (used.has(target.id)) {
+      // VLAN подинтерфейса — один из VLAN порта: на порт, где `target` не выбран, подинтерфейс не переносим (форма не сохранилась бы).
+      if (used.has(target.id) || !portVlans.has(target.id)) {
         skipped.push(label)
         return sub
       }
@@ -94,7 +96,7 @@ export function moveStaleMessage(result: Pick<MoveStaleResult, 'moved' | 'skippe
   if (!moved.length && !skipped.length) return null
   const done = moved.length ? `Перенесено подинтерфейсов: ${moved.length} — на VLAN ${vlanLabel(target)}.` : ''
   if (!skipped.length) return { text: done, type: 'success' }
-  const left = `Не перенесены (на их порту этот VLAN уже занят другим подинтерфейсом): ${skipped.map((name) => `«${name}»`).join(', ')} — выберите для них другой VLAN.`
+  const left = `Не перенесены (на их порту этот VLAN не выбран или уже занят другим подинтерфейсом): ${skipped.map((name) => `«${name}»`).join(', ')} — выберите для них другой VLAN.`
   return { text: [done, left].filter(Boolean).join(' '), type: 'warning' }
 }
 
@@ -132,6 +134,35 @@ export function renameSubinterfacesForPort(
  * перенесён в другой домен): сервер такое сохранение отклонит (422), поэтому форма показывает их заранее. */
 export function staleSubinterfaces(subs: readonly SubinterfaceDraftRow[] | undefined, allowedVlanIds: ReadonlySet<string>): SubinterfaceDraftRow[] {
   return (subs ?? []).filter((sub) => sub.vlan_id && !allowedVlanIds.has(sub.vlan_id))
+}
+
+/** Id VLAN порта: с «Все VLAN» (trunk) — все VLAN, допустимые устройству (`allowedVlanIds`), иначе выбранные на порту.
+ * Подинтерфейс порта создаётся только на одном из них. */
+export function portVlanIdSet(
+  row: Pick<InterfaceDraftRow, 'vlan_ids' | 'all_vlans' | 'vlan_mode'>,
+  allowedVlanIds?: ReadonlySet<string>,
+): Set<string> {
+  return row.all_vlans === true && row.vlan_mode === 'trunk' && allowedVlanIds ? new Set(allowedVlanIds) : new Set(row.vlan_ids)
+}
+
+/** VLAN порта как список определений (по порядку `vlans`): из них выбирается VLAN подинтерфейса порта. */
+export function portVlanOptions(
+  row: Pick<InterfaceDraftRow, 'vlan_ids' | 'all_vlans' | 'vlan_mode'>,
+  vlans: readonly VLANDefinition[],
+): VLANDefinition[] {
+  const ids = portVlanIdSet(row, new Set(vlans.map((v) => v.id)))
+  return vlans.filter((v) => ids.has(v.id))
+}
+
+/** Подинтерфейсы порта, VLAN которых выбрать уже нельзя: он не выбран на порту (убран с порта) либо — если известны VLAN
+ * устройства (`allowedVlanIds`) — снят с устройства. Такой подинтерфейс не теряется молча: форма показывает предупреждение, а
+ * сохранение требует перенести его на другой VLAN порта или удалить (validateSubinterfaceRows). */
+export function subinterfacesOffPortVlans(
+  row: Pick<InterfaceDraftRow, 'vlan_ids' | 'all_vlans' | 'vlan_mode' | 'subinterfaces'>,
+  allowedVlanIds?: ReadonlySet<string>,
+): SubinterfaceDraftRow[] {
+  const portVlans = portVlanIdSet(row, allowedVlanIds)
+  return (row.subinterfaces ?? []).filter((sub) => sub.vlan_id && (!portVlans.has(sub.vlan_id) || (allowedVlanIds != null && !allowedVlanIds.has(sub.vlan_id))))
 }
 
 /** Текст уведомления, когда VLAN сняли с устройства (или сменили тип устройства), а подинтерфейсы на нём остались.
@@ -197,6 +228,12 @@ export function toSubinterfaceDraftRow(sub: DeviceSubinterface): SubinterfaceDra
   }
 }
 
+/** Шаблон подинтерфейса группы портов из ответа сервера: у шаблона нет имени и порта-родителя (имя подинтерфейса порта
+ * строится из имени порта и номера VLAN), остальное — как у обычной строки. */
+export function toGroupSubinterfaceDraftRow(sub: InterfaceGroupSubinterface): SubinterfaceDraftRow {
+  return toSubinterfaceDraftRow({ ...sub, parent_interface_id: '', name: '' })
+}
+
 /** Группирует подинтерфейсы устройства по порту-родителю (parent_interface_id), сохраняя порядок сервера. */
 export function groupSubinterfacesByParent(items: readonly DeviceSubinterface[]): Map<string, SubinterfaceDraftRow[]> {
   const byParent = new Map<string, SubinterfaceDraftRow[]>()
@@ -243,6 +280,10 @@ export function validateSubinterfaceRows(
       if (allowedVlanIds && !allowedVlanIds.has(sub.vlan_id)) {
         return `VLAN подинтерфейса «${name}» не назначен устройству — выберите другой VLAN или удалите подинтерфейс.`
       }
+      // VLAN подинтерфейса выбирается из VLAN, выбранных на порту: убрали его с порта — подинтерфейс нужно перенести или удалить.
+      if (allowedVlanIds && !portVlanIdSet(row, allowedVlanIds).has(sub.vlan_id)) {
+        return `VLAN подинтерфейса «${name}» не выбран на порту «${parent}» — выберите другой VLAN подинтерфейса или добавьте этот VLAN порту.`
+      }
       const key = name.toLowerCase()
       if (seenNames.has(key)) return `Имя подинтерфейса «${name}» повторяется — имена подинтерфейсов на устройстве должны быть уникальны.`
       seenNames.add(key)
@@ -258,6 +299,20 @@ export function validateSubinterfaceRows(
     }
   }
   return null
+}
+
+/** Элемент payload `subinterfaces` ГРУППЫ портов для PUT /devices/{id}/interfaces: то же, что у порта, но без имени —
+ * сервер сам называет подинтерфейс каждого порта `<порт>.<номер VLAN>`. */
+export function groupSubinterfacesPayload(rows: readonly SubinterfaceDraftRow[]) {
+  return subinterfacesPayload(rows).map((sub) => ({
+    id: sub.id,
+    vlan_id: sub.vlan_id,
+    is_management: sub.is_management,
+    is_data_transfer: sub.is_data_transfer,
+    description: sub.description,
+    ips: sub.ips,
+    open_ports: sub.open_ports,
+  }))
 }
 
 /** Элемент payload `subinterfaces` порта для PUT /devices/{id}/interfaces. Строки без IP-адреса и открытые порты без

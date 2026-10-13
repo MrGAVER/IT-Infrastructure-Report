@@ -3018,6 +3018,8 @@ describe('подинтерфейсы портов: сквозное сохран
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (url.endsWith('/devices/dev-s/subinterfaces')) return new Response(JSON.stringify({ items: [subDto] }))
+        // VLAN подинтерфейса — один из VLAN порта: на порту выбраны все VLAN устройства.
+        if (url.endsWith('/devices/dev-s/interface-vlans')) return new Response(JSON.stringify({ items: [{ interface_id: 'if-1', all_vlans: false, vlan_ids: deviceVlanIds }] }))
         if (url.includes('/resources/device-vlans') && method === 'GET') {
           const items = deviceVlanIds.map((vlan_id, i) => ({ id: `dv-${i + 1}`, physical_device_id: 'dev-s', vlan_id, ip_address: null, prefix_length: null, is_management: false, description: null }))
           return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))

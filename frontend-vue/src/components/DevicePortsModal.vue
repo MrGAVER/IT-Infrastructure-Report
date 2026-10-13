@@ -78,7 +78,10 @@ onMounted(async () => {
 
 async function submit() {
   errorMessage.value = null
-  const interfaceError = validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog)
+  // VLAN устройства известны (portVlanOptions): по ним проверяется, что VLAN подинтерфейсов портов и групп — из VLAN порта/группы.
+  const deviceVlanIds = new Set(portVlanOptions.value.map((v) => v.id))
+  const interfaceError =
+    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog, deviceVlanIds) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog, deviceVlanIds)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return

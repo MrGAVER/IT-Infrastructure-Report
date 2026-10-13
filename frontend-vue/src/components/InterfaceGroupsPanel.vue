@@ -2,12 +2,12 @@
 // Панель «Группы портов» блока «Порты / интерфейсы»: список групп, окно создания/правки группы и
 // окно удаления с выбором — оставить значения в портах или стереть.
 //
-// Группа задаёт один раз режим порта + VLAN, общий IP-адрес (с префиксом и назначением) и открытые порты для всех своих портов
-// (правка формы устройства, п.4). Компонент сам ничего не сохраняет и не обращается к API: любое
+// Группа задаёт один раз режим порта + VLAN, общий IP-адрес (с префиксом и назначением), открытые порты и подинтерфейсы для всех
+// своих портов (правка формы устройства, п.4). Компонент сам ничего не сохраняет и не обращается к API: любое
 // изменение он отдаёт родителю событием change одним объектом { rows, groups } — состав портов и
 // значения в них меняются согласованно вместе с группой (см. utils/interfaceGroups.ts).
 import { computed, ref, watch } from 'vue'
-import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
+import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { filterVlansByQuery, vlanLabel } from '../utils/vlan'
@@ -25,6 +25,7 @@ import {
   validateInterfaceGroups,
   type ManagedFields,
 } from '../utils/interfaceGroups'
+import InterfaceSubinterfacesEditor from './InterfaceSubinterfacesEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SearchableSelect from './SearchableSelect.vue'
 
@@ -59,7 +60,13 @@ function openCreate() {
 }
 
 function openEdit(group: InterfaceGroupDraft) {
-  draft.value = { ...group, vlan_ids: [...group.vlan_ids], all_vlans: group.all_vlans === true, open_ports: group.open_ports.map((p) => ({ ...p })) }
+  draft.value = {
+    ...group,
+    vlan_ids: [...group.vlan_ids],
+    all_vlans: group.all_vlans === true,
+    open_ports: group.open_ports.map((p) => ({ ...p })),
+    subinterfaces: (group.subinterfaces ?? []).map((sub) => ({ ...sub, ips: sub.ips.map((ip) => ({ ...ip })), open_ports: sub.open_ports.map((p) => ({ ...p })) })),
+  }
   draftIsNew.value = false
   members.value = new Set(memberIndices(props.rows, group.key))
   resetCopy()
@@ -162,21 +169,39 @@ const { onOverlayPointerDown: onPickerPointerDown, onOverlayClick: onPickerClick
 
 const vlanSelectOptions = computed(() => props.vlanOptions.map((v) => ({ value: v.id, label: vlanLabel(v) })))
 
+// VLAN, из которых выбирается VLAN подинтерфейса группы: те, что группа записывает своим портам (с «Все VLAN» — все VLAN
+// устройства). Без режима порта и VLAN группы подинтерфейсы не задаются — список пуст, редактор подскажет почему.
+const groupVlanOptions = computed(() => {
+  const group = draft.value
+  if (!group || !group.vlan_mode) return []
+  return group.vlan_mode === 'trunk' && group.all_vlans === true ? props.vlanOptions : props.vlanOptions.filter((v) => group.vlan_ids.includes(v.id))
+})
+
+function setDraftSubinterfaces(rows: SubinterfaceDraftRow[]) {
+  if (draft.value) draft.value = { ...draft.value, subinterfaces: rows }
+}
+
+/** Шаблоны подинтерфейсов группы при сохранении: по возрастанию номера VLAN, открытые порты каждого — по возрастанию порта. */
+function normalizeSubinterfaces(rows: readonly SubinterfaceDraftRow[]): SubinterfaceDraftRow[] {
+  const number = (vlanId: string) => props.vlanOptions.find((v) => v.id === vlanId)?.vlan_id ?? Number.MAX_SAFE_INTEGER
+  return [...rows].sort((a, b) => number(a.vlan_id) - number(b.vlan_id)).map((sub) => ({ ...sub, open_ports: sortOpenPortRows(sub.open_ports, props.protocolPortCatalog) }))
+}
+
 function saveDraft() {
   const group = draft.value
   if (!group) return
   const others = props.groups.filter((g) => g.key !== group.key)
-  const error = validateInterfaceGroups([...others, group], props.protocolPortCatalog)
+  const error = validateInterfaceGroups([...others, group], props.protocolPortCatalog, new Set(props.vlanOptions.map((v) => v.id)))
   if (error) {
     notify(error, 'error')
     return
   }
   // Окно группы закрывается — это «заново открытая» форма: открытые порты группы встают по возрастанию
   // номера порта (так же они придут и в порты-участники, и при следующем открытии окна).
-  const normalized: InterfaceGroupDraft = { ...group, name: group.name.trim(), open_ports: sortOpenPortRows(group.open_ports, props.protocolPortCatalog) }
+  const normalized: InterfaceGroupDraft = { ...group, name: group.name.trim(), open_ports: sortOpenPortRows(group.open_ports, props.protocolPortCatalog), subinterfaces: normalizeSubinterfaces(group.subinterfaces ?? []) }
   const groups = draftIsNew.value ? [...props.groups, normalized] : props.groups.map((g) => (g.key === normalized.key ? normalized : g))
   // Состав группы → значения группы записываются в каждый её порт.
-  const rows = applyGroupsToRows(setGroupMembers(props.rows, normalized.key, members.value), groups)
+  const rows = applyGroupsToRows(setGroupMembers(props.rows, normalized.key, members.value), groups, props.vlanOptions)
   emit('change', { rows, groups })
   closeEdit()
 }
@@ -189,13 +214,13 @@ const deletingMembers = computed(() => (deleting.value ? memberIndices(props.row
 const deletingManaged = computed(() => managedFields(deleting.value ?? undefined))
 const deletingManagedText = computed(() => {
   const m = deletingManaged.value
-  return [m.vlan && 'режим порта и VLAN', m.ip && 'IP-адрес', m.openPorts && 'открытые порты'].filter(Boolean).join(', ')
+  return [m.vlan && 'режим порта и VLAN', m.ip && 'IP-адрес', m.openPorts && 'открытые порты', m.subinterfaces && 'подинтерфейсы'].filter(Boolean).join(', ')
 })
 
 function requestDelete(group: InterfaceGroupDraft) {
   // Нечего сохранять или стирать (нет портов или группа ничего не задаёт) — вопрос не нужен.
   const m = managedFields(group)
-  if (!memberIndices(props.rows, group.key).length || (!m.vlan && !m.ip && !m.openPorts)) {
+  if (!memberIndices(props.rows, group.key).length || (!m.vlan && !m.ip && !m.openPorts && !m.subinterfaces)) {
     confirmDelete(group, 'keep')
     return
   }
@@ -235,7 +260,7 @@ function summary(group: InterfaceGroupDraft): string {
     <div class="groups-head">
       <div class="groups-title">
         <b>Группы портов</b>
-        <span class="hint">Режим порта, IP-адрес (с назначением) и открытые порты задаются один раз для всех портов группы.</span>
+        <span class="hint">Режим порта, IP-адрес (с назначением), открытые порты и подинтерфейсы задаются один раз для всех портов группы.</span>
       </div>
       <button type="button" class="btn btn-secondary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
@@ -383,6 +408,25 @@ function summary(group: InterfaceGroupDraft): string {
               :catalog-entries="protocolPortCatalog"
               :collapse-after="collapseAfter"
               sorted-unique
+            />
+          </div>
+
+          <div class="param subs-param">
+            <label class="param-head manage-check">
+              <input v-model="draft.manage_subinterfaces" type="checkbox" aria-label="Задать подинтерфейсы" />
+              <b>Задать подинтерфейсы</b>
+              <span class="hint">заменит подинтерфейсы этих портов; у каждого порта — «‹порт›.‹VLAN›»</span>
+            </label>
+            <InterfaceSubinterfacesEditor
+              v-if="draft.manage_subinterfaces"
+              mode="group"
+              parent-name=""
+              :model-value="draft.subinterfaces ?? []"
+              :vlan-options="groupVlanOptions"
+              :vlan-catalog="vlanOptions"
+              :protocol-port-catalog="protocolPortCatalog"
+              :collapse-after="collapseAfter"
+              @update:model-value="setDraftSubinterfaces"
             />
           </div>
         </section>

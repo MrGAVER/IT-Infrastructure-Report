@@ -282,4 +282,29 @@ describe('DevicePortsModal.vue', () => {
       expect(wrapper.emitted('saved')).toBeFalsy()
     })
   })
+
+  it('подинтерфейс на VLAN, недоступном порту, блокирует сохранение: запись не уходит, ошибка показана', async () => {
+    const puts: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'PUT') puts.push(url)
+        if (url.includes('/devices/dev-1/subinterfaces')) {
+          return jsonResponse({ items: [{ id: 'sub-1', parent_interface_id: 'if-1', name: 'eth0.10', vlan_id: 'v-10', is_management: false, is_data_transfer: false, description: null, ips: [], open_ports: [] }] })
+        }
+        if (url.includes('/resources/interfaces') && method === 'GET') return jsonResponse({ items: [existingInterfaceFixture], total: 1, offset: 0, limit: 1000 })
+        if (url.includes('/resources/devices/dev-1') && method === 'GET') return jsonResponse(deviceFixture)
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+    mount(DevicePortsModal, { props: { deviceId: 'dev-1', deviceLabel: 'srv-01' } })
+    await flushPromises()
+
+    await body().find('.modal-foot .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(puts).toEqual([])
+    expect(body().text()).toContain('VLAN подинтерфейса «eth0.10»')
+  })
 })

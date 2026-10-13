@@ -405,7 +405,7 @@ describe('группы портов', () => {
     const groups = await loadDeviceInterfaceGroups('dev-1')
 
     expect(fetchMock.mock.calls[0][0]).toContain('/devices/dev-1/interface-groups')
-    expect(groups[0]).toEqual({ id: 'g-1', key: 'g-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], all_vlans: false, ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'Администрирование', manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }] })
+    expect(groups[0]).toEqual({ id: 'g-1', key: 'g-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], all_vlans: false, ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'Администрирование', manage_open_ports: true, open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }], manage_subinterfaces: false, subinterfaces: [] })
     expect(groups[1]).toMatchObject({ vlan_mode: '', ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false })
   })
 
@@ -465,9 +465,52 @@ describe('группы портов', () => {
 
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
     expect(body.groups).toEqual([
-      { id: undefined, key: 'new-1', name: 'Серверные', vlan_mode: 'access', all_vlans: false, vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: 24, ip_purpose: 'Администрирование', manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }] },
+      { id: undefined, key: 'new-1', name: 'Серверные', vlan_mode: 'access', all_vlans: false, vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: 24, ip_purpose: 'Администрирование', manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }], manage_subinterfaces: false, subinterfaces: [] },
     ].map((g) => JSON.parse(JSON.stringify(g))))
     expect(body.interfaces.map((i: { group_key: string | null }) => i.group_key)).toEqual(['new-1', null])
+  })
+
+  it('loadDeviceInterfaceGroups: подинтерфейсы группы читаются шаблонами без имени, значения превращаются в строки формы', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          items: [
+            {
+              id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10'], ip_address: null, prefix_length: null, ip_purpose: null, manage_open_ports: false, open_ports: [],
+              manage_subinterfaces: true,
+              subinterfaces: [{ id: 'gs-1', group_id: 'g-1', vlan_id: 'v10', is_management: true, is_data_transfer: false, description: null, ips: [{ id: 'gip-1', ip_address: '10.0.10.1', prefix_length: 24, purpose: null }], open_ports: [{ id: 'gop-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: null }] }],
+            },
+          ],
+        }),
+      ),
+    )
+
+    const [group] = await loadDeviceInterfaceGroups('dev-1')
+
+    expect(group.manage_subinterfaces).toBe(true)
+    expect(group.subinterfaces).toEqual([
+      { id: 'gs-1', key: 'gs-1', name: '', vlan_id: 'v10', is_management: true, is_data_transfer: false, description: '', ips: [{ id: 'gip-1', ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }], open_ports: [{ id: 'gop-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }] },
+    ])
+  })
+
+  it('persist: подинтерфейсы группы уходят без имени, пока группа ими управляет и задан режим порта; иначе — пустым списком', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ items: [], groups: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const template = { id: 'gs-1', key: 'gs-1', name: 'не уходит', vlan_id: 'v10', is_management: true, is_data_transfer: false, description: '', ips: [{ ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }], open_ports: [] }
+
+    await persistDeviceInterfaces('dev-1', [], [
+      groupDraft({ manage_subinterfaces: true, subinterfaces: [template] }),
+      groupDraft({ key: 'new-2', name: 'Не управляет', manage_subinterfaces: false, subinterfaces: [template] }),
+      groupDraft({ key: 'new-3', name: 'Без режима', vlan_mode: '', manage_subinterfaces: true, subinterfaces: [template] }),
+    ])
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect(body.groups[0].manage_subinterfaces).toBe(true)
+    expect(body.groups[0].subinterfaces).toEqual([{ id: 'gs-1', vlan_id: 'v10', is_management: true, is_data_transfer: false, description: null, ips: [{ ip_address: '10.0.10.1', prefix_length: 24, purpose: null }], open_ports: [] }])
+    expect(body.groups[0].subinterfaces[0]).not.toHaveProperty('name')
+    expect(body.groups[1]).toMatchObject({ manage_subinterfaces: false, subinterfaces: [] })
+    expect(body.groups[2]).toMatchObject({ manage_subinterfaces: true, subinterfaces: [] })
   })
 
   it('persist: параметры, которыми группа не управляет, уходят пустыми (режим не задан — без VLAN, без IP, без открытых портов)', async () => {
@@ -668,10 +711,17 @@ describe('подинтерфейсы портов', () => {
 
   it('validateInterfaceDraftRows: с допустимыми VLAN устройства подинтерфейс на снятом VLAN блокирует сохранение', () => {
     const base = { key: 'k', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }
-    const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', subinterfaces: [{ ...base, name: 'eth0.10', vlan_id: 'vlan-10' }] }]
+    const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', vlan_ids: ['vlan-10'], subinterfaces: [{ ...base, name: 'eth0.10', vlan_id: 'vlan-10' }] }]
 
     expect(validateInterfaceDraftRows(rows, [], new Set(['vlan-10']))).toBeNull()
     expect(validateInterfaceDraftRows(rows, [], new Set(['vlan-20']))).toMatch(/VLAN подинтерфейса «eth0\.10» не назначен устройству/)
     expect(validateInterfaceDraftRows(rows)).toBeNull() // без списка допустимых VLAN (DevicePortsModal) проверка пропускается
+  })
+
+  it('validateInterfaceDraftRows: VLAN подинтерфейса должен быть выбран на самом порту', () => {
+    const base = { key: 'k', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }
+    const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', vlan_ids: ['vlan-20'], subinterfaces: [{ ...base, name: 'eth0.10', vlan_id: 'vlan-10' }] }]
+
+    expect(validateInterfaceDraftRows(rows, [], new Set(['vlan-10', 'vlan-20']))).toMatch(/VLAN подинтерфейса «eth0\.10» не выбран на порту «eth0»/)
   })
 })

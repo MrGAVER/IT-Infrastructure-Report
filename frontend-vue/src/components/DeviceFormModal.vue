@@ -749,7 +749,9 @@ async function submit() {
     return
   }
   const interfaceError =
-    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog, new Set(portVlanOptions.value.map((v) => v.id))) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog) ?? validateConnectionDrafts(interfaces.value, initialConnections.value)
+    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog, new Set(portVlanOptions.value.map((v) => v.id))) ??
+    validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog, new Set(portVlanOptions.value.map((v) => v.id))) ??
+    validateConnectionDrafts(interfaces.value, initialConnections.value)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return

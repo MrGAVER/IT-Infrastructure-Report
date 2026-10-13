@@ -610,6 +610,12 @@ export interface InterfaceGroupDraft {
   ip_purpose: string
   manage_open_ports: boolean
   open_ports: OpenPortDraftRow[]
+  /** Группа задаёт полный список подинтерфейсов своих портов (как manage_open_ports — открытых портов): каждому порту
+   * записываются подинтерфейсы `<порт>.<номер VLAN>` по шаблонам ниже. Не задано = false. */
+  manage_subinterfaces?: boolean
+  /** Шаблоны подинтерфейсов группы (учитываются, только пока manage_subinterfaces). Свои имена у шаблонов пусты: имя
+   * подинтерфейса порта строится из имени порта и номера VLAN. VLAN шаблона — один из VLAN группы. Не задано = []. */
+  subinterfaces?: SubinterfaceDraftRow[]
 }
 
 /** GET /api/v1/devices/{id}/interface-groups (и поле groups ответа PUT .../interfaces). */
@@ -625,6 +631,20 @@ export interface InterfaceGroup {
   prefix_length: number | null
   ip_purpose: string | null
   manage_open_ports: boolean
+  open_ports: { id: string; protocol_catalog_id: string; transport_protocol: string; description: string | null }[]
+  manage_subinterfaces?: boolean
+  subinterfaces?: InterfaceGroupSubinterface[]
+}
+
+/** Подинтерфейс группы портов в ответе сервера (шаблон, который группа записывает в каждый свой порт): без имени и порта-родителя. */
+export interface InterfaceGroupSubinterface {
+  id: string
+  group_id: string
+  vlan_id: string
+  is_management: boolean
+  is_data_transfer: boolean
+  description: string | null
+  ips: { id: string; ip_address: string; prefix_length: number | null; purpose: string | null }[]
   open_ports: { id: string; protocol_catalog_id: string; transport_protocol: string; description: string | null }[]
 }
 
