@@ -25,6 +25,15 @@ def _with_ports(client, serial: str, names: list[str], system_name: str | None =
     return dev, {x["name"]: x for x in items}
 
 
+def _with_configured_ports(client, serial: str, interfaces: list[dict]) -> tuple[dict, dict[str, dict]]:
+    """Устройство с портами заданной конфигурации (режим, «Все VLAN»): `interfaces` — строки PUT /devices/{id}/interfaces."""
+    dev = _device(client, serial)
+    r = client.put(f"{API}/devices/{dev['id']}/interfaces", json={"interfaces": interfaces})
+    assert r.status_code == 200, r.text
+    items = client.get(f"{API}/resources/interfaces", params={"physical_device_id": dev["id"], "limit": 1000}).json()["items"]
+    return dev, {x["name"]: x for x in items}
+
+
 def _connection_type(client) -> dict:
     items = client.get(f"{API}/resources/connection-types", params={"limit": 1000}).json()["items"]
     return next(x for x in items if x["name"] == "Витая пара")
@@ -49,7 +58,7 @@ def test_free_interfaces_are_listed_in_natural_order_with_their_roles(client):
     body = r.json()
     assert [x["name"] for x in body["items"]] == ["Gi0/1", "Gi0/2", "Gi0/10"]  # а не Gi0/1, Gi0/10, Gi0/2
     assert body["total"] == 3 and body["offset"] == 0 and body["limit"] == 100
-    assert set(body["items"][0]) == {"id", "name", "is_management", "is_data_transfer", "vlan_mode", "occupied"}
+    assert set(body["items"][0]) == {"id", "name", "is_management", "is_data_transfer", "vlan_mode", "all_vlans", "occupied"}
     assert all(x["occupied"] is False for x in body["items"])
 
 
@@ -108,6 +117,20 @@ def test_pagination_returns_consistent_pages_and_validates_the_limit(client):
     assert _free(client, dev["id"], offset=-1).status_code == 422
 
 
+def test_free_interfaces_report_the_all_vlans_flag_only_for_trunk_ports(client):
+    dev, _ = _with_configured_ports(client, "SW-ALLV", [
+        {"name": "t-all", "vlan_mode": "trunk", "all_vlans": True},
+        {"name": "t-set", "vlan_mode": "trunk"},
+        {"name": "a-one", "vlan_mode": "access"},
+    ])
+
+    by_name = {x["name"]: x for x in _free(client, dev["id"]).json()["items"]}
+
+    assert by_name["t-all"]["all_vlans"] is True
+    assert by_name["t-set"]["all_vlans"] is False  # набор вручную — не «Все VLAN»
+    assert by_name["a-one"]["all_vlans"] is False  # в access признака нет
+
+
 def test_free_interfaces_of_an_unknown_device_is_404(client):
     assert _free(client, "no-such-device").status_code == 404
 
@@ -131,7 +154,22 @@ def test_interface_connections_describe_the_peer_port_and_device(client):
         "peer_is_management": theirs["Gi0/1"]["is_management"],
         "peer_is_data_transfer": theirs["Gi0/1"]["is_data_transfer"],
         "peer_vlan_mode": theirs["Gi0/1"]["vlan_mode"],
+        "peer_all_vlans": False,
     }]
+
+
+def test_interface_connections_report_the_all_vlans_flag_of_the_peer_port(client):
+    dev, ports = _with_ports(client, "SRV-PALL", ["eth0", "eth1"])
+    _, theirs = _with_configured_ports(client, "SW-PALL", [
+        {"name": "t-all", "vlan_mode": "trunk", "all_vlans": True},
+        {"name": "t-set", "vlan_mode": "trunk"},
+    ])
+    _connect(client, ports["eth0"], theirs["t-all"])
+    _connect(client, ports["eth1"], theirs["t-set"])
+
+    items = client.get(f"{API}/devices/{dev['id']}/interface-connections").json()["items"]
+
+    assert {x["peer_interface_name"]: x["peer_all_vlans"] for x in items} == {"t-all": True, "t-set": False}
 
 
 def test_interface_connections_work_from_either_end_and_fall_back_to_the_serial_number(client):

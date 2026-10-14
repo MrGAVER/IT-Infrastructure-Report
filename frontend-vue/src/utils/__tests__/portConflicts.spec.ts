@@ -28,7 +28,8 @@ function conflict(overrides: Partial<PortConflictInfo> = {}): PortConflictInfo {
     otherInterfaceName: 'Gi0/24',
     flagsDiffer: false,
     vlanModeDiffer: true,
-    other: { is_management: false, is_data_transfer: true, vlan_mode: 'access' },
+    allVlansDiffer: false,
+    other: { is_management: false, is_data_transfer: true, vlan_mode: 'access', all_vlans: false },
     ...overrides,
   }
 }
@@ -37,7 +38,13 @@ describe('snapshotPortConfigs', () => {
   it('запоминает конфигурацию только сохранённых портов (с id)', () => {
     const snapshot = snapshotPortConfigs([row(), row({ id: undefined, name: 'новый' })])
     expect([...snapshot.keys()]).toEqual(['if-1'])
-    expect(snapshot.get('if-1')).toEqual({ is_management: false, is_data_transfer: true, vlan_mode: 'trunk' })
+    expect(snapshot.get('if-1')).toEqual({ is_management: false, is_data_transfer: true, vlan_mode: 'trunk', all_vlans: false })
+  })
+
+  it('«Все VLAN» входит в снимок только в trunk: у access-порта признака нет', () => {
+    const snapshot = snapshotPortConfigs([row({ id: 'if-1', vlan_mode: 'trunk', all_vlans: true }), row({ id: 'if-2', vlan_mode: 'access', all_vlans: true })])
+    expect(snapshot.get('if-1')).toMatchObject({ all_vlans: true })
+    expect(snapshot.get('if-2')).toMatchObject({ all_vlans: false })
   })
 })
 
@@ -53,10 +60,17 @@ describe('buildPortConflictNotice', () => {
 
   it('перечисляет отличающиеся флаги «Управление»/«Передача данных»', () => {
     const rows = [row({ is_management: true, is_data_transfer: false })]
-    const c = conflict({ flagsDiffer: true, vlanModeDiffer: false, other: { is_management: false, is_data_transfer: true, vlan_mode: 'trunk' } })
+    const c = conflict({ flagsDiffer: true, vlanModeDiffer: false, other: { is_management: false, is_data_transfer: true, vlan_mode: 'trunk', all_vlans: false } })
     const text = buildPortConflictNotice(rows, { 'if-1': c }, new Map())
     expect(text).toContain('«Управление»: да / у соседа нет')
     expect(text).toContain('«Передача данных»: нет / у соседа да')
+  })
+
+  it('расхождение «Все VLAN» попадает в текст уведомления; изменение одного только признака считается новой конфигурацией порта', () => {
+    const before = snapshotPortConfigs([row({ vlan_mode: 'trunk', all_vlans: false })])
+    const rows = [row({ vlan_mode: 'trunk', all_vlans: true })]
+    const c = conflict({ vlanModeDiffer: false, allVlansDiffer: true, other: { is_management: false, is_data_transfer: true, vlan_mode: 'trunk', all_vlans: false } })
+    expect(buildPortConflictNotice(rows, { 'if-1': c }, before)).toContain('«Все VLAN»: да / у соседа нет')
   })
 
   it('конфигурация порта не менялась с момента открытия формы — не уведомляем повторно', () => {
@@ -84,7 +98,7 @@ describe('computePortConflicts', () => {
   const neighbor = (interfaceId: string, peerId: string, overrides: Partial<DeviceInterfaceConnection> = {}): DeviceInterfaceConnection => ({
     interface_id: interfaceId, connection_id: `c-${interfaceId}`, connection_type_id: 'ct', description: null,
     peer_interface_id: peerId, peer_interface_name: `${peerId}-name`, peer_device_id: 'dev-peer', peer_device_name: 'sw-dst',
-    peer_is_management: false, peer_is_data_transfer: true, peer_vlan_mode: 'trunk', ...overrides,
+    peer_is_management: false, peer_is_data_transfer: true, peer_vlan_mode: 'trunk', peer_all_vlans: false, ...overrides,
   })
 
   it('различия с соседом помечаются независимыми флагами, имена соседа берутся из записи сервера', () => {
@@ -96,8 +110,18 @@ describe('computePortConflicts', () => {
       otherInterfaceName: 'if-2-name',
       flagsDiffer: true,
       vlanModeDiffer: true,
-      other: { is_management: false, is_data_transfer: true, vlan_mode: 'access' },
+      allVlansDiffer: false, // режимы разные — признак отдельно не сверяется
+      other: { is_management: false, is_data_transfer: true, vlan_mode: 'access', all_vlans: false },
     })
+  })
+
+  it('«Все VLAN» у одного из двух trunk-портов — расхождение allVlansDiffer (в обе стороны); у обоих — нет', () => {
+    const own = row({ id: 'if-1', vlan_mode: 'trunk', all_vlans: true })
+    const peerWithout = computePortConflicts([own], [neighbor('if-1', 'if-2', { peer_all_vlans: false })])
+    expect(peerWithout['if-1']).toMatchObject({ allVlansDiffer: true, flagsDiffer: false, vlanModeDiffer: false, other: { all_vlans: false } })
+    const ownWithout = computePortConflicts([row({ id: 'if-1', vlan_mode: 'trunk', all_vlans: false })], [neighbor('if-1', 'if-2', { peer_all_vlans: true })])
+    expect(ownWithout['if-1']).toMatchObject({ allVlansDiffer: true, other: { all_vlans: true } })
+    expect(computePortConflicts([own], [neighbor('if-1', 'if-2', { peer_all_vlans: true })])).toEqual({})
   })
 
   it('отличается только режим порта или только флаги — поднимается ровно соответствующий флаг', () => {

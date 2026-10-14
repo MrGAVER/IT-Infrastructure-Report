@@ -641,10 +641,10 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
     await wrapper.find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
 
-    // .iface-detail — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование"
-    // (тот же vlanOptions используется и там, см. DeviceInterfacesEditor.vue); :not(.vlan-check-all) —
+    // Список VLAN trunk-порта — во всплывающем окне (PortVlanPickerModal), а не в карточке порта; :not(.vlan-check-all) —
     // исключает сводный чекбокс "Все VLAN" (п.1.4.3.2), это не отдельная опция каталога.
-    const labels = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all)').map((l) => l.text())
+    await wrapper.find('.iface-detail .vlan-picker-btn').trigger('click')
+    const labels = wrapper.findAll('.vlan-picker-modal .vlan-check:not(.vlan-check-all)').map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
   })
@@ -919,9 +919,11 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
     await wrapper.find('.expand-toggle').trigger('click') // VLAN на порту скрыты под toggle (п.3.4)
-    // Чекбокс самого VLAN отмечен; «Все VLAN» (сводный, первый в списке) — нет: набор выбран вручную, признака в БД нет.
-    expect((wrapper.find('.iface-detail .vlan-check:not(.vlan-check-all) input').element as HTMLInputElement).checked).toBe(true)
+    // Чекбокс самого VLAN (в окне выбора) отмечен; «Все VLAN» (в карточке порта) — нет: набор выбран вручную, признака в БД нет.
     expect((wrapper.find('.iface-detail .vlan-check-all input').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.find('.iface-detail .vlan-picker-btn').trigger('click')
+    expect((wrapper.find('.vlan-picker-modal .vlan-check:not(.vlan-check-all) input').element as HTMLInputElement).checked).toBe(true)
+    await wrapper.find('.vlan-picker-modal .btn-primary').trigger('click') // «Готово»
 
     await wrapper.find('.nested-row .icon-btn.danger').trigger('click') // убрать единственный VLAN устройства
     await flushPromises()

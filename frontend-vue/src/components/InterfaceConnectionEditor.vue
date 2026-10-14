@@ -19,12 +19,12 @@
 // или описание. Порт, подключение которого переставляется или снимается в этой же форме (freedPeerIds),
 // считается свободным: так порты можно поменять местами, не сохраняя форму между шагами.
 //
-// Расхождение конфигурации (Управление / Передача данных / режим порта) с портом соседа показывается
+// Расхождение конфигурации (Управление / Передача данных / режим порта / «Все VLAN») с портом соседа показывается
 // сразу — до сохранения. Сохранению оно не мешает: как и у подключения, созданного на экране
 // «Подключения», расхождение отображается там со статусом «расхождение» до решения или одобрения.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { DEVICE_OPTIONS_PAGE_SIZE, fetchAllFreeInterfaces, fetchDeviceOptionsPage, type DeviceOption, type FreeInterface } from '../api/deviceConnectivity'
-import type { DeviceInterface, InterfaceConnectionDraft } from '../api/types'
+import type { InterfaceConnectionDraft } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import {
   SELF_DEVICE,
@@ -34,6 +34,7 @@ import {
   peerRef,
   type ConfigDiffKind,
   type PeerConfigTarget,
+  type PortConfigLike,
   type SelfPortCandidate,
 } from '../utils/interfaceConnections'
 import SearchableSelect from './SearchableSelect.vue'
@@ -46,7 +47,7 @@ const props = withDefaults(
     /** Подпись редактируемого устройства для пункта «это устройство» (имя или серийный номер в форме). */
     deviceLabel?: string
     /** Текущая конфигурация порта этой строки — для сравнения с портом соседа. */
-    config: Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'>
+    config: PortConfigLike
     /** Порты соседей, уже выбранные в ДРУГИХ строках формы (peerRef: id порта или `row:<key>`). */
     takenPeerIds?: ReadonlySet<string>
     /** Другие порты этого же устройства, доступные в роли соседа. Не задано — выбрать сосед на этом же
@@ -288,10 +289,10 @@ function onPeerPortChange(value: string) {
         <div class="connection-diffs-body">
           <span>Конфигурация порта расходится с портом соседа — {{ configDiffs.join('; ') }}. Сохранить можно: расхождение будет отмечено на экране «Подключения».</span>
           <div class="connection-diffs-actions">
-            <button type="button" class="btn btn-secondary" :disabled="applying" title="Этому порту — назначение и режим порта соседа" @click="emit('apply-peer-config', peerTarget, configDiffKinds)">
+            <button type="button" class="btn btn-secondary" :disabled="applying" title="Этому порту — назначение, режим порта и «Все VLAN» соседа" @click="emit('apply-peer-config', peerTarget, configDiffKinds)">
               Применить конфигурацию соседа
             </button>
-            <button type="button" class="btn btn-secondary" :disabled="applying" title="Соседу — назначение и режим этого порта" @click="emit('apply-config-to-peer', peerTarget, configDiffKinds)">
+            <button type="button" class="btn btn-secondary" :disabled="applying" title="Соседу — назначение, режим порта и «Все VLAN» этого порта" @click="emit('apply-config-to-peer', peerTarget, configDiffKinds)">
               Применить текущую конфигурацию
             </button>
           </div>

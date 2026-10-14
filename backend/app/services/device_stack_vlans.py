@@ -98,9 +98,10 @@ def _candidate(vlan: VLAN, members: list[PhysicalDevice], links: dict[str, Physi
 def stack_vlans(session: Session, stack_id: str) -> dict[str, Any]:
     """Общие настройки VLAN стека и состояние их применения.
 
-    items — заданные настройки (по номеру VLAN); available — остальные VLAN справочника, которые можно сделать общими
-    (без домена либо из домена, куда входят все участники), с подсказкой значений. Запросов фиксированное число, не
-    зависящее от размера стека."""
+    items — заданные настройки (по номеру VLAN); available — остальные VLAN, которые можно сделать общими: добавленные
+    хотя бы одному устройству стека (VLAN, которого нет ни у одного участника, в список не попадает — стек не «открывает»
+    новые VLAN, а выравнивает уже используемые) и при этом без домена либо из домена, куда входят все участники; с
+    подсказкой значений. Запросов фиксированное число, не зависящее от размера стека."""
     stack = _get_stack(session, stack_id)
     members = member_devices(session, stack_id)
     settings = stack_settings(session, stack_id)
@@ -119,7 +120,7 @@ def stack_vlans(session: Session, stack_id: str) -> dict[str, Any]:
         result['available'] = [
             _candidate(v, members, links_by_vlan.get(v.id, {}))
             for v in catalog
-            if v.id not in settings and not outside_domain(v, members, members_by_domain)
+            if v.id not in settings and v.id in links_by_vlan and not outside_domain(v, members, members_by_domain)
         ]
     return result
 

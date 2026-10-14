@@ -10,16 +10,19 @@
 // устройства уведомление не показывает — иначе оно повторялось бы при каждом сохранении.
 import type { DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import type { InterfaceDraftRow, PortConflictInfo } from '../api/types'
+import { allVlansDiffer, carriesAllVlans } from './allVlans'
 
+/** Конфигурация порта для сверки с соседом: назначение, режим и «Все VLAN» (с учётом режима: в access признака нет). */
 export interface PortConfig {
   is_management: boolean
   is_data_transfer: boolean
   vlan_mode: 'access' | 'trunk'
+  all_vlans?: boolean
 }
 
 /** То, что нужно от строки порта для сверки с соседом: подходит и черновая строка формы, и уже
  * сохранённый порт из ответа сервера (после сохранения у нового порта появляется id). */
-export type PortRowLike = Pick<InterfaceDraftRow, 'id' | 'name' | 'is_management' | 'is_data_transfer' | 'vlan_mode'>
+export type PortRowLike = Pick<InterfaceDraftRow, 'id' | 'name' | 'is_management' | 'is_data_transfer' | 'vlan_mode' | 'all_vlans'>
 
 /**
  * Расхождения конфигурации портов формы с портами на другом конце АКТИВНЫХ подключений (ключ —
@@ -55,14 +58,17 @@ export function computePortConflicts(
     if (!neighbor) continue
     const flagsDiffer = neighbor.peer_is_management !== row.is_management || neighbor.peer_is_data_transfer !== row.is_data_transfer
     const vlanModeDiffer = neighbor.peer_vlan_mode !== row.vlan_mode
-    if (!flagsDiffer && !vlanModeDiffer) continue
+    const peerAllVlans = neighbor.peer_all_vlans === true
+    const allVlansDiffers = allVlansDiffer(row, { vlan_mode: neighbor.peer_vlan_mode, all_vlans: peerAllVlans })
+    if (!flagsDiffer && !vlanModeDiffer && !allVlansDiffers) continue
     conflicts[row.id] = {
       otherInterfaceId: neighbor.peer_interface_id,
       otherDeviceName: neighbor.peer_device_name,
       otherInterfaceName: neighbor.peer_interface_name,
       flagsDiffer,
       vlanModeDiffer,
-      other: { is_management: neighbor.peer_is_management, is_data_transfer: neighbor.peer_is_data_transfer, vlan_mode: neighbor.peer_vlan_mode },
+      allVlansDiffer: allVlansDiffers,
+      other: { is_management: neighbor.peer_is_management, is_data_transfer: neighbor.peer_is_data_transfer, vlan_mode: neighbor.peer_vlan_mode, all_vlans: peerAllVlans },
     }
   }
   return conflicts
@@ -71,8 +77,8 @@ export function computePortConflicts(
 /** Максимум портов, перечисляемых в тексте одного уведомления; остальные сворачиваются в «и ещё N». */
 const MAX_LISTED_PORTS = 3
 
-export function portConfigOf(row: Pick<InterfaceDraftRow, 'is_management' | 'is_data_transfer' | 'vlan_mode'>): PortConfig {
-  return { is_management: row.is_management, is_data_transfer: row.is_data_transfer, vlan_mode: row.vlan_mode }
+export function portConfigOf(row: Pick<InterfaceDraftRow, 'is_management' | 'is_data_transfer' | 'vlan_mode' | 'all_vlans'>): PortConfig {
+  return { is_management: row.is_management, is_data_transfer: row.is_data_transfer, vlan_mode: row.vlan_mode, all_vlans: carriesAllVlans(row) }
 }
 
 /** Снимок конфигурации уже сохранённых портов (только строки с id) — по нему потом определяется,
@@ -86,7 +92,7 @@ export function snapshotPortConfigs(rows: InterfaceDraftRow[]): Map<string, Port
 }
 
 export function samePortConfig(a: PortConfig, b: PortConfig): boolean {
-  return a.is_management === b.is_management && a.is_data_transfer === b.is_data_transfer && a.vlan_mode === b.vlan_mode
+  return a.is_management === b.is_management && a.is_data_transfer === b.is_data_transfer && a.vlan_mode === b.vlan_mode && !!a.all_vlans === !!b.all_vlans
 }
 
 const yesNo = (v: boolean) => (v ? 'да' : 'нет')
@@ -102,6 +108,7 @@ function describeDifferences(row: PortRowLike, conflict: PortConflictInfo): stri
     }
   }
   if (conflict.vlanModeDiffer) parts.push(`режим порта: ${row.vlan_mode} / у соседа ${conflict.other.vlan_mode}`)
+  if (conflict.allVlansDiffer) parts.push(`«Все VLAN»: ${yesNo(carriesAllVlans(row))} / у соседа ${yesNo(conflict.other.all_vlans)}`)
   return parts.join('; ')
 }
 

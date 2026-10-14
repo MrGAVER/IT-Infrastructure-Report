@@ -8,8 +8,8 @@
 // PhysicalDeviceVLAN (уже назначенные устройству VLAN). Портировано из
 // loadInterfaceEditor()/deviceVlanOptions/sortedVlanOptions() в
 // frontend/static/device-interfaces.js.
-import { listResource } from './client'
-import type { DeviceTypeVLAN, DeviceVLAN, VLANDefinition } from './types'
+import { api, listResource } from './client'
+import type { Device, DeviceInterface, DeviceTypeVLAN, DeviceVLAN, InterfaceVlansEntry, VLANDefinition, VlanMode } from './types'
 
 /** VLAN id'ы (vlans.id), разрешённые для типа устройства через /resources/device-type-vlans.
  * Пустой deviceTypeId (устройство ещё создаётся, тип не выбран) -> пустой набор. */
@@ -48,4 +48,43 @@ export function computePortVlanOptions(all: VLANDefinition[], typeVlanIds: Set<s
     result.push(v)
   }
   return result.sort((a, b) => a.vlan_id - b.vlan_id)
+}
+
+/** Что нужно знать о порте ДРУГОГО устройства, чтобы сверить и записать его VLAN: режим, «Все VLAN», выбранные VLAN и
+ * VLAN, допустимые устройству порта. */
+export interface PortVlanContext {
+  mode: VlanMode
+  /** «Все VLAN» с учётом режима (в access всегда false). */
+  allVlans: boolean
+  /** id выбранных записей справочника VLAN; у порта с «Все VLAN» — все VLAN его устройства. */
+  vlanIds: string[]
+  /** VLAN, допустимые устройству порта (тип устройства ∪ назначенные устройству). */
+  options: VLANDefinition[]
+}
+
+/**
+ * Текущее состояние VLAN порта по его id — с сервера, а не из кэша каталога: окно «Все VLAN» сверяет порт соседа
+ * сразу после смены его режима каскадом, и кэш мог отстать. Запросы: порт, устройство, VLAN порта (учитывает признак
+ * «Все VLAN»), VLAN типа устройства и назначенные устройству.
+ *
+ * @param definitions справочник VLAN (stores/vlans.ts: allDefinitions) — по нему строятся допустимые устройству VLAN
+ *
+ * @example
+ * const ctx = await loadPortVlanContext(peerInterfaceId, vlansStore.allDefinitions)
+ */
+export async function loadPortVlanContext(interfaceId: string, definitions: VLANDefinition[]): Promise<PortVlanContext> {
+  const iface = await api.get<DeviceInterface>(`/resources/interfaces/${encodeURIComponent(interfaceId)}`)
+  const [device, portVlans] = await Promise.all([
+    api.get<Device>(`/resources/devices/${encodeURIComponent(iface.physical_device_id)}`),
+    api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${encodeURIComponent(iface.physical_device_id)}/interface-vlans`),
+  ])
+  const [typeVlanIds, assignedVlanIds] = await Promise.all([loadDeviceTypeVlanIds(device.device_type_id), loadAssignedDeviceVlanIds(iface.physical_device_id)])
+  const entry = portVlans.items.find((item) => item.interface_id === interfaceId)
+  const mode: VlanMode = iface.vlan_mode || 'trunk'
+  return {
+    mode,
+    allVlans: mode === 'trunk' && entry?.all_vlans === true,
+    vlanIds: [...new Set(entry?.vlan_ids ?? [])],
+    options: computePortVlanOptions(definitions, typeVlanIds, assignedVlanIds),
+  }
 }

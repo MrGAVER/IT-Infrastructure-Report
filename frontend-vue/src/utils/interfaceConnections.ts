@@ -4,6 +4,7 @@
 // том же PUT /devices/{id}/interfaces, что и сами порты.
 import type { DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import type { DeviceInterface, InterfaceConnectionDraft, InterfaceDraftRow } from '../api/types'
+import { allVlansDiffer, carriesAllVlans } from './allVlans'
 
 /** Снимок подключений загруженных портов (ключ — id порта) на момент открытия формы: по нему при
  * сохранении отправляются только изменённые подключения, а нетронутые порты не затрагиваются. */
@@ -23,7 +24,7 @@ export interface SelfPortCandidate {
   label: string
   interfaceId?: string
   rowKey?: string
-  config: Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'>
+  config: PortConfigLike
 }
 
 /** Новый ключ строки формы (InterfaceDraftRow.key). */
@@ -175,12 +176,14 @@ export function validateConnectionDrafts(rows: readonly InterfaceDraftRow[], bas
   return null
 }
 
-export type PortConfigLike = Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'>
+/** Конфигурация порта для сверки с соседом. `all_vlans` — «Все VLAN» (значим только в trunk; не задан — как «нет»). */
+export type PortConfigLike = Pick<DeviceInterface, 'is_management' | 'is_data_transfer' | 'vlan_mode'> & { all_vlans?: boolean }
 
 const yesNo = (v: boolean) => (v ? 'да' : 'нет')
 
-/** Вид расхождения с соседом: flags — «Управление»/«Передача данных», vlan_mode — режим порта (Trunk/Access). */
-export type ConfigDiffKind = 'flags' | 'vlan_mode'
+/** Вид расхождения с соседом: flags — «Управление»/«Передача данных», vlan_mode — режим порта (Trunk/Access),
+ * all_vlans — «Все VLAN» (оба порта в trunk, признак только у одного, см. utils/allVlans.ts). */
+export type ConfigDiffKind = 'flags' | 'vlan_mode' | 'all_vlans'
 
 /**
  * Какие виды расхождений есть между портом формы и портом соседа (пусто — конфигурации совпадают).
@@ -194,6 +197,7 @@ export function connectionConfigDiffKinds(own: PortConfigLike, peer: PortConfigL
   const kinds: ConfigDiffKind[] = []
   if (own.is_management !== peer.is_management || own.is_data_transfer !== peer.is_data_transfer) kinds.push('flags')
   if (own.vlan_mode !== peer.vlan_mode) kinds.push('vlan_mode')
+  if (allVlansDiffer(own, peer)) kinds.push('all_vlans')
   return kinds
 }
 
@@ -214,9 +218,9 @@ export interface PeerConfigTarget {
 }
 
 /**
- * Чем конфигурация порта формы отличается от порта соседа: «Управление», «Передача данных» и режим
- * порта (VLAN порта в каталоге интерфейсов нет — их сверяет сервер на дашборде «Подключения»).
- * Пустой список — конфигурации совпадают.
+ * Чем конфигурация порта формы отличается от порта соседа: «Управление», «Передача данных», режим
+ * порта и «Все VLAN» (когда оба порта в trunk). Наборы VLAN, выбранные вручную, здесь не сверяются —
+ * их сверяет сервер на дашборде «Подключения». Пустой список — конфигурации совпадают.
  *
  * @example
  * connectionConfigDiffs({ is_management: true, is_data_transfer: false, vlan_mode: 'access' }, peer)
@@ -227,5 +231,6 @@ export function connectionConfigDiffs(own: PortConfigLike, peer: PortConfigLike)
   if (own.is_management !== peer.is_management) diffs.push(`«Управление»: ${yesNo(own.is_management)} / у соседа ${yesNo(peer.is_management)}`)
   if (own.is_data_transfer !== peer.is_data_transfer) diffs.push(`«Передача данных»: ${yesNo(own.is_data_transfer)} / у соседа ${yesNo(peer.is_data_transfer)}`)
   if (own.vlan_mode !== peer.vlan_mode) diffs.push(`режим порта: ${own.vlan_mode} / у соседа ${peer.vlan_mode}`)
+  if (allVlansDiffer(own, peer)) diffs.push(`«Все VLAN»: ${yesNo(carriesAllVlans(own))} / у соседа ${yesNo(carriesAllVlans(peer))}`)
   return diffs
 }

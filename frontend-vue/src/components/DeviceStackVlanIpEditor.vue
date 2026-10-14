@@ -93,7 +93,8 @@ async function load() {
 
 watch(() => [props.stackId, props.reloadToken], load, { immediate: true })
 
-// Ещё не добавленные в блок VLAN, которые можно сделать общими (список приходит с сервера, уже с учётом доменов VLAN).
+// Ещё не добавленные в блок VLAN, которые можно сделать общими. Список приходит с сервера: только VLAN, добавленные хотя бы
+// одному устройству стека (на устройства, у которых его ещё нет, назначение создаст применение настройки), и уже с учётом доменов.
 const pickOptions = computed(() => {
   const taken = new Set(rows.value.map((r) => r.vlanId))
   return available.value.filter((v) => !taken.has(v.vlan_id)).map((v) => ({ value: v.vlan_id, label: vlanText(v.vlan_number, v.vlan_name) }))
@@ -270,7 +271,7 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
           v-model="pickedVlanId"
           :options="pickOptions"
           placeholder="— VLAN для общей настройки —"
-          :empty-text="available.length ? 'Все доступные VLAN уже добавлены' : 'Нет VLAN, которые можно назначить всем устройствам стека'"
+          :empty-text="available.length ? 'Все VLAN устройств стека уже добавлены' : 'На устройства стека пока не добавлено ни одного VLAN — добавьте его в блоке «VLAN устройства»'"
         />
         <button type="button" class="btn btn-secondary" :disabled="!pickedVlanId" data-testid="stack-vlan-add" @click="addRow">
           <svg class="icon"><use href="/icons.svg#i-plus" /></svg>

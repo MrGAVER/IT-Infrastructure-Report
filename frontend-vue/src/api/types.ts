@@ -502,7 +502,9 @@ export interface PortConflictInfo {
   otherInterfaceName: string
   flagsDiffer: boolean
   vlanModeDiffer: boolean
-  other: { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk' }
+  /** Оба порта в trunk, и «Все VLAN» стоит только у одного (utils/allVlans.ts:allVlansDiffer). */
+  allVlansDiffer: boolean
+  other: { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk'; all_vlans: boolean }
 }
 
 /** Черновик подключения порта в блоке «Порты / интерфейсы» формы устройства (см.

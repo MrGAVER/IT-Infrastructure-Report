@@ -201,6 +201,29 @@ describe('DeviceStackVlanIpEditor.vue', () => {
     expect(wrapper.emitted('applied')).toBeUndefined()
   })
 
+  it('в списке выбора — только VLAN, добавленные на устройства стека; пока таких нет, подсказывает, где их добавить', async () => {
+    mockApi(state([], [], 2))
+    const wrapper = mountEditor()
+    await flushPromises()
+
+    await wrapper.get('.add-row .searchable-select input').trigger('focus')
+
+    expect(wrapper.get('.add-row .ss-empty').text()).toBe('На устройства стека пока не добавлено ни одного VLAN — добавьте его в блоке «VLAN устройства»')
+  })
+
+  it('когда все VLAN устройств стека уже добавлены в блок, список выбора так и говорит', async () => {
+    mockApi(state([], [OPTION_20]))
+    const wrapper = mountEditor()
+    await flushPromises()
+    wrapper.getComponent({ name: 'SearchableSelect' }).vm.$emit('update:modelValue', 'v-20')
+    await flushPromises()
+    await wrapper.get('[data-testid="stack-vlan-add"]').trigger('click') // единственный VLAN устройств стека перенесён в строку настройки
+
+    await wrapper.get('.add-row .searchable-select input').trigger('focus')
+
+    expect(wrapper.get('.add-row .ss-empty').text()).toBe('Все VLAN устройств стека уже добавлены')
+  })
+
   it('в стеке без устройств подсказывает добавить участников', async () => {
     mockApi(state([], [], 0))
     const wrapper = mountEditor()

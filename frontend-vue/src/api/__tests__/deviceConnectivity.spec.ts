@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { DEVICE_OPTIONS_PAGE_SIZE, FREE_INTERFACES_PAGE_SIZE, fetchAllFreeInterfaces, fetchDeviceInterfaceConnections, fetchDeviceOptionsPage, fetchFreeInterfacesPage } from '../deviceConnectivity'
 import type { FreeInterface } from '../deviceConnectivity'
 
-const port = (n: number): FreeInterface => ({ id: `p-${n}`, name: `Gi0/${n}`, is_management: false, is_data_transfer: true, vlan_mode: 'access', occupied: false })
+const port = (n: number): FreeInterface => ({ id: `p-${n}`, name: `Gi0/${n}`, is_management: false, is_data_transfer: true, vlan_mode: 'access', all_vlans: false, occupied: false })
 
 /** Фейковый сервер: отдаёт срез из `ports` по offset/limit из запроса, как backend. */
 function stubServer(ports: FreeInterface[]) {
