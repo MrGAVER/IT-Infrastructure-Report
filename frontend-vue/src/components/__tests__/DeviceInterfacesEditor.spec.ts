@@ -1078,7 +1078,8 @@ describe('DeviceInterfacesEditor.vue', () => {
       otherInterfaceName: 'Gi0/2',
       flagsDiffer: true,
       vlanModeDiffer: false,
-      other: { is_management: true, is_data_transfer: false, vlan_mode: 'access' as const },
+      allVlansDiffer: false,
+      other: { is_management: true, is_data_transfer: false, vlan_mode: 'access' as const, all_vlans: false },
     }
     const vlanModeConflict = {
       otherInterfaceId: 'if-3',
@@ -1086,7 +1087,9 @@ describe('DeviceInterfacesEditor.vue', () => {
       otherInterfaceName: 'Gi0/3',
       flagsDiffer: false,
       vlanModeDiffer: true,
-      other: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' as const },
+      allVlansDiffer: false,
+      // Сосед в trunk с «Все VLAN» — как порт формы после смены режима на trunk (форма сразу ставит ему «Все VLAN»): сверять нечего.
+      other: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' as const, all_vlans: true },
     }
 
     it('пункт 1: строка с расхождением флагов подсвечена, показывает кликабельную иконку в ячейках Упр./Данные', () => {
@@ -2510,5 +2513,321 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
 
       expect(lastRow(wrapper).subinterfaces).toStrictEqual(subs)
     })
+  })
+})
+
+describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с соседом и выбор значения при «Применить…»', () => {
+  const v10: VLANDefinition = { id: 'a10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] }
+  const v20: VLANDefinition = { id: 'a20', vlan_id: 20, name: 'Камеры', description: '', domain_id: null, domain_name: '', devices: [] }
+  const ownVlans = [v10, v20]
+  const connected = { peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+  const trunkRow = (extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({
+    ...emptyRow(),
+    id: 'if-1',
+    name: 'eth0',
+    vlan_mode: 'trunk',
+    all_vlans: false,
+    vlan_ids: ['a10'],
+    connection: connected,
+    ...extra,
+  })
+  const toastText = () => useToast().toasts.map((t) => t.message).join(' | ')
+  const lastRows = (wrapper: ReturnType<typeof mount>) => wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]
+
+  interface Call {
+    url: string
+    method: string
+    body?: Record<string, unknown>
+  }
+
+  // Фейковый сервер: порт соседа b-1 устройства dev-b (trunk; «Все VLAN» и набор настраиваются) с его VLAN.
+  function stubServer(neighbor: { all_vlans: boolean; vlan_ids?: string[] }, cascadePreview?: () => Response) {
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        const body = init?.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : undefined
+        calls.push({ url, method, body })
+        if (url.includes('/vlan-mode-cascade/preview') && cascadePreview) return cascadePreview()
+        if (method === 'PUT' && url.endsWith('/interfaces/b-1/port-config')) {
+          neighbor.all_vlans = body!.all_vlans === true
+          if (Array.isArray(body!.vlan_ids)) neighbor.vlan_ids = body!.vlan_ids as string[]
+          return jsonResponse({ id: 'b-1', name: 'Gi0/1', vlan_mode: 'trunk', all_vlans: neighbor.all_vlans })
+        }
+        if (/\/devices\/dev-b\/free-interfaces/.test(url)) {
+          return jsonResponse({ items: [{ id: 'b-1', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: neighbor.all_vlans, occupied: false }], total: 1, offset: 0, limit: 200 })
+        }
+        if (url.endsWith('/resources/interfaces/b-1')) return jsonResponse({ id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', vlan_mode: 'trunk', all_vlans: neighbor.all_vlans })
+        if (url.endsWith('/resources/devices/dev-b')) return jsonResponse({ id: 'dev-b', device_type_id: 'dt-b' })
+        if (url.endsWith('/devices/dev-b/interface-vlans')) return jsonResponse({ items: [{ interface_id: 'b-1', all_vlans: neighbor.all_vlans, vlan_ids: neighbor.vlan_ids ?? [] }] })
+        if (url.includes('/resources/device-type-vlans')) return jsonResponse({ items: [{ vlan_id: 'b10' }, { vlan_id: 'b20' }, { vlan_id: 'b30' }], total: 3, offset: 0, limit: 1000 })
+        if (url.includes('/resources/device-vlans')) return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+        if (url.endsWith('/vlan-dashboard')) {
+          const def = (id: string, number: number) => ({ id, vlan_id: number, name: `VLAN ${number}`, description: '', domain_id: null, domain_name: '', devices: [] })
+          return jsonResponse({ items: [10, 20, 30].map((n) => ({ vlan_id: n, definitions: [def(`b${n}`, n)] })) })
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 200 })
+      }),
+    )
+    return calls
+  }
+
+  // Родитель держит v-model, как DeviceFormModal.
+  function mountLive(rows: InterfaceDraftRow[], extra: Record<string, unknown> = {}) {
+    useCatalogsStore().items['interfaces'] = [] as never
+    const wrapper = mount(DeviceInterfacesEditor, {
+      props: {
+        modelValue: rows,
+        typeOptions,
+        speedOptions,
+        vlanOptions: ownVlans,
+        deviceId: 'dev-1',
+        editConnections: true,
+        ...extra,
+        'onUpdate:modelValue': (value: InterfaceDraftRow[]) => wrapper.setProps({ modelValue: value }),
+      },
+      attachTo: document.body,
+    })
+    return wrapper
+  }
+  const applyButtons = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('.connection-diffs-actions button')
+  const choiceModal = () => document.body.querySelector('[data-testid="all-vlans-choice"]')
+  const choiceButton = (testId: string) => document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!
+
+  beforeEach(() => useToast().toasts.splice(0))
+
+  it('сосед на другом устройстве с «Все VLAN», у этого порта признака нет: панель показывает расхождение «Все VLAN»', async () => {
+    stubServer({ all_vlans: true })
+    const wrapper = mountLive([trunkRow()])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    expect(wrapper.find('.connection-diffs').text()).toContain('«Все VLAN»: нет / у соседа да')
+    wrapper.unmount()
+  })
+
+  it('«Применить конфигурацию соседа»: по умолчанию предлагается «Все VLAN» соседа; «Применить» ставит признак порту формы (черновик), запросов на запись нет', async () => {
+    const calls = stubServer({ all_vlans: true })
+    const wrapper = mountLive([trunkRow()])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[0].trigger('click')
+    await flushPromises()
+    expect(choiceModal()).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="choice-source-text"]')!.textContent).toBe('Все VLAN')
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    expect(choiceModal()).toBeNull()
+    expect(lastRows(wrapper)[0]).toMatchObject({ all_vlans: true, vlan_ids: ['a10', 'a20'] }) // форма показывает все VLAN отмеченными
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    expect(toastText()).toContain('установлено: Все VLAN — сохраните форму')
+    expect(wrapper.find('.connection-diffs').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('«Применить текущую конфигурацию»: у этого порта «Все VLAN», у соседа набор вручную — «другое значение» уходит соседу PUT-ом port-config', async () => {
+    const calls = stubServer({ all_vlans: false, vlan_ids: ['b10'] })
+    const wrapper = mountLive([trunkRow({ all_vlans: true, vlan_ids: ['a10', 'a20'] })])
+    await expandRow(wrapper)
+    await flushPromises()
+    expect(wrapper.find('.connection-diffs').text()).toContain('«Все VLAN»: да / у соседа нет')
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+    // значение источника по умолчанию — «Все VLAN»; пользователь выбирает другое: только VLAN 20 устройства соседа
+    choiceButton('choice-other').click()
+    await flushPromises()
+    choiceButton('choice-pick').click()
+    await flushPromises()
+    const checks = [...document.body.querySelectorAll<HTMLInputElement>('.vlan-picker-modal .vlan-check:not(.vlan-check-all) input')]
+    expect(checks).toHaveLength(3) // VLAN устройства соседа: 10, 20, 30
+    for (const check of checks.slice(0, 3)) if (check.checked) check.click() // снять отмеченные «Все VLAN»
+    checks[1].click()
+    await flushPromises()
+    document.body.querySelector<HTMLElement>('.vlan-picker-modal .picker-foot button')!.click()
+    await flushPromises()
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    const put = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/interfaces/b-1/port-config'))
+    expect(put?.body).toEqual({ all_vlans: false, vlan_ids: ['b20'], mode: 'trunk' })
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined() // порт этой строки не менялся
+    expect(wrapper.emitted('neighbors-changed')).toHaveLength(1)
+    expect(toastText()).toContain('установлено: VLAN 20')
+    wrapper.unmount()
+  })
+
+  it('«Применить текущую конфигурацию»: «Все VLAN» этого порта переносится соседу признаком (набор соседа не нужен)', async () => {
+    const calls = stubServer({ all_vlans: false, vlan_ids: ['b10'] })
+    const wrapper = mountLive([trunkRow({ all_vlans: true, vlan_ids: ['a10', 'a20'] })])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/interfaces/b-1/port-config'))?.body).toEqual({ all_vlans: true, mode: 'trunk' })
+    expect(wrapper.find('.connection-diffs').exists()).toBe(false) // порты соседа перечитаны — расхождения нет
+    wrapper.unmount()
+  })
+
+  it('набор вручную у источника переносится по номерам VLAN на VLAN устройства цели', async () => {
+    const calls = stubServer({ all_vlans: true })
+    // у этого порта набор VLAN 10 и 20 (без признака), у соседа «Все VLAN»: соседу — набор, перенесённый на его VLAN
+    const wrapper = mountLive([trunkRow({ vlan_ids: ['a10', 'a20'] })])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('[data-testid="choice-source-text"]')!.textContent).toBe('VLAN 10, 20')
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/interfaces/b-1/port-config'))?.body).toEqual({ all_vlans: false, vlan_ids: ['b10', 'b20'], mode: 'trunk' })
+    wrapper.unmount()
+  })
+
+  it('«Отмена» в окне выбора значения: ничего не записывается, расхождение остаётся', async () => {
+    const calls = stubServer({ all_vlans: false, vlan_ids: ['b10'] })
+    const wrapper = mountLive([trunkRow({ all_vlans: true, vlan_ids: ['a10', 'a20'] })])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    await applyButtons(wrapper)[1].trigger('click')
+    await flushPromises()
+    document.body.querySelector<HTMLElement>('.choice-foot .btn-secondary')!.click() // «Отмена»
+    await flushPromises()
+
+    expect(choiceModal()).toBeNull()
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    expect(toastText()).toContain('не изменено')
+    expect(wrapper.find('.connection-diffs').exists()).toBe(true)
+    expect(applyButtons(wrapper).every((b) => b.attributes('disabled') === undefined)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('сосед — другой порт этого устройства: значение правится в его строке черновика, запросов на запись нет', async () => {
+    const calls = stubServer({ all_vlans: false })
+    const toRow = { peer_device_id: '__self__', peer_interface_id: '', peer_row_key: 'kB', connection_type_id: 'ct-1', description: '' }
+    const rows = [
+      trunkRow({ id: undefined, key: 'kA', name: 'eth0', all_vlans: true, vlan_ids: ['a10', 'a20'], connection: toRow }),
+      trunkRow({ id: undefined, key: 'kB', name: 'eth1', all_vlans: false, vlan_ids: ['a10'], connection: { ...toRow, peer_row_key: 'kA' } }),
+    ]
+    const wrapper = mountLive(rows, { deviceId: null })
+    await expandRow(wrapper, 0)
+    await flushPromises()
+
+    await applyButtons(wrapper)[1].trigger('click') // «Применить текущую конфигурацию»: соседу eth1 — «Все VLAN» eth0
+    await flushPromises()
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    expect(lastRows(wrapper)[1]).toMatchObject({ name: 'eth1', all_vlans: true, vlan_ids: ['a10', 'a20'] })
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+    expect(toastText()).toContain('сохраните форму')
+    wrapper.unmount()
+  })
+
+  it('смена режима на trunk вместе с «Все VLAN»: порт формы получает «Все VLAN» по умолчанию — окно предлагает набор соседа по номерам VLAN', async () => {
+    const calls = stubServer(
+      { all_vlans: false, vlan_ids: ['b10'] },
+      () =>
+        jsonResponse(
+          makePlan({
+            target_mode: 'trunk',
+            start_interface_id: 'if-1',
+            edited_device_id: 'dev-1',
+            ports: [portChange({ id: 'if-1', name: 'eth0', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, from_mode: 'access', to_mode: 'trunk' })],
+            devices: [{ id: 'dev-1', name: 'esxi-01', deferred: true, port_count: 1, group_count: 0 }],
+            totals: { ports: 1, devices: 1, groups: 0, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0, dropped_vlans: 0 },
+          }),
+        ),
+    )
+    const wrapper = mountLive([trunkRow({ vlan_mode: 'access', vlan_ids: ['a20'] })])
+    await expandRow(wrapper)
+    await flushPromises()
+    expect(wrapper.find('.connection-diffs').text()).toContain('режим порта: access / у соседа trunk')
+
+    await applyButtons(wrapper)[0].trigger('click') // «Применить конфигурацию соседа»: режим trunk
+    await flushPromises()
+
+    // после смены режима у порта формы «Все VLAN», у соседа — набор вручную: значение выбирает пользователь
+    expect(choiceModal()).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="choice-source-text"]')!.textContent).toBe('VLAN 10') // VLAN 10 соседа → VLAN 10 этого устройства
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    expect(lastRows(wrapper)[0]).toMatchObject({ vlan_mode: 'trunk', all_vlans: false, vlan_ids: ['a10'] })
+    expect(calls.some((c) => c.url.endsWith('/interfaces/if-1/vlan-mode-cascade/preview'))).toBe(true)
+    expect(calls.filter((c) => c.method === 'PUT')).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('режим порта расходится: в панели только режим, «Все VLAN» отдельной строкой не показывается и значения не спрашиваются', async () => {
+    stubServer({ all_vlans: true })
+    const wrapper = mountLive([trunkRow({ vlan_mode: 'access', all_vlans: false, vlan_ids: ['a10'] })])
+    await expandRow(wrapper)
+    await flushPromises()
+
+    expect(wrapper.find('.connection-diffs').text()).toContain('режим порта: access / у соседа trunk')
+    expect(wrapper.find('.connection-diffs').text()).not.toContain('«Все VLAN»')
+    expect(choiceModal()).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('значок расхождения «Все VLAN» у строки открывает окно решения: «Применить конфигурацию соседа» предлагает значение соседа', async () => {
+    stubServer({ all_vlans: true })
+    const conflict = {
+      otherInterfaceId: 'b-1',
+      otherDeviceName: 'sw-b',
+      otherInterfaceName: 'Gi0/1',
+      flagsDiffer: false,
+      vlanModeDiffer: false,
+      allVlansDiffer: true,
+      other: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' as const, all_vlans: true },
+    }
+    const wrapper = mountLive([trunkRow({ connection: null })], { conflicts: { 'if-1': conflict } })
+    await expandRow(wrapper)
+
+    await wrapper.get('[data-testid="all-vlans-conflict"]').trigger('click')
+    expect(wrapper.find('.conflict-modal h3').text()).toBe('Расхождение «Все VLAN»')
+    expect(wrapper.find('.conflict-compare').text()).toContain('Все VLAN')
+    await wrapper.find('.conflict-modal-actions .btn-secondary').trigger('click')
+    await flushPromises()
+    expect(choiceModal()).not.toBeNull()
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    expect(lastRows(wrapper)[0]).toMatchObject({ all_vlans: true })
+    expect(wrapper.find('.conflict-modal').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('проверка перед сохранением: расхождение «Все VLAN» попадает в диалог и устраняется тем же выбором значения', async () => {
+    stubServer({ all_vlans: true })
+    const wrapper = mountLive([trunkRow()], { connectionBaseline: new Map([['if-1', connected]]) })
+    type ReviewVm = { reviewNeighborMismatches: (initial?: ReadonlyMap<string, { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk'; all_vlans?: boolean }>) => Promise<boolean> }
+    // порт менялся в этой форме: раньше «Все VLAN» у него было выключено так же, но режим был access
+    const result = (wrapper.vm as unknown as ReviewVm).reviewNeighborMismatches(new Map([['if-1', { is_management: false, is_data_transfer: false, vlan_mode: 'access' }]]))
+    await flushPromises()
+
+    expect(wrapper.find('.review-modal').text()).toContain('«Все VLAN»: нет / у соседа да')
+    const apply = wrapper.findAll('.review-modal button').find((b) => b.text() === 'Применить конфигурацию соседа')!
+    await apply.trigger('click')
+    await flushPromises()
+    choiceButton('choice-apply').click()
+    await flushPromises()
+
+    expect(lastRows(wrapper)[0]).toMatchObject({ all_vlans: true })
+    expect(wrapper.find('.review-modal').text()).toContain('Расхождений не осталось')
+    await wrapper.findAll('.review-modal button').find((b) => b.text() === 'Сохранить')!.trigger('click')
+    expect(await result).toBe(true)
+    wrapper.unmount()
   })
 })

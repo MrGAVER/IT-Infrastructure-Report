@@ -53,6 +53,7 @@ function serverConnection(overrides: Partial<DeviceInterfaceConnection> = {}): D
     peer_is_management: false,
     peer_is_data_transfer: true,
     peer_vlan_mode: 'trunk',
+    peer_all_vlans: false,
     ...overrides,
   }
 }
@@ -194,6 +195,14 @@ describe('connectionConfigDiffs', () => {
       'режим порта: access / у соседа trunk',
     ])
   })
+
+  it('«Все VLAN» сверяется только у двух trunk-портов: текст в обе стороны', () => {
+    expect(connectionConfigDiffs({ ...peer, all_vlans: true }, { ...peer, all_vlans: false })).toEqual(['«Все VLAN»: да / у соседа нет'])
+    expect(connectionConfigDiffs({ ...peer, all_vlans: false }, { ...peer, all_vlans: true })).toEqual(['«Все VLAN»: нет / у соседа да'])
+    expect(connectionConfigDiffs({ ...peer, all_vlans: true }, { ...peer, all_vlans: true })).toEqual([])
+    // разные режимы — только режим, признак отдельной строкой не показывается
+    expect(connectionConfigDiffs({ ...peer, vlan_mode: 'access' }, { ...peer, all_vlans: true })).toEqual(['режим порта: access / у соседа trunk'])
+  })
 })
 
 // ---- соседи из этой же формы: порты без id (peer_row_key) и другие порты того же устройства ----
@@ -318,6 +327,13 @@ describe('connectionConfigDiffKinds', () => {
   it('режим порта — отдельный вид vlan_mode; оба вида сразу — в порядке «назначение, режим»', () => {
     expect(connectionConfigDiffKinds({ ...peer, vlan_mode: 'access' }, peer)).toEqual(['vlan_mode'])
     expect(connectionConfigDiffKinds({ is_management: true, is_data_transfer: true, vlan_mode: 'access' }, peer)).toEqual(['flags', 'vlan_mode'])
+  })
+
+  it('«Все VLAN» — отдельный вид all_vlans, только когда оба порта в trunk', () => {
+    expect(connectionConfigDiffKinds({ ...peer, all_vlans: true }, peer)).toEqual(['all_vlans'])
+    expect(connectionConfigDiffKinds(peer, { ...peer, all_vlans: true })).toEqual(['all_vlans'])
+    expect(connectionConfigDiffKinds({ ...peer, is_management: true, all_vlans: true }, peer)).toEqual(['flags', 'all_vlans'])
+    expect(connectionConfigDiffKinds({ ...peer, vlan_mode: 'access', all_vlans: true }, peer)).toEqual(['vlan_mode']) // в access признака нет
   })
 
   it('согласован с connectionConfigDiffs: пустой тогда и только тогда, когда пуст текстовый список', () => {

@@ -12,6 +12,8 @@ export interface FreeInterface {
   is_management: boolean
   is_data_transfer: boolean
   vlan_mode: VlanMode
+  /** «Все VLAN» с учётом режима: в access всегда false. */
+  all_vlans: boolean
   occupied: boolean
 }
 
@@ -35,6 +37,8 @@ export interface DeviceInterfaceConnection {
   peer_is_management: boolean
   peer_is_data_transfer: boolean
   peer_vlan_mode: VlanMode
+  /** «Все VLAN» соседнего порта с учётом режима: в access всегда false. */
+  peer_all_vlans: boolean
 }
 
 /** Устройство для выбора соседа из GET /devices/options: лёгкая запись без обогащения полного списка устройств. */
