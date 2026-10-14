@@ -283,10 +283,36 @@ class TestListing:
         a, b = _device(client, "CL-AV-1"), _device(client, "CL-AV-2")
         stack = _stack(client, "Доступные", [a, b])
         free = _vlan(client, 90)
+        # Доменный VLAN назначен одному участнику (он состоит в домене), второй участник в домен не входит.
         foreign_domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Чужой домен"}).json()
+        assert client.post(f"/api/v1/vlan-domains/{foreign_domain['id']}/members", json={"physical_device_id": a["id"]}).status_code in (200, 201)
         foreign = _vlan(client, 92, domain_id=foreign_domain["id"])
+        assert _set_device_vlans(client, a["id"], [{"vlan_id": free["id"]}, {"vlan_id": foreign["id"]}]).status_code == 200
         available = {x["vlan_id"] for x in _state(client, stack["id"])["available"]}
         assert free["id"] in available and foreign["id"] not in available
+
+    def test_available_contains_only_vlans_added_to_some_stack_device(self, client):
+        a, b, outsider = _device(client, "CL-AV-3"), _device(client, "CL-AV-4"), _device(client, "CL-AV-5")
+        stack = _stack(client, "Добавленные VLAN", [a, b])
+        on_one_member, on_both, on_outsider, nowhere = (_vlan(client, n) for n in (91, 92, 93, 94))
+        assert _set_device_vlans(client, a["id"], [{"vlan_id": on_one_member["id"]}, {"vlan_id": on_both["id"]}]).status_code == 200
+        assert _set_device_vlans(client, b["id"], [{"vlan_id": on_both["id"]}]).status_code == 200
+        assert _set_device_vlans(client, outsider["id"], [{"vlan_id": on_outsider["id"]}]).status_code == 200  # устройство вне стека не в счёт
+
+        data = _state(client, stack["id"])
+
+        by_id = {x["vlan_id"]: x for x in data["available"]}
+        assert set(by_id) == {on_one_member["id"], on_both["id"]}  # VLAN, которого нет ни у одного участника, выбрать нельзя
+        assert (by_id[on_one_member["id"]]["assigned_count"], by_id[on_both["id"]]["assigned_count"]) == (1, 2)
+        assert on_outsider["id"] not in by_id and nowhere["id"] not in by_id
+
+    def test_available_is_empty_while_no_vlan_is_added_to_the_stack_devices(self, client):
+        stack = _stack(client, "Без VLAN", [_device(client, "CL-AV-6"), _device(client, "CL-AV-7")])
+        _vlan(client, 95)  # есть в справочнике, но ни одному устройству стека не добавлен
+
+        data = _state(client, stack["id"])
+
+        assert data["available"] == [] and data["member_count"] == 2
 
     def test_empty_stack_and_unknown_stack(self, client):
         empty = _stack(client, "Пустой для списка", [])

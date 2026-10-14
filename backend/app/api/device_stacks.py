@@ -47,8 +47,9 @@ def preview_device_stack_member(stack_id: str, physical_device_id: str = Query(.
 @router.get('/api/v1/device-stacks/{stack_id}/vlans')
 def device_stack_vlans(stack_id: str, session: Session = Depends(get_db)):
     """Общие настройки VLAN стека (кластера): items — заданные настройки и состояние применения к участникам
-    (is_uniform, счётчики, значения каждого участника); available — VLAN, которые можно сделать общими, с подсказкой
-    значений (адрес, на котором сошлись участники; «Управление», если оно включено хотя бы у одного)."""
+    (is_uniform, счётчики, значения каждого участника); available — VLAN, добавленные хотя бы одному устройству стека,
+    которые можно сделать общими, с подсказкой значений (адрес, на котором сошлись участники; «Управление», если оно
+    включено хотя бы у одного)."""
     return stack_vlans(session, stack_id)
 
 
