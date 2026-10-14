@@ -41,6 +41,10 @@ def _apply_ordering(stmt, model):
         # in (insertion order for SQLite) — i.e. the OLDEST entries, not the most recent ones the
         # UI labels "Последние N действий". Audit log is the one resource where recency matters.
         return stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())  # id — чтобы записи с равным временем не «переезжали» между страницами
+    if model is DeviceInterface:
+        # Порты устройства — в порядке, заданном пользователем в форме устройства (стрелки), а не в порядке создания;
+        # created_at и id — тай-брейк для портов с одинаковой позицией (созданных не через форму).
+        return stmt.order_by(DeviceInterface.sort_order, DeviceInterface.created_at, DeviceInterface.id)
     # Без ORDER BY порядок строк при offset/limit не гарантирован (на PostgreSQL он может меняться
     # между запросами), и соседние страницы дублировали или пропускали записи. Старые — первыми;
     # id — детерминированный тай-брейк для строк с равным временем создания.

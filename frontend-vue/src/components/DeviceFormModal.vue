@@ -36,6 +36,7 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 import type { CatalogItem } from '../api/types'
+import type { QuickAddFkScope } from '../quickAdd/schema'
 import { stripIds } from '../utils/copyEntity'
 import { duplicateVlansMessage, sortDeviceVlanRows } from '../utils/deviceVlans'
 import { lockedVlanReasons, mergeSharedSettingsIntoDraft } from '../utils/stackVlans'
@@ -474,6 +475,12 @@ const embeddedOsOptions = computed(() => (catalogs.items['embedded-os'] ?? []).m
 const buildingOptions = computed(() => (catalogs.items['buildings'] ?? []).map((b) => ({ value: b.id, label: b.name })))
 const roomOptions = computed(() => filteredRooms.value.map((r) => ({ value: r.id, label: r.name })))
 const rackOptions = computed(() => filteredRacks.value.map((r) => ({ value: r.id, label: r.name })))
+
+// Окно «Добавить: Стойка» из этой формы: список помещений ограничен выбранным зданием (здание не выбрано — полный
+// список), а помещение, уже выбранное в форме, подставлено в окно автоматически. Фильтр работает только на выбор в
+// окне стойки: список «Помещение» самой формы по-прежнему строится от здания (roomOptions).
+const rackQuickAddValues = computed(() => (form.room_id ? { room_id: form.room_id } : undefined))
+const rackQuickAddScope = computed<QuickAddFkScope>(() => ({ room_id: { field: 'building_id', value: form.building_id } }))
 
 // п.3.6: поля "Тип устройства"/"Производитель"/"Модель" объединены в одно — это ОДИН select с
 // двумя видами опций (группа "без модели" — просто тип, и группы моделей по производителю), а не
@@ -962,7 +969,7 @@ async function submit() {
           <span>Стойка</span>
           <div class="lookup-row">
             <SearchableSelect v-model="form.rack_id" :options="rackOptions" :disabled="!form.room_id" placeholder="— не указана —" />
-            <QuickAddButton resource="racks" title="Стойка" @created="onRackCreated" />
+            <QuickAddButton resource="racks" title="Стойка" :initial-values="rackQuickAddValues" :fk-scope="rackQuickAddScope" @created="onRackCreated" />
           </div>
         </label>
 

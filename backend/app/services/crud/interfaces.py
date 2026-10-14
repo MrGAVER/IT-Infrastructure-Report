@@ -125,7 +125,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     subinterface_total = 0  # подинтерфейсов в payload — для записи в журнал аудита
     try:
         group_states = _sync_interface_groups(device_id, groups_payload, allowed_vlans, session) if manage_groups else {}
-        for item in items:
+        for position, item in enumerate(items):
             if not isinstance(item, dict): raise HTTPException(422, 'Каждый интерфейс должен быть объектом')
             iid = item.get('id')
             if iid:
@@ -133,6 +133,9 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
                 if not obj: raise HTTPException(422, 'Интерфейс не принадлежит выбранному физическому устройству')
                 incoming_ids.add(iid)
             else: obj = DeviceInterface(physical_device_id=device_id); session.add(obj)
+            # Порядок портов — порядок элементов payload (стрелки в форме). Присваивается ДО первого flush() в
+            # _sync_single_interface: так новый порт вставляется сразу с нужной позицией, а не получает её отдельным UPDATE.
+            obj.sort_order = position
             group_state = _resolve_interface_group(item, group_states) if manage_groups else None
             if manage_groups: obj.group_id = group_state.obj.id if group_state else None
             _sync_single_interface(obj, item, device, session, allowed_vlans)
@@ -161,7 +164,7 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces: session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).values(is_management=bool(iface.is_management)))
         audit(session, 'interfaces', device_id, AuditAction.SYNC, f'Синхронизация интерфейсов: {len(items)}' + (f', групп: {len(groups_payload)}' if manage_groups else '') + (f', подинтерфейсов: {subinterface_total}' if subinterface_total else '') + (f', подключений изменено: {connections_changed}' if connections_changed else '')); session.commit()
-        result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name)).all()
+        result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.sort_order, DeviceInterface.created_at, DeviceInterface.id)).all()
         subinterfaces = subinterfaces_by_parent([iface.id for iface in result], session)
         return {'groups': list_interface_groups(device_id, session), 'items': [{
             **serialize(iface),

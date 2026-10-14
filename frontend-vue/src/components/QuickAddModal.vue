@@ -9,7 +9,7 @@ import { useCatalogsStore, sortProtocolPortCatalog } from '../stores/catalogs'
 import { sortOptionsByLabel } from '../utils/selectOptions'
 import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS, QUICK_ADD_SINGLE_COLUMN } from '../quickAdd/schema'
-import type { QuickField } from '../quickAdd/schema'
+import type { QuickAddFkScope, QuickField } from '../quickAdd/schema'
 import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'// Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
@@ -23,7 +23,7 @@ import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 import DeviceIconPicker from './DeviceIconPicker.vue'
 
-const props = defineProps<{ resource: string; initialValues?: Record<string, string> }>()
+const props = defineProps<{ resource: string; initialValues?: Record<string, string>; fkScope?: QuickAddFkScope }>()
 const emit = defineEmits<{
   close: []
   created: [record: CatalogItem]
@@ -71,7 +71,11 @@ function fkSelectOptions(f: QuickField): SearchableSelectOption[] {
   if (f.fkSource === 'devices') {
     return sortOptionsByLabel(devicesStore.all.map((d) => ({ value: d.id, label: d.system_name || d.serial_number })))
   }
-  return fkOptions(f.fkResource).map((opt) => ({ value: opt.id, label: opt.name }))
+  const scope = props.fkScope?.[f.name]
+  const options = fkOptions(f.fkResource)
+  // fkScope: например, при добавлении стойки из формы устройства — только помещения выбранного там здания.
+  const scoped = scope?.value ? options.filter((opt) => (opt as unknown as Record<string, unknown>)[scope.field] === scope.value) : options
+  return scoped.map((opt) => ({ value: opt.id, label: opt.name }))
 }
 
 /** Запись, созданная через вложенную QuickAddModal (кнопка "+" у fk-поля), сразу подставляется
