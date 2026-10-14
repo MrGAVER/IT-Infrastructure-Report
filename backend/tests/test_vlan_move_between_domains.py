@@ -233,7 +233,7 @@ class TestSubinterfacesOnMovedVlan:
         assert client.post(f"{API}/vlan-domains/{domain['id']}/members", json={"physical_device_id": device["id"]}).status_code == 200
         assert vlan["id"] in _assigned(client, device)
         r = client.put(f"{API}/devices/{device['id']}/interfaces", json={"interfaces": [
-            {"name": "Gi0/0", "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": vlan["id"], "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}]}]},
+            {"name": "Gi0/0", "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": vlan["id"], "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}]}]},
         ]})
         assert r.status_code == 200, r.text
         return device
@@ -267,3 +267,48 @@ class TestSubinterfacesOnMovedVlan:
 
         details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
         assert not [d for d in details if d.startswith("Подинтерфейсы остались")]
+
+    def test_audit_lists_group_subinterface_templates_left_on_the_vlan_the_group_lost(self, client, db_session):
+        from app.models import InterfaceGroupSubinterface, InterfaceGroupVLAN
+
+        dt = _device_type(client, "Тип шаблонов групп при переносе")
+        source = _device(client, dt, "MV-GRP-SRC")
+        old_domain = _domain(client, "Старый для шаблонов групп", source)
+        new_domain = _domain(client, "Новый для шаблонов групп")
+        vlan = _vlan(client, 412, old_domain)
+        router = _device(client, dt, "MV-GRP-RTR")
+        assert client.post(f"{API}/vlan-domains/{old_domain['id']}/members", json={"physical_device_id": router["id"]}).status_code == 200
+        r = client.put(f"{API}/devices/{router['id']}/interfaces", json={
+            "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
+            "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"], "ips": [{"ip_address": "10.4.12.1", "prefix_length": 24}]}]}],
+        })
+        assert r.status_code == 200, r.text
+        group_id = r.json()["groups"][0]["id"]
+
+        _move(client, vlan, new_domain)
+
+        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        noted = [d for d in details if d.startswith("Подинтерфейсы групп портов остались")]
+        assert noted and "(1)" in noted[0] and "MV-GRP-RTR / Серверные" in noted[0]
+        # VLAN у группы снят вместе с устройством, шаблон не удалён и не перенесён
+        assert db_session.query(InterfaceGroupVLAN).filter_by(group_id=group_id).count() == 0
+        assert db_session.query(InterfaceGroupSubinterface).filter_by(group_id=group_id).count() == 1
+
+    def test_no_group_note_when_the_group_keeps_the_vlan(self, client, db_session):
+        vlan_domain = _domain(client, "Старый домен каталога групп")
+        new_domain = _domain(client, "Новый домен каталога групп")
+        vlan = _vlan(client, 413, vlan_domain)
+        dt = _device_type(client, "Тип с VLAN в каталоге для групп", allow_vlan=vlan)
+        router = _device(client, dt, "MV-GRP-CAT")
+        assert client.post(f"{API}/vlan-domains/{vlan_domain['id']}/members", json={"physical_device_id": router["id"]}).status_code == 200
+        r = client.put(f"{API}/devices/{router['id']}/interfaces", json={
+            "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
+            "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"]}]}],
+        })
+        assert r.status_code == 200, r.text
+
+        _move(client, vlan, new_domain)
+
+        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        assert not [d for d in details if d.startswith("Подинтерфейсы групп портов остались")]
+

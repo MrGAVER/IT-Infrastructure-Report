@@ -24,22 +24,18 @@ export function emptyGroup(name = ''): InterfaceGroupDraft {
   return { key: newGroupKey(), name, vlan_mode: '', vlan_ids: [], all_vlans: false, ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [], manage_subinterfaces: false, subinterfaces: [] }
 }
 
+/** Параметры порта, которыми может управлять группа и которые можно скопировать с порта в группу. */
 export interface ManagedFields {
   vlan: boolean
   ip: boolean
   openPorts: boolean
-}
-
-/** Параметры порта, которыми может управлять группа: к трём копируемым с порта добавлены подинтерфейсы (их с порта в
- * группу не копируют — шаблон подинтерфейсов группы задаётся в самой группе). */
-export interface GroupManagedFields extends ManagedFields {
   subinterfaces: boolean
 }
 
 /** Какими параметрами порта управляет группа (заданные в группе). Общий IP управляется целиком —
  * адрес, префикс и назначение (ip_purpose, пустое — тоже значение). Подинтерфейсы — полным списком, пока стоит
  * manage_subinterfaces (пустой список тоже значение: у портов группы подинтерфейсов не будет). */
-export function managedFields(group: InterfaceGroupDraft | undefined): GroupManagedFields {
+export function managedFields(group: InterfaceGroupDraft | undefined): ManagedFields {
   if (!group) return { vlan: false, ip: false, openPorts: false, subinterfaces: false }
   return { vlan: group.vlan_mode !== '', ip: group.ip_address.trim() !== '', openPorts: group.manage_open_ports, subinterfaces: group.manage_subinterfaces === true }
 }
@@ -180,22 +176,63 @@ export function eraseGroupValues(row: InterfaceDraftRow, group: InterfaceGroupDr
 /** Какие параметры группы можно скопировать с порта — только те, у которых на порту есть значение:
  * режим порта копируется вместе с VLAN (режим без VLAN ничего не задаёт), IP — если есть хотя бы
  * один непустой адрес (копируется вместе с префиксом и назначением), открытые порты — если выбран
- * хотя бы один протокол справочника. Так
+ * хотя бы один протокол справочника, подинтерфейсы — если есть хотя бы один с выбранным VLAN. Так
  * «копирование» не может случайно превратиться в «стереть у всей группы». */
 export function copyableFields(row: InterfaceDraftRow): ManagedFields {
   return {
     vlan: row.vlan_ids.length > 0,
     ip: row.ips.some((ip) => ip.ip_address.trim() !== ''),
     openPorts: row.open_ports.some((p) => p.protocol_catalog_id !== ''),
+    subinterfaces: (row.subinterfaces ?? []).some((sub) => sub.vlan_id !== ''),
   }
 }
 
+/** Шаблоны подинтерфейсов группы из подинтерфейсов порта: те же VLAN, роль, описание, IP и открытые порты, но без id (это новые
+ * строки группы, а не те же записи порта) и без имени (подинтерфейс порта группы всегда `<порт>.<номер VLAN>`). Подинтерфейс на VLAN,
+ * которого нет в VLAN группы, шаблоном стать не может — он попадает в `skipped`: подинтерфейсы группы задаются только на её VLAN.
+ * VLAN группы — её выбранные VLAN (режим порта не задан — никаких); с «Все VLAN» — `deviceVlanIds` (не переданы — любой VLAN). */
+export function subinterfaceTemplatesFromRow(
+  row: InterfaceDraftRow,
+  group: InterfaceGroupDraft,
+  deviceVlanIds?: ReadonlySet<string>,
+): { templates: SubinterfaceDraftRow[]; skipped: SubinterfaceDraftRow[] } {
+  const groupVlans = group.vlan_mode === '' ? new Set<string>() : group.all_vlans === true ? deviceVlanIds : new Set(group.vlan_ids)
+  const templates: SubinterfaceDraftRow[] = []
+  const skipped: SubinterfaceDraftRow[] = []
+  for (const sub of row.subinterfaces ?? []) {
+    if (!sub.vlan_id) continue // строка без VLAN — черновик, копировать нечего
+    if (groupVlans && !groupVlans.has(sub.vlan_id)) {
+      skipped.push(sub)
+      continue
+    }
+    templates.push({
+      key: newSubinterfaceKey(),
+      name: '',
+      vlan_id: sub.vlan_id,
+      is_management: sub.is_management,
+      is_data_transfer: sub.is_data_transfer,
+      description: sub.description,
+      ips: sub.ips.filter((ip) => ip.ip_address.trim() !== '').map((ip) => ({ ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length, purpose: ip.purpose })),
+      open_ports: sub.open_ports.filter((p) => p.protocol_catalog_id !== '').map((p) => ({ protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })),
+    })
+  }
+  return { templates, skipped }
+}
+
 /** Копирует значения порта в черновик группы — только отмеченные в `what` и реально имеющиеся на
- * порту (см. copyableFields). Открытые порты в группе упорядочиваются по номеру порта (portCatalog). Это правка черновика в окне группы: к портам она применяется, как и
+ * порту (см. copyableFields). Открытые порты в группе упорядочиваются по номеру порта (portCatalog). Подинтерфейсы копируются
+ * шаблонами (subinterfaceTemplatesFromRow) и заменяют список подинтерфейсов группы; deviceVlanIds — VLAN устройства для группы с
+ * «Все VLAN». Это правка черновика в окне группы: к портам она применяется, как и
  * любое другое значение, только при сохранении группы. Строки открытых портов копируются без id —
  * это новые строки группы, а не те же записи порта. У порта с несколькими IP берётся первый: группа
  * задаёт один общий адрес. */
-export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraftRow, what: ManagedFields, portCatalog: readonly ProtocolPortCatalogEntry[] = []): InterfaceGroupDraft {
+export function copyValuesFromRow(
+  group: InterfaceGroupDraft,
+  row: InterfaceDraftRow,
+  what: ManagedFields,
+  portCatalog: readonly ProtocolPortCatalogEntry[] = [],
+  deviceVlanIds?: ReadonlySet<string>,
+): InterfaceGroupDraft {
   const available = copyableFields(row)
   let next = group
   if (what.vlan && available.vlan) {
@@ -217,6 +254,12 @@ export function copyValuesFromRow(group: InterfaceGroupDraft, row: InterfaceDraf
         portCatalog,
       ),
     }
+  }
+  // Подинтерфейсы — после режима и VLAN (шаблон должен лежать на VLAN группы, уже с учётом только что скопированных).
+  // Копирование никогда не превращается в «стереть»: если ни один подинтерфейс порта не подошёл группе, список группы не меняется.
+  if (what.subinterfaces && available.subinterfaces) {
+    const { templates } = subinterfaceTemplatesFromRow(row, next, deviceVlanIds)
+    if (templates.length) next = { ...next, manage_subinterfaces: true, subinterfaces: templates }
   }
   return next
 }

@@ -18,7 +18,7 @@ from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_por
 from .payload import ensure_writable, validate_payload_schema
 from .stack_vlan_settings import apply_stack_settings_to_device
 from .validators import _release_rack_slot, validate_resource
-from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _stale_subinterfaces_on_vlan, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
+from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _stale_group_subinterfaces_on_vlan, _stale_subinterfaces_on_vlan, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
 
 
 def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
@@ -198,6 +198,10 @@ def _audit_vlan_domain_move(resource: str, obj, unassigned_devices: int, session
     stale = _stale_subinterfaces_on_vlan(str(obj.id), session)
     if stale:
         audit(session, resource, str(obj.id), AuditAction.UPDATE, f'Подинтерфейсы остались на VLAN, не разрешённом устройству ({len(stale)}): ' + '; '.join(stale[:20]) + ('…' if len(stale) > 20 else ''))
+    # То же для шаблонов подинтерфейсов групп портов: связи VLAN с группами сняты, а шаблоны на этом VLAN остались.
+    stale_groups = _stale_group_subinterfaces_on_vlan(str(obj.id), session)
+    if stale_groups:
+        audit(session, resource, str(obj.id), AuditAction.UPDATE, f'Подинтерфейсы групп портов остались на VLAN, которого у группы больше нет ({len(stale_groups)}): ' + '; '.join(stale_groups[:20]) + ('…' if len(stale_groups) > 20 else ''))
 
 
 def update_resource(resource: str, item_id: str, payload: dict[str, Any], session: Session):

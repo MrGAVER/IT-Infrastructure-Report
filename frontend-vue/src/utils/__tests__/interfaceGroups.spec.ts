@@ -6,6 +6,7 @@ import {
   cloneGroupsForCopy,
   copyValuesFromRow,
   copyableFields,
+  subinterfaceTemplatesFromRow,
   describeGroup,
   emptyGroup,
   eraseGroupValues,
@@ -203,13 +204,13 @@ describe('copyableFields / copyValuesFromRow — копирование знач
       ips: [{ id: 'ip-1', ip_address: ' 10.0.0.5 ', prefix_length: '24', purpose: 'Управление' }],
       open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }, { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }],
     })
-  const all = { vlan: true, ip: true, openPorts: true }
+  const all = { vlan: true, ip: true, openPorts: true, subinterfaces: false } // подинтерфейсов у порта нет — копируются остальные
 
   it('копируемо только то, что на порту реально задано', () => {
     expect(copyableFields(full())).toEqual(all)
-    expect(copyableFields(row('пустой'))).toEqual({ vlan: false, ip: false, openPorts: false })
+    expect(copyableFields(row('пустой'))).toEqual({ vlan: false, ip: false, openPorts: false, subinterfaces: false })
     // режим без VLAN, строка IP без адреса и строка открытых портов без протокола — значений нет
-    expect(copyableFields(row('заготовки', { ips: [{ ip_address: '  ', prefix_length: '', purpose: '' }], open_ports: [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }] }))).toEqual({ vlan: false, ip: false, openPorts: false })
+    expect(copyableFields(row('заготовки', { ips: [{ ip_address: '  ', prefix_length: '', purpose: '' }], open_ports: [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }] }))).toEqual({ vlan: false, ip: false, openPorts: false, subinterfaces: false })
   })
 
   it('копирует режим, VLAN, первый IP и открытые порты в черновик группы без id строк порта', () => {
@@ -223,7 +224,7 @@ describe('copyableFields / copyValuesFromRow — копирование знач
   it('копирует только отмеченное, остальные параметры группы не трогает', () => {
     const base = group({ vlan_mode: 'access', vlan_ids: ['v99'], ip_address: '1.1.1.1', prefix_length: '8' })
 
-    const onlyIp = copyValuesFromRow(base, full(), { vlan: false, ip: true, openPorts: false })
+    const onlyIp = copyValuesFromRow(base, full(), { vlan: false, ip: true, openPorts: false, subinterfaces: false })
 
     expect(onlyIp).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v99'], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: false })
   })
@@ -276,10 +277,10 @@ describe('назначение общего IP-адреса группы', () =>
 
   it('copyValuesFromRow копирует назначение вместе с адресом и префиксом (у порта с пустым назначением — пустое)', () => {
     const ips = [{ ip_address: ' 10.0.0.7 ', prefix_length: '25', purpose: ' Резерв ' }]
-    const withPurpose = copyValuesFromRow(group({ ip_purpose: 'Старое' }), row('a', { ips }), { vlan: false, ip: true, openPorts: false })
+    const withPurpose = copyValuesFromRow(group({ ip_purpose: 'Старое' }), row('a', { ips }), { vlan: false, ip: true, openPorts: false, subinterfaces: false })
     expect(withPurpose).toMatchObject({ ip_address: '10.0.0.7', prefix_length: '25', ip_purpose: 'Резерв' })
 
-    const without = copyValuesFromRow(group({ ip_purpose: 'Старое' }), row('b', { ips: [{ ip_address: '10.0.0.8', prefix_length: '24', purpose: '' }] }), { vlan: false, ip: true, openPorts: false })
+    const without = copyValuesFromRow(group({ ip_purpose: 'Старое' }), row('b', { ips: [{ ip_address: '10.0.0.8', prefix_length: '24', purpose: '' }] }), { vlan: false, ip: true, openPorts: false, subinterfaces: false })
     expect(without.ip_purpose).toBe('')
   })
 
@@ -287,7 +288,7 @@ describe('назначение общего IP-адреса группы', () =>
     const base = group({ ip_address: '1.1.1.1', ip_purpose: 'Старое' })
     const source = row('a', { ips: [{ ip_address: '10.0.0.7', prefix_length: '25', purpose: 'Новое' }], vlan_ids: ['v1'], vlan_mode: 'trunk' })
 
-    expect(copyValuesFromRow(base, source, { vlan: true, ip: false, openPorts: false }).ip_purpose).toBe('Старое')
+    expect(copyValuesFromRow(base, source, { vlan: true, ip: false, openPorts: false, subinterfaces: false }).ip_purpose).toBe('Старое')
   })
 
   it('describeGroup показывает назначение рядом с IP', () => {
@@ -343,14 +344,14 @@ describe('открытые порты группы: строки порта не
   it('copyValuesFromRow: открытые порты, скопированные с порта, упорядочиваются по номеру порта', () => {
     const source = row('a', { open_ports: [tcp('https'), tcp(''), tcp('ssh'), tcp('telnet')] })
 
-    const result = copyValuesFromRow(group(), source, { vlan: false, ip: false, openPorts: true }, catalogEntries)
+    const result = copyValuesFromRow(group(), source, { vlan: false, ip: false, openPorts: true, subinterfaces: false }, catalogEntries)
 
     expect(result.open_ports.map((p) => p.protocol_catalog_id)).toEqual(['ssh', 'telnet', 'https'])
   })
 
   it('copyValuesFromRow без справочника сохраняет порядок порта (номер не определить)', () => {
     const source = row('a', { open_ports: [tcp('https'), tcp('ssh')] })
-    const result = copyValuesFromRow(group(), source, { vlan: false, ip: false, openPorts: true })
+    const result = copyValuesFromRow(group(), source, { vlan: false, ip: false, openPorts: true, subinterfaces: false })
     expect(result.open_ports.map((p) => p.protocol_catalog_id)).toEqual(['https', 'ssh'])
   })
 })
@@ -453,6 +454,87 @@ describe('подинтерфейсы группы портов', () => {
     expect(copy.open_ports[0].id).toBeUndefined()
     expect(copy.key).not.toBe('t-10')
     expect(source.subinterfaces![0].id).toBe('gs-1')
+  })
+
+  describe('копирование подинтерфейсов с порта в группу', () => {
+    const none = { vlan: false, ip: false, openPorts: false, subinterfaces: false }
+    const portWithSubs = (subs: SubinterfaceDraftRow[], patch: Partial<InterfaceDraftRow> = {}) => row('Gi0/1', { vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], subinterfaces: subs, ...patch })
+    const richSub = () =>
+      sub({
+        id: 'sub-10', is_management: true, is_data_transfer: true, description: 'сеть серверов',
+        ips: [{ id: 'ip-1', ip_address: ' 10.0.10.1 ', prefix_length: '24', purpose: 'шлюз' }, { ip_address: '  ', prefix_length: '', purpose: '' }],
+        open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }, { protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }],
+      })
+
+    it('copyableFields: подинтерфейсы копируемы, если есть хотя бы один с выбранным VLAN', () => {
+      expect(copyableFields(portWithSubs([sub()])).subinterfaces).toBe(true)
+      expect(copyableFields(portWithSubs([sub({ vlan_id: '' })])).subinterfaces).toBe(false)
+      expect(copyableFields(portWithSubs([])).subinterfaces).toBe(false)
+    })
+
+    it('шаблоны получают значения подинтерфейса порта без id и без имени; группа начинает ими управлять', () => {
+      const target = group({ vlan_mode: 'trunk', vlan_ids: ['v10'] })
+
+      const result = copyValuesFromRow(target, portWithSubs([richSub()]), { ...none, subinterfaces: true })
+
+      expect(result.manage_subinterfaces).toBe(true)
+      expect(result.subinterfaces).toHaveLength(1)
+      const [template] = result.subinterfaces!
+      expect(template).toMatchObject({ name: '', vlan_id: 'v10', is_management: true, is_data_transfer: true, description: 'сеть серверов' })
+      expect(template.id).toBeUndefined()
+      expect(template.ips).toEqual([{ ip_address: '10.0.10.1', prefix_length: '24', purpose: 'шлюз' }]) // без id, пустая строка отброшена
+      expect(template.open_ports).toEqual([{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }])
+      expect(template.key).not.toBe(richSub().key)
+    })
+
+    it('вместе с режимом и VLAN порт копируется целиком: VLAN группы берутся с порта, ничего не отбрасывается', () => {
+      const source = portWithSubs([richSub(), sub({ key: 'k-20', vlan_id: 'v20', name: 'Gi0/1.20' })])
+
+      const result = copyValuesFromRow(group(), source, { ...none, vlan: true, subinterfaces: true })
+
+      expect(result.vlan_ids).toEqual(['v10', 'v20'])
+      expect(result.subinterfaces!.map((t) => t.vlan_id)).toEqual(['v10', 'v20'])
+    })
+
+    it('подинтерфейс на VLAN вне VLAN группы шаблоном не становится (skipped), остальные копируются', () => {
+      const target = group({ vlan_mode: 'trunk', vlan_ids: ['v10'] })
+      const source = portWithSubs([richSub(), sub({ key: 'k-20', vlan_id: 'v20', name: 'Gi0/1.20' })])
+
+      const { templates, skipped } = subinterfaceTemplatesFromRow(source, target)
+      const result = copyValuesFromRow(target, source, { ...none, subinterfaces: true })
+
+      expect(templates.map((t) => t.vlan_id)).toEqual(['v10'])
+      expect(skipped.map((s) => s.name)).toEqual(['Gi0/1.20'])
+      expect(result.subinterfaces!.map((t) => t.vlan_id)).toEqual(['v10'])
+    })
+
+    it('если группе не подошёл ни один подинтерфейс (или режим порта не задан), список группы не меняется — копирование не «стирает»', () => {
+      const existing = tpl({ vlan_id: 'v10' })
+      const noMode = group({ manage_subinterfaces: true, subinterfaces: [existing] })
+      const foreignVlan = group({ vlan_mode: 'trunk', vlan_ids: ['v99'], manage_subinterfaces: true, subinterfaces: [existing] })
+
+      expect(copyValuesFromRow(noMode, portWithSubs([richSub()]), { ...none, subinterfaces: true })).toBe(noMode)
+      expect(copyValuesFromRow(foreignVlan, portWithSubs([richSub()]), { ...none, subinterfaces: true })).toBe(foreignVlan)
+    })
+
+    it('«Все VLAN» у группы: подходят VLAN устройства; без списка VLAN устройства фильтра нет', () => {
+      const target = group({ vlan_mode: 'trunk', all_vlans: true })
+      const source = portWithSubs([richSub(), sub({ key: 'k-99', vlan_id: 'v99', name: 'Gi0/1.99' })])
+
+      expect(subinterfaceTemplatesFromRow(source, target, new Set(['v10'])).templates.map((t) => t.vlan_id)).toEqual(['v10'])
+      expect(subinterfaceTemplatesFromRow(source, target).templates.map((t) => t.vlan_id)).toEqual(['v10', 'v99'])
+    })
+
+    it('не отмеченное или отсутствующее на порту не копируется; исходные подинтерфейсы порта не меняются', () => {
+      const source = portWithSubs([richSub()])
+      const before = JSON.stringify(source)
+      const base = group({ vlan_mode: 'trunk', vlan_ids: ['v10'] })
+
+      expect(copyValuesFromRow(base, source, none)).toBe(base)
+      expect(copyValuesFromRow(base, portWithSubs([]), { ...none, subinterfaces: true })).toBe(base)
+      copyValuesFromRow(base, source, { ...none, subinterfaces: true }).subinterfaces![0].ips.push({ ip_address: '1.1.1.1', prefix_length: '8', purpose: '' })
+      expect(JSON.stringify(source)).toBe(before)
+    })
   })
 
   describe('validateInterfaceGroups', () => {

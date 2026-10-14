@@ -38,10 +38,11 @@ from sqlalchemy.orm import Session
 from ..constants import ErrorCode, OwnerType, SourceType
 from ..models import (
     Container, DeployedSoftware, DeviceInterface, DeviceSubinterface, DeviceTypeVLAN, IPAddress, InformationSystem,
-    InformationSystemSource, InterfaceGroup, InterfaceGroupOpenPort, ISProtocol, OpenPort, PhysicalDevice, PhysicalDeviceVLAN,
-    ProtocolPortCatalog, VLAN, VirtualMachine,
+    InformationSystemSource, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupSubinterface, ISProtocol, OpenPort, PhysicalDevice,
+    PhysicalDeviceVLAN, ProtocolPortCatalog, VLAN, VirtualMachine,
 )
 from ..registry import DISPLAY_NAMES
+from .port_vlans import allowed_vlan_ids_by_device, effective_group_vlan_ids, effective_vlan_ids
 
 logger = logging.getLogger(__name__)
 
@@ -302,6 +303,87 @@ def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> li
         if (r.device_id, r.vlan_id) not in assigned and (r.device_type_id, r.vlan_id) not in by_type
     ]
     return sorted(stale, key=lambda d: (d['device_name'], d['port_name'], d['subinterface_name']))
+
+
+def find_off_port_subinterfaces(session: Session) -> list[dict[str, Any]]:
+    """Находит подинтерфейсы на VLAN, который разрешён устройству, но НЕ выбран на их порту: VLAN подинтерфейса обязан быть
+    одним из VLAN порта (у порта с «Все VLAN» — любым VLAN устройства), и sync_interfaces проверяет это при сохранении
+    (crud/subinterfaces.py:validate_device_subinterfaces). Такие подинтерфейсы остаются от времени до этого правила либо
+    после правки VLAN порта отдельным действием (окно порта, согласование портов, каскад режима): подинтерфейс — самостоятельная
+    запись со своими IP и открытыми портами, система не удаляет его молча, а следующее сохранение формы устройства требует
+    выбрать другой VLAN подинтерфейса, вернуть VLAN порту или удалить подинтерфейс.
+
+    Подинтерфейсы на VLAN, которого нет и у самого устройства, сюда не входят — их показывает find_stale_subinterfaces (не
+    дублируем одно и то же в двух списках). Запись — как в find_stale_subinterfaces. Только чтение; запросов — константа от
+    числа порций. Порядок: устройство, порт, подинтерфейс."""
+    rows = session.execute(
+        select(
+            DeviceSubinterface.id.label('subinterface_id'), DeviceSubinterface.name.label('subinterface_name'),
+            DeviceSubinterface.vlan_id, DeviceInterface.id.label('port_id'), DeviceInterface.name.label('port_name'),
+            PhysicalDevice.id.label('device_id'), PhysicalDevice.system_name, PhysicalDevice.serial_number,
+            VLAN.vlan_id.label('vlan_number'), VLAN.name.label('vlan_name'),
+        )
+        .join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id)
+        .join(PhysicalDevice, PhysicalDevice.id == DeviceInterface.physical_device_id)
+        .join(VLAN, VLAN.id == DeviceSubinterface.vlan_id)
+    ).all()
+    if not rows:
+        return []
+    allowed = allowed_vlan_ids_by_device({r.device_id for r in rows}, session)
+    on_port = effective_vlan_ids(session, [r.port_id for r in rows])
+    found = [
+        {
+            'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
+            'port_id': r.port_id, 'port_name': r.port_name,
+            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
+        }
+        for r in rows
+        if r.vlan_id in allowed.get(r.device_id, set()) and r.vlan_id not in on_port.get(r.port_id, set())
+    ]
+    return sorted(found, key=lambda d: (d['device_name'], d['port_name'], d['subinterface_name']))
+
+
+def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None) -> list[dict[str, Any]]:
+    """Находит подинтерфейсы ГРУПП портов (шаблоны, models.InterfaceGroupSubinterface) на VLAN, которого у группы больше нет:
+    VLAN не входит в VLAN группы (у группы с «Все VLAN» — в VLAN её устройства). Шаблон обязан лежать на VLAN группы — это
+    проверяет сохранение группы (crud/interface_group_subinterfaces.py:normalize_group_subinterfaces).
+
+    Такие шаблоны возникают, когда VLAN снимают с устройства, убирают из его типа или переносят в другой домен: связи VLAN с
+    группой при этом снимаются сами, а шаблон — запись со своими IP и открытыми портами — остаётся. Система его не удаляет
+    молча; следующее сохранение формы устройства требует выбрать другой VLAN шаблона, вернуть VLAN группе или удалить шаблон.
+    Каждая запись — один шаблон: {'subinterface_id', 'group_id', 'group_name', 'device_id', 'device_name', 'vlan_id',
+    'vlan_number', 'vlan_name'}. vlan_id — ограничить поиск одним VLAN (перечень для журнала аудита при переносе VLAN в
+    другой домен). Только чтение. Порядок: устройство, группа, номер VLAN."""
+    query = (
+        select(
+            InterfaceGroupSubinterface.id.label('subinterface_id'), InterfaceGroupSubinterface.vlan_id,
+            InterfaceGroup.id.label('group_id'), InterfaceGroup.name.label('group_name'),
+            PhysicalDevice.id.label('device_id'), PhysicalDevice.system_name, PhysicalDevice.serial_number,
+            VLAN.vlan_id.label('vlan_number'), VLAN.name.label('vlan_name'),
+        )
+        .join(InterfaceGroup, InterfaceGroup.id == InterfaceGroupSubinterface.group_id)
+        .join(PhysicalDevice, PhysicalDevice.id == InterfaceGroup.physical_device_id)
+        .join(VLAN, VLAN.id == InterfaceGroupSubinterface.vlan_id)
+    )
+    if vlan_id is not None:
+        query = query.where(InterfaceGroupSubinterface.vlan_id == vlan_id)
+    rows = session.execute(query).all()
+    if not rows:
+        return []
+    group_ids = {r.group_id for r in rows}
+    groups = session.scalars(select(InterfaceGroup).where(InterfaceGroup.id.in_(group_ids))).all() if len(group_ids) < 400 else session.scalars(select(InterfaceGroup)).all()
+    on_group = effective_group_vlan_ids(groups, session)
+    stale = [
+        {
+            'subinterface_id': r.subinterface_id, 'group_id': r.group_id, 'group_name': r.group_name,
+            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
+        }
+        for r in rows
+        if r.vlan_id not in on_group.get(r.group_id, set())
+    ]
+    return sorted(stale, key=lambda d: (d['device_name'], d['group_name'], d['vlan_number']))
 
 
 def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[str, str], str]:
