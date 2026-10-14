@@ -218,7 +218,8 @@ def test_deleting_group_removes_templates_but_keeps_port_subinterfaces(client, d
     ssh = _catalog_entry(client, 22, "SSH")
     first = _sync(client, dev["id"], [_port("Gi0/0")], [_group([v10], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])]).json()
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", group_key=None, id=first["items"][0]["id"])], [])
+    # порт, покинувший группу, — обычный порт со своими VLAN (форма присылает их вместе с портом)
+    r = _sync(client, dev["id"], [_port("Gi0/0", group_key=None, id=first["items"][0]["id"], vlan_mode="trunk", vlan_ids=[v10["id"]])], [])
 
     assert r.status_code == 200, r.text
     for model in (InterfaceGroupSubinterface, InterfaceGroupSubinterfaceIP, InterfaceGroupSubinterfaceOpenPort):

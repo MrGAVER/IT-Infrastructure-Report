@@ -80,6 +80,7 @@ from .stack_vlan_settings import (  # noqa: F401
 )
 from .vlan_domains import (  # noqa: F401
     _domain_device_ids,
+    _stale_group_subinterfaces_on_vlan,
     _stale_subinterfaces_on_vlan,
     _unassign_moved_vlan_from_former_domain_devices,
     _auto_assign_new_domain_vlan_to_domain_devices,
@@ -214,6 +215,7 @@ __all__ = [
     '_release_rack_slot',
     '_resolve_interface_group',
     '_resolve_protocol_catalog_entry',
+    '_stale_group_subinterfaces_on_vlan',
     '_stale_subinterfaces_on_vlan',
     '_sync_group_open_ports',
     '_sync_group_vlans',

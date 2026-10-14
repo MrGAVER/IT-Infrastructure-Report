@@ -7,7 +7,7 @@ from ..config import APP_VERSION
 from ..db import get_db
 from ..models import Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine
 from ..services.catalogs import seed_defaults
-from ..services.integrity import find_duplicate_open_port_numbers, find_orphaned_owner_references, find_stale_subinterfaces
+from ..services.integrity import find_duplicate_open_port_numbers, find_off_port_subinterfaces, find_orphaned_owner_references, find_stale_group_subinterfaces, find_stale_subinterfaces
 
 router = APIRouter(tags=['System'])
 
@@ -32,12 +32,20 @@ def open_port_duplicates_report(session: Session = Depends(get_db)):
 
 @router.get('/api/v1/integrity/stale-subinterfaces')
 def stale_subinterfaces_report(session: Session = Depends(get_db)):
-    """Диагностика подинтерфейсов портов на VLAN, который их устройству больше не разрешён (VLAN сняли с устройства,
-    убрали из его типа или перенесли в другой домен). Такие подинтерфейсы система не удаляет сама — на них IP-адреса и
-    открытые порты; форма устройства покажет их с предупреждением и потребует выбрать другой VLAN или удалить
-    подинтерфейс. Только чтение. ok=True и пустой subinterfaces — исправлять нечего."""
-    stale = find_stale_subinterfaces(session)
-    return {'ok': not stale, 'total': len(stale), 'subinterfaces': stale}
+    """Диагностика подинтерфейсов на недоступном VLAN. В `subinterfaces` — подинтерфейсы портов с причиной `reason`:
+    `device` — VLAN больше не разрешён устройству (сняли с устройства, убрали из его типа или перенесли в другой домен);
+    `port` — VLAN разрешён устройству, но не выбран на самом порту (VLAN подинтерфейса обязан быть одним из VLAN порта). В
+    `group_subinterfaces` — шаблоны подинтерфейсов групп портов на VLAN, которого у группы больше нет. Такие записи система
+    не удаляет сама — на них IP-адреса и открытые порты; форма устройства покажет их с предупреждением и потребует выбрать
+    другой VLAN, вернуть VLAN порту/группе или удалить подинтерфейс. Только чтение. ok=True и пустые списки — исправлять
+    нечего; total — число записей в обоих списках."""
+    ports = sorted(
+        [{**item, 'reason': 'device'} for item in find_stale_subinterfaces(session)] + [{**item, 'reason': 'port'} for item in find_off_port_subinterfaces(session)],
+        key=lambda d: (d['device_name'], d['port_name'], d['subinterface_name']),
+    )
+    groups = find_stale_group_subinterfaces(session)
+    total = len(ports) + len(groups)
+    return {'ok': total == 0, 'total': total, 'subinterfaces': ports, 'group_subinterfaces': groups}
 
 @router.get('/api/v1/dashboard')
 def dashboard(session: Session = Depends(get_db)):

@@ -39,6 +39,10 @@ def _sub(name: str, vlan: dict | None, **extra) -> dict:
 
 
 def _port(name: str, **extra) -> dict:
+    """Порт. Подинтерфейс создаётся на VLAN порта (сервер проверяет это при сохранении), поэтому порт с подинтерфейсами по
+    умолчанию несёт «Все VLAN» устройства; явные vlan_mode/vlan_ids/all_vlans теста это переопределяют."""
+    if extra.get("subinterfaces") and not {"vlan_mode", "vlan_ids", "all_vlans"} & extra.keys():
+        extra = {"vlan_mode": "trunk", "all_vlans": True, **extra}
     return {"name": name, **extra}
 
 
@@ -121,7 +125,8 @@ def test_missing_subinterfaces_key_leaves_them_untouched_and_empty_list_removes_
     dev = _device(client, vlans=(v10,))
     port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]).json()["items"][0]
 
-    kept = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], description="uplink")]).json()["items"][0]
+    # ключа subinterfaces нет, а VLAN порта сохранены: PUT порта — полное состояние, без VLAN подинтерфейс остался бы без VLAN порта
+    kept = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], description="uplink", vlan_mode="trunk", all_vlans=True)]).json()["items"][0]
     assert [s["name"] for s in kept["subinterfaces"]] == ["Gi0/0.10"]
     assert len(_poly(client, "ip-addresses", "device_subinterface")) == 1
 
@@ -266,3 +271,75 @@ def test_device_list_shows_management_port_and_ip_from_a_management_subinterface
     assert listed["management_interface"] == "Gi0/0 (подинтерфейс Gi0/0.99)"
     assert listed["management_ips"] == "10.0.99.1/24"
     assert listed["interface_count"] == 1
+
+
+# --- VLAN подинтерфейса — один из VLAN его порта (серверное правило, зеркало правила формы) ---------------------------
+
+def _vlan_ids_of(port_vlans: tuple[dict, ...]) -> list[str]:
+    return [v["id"] for v in port_vlans]
+
+
+def test_subinterface_on_a_vlan_not_selected_on_the_port_is_rejected_and_nothing_is_saved(client):
+    v10, v20 = _vlan(client, 10), _vlan(client, 20)
+    dev = _device(client, vlans=(v10, v20))  # оба VLAN разрешены устройству, но на порту выбран только 20
+
+    r = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v20,)), subinterfaces=[_sub("Gi0/0.10", v10)])])
+
+    assert r.status_code == 422, r.text
+    assert "VLAN 10 подинтерфейса «Gi0/0.10» не выбран на порту «Gi0/0»" in r.text
+    assert client.get(f"{API}/devices/{dev['id']}/subinterfaces").json()["items"] == []
+
+
+def test_subinterface_on_a_port_without_any_vlan_is_rejected(client):
+    v10 = _vlan(client, 10)
+    dev = _device(client, vlans=(v10,))
+
+    r = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=[], subinterfaces=[_sub("Gi0/0.10", v10)])])
+
+    assert r.status_code == 422
+    assert "не выбран на порту" in r.text
+
+
+def test_subinterface_on_one_of_the_selected_port_vlans_is_saved(client):
+    v10, v20 = _vlan(client, 10), _vlan(client, 20)
+    dev = _device(client, vlans=(v10, v20))
+
+    r = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10, v20)), subinterfaces=[_sub("Gi0/0.10", v10), _sub("Gi0/0.20", v20)])])
+
+    assert r.status_code == 200, r.text
+    assert {s["name"] for s in r.json()["items"][0]["subinterfaces"]} == {"Gi0/0.10", "Gi0/0.20"}
+
+
+def test_access_port_accepts_a_subinterface_only_on_its_own_vlan(client):
+    v10, v20 = _vlan(client, 10), _vlan(client, 20)
+    dev = _device(client, vlans=(v10, v20))
+    access = {"vlan_mode": "access", "vlan_ids": _vlan_ids_of((v10,))}
+
+    first = _sync(client, dev["id"], [_port("Gi0/0", **access, subinterfaces=[_sub("Gi0/0.10", v10)])])
+    assert first.status_code == 200, first.text
+    r = _sync(client, dev["id"], [_port("Gi0/0", id=first.json()["items"][0]["id"], **access, subinterfaces=[_sub("Gi0/0.20", v20)])])
+    assert r.status_code == 422 and "не выбран на порту" in r.text
+
+
+def test_all_vlans_port_follows_the_device_vlans(client):
+    v10 = _vlan(client, 10)
+    dev = _device(client, vlans=(v10,))
+
+    # «Все VLAN» — набор VLAN порта вычисляется (VLAN устройства), отдельных связей у порта нет
+    r = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", all_vlans=True, subinterfaces=[_sub("Gi0/0.10", v10)])])
+
+    assert r.status_code == 200, r.text
+
+
+def test_removing_the_vlan_from_the_port_while_its_subinterface_stays_is_rejected(client):
+    v10 = _vlan(client, 10)
+    dev = _device(client, vlans=(v10,))
+    port = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10,)), subinterfaces=[_sub("Gi0/0.10", v10)])]).json()["items"][0]
+
+    # VLAN с порта убран, подинтерфейс (ключ subinterfaces не прислан) остался на нём
+    r = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], vlan_mode="trunk", vlan_ids=[])])
+
+    assert r.status_code == 422
+    assert "не выбран на порту «Gi0/0»" in r.text
+    assert [s["name"] for s in client.get(f"{API}/devices/{dev['id']}/subinterfaces").json()["items"]] == ["Gi0/0.10"]  # откат: данные целы
+

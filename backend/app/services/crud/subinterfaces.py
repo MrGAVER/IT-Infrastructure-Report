@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from ...constants import OwnerType
 from ...models import DeviceInterface, DeviceSubinterface, InterfaceGroupSubinterface, IPAddress, OpenPort, PhysicalDevice, ProtocolPortCatalog, VLAN
+from ..port_vlans import effective_vlan_ids
 from ..serialization import enrich_open_ports, serialize
 from .owned_rows import sync_owner_ip_addresses, sync_owner_open_ports
 
@@ -106,10 +107,13 @@ def validate_device_subinterfaces(device_id: str, session: Session) -> None:
     на устройстве (без учёта регистра) и не совпадает с именем порта; на одном порту не бывает двух
     подинтерфейсов на одном VLAN. Вызывать после записи всех портов устройства: проверяется
     итоговое состояние БД, поэтому обмен именами или VLAN между подинтерфейсами одним запросом
-    допустим. Бросает HTTPException(422)."""
+    допустим. Бросает HTTPException(422).
+
+    Правила: имя уникально на устройстве (без учёта регистра) и не совпадает с именем порта; на порту VLAN
+    подинтерфейса используется один раз и входит в VLAN самого порта."""
     session.flush()
     rows = session.execute(
-        select(DeviceSubinterface.name, DeviceSubinterface.parent_interface_id, DeviceInterface.name.label('parent_name'), VLAN.vlan_id.label('vlan_number'))
+        select(DeviceSubinterface.name, DeviceSubinterface.parent_interface_id, DeviceSubinterface.vlan_id, DeviceInterface.name.label('parent_name'), VLAN.vlan_id.label('vlan_number'))
         .join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id)
         .join(VLAN, VLAN.id == DeviceSubinterface.vlan_id)
         .where(DeviceInterface.physical_device_id == device_id)
@@ -128,6 +132,13 @@ def validate_device_subinterfaces(device_id: str, session: Session) -> None:
     for r in rows:
         if r.name.casefold() in port_names:
             raise HTTPException(422, f'Имя подинтерфейса «{r.name}» совпадает с именем порта устройства')
+    # VLAN подинтерфейса — один из VLAN его порта (у порта с «Все VLAN» — любой VLAN устройства): форма выбирает VLAN только
+    # из них, API не должен обходить это правило. Проверяется итоговое состояние: к этому моменту записаны и VLAN портов, и
+    # применённые группами. Порт без VLAN подинтерфейсов иметь не может.
+    port_vlans = effective_vlan_ids(session, list({r.parent_interface_id for r in rows}))
+    for r in rows:
+        if r.vlan_id not in port_vlans.get(r.parent_interface_id, set()):
+            raise HTTPException(422, f'VLAN {r.vlan_number} подинтерфейса «{r.name}» не выбран на порту «{r.parent_name}» — выберите другой VLAN подинтерфейса или добавьте этот VLAN порту')
 
 
 def delete_subinterfaces(subinterface_ids: Iterable[str], session: Session) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-from ..integrity import find_stale_subinterfaces
+from ..integrity import find_stale_group_subinterfaces, find_stale_subinterfaces
 from ...models import DeviceInterface, PhysicalDevice, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice, InterfaceGroup, InterfaceGroupVLAN
 
 
@@ -60,6 +60,16 @@ def _stale_subinterfaces_on_vlan(vlan_id: str, session: Session) -> list[str]:
     не остались незамеченными — перечень уходит в журнал аудита при переносе VLAN в другой домен. Поиск — общий с
     диагностикой по всему реестру (services/integrity.py:find_stale_subinterfaces)."""
     return [f"{r['device_name']} / {r['port_name']} / {r['subinterface_name']}" for r in find_stale_subinterfaces(session, vlan_id=vlan_id)]
+
+
+def _stale_group_subinterfaces_on_vlan(vlan_id: str, session: Session) -> list[str]:
+    """Подписи «устройство / группа» шаблонов подинтерфейсов ГРУПП портов на этом VLAN, которого у группы больше нет.
+
+    При переносе VLAN в другой домен связи VLAN с группами портов устройств прежнего домена снимаются сами, а шаблон
+    подинтерфейса группы — запись со своими IP и открытыми портами — остаётся, как и подинтерфейсы портов: молча удалять
+    её нельзя. Перечень уходит в журнал аудита рядом с перечнем подинтерфейсов портов; поиск общий с диагностикой по всему
+    реестру (services/integrity.py:find_stale_group_subinterfaces)."""
+    return [f"{r['device_name']} / {r['group_name']}" for r in find_stale_group_subinterfaces(session, vlan_id=vlan_id)]
 
 
 def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:
