@@ -3,6 +3,7 @@ import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DeviceInterfacesEditor from '../DeviceInterfacesEditor.vue'
 import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
+import InterfaceSubinterfacesEditor from '../InterfaceSubinterfacesEditor.vue'
 import SearchableSelect from '../SearchableSelect.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
@@ -47,6 +48,22 @@ function emptyRow(): InterfaceDraftRow {
 // с п.3.4 они убраны из компактной таблицы под toggle.
 async function expandRow(wrapper: ReturnType<typeof mount>, i = 0) {
   await wrapper.findAll('.expand-toggle')[i].trigger('click')
+}
+
+// Выбор VLAN trunk-порта вынесен из карточки порта во всплывающее окно (PortVlanPickerModal): открывается кнопкой в
+// строке с галочкой «Все VLAN». Чекбоксы отдельных VLAN — только внутри окна.
+async function openVlanPicker(wrapper: ReturnType<typeof mount>, i = 0) {
+  await wrapper.findAll('.iface-detail .vlan-picker-btn')[i].trigger('click')
+}
+const pickerVlanChecks = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('.vlan-picker-modal .vlan-check:not(.vlan-check-all) input[type="checkbox"]')
+
+// Access-порт: VLAN выбирается в SearchableSelect — фокус на поле и mousedown по опции, как у пользователя.
+async function pickAccessVlan(wrapper: ReturnType<typeof mount>, labelPart: string, i = 0) {
+  const select = wrapper.findAll('.iface-detail .vlan-block .searchable-select')[i]
+  await select.find('input').trigger('focus')
+  const option = select.findAll('.ss-option').find((o) => o.text().includes(labelPart))
+  if (!option) throw new Error(`VLAN «${labelPart}» нет в списке выбора`)
+  await option.trigger('mousedown')
 }
 
 beforeEach(() => {
@@ -378,21 +395,62 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(wrapper.find('.vlan-check').exists()).toBe(false)
     })
 
-    it('рендерит чекбокс на каждый допустимый VLAN с подписью "номер — имя [домен]"', async () => {
+    it('в окне выбора VLAN trunk-порта — чекбокс на каждый допустимый VLAN с подписью "номер — имя [домен]"', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
-      // .iface-detail — иначе findAll('.vlan-check') подхватил бы ещё и чекбоксы из панели
-      // "Массовое редактирование" (тот же vlanOptions используется и там).
-      const labels = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all)').map((l) => l.text())
+      expect(wrapper.find('.vlan-picker-modal').exists()).toBe(false) // пока окно не открыто, список VLAN карточку порта не растягивает
+      expect(wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all)')).toHaveLength(0)
+
+      await openVlanPicker(wrapper)
+      const labels = wrapper.findAll('.vlan-picker-modal .vlan-check:not(.vlan-check-all)').map((l) => l.text())
       expect(labels).toEqual(['10 — Управление', '20 — Гостевой [Филиал-1]'])
+    })
+
+    it('галочка «Все VLAN» остаётся в карточке порта рядом с кнопкой, открывающей окно выбора', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+      await expandRow(wrapper)
+
+      const row = wrapper.find('.iface-detail .trunk-row')
+      expect(row.find('.vlan-check-all input').exists()).toBe(true)
+      expect(row.find('.vlan-picker-btn').exists()).toBe(true)
+      expect(row.find('.vlan-summary').text()).toBe('Выбрано VLAN: 0 из 2')
+    })
+
+    it('окно выбора ищет VLAN по номеру, имени и домену; «Готово» и подложка его закрывают', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+      await expandRow(wrapper)
+      await openVlanPicker(wrapper)
+
+      await wrapper.find('.vlan-picker-modal input[aria-label="Поиск VLAN"]').setValue('филиал')
+      expect(wrapper.findAll('.vlan-picker-modal .vlan-check:not(.vlan-check-all)').map((l) => l.text())).toEqual(['20 — Гостевой [Филиал-1]'])
+      await wrapper.find('.vlan-picker-modal input[aria-label="Поиск VLAN"]').setValue('нет такого')
+      expect(wrapper.find('.vlan-picker-modal').text()).toContain('Ничего не найдено')
+
+      await wrapper.find('.vlan-picker-modal .btn-primary').trigger('click') // «Готово»
+      expect(wrapper.find('.vlan-picker-modal').exists()).toBe(false)
+    })
+
+    it('порт, чьи VLAN задаёт группа, показывает окно только для просмотра', async () => {
+      const group: InterfaceGroupDraft = { ...emptyGroup('Uplink'), key: 'g1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt'] }
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt'], group_key: 'g1' }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, groups: [group], typeOptions, speedOptions, vlanOptions: vOptions } })
+      await expandRow(wrapper)
+      expect(wrapper.find('.iface-detail .vlan-picker-btn').text()).toBe('Показать VLAN…')
+
+      await openVlanPicker(wrapper)
+      for (const input of wrapper.findAll('.vlan-picker-modal input[type="checkbox"]')) expect(input.attributes('disabled')).toBeDefined()
+      expect(wrapper.find('.vlan-picker-modal').text()).toContain('задан группой «Uplink»')
     })
 
     it('уже назначенный VLAN отображается отмеченным чекбоксом', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-guest'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
-      const checkboxes = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input[type="checkbox"]')
+      await openVlanPicker(wrapper)
+      const checkboxes = pickerVlanChecks(wrapper)
       expect((checkboxes[0].element as HTMLInputElement).checked).toBe(false) // v-mgmt
       expect((checkboxes[1].element as HTMLInputElement).checked).toBe(true) // v-guest
     })
@@ -401,14 +459,15 @@ describe('DeviceInterfacesEditor.vue', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
+      await openVlanPicker(wrapper)
 
-      const checkboxes = wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input[type="checkbox"]')
+      const checkboxes = pickerVlanChecks(wrapper)
       await checkboxes[1].setValue(true) // отмечаем v-guest в дополнение к уже стоящему v-mgmt
       let emitted = wrapper.emitted('update:modelValue')!
       expect((emitted[0][0] as InterfaceDraftRow[])[0].vlan_ids).toEqual(['v-mgmt', 'v-guest'])
 
       await wrapper.setProps({ modelValue: emitted[0][0] as InterfaceDraftRow[] })
-      await wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input[type="checkbox"]')[0].setValue(false) // снимаем v-mgmt
+      await pickerVlanChecks(wrapper)[0].setValue(false) // снимаем v-mgmt
       emitted = wrapper.emitted('update:modelValue')!
       expect((emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0].vlan_ids).toEqual(['v-guest'])
     })
@@ -464,8 +523,9 @@ describe('DeviceInterfacesEditor.vue', () => {
       it('полный набор, отмеченный по одному, признаком не становится', async () => {
         const wrapper = mountTrunk({ vlan_ids: ['v-mgmt'] })
         await expandRow(wrapper)
+        await openVlanPicker(wrapper)
 
-        await wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input')[1].setValue(true)
+        await pickerVlanChecks(wrapper)[1].setValue(true)
 
         expect(lastRow(wrapper)).toMatchObject({ vlan_ids: ['v-mgmt', 'v-guest'], all_vlans: false })
       })
@@ -473,8 +533,9 @@ describe('DeviceInterfacesEditor.vue', () => {
       it('снятие любого VLAN у порта с признаком снимает признак', async () => {
         const wrapper = mountTrunk({ all_vlans: true, vlan_ids: ['v-mgmt', 'v-guest'] })
         await expandRow(wrapper)
+        await openVlanPicker(wrapper)
 
-        await wrapper.findAll('.iface-detail .vlan-check:not(.vlan-check-all) input')[1].setValue(false)
+        await pickerVlanChecks(wrapper)[1].setValue(false)
 
         expect(lastRow(wrapper)).toMatchObject({ vlan_ids: ['v-mgmt'], all_vlans: false })
       })
@@ -681,10 +742,10 @@ describe('DeviceInterfacesEditor.vue', () => {
       const radios = wrapper.findAll('.vlan-mode-row input[type="radio"]')
       expect((radios[0].element as HTMLInputElement).checked).toBe(true) // Trunk
       expect((radios[1].element as HTMLInputElement).checked).toBe(false) // Access
-      expect(wrapper.find('.iface-detail .vlan-checks').exists()).toBe(true)
+      expect(wrapper.find('.iface-detail .trunk-row').exists()).toBe(true)
     })
 
-    it('переключение на Access показывает одиночный select вместо чекбоксов', async () => {
+    it('переключение на Access показывает одиночный SearchableSelect вместо кнопки выбора VLAN', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', vlan_ids: ['v-mgmt'] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
@@ -698,8 +759,8 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(result.vlan_ids).toEqual(['v-mgmt']) // единственный уже стоявший VLAN сохранён
 
       await wrapper.setProps({ modelValue: emitted[0][0] as InterfaceDraftRow[] })
-      expect(wrapper.find('.iface-detail .vlan-checks').exists()).toBe(false) // не .vlan-checks вообще — тот же класс и в панели массового редактирования
-      expect((wrapper.find('.iface-detail select').element as HTMLSelectElement).value).toBe('v-mgmt')
+      expect(wrapper.find('.iface-detail .trunk-row').exists()).toBe(false)
+      expect((wrapper.find('.iface-detail .vlan-block .searchable-select input').element as HTMLInputElement).value).toBe('10 — Управление')
     })
 
     it('переключение с trunk (несколько VLAN) на access оставляет только первый VLAN', async () => {
@@ -727,14 +788,28 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(wrapper.find('.vlan-check-all input').element).toHaveProperty('checked', true) // "Все VLAN" отмечен
     })
 
-    it('в режиме access выбор VLAN из select задаёт единственный элемент vlan_ids', async () => {
+    it('в режиме access выбор VLAN в SearchableSelect задаёт единственный элемент vlan_ids', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'access', vlan_ids: [] }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
       await expandRow(wrapper)
 
-      await wrapper.find('.iface-detail select').setValue('v-guest')
+      await pickAccessVlan(wrapper, 'Гостевой')
       const result = (wrapper.emitted('update:modelValue')![0][0] as InterfaceDraftRow[])[0]
       expect(result.vlan_ids).toEqual(['v-guest'])
+    })
+
+    it('в режиме access список VLAN фильтруется вводом текста, а очистка поля снимает VLAN', async () => {
+      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1', vlan_mode: 'access', vlan_ids: ['v-mgmt'] }]
+      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vOptions } })
+      await expandRow(wrapper)
+
+      const select = wrapper.find('.iface-detail .vlan-block .searchable-select')
+      await select.find('input').trigger('focus')
+      await select.find('input').setValue('гост')
+      expect(select.findAll('.ss-option').map((o) => o.text())).toEqual(['20 — Гостевой'])
+
+      await select.find('.ss-clear').trigger('mousedown')
+      expect((wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[])[0].vlan_ids).toEqual([])
     })
 
     it('свёрнутая строка таблицы показывает режим порта в сводке ("Trunk · N VLAN" / "Access: …")', () => {
@@ -1536,7 +1611,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
 
     const [locked, free] = wrapper.findAll('.iface-detail')
     for (const radio of locked.findAll('input[type="radio"]')) expect(radio.attributes('disabled')).toBeDefined()
-    expect(locked.find('.vlan-block select').attributes('disabled')).toBeDefined()
+    expect(locked.find('.vlan-block .searchable-select input').attributes('disabled')).toBeDefined()
     expect(locked.find('.ip-row input[placeholder="IP-адрес"]').attributes('disabled')).toBeDefined()
     expect(locked.find('.ip-row input[placeholder="Префикс"]').attributes('disabled')).toBeDefined()
     expect(locked.find('button[aria-label="Удалить IP интерфейса"]').exists()).toBe(false)
@@ -2175,7 +2250,8 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     const wrapper = mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [{ key: 'k1', name: '', vlan_id: '', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }] })
     await expandRow(wrapper)
 
-    wrapper.findComponent(SearchableSelect).vm.$emit('update:modelValue', 'v-10')
+    // SearchableSelect редактора подинтерфейсов: в карточке порта есть ещё и select VLAN access-порта.
+    wrapper.findComponent(InterfaceSubinterfacesEditor).findComponent(SearchableSelect).vm.$emit('update:modelValue', 'v-10')
     await flushPromises()
 
     const emitted = wrapper.emitted('update:modelValue')!
@@ -2235,7 +2311,7 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     function mountPorts(rows: InterfaceDraftRow[], groups: InterfaceGroupDraft[] = []) {
       return mount(DeviceInterfacesEditor, { props: { modelValue: rows, groups, typeOptions, speedOptions, vlanOptions: twoVlans } })
     }
-    const options = (wrapper: ReturnType<typeof mountPorts>) => (wrapper.findComponent(SearchableSelect).props('options') as { value: string }[]).map((o) => o.value)
+    const options = (wrapper: ReturnType<typeof mountPorts>) => (wrapper.findComponent(InterfaceSubinterfacesEditor).findComponent(SearchableSelect).props('options') as { value: string }[]).map((o) => o.value)
 
     it('в списке только VLAN, выбранные на этом порту (не все VLAN устройства)', async () => {
       const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', vlan_ids: ['v-20'], subinterfaces: [subRow({ vlan_id: '' })] }])

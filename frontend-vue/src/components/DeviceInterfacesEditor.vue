@@ -8,8 +8,9 @@
 //
 // VLAN на порту: список допустимых VLAN приходит готовым в vlanOptions (вычисляется вызывающей
 // стороной через api/portVlans.ts:computePortVlanOptions — DeviceFormModal.vue и
-// DevicePortsModal.vue делают это по-разному, см. комментарии там) и отображается чекбоксами в
-// trunk-режиме или одиночным select'ом в access (см. InterfaceDraftRow.vlan_mode, п.1.4.3.2);
+// DevicePortsModal.vue делают это по-разному, см. комментарии там) и выбирается в trunk-режиме
+// во всплывающем окне с галочкой «Все VLAN» рядом с кнопкой его открытия (PortVlanPickerModal.vue),
+// а в access — одиночным SearchableSelect (см. InterfaceDraftRow.vlan_mode, п.1.4.3.2);
 // сам компонент ничего не запрашивает и не решает, какие VLAN разрешены.
 //
 // Массовое редактирование выбранных карточек ("Выбрать" на каждой + панель "Массовое
@@ -66,6 +67,8 @@ import OpenPortListEditor from './OpenPortListEditor.vue'
 import InterfaceSubinterfacesEditor from './InterfaceSubinterfacesEditor.vue'
 import InterfaceGroupsPanel from './InterfaceGroupsPanel.vue'
 import InterfaceConnectionEditor from './InterfaceConnectionEditor.vue'
+import PortVlanPickerModal from './PortVlanPickerModal.vue'
+import SearchableSelect from './SearchableSelect.vue'
 import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
 
 const props = withDefaults(
@@ -998,6 +1001,26 @@ function setAccessVlan(index: number, vlanDefId: string) {
   updateRow(index, { vlan_ids: vlanDefId ? [vlanDefId] : [] })
 }
 
+// Access-порт: VLAN выбирается из списка с поиском (SearchableSelect) — VLAN у устройства может быть много.
+const accessVlanOptions = computed(() => props.vlanOptions.map((v) => ({ value: v.id, label: vlanLabel(v) })))
+
+// Trunk-порт: набор VLAN выбирается во всплывающем окне строки (PortVlanPickerModal). vlanPickerIndex — индекс строки,
+// чьё окно открыто; пока окно открыто, форма под ним не редактируется, поэтому индекс остаётся верным.
+const vlanPickerIndex = ref<number | null>(null)
+const vlanPickerRow = computed(() => (vlanPickerIndex.value === null ? undefined : props.modelValue[vlanPickerIndex.value]))
+
+/** Сводка набора VLAN trunk-порта рядом с кнопкой выбора: с признаком «Все VLAN» — число всех VLAN устройства. */
+function trunkVlanSummary(row: InterfaceDraftRow): string {
+  const selected = props.vlanOptions.filter((v) => row.vlan_ids.includes(v.id)).length
+  return `Выбрано VLAN: ${selected} из ${props.vlanOptions.length}`
+}
+
+/** Всплывающая подсказка со списком выбранных VLAN trunk-порта (длинный список в строку не помещается). */
+function trunkVlanTitle(row: InterfaceDraftRow): string {
+  const labels = props.vlanOptions.filter((v) => row.vlan_ids.includes(v.id)).map((v) => vlanLabel(v))
+  return labels.length ? labels.join('\n') : 'VLAN не выбраны'
+}
+
 /** "Все VLAN" в trunk-режиме — сохраняемый признак порта (InterfaceDraftRow.all_vlans, колонка
  * device_interfaces.all_vlans), а НЕ вывод из числа выбранных VLAN: порт, у которого вручную отмечены все VLAN,
  * признака не имеет, и наоборот. Пока признак стоит, vlan_ids зеркалит все допустимые VLAN устройства (так форма
@@ -1411,15 +1434,20 @@ function applyBulkEdit() {
                     <template v-if="row.vlan_mode === 'access'">
                       <div v-if="vlanOptions.length" class="field">
                         <span>VLAN порта (access — ровно один)</span>
-                        <select :value="row.vlan_ids[0] ?? ''" :disabled="rowManaged(row).vlan" @change="setAccessVlan(i, ($event.target as HTMLSelectElement).value)">
-                          <option value="">— не выбрано —</option>
-                          <option v-for="v in vlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
-                        </select>
+                        <SearchableSelect
+                          :model-value="row.vlan_ids[0] ?? ''"
+                          :options="accessVlanOptions"
+                          :disabled="rowManaged(row).vlan"
+                          placeholder="— не выбрано —"
+                          @update:model-value="(v) => setAccessVlan(i, v)"
+                        />
                       </div>
                       <span v-else class="empty">Для типа устройства VLAN не назначены</span>
                     </template>
                     <template v-else>
-                      <div v-if="vlanOptions.length" class="vlan-checks">
+                      <!-- Список VLAN trunk-порта вынесен во всплывающее окно (PortVlanPickerModal): при многих VLAN он растягивал
+                           карточку порта. Галочка «Все VLAN» остаётся рядом с кнопкой, открывающей окно. -->
+                      <div v-if="vlanOptions.length" class="trunk-row">
                         <label class="vlan-check vlan-check-all">
                           <input
                             type="checkbox"
@@ -1429,15 +1457,10 @@ function applyBulkEdit() {
                           />
                           <b>Все VLAN</b>
                         </label>
-                        <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-                          <input
-                            type="checkbox"
-                            :checked="row.vlan_ids.includes(v.id)"
-                            :disabled="rowManaged(row).vlan"
-                            @change="toggleVlan(i, v.id, ($event.target as HTMLInputElement).checked)"
-                          />
-                          {{ vlanLabel(v) }}
-                        </label>
+                        <span class="vlan-summary" :title="trunkVlanTitle(row)">{{ trunkVlanSummary(row) }}</span>
+                        <button type="button" class="btn btn-secondary vlan-picker-btn" @click="vlanPickerIndex = i">
+                          {{ rowManaged(row).vlan ? 'Показать VLAN…' : 'Выбрать VLAN…' }}
+                        </button>
                       </div>
                       <span v-else class="empty">Для типа устройства VLAN не назначены</span>
                     </template>
@@ -1600,6 +1623,20 @@ function applyBulkEdit() {
       </div>
     </div>
   </div>
+
+  <!-- Выбор VLAN trunk-порта строки таблицы: окно со своим поиском вместо длинного списка чекбоксов в карточке порта. -->
+  <PortVlanPickerModal
+    v-if="vlanPickerRow"
+    :title="`VLAN порта «${vlanPickerRow.name.trim() || 'без имени'}»`"
+    :options="vlanOptions"
+    :selected-ids="vlanPickerRow.vlan_ids"
+    :all-vlans="isAllVlansSelected(vlanPickerRow)"
+    :readonly="rowManaged(vlanPickerRow).vlan"
+    :readonly-note="rowManaged(vlanPickerRow).vlan ? groupLockNote(vlanPickerRow, 'Режим порта и VLAN') : ''"
+    @toggle-vlan="(id, checked) => toggleVlan(vlanPickerIndex!, id, checked)"
+    @toggle-all="(checked) => toggleAllVlans(vlanPickerIndex!, checked)"
+    @close="vlanPickerIndex = null"
+  />
 
   <!-- Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения:
        показывает конфигурацию текущего порта и соседнего рядом, даёт применить любую из двух. -->
@@ -2032,6 +2069,19 @@ function applyBulkEdit() {
   padding-right: 10px;
   margin-right: 4px;
   border-right: 1px solid var(--border);
+}
+.trunk-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.trunk-row .vlan-check-all {
+  margin-right: 0;
+}
+.vlan-summary {
+  font-size: 12px;
+  color: var(--ink-muted);
 }
 .vlan-checks {
   display: flex;

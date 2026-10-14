@@ -194,10 +194,11 @@ describe('DevicePortsModal.vue', () => {
 
     // Каталог типа устройства (v-type) и уже назначенный VLAN (v-assigned) — оба доступны для
     // чекбокса "VLAN на порту"; посторонний VLAN (ни в каталоге, ни назначен) — недоступен.
-    // .iface-detail — иначе подхватились бы ещё и чекбоксы из панели "Массовое редактирование";
-    // :not(.vlan-check-all) — исключает сводный чекбокс "Все VLAN" (п.1.4.3.2).
+    // Список VLAN trunk-порта — во всплывающем окне (PortVlanPickerModal); :not(.vlan-check-all) — исключает
+    // сводный чекбокс "Все VLAN" (п.1.4.3.2).
+    await body().find('.iface-detail .vlan-picker-btn').trigger('click')
     const labels = body()
-      .findAll('.iface-detail .vlan-check:not(.vlan-check-all)')
+      .findAll('.vlan-picker-modal .vlan-check:not(.vlan-check-all)')
       .map((l) => l.text())
     expect(labels).toEqual(['10 — Каталожный', '20 — Назначенный'])
     expect(labels.some((t) => t.includes('Посторонний'))).toBe(false)
