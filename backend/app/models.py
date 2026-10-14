@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -297,6 +297,18 @@ class ISProtocol(TimestampMixin, Base):
     protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+def _next_interface_sort_order(context) -> int:
+    """Позиция нового порта в конце списка портов его устройства. Нужна только для портов, созданных НЕ через
+    sync_interfaces (тот задаёт sort_order явно индексом элемента): без неё такой порт получил бы 0 и оказался бы
+    в начале списка. Несколько новых портов одного устройства в одном flush получат одинаковое значение — порядок
+    между ними тогда определяют created_at и id (см. сортировку чтения)."""
+    device_id = context.get_current_parameters().get("physical_device_id")
+    position = context.connection.execute(
+        select(func.coalesce(func.max(DeviceInterface.sort_order), -1) + 1).where(DeviceInterface.physical_device_id == device_id)
+    ).scalar()
+    return int(position or 0)
+
+
 class DeviceInterface(TimestampMixin, Base):
     __tablename__ = "device_interfaces"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -326,6 +338,10 @@ class DeviceInterface(TimestampMixin, Base):
     # итоговые значения порта и о группах ничего не знают. SET NULL: удаление группы не удаляет
     # порты и не стирает уже записанные в них значения.
     group_id: Mapped[Optional[str]] = mapped_column(ForeignKey("interface_groups.id", ondelete="SET NULL"), index=True)
+    # Позиция порта среди портов своего устройства (0, 1, …): порядок, в котором порты показаны в форме устройства и
+    # который пользователь меняет стрелками. sync_interfaces записывает индекс элемента payload; чтение сортирует по
+    # (sort_order, created_at, id). Только порядок показа — на смысл данных порта не влияет.
+    sort_order: Mapped[int] = mapped_column(Integer, default=_next_interface_sort_order, server_default="0", nullable=False)
 
 
 class DeviceSubinterface(TimestampMixin, Base):

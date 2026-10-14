@@ -21,6 +21,11 @@
 // придумывать поля по аналогии.
 export type QuickFieldType = 'text' | 'textarea' | 'number' | 'checkbox' | 'fk' | 'diagram-icon'
 
+/** Ограничение списка вариантов fk-поля окна быстрого добавления: ключ — имя поля (QuickField.name), значение — поле
+ * записи справочника и нужное значение. Напр. { room_id: { field: 'building_id', value: id здания } } оставляет в списке
+ * «Помещение» только помещения этого здания. Пустое value — ограничения нет, показывается полный список. */
+export type QuickAddFkScope = Record<string, { field: string; value: string }>
+
 export interface QuickField {
   name: string
   label: string

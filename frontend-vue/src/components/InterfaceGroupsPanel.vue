@@ -16,6 +16,7 @@ import {
   applyGroupsToRows,
   copyValuesFromRow,
   copyableFields,
+  subinterfaceTemplatesFromRow,
   describeGroup,
   emptyGroup,
   eraseGroupValues,
@@ -83,17 +84,17 @@ function closeEdit() {
 // копия попадает в черновик группы и применяется к портам, как и любое другое значение, при
 // сохранении группы.
 const copySource = ref('')
-const copyWhat = ref<ManagedFields>({ vlan: false, ip: false, openPorts: false })
+const copyWhat = ref<ManagedFields>({ vlan: false, ip: false, openPorts: false, subinterfaces: false })
 
 const copyPortOptions = computed(() => props.rows.map((row, i) => ({ value: String(i), label: row.name || `#${i + 1}` })))
 const copyRow = computed(() => (copySource.value === '' ? undefined : props.rows[Number(copySource.value)]))
-const copyAvailable = computed(() => (copyRow.value ? copyableFields(copyRow.value) : { vlan: false, ip: false, openPorts: false }))
-const copyNothingAvailable = computed(() => !!copyRow.value && !copyAvailable.value.vlan && !copyAvailable.value.ip && !copyAvailable.value.openPorts)
-const canCopy = computed(() => (copyWhat.value.vlan && copyAvailable.value.vlan) || (copyWhat.value.ip && copyAvailable.value.ip) || (copyWhat.value.openPorts && copyAvailable.value.openPorts))
+const copyAvailable = computed(() => (copyRow.value ? copyableFields(copyRow.value) : { vlan: false, ip: false, openPorts: false, subinterfaces: false }))
+const copyNothingAvailable = computed(() => !!copyRow.value && !copyAvailable.value.vlan && !copyAvailable.value.ip && !copyAvailable.value.openPorts && !copyAvailable.value.subinterfaces)
+const canCopy = computed(() => (copyWhat.value.vlan && copyAvailable.value.vlan) || (copyWhat.value.ip && copyAvailable.value.ip) || (copyWhat.value.openPorts && copyAvailable.value.openPorts) || (copyWhat.value.subinterfaces && copyAvailable.value.subinterfaces))
 
 function resetCopy() {
   copySource.value = ''
-  copyWhat.value = { vlan: false, ip: false, openPorts: false }
+  copyWhat.value = { vlan: false, ip: false, openPorts: false, subinterfaces: false }
 }
 
 // Выбрали порт — сразу отмечаем всё, что с него можно скопировать.
@@ -104,10 +105,24 @@ watch(copySource, () => {
 function copyFromPort() {
   const row = copyRow.value
   if (!draft.value || !row || !canCopy.value) return
-  draft.value = copyValuesFromRow(draft.value, row, copyWhat.value, props.protocolPortCatalog)
+  const deviceVlanIds = new Set(props.vlanOptions.map((v) => v.id))
+  draft.value = copyValuesFromRow(draft.value, row, copyWhat.value, props.protocolPortCatalog, deviceVlanIds)
   const label = row.name || `#${Number(copySource.value) + 1}`
   const manyIps = copyWhat.value.ip && row.ips.filter((ip) => ip.ip_address.trim() !== '').length > 1
   notify(manyIps ? `Значения скопированы с порта «${label}». У порта несколько IP-адресов — скопирован первый.` : `Значения скопированы с порта «${label}».`, 'success')
+  // Подинтерфейсы на VLAN, которых нет в VLAN группы, шаблонами не становятся: говорим об этом, а не теряем молча.
+  if (copyWhat.value.subinterfaces && copyAvailable.value.subinterfaces) {
+    const { templates, skipped } = subinterfaceTemplatesFromRow(row, draft.value, deviceVlanIds)
+    if (skipped.length) {
+      const names = skipped.map((sub) => `«${sub.name.trim() || 'без имени'}»`).join(', ')
+      notify(
+        templates.length
+          ? `Не скопированы подинтерфейсы на VLAN, которых нет в VLAN группы: ${names}.`
+          : `Подинтерфейсы не скопированы: их VLAN нет в VLAN группы (${names}). Задайте режим порта и VLAN группы — или скопируйте их вместе с режимом порта и VLAN.`,
+        'warning',
+      )
+    }
+  }
   resetCopy()
 }
 
@@ -337,6 +352,9 @@ function summary(group: InterfaceGroupDraft): string {
               </label>
               <label class="check-inline" :class="{ disabled: !copyAvailable.openPorts }">
                 <input v-model="copyWhat.openPorts" type="checkbox" :disabled="!copyAvailable.openPorts" /> Открытые порты
+              </label>
+              <label class="check-inline" :class="{ disabled: !copyAvailable.subinterfaces }">
+                <input v-model="copyWhat.subinterfaces" type="checkbox" :disabled="!copyAvailable.subinterfaces" aria-label="Скопировать подинтерфейсы" /> Подинтерфейсы
               </label>
               <span v-if="copyNothingAvailable" class="hint">У порта нет значений, которые можно скопировать.</span>
             </div>

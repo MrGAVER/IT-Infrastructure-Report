@@ -588,6 +588,7 @@ describe('InterfaceGroupsPanel.vue', () => {
         { checked: false, disabled: true }, // режим порта и VLAN — на порту нет VLAN
         { checked: true, disabled: false }, // IP-адрес
         { checked: false, disabled: true }, // открытые порты — не заданы
+        { checked: false, disabled: true }, // подинтерфейсы — не заданы
       ])
       expect(wrapper.find('.copy-row .btn').attributes('disabled')).toBeUndefined()
     })
@@ -640,6 +641,50 @@ describe('InterfaceGroupsPanel.vue', () => {
       expect((wrapper.findAll('input[name="group-mode"]')[0].element as HTMLInputElement).checked).toBe(true) // «Не задавать»
       expect((wrapper.find('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
       expect((wrapper.find('.ports-param .manage-check input').element as HTMLInputElement).checked).toBe(false)
+    })
+
+    describe('подинтерфейсы порта', () => {
+      const subRow = (vlanId: string, name: string, patch = {}) => ({
+        key: `k-${vlanId}`, name, vlan_id: vlanId, is_management: false, is_data_transfer: true, description: '',
+        ips: [{ ip_address: `10.0.${vlanId === 'v10' ? 10 : 20}.1`, prefix_length: '24', purpose: '' }], open_ports: [], ...patch,
+      })
+      const portWithSubs = () => ({ ...sourceRow(), subinterfaces: [subRow('v10', 'Gi0/1.10'), subRow('v20', 'Gi0/1.20')] })
+
+      it('у порта с подинтерфейсами появляется отмеченный пункт «Подинтерфейсы»', async () => {
+        const wrapper = mountPanel({ rows: [portWithSubs(), row('Gi0/2')] })
+
+        await openCreateAndPickSource(wrapper)
+
+        const box = wrapper.find('input[aria-label="Скопировать подинтерфейсы"]')
+        expect((box.element as HTMLInputElement).checked).toBe(true)
+        expect(box.attributes('disabled')).toBeUndefined()
+      })
+
+      it('копирование вместе с режимом и VLAN: группа получает подинтерфейсы порта шаблонами и управляет ими', async () => {
+        const wrapper = mountPanel({ rows: [portWithSubs(), row('Gi0/2')] })
+
+        await openCreateAndPickSource(wrapper)
+        await wrapper.find('.copy-row .btn').trigger('click')
+
+        expect((wrapper.find('input[aria-label="Задать подинтерфейсы"]').element as HTMLInputElement).checked).toBe(true)
+        const editor = wrapper.findComponent(InterfaceSubinterfacesEditor)
+        expect(editor.props('modelValue').map((t: { vlan_id: string; name: string }) => [t.vlan_id, t.name])).toEqual([['v10', ''], ['v20', '']])
+        expect(editor.props('modelValue')[0].ips).toEqual([{ ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }])
+        expect(useToast().toasts.map((t) => t.message)).toEqual(['Значения скопированы с порта «Gi0/1».']) // отбрасывать нечего — предупреждения нет
+      })
+
+      it('подинтерфейсы на VLAN вне VLAN группы не копируются, и об этом сказано', async () => {
+        const wrapper = mountPanel({ rows: [portWithSubs(), row('Gi0/2')] })
+
+        await openCreateAndPickSource(wrapper)
+        await wrapper.findAll('.copy-what input')[0].setValue(false) // режим и VLAN не копируем — группа остаётся без VLAN
+        await wrapper.find('.copy-row .btn').trigger('click')
+
+        expect(wrapper.find('input[aria-label="Задать подинтерфейсы"]').exists()).toBe(true)
+        expect((wrapper.find('input[aria-label="Задать подинтерфейсы"]').element as HTMLInputElement).checked).toBe(false) // шаблонов нет — группа ничем не управляет
+        const messages = useToast().toasts.map((t) => t.message)
+        expect(messages.some((m) => m.includes('Подинтерфейсы не скопированы') && m.includes('«Gi0/1.10»') && m.includes('«Gi0/1.20»'))).toBe(true)
+      })
     })
 
     it('у порта несколько IP — в уведомлении сказано, что скопирован первый', async () => {

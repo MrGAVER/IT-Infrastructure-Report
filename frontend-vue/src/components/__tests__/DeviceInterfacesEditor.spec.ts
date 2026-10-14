@@ -343,7 +343,7 @@ describe('DeviceInterfacesEditor.vue', () => {
       expect(wrapper.find('table.iface-table').exists()).toBe(true)
       expect(wrapper.findAll('.iface-table tbody tr.iface-row')).toHaveLength(2)
       const headers = wrapper.findAll('.iface-table th').map((h) => h.text())
-      expect(headers).toEqual(['', '#', 'Имя', 'Тип', 'MAC', 'Скорость', 'Упр.', 'Данные', 'VLAN / IP', ''])
+      expect(headers).toEqual(['', '#', 'Порядок', 'Имя', 'Тип', 'MAC', 'Скорость', 'Упр.', 'Данные', 'VLAN / IP', ''])
     })
 
     it('VLAN и IP-адреса скрыты по умолчанию и открываются по клику на toggle', async () => {
@@ -2829,5 +2829,57 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
     await wrapper.findAll('.review-modal button').find((b) => b.text() === 'Сохранить')!.trigger('click')
     expect(await result).toBe(true)
     wrapper.unmount()
+  })
+})
+
+describe('DeviceInterfacesEditor.vue: порядок интерфейсов (стрелки вверх/вниз)', () => {
+  const named = (...names: string[]): InterfaceDraftRow[] => names.map((name) => ({ ...emptyRow(), name }))
+  const portNames = (wrapper: ReturnType<typeof mount>) =>
+    wrapper.findAll('.iface-table tbody tr.iface-row').map((tr) => (tr.find('input.cell-input').element as HTMLInputElement).value)
+  const lastEmitted = (wrapper: ReturnType<typeof mount>) => (wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]).map((r) => r.name)
+
+  it('у каждой строки есть столбец со стрелками; у первой «выше» и у последней «ниже» недоступны', () => {
+    const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: named('Gi0/1', 'Gi0/2', 'Gi0/3'), typeOptions, speedOptions, vlanOptions } })
+
+    const buttons = wrapper.findAll('.iface-table tbody tr.iface-row').map((tr) => tr.findAll('.order-btn').map((b) => (b.element as HTMLButtonElement).disabled))
+    expect(buttons).toEqual([[true, false], [false, false], [false, true]])
+  })
+
+  it('«ниже» меняет порт местами со следующим и отдаёт новый порядок', async () => {
+    const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: named('Gi0/1', 'Gi0/2', 'Gi0/3'), typeOptions, speedOptions, vlanOptions } })
+
+    await wrapper.findAll('.iface-table tbody tr.iface-row')[0].findAll('.order-btn')[1].trigger('click')
+
+    expect(lastEmitted(wrapper)).toEqual(['Gi0/2', 'Gi0/1', 'Gi0/3'])
+  })
+
+  it('«выше» меняет порт местами с предыдущим', async () => {
+    const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: named('Gi0/1', 'Gi0/2', 'Gi0/3'), typeOptions, speedOptions, vlanOptions } })
+
+    await wrapper.findAll('.iface-table tbody tr.iface-row')[2].findAll('.order-btn')[0].trigger('click')
+
+    expect(lastEmitted(wrapper)).toEqual(['Gi0/1', 'Gi0/3', 'Gi0/2'])
+  })
+
+  it('на границе списка клик по недоступной стрелке ничего не меняет', async () => {
+    const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: named('Gi0/1', 'Gi0/2'), typeOptions, speedOptions, vlanOptions } })
+
+    await wrapper.findAll('.iface-table tbody tr.iface-row')[0].findAll('.order-btn')[0].trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(portNames(wrapper)).toEqual(['Gi0/1', 'Gi0/2'])
+  })
+
+  it('развёрнутая строка едет вместе со своим портом, а не остаётся на месте', async () => {
+    const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: named('Gi0/1', 'Gi0/2'), typeOptions, speedOptions, vlanOptions } })
+    await expandRow(wrapper, 0)
+
+    await wrapper.findAll('.iface-table tbody tr.iface-row')[0].findAll('.order-btn')[1].trigger('click')
+    await wrapper.setProps({ modelValue: named('Gi0/2', 'Gi0/1') })
+
+    const rows = wrapper.findAll('.iface-table tbody tr')
+    const detailAt = rows.findIndex((tr) => tr.find('td[colspan="11"]').exists())
+    expect(detailAt).toBeGreaterThan(0)
+    expect((rows[detailAt - 1].find('input.cell-input').element as HTMLInputElement).value).toBe('Gi0/1')
   })
 })

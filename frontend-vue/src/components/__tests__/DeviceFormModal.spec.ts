@@ -1339,6 +1339,68 @@ describe('DeviceFormModal.vue', () => {
     expect((rackRow.find('.searchable-select input').element as HTMLInputElement).value).toBe('R-1')
   })
 
+  // Окно «Добавить: Стойка» из формы устройства: помещения — только выбранного там здания (здание не выбрано — все),
+  // а помещение, уже выбранное в форме, подставляется в окно автоматически.
+  describe('быстрое добавление стойки: помещения здания и выбранное помещение', () => {
+    async function pickInField(wrapper: VueWrapper, fieldLabel: string, optionLabel: string) {
+      const field = wrapper.findAll('.field').find((f) => f.find('span').text() === fieldLabel)!
+      await field.find('.searchable-select input').trigger('focus')
+      await field.findAll('.ss-option').find((o) => o.text() === optionLabel)!.trigger('mousedown')
+    }
+    async function openRackModal(wrapper: VueWrapper) {
+      const rackRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Стойка')!
+      await rackRow.find('button').trigger('click')
+      return new DOMWrapper(document.body)
+    }
+    async function mountWithBuildingsAndRooms() {
+      const wrapper = await mountWithLoadedCatalogs()
+      const catalogs = useCatalogsStore()
+      catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }, { id: 'b-2', name: 'Корпус Б' }]
+      catalogs.items['rooms'] = [{ id: 'room-1', building_id: 'b-1', name: '204' }, { id: 'room-2', building_id: 'b-2', name: '305' }]
+      return wrapper
+    }
+    async function roomChoicesInRackModal(body: DOMWrapper<HTMLElement>): Promise<string[]> {
+      await body.find('.overlay .searchable-select input').trigger('focus')
+      return body.findAll('.overlay .ss-option').map((o) => o.text())
+    }
+
+    it('со зданием в форме в окне стойки только помещения этого здания', async () => {
+      const wrapper = await mountWithBuildingsAndRooms()
+      await pickInField(wrapper, 'Здание', 'Корпус А')
+
+      const body = await openRackModal(wrapper)
+
+      expect(await roomChoicesInRackModal(body)).toEqual(['204'])
+    })
+
+    it('без выбранного здания в окне стойки полный список помещений', async () => {
+      const wrapper = await mountWithBuildingsAndRooms()
+
+      const body = await openRackModal(wrapper)
+
+      expect(await roomChoicesInRackModal(body)).toEqual(['204', '305'])
+    })
+
+    it('выбранное в форме помещение автоматически выбрано в окне стойки', async () => {
+      const wrapper = await mountWithBuildingsAndRooms()
+      await pickInField(wrapper, 'Здание', 'Корпус Б')
+      await pickInField(wrapper, 'Помещение', '305')
+
+      const body = await openRackModal(wrapper)
+
+      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('305')
+    })
+
+    it('если помещение в форме не выбрано, в окне стойки оно не заполнено', async () => {
+      const wrapper = await mountWithBuildingsAndRooms()
+      await pickInField(wrapper, 'Здание', 'Корпус А')
+
+      const body = await openRackModal(wrapper)
+
+      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('')
+    })
+  })
+
   // п.3.8: наивный @click.self на подложке закрывал форму при попытке выделить текст внутри
   // карточки, если mouseup (а значит и click) заканчивался за пределами карточки.
   describe('закрытие по клику на подложку (п.3.8)', () => {

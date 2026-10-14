@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// Панель диагностики «подинтерфейсы на VLAN, не разрешённом устройству» (экран VLAN). VLAN, снятый с устройства, убранный из его
-// типа или перенесённый в другой домен, оставляет подинтерфейсы порта на себе: система их не удаляет — на них IP-адреса и открытые
-// порты, — а форма устройства потребует выбрать другой VLAN или удалить подинтерфейс. Панель показывает все такие случаи по
-// реестру сразу и ведёт в форму нужного устройства (событие open-device). Если проблем нет — панель не занимает места на экране.
+// Панель диагностики «подинтерфейсы на недоступном VLAN» (экран VLAN). VLAN, снятый с устройства, убранный из его типа или
+// перенесённый в другой домен, оставляет подинтерфейсы порта на себе; то же — VLAN, который убрали с самого порта (VLAN подинтерфейса
+// — один из VLAN порта), и шаблон подинтерфейса группы портов на VLAN, которого у группы больше нет. Система такие записи не удаляет —
+// на них IP-адреса и открытые порты, — а форма устройства потребует выбрать другой VLAN, вернуть VLAN порту/группе или удалить
+// подинтерфейс. Панель показывает все такие случаи по реестру сразу и ведёт в форму нужного устройства (событие open-device).
+// Если проблем нет — панель не занимает места на экране.
 import { computed, onMounted, ref } from 'vue'
-import { fetchStaleSubinterfaces, groupStaleByDevice, staleVlanText } from '../api/staleSubinterfaces'
+import { fetchStaleSubinterfaces, groupStaleByDevice, staleReasonText, staleVlanText } from '../api/staleSubinterfaces'
 import type { StaleSubinterfacesReport } from '../api/staleSubinterfaces'
 
 const emit = defineEmits<{ 'open-device': [deviceId: string] }>()
@@ -13,7 +15,7 @@ const report = ref<StaleSubinterfacesReport | null>(null)
 const loading = ref(false)
 const errorText = ref('')
 
-const groups = computed(() => groupStaleByDevice(report.value?.subinterfaces ?? []))
+const groups = computed(() => groupStaleByDevice(report.value?.subinterfaces ?? [], report.value?.group_subinterfaces ?? []))
 
 async function reload() {
   loading.value = true
@@ -41,10 +43,10 @@ defineExpose({ reload })
   <div v-else-if="report && !report.ok" class="stale-panel card" role="region" aria-label="Подинтерфейсы на недоступных VLAN">
     <div class="stale-head">
       <div>
-        <b>Подинтерфейсы на VLAN, не разрешённом устройству: {{ report.total }}</b>
+        <b>Подинтерфейсы на недоступном VLAN: {{ report.total }}</b>
         <div class="hint">
-          VLAN сняли с устройства, убрали из его типа или перенесли в другой домен. Подинтерфейсы не удаляются сами — на них IP-адреса и открытые порты.
-          Откройте устройство и перенесите подинтерфейс на другой VLAN или удалите его: пока этого не сделано, форма устройства не сохранится.
+          VLAN сняли с устройства, убрали из его типа, перенесли в другой домен или убрали с порта (группы). Подинтерфейсы не удаляются сами — на них IP-адреса и открытые порты.
+          Откройте устройство и перенесите подинтерфейс на другой VLAN, верните VLAN порту (группе) или удалите подинтерфейс: пока этого не сделано, форма устройства не сохранится.
         </div>
       </div>
       <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload">
@@ -62,7 +64,12 @@ defineExpose({ reload })
         <li v-for="item in group.items" :key="item.subinterface_id">
           <span class="stale-port">{{ item.port_name }}</span>
           <span class="stale-sub">{{ item.subinterface_name }}</span>
-          <span class="stale-vlan">{{ staleVlanText(item) }}</span>
+          <span class="stale-vlan">{{ staleVlanText(item) }} · {{ staleReasonText(item.reason) }}</span>
+        </li>
+        <li v-for="item in group.group_items" :key="item.subinterface_id" class="stale-group-item">
+          <span class="stale-port">Группа «{{ item.group_name }}»</span>
+          <span class="stale-sub">подинтерфейс группы</span>
+          <span class="stale-vlan">{{ staleVlanText(item) }} · не входит в VLAN группы</span>
         </li>
       </ul>
     </div>
