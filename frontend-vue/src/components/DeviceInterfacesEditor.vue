@@ -43,6 +43,7 @@ import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
+import { moveRow, swapIndexes } from '../utils/interfaceOrder'
 import { moveStaleMessage, moveStaleSubinterfaces, portVlanOptions, renameSubinterfacesForPort, staleSubinterfaces, subinterfacesOffPortVlans } from '../utils/subinterfaces'
 import {
   SELF_DEVICE,
@@ -883,6 +884,20 @@ function removeRow(index: number) {
   )
 }
 
+// Перестановка порта стрелками «вверх»/«вниз» в столбце порядка. Порядок строк массива и есть порядок, заданный
+// пользователем: он уходит на сервер вместе со списком портов и сохраняется (device_interfaces.sort_order). Отмеченные
+// галочкой и развёрнутые строки едут вместе со своим портом (индексы меняются местами); выбор получателя в «Копировать»
+// сбрасывается, как при любом другом структурном изменении списка (см. removeRow).
+function moveRowBy(index: number, direction: -1 | 1) {
+  const moved = moveRow(props.modelValue, index, direction)
+  if (!moved) return
+  const target = index + direction
+  selectedIndices.value = swapIndexes(selectedIndices.value, index, target)
+  expandedIndices.value = swapIndexes(expandedIndices.value, index, target)
+  copyTargetIndex.value = {}
+  emit('update:modelValue', moved)
+}
+
 function updateRow(index: number, patch: Partial<InterfaceDraftRow>) {
   emit(
     'update:modelValue',
@@ -1234,6 +1249,7 @@ function applyBulkEdit() {
               />
             </th>
             <th class="col-index">#</th>
+            <th class="col-order">Порядок</th>
             <th>Имя</th>
             <th>Тип</th>
             <th>MAC</th>
@@ -1248,6 +1264,7 @@ function applyBulkEdit() {
           <tr class="bulk-edit-row">
             <td class="col-select">—</td>
             <td class="col-index">—</td>
+            <td class="col-order">—</td>
             <td><b>Массовое редактирование</b></td>
             <td>
               <select class="cell-input" v-model="bulkTypeId" aria-label="Тип интерфейса — массовое редактирование">
@@ -1304,7 +1321,7 @@ function applyBulkEdit() {
               </button>
             </td>
           </tr>
-          <template v-for="(row, i) in modelValue" :key="row.id ?? i">
+          <template v-for="(row, i) in modelValue" :key="row.id ?? row.key ?? i">
             <tr class="iface-row">
               <td class="col-select">
                 <input
@@ -1315,6 +1332,14 @@ function applyBulkEdit() {
                 />
               </td>
               <td class="col-index">{{ i + 1 }}</td>
+              <td class="col-order">
+                <button type="button" class="icon-btn order-btn" :disabled="i === 0" title="Выше" aria-label="Переместить интерфейс выше" @click="moveRowBy(i, -1)">
+                  <svg class="icon"><use href="/icons.svg#i-chevu" /></svg>
+                </button>
+                <button type="button" class="icon-btn order-btn" :disabled="i === modelValue.length - 1" title="Ниже" aria-label="Переместить интерфейс ниже" @click="moveRowBy(i, 1)">
+                  <svg class="icon"><use href="/icons.svg#i-chevd" /></svg>
+                </button>
+              </td>
               <td>
                 <input type="text" class="cell-input" v-truncate-tooltip="row.name" :value="row.name" @input="renamePort(i, ($event.target as HTMLInputElement).value)" />
               </td>
@@ -1365,7 +1390,7 @@ function applyBulkEdit() {
               </td>
             </tr>
             <tr v-if="expandedIndices.has(i)" class="iface-detail-row">
-              <td colspan="10">
+              <td colspan="11">
                 <div class="iface-detail">
                   <label class="field field-wide">
                     <span>Описание</span>
@@ -1881,6 +1906,7 @@ function applyBulkEdit() {
 }
 .iface-table .col-select,
 .iface-table .col-index,
+.iface-table .col-order,
 .iface-table .col-check,
 .iface-table .col-actions {
   width: 1%;
@@ -1895,6 +1921,14 @@ function applyBulkEdit() {
 }
 .iface-table .col-index {
   color: var(--ink-muted);
+}
+/* Столбец порядка: две кнопки-стрелки рядом, чтобы столбец оставался узким. */
+.iface-table .col-order .order-btn {
+  display: inline-flex;
+}
+.iface-table .col-order .order-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 /* Фикс п.3.3 (вторая часть): подсвечивает ячейку "Упр."/"Данные" интерфейса, чьё назначение
    разошлось с назначением на связанном (по активному подключению) порту другого устройства. */

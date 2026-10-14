@@ -5,8 +5,9 @@
 import { ref } from 'vue'
 import QuickAddModal from './QuickAddModal.vue'
 import type { CatalogItem } from '../api/types'
+import type { QuickAddFkScope } from '../quickAdd/schema'
 
-const props = defineProps<{ resource: string; title?: string; initialValues?: Record<string, string> }>()
+const props = defineProps<{ resource: string; title?: string; initialValues?: Record<string, string>; fkScope?: QuickAddFkScope }>()
 const emit = defineEmits<{ created: [record: CatalogItem]; 'nested-created': [fieldName: string, fkResource: string, record: CatalogItem] }>()
 
 const open = ref(false)
@@ -25,6 +26,7 @@ function onCreated(record: CatalogItem) {
     v-if="open"
     :resource="resource"
     :initial-values="initialValues"
+    :fk-scope="fkScope"
     @close="open = false"
     @created="onCreated"
     @nested-created="(fieldName, fkResource, record) => emit('nested-created', fieldName, fkResource, record)"
