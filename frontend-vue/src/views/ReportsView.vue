@@ -7,7 +7,7 @@
 import { onMounted, ref } from 'vue'
 import { useInformationSystemsStore } from '../stores/informationSystems'
 import { useCatalogsStore } from '../stores/catalogs'
-import { generateInventoryReport, generateAuditLogReport, downloadReport } from '../api/reports'
+import { generateInventoryReport, generateStructuralAppendixReport, generateAuditLogReport, downloadReport } from '../api/reports'
 import { useToast } from '../composables/useToast'
 import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 
@@ -39,6 +39,30 @@ async function runInventoryReport() {
     notifyError(err)
   } finally {
     inventoryLoading.value = false
+  }
+}
+
+// Короткое имя ИС по умолчанию — как в образце приложения («ЕАИС ТО»); то же значение по умолчанию на сервере.
+const appendixIsName = ref('ТО')
+const appendixUnitIds = ref<string[]>([])
+const appendixLoading = ref(false)
+
+function toggleAppendixUnit(id: string) {
+  const idx = appendixUnitIds.value.indexOf(id)
+  if (idx === -1) appendixUnitIds.value.push(id)
+  else appendixUnitIds.value.splice(idx, 1)
+}
+
+async function runStructuralAppendix() {
+  appendixLoading.value = true
+  try {
+    const result = await generateStructuralAppendixReport(appendixIsName.value.trim(), appendixUnitIds.value)
+    await downloadReport(result)
+    notify(`Приложение сформировано: ${result.file_name}`, 'success')
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    appendixLoading.value = false
   }
 }
 
@@ -96,6 +120,38 @@ async function runAuditLogReport() {
       <button class="btn btn-primary" :disabled="inventoryLoading" @click="runInventoryReport">
         <svg class="icon"><use href="/icons.svg#i-download" /></svg>
         {{ inventoryLoading ? 'Формирование…' : 'Сформировать и скачать' }}
+      </button>
+    </section>
+
+    <section class="card report-card">
+      <div class="report-head">
+        <h2>Приложение к структурной схеме</h2>
+        <p>Word, 3 таблицы: назначение линий связи, перечень VLAN, перечень телекоммуникационного оборудования.</p>
+      </div>
+
+      <div class="filters">
+        <label class="field">
+          <span>Короткое имя ИС (в заголовках: «ЕАИС …», «ИС …»)</span>
+          <input v-model="appendixIsName" type="text" maxlength="100" placeholder="ТО" />
+        </label>
+
+        <details class="tree-pop">
+          <summary class="fbtn">
+            <svg class="icon"><use href="/icons.svg#i-sitemap" /></svg>
+            Ограничить структурными единицами
+            <span v-if="appendixUnitIds.length" class="count-badge">{{ appendixUnitIds.length }}</span>
+            <svg class="icon"><use href="/icons.svg#i-chevd" /></svg>
+          </summary>
+          <div class="tree-panel">
+            <p v-if="!catalogs.structuralUnitTree.length" class="empty-hint">Структурные единицы ещё не заведены в справочнике.</p>
+            <StructuralUnitTree v-else :nodes="catalogs.structuralUnitTree" :selected="appendixUnitIds" @toggle="toggleAppendixUnit" />
+          </div>
+        </details>
+      </div>
+
+      <button class="btn btn-primary" :disabled="appendixLoading || !appendixIsName.trim()" @click="runStructuralAppendix">
+        <svg class="icon"><use href="/icons.svg#i-download" /></svg>
+        {{ appendixLoading ? 'Формирование…' : 'Сформировать и скачать' }}
       </button>
     </section>
 

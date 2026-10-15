@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { generateInventoryReport, generateAuditLogReport, downloadReport } from '../reports'
+import { generateInventoryReport, generateStructuralAppendixReport, generateAuditLogReport, downloadReport } from '../reports'
 
 describe('reports API', () => {
   it('generateInventoryReport добавляет information_system_id в query, а не в тело', async () => {
@@ -24,6 +24,21 @@ describe('reports API', () => {
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('/api/v1/reports/inventory')
     expect(JSON.parse(init!.body as string)).toEqual({ structural_unit_ids: null })
+  })
+
+  it('generateStructuralAppendixReport шлёт имя ИС и единицы в теле, пустой список единиц -> null', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ file_name: 'a.docx', download_url: '/api/v1/reports/download/a.docx' })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await generateStructuralAppendixReport('ТО', ['unit-1'])
+    await generateStructuralAppendixReport('ТО', [])
+
+    const [[url, first], [, second]] = fetchMock.mock.calls
+    expect(url).toBe('/api/v1/reports/structural-appendix')
+    expect(JSON.parse(first!.body as string)).toEqual({ is_name: 'ТО', structural_unit_ids: ['unit-1'] })
+    expect(JSON.parse(second!.body as string)).toEqual({ is_name: 'ТО', structural_unit_ids: null })
   })
 
   it('generateAuditLogReport собирает date_from/date_to в query', async () => {

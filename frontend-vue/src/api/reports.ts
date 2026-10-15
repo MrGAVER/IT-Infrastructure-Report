@@ -16,6 +16,18 @@ export function generateInventoryReport(informationSystemId: string | null, stru
   return api.post<ReportResult>(`/reports/inventory${qs}`, { structural_unit_ids: structuralUnitIds.length ? structuralUnitIds : null })
 }
 
+/** POST /api/v1/reports/structural-appendix — Word-документ «Приложение к структурной схеме»
+ * (3 таблицы: назначение линий связи, перечень VLAN, перечень телекоммуникационного оборудования).
+ * isName — короткое имя ИС для заголовков («ЕАИС ТО», «ИС ТО»); structuralUnitIds — ограничение
+ * оборудованием выбранных структурных единиц, как у регламентированного отчёта
+ * (см. services/structural_appendix.py). */
+export function generateStructuralAppendixReport(isName: string, structuralUnitIds: string[]) {
+  return api.post<ReportResult>('/reports/structural-appendix', {
+    is_name: isName,
+    structural_unit_ids: structuralUnitIds.length ? structuralUnitIds : null,
+  })
+}
+
 /** POST /api/v1/reports/audit-log — выгрузка журнала аудита за период. */
 export function generateAuditLogReport(dateFrom: string | null, dateTo: string | null) {
   const params = new URLSearchParams()
