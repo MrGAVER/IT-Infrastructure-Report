@@ -1401,6 +1401,56 @@ describe('DeviceFormModal.vue', () => {
     })
   })
 
+  // Окно «Добавить: Помещение» из формы устройства: поле «Здание» заранее равно зданию, выбранному в форме.
+  describe('быстрое добавление помещения: здание из формы', () => {
+    async function pickInField(wrapper: VueWrapper, fieldLabel: string, optionLabel: string) {
+      const field = wrapper.findAll('.field').find((f) => f.find('span').text() === fieldLabel)!
+      await field.find('.searchable-select input').trigger('focus')
+      await field.findAll('.ss-option').find((o) => o.text() === optionLabel)!.trigger('mousedown')
+    }
+    async function openRoomModal(wrapper: VueWrapper) {
+      const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
+      await roomRow.find('button').trigger('click')
+      return new DOMWrapper(document.body)
+    }
+    async function mountWithBuildings() {
+      const wrapper = await mountWithLoadedCatalogs()
+      const catalogs = useCatalogsStore()
+      catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }, { id: 'b-2', name: 'Корпус Б' }]
+      catalogs.items['rooms'] = []
+      return wrapper
+    }
+
+    it('выбранное в форме здание автоматически выбрано в окне помещения', async () => {
+      const wrapper = await mountWithBuildings()
+      await pickInField(wrapper, 'Здание', 'Корпус Б')
+
+      const body = await openRoomModal(wrapper)
+
+      // rooms: [building_id (fk, SearchableSelect), name (text)] — первый SearchableSelect окна — «Здание».
+      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
+    })
+
+    it('если здание в форме не выбрано, в окне помещения оно не заполнено', async () => {
+      const wrapper = await mountWithBuildings()
+
+      const body = await openRoomModal(wrapper)
+
+      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('')
+    })
+
+    it('предзаполненное здание можно сменить в окне — это только стартовое значение', async () => {
+      const wrapper = await mountWithBuildings()
+      await pickInField(wrapper, 'Здание', 'Корпус А')
+
+      const body = await openRoomModal(wrapper)
+      await body.find('.overlay .searchable-select input').trigger('focus')
+      await body.findAll('.overlay .ss-option').find((o) => o.text() === 'Корпус Б')!.trigger('mousedown')
+
+      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
+    })
+  })
+
   // п.3.8: наивный @click.self на подложке закрывал форму при попытке выделить текст внутри
   // карточки, если mouseup (а значит и click) заканчивался за пределами карточки.
   describe('закрытие по клику на подложку (п.3.8)', () => {

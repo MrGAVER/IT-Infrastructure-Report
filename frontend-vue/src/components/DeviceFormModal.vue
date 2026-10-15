@@ -476,6 +476,10 @@ const buildingOptions = computed(() => (catalogs.items['buildings'] ?? []).map((
 const roomOptions = computed(() => filteredRooms.value.map((r) => ({ value: r.id, label: r.name })))
 const rackOptions = computed(() => filteredRacks.value.map((r) => ({ value: r.id, label: r.name })))
 
+// Окно «Добавить: Помещение» из этой формы: поле «Здание» заранее равно зданию, выбранному в форме (не выбрано —
+// пусто). Это стартовое значение, а не блокировка: в окне здание можно сменить.
+const roomQuickAddValues = computed(() => (form.building_id ? { building_id: form.building_id } : undefined))
+
 // Окно «Добавить: Стойка» из этой формы: список помещений ограничен выбранным зданием (здание не выбрано — полный
 // список), а помещение, уже выбранное в форме, подставлено в окно автоматически. Фильтр работает только на выбор в
 // окне стойки: список «Помещение» самой формы по-прежнему строится от здания (roomOptions).
@@ -961,7 +965,7 @@ async function submit() {
           <span>Помещение</span>
           <div class="lookup-row">
             <SearchableSelect v-model="form.room_id" :options="roomOptions" :disabled="!form.building_id" placeholder="— не указано —" />
-            <QuickAddButton resource="rooms" title="Помещение" @created="onRoomCreated" />
+            <QuickAddButton resource="rooms" title="Помещение" :initial-values="roomQuickAddValues" @created="onRoomCreated" />
           </div>
         </label>
 
