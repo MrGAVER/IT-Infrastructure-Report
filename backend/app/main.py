@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .config import ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
+from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
@@ -28,9 +28,20 @@ from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
 from .services.catalogs import seed_defaults
 from .services.integrity import ReferencedRecordError
+from .services.network_access import (
+    ClientAccessMiddleware,
+    IpLiteralTrustedHostMiddleware,
+    IPNetwork,
+    has_remote_clients,
+    parse_client_networks,
+)
 from .services.port_sync_store import ensure_default_rules
 
 logger = logging.getLogger(__name__)
+
+# Разобранный INFRA_REGISTRY_ALLOWED_CLIENTS. Неверная запись — ValueError при импорте: приложение не
+# должно молча стартовать с «открытым» доступом из-за опечатки в адресе.
+ALLOWED_CLIENT_NETWORKS: list[IPNetwork] = parse_client_networks(ALLOWED_CLIENTS)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,21 +56,38 @@ app = FastAPI(title='РИС — Реестр ИТ-инфраструктуры',
 # порту, см. CORS_ALLOWED_ORIGINS) показывал бы малопонятную CORS-ошибку вместо настоящих 401/403.
 # Поэтому auth_gate_middleware регистрируется ПЕРВЫМ (внутри), а CORS и проверка Host — ПОСЛЕ него
 # (снаружи), см. install_http_security().
-def install_http_security(app: FastAPI, *, allowed_hosts: list[str], cors_origins: list[str]) -> None:
-    """CORS и проверка заголовка Host — внешний слой защиты HTTP (код-ревью, п. 2).
+def install_http_security(
+    app: FastAPI,
+    *,
+    allowed_hosts: list[str],
+    cors_origins: list[str],
+    allowed_clients: list[IPNetwork] | None = None,
+) -> None:
+    """CORS, проверка заголовка Host и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
 
     - Пустой cors_origins — CORS не включается вовсе: чужие origin'ы не получают ни заголовков
       Access-Control-*, ни ответа на preflight, то есть браузер не даст стороннему сайту читать API.
     - allowed_hosts — TrustedHostMiddleware отвечает 400 на любой Host вне списка (защита от
-      DNS-rebinding); '*' в списке разрешает любой Host.
+      DNS-rebinding); '*' в списке разрешает любой Host. Если разрешены клиенты не только с этого компьютера,
+      Host в виде IP-адреса принимается всегда (http://192.168.1.10:8000): подменить его через DNS нельзя,
+      а перечислять в настройках адрес сервера было бы лишним шагом.
+    - allowed_clients — подсети, с которых принимаются подключения (403 всем остальным). Пустой или None —
+      без ограничений по адресу. Фильтр — САМЫЙ внешний слой: чужой адрес не доходит ни до проверки
+      Host, ни до аутентификации.
     allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через
     куки — широкий allow_origins вместе с allow_credentials=True был бы лишним риском без пользы."""
     if cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or ['localhost', '127.0.0.1'])
+    trusted_hosts = allowed_hosts or ['localhost', '127.0.0.1']
+    if allowed_clients and has_remote_clients(allowed_clients):
+        app.add_middleware(IpLiteralTrustedHostMiddleware, allowed_hosts=trusted_hosts)
+    else:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
+    if allowed_clients:
+        app.add_middleware(ClientAccessMiddleware, networks=allowed_clients)
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
-install_http_security(app, allowed_hosts=ALLOWED_HOSTS, cors_origins=CORS_ALLOWED_ORIGINS)
+install_http_security(app, allowed_hosts=ALLOWED_HOSTS, cors_origins=CORS_ALLOWED_ORIGINS, allowed_clients=ALLOWED_CLIENT_NETWORKS)
 app.include_router(auth_router)
 app.include_router(preferences_router)
 # Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
@@ -94,8 +122,22 @@ def seed_catalogs_on_startup():
         ensure_default_rules(session)
         auth_settings = get_or_create_auth_settings(session)
         _warn_if_insecure_server_config(auth_settings.enabled)
+        _warn_if_remote_access_without_auth(auth_settings.enabled)
     finally:
         session.close()
+
+def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
+    """Доступ по сети открыт (в списке клиентов есть адреса не с этого компьютера), а аутентификация
+    выключена — значит любой разрешённый адрес читает и меняет весь реестр без входа. Запуск не блокируется:
+    администратор сам выбрал список адресов, а включить аутентификацию можно только на самом компьютере
+    (services/auth.require_setup_access) — поэтому подсказываем, как это сделать."""
+    if auth_enabled or not has_remote_clients(ALLOWED_CLIENT_NETWORKS):
+        return
+    logger.warning(
+        "Доступ по сети открыт, но аутентификация выключена: любой компьютер из списка разрешённых клиентов "
+        "может читать и менять реестр без входа. Включите её на этом компьютере: "
+        "«Настройки → Аутентификация» (создайте администратора и включите вход)."
+    )
 
 def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
     """Приложение официально поддерживает серверное развёртывание (Docker + PostgreSQL, см.
