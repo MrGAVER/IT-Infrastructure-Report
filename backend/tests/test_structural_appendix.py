@@ -34,7 +34,7 @@ from app.models import (
 )
 from app.services.structural_appendix import collect_structural_appendix
 from app.services.structural_appendix_docx import (
-    StructuralAppendixError, build_structural_appendix, normalize_is_name, render_structural_appendix,
+    StructuralAppendixError, _text, build_structural_appendix, normalize_is_name, render_structural_appendix,
 )
 
 ROOM = "Серверная комната"
@@ -371,8 +371,11 @@ class TestRules:
         assert [table_rows(t)[-1] for t in doc.tables] == [["Нет данных"]] * 3
 
     def test_control_characters_from_registry_do_not_break_the_document(self, db_session, tmp_path):
+        # NUL (\x00) сюда не годится: PostgreSQL не хранит его в текстовых полях (DataError при INSERT), так что
+        # в реестре на PostgreSQL такого значения быть не может, а на SQLite тест был бы зелёным лишь формально.
+        # Очистка \x00 проверяется отдельно, без БД, — см. TestIsName.test_text_strips_xml_invalid_characters.
         r = Registry(db_session)
-        r.device("Сервер", "HP", "DL\x07", "S\x00N1", "srv\x1b-1")
+        r.device("Сервер", "HP", "DL\x07", "S\x08N1", "srv\x1b-1")
         db_session.commit()
         doc = _build(db_session, tmp_path)
         assert table_rows(doc.tables[2])[2][:3] == ["HP DL", "SN1", "srv-1"]
@@ -381,6 +384,14 @@ class TestRules:
 class TestIsName:
     def test_normalizes_whitespace_and_control_characters(self):
         assert normalize_is_name("  ЕА  ИС\x00 ТО ") == "ЕА ИС ТО"
+
+    @pytest.mark.parametrize("raw", ["S\x00N1", "S\x08N1", "S\x0bN1", "S\x0cN1", "S\x1bN1", "S\ufffeN1", "S\uffffN1"])
+    def test_text_strips_xml_invalid_characters(self, raw):
+        # Без БД: NUL нельзя положить в PostgreSQL, но очистка должна его покрывать (вставка из терминала/Excel).
+        assert _text(raw) == "SN1"
+
+    def test_text_keeps_valid_whitespace_and_cyrillic(self):
+        assert _text("Серверная\tкомната\n№ 1") == "Серверная\tкомната\n№ 1"
 
     @pytest.mark.parametrize("raw", [None, "", "   ", "\x00\x01"])
     def test_empty_is_rejected(self, raw):
