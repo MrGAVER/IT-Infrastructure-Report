@@ -36,6 +36,7 @@ EXPECTED_ROUTES = {
     }),
     "reports": (reports, {
         ("POST", "/api/v1/reports/inventory"), ("POST", "/api/v1/reports/audit-log"),
+        ("POST", "/api/v1/reports/structural-appendix"),
         ("GET", "/api/v1/reports/download/{filename}"),
     }),
     "device_stacks": (device_stacks, {
