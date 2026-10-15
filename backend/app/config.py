@@ -17,7 +17,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_regi
 # файла (см. main.py:spa_fallback), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-APP_VERSION = '2.149.0'
+APP_VERSION = '2.150.0'
 
 def _csv_env(name: str, default: str = '') -> list[str]:
     """Список из переменной окружения через запятую: пробелы и пустые элементы отбрасываются."""
@@ -37,6 +37,12 @@ CORS_ALLOWED_ORIGINS = _csv_env('INFRA_REGISTRY_CORS_ORIGINS')
 # хоста, например INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local,10.0.0.5; '*' отключает проверку
 # (так по умолчанию задано в docker-compose.yml, чтобы обновление не ломало доступ по IP).
 ALLOWED_HOSTS = _csv_env('INFRA_REGISTRY_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+# Адреса и подсети клиентов, которым разрешено подключаться (через запятую: 192.168.1.15,10.0.5.0/24).
+# Пусто — фильтра нет и пускаются все (Docker, запуск из исходников: доступ там ограничивает сетевая
+# настройка). EXE-лаунчер всегда задаёт список из файла настроек рядом с EXE (infra_registry.toml), где
+# по умолчанию разрешена только петля 127.0.0.0/8, то есть доступ только с того же компьютера.
+ALLOWED_CLIENTS = _csv_env('INFRA_REGISTRY_ALLOWED_CLIENTS')
 
 # Токен первичной настройки аутентификации. Пока аутентификация выключена (это значение по
 # умолчанию), создавать пользователей и включать её можно только с localhost без прокси-заголовков
