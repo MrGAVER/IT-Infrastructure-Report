@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useVMsStore } from '../stores/vms'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
+import { useInformationSystemsStore } from '../stores/informationSystems'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { VirtualMachine } from '../api/types'
@@ -13,6 +14,7 @@ import VMFormModal from '../components/VMFormModal.vue'
 const vms = useVMsStore()
 const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
+const informationSystems = useInformationSystemsStore()
 const { notify, notifyError } = useToast()
 
 const modalVM = ref<VirtualMachine | null>(null)
@@ -57,6 +59,8 @@ function closeModal() {
 async function onSaved() {
   const wasEdit = modalVM.value !== null
   closeModal()
+  // В списке ИС показаны IP-адреса связанных ВМ — после правки ВМ он устарел и откроется загрузкой заново.
+  informationSystems.invalidate()
   await vms.reload()
   notify(wasEdit ? 'Виртуальная машина обновлена' : 'Виртуальная машина добавлена', 'success')
 }

@@ -94,7 +94,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
     <div class="filter-bar">
       <div class="search-box">
         <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="systems.search" type="text" placeholder="Поиск по наименованию, описанию, назначению…" />
+        <input v-model="systems.search" type="text" placeholder="Поиск по наименованию, описанию, назначению, IP-адресу…" />
       </div>
       <div class="chip-group">
         <button :class="{ on: systems.siemFilter === 'all' }" @click="systems.siemFilter = 'all'">SIEM: все</button>
@@ -124,6 +124,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
             <tr>
               <th>Наименование</th>
               <th>Назначение</th>
+              <th>IP-адреса</th>
               <th>Организация техподдержки</th>
               <th>SIEM</th>
               <th>СКЗИ</th>
@@ -137,6 +138,12 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
                 <span v-if="s.description" class="isdesc">{{ s.description }}</span>
               </td>
               <td class="purpose-cell">{{ s.purpose || '—' }}</td>
+              <td class="ip-cell">
+                <template v-if="s.ip_addresses?.length">
+                  <span v-for="ip in s.ip_addresses" :key="ip" class="ip">{{ ip }}</span>
+                </template>
+                <template v-else>—</template>
+              </td>
               <td>{{ catalogs.label('support-organizations', s.support_organization_id) }}</td>
               <td>
                 <span class="status" :class="s.siem_enabled ? 'on' : 'off'">
@@ -163,7 +170,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
               </td>
             </tr>
             <tr v-if="!systems.filtered.length">
-              <td colspan="6" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
+              <td colspan="7" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
             </tr>
           </tbody>
         </table>
@@ -252,7 +259,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 820px;
+  min-width: 940px;
 }
 thead th {
   text-align: left;
@@ -292,6 +299,16 @@ tbody tr:hover td {
 .purpose-cell {
   color: var(--ink-muted);
   max-width: 260px;
+}
+.ip-cell {
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.ip {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11.8px;
+  color: var(--ink);
 }
 .empty-row {
   text-align: center;

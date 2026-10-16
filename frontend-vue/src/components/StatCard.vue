@@ -1,12 +1,21 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ value: number | string; label: string; tone?: 'normal' | 'warn' }>(), {
+import type { RouteLocationRaw } from 'vue-router'
+
+// to — необязательный переход: если задан, число становится ссылкой на соответствующий раздел
+// (так дашборд ведёт от количества к списку). Без to карточка остаётся обычным блоком, как на
+// остальных экранах со сводкой.
+withDefaults(defineProps<{ value: number | string; label: string; tone?: 'normal' | 'warn'; to?: RouteLocationRaw }>(), {
   tone: 'normal',
+  to: undefined,
 })
 </script>
 
 <template>
   <div class="stat-card" :class="tone">
-    <div class="num">{{ value }}</div>
+    <router-link v-if="to" :to="to" class="num num-link" :title="`Открыть: ${label}`" :aria-label="`${label}: ${value}. Открыть раздел`">{{
+      value
+    }}</router-link>
+    <div v-else class="num">{{ value }}</div>
     <div class="lbl">{{ label }}</div>
   </div>
 </template>
@@ -24,6 +33,20 @@ withDefaults(defineProps<{ value: number | string; label: string; tone?: 'normal
   font-size: 22px;
   line-height: 1.1;
   color: var(--ink);
+}
+.num-link {
+  display: block;
+  width: fit-content;
+  text-decoration: none;
+}
+.stat-card .num-link:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+.num-link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: var(--r-s);
 }
 .lbl {
   font-size: 11px;

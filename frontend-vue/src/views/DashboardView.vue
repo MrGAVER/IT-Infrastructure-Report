@@ -1,8 +1,21 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import type { RouteLocationRaw } from 'vue-router'
 import { api } from '../api/client'
 import type { DashboardCounts } from '../api/types'
 import StatCard from '../components/StatCard.vue'
+
+// Карточки сводки: каждое число ведёт на экран, где лежат эти записи. «Программные активы» отдельного экрана
+// не имеют — это справочник на экране «Другие справочники», поэтому ссылка сразу открывает его (?catalog=, см. router).
+const STAT_CARDS: { key: keyof DashboardCounts; label: string; to: RouteLocationRaw }[] = [
+  { key: 'information_systems', label: 'Информационные системы', to: '/information-systems' },
+  { key: 'physical_devices', label: 'Физические устройства', to: '/devices' },
+  { key: 'virtual_machines', label: 'Виртуальные машины', to: '/vms' },
+  { key: 'containers', label: 'Контейнеры', to: '/containers' },
+  { key: 'connections', label: 'Подключения', to: '/connections' },
+  { key: 'vlan', label: 'VLAN', to: '/vlans' },
+  { key: 'software', label: 'Программные активы', to: { path: '/other-catalogs', query: { catalog: 'software-assets' } } },
+]
 
 const counts = ref<DashboardCounts | null>(null)
 const loading = ref(true)
@@ -24,13 +37,7 @@ onMounted(async () => {
     <div v-if="error" class="error-banner card">{{ error }}</div>
     <div v-else-if="loading" class="loading-banner">Загрузка сводки…</div>
     <div v-else-if="counts" class="stat-grid">
-      <StatCard :value="counts.information_systems" label="Информационные системы" />
-      <StatCard :value="counts.physical_devices" label="Физические устройства" />
-      <StatCard :value="counts.virtual_machines" label="Виртуальные машины" />
-      <StatCard :value="counts.containers" label="Контейнеры" />
-      <StatCard :value="counts.connections" label="Подключения" />
-      <StatCard :value="counts.vlan" label="VLAN" />
-      <StatCard :value="counts.software" label="Программные активы" />
+      <StatCard v-for="card in STAT_CARDS" :key="card.key" :value="counts[card.key]" :label="card.label" :to="card.to" />
     </div>
     <p class="note">
       Полная функциональность («Диспетчерская», Vue 3 + TypeScript) пока реализована для раздела

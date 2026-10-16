@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import VMsView from '../VMsView.vue'
 import { useVMsStore } from '../../stores/vms'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
+import { useInformationSystemsStore } from '../../stores/informationSystems'
+import VMFormModal from '../../components/VMFormModal.vue'
 import type { VirtualMachine } from '../../api/types'
 
 function vm(i: number, overrides: Partial<VirtualMachine> = {}): VirtualMachine {
@@ -64,5 +66,33 @@ describe('VMsView.vue — поиск', () => {
 
     expect(store.page).toBe(1)
     expect(wrapper.findAll('td.vmname')).toHaveLength(8)
+  })
+})
+
+describe('VMsView.vue — связь со списком информационных систем', () => {
+  it('после сохранения ВМ список ИС помечается устаревшим: в нём показаны IP-адреса связанных ВМ', async () => {
+    seed([vm(1)])
+    const systems = useInformationSystemsStore()
+    systems.loaded = true
+    const wrapper = mount(VMsView, { global: { stubs: { VMFormModal: true } } })
+
+    await wrapper.find('.btn-primary').trigger('click')
+    wrapper.findComponent(VMFormModal).vm.$emit('saved')
+    await flushPromises()
+
+    expect(systems.loaded).toBe(false)
+  })
+
+  it('без сохранения (открыли и закрыли форму) список ИС остаётся актуальным', async () => {
+    seed([vm(1)])
+    const systems = useInformationSystemsStore()
+    systems.loaded = true
+    const wrapper = mount(VMsView, { global: { stubs: { VMFormModal: true } } })
+
+    await wrapper.find('.btn-primary').trigger('click')
+    wrapper.findComponent(VMFormModal).vm.$emit('close')
+    await flushPromises()
+
+    expect(systems.loaded).toBe(true)
   })
 })

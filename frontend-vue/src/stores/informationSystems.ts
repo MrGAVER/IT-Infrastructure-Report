@@ -28,8 +28,10 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
       let rows = state.all
       if (state.search.trim()) {
         const q = state.search.trim().toLowerCase()
+        // IP-адреса — те же строки, что в столбце «IP-адреса» (у адресов ВМ с префиксом, «192.168.5.10/24»): по подстроке
+        // находится и адрес целиком, и его начало («10.1.»), и запись с префиксом.
         rows = rows.filter((s) =>
-          [s.name, s.description, s.purpose, s.localization].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
+          [s.name, s.description, s.purpose, s.localization, ...(s.ip_addresses ?? [])].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
         )
       }
       if (state.siemFilter !== 'all') {
@@ -65,6 +67,12 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
       } finally {
         this.loading = false
       }
+    },
+    /** Помечает загруженный список устаревшим: при следующем открытии экрана ИС он загрузится заново. Нужен, когда
+     * данные, от которых зависит строка ИС, правятся на другом экране: столбец «IP-адреса» берёт адреса связанных ВМ
+     * (после сохранения ВМ см. VMsView.vue). Сам список при этом не очищается и не перезапрашивается сразу. */
+    invalidate() {
+      this.loaded = false
     },
     setPage(p: number) {
       this.page = Math.min(Math.max(1, p), this.pageCount)
