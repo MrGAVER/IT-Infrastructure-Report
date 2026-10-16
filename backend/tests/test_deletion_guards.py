@@ -100,7 +100,7 @@ ALLOWED_DELETIONS = {
     # удаляются, перед записью пользователь видит список снимаемых VLAN и подтверждает его
     # (то же, что _sync_single_interface делает при правке порта в форме)
     ("app/services/vlan_mode_cascade.py", "_write_port", "link"),
-    ("app/services/vlan_mode_cascade.py", "apply_vlan_mode_cascade", "row"),
+    ("app/services/vlan_mode_cascade.py", "_write_group", "row"),
     # запись набора VLAN одного порта (services/port_writes.py) — общая для согласования портов по
     # правилам (port_sync_reconcile) и правки порта с дашборда подключений (port_edit): лишние
     # назначения VLAN (InterfaceVLAN) снимаются — дочерние записи порта без входящих ссылок; сам порт и

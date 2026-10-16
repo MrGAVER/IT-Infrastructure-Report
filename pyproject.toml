@@ -22,4 +22,3 @@ max-complexity = 12
 "backend/app/services/diagram_export.py" = ["C901"]         # export_vsdx (16)
 "backend/app/services/port_sync_reconcile.py" = ["C901"]    # _plan_target (13)
 "backend/app/services/port_sync_rules.py" = ["C901"]        # rule_from_payload (19)
-"backend/app/services/vlan_mode_cascade.py" = ["C901"]      # _load_details (16), apply_vlan_mode_cascade (18)
