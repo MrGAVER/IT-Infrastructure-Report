@@ -320,51 +320,57 @@ def _side_from_payload(raw: Any, label: str, *, roles: Sequence[str], modes: Seq
     )
 
 
-def rule_from_payload(payload: Mapping[str, Any], *, base: RuleSpec | None = None) -> RuleSpec:
-    """Собирает и проверяет правило из тела запроса. С `base` — частичное обновление: переданные поля
-    заменяют поля базового правила, остальные сохраняются (так работает и переключатель «включено»).
-
-    Служебные поля (`code`, `builtin`, `id`) из тела игнорируются: стандартное правило остаётся
-    стандартным, а пользователь не может выдать своё правило за стандартное."""
-    if not isinstance(payload, Mapping):
-        raise RuleValidationError("Тело запроса должно быть объектом")
-    current = base or RuleSpec(name="")
-
+def _name_from_payload(payload: Mapping[str, Any], current: RuleSpec) -> str:
     name = payload.get("name", current.name)
     if not isinstance(name, str) or not name.strip():
         raise RuleValidationError("Название правила обязательно")
     name = name.strip()
     if len(name) > MAX_NAME_LENGTH:
         raise RuleValidationError(f"Название правила не длиннее {MAX_NAME_LENGTH} символов")
+    return name
+
+
+def _description_from_payload(payload: Mapping[str, Any], current: RuleSpec) -> str:
     description = payload.get("description", current.description)
     if description is None:
         description = ""
     if not isinstance(description, str) or len(description) > MAX_DESCRIPTION_LENGTH:
         raise RuleValidationError(f"Описание должно быть строкой не длиннее {MAX_DESCRIPTION_LENGTH} символов")
+    return description
 
+
+def _enabled_from_payload(payload: Mapping[str, Any], current: RuleSpec) -> bool:
     enabled = payload.get("enabled", current.enabled)
     if not isinstance(enabled, bool):
         raise RuleValidationError("Поле enabled должно быть true или false")
+    return enabled
+
+
+def _priority_from_payload(payload: Mapping[str, Any], current: RuleSpec) -> int:
     priority = payload.get("priority", current.priority)
     if isinstance(priority, bool) or not isinstance(priority, int) or abs(priority) > PRIORITY_LIMIT:
         raise RuleValidationError(f"Приоритет — целое число не больше {PRIORITY_LIMIT} по модулю")
-    action = _choice(payload.get("action", current.action), ACTIONS, "Действие")
+    return priority
 
-    def side(key: str, existing: Side, label: str, *, roles=ROLE_CONDITIONS, modes=MODE_CONDITIONS, vlans=VLAN_CONDITIONS) -> Side:
-        if key not in payload:
-            return existing
-        merged = {"role": existing.role, "mode": existing.mode, "vlans": existing.vlans}
-        raw = payload[key]
-        if isinstance(raw, Mapping):
-            merged.update(raw)
-        elif raw is not None:
-            raise RuleValidationError(f"{label} должно быть объектом")
-        return _side_from_payload(merged, label, roles=roles, modes=modes, vlans=vlans)
 
-    target = side("target", current.target, "Условия целевого порта")
-    source = side("source", current.source, "Условия порта-источника")
-    relation = side("relation", current.relation, "Отношение портов", roles=RELATIONS, modes=RELATIONS, vlans=RELATIONS)
+def _merged_side(
+    payload: Mapping[str, Any], key: str, existing: Side, label: str,
+    *, roles: Sequence[str] = ROLE_CONDITIONS, modes: Sequence[str] = MODE_CONDITIONS, vlans: Sequence[str] = VLAN_CONDITIONS,
+) -> Side:
+    """Условие на порт из тела: нет ключа или `null` — прежнее значение, объект — поверх прежнего по полям."""
+    if key not in payload:
+        return existing
+    merged = {"role": existing.role, "mode": existing.mode, "vlans": existing.vlans}
+    raw = payload[key]
+    if isinstance(raw, Mapping):
+        merged.update(raw)
+    elif raw is not None:
+        raise RuleValidationError(f"{label} должно быть объектом")
+    return _side_from_payload(merged, label, roles=roles, modes=modes, vlans=vlans)
 
+
+def _apply_from_payload(payload: Mapping[str, Any], current: RuleSpec) -> tuple[bool, bool, str]:
+    """(менять роль, менять режим, политика VLAN) из `apply`; отсутствующие поля берутся из прежнего правила."""
     apply = payload.get("apply")
     if apply is not None and not isinstance(apply, Mapping):
         raise RuleValidationError("Поле apply должно быть объектом")
@@ -378,13 +384,43 @@ def rule_from_payload(payload: Mapping[str, Any], *, base: RuleSpec | None = Non
         if not isinstance(flag, bool):
             raise RuleValidationError(f"{label} должно быть true или false")
     vlan_policy = _choice(apply.get("vlans", current.vlan_policy), VLAN_POLICIES, "apply.vlans")
+    return apply_role, apply_mode, vlan_policy
 
+
+def _check_apply_consistency(action: str, apply_role: bool, apply_mode: bool, vlan_policy: str) -> None:
+    """Взаимосвязи действия и изменений: проверяются после того, как каждое поле в отдельности корректно."""
     if vlan_policy == "adapt" and not apply_mode:
         raise RuleValidationError("Политика VLAN «по режиму» имеет смысл только вместе со сменой режима (apply.mode)")
     if vlan_policy == "union" and (apply_role or apply_mode):
         raise RuleValidationError("Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу")
     if action == "auto" and not (apply_role or apply_mode or vlan_policy != "keep"):
         raise RuleValidationError("Правило с действием «автоматически» должно что-то менять: роль, режим или VLAN")
+
+
+def rule_from_payload(payload: Mapping[str, Any], *, base: RuleSpec | None = None) -> RuleSpec:
+    """Собирает и проверяет правило из тела запроса. С `base` — частичное обновление: переданные поля
+    заменяют поля базового правила, остальные сохраняются (так работает и переключатель «включено»).
+
+    Служебные поля (`code`, `builtin`, `id`) из тела игнорируются: стандартное правило остаётся
+    стандартным, а пользователь не может выдать своё правило за стандартное.
+
+    Порядок проверок — часть поведения: при нескольких нарушениях пользователь видит первое (имя, описание,
+    включено, приоритет, действие, условия целевого порта, порта-источника, отношение, apply, взаимосвязи);
+    закреплён tests/test_rule_from_payload_behaviour.py."""
+    if not isinstance(payload, Mapping):
+        raise RuleValidationError("Тело запроса должно быть объектом")
+    current = base or RuleSpec(name="")
+
+    name = _name_from_payload(payload, current)
+    description = _description_from_payload(payload, current)
+    enabled = _enabled_from_payload(payload, current)
+    priority = _priority_from_payload(payload, current)
+    action = _choice(payload.get("action", current.action), ACTIONS, "Действие")
+    target = _merged_side(payload, "target", current.target, "Условия целевого порта")
+    source = _merged_side(payload, "source", current.source, "Условия порта-источника")
+    relation = _merged_side(payload, "relation", current.relation, "Отношение портов", roles=RELATIONS, modes=RELATIONS, vlans=RELATIONS)
+    apply_role, apply_mode, vlan_policy = _apply_from_payload(payload, current)
+    _check_apply_consistency(action, apply_role, apply_mode, vlan_policy)
 
     return replace(
         current,
