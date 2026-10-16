@@ -34,7 +34,7 @@ from app.models import (
 )
 from app.services.structural_appendix import collect_structural_appendix
 from app.services.structural_appendix_docx import (
-    StructuralAppendixError, _text, build_structural_appendix, normalize_is_name, render_structural_appendix,
+    DEFAULT_IS_NAME, StructuralAppendixError, _text, build_structural_appendix, normalize_is_name, render_structural_appendix,
 )
 
 ROOM = "Серверная комната"
@@ -264,6 +264,32 @@ class TestSampleRegistry:
             ("Cisco WS-C3750X-48", "SN9", "SW-C3750-2", ["192.168.1.2"], ROOM),  # участник стека — следом за первым
             ("GATE 100, V. 4.1", "SN7", "G100", ["192.168.4.41"], ROOM),
         ]
+
+
+class TestIsNameNormalization:
+    @pytest.mark.parametrize("raw, expected", [
+        ("ТО", "ТО"),
+        ("ЕАИС ТО", "ТО"),
+        ("  еаис   ТО ", "ТО"),  # регистр и лишние пробелы не важны
+        ("ИС ТО", "ТО"),
+        ("ИСУ", "ИСУ"),  # слово целиком: «ИСУ» — не «ИС У»
+        ("ЕАИС", "ЕАИС"),  # одиночное слово остаётся именем, а не превращается в пустое
+        ("ЕАИС ТО-2", "ТО-2"),
+    ])
+    def test_leading_is_word_is_not_duplicated(self, raw, expected):
+        assert normalize_is_name(raw) == expected
+
+    def test_default_name_is_eais_to_and_renders_headings_without_duplicate_prefix(self, db_session, sample, tmp_path):
+        assert DEFAULT_IS_NAME == "ЕАИС ТО"
+        doc = _build(db_session, tmp_path, is_name=DEFAULT_IS_NAME)
+        texts = [p.text for p in doc.paragraphs if p.text]
+        assert texts[:2] == ["Приложение к структурной схеме", "ЕАИС ТО"]
+        assert table_rows(doc.tables[0])[0][0] == "Сведения о назначении линий связи ИС ТО"
+
+    def test_endpoint_without_body_uses_default_name(self, client):
+        r = client.post("/api/v1/reports/structural-appendix")
+        assert r.status_code == 200
+        assert "ТО" in r.json()["file_name"] and "ЕАИС" not in r.json()["file_name"]
 
 
 class TestRenderedDocument:
