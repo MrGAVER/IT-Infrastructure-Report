@@ -39,10 +39,6 @@ onMounted(async () => {
     <div v-else-if="counts" class="stat-grid">
       <StatCard v-for="card in STAT_CARDS" :key="card.key" :value="counts[card.key]" :label="card.label" :to="card.to" />
     </div>
-    <p class="note">
-      Полная функциональность («Диспетчерская», Vue 3 + TypeScript) пока реализована для раздела
-      «Инвентаризация устройств» — см. меню слева. Остальные разделы будут переноситься поэтапно.
-    </p>
   </div>
 </template>
 
@@ -59,13 +55,6 @@ onMounted(async () => {
 .loading-banner {
   padding: 24px;
   color: var(--ink-muted);
-}
-.note {
-  margin-top: 20px;
-  font-size: 12px;
-  color: var(--ink-muted);
-  max-width: 60ch;
-  line-height: 1.6;
 }
 @media (max-width: 980px) {
   .stat-grid {

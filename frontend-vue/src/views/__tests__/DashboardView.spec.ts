@@ -77,6 +77,13 @@ describe('DashboardView.vue — ссылки от количеств', () => {
     expect(containers.find('a.num-link').attributes('href')).toBe('/containers')
   })
 
+  it('под карточками нет пояснительной подписи про поэтапный перенос разделов', async () => {
+    const wrapper = await mountDashboard()
+
+    expect(wrapper.find('.note').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Полная функциональность')
+  })
+
   it('если сводка не загрузилась — сообщение об ошибке и ни одной ссылки', async () => {
     const wrapper = await mountDashboard(async () => jsonResponse({ detail: 'сбой' }, 500))
 
