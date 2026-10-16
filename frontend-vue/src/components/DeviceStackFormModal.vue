@@ -238,7 +238,7 @@ async function submit() {
                     <th class="col-pos">#</th>
                     <th>Устройство</th>
                     <th>Тип</th>
-                    <th class="col-actions"></th>
+                    <th class="col-actions"><span class="sr-only">Действия</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -247,16 +247,18 @@ async function submit() {
                     <td>{{ deviceLabel(m) }}</td>
                     <td>{{ catalogs.label('device-types', m.device_type_id) }}</td>
                     <td class="col-actions">
-                      <button type="button" class="btn btn-secondary btn-sm" @click="viewingDevice = m">Просмотреть</button>
-                      <button
-                        type="button"
-                        class="icon-btn danger"
-                        :disabled="memberBusyId === m.stack_member_id"
-                        aria-label="Убрать из стека"
-                        @click="removeMember(m)"
-                      >
-                        <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-                      </button>
+                      <div class="row-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="viewingDevice = m">Просмотреть</button>
+                        <button
+                          type="button"
+                          class="icon-btn danger"
+                          :disabled="memberBusyId === m.stack_member_id"
+                          aria-label="Убрать из стека"
+                          @click="removeMember(m)"
+                        >
+                          <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -455,11 +457,28 @@ async function submit() {
 .col-pos {
   width: 32px;
 }
+/* Ячейка остаётся табличной (не flex): иначе у <th> без текста пропадает высота строки и нижняя граница шапки
+   «съезжает» вверх относительно соседних заголовков. Выравнивание кнопок — во вложенном .row-actions. */
 .col-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.row-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
   justify-content: flex-end;
+  gap: 6px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .btn-sm {
   padding: 5px 9px;
