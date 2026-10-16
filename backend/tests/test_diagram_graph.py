@@ -389,3 +389,38 @@ def test_subinterfaces_do_not_count_as_ports_of_the_device_icon(db_session):
 
     assert GraphContext(db_session).interface_count(router.id) == 1
 
+
+
+def _edge_for_port_modes(db_session, source_mode: str, destination_mode: str) -> dict:
+    """Ребро диаграммы между двумя портами с заданными режимами VLAN (access / trunk)."""
+    server_type, switch_type = _seed_base_catalogs(db_session)
+    switch = _make_device(db_session, switch_type.id, f"SW-{source_mode}-{destination_mode}")
+    server = _make_device(db_session, server_type.id, f"SRV-{source_mode}-{destination_mode}")
+    source = _make_interface(db_session, switch.id, "Gi0/1")
+    destination = _make_interface(db_session, server.id, "eth0")
+    source.vlan_mode, destination.vlan_mode = source_mode, destination_mode
+    conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
+    connection = Connection(source_interface_id=source.id, destination_interface_id=destination.id, connection_type_id=conn_type.id, is_active=True)
+    diagram = SavedDiagram(name=f"Диаграмма режимов {source_mode}/{destination_mode}", scope_filter="{}", group_by="building", collapse_threshold=20)
+    db_session.add_all([connection, diagram])
+    db_session.commit()
+    return next(e for e in build_graph(db_session, diagram)["edges"] if e["id"] == connection.id)
+
+
+def test_edge_is_trunk_when_both_ports_are_in_trunk_mode(db_session):
+    assert _edge_for_port_modes(db_session, "trunk", "trunk")["is_trunk"] is True
+
+
+def test_edge_is_not_trunk_when_any_port_is_access(db_session):
+    # Расхождение режимов (access ↔ trunk) — отдельная ошибка конфигурации: подпись trunk его бы скрыла.
+    assert _edge_for_port_modes(db_session, "access", "trunk")["is_trunk"] is False
+
+
+def test_edge_is_not_trunk_when_both_ports_are_access(db_session):
+    assert _edge_for_port_modes(db_session, "access", "access")["is_trunk"] is False
+
+
+def test_edge_with_unknown_interfaces_is_not_trunk():
+    from app.services.diagram_graph import _is_trunk_connection
+
+    assert _is_trunk_connection(None, None) is False

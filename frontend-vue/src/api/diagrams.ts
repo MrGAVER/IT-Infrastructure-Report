@@ -93,6 +93,8 @@ export interface DiagramEdge {
   target_interface: DiagramInterfaceRef | null
   connection_type: string | null
   is_active: boolean
+  /** Все известные концы подключения — порты в режиме trunk (backend: diagram_graph._is_trunk_connection). */
+  is_trunk: boolean
   vlans: DiagramVlanRef[]
 }
 
