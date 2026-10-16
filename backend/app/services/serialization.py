@@ -267,7 +267,7 @@ def _load_information_systems_links(items: Sequence[InformationSystem], session:
     all_referenced_vm_ids = set(ln.vm_map.keys())
     ln.vm_ips_by_vm: dict[str, list[IPAddress]] = {}
     if all_referenced_vm_ids:
-        for x in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id.in_(all_referenced_vm_ids))).all():
+        for x in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id.in_(all_referenced_vm_ids)).order_by(IPAddress.ip_address)).all():
             ln.vm_ips_by_vm.setdefault(x.owner_id, []).append(x)
 
     # IP-адреса "ручных" источников ИС — раньше src.ip_address (одна строка, несколько адресов
@@ -275,7 +275,7 @@ def _load_information_systems_links(items: Sequence[InformationSystem], session:
     # "information_system_source"), по той же причине загружены здесь одним batch-запросом.
     ln.source_ips_by_source: dict[str, list[IPAddress]] = {}
     if source_rows:
-        for x in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id.in_([s.id for s in source_rows]))).all():
+        for x in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id.in_([s.id for s in source_rows])).order_by(IPAddress.ip_address)).all():
             ln.source_ips_by_source.setdefault(x.owner_id, []).append(x)
     return ln
 
@@ -307,7 +307,11 @@ def _enrich_single_information_system(obj: InformationSystem, ln: SimpleNamespac
     for v in vms:
         ips.extend(f'{x.ip_address}/{x.prefix_length}' if x.prefix_length is not None else x.ip_address for x in ln.vm_ips_by_vm.get(v.id, []))
 
-    data['ip_addresses_summary'] = '; '.join(dict.fromkeys(x for x in ips if x))
+    # Тот же набор, что в столбце «IP-адреса» листа 1 регламентного отчёта (reporting._is_row_values): адреса ручных
+    # источников и ВМ (последние — с префиксом). Список — для экрана (по строке на адрес), строка — для отчётов/конструктора.
+    ip_addresses = list(dict.fromkeys(x for x in ips if x))
+    data['ip_addresses'] = ip_addresses
+    data['ip_addresses_summary'] = '; '.join(ip_addresses)
     # protocol_catalog_id обязателен для ISProtocol (NOT NULL, миграция b7f2c1e5a904) — свободного
     # текста без справочника, ради которого раньше был нужен fallback, больше не бывает.
     data['protocols_summary'] = '; '.join(dict.fromkeys(

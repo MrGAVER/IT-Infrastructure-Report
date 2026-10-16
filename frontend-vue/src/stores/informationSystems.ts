@@ -66,6 +66,12 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
         this.loading = false
       }
     },
+    /** Помечает загруженный список устаревшим: при следующем открытии экрана ИС он загрузится заново. Нужен, когда
+     * данные, от которых зависит строка ИС, правятся на другом экране: столбец «IP-адреса» берёт адреса связанных ВМ
+     * (после сохранения ВМ см. VMsView.vue). Сам список при этом не очищается и не перезапрашивается сразу. */
+    invalidate() {
+      this.loaded = false
+    },
     setPage(p: number) {
       this.page = Math.min(Math.max(1, p), this.pageCount)
     },
