@@ -15,8 +15,10 @@ import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { QuickField } from '../quickAdd/schema'
 import { useToast } from '../composables/useToast'
+import { usePagedList } from '../composables/usePagedList'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import CatalogRecordFormModal from '../components/CatalogRecordFormModal.vue'
+import PagedListFooter from '../components/PagedListFooter.vue'
 
 const OTHER_CATALOGS = [
   'device-types',
@@ -83,6 +85,14 @@ const records = computed<Record<string, unknown>[]>(() => {
   if (selected.value === 'protocol-port-catalog') return catalogs.protocolPortCatalog as unknown as Record<string, unknown>[]
   return (catalogs.items[selected.value as keyof typeof catalogs.items] ?? []) as unknown as Record<string, unknown>[]
 })
+
+// Постранично выводятся записи выбранного справочника. Размер страницы один на все справочники экрана
+// (запоминается как настройка списка «otherCatalogs»), а страница при смене справочника сбрасывается на первую.
+const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
+  () => records.value,
+  { listId: 'otherCatalogs', defaultPageSize: 10 },
+)
+watch(selected, () => resetPage())
 
 function recordCount(key: OtherCatalogKey): number {
   if (key === 'protocol-port-catalog') return catalogs.protocolPortCatalog.length
@@ -179,7 +189,7 @@ async function onDeleted() {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="record in records" :key="String(record.id)">
+              <tr v-for="record in pageItems" :key="String(record.id)">
                 <td v-for="f in fields" :key="f.name">
                   <span class="cell-text" v-truncate-tooltip>{{ cellValue(record, f) }}</span>
                 </td>
@@ -192,6 +202,19 @@ async function onDeleted() {
             </tbody>
           </table>
         </div>
+        <PagedListFooter
+          v-if="fields.length && records.length"
+          class="catalog-foot"
+          :page="page"
+          :page-count="pageCount"
+          :page-size="pageSize"
+          :page-size-options="pageSizeOptions"
+          :range-from="rangeFrom"
+          :range-to="rangeTo"
+          :total="total"
+          @update:page="setPage"
+          @update:page-size="setPageSize"
+        />
       </section>
     </div>
 
