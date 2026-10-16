@@ -45,16 +45,24 @@ function interfaceName(ref: DiagramInterfaceRef | null): string | undefined {
   return ref?.name || undefined
 }
 
+/** Подпись trunk-подключения вместо списка VLAN. Совпадает с TRUNK_EDGE_LABEL в
+ * backend/app/services/diagram_export.py (экспорт .svg/.drawio/.vsdx подписывает линии так же). */
+export const TRUNK_EDGE_LABEL = 'trunk'
+
 function vlanSummary(edge: DiagramEdge): string | undefined {
-  return edge.vlans.length ? `VLAN ${edge.vlans.map((v) => v.vlan_id).join(', ')}` : undefined
+  if (!edge.vlans.length) return undefined
+  // Полный список VLAN на trunk-линии нечитаем (десятки номеров) — пишем режим; сам список остаётся
+  // в панели сведений о подключении (DiagramDetailPanel.vue).
+  if (edge.is_trunk) return TRUNK_EDGE_LABEL
+  return `VLAN ${edge.vlans.map((v) => v.vlan_id).join(', ')}`
 }
 
-/** Общая подпись ребра (рисуется посередине линии, см. DiagramConnectionEdge.vue) — только
- * список VLAN, если есть. Раньше сюда же дублировались имена портов ("eth0 ↔ Gi0/3 · VLAN 10,
- * 20"), хотя те же самые имена ОТДЕЛЬНО показываются и у каждого конца линии
- * (edgeSourcePortLabel/edgeTargetPortLabel ниже) — на плотных диаграммах с длинными именами
- * портов и заметным числом связей это удваивало объём текста на линию без новой информации и
- * усиливало наложение подписей друг на друга (пункт 3 правки "диаграмма топологии сети"). */
+/** Общая подпись ребра (рисуется посередине линии, см. DiagramConnectionEdge.vue) — список VLAN,
+ * если есть, а у trunk-подключения с VLAN — просто «trunk». Раньше сюда же дублировались имена
+ * портов ("eth0 ↔ Gi0/3 · VLAN 10, 20"), хотя те же самые имена ОТДЕЛЬНО показываются и у каждого
+ * конца линии (edgeSourcePortLabel/edgeTargetPortLabel ниже) — на плотных диаграммах с длинными
+ * именами портов и заметным числом связей это удваивало объём текста на линию без новой информации
+ * и усиливало наложение подписей друг на друга (пункт 3 правки "диаграмма топологии сети"). */
 export function edgeMidLabel(edge: DiagramEdge): string | undefined {
   return vlanSummary(edge)
 }

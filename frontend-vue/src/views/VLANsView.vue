@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useVLANsStore } from '../stores/vlans'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { api, deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
+import { usePagedList } from '../composables/usePagedList'
 import type { Device, VLANDefinition } from '../api/types'
 import StatCard from '../components/StatCard.vue'
+import PagedListFooter from '../components/PagedListFooter.vue'
 import VLANFormModal from '../components/VLANFormModal.vue'
 import VLANDomainsPanel from '../components/VLANDomainsPanel.vue'
 import StaleSubinterfacesPanel from '../components/StaleSubinterfacesPanel.vue'
@@ -53,6 +55,17 @@ async function onStaleDeviceSaved() {
 async function reloadAll() {
   await Promise.all([vlans.reload(), stalePanel.value?.reload()])
 }
+
+// Постранично выводятся группы по номеру VLAN (карточка «VLAN 10» со всеми определениями по доменам остаётся целой).
+const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
+  () => vlans.filtered,
+  { listId: 'vlans', defaultPageSize: 10 },
+)
+// Без сброса страницы поиск оставлял бы пустой экран: список после фильтра короче, а номер страницы прежний.
+watch(
+  () => vlans.search,
+  () => resetPage(),
+)
 
 const allVlanDefinitions = computed(() => vlans.allDefinitions)
 const allDeviceIds = computed(() => devices.all.map((d) => d.id))
@@ -215,40 +228,56 @@ async function removeDefinition(d: VLANDefinition) {
     <div v-else-if="vlans.loading && !vlans.loaded" class="loading-banner">Загрузка VLAN…</div>
     <div v-else-if="!vlans.filtered.length" class="empty-banner card">Ничего не найдено по заданным фильтрам.</div>
 
-    <div v-else class="groups">
-      <div v-for="g in vlans.filtered" :key="g.vlan_id" class="group card" :class="{ conflict: vlans.conflictingVlanIds.includes(g.vlan_id) }">
-        <div class="group-head">
-          <span class="vlan-id mono">VLAN {{ g.vlan_id }}</span>
-          <span v-if="vlans.conflictingVlanIds.includes(g.vlan_id)" class="conflict-badge">разные имена по доменам</span>
-        </div>
+    <template v-else>
+      <div class="groups">
+        <div v-for="g in pageItems" :key="g.vlan_id" class="group card" :class="{ conflict: vlans.conflictingVlanIds.includes(g.vlan_id) }">
+          <div class="group-head">
+            <span class="vlan-id mono">VLAN {{ g.vlan_id }}</span>
+            <span v-if="vlans.conflictingVlanIds.includes(g.vlan_id)" class="conflict-badge">разные имена по доменам</span>
+          </div>
 
-        <div v-for="d in g.definitions" :key="d.id" class="definition">
-          <div class="definition-main">
-            <div>
-              <span class="def-name">{{ d.name }}</span>
-              <span class="def-domain">{{ d.domain_name }}</span>
-              <span v-if="d.description" class="def-desc">{{ d.description }}</span>
+          <div v-for="d in g.definitions" :key="d.id" class="definition">
+            <div class="definition-main">
+              <div>
+                <span class="def-name">{{ d.name }}</span>
+                <span class="def-domain">{{ d.domain_name }}</span>
+                <span v-if="d.description" class="def-desc">{{ d.description }}</span>
+              </div>
+              <div class="row-actions">
+                <button type="button" aria-label="Редактировать" @click="openEdit(d)">
+                  <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                </button>
+                <button type="button" aria-label="Удалить" :disabled="deletingId === d.id" @click="removeDefinition(d)">
+                  <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                </button>
+              </div>
             </div>
-            <div class="row-actions">
-              <button type="button" aria-label="Редактировать" @click="openEdit(d)">
-                <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
-              </button>
-              <button type="button" aria-label="Удалить" :disabled="deletingId === d.id" @click="removeDefinition(d)">
-                <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-              </button>
+            <div v-if="d.devices.length" class="device-chips">
+              <span v-for="dev in d.devices" :key="dev.device_id" class="device-chip" :class="{ mgmt: dev.is_management }">
+                {{ dev.device_name }}
+                <span v-if="dev.ip_address" class="mono">· {{ dev.ip_address }}</span>
+                <span v-if="dev.is_management" class="mgmt-tag">упр.</span>
+              </span>
             </div>
+            <p v-else class="no-devices">Нет привязанных устройств.</p>
           </div>
-          <div v-if="d.devices.length" class="device-chips">
-            <span v-for="dev in d.devices" :key="dev.device_id" class="device-chip" :class="{ mgmt: dev.is_management }">
-              {{ dev.device_name }}
-              <span v-if="dev.ip_address" class="mono">· {{ dev.ip_address }}</span>
-              <span v-if="dev.is_management" class="mgmt-tag">упр.</span>
-            </span>
-          </div>
-          <p v-else class="no-devices">Нет привязанных устройств.</p>
         </div>
       </div>
-    </div>
+
+      <div class="groups-foot card">
+        <PagedListFooter
+          :page="page"
+          :page-count="pageCount"
+          :page-size="pageSize"
+          :page-size-options="pageSizeOptions"
+          :range-from="rangeFrom"
+          :range-to="rangeTo"
+          :total="total"
+          @update:page="setPage"
+          @update:page-size="setPageSize"
+        />
+      </div>
+    </template>
 
     <VLANFormModal v-if="modalOpen" :definition="modalDefinition" @close="closeModal" @saved="onSaved" />
     <DeviceFormModal v-if="deviceModal" :device="deviceModal" @close="deviceModal = null" @saved="onStaleDeviceSaved" />
@@ -370,6 +399,9 @@ async function removeDefinition(d: VLANDefinition) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.groups-foot {
+  margin-top: 12px;
 }
 .group {
   padding: 14px 16px;

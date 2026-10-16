@@ -215,3 +215,103 @@ describe('OtherCatalogsView.vue', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+
+describe('OtherCatalogsView.vue — пагинация', () => {
+  function stubPrefs() {
+    const puts: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/preferences/user') && init?.method === 'PUT') {
+          puts.push(JSON.parse(init.body as string))
+          return jsonResponse({ global: {}, user: {} })
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+    return puts
+  }
+
+  function seedMany(count: number) {
+    const catalogs = seedCatalogs()
+    catalogs.items['device-types'] = Array.from({ length: count }, (_, i) => ({ id: `dt-${i + 1}`, name: `Тип ${i + 1}` }))
+    return catalogs
+  }
+
+  const range = (wrapper: ReturnType<typeof mount>) => wrapper.find('.paged-foot .range').text()
+
+  it('длинный справочник режется на страницы по 10 записей, в подвале — диапазон и номера страниц', async () => {
+    stubPrefs()
+    seedMany(25)
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody tr')).toHaveLength(10)
+    expect(range(wrapper)).toBe('Показано 1–10 из 25')
+    expect(wrapper.findAll('.pager button[aria-label^="Страница"]')).toHaveLength(3)
+  })
+
+  it('счётчик у справочника в списке слева остаётся общим числом записей, а не размером страницы', async () => {
+    stubPrefs()
+    seedMany(25)
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    const item = wrapper.findAll('.catalog-item').find((i) => i.text().includes('Тип устройства'))!
+    expect(item.find('.count').text()).toBe('25')
+  })
+
+  it('последняя страница показывает остаток записей', async () => {
+    stubPrefs()
+    seedMany(25)
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    await wrapper.find('.pager button[aria-label="Страница 3"]').trigger('click')
+
+    expect(wrapper.findAll('tbody tr')).toHaveLength(5)
+    expect(wrapper.findAll('tbody tr')[0].text()).toContain('Тип 21')
+    expect(range(wrapper)).toBe('Показано 21–25 из 25')
+  })
+
+  it('смена размера страницы меняет число строк и запоминается для экрана', async () => {
+    const puts = stubPrefs()
+    seedMany(25)
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    await wrapper.find('.page-size select').setValue('20')
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody tr')).toHaveLength(20)
+    expect(puts).toEqual([{ page_sizes: { otherCatalogs: 20 } }])
+  })
+
+  it('при переходе на другой справочник страница сбрасывается на первую', async () => {
+    stubPrefs()
+    const catalogs = seedMany(25)
+    catalogs.items['manufacturers'] = Array.from({ length: 15 }, (_, i) => ({ id: `mf-${i + 1}`, name: `Производитель ${i + 1}` }))
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+    await wrapper.find('.pager button[aria-label="Страница 3"]').trigger('click')
+
+    await wrapper.findAll('.catalog-item').find((i) => i.text().includes('Производитель'))!.trigger('click')
+
+    expect(range(wrapper)).toBe('Показано 1–10 из 15')
+    expect(wrapper.findAll('tbody tr')[0].text()).toContain('Производитель 1')
+  })
+
+  it('справочник, помещающийся на одну страницу, — одна кнопка страницы; пустой справочник — без подвала', async () => {
+    stubPrefs()
+    seedCatalogs()
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    expect(range(wrapper)).toBe('Показано 1–2 из 2')
+    expect(wrapper.findAll('.pager button[aria-label^="Страница"]')).toHaveLength(1)
+
+    await wrapper.findAll('.catalog-item').find((i) => i.text().includes('Встроенная ОС'))!.trigger('click')
+    expect(wrapper.find('.paged-foot').exists()).toBe(false)
+  })
+})

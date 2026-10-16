@@ -831,3 +831,45 @@ def test_export_vsdx_node_shapes_have_graph_size_and_centered_pin(tmp_path):
             assert shape.cell_value("VerticalAlign") == "2"
     finally:
         vf.close_vsdx()
+
+
+# --------------------------------------------------------------------------------------
+# Подпись trunk-подключения: вместо списка VLAN — «trunk» (как на экране, см. edgeMidLabel).
+# --------------------------------------------------------------------------------------
+
+
+def _trunk_graph(is_trunk: bool) -> dict:
+    graph = _sample_graph()
+    graph["edges"][0]["is_trunk"] = is_trunk
+    graph["edges"][0]["vlans"] = [{"id": "vlan-1", "vlan_id": 10, "name": "data"}, {"id": "vlan-2", "vlan_id": 20, "name": "voice"}]
+    return graph
+
+
+def test_export_svg_trunk_edge_is_labelled_trunk_instead_of_vlan_list():
+    svg = export_svg(_trunk_graph(True))
+    if isinstance(svg, bytes):
+        svg = svg.decode("utf-8")
+    assert ">trunk</text>" in svg
+    assert "VLAN 10" not in svg
+
+
+def test_export_svg_non_trunk_edge_keeps_vlan_list():
+    svg = export_svg(_trunk_graph(False))
+    if isinstance(svg, bytes):
+        svg = svg.decode("utf-8")
+    assert "VLAN 10, VLAN 20" in svg
+    assert ">trunk</text>" not in svg
+
+
+def test_export_drawio_trunk_edge_is_labelled_trunk_instead_of_vlan_list():
+    xml = export_drawio(_trunk_graph(True))
+    if isinstance(xml, bytes):
+        xml = xml.decode("utf-8")
+    assert 'value="trunk"' in xml
+    assert "VLAN 10" not in xml
+
+
+def test_trunk_edge_without_vlans_has_no_label():
+    from app.services.diagram_export import _vlan_label
+
+    assert _vlan_label({"is_trunk": True, "vlans": []}) == ""

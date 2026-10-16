@@ -42,8 +42,9 @@ async function runInventoryReport() {
   }
 }
 
-// Короткое имя ИС по умолчанию — как в образце приложения («ЕАИС ТО»); то же значение по умолчанию на сервере.
-const appendixIsName = ref('ТО')
+// Короткое имя ИС по умолчанию — как в образце приложения («ЕАИС ТО»); то же значение по умолчанию на сервере
+// (structural_appendix_docx.DEFAULT_IS_NAME). Ведущее «ЕАИС»/«ИС» сервер в заголовках не дублирует.
+const appendixIsName = ref('ЕАИС ТО')
 const appendixUnitIds = ref<string[]>([])
 const appendixLoading = ref(false)
 
@@ -132,7 +133,7 @@ async function runAuditLogReport() {
       <div class="filters">
         <label class="field">
           <span>Короткое имя ИС (в заголовках: «ЕАИС …», «ИС …»)</span>
-          <input v-model="appendixIsName" type="text" maxlength="100" placeholder="ТО" />
+          <input v-model="appendixIsName" type="text" maxlength="100" placeholder="ЕАИС ТО" />
         </label>
 
         <details class="tree-pop">

@@ -180,3 +180,103 @@ describe('VLANsView.vue — подинтерфейсы на недоступны
     expect(staleCalls(fetchMock)).toBe(2)
   })
 })
+
+
+describe('VLANsView.vue — пагинация', () => {
+  const group = (id: number) => ({
+    vlan_id: id,
+    definitions: [{ id: `v-${id}`, vlan_id: id, name: `vlan-${id}`, description: '', domain_id: null, domain_name: '', devices: [] }],
+  })
+
+  function stubApi() {
+    const puts: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/integrity/stale-subinterfaces')) return jsonResponse({ ok: true, total: 0, subinterfaces: [] })
+        if (url.endsWith('/preferences/user') && init?.method === 'PUT') {
+          puts.push(JSON.parse(init.body as string))
+          return jsonResponse({ global: {}, user: {} })
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+    return puts
+  }
+
+  async function mountWith(count: number) {
+    seedStores()
+    useVLANsStore().groups = Array.from({ length: count }, (_, i) => group(i + 1))
+    const wrapper = mount(VLANsView, { global: { stubs: { DeviceFormModal: true } } })
+    await flushPromises()
+    return wrapper
+  }
+
+  const cards = (wrapper: Awaited<ReturnType<typeof mountWith>>) => wrapper.findAll('.group.card')
+  const range = (wrapper: Awaited<ReturnType<typeof mountWith>>) => wrapper.find('.paged-foot .range').text()
+
+  it('длинный список режется на страницы: 10 групп на первой, подвал с диапазоном и номерами страниц', async () => {
+    stubApi()
+    const wrapper = await mountWith(25)
+
+    expect(cards(wrapper)).toHaveLength(10)
+    expect(cards(wrapper)[0].text()).toContain('VLAN 1')
+    expect(range(wrapper)).toBe('Показано 1–10 из 25')
+    expect(wrapper.findAll('.pager button[aria-label^="Страница"]')).toHaveLength(3)
+  })
+
+  it('переход на последнюю страницу показывает остаток', async () => {
+    stubApi()
+    const wrapper = await mountWith(25)
+
+    await wrapper.find('.pager button[aria-label="Страница 3"]').trigger('click')
+
+    expect(cards(wrapper)).toHaveLength(5)
+    expect(cards(wrapper)[0].text()).toContain('VLAN 21')
+    expect(range(wrapper)).toBe('Показано 21–25 из 25')
+  })
+
+  it('смена размера страницы меняет число групп и запоминается', async () => {
+    const puts = stubApi()
+    const wrapper = await mountWith(25)
+
+    await wrapper.find('.page-size select').setValue('20')
+    await flushPromises()
+
+    expect(cards(wrapper)).toHaveLength(20)
+    expect(range(wrapper)).toBe('Показано 1–20 из 25')
+    expect(puts).toEqual([{ page_sizes: { vlans: 20 } }])
+  })
+
+  it('поиск возвращает на первую страницу, а не оставляет на несуществующей', async () => {
+    stubApi()
+    const wrapper = await mountWith(25)
+    await wrapper.find('.pager button[aria-label="Страница 3"]').trigger('click')
+
+    useVLANsStore().search = '1' // VLAN 1, 10–19 и 21 — 12 групп, две страницы
+    await flushPromises()
+
+    expect(range(wrapper)).toBe('Показано 1–10 из 12')
+    expect(cards(wrapper)[0].text()).toContain('VLAN 1')
+  })
+
+  it('короткий список — одна страница, пейджер без лишних кнопок', async () => {
+    stubApi()
+    const wrapper = await mountWith(3)
+
+    expect(cards(wrapper)).toHaveLength(3)
+    expect(range(wrapper)).toBe('Показано 1–3 из 3')
+    expect(wrapper.findAll('.pager button[aria-label^="Страница"]')).toHaveLength(1)
+  })
+
+  it('когда ничего не найдено — сообщение вместо списка и без подвала пагинации', async () => {
+    stubApi()
+    const wrapper = await mountWith(25)
+
+    useVLANsStore().search = 'такого-нет'
+    await flushPromises()
+
+    expect(wrapper.find('.empty-banner').exists()).toBe(true)
+    expect(wrapper.find('.paged-foot').exists()).toBe(false)
+  })
+})

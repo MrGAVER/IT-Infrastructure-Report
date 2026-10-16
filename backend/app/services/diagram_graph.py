@@ -59,6 +59,7 @@ from ..constants import OwnerType
 from ..reporting import _expand_structural_unit_ids, device_label
 from ..services.computed import ip_label
 from .diagram_icons import MAX_PORT_TICKS, IconLookups, build_device_icon
+from .port_config import DEFAULT_VLAN_MODE, VLAN_MODE_TRUNK
 from .port_vlans import carries_all_vlans, effective_vlan_ids
 
 GROUP_DIMENSIONS = ("structural_unit", "vlan", "building", "device_category")
@@ -352,6 +353,15 @@ def _interface_ref(interface: Optional[DeviceInterface], supports_port_index: bo
     return ref
 
 
+def _is_trunk_connection(*interfaces: Optional[DeviceInterface]) -> bool:
+    """Подключение — trunk, если все известные его концы в режиме trunk (порт без явного режима тоже trunk, как
+    у колонки DeviceInterface.vlan_mode). Если режимы концов разошлись (access ↔ trunk — это отдельная
+    ошибка конфигурации, см. services/port_config.py), подключение trunk не считается: на диаграмме остаётся
+    список VLAN, из которого расхождение видно. Нет ни одного известного конца — не trunk."""
+    known = [iface for iface in interfaces if iface is not None]
+    return bool(known) and all((iface.vlan_mode or DEFAULT_VLAN_MODE) == VLAN_MODE_TRUNK for iface in known)
+
+
 def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, target_node_id: str) -> dict:
     """Раздел 4.4 ТЗ. `source_node_id`/`target_node_id` уже разрешены вызывающим кодом
     (build_graph) на устройство или на границу свёрнутой группы — сама эта функция приоритет
@@ -394,6 +404,7 @@ def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, t
         "target_interface": _interface_ref(target_iface, target_supports_port_index, ctx),
         "connection_type": connection_type.name if connection_type else None,
         "is_active": connection.is_active,
+        "is_trunk": _is_trunk_connection(source_iface, target_iface),
         "vlans": list(vlans.values()),
     }
 

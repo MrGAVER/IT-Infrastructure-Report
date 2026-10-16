@@ -29,7 +29,7 @@ def generate_audit_log_report(date_from: str | None = None, date_to: str | None 
 def generate_structural_appendix(payload: dict | None = None, session: Session = Depends(get_db)):
     """Word-документ «Приложение к структурной схеме» (3 таблицы: линии связи, VLAN, оборудование).
 
-    Тело (необязательное): is_name — короткое имя ИС для заголовков (по умолчанию «ТО»),
+    Тело (необязательное): is_name — короткое имя ИС для заголовков (по умолчанию «ЕАИС ТО»; ведущее «ЕАИС»/«ИС» в заголовках не дублируется),
     structural_unit_ids — ограничение оборудованием выбранных структурных единиц, как у регламентированного отчёта."""
     payload = payload or {}
     is_name = payload.get('is_name', DEFAULT_IS_NAME)

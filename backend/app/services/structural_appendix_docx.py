@@ -36,7 +36,7 @@ from .report_engine import safe_report_filename
 from .structural_appendix import AppendixData, collect_structural_appendix
 
 DOCUMENT_TITLE = "Приложение к структурной схеме"
-DEFAULT_IS_NAME = "ТО"
+DEFAULT_IS_NAME = "ЕАИС ТО"
 MAX_IS_NAME_LENGTH = 100
 
 _FONT = "Times New Roman"
@@ -57,11 +57,18 @@ class StructuralAppendixError(ValueError):
     """Ошибка параметров формирования, пригодная для показа пользователю."""
 
 
+# Ведущее слово «ЕАИС»/«ИС» в имени: заголовки сами добавляют «ЕАИС …» и «… ИС …», поэтому введённое целиком
+# «ЕАИС ТО» (так имя показано и в поле по умолчанию) иначе дало бы «ЕАИС ЕАИС ТО». Снимается только слово
+# целиком и только если после него что-то осталось («ИСУ» и одиночное «ЕАИС» не трогаются).
+_IS_NAME_PREFIX = re.compile(r"^(?:ЕАИС|ИС)\s+(?=\S)", re.IGNORECASE)
+
+
 def normalize_is_name(raw: Optional[str]) -> str:
-    """Короткое имя ИС для заголовков: без лишних пробелов и управляющих символов, 1–100 символов.
-    Пустое значение — ошибка, а не молчаливая подстановка: документ без имени ИС выглядел бы
+    """Короткое имя ИС для заголовков: без лишних пробелов, управляющих символов и ведущего «ЕАИС»/«ИС»,
+    1–100 символов. Пустое значение — ошибка, а не молчаливая подстановка: документ без имени ИС выглядел бы
     законченным, но был бы испорчен."""
     name = " ".join(_XML_INVALID.sub("", raw or "").split())
+    name = _IS_NAME_PREFIX.sub("", name)
     if not name:
         raise StructuralAppendixError("Укажите короткое имя информационной системы")
     if len(name) > MAX_IS_NAME_LENGTH:
@@ -278,7 +285,7 @@ def build_structural_appendix(session: Session, report_dir: Path, *, is_name: Op
                               structural_unit_ids: Optional[list[str]] = None) -> Path:
     """Формирует docx в report_dir и возвращает путь к файлу.
 
-    Пример: build_structural_appendix(session, REPORT_DIR, is_name="ТО")
+    Пример: build_structural_appendix(session, REPORT_DIR, is_name="ЕАИС ТО")  # в заголовках — «ЕАИС ТО», «… ИС ТО»
     Бросает StructuralAppendixError при недопустимом имени ИС."""
     name = normalize_is_name(is_name)
     doc = render_structural_appendix(collect_structural_appendix(session, structural_unit_ids), name)

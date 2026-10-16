@@ -60,6 +60,7 @@ describe('DiagramDetailPanel.vue', () => {
         target_interface: { id: 'if-2', name: 'eth0' },
         connection_type: 'Витая пара',
         is_active: true,
+        is_trunk: true,
         vlans: [
           { id: 'v1', vlan_id: 10, name: 'data' },
           { id: 'v2', vlan_id: 20, name: 'voice' },

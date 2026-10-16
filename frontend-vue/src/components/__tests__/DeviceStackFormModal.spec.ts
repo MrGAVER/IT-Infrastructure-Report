@@ -115,6 +115,39 @@ describe('DeviceStackFormModal.vue', () => {
     expect(row.find('.col-pos').text()).toBe('1')
   })
 
+  // Регресс: у <th>/<td> столбца кнопок стоял display: flex, и у пустого заголовка нижняя граница съезжала вверх
+  // относительно соседних заголовков. Ячейки должны оставаться табличными, а кнопки лежать во вложенном контейнере.
+  it('столбец кнопок: ячейки табличные, кнопки во вложенном .row-actions, у пустого заголовка есть скрытая подпись', async () => {
+    seedDevices()
+    const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/device-stacks/stack-1/detail')) {
+          return jsonResponse(
+            detailResponse({
+              members: [
+                { id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never,
+              ],
+            }),
+          )
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+    await flushPromises()
+
+    const head = wrapper.find('.member-table thead th.col-actions')
+    expect(head.exists()).toBe(true)
+    expect(head.find('.sr-only').text()).toBe('Действия')
+
+    const cell = wrapper.find('.member-table tbody td.col-actions')
+    expect(cell.find('.row-actions').exists()).toBe(true)
+    expect(cell.findAll('.row-actions > button')).toHaveLength(2)
+  })
+
   it('добавляет устройство в стек через POST .../members и перезагружает состав', async () => {
     seedDevices()
     const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }

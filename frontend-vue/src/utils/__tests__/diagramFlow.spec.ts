@@ -44,6 +44,7 @@ function edge(overrides: Partial<DiagramEdge> = {}): DiagramEdge {
     target_interface: { id: 'if-2', name: 'eth0', port_index: 0 },
     connection_type: 'Витая пара',
     is_active: true,
+    is_trunk: false,
     vlans: [],
     ...overrides,
   }
@@ -96,6 +97,27 @@ describe('edgeMidLabel', () => {
     // конца линии (edgeSourcePortLabel/edgeTargetPortLabel), дублирование лишь усиливало
     // наложение подписей друг на друга на плотных диаграммах.
     expect(edgeMidLabel(edge({ vlans: [] }))).toBeUndefined()
+  })
+
+  it('trunk-подключение с VLAN — подпись «trunk» вместо полного списка VLAN', () => {
+    const e = edge({
+      is_trunk: true,
+      vlans: [
+        { id: 'v1', vlan_id: 10, name: 'data' },
+        { id: 'v2', vlan_id: 20, name: 'voice' },
+        { id: 'v3', vlan_id: 30, name: 'guest' },
+      ],
+    })
+    expect(edgeMidLabel(e)).toBe('trunk')
+  })
+
+  it('trunk без VLAN — подписи нет (как и у любого подключения без VLAN)', () => {
+    expect(edgeMidLabel(edge({ is_trunk: true, vlans: [] }))).toBeUndefined()
+  })
+
+  it('не trunk (access или расхождение режимов на концах) — список VLAN, как раньше', () => {
+    const e = edge({ is_trunk: false, vlans: [{ id: 'v1', vlan_id: 10, name: 'data' }] })
+    expect(edgeMidLabel(e)).toBe('VLAN 10')
   })
 })
 

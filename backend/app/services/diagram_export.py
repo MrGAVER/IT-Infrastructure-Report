@@ -94,8 +94,16 @@ _XLINK_NS_URI = "http://www.w3.org/1999/xlink"
 _SVG_ROOT_TAG = re.compile(r"<svg\b[^>]*>", re.IGNORECASE)
 
 
+TRUNK_EDGE_LABEL = "trunk"
+
+
 def _vlan_label(edge: dict) -> str:
-    return ", ".join(f"VLAN {v['vlan_id']}" for v in edge.get("vlans", []))
+    """Подпись ребра: у trunk-подключения с VLAN — просто «trunk» (полный список VLAN на линии не читается), иначе
+    список VLAN. Должна совпадать с edgeMidLabel во frontend-vue/src/utils/diagramFlow.ts."""
+    vlans = edge.get("vlans", [])
+    if vlans and edge.get("is_trunk"):
+        return TRUNK_EDGE_LABEL
+    return ", ".join(f"VLAN {v['vlan_id']}" for v in vlans)
 
 
 def _device_fill_color(icon: dict) -> str:
