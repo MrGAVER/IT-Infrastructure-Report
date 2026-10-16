@@ -75,14 +75,14 @@ ALLOWED_DELETIONS = {
     ("app/services/crud/deletion.py", "delete_resource", "obj"),
     # синхронизация дочерних записей формы (интерфейсы устройства, порты, IP, источники ИС): удаляет
     # дочерние строки и сама подчищает их полиморфных потомков
-    ("app/services/crud/interfaces.py", "_sync_single_interface", "InterfaceVLAN"),
-    ("app/services/crud/interfaces.py", "_sync_single_interface", "old_ip"),
+    ("app/services/crud/interfaces.py", "_replace_port_vlans", "InterfaceVLAN"),
+    ("app/services/crud/interfaces.py", "_sync_port_ips", "old_ip"),
     # Открытые порты, IP-адреса и ПО — листовые записи (на них никто не ссылается), удаляются diff'ом по
     # id общей _sync_owned_rows: у порта устройства (sync_owner_open_ports) и у ВМ (sync_vm_*)
     ("app/services/crud/owned_rows.py", "_sync_owned_rows", "stale_row"),
-    ("app/services/crud/interfaces.py", "sync_interfaces", "IPAddress"),
-    ("app/services/crud/interfaces.py", "sync_interfaces", "OpenPort"),
-    ("app/services/crud/interfaces.py", "sync_interfaces", "obj"),
+    ("app/services/crud/interfaces.py", "_remove_stale_interfaces", "IPAddress"),
+    ("app/services/crud/interfaces.py", "_remove_stale_interfaces", "OpenPort"),
+    ("app/services/crud/interfaces.py", "_remove_stale_interfaces", "obj"),
     # группы портов (InterfaceGroup, её VLAN и открытые порты): дочерние записи одного устройства, не
     # входят в MODEL_MAP; входящие ссылки — только device_interfaces.group_id (ON DELETE SET NULL,
     # порты отвязываются, но не удаляются) и собственные VLAN/открытые порты группы (CASCADE).
