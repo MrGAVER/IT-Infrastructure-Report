@@ -94,6 +94,30 @@ describe('InformationSystemsView.vue — столбец «IP-адреса»', ()
     expect(wrapper.find('td.empty-row').attributes('colspan')).toBe(String(columns))
   })
 
+  it('ввод IP-адреса в строку поиска оставляет в таблице только системы с этим адресом', async () => {
+    stubServer([
+      system({ id: 'a', name: 'Альфа', ip_addresses: ['10.1.1.5', '192.168.5.10/24'] }),
+      system({ id: 'b', name: 'Бета', ip_addresses: ['172.16.0.7'] }),
+      system({ id: 'c', name: 'Гамма' }),
+    ])
+    const wrapper = await mountView()
+    expect(wrapper.findAll('tbody tr')).toHaveLength(3)
+
+    await wrapper.find('.search-box input').setValue('192.168.5')
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('Альфа')
+    expect(rows[0].find('.ip-cell').text()).toContain('192.168.5.10/24')
+  })
+
+  it('подсказка поля поиска упоминает IP-адрес', async () => {
+    stubServer([])
+    const wrapper = await mountView()
+
+    expect(wrapper.find('.search-box input').attributes('placeholder')).toContain('IP-адрес')
+  })
+
   it('загруженный список при открытии экрана не перезапрашивается', async () => {
     const store = useInformationSystemsStore()
     store.all = [system({ name: 'Альфа', ip_addresses: ['10.0.0.1'] })]

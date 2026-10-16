@@ -33,6 +33,56 @@ describe('useInformationSystemsStore', () => {
     expect(store.filtered).toHaveLength(3)
   })
 
+  describe('поиск по IP-адресам', () => {
+    async function loadWithIps() {
+      const store = useInformationSystemsStore()
+      await store.ensureLoaded()
+      // is-1 — два адреса (один ВМ, с префиксом), is-2 — один, у is-3 поля в ответе нет (старый ответ/созданная запись)
+      store.all = store.all.map((s) => {
+        if (s.id === 'is-1') return { ...s, ip_addresses: ['10.1.1.5', '192.168.5.10/24'] }
+        if (s.id === 'is-2') return { ...s, ip_addresses: ['172.16.0.7'] }
+        return s
+      })
+      return store
+    }
+
+    it('находит систему по адресу целиком', async () => {
+      const store = await loadWithIps()
+      store.search = '172.16.0.7'
+      expect(store.filtered.map((s) => s.id)).toEqual(['is-2'])
+    })
+
+    it('находит по началу адреса и по адресу с префиксом', async () => {
+      const store = await loadWithIps()
+      store.search = '10.1.'
+      expect(store.filtered.map((s) => s.id)).toEqual(['is-1'])
+
+      store.search = '192.168.5.10/24'
+      expect(store.filtered.map((s) => s.id)).toEqual(['is-1'])
+
+      store.search = '192.168.5.10' // без префикса — тоже находит
+      expect(store.filtered.map((s) => s.id)).toEqual(['is-1'])
+    })
+
+    it('несуществующий адрес не находит ничего; ИС без поля ip_addresses не ломает поиск по тексту', async () => {
+      const store = await loadWithIps()
+      store.search = '8.8.8.8'
+      expect(store.filtered).toEqual([])
+
+      store.search = 'Крипто' // is-3 без ip_addresses по-прежнему находится по тексту
+      expect(store.filtered.map((s) => s.id)).toEqual(['is-3'])
+    })
+
+    it('работает вместе с фильтром SIEM', async () => {
+      const store = await loadWithIps()
+      store.search = '10.1.1.5'
+      store.siemFilter = 'no'
+      expect(store.filtered).toEqual([])
+      store.siemFilter = 'yes'
+      expect(store.filtered.map((s) => s.id)).toEqual(['is-1'])
+    })
+  })
+
   it('фильтрует по SIEM', async () => {
     const store = useInformationSystemsStore()
     await store.ensureLoaded()

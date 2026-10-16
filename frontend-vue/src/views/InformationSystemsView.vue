@@ -94,7 +94,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
     <div class="filter-bar">
       <div class="search-box">
         <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="systems.search" type="text" placeholder="Поиск по наименованию, описанию, назначению…" />
+        <input v-model="systems.search" type="text" placeholder="Поиск по наименованию, описанию, назначению, IP-адресу…" />
       </div>
       <div class="chip-group">
         <button :class="{ on: systems.siemFilter === 'all' }" @click="systems.siemFilter = 'all'">SIEM: все</button>

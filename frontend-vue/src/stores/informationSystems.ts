@@ -28,8 +28,10 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
       let rows = state.all
       if (state.search.trim()) {
         const q = state.search.trim().toLowerCase()
+        // IP-адреса — те же строки, что в столбце «IP-адреса» (у адресов ВМ с префиксом, «192.168.5.10/24»): по подстроке
+        // находится и адрес целиком, и его начало («10.1.»), и запись с префиксом.
         rows = rows.filter((s) =>
-          [s.name, s.description, s.purpose, s.localization].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
+          [s.name, s.description, s.purpose, s.localization, ...(s.ip_addresses ?? [])].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
         )
       }
       if (state.siemFilter !== 'all') {
