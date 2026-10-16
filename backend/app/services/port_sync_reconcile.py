@@ -275,15 +275,17 @@ class _TargetPlan:
     diverges: bool = False
 
 
-def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]) -> _TargetPlan:
-    """Сопоставляет VLAN целевого порта и проверяет запреты. `claimed` только читает — порты, занятые
-    этим планом, помечает вызывающий, когда решит, что подключение применяется."""
-    target_id = connection.source_interface_id if option.apply_to == APPLY_TO_SOURCE else connection.destination_interface_id
-    source_id = connection.destination_interface_id if option.apply_to == APPLY_TO_SOURCE else connection.source_interface_id
-    target, source = ports[target_id], ports[source_id]
-    changes = option.changes
-    warnings: list[str] = []
+@dataclass(frozen=True)
+class _VlanOutcome:
+    """Что получится с набором VLAN целевого порта."""
 
+    resolved_ids: list[str] | None  # записи VLAN для записи; None — набор не меняется
+    skipped: list[int]  # номера, которые назначить нельзя: нет у устройства порта
+    final_numbers: frozenset[int]  # номера VLAN порта после применения
+    diverges: bool  # после применения набор всё равно отличается от набора соседа («Все VLAN» у устройств с разными VLAN)
+
+
+def _resolve_target_vlans(changes: Changes, target: _Port, source: _Port, vlans: dict[str, VLAN]) -> _VlanOutcome:
     resolved_ids: list[str] | None = None
     skipped: list[int] = []
     final_numbers = target.facts.vlans
@@ -302,39 +304,78 @@ def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: 
             final_numbers = frozenset(vlans[v].vlan_id for v in resolved_ids if v in vlans)
         skipped = sorted(source.facts.vlans - final_numbers)  # VLAN соседа, которых нет у устройства порта
         diverges = final_numbers != source.facts.vlans
-    new_mode = changes.mode or target.facts.mode
+    return _VlanOutcome(resolved_ids, skipped, final_numbers, diverges)
 
-    blocked: str | None = None
+
+def _blocked_reason(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
+    """Первая причина, по которой изменение применить нельзя, либо None. Порядок проверок — часть поведения:
+    при нескольких причинах пользователь видит первую (закреплено tests/test_plan_target_behaviour.py)."""
     if changes.violation:
-        blocked = changes.violation
-    elif (changes.mode is not None or changes.vlans is not None or changes.all_vlans) and target.group is not None and target.group.vlan_mode:
-        blocked = f"Порт входит в группу «{target.group.name}», которая задаёт режим и VLAN, — измените группу"
-    elif (changes.vlans is not None or changes.all_vlans) and resolved_ids is None and changes.role is None and changes.mode is None:
-        if skipped:
-            blocked = "Ни один из VLAN соседнего порта не доступен устройству этого порта — добавьте их в «VLAN устройства»"
-        else:
-            blocked = "У устройства этого порта нет VLAN, которые можно назначить, — добавьте их в «VLAN устройства»" if changes.all_vlans else "Изменений нет"
-    elif new_mode == "access" and len(final_numbers) > 1:
-        blocked = "В режиме access у порта может быть не более одного VLAN"
-    elif target_id in claimed:
-        blocked = "Порт уже изменяется другим подключением этого же плана"
+        return changes.violation
+    if (changes.mode is not None or changes.vlans is not None or changes.all_vlans) and target.group is not None and target.group.vlan_mode:
+        return f"Порт входит в группу «{target.group.name}», которая задаёт режим и VLAN, — измените группу"
+    if (changes.vlans is not None or changes.all_vlans) and outcome.resolved_ids is None and changes.role is None and changes.mode is None:
+        if outcome.skipped:
+            return "Ни один из VLAN соседнего порта не доступен устройству этого порта — добавьте их в «VLAN устройства»"
+        return "У устройства этого порта нет VLAN, которые можно назначить, — добавьте их в «VLAN устройства»" if changes.all_vlans else "Изменений нет"
+    if (changes.mode or target.facts.mode) == "access" and len(outcome.final_numbers) > 1:
+        return "В режиме access у порта может быть не более одного VLAN"
+    if target_id in claimed:
+        return "Порт уже изменяется другим подключением этого же плана"
+    return None
 
+
+def _change_pairs(
+    target: _Port, changes: Changes, outcome: _VlanOutcome
+) -> tuple[tuple[str, str] | None, tuple[str, str] | None, tuple[list[int], list[int]] | None]:
+    """Пары «было → станет» по роли, режиму и набору VLAN; None — грань не меняется."""
     role_pair = (target.facts.role.value, changes.role.value) if changes.role else None
     mode_pair = (target.facts.mode, changes.mode) if changes.mode else None
-    vlan_pair = (sorted(target.facts.vlans), sorted(final_numbers)) if resolved_ids is not None else None
-    view = {
+    vlan_pair = (sorted(target.facts.vlans), sorted(outcome.final_numbers)) if outcome.resolved_ids is not None else None
+    return role_pair, mode_pair, vlan_pair
+
+
+def _changes_view(target: _Port, role_pair, mode_pair, vlan_pair, skipped: list[int]) -> dict[str, Any]:
+    """Что покажет предпросмотр. Пропущенные VLAN показываются, даже если набор порта не меняется."""
+    current = sorted(target.facts.vlans)
+    if vlan_pair:
+        vlans_view = {"from": vlan_pair[0], "to": vlan_pair[1], "skipped": skipped}
+    else:
+        vlans_view = {"from": current, "to": current, "skipped": skipped} if skipped else None
+    return {
         "role": {"from": role_pair[0], "to": role_pair[1]} if role_pair else None,
         "mode": {"from": mode_pair[0], "to": mode_pair[1]} if mode_pair else None,
-        "vlans": {"from": vlan_pair[0], "to": vlan_pair[1], "skipped": skipped} if vlan_pair else ({"from": sorted(target.facts.vlans), "to": sorted(target.facts.vlans), "skipped": skipped} if skipped else None),
+        "vlans": vlans_view,
     }
-    if skipped and not blocked:
-        warnings.append("Не назначены VLAN, которых нет у устройства порта: " + ", ".join(map(str, skipped)))
-    extra = sorted(final_numbers - source.facts.vlans) if changes.all_vlans else []
-    if extra and not blocked:
+
+
+def _plan_warnings(changes: Changes, outcome: _VlanOutcome, source: _Port) -> list[str]:
+    """Предупреждения применимого изменения (у заблокированного их нет)."""
+    warnings: list[str] = []
+    if outcome.skipped:
+        warnings.append("Не назначены VLAN, которых нет у устройства порта: " + ", ".join(map(str, outcome.skipped)))
+    extra = sorted(outcome.final_numbers - source.facts.vlans) if changes.all_vlans else []
+    if extra:
         warnings.append("Порту назначаются все VLAN его устройства; у соседнего порта нет VLAN: " + ", ".join(map(str, extra)))
+    return warnings
+
+
+def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]) -> _TargetPlan:
+    """Сопоставляет VLAN целевого порта и проверяет запреты. `claimed` только читает — порты, занятые
+    этим планом, помечает вызывающий, когда решит, что подключение применяется."""
+    target_id = connection.source_interface_id if option.apply_to == APPLY_TO_SOURCE else connection.destination_interface_id
+    source_id = connection.destination_interface_id if option.apply_to == APPLY_TO_SOURCE else connection.source_interface_id
+    target, source = ports[target_id], ports[source_id]
+    changes = option.changes
+
+    outcome = _resolve_target_vlans(changes, target, source, vlans)
+    blocked = _blocked_reason(changes, target, target_id, outcome, claimed)
+    role_pair, mode_pair, vlan_pair = _change_pairs(target, changes, outcome)
+    view = _changes_view(target, role_pair, mode_pair, vlan_pair, outcome.skipped)
+    warnings = [] if blocked else _plan_warnings(changes, outcome, source)
     description = _describe(role_pair, mode_pair, vlan_pair, all_vlans=changes.all_vlans)
-    planned = None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, resolved_ids, description, all_vlans=changes.all_vlans)
-    return _TargetPlan(option.apply_to, target, view, warnings, blocked, planned, diverges)
+    planned = None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, outcome.resolved_ids, description, all_vlans=changes.all_vlans)
+    return _TargetPlan(option.apply_to, target, view, warnings, blocked, planned, outcome.diverges)
 
 
 def _port_label(port: _Port) -> str:

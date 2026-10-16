@@ -20,4 +20,3 @@ max-complexity = 12
 "backend/alembic/versions/*.py" = ["C901"]                 # исторические миграции не переписываем
 "backend/app/reporting.py" = ["C901"]                    # _load_report_data (22), _connection_row_values_list (26)
 "backend/app/services/diagram_export.py" = ["C901"]         # export_vsdx (16)
-"backend/app/services/port_sync_reconcile.py" = ["C901"]    # _plan_target (13)
