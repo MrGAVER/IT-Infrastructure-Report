@@ -9,7 +9,7 @@
 // VLANsView.vue, включая панель "Домены VLAN") — добавлять их сюда означало бы дублировать уже
 // существующий, более удобный для этих сущностей UI (у зданий — вложенность
 // здание/помещение/стойка, у VLAN — таблица с фильтрами).
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
@@ -38,6 +38,14 @@ const OTHER_CATALOGS = [
 ] as const
 type OtherCatalogKey = (typeof OTHER_CATALOGS)[number]
 
+// catalog — ключ справочника, который нужно открыть (маршрут передаёт его из ?catalog=, см. router/index.ts;
+// так дашборд ведёт на «Программные активы»). Неизвестное значение игнорируется: открывается первый справочник.
+const props = defineProps<{ catalog?: string }>()
+
+function isOtherCatalogKey(value: string | undefined): value is OtherCatalogKey {
+  return OTHER_CATALOGS.some((key) => key === value)
+}
+
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
 const { notify, notifyError } = useToast()
@@ -58,7 +66,14 @@ onMounted(async () => {
   }
 })
 
-const selected = ref<OtherCatalogKey>('device-types')
+const selected = ref<OtherCatalogKey>(isOtherCatalogKey(props.catalog) ? props.catalog : 'device-types')
+// Тот же компонент остаётся на экране, когда меняется только ?catalog= (переход по ссылке, «назад»/«вперёд»).
+watch(
+  () => props.catalog,
+  (key) => {
+    if (isOtherCatalogKey(key)) selected.value = key
+  },
+)
 const fields = computed<QuickField[]>(() => QUICK_ADD_FIELDS[selected.value] ?? [])
 
 /** protocol-port-catalog хранится отдельно от остальных каталогов (у записей нет поля name —

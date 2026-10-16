@@ -1,8 +1,10 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { usePreferencesStore } from '../stores/preferences'
 
-const routes = [
+// Экспортируется ради тестов: проверка, что ссылки дашборда ведут на существующие маршруты, строит тестовый
+// роутер из этой же таблицы (без гарда ниже и без загрузки самих экранов).
+export const routes = [
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
   { path: '/', redirect: '/dashboard' },
   {
@@ -59,6 +61,9 @@ const routes = [
     path: '/other-catalogs',
     name: 'other-catalogs',
     component: () => import('../views/OtherCatalogsView.vue'),
+    // ?catalog=<ключ справочника> открывает экран сразу на нужном справочнике (так дашборд ведёт на
+    // «Программные активы»). Сам экран не знает про роутер — получает значение пропом и сам отбрасывает неизвестное.
+    props: (route: RouteLocationNormalized) => ({ catalog: typeof route.query.catalog === 'string' ? route.query.catalog : undefined }),
   },
   {
     path: '/reports',

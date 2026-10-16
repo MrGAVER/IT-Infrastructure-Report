@@ -80,6 +80,39 @@ describe('OtherCatalogsView.vue', () => {
     expect(wrapper.find('tbody').text()).toContain('Dell')
   })
 
+  describe('проп catalog (переход по ссылке с дашборда)', () => {
+    it('открывает справочник, заданный пропом, а не первый в списке', async () => {
+      const catalogs = seedCatalogs()
+      catalogs.items['software-assets'] = [{ id: 'sa-1', name: 'PostgreSQL' } as never]
+      const wrapper = mount(OtherCatalogsView, { props: { catalog: 'software-assets' } })
+      await flushPromises()
+
+      expect(wrapper.find('.catalog-item.active').text()).toContain('Программный актив')
+      expect(wrapper.find('tbody').text()).toContain('PostgreSQL')
+    })
+
+    it('неизвестное значение игнорируется: открывается первый справочник', async () => {
+      seedCatalogs()
+      const wrapper = mount(OtherCatalogsView, { props: { catalog: 'no-such-catalog' } })
+      await flushPromises()
+
+      expect(wrapper.find('.catalog-item.active').text()).toContain('Тип устройства')
+    })
+
+    it('смена пропа на уже открытом экране переключает справочник; неизвестное значение выбор не сбрасывает', async () => {
+      seedCatalogs()
+      const wrapper = mount(OtherCatalogsView, { props: { catalog: 'manufacturers' } })
+      await flushPromises()
+      expect(wrapper.find('.catalog-item.active').text()).toContain('Производитель')
+
+      await wrapper.setProps({ catalog: 'device-types' })
+      expect(wrapper.find('.catalog-item.active').text()).toContain('Тип устройства')
+
+      await wrapper.setProps({ catalog: 'bogus' })
+      expect(wrapper.find('.catalog-item.active').text()).toContain('Тип устройства')
+    })
+  })
+
   it('справочник без записей показывает пустое состояние вместо таблицы', async () => {
     const catalogs = useCatalogsStore()
     catalogs.loaded = true // всё остальное — пустые массивы по умолчанию
