@@ -47,53 +47,112 @@ class _GroupState:
     subinterfaces: list[dict[str, Any]] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _GroupVlans:
+    """Режим порта и VLAN группы после проверок: vlan_ids без повторов, а при «Все VLAN» пуст."""
+    mode: str | None
+    all_vlans: bool
+    vlan_ids: list[str]
+
+
+@dataclass(frozen=True)
+class _GroupIp:
+    """Общий IP группы: префикс и назначение хранятся только вместе с адресом."""
+    address: str | None
+    prefix_length: int | None
+    purpose: str | None
+
+
+def _group_name(item: dict[str, Any]) -> str:
+    name = str(item.get('name') or '').strip()
+    if not name:
+        raise HTTPException(422, 'У группы портов должно быть наименование')
+    if len(name) > 100:
+        raise HTTPException(422, 'Наименование группы портов не должно превышать 100 символов')
+    return name
+
+
+def _group_vlans(item: dict[str, Any], allowed_vlans: set[str]) -> _GroupVlans:
+    """Режим порта, «Все VLAN» и список VLAN группы. Порядок проверок — часть поведения: при нескольких
+    нарушениях клиент получает первое из них (закреплено tests/test_normalize_group_item_behaviour.py)."""
+    mode = item.get('vlan_mode') or None
+    if mode is not None and mode not in _VLAN_MODES:
+        raise HTTPException(422, "Поле vlan_mode группы портов должно быть 'access', 'trunk' или пустым")
+    vlan_ids = item.get('vlan_ids') or []
+    if not isinstance(vlan_ids, list):
+        raise HTTPException(422, 'Поле vlan_ids группы портов должно быть массивом')
+    all_vlans = item.get('all_vlans', False)
+    if not isinstance(all_vlans, bool):
+        raise HTTPException(422, 'Поле all_vlans группы портов должно быть true или false')
+    # «Все VLAN» группы: как у порта, хранится только признак (а vlan_ids игнорируется), набор VLAN — все VLAN устройства.
+    if all_vlans and mode != 'trunk':
+        raise HTTPException(422, "«Все VLAN» у группы портов возможно только в режиме trunk")
+    if all_vlans:
+        vlan_ids = []
+    if vlan_ids and mode is None:
+        raise HTTPException(422, 'VLAN группы портов можно задать только вместе с режимом порта')
+    if any(v not in allowed_vlans for v in vlan_ids):
+        raise HTTPException(422, 'Один или несколько VLAN не разрешены для типа данного устройства')
+    unique_vlan_ids = list(dict.fromkeys(vlan_ids))
+    if mode == 'access' and len(unique_vlan_ids) > 1:
+        raise HTTPException(422, 'В режиме access у группы портов может быть не более одного VLAN')
+    return _GroupVlans(mode, all_vlans, unique_vlan_ids)
+
+
+def _group_ip(item: dict[str, Any]) -> _GroupIp:
+    address = str(item.get('ip_address') or '').strip() or None
+    prefix = item.get('prefix_length')
+    validate_ipv4_field(address, 'IP-адрес группы портов')
+    validate_prefix_length_field(prefix, 'Префикс IP-адреса группы портов')
+    prefix_length = int(prefix) if address and prefix not in (None, '') else None
+    # Назначение — часть общего IP: без адреса не хранится (как и префикс). Колонка IPAddress.purpose — 255 символов.
+    purpose = (str(item.get('ip_purpose') or '').strip() or None) if address else None
+    if purpose is not None and len(purpose) > _IP_PURPOSE_MAX_LENGTH:
+        raise HTTPException(422, f'Назначение IP-адреса группы портов не должно превышать {_IP_PURPOSE_MAX_LENGTH} символов')
+    return _GroupIp(address, prefix_length, purpose)
+
+
+def _group_open_ports(item: dict[str, Any], group_name: str, session: Session) -> tuple[bool, list[dict[str, Any]]]:
+    """(управляет ли группа открытыми портами, их нормализованный список). Строка-плейсхолдер без выбранной
+    записи справочника пропускается, как у порта (см. _sync_interface_open_ports); без manage_open_ports
+    список открытых портов не хранится и не проверяется (кроме того, что это массив)."""
+    manage = bool(item.get('manage_open_ports'))
+    raw_ports = item.get('open_ports') or []
+    if not isinstance(raw_ports, list):
+        raise HTTPException(422, 'Поле open_ports группы портов должно быть массивом')
+    open_ports: list[dict[str, Any]] = []
+    for port_data in raw_ports:
+        if not manage or not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'):
+            continue
+        _validate_open_port_catalog(port_data, session)
+        open_ports.append({'id': port_data.get('id'), 'protocol_catalog_id': port_data['protocol_catalog_id'], 'transport_protocol': port_data.get('transport_protocol') or 'TCP', 'description': port_data.get('description') or None})
+    validate_unique_open_port_numbers((p['protocol_catalog_id'] for p in open_ports), session, f'Группа портов «{group_name}»')
+    return manage, open_ports
+
+
+def _group_subinterfaces(item: dict[str, Any], group_name: str, vlans: _GroupVlans, allowed_vlans: set[str], session: Session) -> tuple[bool, list[dict[str, Any]]]:
+    """(управляет ли группа подинтерфейсами, их нормализованный список). Как и открытые порты, подинтерфейсы
+    хранятся только пока группа ими управляет. Допустимые VLAN подинтерфейса — те, что группа записывает
+    портам (при «Все VLAN» — все VLAN устройства)."""
+    if not item.get('manage_subinterfaces'):
+        return False, []
+    group_vlans = set(allowed_vlans) if vlans.all_vlans else set(vlans.vlan_ids)
+    return True, normalize_group_subinterfaces(item.get('subinterfaces') or [], group_name=group_name, vlan_mode=vlans.mode, group_vlans=group_vlans, session=session)
+
+
 def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) -> dict[str, Any]:
     """Валидирует один элемент payload['groups'] и приводит к значениям колонок. Заданность
     параметра (vlan_mode / ip_address / manage_open_ports) определяет, управляет ли им группа —
-    см. models.InterfaceGroup. Проверки те же, что для отдельного порта (_sync_single_interface)."""
-    if not isinstance(item, dict): raise HTTPException(422, 'Каждая группа портов должна быть объектом')
-    name = str(item.get('name') or '').strip()
-    if not name: raise HTTPException(422, 'У группы портов должно быть наименование')
-    if len(name) > 100: raise HTTPException(422, 'Наименование группы портов не должно превышать 100 символов')
-    vlan_mode = item.get('vlan_mode') or None
-    if vlan_mode is not None and vlan_mode not in _VLAN_MODES:
-        raise HTTPException(422, "Поле vlan_mode группы портов должно быть 'access', 'trunk' или пустым")
-    vlan_ids = item.get('vlan_ids') or []
-    if not isinstance(vlan_ids, list): raise HTTPException(422, 'Поле vlan_ids группы портов должно быть массивом')
-    all_vlans = item.get('all_vlans', False)
-    if not isinstance(all_vlans, bool): raise HTTPException(422, 'Поле all_vlans группы портов должно быть true или false')
-    # «Все VLAN» группы: как у порта, хранится только признак (а vlan_ids игнорируется), набор VLAN — все VLAN устройства.
-    if all_vlans and vlan_mode != 'trunk': raise HTTPException(422, "«Все VLAN» у группы портов возможно только в режиме trunk")
-    if all_vlans: vlan_ids = []
-    if vlan_ids and vlan_mode is None: raise HTTPException(422, 'VLAN группы портов можно задать только вместе с режимом порта')
-    if any(v not in allowed_vlans for v in vlan_ids): raise HTTPException(422, 'Один или несколько VLAN не разрешены для типа данного устройства')
-    unique_vlan_ids = list(dict.fromkeys(vlan_ids))
-    if vlan_mode == 'access' and len(unique_vlan_ids) > 1: raise HTTPException(422, 'В режиме access у группы портов может быть не более одного VLAN')
-    ip_address = str(item.get('ip_address') or '').strip() or None
-    prefix = item.get('prefix_length')
-    validate_ipv4_field(ip_address, 'IP-адрес группы портов')
-    validate_prefix_length_field(prefix, 'Префикс IP-адреса группы портов')
-    prefix_length = int(prefix) if ip_address and prefix not in (None, '') else None
-    # Назначение — часть общего IP: без адреса не хранится (как и префикс). Колонка IPAddress.purpose — 255 символов.
-    ip_purpose = (str(item.get('ip_purpose') or '').strip() or None) if ip_address else None
-    if ip_purpose is not None and len(ip_purpose) > _IP_PURPOSE_MAX_LENGTH:
-        raise HTTPException(422, f'Назначение IP-адреса группы портов не должно превышать {_IP_PURPOSE_MAX_LENGTH} символов')
-    manage_open_ports = bool(item.get('manage_open_ports'))
-    raw_ports = item.get('open_ports') or []
-    if not isinstance(raw_ports, list): raise HTTPException(422, 'Поле open_ports группы портов должно быть массивом')
-    open_ports: list[dict[str, Any]] = []
-    for port_data in raw_ports:
-        # Строка-плейсхолдер без выбранной записи справочника пропускается, как у порта (см.
-        # _sync_interface_open_ports). Без manage_open_ports список открытых портов не хранится.
-        if not manage_open_ports or not isinstance(port_data, dict) or not port_data.get('protocol_catalog_id'): continue
-        _validate_open_port_catalog(port_data, session)
-        open_ports.append({'id': port_data.get('id'), 'protocol_catalog_id': port_data['protocol_catalog_id'], 'transport_protocol': port_data.get('transport_protocol') or 'TCP', 'description': port_data.get('description') or None})
-    validate_unique_open_port_numbers((p['protocol_catalog_id'] for p in open_ports), session, f'Группа портов «{name}»')
-    # Подинтерфейсы группы: как и открытые порты, хранятся только пока группа ими управляет. Допустимые VLAN подинтерфейса —
-    # те, что группа записывает портам (при «Все VLAN» — все VLAN устройства).
-    manage_subinterfaces = bool(item.get('manage_subinterfaces'))
-    subinterfaces = normalize_group_subinterfaces(item.get('subinterfaces') or [], group_name=name, vlan_mode=vlan_mode, group_vlans=set(allowed_vlans) if all_vlans else set(unique_vlan_ids), session=session) if manage_subinterfaces else []
-    return {'name': name, 'vlan_mode': vlan_mode, 'all_vlans': all_vlans, 'vlan_ids': unique_vlan_ids, 'ip_address': ip_address, 'prefix_length': prefix_length, 'ip_purpose': ip_purpose, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports, 'manage_subinterfaces': manage_subinterfaces, 'subinterfaces': subinterfaces}
+    см. models.InterfaceGroup. Проверки те же, что для отдельного порта (_sync_single_interface).
+    Шаги: имя → режим и VLAN → общий IP → открытые порты → подинтерфейсы."""
+    if not isinstance(item, dict):
+        raise HTTPException(422, 'Каждая группа портов должна быть объектом')
+    name = _group_name(item)
+    vlans = _group_vlans(item, allowed_vlans)
+    ip = _group_ip(item)
+    manage_open_ports, open_ports = _group_open_ports(item, name, session)
+    manage_subinterfaces, subinterfaces = _group_subinterfaces(item, name, vlans, allowed_vlans, session)
+    return {'name': name, 'vlan_mode': vlans.mode, 'all_vlans': vlans.all_vlans, 'vlan_ids': vlans.vlan_ids, 'ip_address': ip.address, 'prefix_length': ip.prefix_length, 'ip_purpose': ip.purpose, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports, 'manage_subinterfaces': manage_subinterfaces, 'subinterfaces': subinterfaces}
 
 
 def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vlans: set[str], session: Session) -> dict[str, _GroupState]:
