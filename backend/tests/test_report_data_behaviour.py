@@ -110,7 +110,7 @@ class TestOrderingAndMaps:
         assert sorted(_ids(d.is_deps)) == ["isd1"] and sorted(_ids(d.is_protocols)) == ["isp1"]
         assert sorted(_ids(d.is_sources)) == ["src-ct", "src-ct2", "src-ct3", "src-ct4", "src-dev", "src-dup", "src-gone", "src-lost", "src-vm", "src-vm3"]
         assert sorted(_ids(d.protocols)) == ["cat-22", "cat-443", "cat-80"] and sorted(_ids(d.open_ports)) == ["op1", "op2", "op3", "op4"]
-        assert sorted(_ids(d.iface_vlans)) == ["iv1", "iv2", "iv3", "iv4", "iv5"] and sorted(_ids(d.device_vlan_rows)) == ["pdv1", "pdv2"]
+        assert sorted(_ids(d.iface_vlans)) == ["iv1", "iv2", "iv3", "iv4", "iv5", "iv6"] and sorted(_ids(d.device_vlan_rows)) == ["pdv1", "pdv2"]
         assert sorted(_ids(d.subinterfaces)) == ["s-a", "s-b", "s-c"]
 
 
@@ -149,13 +149,13 @@ class TestPortVlans:
     def test_ports_keep_the_vlans_they_are_linked_to_in_link_order(self, registry):
         d = _load(registry)
         by_iface = _ids(d.vlan_by_iface)
-        assert by_iface["p1"] == ["v10", "v20"] and by_iface["r1"] == ["v10"] and by_iface["q1"] == ["v20"]
-        assert "p3" not in d.vlan_by_iface  # у порта без связей ключа нет
+        assert by_iface["p1"] == ["v10", "v20"] and by_iface["r1"] == ["v10"] and by_iface["q1"] == ["v20"] and by_iface["p3"] == ["v10"]
+        assert "p4" not in d.vlan_by_iface  # у порта без связей ключа нет
 
     def test_all_vlans_port_gets_every_vlan_of_its_device_by_number_and_ignores_its_own_links(self, registry):
         d = _load(registry)
         # у SW-1: VLAN 10 и 20 заданы устройству, 30 — типу устройства; собственная связь порта с VLAN 40 игнорируется
-        assert _ids(d.vlan_by_iface["p2"]) == ["v10", "v20", "v30"]
+        assert _ids(d.vlan_by_iface["p2"]) == ["v10", "v20", "a30"]  # по номеру: id «a30» в алфавите раньше, но номер у него 30
         assert [v.vlan_id for v in d.vlan_by_iface["p2"]] == [10, 20, 30]
 
     def test_all_vlans_derivation_is_skipped_when_no_port_carries_the_flag(self, registry):
@@ -180,6 +180,14 @@ class TestSubinterfaces:
         registry.commit()
         d = _load(registry)
         assert _ids(d.subs_by_iface["p5"]) == ["s-b", "s-e", "s-d", "s-a"]  # VLAN 10: «Gi1/0/5.10» < «gi1/0/5.dup-a» < «Gi1/0/5.dup-b»; затем VLAN 20
+
+    def test_vlan_number_outranks_the_name(self, registry):
+        from app.models import DeviceSubinterface
+
+        registry.add_all([DeviceSubinterface(id="s-f", parent_interface_id="p5", name="AAA-first-by-name", vlan_id="a30")])
+        registry.commit()
+        d = _load(registry)
+        assert _ids(d.subs_by_iface["p5"]) == ["s-b", "s-a", "s-f"]  # по имени он был бы первым, но у него VLAN 30
 
 
 class TestUnfiltered:

@@ -177,97 +177,175 @@ def _is_related_device_ids(obj, d: SimpleNamespace) -> set:
     return ids
 
 
+def _by_id(rows) -> dict:
+    return {x.id: x for x in rows}
+
+
+def _group_by(rows, key) -> defaultdict:
+    """defaultdict(list): листы читают его через [] и не должны падать на отсутствующем ключе."""
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[key(row)].append(row)
+    return grouped
+
+
+def _load_organization(session: Session, d: SimpleNamespace, only_is: Optional[str]) -> None:
+    """Информационные системы (все или одна), подразделения и организации поддержки."""
+    systems = select(InformationSystem).where(InformationSystem.id == only_is) if only_is else select(InformationSystem)
+    d.systems = session.scalars(systems.order_by(InformationSystem.name)).all()
+    d.departments = session.scalars(select(Department)).all()
+    d.dep_map = _by_id(d.departments)
+    d.support_orgs = session.scalars(select(SupportOrganization)).all()
+    d.support_map = _by_id(d.support_orgs)
+
+
+def _load_device_catalogs(session: Session, d: SimpleNamespace) -> None:
+    """Устройства и справочники, на которые они ссылаются (тип, производитель, модель, место, ОС), а также
+    справочники ИС (способ поддержки, СКЗИ, размещение) и типы интерфейсов."""
+    d.devices = session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name, PhysicalDevice.serial_number)).all()
+    d.device_map = _by_id(d.devices)
+    d.device_types = _by_id(session.scalars(select(DeviceType)).all())
+    d.manufacturers = _by_id(session.scalars(select(Manufacturer)).all())
+    d.models = _by_id(session.scalars(select(DeviceModel)).all())
+    d.buildings = _by_id(session.scalars(select(Building)).all())
+    d.rooms = _by_id(session.scalars(select(Room)).all())
+    d.structural_units = _by_id(session.scalars(select(StructuralUnit)).all())
+    d.operating_systems = _by_id(session.scalars(select(OperatingSystem)).all())
+    d.embedded_os = _by_id(session.scalars(select(EmbeddedOperatingSystem)).all())
+    d.support_methods = _by_id(session.scalars(select(SupportMethod)).all())
+    d.crypto_means = _by_id(session.scalars(select(CryptoProtectionMeans)).all())
+    d.placement_assets = _by_id(session.scalars(select(PlacementAsset)).all())
+    d.placement_by_is = _group_by(session.scalars(select(ISPlacementAsset)).all(), lambda x: x.information_system_id)
+    d.interface_types = _by_id(session.scalars(select(InterfaceType)).all())
+
+
+def _load_interfaces_and_addresses(session: Session, d: SimpleNamespace) -> None:
+    """Порты, подинтерфейсы и IP-адреса по видам владельца (порт, подинтерфейс, ВМ, источник ИС); адреса других
+    владельцев (например, «physical_device») в отчёт не попадают. Раскладка подинтерфейсов по портам и устройствам —
+    в _arrange_subinterfaces, когда загружен справочник VLAN."""
+    d.interfaces = session.scalars(select(DeviceInterface).order_by(DeviceInterface.name)).all()
+    d.iface_map = _by_id(d.interfaces)
+    d.interface_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)).all()
+    d.ips_by_iface = _group_by(d.interface_ips, lambda x: x.owner_id)
+    d.ifaces_by_device = _group_by(d.interfaces, lambda x: x.physical_device_id)
+    # Подинтерфейсы портов (models.DeviceSubinterface) и их IP (owner_type='device_subinterface'); открытые порты
+    # подинтерфейсов лежат в общем d.open_ports_by_owner под ключом ('device_subinterface', id).
+    d.subinterfaces = session.scalars(select(DeviceSubinterface).order_by(DeviceSubinterface.name)).all()
+    d.ips_by_sub = _group_by(session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)).all(), lambda x: x.owner_id)
+    d.vmips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all()
+    d.vmips_by_vm = _group_by(d.vmips, lambda x: x.owner_id)
+    d.source_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE)).all()
+    d.ips_by_source = _group_by(d.source_ips, lambda x: x.owner_id)
+
+
+def _load_virtualization_and_links(session: Session, d: SimpleNamespace) -> None:
+    """ВМ, контейнеры, справочник протоколов, связи ИС (подразделения, протоколы, источники), подключения и открытые порты."""
+    d.vms = session.scalars(select(VirtualMachine).order_by(VirtualMachine.name)).all()
+    d.vm_map = _by_id(d.vms)
+    d.containers = session.scalars(select(Container)).all()
+    d.container_map = _by_id(d.containers)
+    d.protocols = session.scalars(select(ProtocolPortCatalog)).all()
+    d.protocol_catalog = _by_id(d.protocols)
+    d.is_deps = session.scalars(select(ISDepartment)).all()
+    d.is_protocols = session.scalars(select(ISProtocol)).all()
+    d.is_sources = session.scalars(select(InformationSystemSource)).all()
+    d.conns = session.scalars(select(Connection).order_by(Connection.created_at)).all()
+    d.connection_types = _by_id(session.scalars(select(ConnectionType)).all())
+    d.open_ports = session.scalars(select(OpenPort)).all()
+    d.open_ports_by_owner = _group_by(d.open_ports, lambda x: (x.owner_type, x.owner_id))
+
+
+def _load_vlans(session: Session, d: SimpleNamespace) -> None:
+    """Справочник VLAN, VLAN устройств и VLAN портов."""
+    d.vlans = session.scalars(select(VLAN)).all()
+    d.vlan_map = _by_id(d.vlans)
+    d.iface_vlans = session.scalars(select(InterfaceVLAN)).all()
+    d.vlan_by_iface = defaultdict(list)
+    d.device_vlan_rows = session.scalars(select(PhysicalDeviceVLAN)).all()
+    d.device_vlan_by_device = _group_by(d.device_vlan_rows, lambda x: x.physical_device_id)
+    # Порт с «Все VLAN» хранит только признак: его VLAN — все VLAN устройства (тип ∪ собственные), по номеру
+    # (services/port_vlans.py). Связи такого порта (их быть не должно) игнорируются, у остальных — выбранные.
+    all_vlans_ports = [x for x in d.interfaces if carries_all_vlans(x)]
+    all_vlans_ids = {x.id for x in all_vlans_ports}
+    for x in d.iface_vlans:
+        if x.interface_id not in all_vlans_ids:
+            d.vlan_by_iface[x.interface_id].append(d.vlan_map.get(x.vlan_id))
+    if all_vlans_ports:
+        derived = effective_vlan_ids(session, [x.id for x in all_vlans_ports])
+        for x in all_vlans_ports:
+            numbered = sorted((v for v in derived.get(x.id, ()) if v in d.vlan_map), key=lambda v: (d.vlan_map[v].vlan_id, v))
+            d.vlan_by_iface[x.id] = [d.vlan_map[v] for v in numbered]
+
+
+def _arrange_subinterfaces(d: SimpleNamespace) -> None:
+    """Подинтерфейсы по портам (порядок: по номеру VLAN, затем по имени) и по устройствам (в порядке портов)."""
+    def order(sub):
+        vlan = d.vlan_map.get(sub.vlan_id)
+        return (vlan.vlan_id if vlan else 0, (sub.name or "").casefold())
+
+    d.subs_by_iface = _group_by(sorted(d.subinterfaces, key=order), lambda x: x.parent_interface_id)
+    d.subs_by_device = defaultdict(list)
+    for iface in d.interfaces:
+        d.subs_by_device[iface.physical_device_id] += d.subs_by_iface.get(iface.id, [])
+
+
+def _load_software(session: Session, d: SimpleNamespace) -> None:
+    """ПО: на ВМ — в software_by_vm, на всём остальном (устройство, контейнер) — в software_by_device."""
+    d.deployed_software = session.scalars(select(DeployedSoftware)).all()
+    d.software = _by_id(session.scalars(select(SoftwareAsset)).all())
+    d.software_by_vm = defaultdict(list)
+    d.software_by_device = defaultdict(list)
+    for link in d.deployed_software:
+        if link.software_asset_id not in d.software:
+            continue
+        target = d.software_by_vm if link.owner_type == 'virtual_machine' else d.software_by_device
+        target[link.owner_id].append(d.software[link.software_asset_id])
+
+
+def _group_information_system_links(d: SimpleNamespace) -> None:
+    d.dep_by_is = _group_by(d.is_deps, lambda x: x.information_system_id)
+    d.protocol_by_is = _group_by(d.is_protocols, lambda x: x.information_system_id)
+    d.source_by_is = _group_by(d.is_sources, lambda x: x.information_system_id)
+
+
+def _apply_structural_unit_filter(d: SimpleNamespace, structural_unit_ids: Optional[list]) -> None:
+    """Фильтр по структурным единицам применяется В КОНЦЕ, когда все lookup-словари (device_map/
+    vm_map/container_map/source_by_is/...) уже полностью загружены: _is_related_device_ids() и
+    поиск соседних устройств на листе 3 должны видеть ПОЛНЫЙ реестр независимо от фильтра, сужаются
+    только сами списки-перечисления (d.devices/d.vms/d.systems) и флаг d.allowed_device_ids."""
+    d.allowed_device_ids = _allowed_device_ids_for_structural_units(d, structural_unit_ids)
+    if d.allowed_device_ids is not None:
+        d.devices = [x for x in d.devices if x.id in d.allowed_device_ids]
+        d.vms = [x for x in d.vms if x.physical_device_id in d.allowed_device_ids]
+        d.systems = [x for x in d.systems if _is_related_device_ids(x, d) & d.allowed_device_ids]
+
+
 def _load_report_data(session: Session, only_is: Optional[str], structural_unit_ids: Optional[list] = None) -> SimpleNamespace:
-    """Batch-load the whole registry needed to build all 4 sheets. Kept as one function (rather
+    """Batch-load the whole registry needed to build all 4 sheets. Kept as one entry point (rather
     than one per sheet) because several lookups are shared across sheets (device_map, ifaces_by_device,
-    embedded_os, etc.) and loading them once avoids redundant queries.
+    embedded_os, etc.) and loading them once avoids redundant queries; внутри — шаги, каждый наполняет
+    общий контейнер `d` (порядок важен: раскладка подинтерфейсов опирается на справочник VLAN, фильтр —
+    на всё загруженное).
 
     structural_unit_ids — необязательный фильтр по структурным единицам (см.
     _allowed_device_ids_for_structural_units): если задан, d.devices/d.vms/d.systems в конце функции
     сужаются до записей, относящихся к выбранным единицам, а d.allowed_device_ids хранит набор
     допустимых id устройств (или None, если фильтр не активен) для листа 'Организация подключений'
     (см. _connection_row_values_list). d.device_map/d.vm_map/d.container_map остаются ПОЛНЫМИ
-    (не сужаются) — они нужны для корректного поиска соседних устройств/хостов независимо от фильтра."""
-    d = SimpleNamespace()
-    d.systems=session.scalars((select(InformationSystem).where(InformationSystem.id==only_is) if only_is else select(InformationSystem)).order_by(InformationSystem.name)).all()
-    d.departments=session.scalars(select(Department)).all(); d.dep_map={x.id:x for x in d.departments}
-    d.support_orgs=session.scalars(select(SupportOrganization)).all(); d.support_map={x.id:x for x in d.support_orgs}
-    d.devices=session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name,PhysicalDevice.serial_number)).all(); d.device_map={x.id:x for x in d.devices}
-    d.device_types={x.id:x for x in session.scalars(select(DeviceType)).all()}
-    d.manufacturers={x.id:x for x in session.scalars(select(Manufacturer)).all()}
-    d.models={x.id:x for x in session.scalars(select(DeviceModel)).all()}
-    d.buildings={x.id:x for x in session.scalars(select(Building)).all()}
-    d.rooms={x.id:x for x in session.scalars(select(Room)).all()}
-    d.structural_units={x.id:x for x in session.scalars(select(StructuralUnit)).all()}
-    d.operating_systems={x.id:x for x in session.scalars(select(OperatingSystem)).all()}
-    d.embedded_os={x.id:x for x in session.scalars(select(EmbeddedOperatingSystem)).all()}
-    d.support_methods={x.id:x for x in session.scalars(select(SupportMethod)).all()}
-    d.crypto_means={x.id:x for x in session.scalars(select(CryptoProtectionMeans)).all()}
-    d.placement_assets={x.id:x for x in session.scalars(select(PlacementAsset)).all()}
-    d.placement_by_is=defaultdict(list)
-    for x in session.scalars(select(ISPlacementAsset)).all(): d.placement_by_is[x.information_system_id].append(x)
-    d.interface_types={x.id:x for x in session.scalars(select(InterfaceType)).all()}
-    d.interfaces=session.scalars(select(DeviceInterface).order_by(DeviceInterface.name)).all(); d.iface_map={x.id:x for x in d.interfaces}
-    d.interface_ips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)).all()
-    d.ips_by_iface=defaultdict(list)
-    for x in d.interface_ips: d.ips_by_iface[x.owner_id].append(x)
-    d.ifaces_by_device=defaultdict(list)
-    for x in d.interfaces: d.ifaces_by_device[x.physical_device_id].append(x)
-    # Подинтерфейсы портов (models.DeviceSubinterface) и их IP (owner_type='device_subinterface'); открытые порты
-    # подинтерфейсов лежат в общем d.open_ports_by_owner под ключом ('device_subinterface', id). Раскладка по портам и
-    # устройствам — ниже, когда загружен справочник VLAN (порядок: по номеру VLAN, затем по имени).
-    d.subinterfaces=session.scalars(select(DeviceSubinterface).order_by(DeviceSubinterface.name)).all()
-    d.ips_by_sub=defaultdict(list)
-    for x in session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)).all(): d.ips_by_sub[x.owner_id].append(x)
-    d.vmips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all(); d.vmips_by_vm=defaultdict(list)
-    for x in d.vmips: d.vmips_by_vm[x.owner_id].append(x)
-    d.source_ips=session.scalars(select(IPAddress).where(IPAddress.owner_type==OwnerType.INFORMATION_SYSTEM_SOURCE)).all(); d.ips_by_source=defaultdict(list)
-    for x in d.source_ips: d.ips_by_source[x.owner_id].append(x)
-    d.vms=session.scalars(select(VirtualMachine).order_by(VirtualMachine.name)).all(); d.vm_map={x.id:x for x in d.vms}
-    d.containers=session.scalars(select(Container)).all(); d.container_map={x.id:x for x in d.containers}
-    d.protocols=session.scalars(select(ProtocolPortCatalog)).all(); d.protocol_catalog={x.id:x for x in d.protocols}
-    d.is_deps=session.scalars(select(ISDepartment)).all(); d.is_protocols=session.scalars(select(ISProtocol)).all(); d.is_sources=session.scalars(select(InformationSystemSource)).all()
-    d.conns=session.scalars(select(Connection).order_by(Connection.created_at)).all(); d.connection_types={x.id:x for x in session.scalars(select(ConnectionType)).all()}
-    d.open_ports=session.scalars(select(OpenPort)).all(); d.open_ports_by_owner=defaultdict(list)
-    for x in d.open_ports: d.open_ports_by_owner[(x.owner_type,x.owner_id)].append(x)
-    d.vlans=session.scalars(select(VLAN)).all(); d.vlan_map={x.id:x for x in d.vlans}; d.iface_vlans=session.scalars(select(InterfaceVLAN)).all(); d.vlan_by_iface=defaultdict(list)
-    d.device_vlan_rows=session.scalars(select(PhysicalDeviceVLAN)).all(); d.device_vlan_by_device=defaultdict(list)
-    for x in d.device_vlan_rows: d.device_vlan_by_device[x.physical_device_id].append(x)
-    # Порт с «Все VLAN» хранит только признак: его VLAN — все VLAN устройства (тип ∪ собственные), по номеру
-    # (services/port_vlans.py). Связи такого порта (их быть не должно) игнорируются, у остальных — выбранные.
-    all_vlans_ports=[x for x in d.interfaces if carries_all_vlans(x)]; all_vlans_ids={x.id for x in all_vlans_ports}
-    for x in d.iface_vlans:
-        if x.interface_id not in all_vlans_ids: d.vlan_by_iface[x.interface_id].append(d.vlan_map.get(x.vlan_id))
-    if all_vlans_ports:
-        derived=effective_vlan_ids(session,[x.id for x in all_vlans_ports])
-        for x in all_vlans_ports: d.vlan_by_iface[x.id]=[d.vlan_map[v] for v in sorted((v for v in derived.get(x.id,()) if v in d.vlan_map),key=lambda v:(d.vlan_map[v].vlan_id,v))]
-    def _sub_order(sub):
-        vlan=d.vlan_map.get(sub.vlan_id)
-        return (vlan.vlan_id if vlan else 0, (sub.name or "").casefold())
-    d.subs_by_iface=defaultdict(list)
-    for x in sorted(d.subinterfaces, key=_sub_order): d.subs_by_iface[x.parent_interface_id].append(x)
-    d.subs_by_device=defaultdict(list)
-    for iface in d.interfaces: d.subs_by_device[iface.physical_device_id] += d.subs_by_iface.get(iface.id,[])
-    d.deployed_software=session.scalars(select(DeployedSoftware)).all(); d.software={x.id:x for x in session.scalars(select(SoftwareAsset)).all()}
-    d.software_by_vm=defaultdict(list); d.software_by_device=defaultdict(list)
-    for link in d.deployed_software:
-        if link.software_asset_id not in d.software: continue
-        target = d.software_by_vm if link.owner_type=='virtual_machine' else d.software_by_device
-        target[link.owner_id].append(d.software[link.software_asset_id])
-    d.dep_by_is=defaultdict(list); d.protocol_by_is=defaultdict(list); d.source_by_is=defaultdict(list)
-    for x in d.is_deps: d.dep_by_is[x.information_system_id].append(x)
-    for x in d.is_protocols: d.protocol_by_is[x.information_system_id].append(x)
-    for x in d.is_sources: d.source_by_is[x.information_system_id].append(x)
+    (не сужаются) — они нужны для корректного поиска соседних устройств/хостов независимо от фильтра.
 
-    # Фильтр по структурным единицам применяется В КОНЦЕ, когда все lookup-словари (device_map/
-    # vm_map/container_map/source_by_is/...) уже полностью загружены: _is_related_device_ids() и
-    # поиск соседних устройств на листе 3 должны видеть ПОЛНЫЙ реестр независимо от фильтра, сужаются
-    # только сами списки-перечисления (d.devices/d.vms/d.systems) и флаг d.allowed_device_ids.
-    d.allowed_device_ids = _allowed_device_ids_for_structural_units(d, structural_unit_ids)
-    if d.allowed_device_ids is not None:
-        d.devices = [x for x in d.devices if x.id in d.allowed_device_ids]
-        d.vms = [x for x in d.vms if x.physical_device_id in d.allowed_device_ids]
-        d.systems = [x for x in d.systems if _is_related_device_ids(x, d) & d.allowed_device_ids]
+    Состав и содержимое `d` — контракт для листов Excel, конструктора отчётов и структурного приложения;
+    закреплён tests/test_report_data_behaviour.py."""
+    d = SimpleNamespace()
+    _load_organization(session, d, only_is)
+    _load_device_catalogs(session, d)
+    _load_interfaces_and_addresses(session, d)
+    _load_virtualization_and_links(session, d)
+    _load_vlans(session, d)
+    _arrange_subinterfaces(d)
+    _load_software(session, d)
+    _group_information_system_links(d)
+    _apply_structural_unit_filter(d, structural_unit_ids)
     return d
 
 
@@ -346,137 +424,194 @@ def _populate_sheet2(ws2, d: SimpleNamespace) -> None:
         ws2.append(excel_safe_row([n, *_device_row_values(dev, d)]))
 
 
-def _connection_rows_by_device(d: SimpleNamespace) -> list:
-    """Пронумерованные строки листа 'Организация подключений' в виде пар (id устройства-владельца
-    строки, строка); первый элемент каждой строки — №, как ждёт _populate_sheet3. Строки одного
-    устройства идут подряд (см. сортировку ниже), поэтому по id устройства _populate_sheet3 находит
-    границы блока устройства на листе: сравнивать для этого значения колонок нельзя — пустые поля
-    заменяются на "-", и два разных устройства без серийного номера и системного имени выглядели
-    бы одним. Вынесено из _populate_sheet3, см. _is_row_values про переиспользование в конструкторе
-    отчётов (он берёт строки без id устройства через _connection_row_values_list)."""
-    # Every physical port must appear — connected ports show both ends of the link (own device +
-    # neighbor), disconnected ports still get a row of their own, though ports on the same device
-    # with no connection that share an IP signature (including "no IP") may be grouped into a
-    # single row rather than one row each.
-    _port_open_info_cache={}
-    def _port_open_info(iface_ids):
+class _ConnectionRows:
+    """Сборщик строк листа 'Организация подключений' по загруженным данным `d`.
+
+    Every physical port must appear — connected ports show both ends of the link (own device +
+    neighbor), disconnected ports still get a row of their own, though ports on the same device
+    with no connection that share an IP signature (including "no IP") may be grouped into a
+    single row rather than one row each.
+
+    Подинтерфейсы порта выводятся ВНУТРИ строки порта, а не отдельными строками: подпись порта, IP, открытые
+    порты, VLAN и назначение собираются из самого порта и его подинтерфейсов (шапка колонки «Номер физического
+    или логического порта» это допускает). Данные подинтерфейса помечаются его именем."""
+
+    # Текст в колонках IP, когда у порта (или у соседа) адреса нет. Остальные пустые ячейки строки позже заменяются на «-».
+    NO_ADDRESS = "не назначен"
+
+    def __init__(self, d: SimpleNamespace):
+        self.d = d
+        self._open_info_cache: dict = {}
+
+    # --- сведения о порте --------------------------------------------------------------------------------------
+
+    def open_info(self, iface_ids) -> tuple:
         # п.1.4 (батч4): открытые порты теперь свойство КОНКРЕТНОГО интерфейса (порта), а не
         # всего устройства — раньше один и тот же список открытых портов устройства подставлялся
         # в КАЖДУЮ строку Листа 3 (на каждый порт), что было некорректно уже при более чем одном
         # порте на устройстве. iface_ids — кортеж id интерфейсов, формирующих одну строку отчёта
         # (обычно один, но для сгруппированных disconnected-строк — несколько, см.
-        # _disconnected_row). 'physical_device'-владение (см. OwnerType в constants.py) больше не
+        # disconnected_row). 'physical_device'-владение (см. OwnerType в constants.py) больше не
         # читается здесь намеренно — устаревшие записи, заведённые до этого фикса на устройствах
         # с несколькими портами, неоднозначны (неизвестно, какому порту принадлежат) и не
         # переносятся автоматически, см. докстринг миграции 20260911_ports_per_interface.
-        key=tuple(sorted(iface_ids))
-        if key in _port_open_info_cache: return _port_open_info_cache[key]
-        ports=[p for iid in iface_ids for p in d.open_ports_by_owner.get(('device_interface',iid),[])]
+        key = tuple(sorted(iface_ids))
+        if key in self._open_info_cache:
+            return self._open_info_cache[key]
+        d = self.d
+        ports = [p for iid in iface_ids for p in d.open_ports_by_owner.get(('device_interface', iid), [])]
         # Подинтерфейсы порта выводятся внутри строки порта: открытые порты подинтерфейса — с его именем
         # («Gi0/0.10: TCP/443 HTTPS»), чтобы было видно, на каком логическом интерфейсе порт открыт.
-        sub_ports=[(sub,p) for iid in iface_ids for sub in d.subs_by_iface.get(iid,[]) for p in d.open_ports_by_owner.get(('device_subinterface',sub.id),[])]
-        open_text=join_values([_open_port_label(p, d) for p in ports]+[f"{sub.name}: {_open_port_label(p, d)}" for sub,p in sub_ports])
-        proto_text=join_values([d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports+[p for _,p in sub_ports] if p.protocol_catalog_id in d.protocol_catalog])
-        _port_open_info_cache[key]=(open_text,proto_text)
-        return open_text,proto_text
+        sub_ports = [(sub, p) for iid in iface_ids for sub in d.subs_by_iface.get(iid, []) for p in d.open_ports_by_owner.get(('device_subinterface', sub.id), [])]
+        open_text = join_values([_open_port_label(p, d) for p in ports] + [f"{sub.name}: {_open_port_label(p, d)}" for sub, p in sub_ports])
+        proto_text = join_values([d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports + [p for _, p in sub_ports] if p.protocol_catalog_id in d.protocol_catalog])
+        self._open_info_cache[key] = (open_text, proto_text)
+        return open_text, proto_text
 
-    def _device_management_ips(device):
+    def management_ips(self, device):
         """A device's management IPs: physical management interfaces plus VLAN-based management (incl. VLAN)."""
-        mgmt_ifaces=[i for i in d.ifaces_by_device.get(device.id,[]) if i.is_management]
-        mgmt_vlan=[x for x in d.device_vlan_by_device.get(device.id,[]) if x.is_management]
-        mgmt_subs=[x for x in d.subs_by_device.get(device.id,[]) if x.is_management]
-        _,ip_values=device_management_ports_and_ips(mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map,management_subinterfaces=mgmt_subs,ips_by_subinterface=d.ips_by_sub)
+        d = self.d
+        mgmt_ifaces = [i for i in d.ifaces_by_device.get(device.id, []) if i.is_management]
+        mgmt_vlan = [x for x in d.device_vlan_by_device.get(device.id, []) if x.is_management]
+        mgmt_subs = [x for x in d.subs_by_device.get(device.id, []) if x.is_management]
+        _, ip_values = device_management_ports_and_ips(mgmt_ifaces, d.ips_by_iface, mgmt_vlan, d.vlan_map, management_subinterfaces=mgmt_subs, ips_by_subinterface=d.ips_by_sub)
         return ip_values
 
-    # Подинтерфейсы порта выводятся ВНУТРИ строки порта, а не отдельными строками: подпись порта, IP, открытые
-    # порты, VLAN и назначение собираются из самого порта и его подинтерфейсов (шапка колонки «Номер физического
-    # или логического порта» это допускает). Данные подинтерфейса помечаются его именем.
-    def _port_label(iface):
-        return port_label_with_subinterfaces(iface.name,d.subs_by_iface.get(iface.id,[]),d.vlan_map)
+    def port_label(self, iface):
+        return port_label_with_subinterfaces(iface.name, self.d.subs_by_iface.get(iface.id, []), self.d.vlan_map)
 
-    def _port_ip_values(iface):
-        return [ip_label(x) for x in d.ips_by_iface.get(iface.id,[])]+subinterface_ip_values(d.subs_by_iface.get(iface.id,[]),d.ips_by_sub)
+    def port_ip_values(self, iface):
+        d = self.d
+        return [ip_label(x) for x in d.ips_by_iface.get(iface.id, [])] + subinterface_ip_values(d.subs_by_iface.get(iface.id, []), d.ips_by_sub)
 
-    def _port_vlans(iface):
+    def port_vlans(self, iface):
         """VLAN порта плюс VLAN его подинтерфейсов (без повторов): подинтерфейс на VLAN 10 — это VLAN 10 на линии."""
-        vlans=[v for v in d.vlan_by_iface.get(iface.id,[]) if v]
-        seen={v.id for v in vlans}
-        for sub in d.subs_by_iface.get(iface.id,[]):
-            vlan=d.vlan_map.get(sub.vlan_id)
+        d = self.d
+        vlans = [v for v in d.vlan_by_iface.get(iface.id, []) if v]
+        seen = {v.id for v in vlans}
+        for sub in d.subs_by_iface.get(iface.id, []):
+            vlan = d.vlan_map.get(sub.vlan_id)
             if vlan and vlan.id not in seen:
-                seen.add(vlan.id); vlans.append(vlan)
+                seen.add(vlan.id)
+                vlans.append(vlan)
         return vlans
 
-    def _link_purpose_label(iface):
-        mgmt=bool(iface.is_management); data=bool(iface.is_data_transfer)
-        if mgmt and data: return "Управление активами, передача данных"
-        if mgmt: return "Управление активами"
-        if data: return "Передача данных"
+    @staticmethod
+    def link_purpose_label(iface):
+        mgmt = bool(iface.is_management)
+        data = bool(iface.is_data_transfer)
+        if mgmt and data:
+            return "Управление активами, передача данных"
+        if mgmt:
+            return "Управление активами"
+        if data:
+            return "Передача данных"
         return "-"
 
-    def _purpose_text(iface):
+    def purpose_text(self, iface):
         """Назначение порта; роли его подинтерфейсов — с именем подинтерфейса («Gi0/0.99: Управление активами»)."""
-        parts=[_link_purpose_label(iface)]+[f"{sub.name}: {_link_purpose_label(sub)}" for sub in d.subs_by_iface.get(iface.id,[]) if _link_purpose_label(sub)!="-"]
-        return join_values([x for x in parts if x!="-"]) or "-"
+        parts = [self.link_purpose_label(iface)] + [f"{sub.name}: {self.link_purpose_label(sub)}" for sub in self.d.subs_by_iface.get(iface.id, []) if self.link_purpose_label(sub) != "-"]
+        return join_values([x for x in parts if x != "-"]) or "-"
 
-    def _conn_row(own_iface, own_device, neighbor_iface, neighbor_device, c, ct):
-        own_ips=join_values(_port_ip_values(own_iface))
-        neighbor_mgmt_ips=_device_management_ips(neighbor_device)
-        neighbor_ips=join_values(neighbor_mgmt_ips if neighbor_mgmt_ips else _port_ip_values(neighbor_iface))
-        open_text,proto_text=_port_open_info((own_iface.id,))
-        own_vlans=_port_vlans(own_iface)
-        neighbor_vlans=_port_vlans(neighbor_iface)
-        vlan_rows=own_vlans if own_vlans else neighbor_vlans
-        return [0,d.device_types.get(own_device.device_type_id).name if d.device_types.get(own_device.device_type_id) else "",own_device.serial_number,own_device.system_name or "",os_label(d.embedded_os.get(own_device.embedded_os_id)),_port_label(own_iface),own_ips or "не назначен",open_text,proto_text,join_values([str(v.vlan_id) for v in vlan_rows]),join_values([v.name for v in vlan_rows]),ct.name if ct else "",_purpose_text(own_iface),d.device_types.get(neighbor_device.device_type_id).name if d.device_types.get(neighbor_device.device_type_id) else "",neighbor_device.serial_number,neighbor_device.system_name or "",os_label(d.embedded_os.get(neighbor_device.embedded_os_id)),neighbor_ips or "не назначен"]
+    # --- ячейки строки -----------------------------------------------------------------------------------------
 
-    def _disconnected_row(own_device, iface_group):
-        own_ips=join_values([x for i in iface_group for x in _port_ip_values(i)])
-        open_text,proto_text=_port_open_info(tuple(i.id for i in iface_group))
-        own_vlans=[v for i in iface_group for v in _port_vlans(i)]
-        purposes=join_values([_purpose_text(i) for i in iface_group if _purpose_text(i)!="-"]) or "-"
-        return [0,d.device_types.get(own_device.device_type_id).name if d.device_types.get(own_device.device_type_id) else "",own_device.serial_number,own_device.system_name or "",os_label(d.embedded_os.get(own_device.embedded_os_id)),join_values([_port_label(i) for i in iface_group]),own_ips or "не назначен",open_text,proto_text,join_values([str(v.vlan_id) for v in own_vlans]),join_values([v.name for v in own_vlans]),"",purposes,"","","","",""]
+    def device_cells(self, device) -> list:
+        """Вид, серийный номер, системное имя и ОС устройства — одинаково для владельца строки и для соседа."""
+        device_type = self.d.device_types.get(device.device_type_id)
+        return [device_type.name if device_type else "", device.serial_number, device.system_name or "", os_label(self.d.embedded_os.get(device.embedded_os_id))]
 
-    pending_rows=[]
-    connected_iface_ids=set()
-    for c in d.conns:
-        src=d.iface_map.get(c.source_interface_id); dst=d.iface_map.get(c.destination_interface_id)
-        if not src or not dst: continue
-        sd=d.device_map.get(src.physical_device_id); dd=d.device_map.get(dst.physical_device_id)
-        if not sd or not dd: continue
-        ct=d.connection_types.get(c.connection_type_id)
-        connected_iface_ids.add(src.id); connected_iface_ids.add(dst.id)
-        # Каждая сторона связи попадает в отчёт независимо от другой: при активном фильтре по
-        # структурным единицам сосед вне выбранных единиц по-прежнему показывается как контекст
-        # порта устройства ИЗ единицы (см. d.allowed_device_ids), но не получает собственную строку.
-        allowed=d.allowed_device_ids
-        if allowed is None or sd.id in allowed:
-            pending_rows.append((sd, _conn_row(src, sd, dst, dd, c, ct)))
-        if allowed is None or dd.id in allowed:
-            pending_rows.append((dd, _conn_row(dst, dd, src, sd, c, ct)))
+    def connected_row(self, own_iface, own_device, neighbor_iface, neighbor_device, connection_type) -> list:
+        own_ips = join_values(self.port_ip_values(own_iface))
+        neighbor_mgmt_ips = self.management_ips(neighbor_device)
+        neighbor_ips = join_values(neighbor_mgmt_ips if neighbor_mgmt_ips else self.port_ip_values(neighbor_iface))
+        open_text, proto_text = self.open_info((own_iface.id,))
+        own_vlans = self.port_vlans(own_iface)
+        vlan_rows = own_vlans if own_vlans else self.port_vlans(neighbor_iface)
+        return [
+            0, *self.device_cells(own_device), self.port_label(own_iface), own_ips or self.NO_ADDRESS, open_text, proto_text,
+            join_values([str(v.vlan_id) for v in vlan_rows]), join_values([v.name for v in vlan_rows]),
+            connection_type.name if connection_type else "", self.purpose_text(own_iface),
+            *self.device_cells(neighbor_device), neighbor_ips or self.NO_ADDRESS,
+        ]
 
-    for dev in d.devices:
-        own_ifaces=[i for i in d.ifaces_by_device.get(dev.id,[]) if i.id not in connected_iface_ids]
-        if not own_ifaces: continue
-        groups=defaultdict(list)
-        for i in own_ifaces:
-            # Порт с подинтерфейсами не склеивается с другими портами по совпавшей «подписи IP»: у каждого свой набор
-            # подинтерфейсов, и объединённая строка потеряла бы, чьи они.
-            key=(i.id,) if d.subs_by_iface.get(i.id) else tuple(sorted(ip_label(x) for x in d.ips_by_iface.get(i.id,[])))
-            groups[key].append(i)
-        for iface_group in groups.values():
-            pending_rows.append((dev, _disconnected_row(dev, iface_group)))
+    def disconnected_row(self, own_device, iface_group) -> list:
+        own_ips = join_values([x for i in iface_group for x in self.port_ip_values(i)])
+        open_text, proto_text = self.open_info(tuple(i.id for i in iface_group))
+        own_vlans = [v for i in iface_group for v in self.port_vlans(i)]
+        purposes = join_values([self.purpose_text(i) for i in iface_group if self.purpose_text(i) != "-"]) or "-"
+        return [
+            0, *self.device_cells(own_device), join_values([self.port_label(i) for i in iface_group]), own_ips or self.NO_ADDRESS, open_text, proto_text,
+            join_values([str(v.vlan_id) for v in own_vlans]), join_values([v.name for v in own_vlans]), "", purposes, "", "", "", "", "",
+        ]
 
-    # Group consecutively by "own" device (stable sort preserves the connected-then-disconnected,
-    # per-connection order within each device) instead of interleaving devices row by row.
-    device_order={dev.id:idx for idx,dev in enumerate(d.devices)}
-    pending_rows.sort(key=lambda pair: device_order.get(pair[0].id, len(d.devices)))
+    # --- набор строк -------------------------------------------------------------------------------------------
 
-    numbered=[]
-    for i,(dev,row) in enumerate(pending_rows,1):
-        row=[cell if cell not in (None,"") else "-" for cell in row]
-        row[0]=i
-        numbered.append((dev.id,row))
-    return numbered
+    def connected_rows(self) -> tuple[list, set]:
+        """Пары (устройство-владелец, строка) по подключениям и id портов, у которых есть подключение."""
+        d = self.d
+        pending: list = []
+        connected_iface_ids: set = set()
+        allowed = d.allowed_device_ids
+        for c in d.conns:
+            src = d.iface_map.get(c.source_interface_id)
+            dst = d.iface_map.get(c.destination_interface_id)
+            if not src or not dst:
+                continue
+            sd = d.device_map.get(src.physical_device_id)
+            dd = d.device_map.get(dst.physical_device_id)
+            if not sd or not dd:
+                continue
+            ct = d.connection_types.get(c.connection_type_id)
+            connected_iface_ids.update((src.id, dst.id))
+            # Каждая сторона связи попадает в отчёт независимо от другой: при активном фильтре по
+            # структурным единицам сосед вне выбранных единиц по-прежнему показывается как контекст
+            # порта устройства ИЗ единицы (см. d.allowed_device_ids), но не получает собственную строку.
+            if allowed is None or sd.id in allowed:
+                pending.append((sd, self.connected_row(src, sd, dst, dd, ct)))
+            if allowed is None or dd.id in allowed:
+                pending.append((dd, self.connected_row(dst, dd, src, sd, ct)))
+        return pending, connected_iface_ids
+
+    def disconnected_rows(self, connected_iface_ids: set) -> list:
+        """Пары (устройство, строка) по портам без подключения; порты устройства с одинаковой «подписью IP» — одной строкой."""
+        d = self.d
+        pending: list = []
+        for dev in d.devices:
+            own_ifaces = [i for i in d.ifaces_by_device.get(dev.id, []) if i.id not in connected_iface_ids]
+            groups = defaultdict(list)
+            for i in own_ifaces:
+                # Порт с подинтерфейсами не склеивается с другими портами по совпавшей «подписи IP»: у каждого свой набор
+                # подинтерфейсов, и объединённая строка потеряла бы, чьи они.
+                key = (i.id,) if d.subs_by_iface.get(i.id) else tuple(sorted(ip_label(x) for x in d.ips_by_iface.get(i.id, [])))
+                groups[key].append(i)
+            for iface_group in groups.values():
+                pending.append((dev, self.disconnected_row(dev, iface_group)))
+        return pending
+
+    def numbered_rows(self) -> list:
+        pending, connected_iface_ids = self.connected_rows()
+        pending += self.disconnected_rows(connected_iface_ids)
+        # Group consecutively by "own" device (stable sort preserves the connected-then-disconnected,
+        # per-connection order within each device) instead of interleaving devices row by row.
+        device_order = {dev.id: idx for idx, dev in enumerate(self.d.devices)}
+        pending.sort(key=lambda pair: device_order.get(pair[0].id, len(self.d.devices)))
+        numbered = []
+        for i, (dev, row) in enumerate(pending, 1):
+            row = [cell if cell not in (None, "") else "-" for cell in row]
+            row[0] = i
+            numbered.append((dev.id, row))
+        return numbered
+
+
+def _connection_rows_by_device(d: SimpleNamespace) -> list:
+    """Пронумерованные строки листа 'Организация подключений' в виде пар (id устройства-владельца
+    строки, строка); первый элемент каждой строки — №, как ждёт _populate_sheet3. Строки одного
+    устройства идут подряд (см. сортировку в _ConnectionRows.numbered_rows), поэтому по id устройства
+    _populate_sheet3 находит границы блока устройства на листе: сравнивать для этого значения колонок
+    нельзя — пустые поля заменяются на "-", и два разных устройства без серийного номера и системного
+    имени выглядели бы одним. Вынесено из _populate_sheet3, см. _is_row_values про переиспользование в
+    конструкторе отчётов (он берёт строки без id устройства через _connection_row_values_list)."""
+    return _ConnectionRows(d).numbered_rows()
 
 
 def _connection_row_values_list(d: SimpleNamespace) -> list:

@@ -46,12 +46,12 @@ def seed_registry(session: Session) -> None:
     add([DeviceModel(id="mod1", manufacturer_id="m1", device_type_id="dt-sw", model="C3750X")])
     add([OperatingSystem(id="os1", category_id="osc1", name="Debian", version="12"), EmbeddedOperatingSystem(id="eos1", name="IOS XE")])
     add([InterfaceType(id="it1", name="GigabitEthernet")])
-    add([VLAN(id="v10", vlan_id=10, name="Данные"), VLAN(id="v20", vlan_id=20, name="Управление"), VLAN(id="v30", vlan_id=30, name="Гости"), VLAN(id="v40", vlan_id=40, name="Лишний")])
+    add([VLAN(id="v10", vlan_id=10, name="Данные"), VLAN(id="v20", vlan_id=20, name="Управление"), VLAN(id="a30", vlan_id=30, name="Гости"), VLAN(id="v40", vlan_id=40, name="Лишний")])
     add([SupportOrganization(id="so1", name="Интегратор"), SupportMethod(id="sm1", name="Удалённо"), CryptoProtectionMeans(id="cp1", name="КриптоПро"), Department(id="dep1", name="Бухгалтерия"), PlacementAsset(id="pa1", name="ЦОД")])
     add([ProtocolPortCatalog(id="cat-22", port=22, protocol_type="SSH"), ProtocolPortCatalog(id="cat-443", port=443, protocol_type="HTTPS"), ProtocolPortCatalog(id="cat-80", port=80, protocol_type="HTTP")])
     add([ConnectionType(id="ct1", name="Витая пара")])
     session.flush()
-    add([DeviceTypeVLAN(id="dtv1", device_type_id="dt-sw", vlan_id="v30")])
+    add([DeviceTypeVLAN(id="dtv1", device_type_id="dt-sw", vlan_id="a30")])
     add([
         PhysicalDevice(id="srv0", device_type_id="dt-srv", serial_number="SN-AAA", system_name="AAA-first"),
         PhysicalDevice(id="sw1", device_type_id="dt-sw", serial_number="SN-SW1", system_name="SW-1", building_id="b1", room_id="rm1", manufacturer_id="m1", model_id="mod1", embedded_os_id="eos1", siem_enabled=True),
@@ -83,6 +83,7 @@ def seed_registry(session: Session) -> None:
     add([
         InterfaceVLAN(id="iv1", interface_id="p1", vlan_id="v10", mode="trunk"), InterfaceVLAN(id="iv2", interface_id="p1", vlan_id="v20", mode="trunk"),
         InterfaceVLAN(id="iv3", interface_id="p2", vlan_id="v40", mode="trunk"),  # у порта «Все VLAN» связи игнорируются (VLAN 40 нет у устройства)
+        InterfaceVLAN(id="iv6", interface_id="p3", vlan_id="v10", mode="access"),  # у порта n1 (сервер) своих VLAN нет — в строке сервера берутся VLAN соседа
         InterfaceVLAN(id="iv4", interface_id="r1", vlan_id="v10", mode="trunk"), InterfaceVLAN(id="iv5", interface_id="q1", vlan_id="v20", mode="access"),
     ])
     add([
