@@ -765,6 +765,52 @@ def test_export_vsdx_survives_custom_icon_rasterization_failure(tmp_path, monkey
     assert {"c0", "c1"} <= labels
 
 
+def test_export_vsdx_survives_glyph_rasterization_failure(tmp_path, monkeypatch):
+    """Как и для custom-иконки: глиф, который не удалось растрировать, не роняет экспорт — узел остаётся с заливкой
+    без картинки, а повторно растрировать тот же глиф для других узлов не пытаются (None запоминается в кэше)."""
+    vsdx = pytest.importorskip("vsdx")
+    from app.services import diagram_export
+
+    calls = []
+
+    def _fail(glyph):
+        calls.append(glyph)
+        return None
+
+    monkeypatch.setattr(diagram_export, "_rasterize_glyph_png", _fail)
+    graph = _sample_graph()
+    graph["nodes"].append({**graph["nodes"][0], "id": "dev-switch-2", "label": "sw-02", "x": 0, "y": 200})  # тот же глиф у второго узла
+    data = export_vsdx(graph)
+
+    assert _vsdx_media(data, tmp_path) == []
+    assert calls == [graph["nodes"][0]["icon"]["glyph"], graph["nodes"][1]["icon"]["glyph"]]  # по одному разу на уникальный глиф
+    vf = vsdx.VisioFile(str(tmp_path / "custom.vsdx"))
+    try:
+        labels = {(s.text or "").strip() for s in vf.get_page(0).child_shapes}
+    finally:
+        vf.close_vsdx()
+    assert {"sw-01", "sw-02", "srv-01"} <= labels
+
+
+def test_export_vsdx_skips_edges_whose_nodes_are_not_in_the_graph(tmp_path):
+    """Ребро на узел, которого нет в графе, пропускается без ошибки; остальные рёбра рисуются как обычно."""
+    vsdx = pytest.importorskip("vsdx")
+    graph = _sample_graph()
+    valid_edges = len(graph["edges"])
+    graph["edges"].append({"id": "conn-dangling-target", "source_node_id": "dev-switch", "target_node_id": "нет-такого", "source_interface": None, "target_interface": None, "vlans": [{"vlan_id": 77, "name": "призрак"}]})
+    graph["edges"].append({"id": "conn-dangling-source", "source_node_id": "нет-такого", "target_node_id": "dev-server", "source_interface": None, "target_interface": None, "vlans": [{"vlan_id": 78, "name": "призрак"}]})
+    out_path = tmp_path / "dangling.vsdx"
+    out_path.write_bytes(export_vsdx(graph))
+
+    vf = vsdx.VisioFile(str(out_path))
+    try:
+        texts = [(s.text or "") for s in vf.get_page(0).child_shapes]
+    finally:
+        vf.close_vsdx()
+    assert not any("VLAN 77" in t or "VLAN 78" in t or "призрак" in t for t in texts)
+    assert len([t for t in texts if "VLAN 10" in t]) == 1 and valid_edges >= 1
+
+
 def test_custom_icon_tile_does_not_read_local_files(tmp_path):
     """Разметка иконки — пользовательский ввод, а _FORBIDDEN_SVG_PATTERN не ловит <image href>
     на локальный путь. resvg на КОРНЕВОМ уровне такой файл читает (первое утверждение фиксирует
