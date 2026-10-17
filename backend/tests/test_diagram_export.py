@@ -811,6 +811,33 @@ def test_export_vsdx_skips_edges_whose_nodes_are_not_in_the_graph(tmp_path):
     assert len([t for t in texts if "VLAN 10" in t]) == 1 and valid_edges >= 1
 
 
+def _vsdx_part(data: bytes, name: str) -> ET.Element:
+    import io
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return ET.fromstring(zf.read(name))
+
+
+def test_export_vsdx_page_has_no_dangling_connects_section():
+    """Шаблонные «глиняные» связи <Connects> ссылаются на фигуры шаблона, которые экспорт удаляет: висячие ссылки
+    в стороннем ПО дают пустой лист. Проверка прямо по XML, без LibreOffice: секции нет, значит и ссылок нет."""
+    page = _vsdx_part(export_vsdx(_sample_graph()), "visio/pages/page1.xml")
+    tags = {el.tag.rsplit("}", 1)[-1] for el in page.iter()}
+    assert "Connects" not in tags and "Connect" not in tags
+    assert len([el for el in page.iter() if el.tag.endswith("}Shape")]) >= 1  # фигуры графа на месте
+
+
+def test_export_vsdx_image_relationship_ids_do_not_collide_with_the_master():
+    """rId1 в page1.xml.rels занят связью со страницей-образцом (master); картинки иконок получают rId2, rId3 …
+    и каждый Id встречается один раз — иначе файл не открывается."""
+    rels = _vsdx_part(export_vsdx(_sample_graph()), "visio/pages/_rels/page1.xml.rels")
+    by_id = [(r.get("Id"), r.get("Type", "").rsplit("/", 1)[-1]) for r in rels]
+    ids = [rel_id for rel_id, _ in by_id]
+    assert len(ids) == len(set(ids))
+    assert ("rId1", "master") in by_id
+    assert sorted(rel_id for rel_id, kind in by_id if kind == "image") == ["rId2", "rId3"]  # два разных глифа в графе
+
+
 def test_custom_icon_tile_does_not_read_local_files(tmp_path):
     """Разметка иконки — пользовательский ввод, а _FORBIDDEN_SVG_PATTERN не ловит <image href>
     на локальный путь. resvg на КОРНЕВОМ уровне такой файл читает (первое утверждение фиксирует
