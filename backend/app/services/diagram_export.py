@@ -784,9 +784,137 @@ def _fit_vsdx_page_to_content(page, graph: dict) -> float:
     return page.height
 
 
+class _VsdxImages:
+    """Растровые иконки .vsdx.
+
+    Находка №5 отчёта (Фаза 3, п.5, часть 2): один PNG на УНИКАЛЬНУЮ иконку (глиф категории или
+    custom-разметку), а не на узел — картинка одна и та же для всех узлов с этой иконкой (глиф
+    рисуется нейтральным белым и ложится на любую заливку). rId начинаются с 2, т.к. rId1 в
+    page1.xml.rels уже занят связью на master (см. media.vsdx). None в кэше — иконку растрировать
+    не удалось: пропускаем её для всех узлов, не пробуя заново."""
+
+    def __init__(self) -> None:
+        self.pngs: dict[str, bytes] = {}  # rId -> PNG; их встраивает _embed_vsdx_category_icons
+        self._rel_ids: dict[tuple[str, str], str | None] = {}
+
+    def rel_id_for(self, key: tuple[str, str], make_png) -> str | None:
+        if key not in self._rel_ids:
+            png = make_png()
+            if png is None:
+                self._rel_ids[key] = None
+            else:
+                rel_id = f"rId{len(self.pngs) + 2}"
+                self.pngs[rel_id] = png
+                self._rel_ids[key] = rel_id
+        return self._rel_ids[key]
+
+
+def _place_vsdx_node(rect_template, node: dict, page_height: float):
+    """Копия шаблонного прямоугольника нужного размера на месте узла графа (текст — подпись узла)."""
+    shape = rect_template.copy()
+    shape.text = node["label"]
+    # Размер фигуры должен совпадать с тем, по которому считается страница
+    # (_fit_vsdx_page_to_content: NODE_WIDTH/NODE_HEIGHT / VSDX_SCALE) — иначе нижний
+    # ряд и правый край графа обрезаются страницей. Ставим ДО target_x/target_y ниже.
+    _set_vsdx_shape_size(shape, NODE_WIDTH / VSDX_SCALE, NODE_HEIGHT / VSDX_SCALE)
+    # PinX/PinY (shape.x/shape.y) — точка привязки ФИГУРЫ, а не левый верхний угол:
+    # у скопированного шаблонного прямоугольника LocPinX/LocPinY = Width*0.5/Height*0.5
+    # (см. media.vsdx), то есть это ЦЕНТР. node["x"]/node["y"] графа — левый верхний
+    # угол (то же соглашение, что и в _svg_node/.drawio: obj.position = (x, y)) —
+    # без поправки на половину размера фигуры весь узел рисуется НИЖЕ И ПРАВЕЕ, чем
+    # нужно (на скриншотах — обрезан сверху краем страницы).
+    target_x = node["x"] / VSDX_SCALE + shape.width / 2
+    # Находка №1 отчёта об экспорте: ось Y в Visio растёт СНИЗУ ВВЕРХ от нижнего
+    # края страницы, а node["y"] графа — сверху вниз, как в .svg/канвасе. Простой
+    # смены знака недостаточно: -(node["y"]/SCALE) всегда <= 0, то есть ВСЯ
+    # диаграмма целиком уходит ниже нижнего края страницы (за пределы видимой
+    # области). Нужно ещё вычесть из высоты страницы шаблона, чтобы верх графа
+    # (y=0) лёг на верх страницы, а не наоборот.
+    target_y = page_height - (node["y"] / VSDX_SCALE + shape.height / 2)
+    shape.move(target_x - shape.x, target_y - shape.y)
+    return shape
+
+
+def _style_vsdx_node(shape, node: dict) -> None:
+    if node["type"] == "group":
+        # Раздел 4.4 ТЗ: группа должна визуально отличаться от устройства так же,
+        # как в .svg/.drawio (светло-серая заливка + пунктирная рамка), а не только
+        # подписью — иначе на .vsdx-экспорте группу от обычного узла не отличить.
+        shape.fill_color = GROUP_FILL_COLOR
+        shape.set_cell_value("LinePattern", "2")
+        return
+    color = _device_fill_color(node["icon"])
+    shape.fill_color = color
+    shape.line_color = color
+    # Подпись у нижнего края узла (0 — верх, 1 — середина, 2 — низ), как на канвасе/
+    # в .svg: по умолчанию текст по центру, где теперь иконка.
+    shape.set_cell_value("VerticalAlign", "2")
+
+
+def _overlay_vsdx_icon(rect_template, shape, icon: dict, images: _VsdxImages) -> None:
+    """Картинка иконки узла-устройства: глиф категории или custom-разметка (если растрировать не удалось — без картинки)."""
+    glyph = icon.get("glyph")
+    if glyph:
+        rel_id = images.rel_id_for(("glyph", glyph), lambda: _rasterize_glyph_png(glyph))
+        if rel_id is not None:
+            # Та же позиция/размер иконки, что и в .svg (_svg_node) и .drawio
+            # (GLYPH_DISPLAY_SIZE/GLYPH_TOP_MARGIN), переведённые в дюймы Visio.
+            icon_size = GLYPH_DISPLAY_SIZE / VSDX_SCALE
+            _add_vsdx_image_overlay(rect_template, shape, rel_id, icon_size, icon_size, GLYPH_TOP_MARGIN / VSDX_SCALE)
+        return
+    custom_svg = _standalone_custom_svg(icon)
+    if custom_svg:
+        rel_id = images.rel_id_for(("custom", custom_svg), lambda: _rasterize_custom_icon_png(custom_svg))
+        if rel_id is not None:
+            _add_vsdx_image_overlay(rect_template, shape, rel_id, NODE_WIDTH / VSDX_SCALE, CUSTOM_ICON_TILE_HEIGHT / VSDX_SCALE, 0.0)
+
+
+def _add_vsdx_edges(graph: dict, shapes_by_node_id: dict, connector_template) -> None:
+    """Коннекторы по рёбрам графа; ребро на узел, которого нет среди фигур, пропускается."""
+    nodes_by_id = {n["id"]: n for n in graph["nodes"]}
+    for edge in graph["edges"]:
+        source = shapes_by_node_id.get(edge["source_node_id"])
+        target = shapes_by_node_id.get(edge["target_node_id"])
+        if source is None or target is None:
+            continue
+        connector = connector_template.copy()
+        source_fraction = _port_anchor_fraction(edge.get("source_interface"), _port_ticks_of(nodes_by_id[edge["source_node_id"]]))
+        target_fraction = _port_anchor_fraction(edge.get("target_interface"), _port_ticks_of(nodes_by_id[edge["target_node_id"]]))
+        connector.set_start_and_finish(_vsdx_port_anchor(source, source_fraction), _vsdx_port_anchor(target, target_fraction))
+        _strip_dangling_glue_formulas(connector)
+        connector.text = _vlan_label(edge)
+        if not edge.get("is_active", True):
+            # Тот же LinePattern=2 (пунктир), что и у рамки группы выше — параллель с
+            # stroke-dasharray в .svg и pattern="dashed_medium" в .drawio для
+            # is_active=False.
+            connector.set_cell_value("LinePattern", "2")
+
+
+def _clear_vsdx_template(page, template_ids: set) -> None:
+    """Убирает со страницы шаблонные фигуры и секцию <Connects>.
+
+    Шаблон media.vsdx несёт демонстрационные "глиняные" связи (<Connects>) между
+    СВОИМИ фигурами (RECTANGLE/CONNECTED_SHAPE/...) — теми же, что удаляются циклом
+    ниже. Shape.remove() в vsdx удаляет только сам элемент <Shape> и НЕ чистит секцию
+    <Connects> — без этого шага на странице остаются ссылки FromSheet/ToSheet на уже
+    не существующие ID. Проверено напрямую: с такими висячими ссылками headless
+    LibreOffice рендерит лист ПОЛНОСТЬЮ ПУСТЫМ, даже после починки namespace ниже
+    (это отдельный, более серьёзный источник находки №1, чем сама библиотека vsdx —
+    баг в нашем коде очистки шаблона, а не в vsdx). Наши собственные соединители кладут
+    координаты явно через set_start_and_finish и в этой секции не нуждаются, поэтому
+    убираем её целиком, а не только осиротевшие записи."""
+    from vsdx import namespace as visio_ns
+
+    connects_el = page.xml.getroot().find(f"{visio_ns}Connects")
+    if connects_el is not None:
+        page.xml.getroot().remove(connects_el)
+    for shape in list(page.child_shapes):
+        if shape.ID in template_ids:
+            shape.remove()
+
+
 def export_vsdx(graph: dict) -> bytes:
     import vsdx
-    from vsdx import namespace as visio_ns
 
     template_path = os.path.join(os.path.dirname(vsdx.__file__), "media", "media.vsdx")
 
@@ -795,134 +923,25 @@ def export_vsdx(graph: dict) -> bytes:
         shutil.copy(template_path, out_path)
 
         vf = vsdx.VisioFile(out_path)
+        images = _VsdxImages()
         try:
             page = vf.get_page(0)
-            page_height = _fit_vsdx_page_to_content(page, graph)  # дюймы; см. target_y ниже
+            page_height = _fit_vsdx_page_to_content(page, graph)  # дюймы; см. target_y в _place_vsdx_node
             template_shapes = list(page.child_shapes)
             template_ids = {s.ID for s in template_shapes}
             rect_template = next(s for s in template_shapes if "RECTANGLE" in (s.text or ""))
             connector_template = next(s for s in template_shapes if "STRAIGHT_CONNECTOR" in (s.text or ""))
 
-            # Находка №5 отчёта (Фаза 3, п.5, часть 2): один PNG на УНИКАЛЬНУЮ иконку (глиф
-            # категории или custom-разметку), а не на узел — картинка одна и та же для всех
-            # узлов с этой иконкой (глиф рисуется нейтральным белым и ложится на любую заливку).
-            # rId начинаются с 2, т.к. rId1 в page1.xml.rels уже занят связью на master
-            # (см. media.vsdx). None в кэше — иконку растрировать не удалось: пропускаем её для
-            # всех узлов, не пробуя заново.
-            icon_pngs: dict[str, bytes] = {}
-            image_rel_ids: dict[tuple[str, str], str | None] = {}
-
-            def rel_id_for(key: tuple[str, str], make_png) -> str | None:
-                if key not in image_rel_ids:
-                    png = make_png()
-                    if png is None:
-                        image_rel_ids[key] = None
-                    else:
-                        rel_id = f"rId{len(icon_pngs) + 2}"
-                        icon_pngs[rel_id] = png
-                        image_rel_ids[key] = rel_id
-                return image_rel_ids[key]
-
             shapes_by_node_id = {}
             for node in graph["nodes"]:
-                shape = rect_template.copy()
-                shape.text = node["label"]
-                # Размер фигуры должен совпадать с тем, по которому считается страница
-                # (_fit_vsdx_page_to_content: NODE_WIDTH/NODE_HEIGHT / VSDX_SCALE) — иначе нижний
-                # ряд и правый край графа обрезаются страницей. Ставим ДО target_x/target_y ниже.
-                _set_vsdx_shape_size(shape, NODE_WIDTH / VSDX_SCALE, NODE_HEIGHT / VSDX_SCALE)
-                # PinX/PinY (shape.x/shape.y) — точка привязки ФИГУРЫ, а не левый верхний угол:
-                # у скопированного шаблонного прямоугольника LocPinX/LocPinY = Width*0.5/Height*0.5
-                # (см. media.vsdx), то есть это ЦЕНТР. node["x"]/node["y"] графа — левый верхний
-                # угол (то же соглашение, что и в _svg_node/.drawio: obj.position = (x, y)) —
-                # без поправки на половину размера фигуры весь узел рисуется НИЖЕ И ПРАВЕЕ, чем
-                # нужно (на скриншотах — обрезан сверху краем страницы).
-                target_x = node["x"] / VSDX_SCALE + shape.width / 2
-                # Находка №1 отчёта об экспорте: ось Y в Visio растёт СНИЗУ ВВЕРХ от нижнего
-                # края страницы, а node["y"] графа — сверху вниз, как в .svg/канвасе. Простой
-                # смены знака недостаточно: -(node["y"]/SCALE) всегда <= 0, то есть ВСЯ
-                # диаграмма целиком уходит ниже нижнего края страницы (за пределы видимой
-                # области). Нужно ещё вычесть из высоты страницы шаблона, чтобы верх графа
-                # (y=0) лёг на верх страницы, а не наоборот.
-                target_y = page_height - (node["y"] / VSDX_SCALE + shape.height / 2)
-                shape.move(target_x - shape.x, target_y - shape.y)
-                if node["type"] == "group":
-                    # Раздел 4.4 ТЗ: группа должна визуально отличаться от устройства так же,
-                    # как в .svg/.drawio (светло-серая заливка + пунктирная рамка), а не только
-                    # подписью — иначе на .vsdx-экспорте группу от обычного узла не отличить.
-                    shape.fill_color = GROUP_FILL_COLOR
-                    shape.set_cell_value("LinePattern", "2")
-                else:
-                    color = _device_fill_color(node["icon"])
-                    shape.fill_color = color
-                    shape.line_color = color
-
-                    # Подпись у нижнего края узла (0 — верх, 1 — середина, 2 — низ), как на канвасе/
-                    # в .svg: по умолчанию текст по центру, где теперь иконка.
-                    shape.set_cell_value("VerticalAlign", "2")
-
-                    icon = node["icon"]
-                    glyph = icon.get("glyph")
-                    if glyph:
-                        rel_id = rel_id_for(("glyph", glyph), lambda: _rasterize_glyph_png(glyph))
-                        if rel_id is not None:
-                            # Та же позиция/размер иконки, что и в .svg (_svg_node) и .drawio
-                            # (GLYPH_DISPLAY_SIZE/GLYPH_TOP_MARGIN), переведённые в дюймы Visio.
-                            icon_size = GLYPH_DISPLAY_SIZE / VSDX_SCALE
-                            _add_vsdx_image_overlay(rect_template, shape, rel_id, icon_size, icon_size, GLYPH_TOP_MARGIN / VSDX_SCALE)
-                    else:
-                        custom_svg = _standalone_custom_svg(icon)
-                        if custom_svg:
-                            rel_id = rel_id_for(("custom", custom_svg), lambda: _rasterize_custom_icon_png(custom_svg))
-                            if rel_id is not None:
-                                _add_vsdx_image_overlay(
-                                    rect_template, shape, rel_id, NODE_WIDTH / VSDX_SCALE, CUSTOM_ICON_TILE_HEIGHT / VSDX_SCALE, 0.0
-                                )
-
+                shape = _place_vsdx_node(rect_template, node, page_height)
+                _style_vsdx_node(shape, node)
+                if node["type"] != "group":
+                    _overlay_vsdx_icon(rect_template, shape, node["icon"], images)
                 shapes_by_node_id[node["id"]] = shape
 
-            nodes_by_id = {n["id"]: n for n in graph["nodes"]}
-            for edge in graph["edges"]:
-                source = shapes_by_node_id.get(edge["source_node_id"])
-                target = shapes_by_node_id.get(edge["target_node_id"])
-                if source is None or target is None:
-                    continue
-                connector = connector_template.copy()
-                source_fraction = _port_anchor_fraction(
-                    edge.get("source_interface"), _port_ticks_of(nodes_by_id[edge["source_node_id"]])
-                )
-                target_fraction = _port_anchor_fraction(
-                    edge.get("target_interface"), _port_ticks_of(nodes_by_id[edge["target_node_id"]])
-                )
-                connector.set_start_and_finish(
-                    _vsdx_port_anchor(source, source_fraction), _vsdx_port_anchor(target, target_fraction)
-                )
-                _strip_dangling_glue_formulas(connector)
-                connector.text = _vlan_label(edge)
-                if not edge.get("is_active", True):
-                    # Тот же LinePattern=2 (пунктир), что и у рамки группы выше — параллель с
-                    # stroke-dasharray в .svg и pattern="dashed_medium" в .drawio для
-                    # is_active=False.
-                    connector.set_cell_value("LinePattern", "2")
-
-            # Шаблон media.vsdx несёт демонстрационные "глиняные" связи (<Connects>) между
-            # СВОИМИ фигурами (RECTANGLE/CONNECTED_SHAPE/...) — теми же, что удаляются циклом
-            # ниже. Shape.remove() в vsdx удаляет только сам элемент <Shape> и НЕ чистит секцию
-            # <Connects> — без этого шага на странице остаются ссылки FromSheet/ToSheet на уже
-            # не существующие ID. Проверено напрямую: с такими висячими ссылками headless
-            # LibreOffice рендерит лист ПОЛНОСТЬЮ ПУСТЫМ, даже после починки namespace ниже
-            # (это отдельный, более серьёзный источник находки №1, чем сама библиотека vsdx —
-            # баг в нашем коде очистки шаблона, а не в vsdx). Наши собственные соединители кладут
-            # координаты явно через set_start_and_finish и в этой секции не нуждаются, поэтому
-            # убираем её целиком, а не только осиротевшие записи.
-            connects_el = page.xml.getroot().find(f"{visio_ns}Connects")
-            if connects_el is not None:
-                page.xml.getroot().remove(connects_el)
-
-            for shape in list(page.child_shapes):
-                if shape.ID in template_ids:
-                    shape.remove()
-
+            _add_vsdx_edges(graph, shapes_by_node_id, connector_template)
+            _clear_vsdx_template(page, template_ids)
             vf.save_vsdx(out_path)
         finally:
             vf.close_vsdx()
@@ -931,7 +950,7 @@ def export_vsdx(graph: dict) -> bytes:
         # vsdx (тесты ниже это проверяют), но открывается ПУСТЫМ листом в стороннем ПО.
         _finalize_vsdx_package(out_path, template_path)
         # После финализации, а не вместо неё — см. docstring _embed_vsdx_category_icons.
-        _embed_vsdx_category_icons(out_path, icon_pngs)
+        _embed_vsdx_category_icons(out_path, images.pngs)
 
         with open(out_path, "rb") as fh:
             return fh.read()

@@ -23,10 +23,21 @@ _cache: dict[int, str] = {}
 
 
 def _device_type_for(client) -> str:
+    """Тип устройства для тестов файла — один на клиента. Ключ id(client) ненадёжен: адрес уничтоженного клиента
+    может достаться новому (с чистой БД), поэтому запомненный id проверяется на существование в текущей БД."""
     key = id(client)
-    if key not in _cache:
+    cached = _cache.get(key)
+    if cached is None or client.get(f"/api/v1/resources/device-types/{cached}").status_code != 200:
         _cache[key] = _device_type(client)
     return _cache[key]
+
+
+def test_type_id_remembered_for_another_database_is_not_reused(client):
+    """Регрессия нестабильного теста: кэш ключуется по id(client), а адрес уничтоженного клиента может достаться
+    новому клиенту с другой, чистой БД. Тогда кэш отдавал id типа из прошлой БД и создание устройства падало на
+    внешнем ключе — но только в полном прогоне, зависимо от раскладки памяти. Эмулируем такое совпадение."""
+    _cache[id(client)] = "id-типа-из-прошлой-БД"
+    assert _device(client, "T-STALE")["serial_number"] == "T-STALE"
 
 
 class TestDevices:
