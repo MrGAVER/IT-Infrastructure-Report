@@ -77,6 +77,11 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
     expect(optionValues(vlanSelects(two)[0])).toEqual(['v-10', 'v-20']) // порядок по номеру, а не по порядку в списке
   })
 
+  it('список VLAN подинтерфейса — плавающий: не обрезается прокручиваемой таблицей (overflow-x: auto)', () => {
+    const wrapper = mountEditor([emptySubinterface('Gi0/0')])
+    expect(vlanSelects(wrapper)[0].props('floating')).toBe(true)
+  })
+
   it('выбор VLAN подставляет имя «<порт>.<VLAN>», если имя пустое', async () => {
     const wrapper = mountEditor([emptySubinterface('Gi0/0')])
     vlanSelects(wrapper)[0].vm.$emit('update:modelValue', 'v-10')

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SearchableSelect from '../SearchableSelect.vue'
 import type { SearchableSelectOption } from '../SearchableSelect.vue'
@@ -269,5 +269,134 @@ describe('SearchableSelect.vue — режим remote (поиск на серве
     await input.setValue('несуществующий город')
 
     expect(wrapper.find('.ss-empty').text()).toBe('Ничего не найдено')
+  })
+})
+
+// Режим floating: панель в <body> с position: fixed — её не обрезает прокручиваемый предок (таблица подинтерфейсов).
+describe('SearchableSelect.vue — режим floating (панель вне прокручиваемых предков)', () => {
+  const panel = () => document.body.querySelector<HTMLElement>('.ss-panel')
+  // jsdom не считает раскладку: положение поля задаём сами (возвращается getBoundingClientRect строки с полем).
+  let fieldRect = { top: 100, bottom: 130, left: 40, width: 200 }
+  function mockFieldRect(rect: typeof fieldRect) {
+    fieldRect = rect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      () => ({ ...fieldRect, right: fieldRect.left + fieldRect.width, height: fieldRect.bottom - fieldRect.top, x: fieldRect.left, y: fieldRect.top, toJSON: () => ({}) }) as DOMRect,
+    )
+  }
+  function mountFloating(modelValue = '') {
+    return mount(SearchableSelect, { props: { modelValue, options: OPTIONS, floating: true }, attachTo: document.body })
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  it('панель выводится в <body>, а не внутри компонента, и позиционируется от поля', async () => {
+    mockFieldRect({ top: 100, bottom: 130, left: 40, width: 200 })
+    const wrapper = mountFloating()
+    await wrapper.find('input').trigger('focus')
+
+    expect(wrapper.find('.ss-panel').exists()).toBe(false) // внутри rootEl панели нет
+    expect(panel()).not.toBeNull()
+    expect(panel()!.classList.contains('floating')).toBe(true)
+    expect(panel()!.style.left).toBe('40px')
+    expect(panel()!.style.width).toBe('200px')
+    expect(panel()!.style.top).toBe('134px')
+    expect([...panel()!.querySelectorAll('.ss-option')].map((o) => o.textContent?.trim())).toEqual(['Москва', 'Санкт-Петербург', 'Новосибирск'])
+    wrapper.unmount()
+  })
+
+  it('без floating панель по-прежнему внутри компонента, без fixed-класса и инлайн-координат', async () => {
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS }, attachTo: document.body })
+    await wrapper.find('input').trigger('focus')
+
+    const el = wrapper.find('.ss-panel')
+    expect(el.exists()).toBe(true)
+    expect(el.classes()).not.toContain('floating')
+    expect(el.attributes('style')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('когда снизу не хватает места, список открывается вверх', async () => {
+    mockFieldRect({ top: 700, bottom: 730, left: 40, width: 200 })
+    const wrapper = mountFloating()
+    await wrapper.find('input').trigger('focus')
+
+    expect(panel()!.style.top).toBe('')
+    expect(panel()!.style.bottom).toBe(`${window.innerHeight - 700 + 4}px`)
+    wrapper.unmount()
+  })
+
+  it('выбор опции в плавающей панели работает как обычно и закрывает список', async () => {
+    mockFieldRect({ top: 100, bottom: 130, left: 40, width: 200 })
+    const wrapper = mountFloating()
+    await wrapper.find('input').trigger('focus')
+
+    panel()!.querySelectorAll('.ss-option')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['spb'])
+    expect(panel()).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('клик внутри панели не закрывает список, клик вне — закрывает', async () => {
+    mockFieldRect({ top: 100, bottom: 130, left: 40, width: 200 })
+    const wrapper = mountFloating()
+    await wrapper.find('input').trigger('focus')
+
+    panel()!.dispatchEvent(new MouseEvent('click', { bubbles: true })) // например, по полосе прокрутки списка
+    await wrapper.vm.$nextTick()
+    expect(panel()).not.toBeNull()
+
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(panel()).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('при прокрутке страницы панель следует за полем, а прокрутка самого списка положение не трогает', async () => {
+    mockFieldRect({ top: 100, bottom: 130, left: 40, width: 200 })
+    const wrapper = mountFloating()
+    await wrapper.find('input').trigger('focus')
+    expect(panel()!.style.top).toBe('134px')
+
+    mockFieldRect({ top: 60, bottom: 90, left: 40, width: 200 })
+    panel()!.dispatchEvent(new Event('scroll')) // прокрутка внутри списка — пересчёта нет
+    await wrapper.vm.$nextTick()
+    expect(panel()!.style.top).toBe('134px')
+
+    window.dispatchEvent(new Event('scroll')) // прокрутка предка — панель едет за полем
+    await wrapper.vm.$nextTick()
+    expect(panel()!.style.top).toBe('94px')
+    wrapper.unmount()
+  })
+
+  it('если поле целиком ушло за пределы окна при прокрутке, список закрывается', async () => {
+    mockFieldRect({ top: 100, bottom: 130, left: 40, width: 200 })
+    const wrapper = mountFloating()
+    await wrapper.find('input').trigger('focus')
+
+    mockFieldRect({ top: -60, bottom: -30, left: 40, width: 200 })
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    expect(panel()).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('при размонтировании панель убирается из <body>, а слушатели окна снимаются', async () => {
+    mockFieldRect({ top: 100, bottom: 130, left: 40, width: 200 })
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    const wrapper = mountFloating()
+    await wrapper.find('input').trigger('focus')
+    expect(panel()).not.toBeNull()
+
+    wrapper.unmount()
+
+    expect(panel()).toBeNull()
+    expect(removeSpy).toHaveBeenCalledWith('scroll', expect.any(Function), true)
+    expect(removeSpy).toHaveBeenCalledWith('resize', expect.any(Function))
   })
 })

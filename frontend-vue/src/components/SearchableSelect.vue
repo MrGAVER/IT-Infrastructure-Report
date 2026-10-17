@@ -11,10 +11,16 @@
 // аналогичных) — доп. required-проп добавил бы API, которое ничего не делает, и создал бы
 // иллюзию валидации там, где её на самом деле нет.
 //
-// Позиционирование поповера — как в HelpTip.vue (position: absolute в position: relative
+// Позиционирование поповера по умолчанию — как в HelpTip.vue (position: absolute в position: relative
 // обёртке, без Teleport): тот же осознанный компромисс с тем же риском обрезки внутри
 // overflow:auto контейнера (например, длинной модалки) — консистентно с уже существующим
 // паттерном в этом кодбейзе, а не отдельное решение только для этого компонента.
+//
+// Режим floating — для полей внутри прокручиваемых контейнеров (например, таблица подинтерфейсов с overflow-x: auto:
+// у такого контейнера вторая ось тоже становится auto, и список приходилось «домотывать» прокруткой самого блока).
+// Панель выводится в <body> с position: fixed, координаты считаются от поля (utils/floatingPanel.ts), пересчитываются при
+// прокрутке и изменении окна; если снизу не хватает места, список открывается вверх. z-index тот же, что и у обычной панели:
+// выше всех окон приложения (до 80), ниже подсказок и уведомлений.
 //
 // Режим remote — для списков, которые слишком велики, чтобы грузить их целиком (например, устройства реестра):
 // компонент не фильтрует options сам, а сообщает введённый текст событием search (при открытии — пустая
@@ -32,6 +38,7 @@
 // <SearchableSelect v-model="deviceId" remote :options="found" :loading="busy" @search="runSearch" />
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
+import { floatingPanelLayout } from '../utils/floatingPanel'
 
 export interface SearchableSelectOption {
   value: string
@@ -75,8 +82,11 @@ const props = withDefaults(
     /** Что показать, когда options пуст ИЗНУТРИ (выбирать не из чего: например, «Все ВМ уже добавлены»). Не
      * подменяет «Ничего не найдено» там, где опции есть, а не подошёл введённый запрос. */
     emptyText?: string
+    /** Панель списка выводится в <body> с position: fixed и не обрезается прокручиваемыми предками (таблицей, телом
+     * модалки). Задаётся при создании компонента: на лету не переключается. */
+    floating?: boolean
   }>(),
-  { placeholder: '— не выбрано —', disabled: false, remote: false, loading: false, hint: '', emptyText: NOT_FOUND_TEXT },
+  { placeholder: '— не выбрано —', disabled: false, remote: false, loading: false, hint: '', emptyText: NOT_FOUND_TEXT, floating: false },
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string]; search: [query: string] }>()
 
@@ -88,6 +98,9 @@ const query = ref('')
 const highlightedIndex = ref(0)
 const rootEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLInputElement | null>(null)
+const anchorEl = ref<HTMLElement | null>(null) // строка с полем ввода: от неё считается положение floating-панели
+const panelEl = ref<HTMLElement | null>(null)
+const panelStyle = ref<Record<string, string>>({})
 
 const selectedOption = computed(() => props.options.find((o) => o.value === props.modelValue) ?? null)
 
@@ -162,14 +175,49 @@ function clearSelection() {
 }
 
 function onDocumentClick(event: MouseEvent) {
-  if (open.value && rootEl.value && !rootEl.value.contains(event.target as Node)) closeDropdown()
+  if (!open.value || !rootEl.value) return
+  // floating-панель живёт в <body>, а не внутри rootEl: клик по ней — тоже «внутри» компонента.
+  const target = event.target as Node
+  if (!rootEl.value.contains(target) && !panelEl.value?.contains(target)) closeDropdown()
 }
 onMounted(() => document.addEventListener('click', onDocumentClick))
 onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
 
+// Положение floating-панели пересчитывается, пока список открыт: при прокрутке любого предка (capture ловит прокрутку
+// вложенных контейнеров — события scroll не всплывают) и при изменении размера окна. Прокрутка самого списка не в счёт.
+function updatePanelPosition() {
+  const anchor = anchorEl.value
+  if (!props.floating || !anchor) return
+  const rect = anchor.getBoundingClientRect()
+  // Поле целиком уехало за пределы окна (прокрутили страницу или модалку) — панель повисла бы в воздухе: закрываем.
+  if (rect.bottom < 0 || rect.top > window.innerHeight) {
+    closeDropdown()
+    return
+  }
+  panelStyle.value = floatingPanelLayout(rect, window.innerHeight).style
+}
+function onViewportChange(event?: Event) {
+  if (event?.target instanceof Node && panelEl.value?.contains(event.target)) return
+  updatePanelPosition()
+}
+function detachViewportListeners() {
+  window.removeEventListener('scroll', onViewportChange, true)
+  window.removeEventListener('resize', onViewportChange)
+}
+watch(open, (isOpen) => {
+  if (!props.floating) return
+  detachViewportListeners() // не накапливаем дубли при повторных открытиях
+  if (!isOpen) return
+  updatePanelPosition()
+  window.addEventListener('scroll', onViewportChange, true)
+  window.addEventListener('resize', onViewportChange)
+})
+onBeforeUnmount(detachViewportListeners)
+
 function scrollHighlightedIntoView() {
   nextTick(() => {
-    const el = rootEl.value?.querySelector('.ss-option.highlighted')
+    // Панель ищем через panelEl, а не rootEl: в режиме floating она вынесена из rootEl в <body>.
+    const el = panelEl.value?.querySelector('.ss-option.highlighted')
     // jsdom (тестовое окружение) не реализует scrollIntoView — защитная проверка на существование
     // метода нужна не только браузерной совместимости ради, но и чтобы тесты не падали на этом.
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' })
@@ -200,7 +248,7 @@ function onEnter() {
 
 <template>
   <div ref="rootEl" class="searchable-select" :class="{ open, disabled }">
-    <div class="ss-input-row">
+    <div ref="anchorEl" class="ss-input-row">
       <input
         ref="inputEl"
         type="text"
@@ -228,25 +276,29 @@ function onEnter() {
       <svg class="icon ss-chev" :class="{ open }"><use href="/icons.svg#i-chevd" /></svg>
     </div>
 
-    <div v-if="open" class="ss-panel" role="listbox">
-      <div v-if="!filteredOptions.length" class="ss-empty">{{ loading ? 'Загрузка…' : emptyLabel }}</div>
-      <template v-for="g in groupedOptions" :key="g.group ?? '__ungrouped'">
-        <div v-if="g.group" class="ss-group-label">{{ g.group }}</div>
-        <button
-          v-for="opt in g.options"
-          :key="opt.value"
-          type="button"
-          class="ss-option"
-          :class="{ highlighted: opt.flatIndex === highlightedIndex, selected: opt.value === modelValue }"
-          v-truncate-tooltip="opt.label"
-          @mousedown.prevent="selectOption(opt)"
-          @mouseenter="highlightedIndex = opt.flatIndex"
-        >
-          {{ opt.label }}
-        </button>
-      </template>
-      <div v-if="filteredOptions.length && (loading || hint)" class="ss-hint">{{ loading ? 'Загрузка…' : hint }}</div>
-    </div>
+    <!-- floating: панель уезжает в <body> (position: fixed) и не обрезается прокручиваемыми предками; без floating
+         Teleport отключён и панель рендерится на месте, как раньше. -->
+    <Teleport to="body" :disabled="!floating">
+      <div v-if="open" ref="panelEl" class="ss-panel" :class="{ floating }" :style="floating ? panelStyle : undefined" role="listbox">
+        <div v-if="!filteredOptions.length" class="ss-empty">{{ loading ? 'Загрузка…' : emptyLabel }}</div>
+        <template v-for="g in groupedOptions" :key="g.group ?? '__ungrouped'">
+          <div v-if="g.group" class="ss-group-label">{{ g.group }}</div>
+          <button
+            v-for="opt in g.options"
+            :key="opt.value"
+            type="button"
+            class="ss-option"
+            :class="{ highlighted: opt.flatIndex === highlightedIndex, selected: opt.value === modelValue }"
+            v-truncate-tooltip="opt.label"
+            @mousedown.prevent="selectOption(opt)"
+            @mouseenter="highlightedIndex = opt.flatIndex"
+          >
+            {{ opt.label }}
+          </button>
+        </template>
+        <div v-if="filteredOptions.length && (loading || hint)" class="ss-hint">{{ loading ? 'Загрузка…' : hint }}</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -326,6 +378,13 @@ function onEnter() {
   background: var(--surface-1, var(--surface));
   box-shadow: var(--shadow-m, 0 8px 24px rgba(0, 0, 0, 0.35));
   padding: 4px;
+}
+/* floating: панель в <body> — координаты (left/width/maxHeight и top либо bottom) приходят инлайн-стилем из
+   utils/floatingPanel.ts, поэтому «якорные» right/top обычной панели сбрасываются. */
+.ss-panel.floating {
+  position: fixed;
+  right: auto;
+  top: auto;
 }
 .ss-empty {
   padding: 8px 9px;
