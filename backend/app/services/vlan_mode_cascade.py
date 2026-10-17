@@ -324,14 +324,16 @@ def _short_list(names: list[str]) -> str:
     return shown + (f" и ещё {len(names) - _MAX_LISTED}" if len(names) > _MAX_LISTED else "")
 
 
-def _load_details(change: _Change) -> None:
-    """Подгружает VLAN, устройства и неактивные подключения для уже посчитанной области. VLAN и
-    имена у портов и групп редактируемого устройства берутся из черновика формы, у остальных — из БД."""
-    loader, edited = change.loader, change.edited
-    session = loader.session
+def _index_group_members(change: _Change) -> None:
+    """id порта -> ключ меняемой группы, в запись которой он входит."""
     for key in change.changed_groups:
-        for member in loader.members[key]:
+        for member in change.loader.members[key]:
             change.group_of_port[member] = key
+
+
+def _collect_group_vlans(change: _Change) -> None:
+    """VLAN меняемых групп (до изменения): у группы редактируемого устройства — из черновика формы, у остальных — из БД."""
+    loader = change.loader
     stored_groups: list[str] = []
     for key in change.changed_groups:
         info = loader.infos[key]
@@ -340,9 +342,14 @@ def _load_details(change: _Change) -> None:
             change.group_vlans[key] = list(dict.fromkeys(info.vlan_ids))
         else:
             stored_groups.append(key)
-    # VLAN сохранённых групп и портов: выбранные связями или, при «Все VLAN», все VLAN их устройства (services/port_vlans.py).
-    for group_id, ids in effective_group_vlan_ids([loader.groups[k] for k in stored_groups if k in loader.groups], session).items():
+    # VLAN сохранённых групп: выбранные связями или, при «Все VLAN», все VLAN их устройства (services/port_vlans.py).
+    for group_id, ids in effective_group_vlan_ids([loader.groups[k] for k in stored_groups if k in loader.groups], loader.session).items():
         change.group_vlans.setdefault(group_id, []).extend(sorted(ids))
+
+
+def _collect_port_vlans(change: _Change) -> None:
+    """VLAN одиночных меняемых портов (до изменения) — из черновика формы или из БД; порты групп сюда не входят."""
+    loader, edited = change.loader, change.edited
     stored_ports: list[str] = []
     for port_id in change.changed_ports:
         if port_id in change.group_of_port:
@@ -352,8 +359,13 @@ def _load_details(change: _Change) -> None:
             change.port_vlans[port_id] = list(dict.fromkeys(state.vlan_ids))
         else:
             stored_ports.append(port_id)
-    for port_id, ids in effective_vlan_ids(session, stored_ports).items():
+    for port_id, ids in effective_vlan_ids(loader.session, stored_ports).items():
         change.port_vlans.setdefault(port_id, []).extend(sorted(ids))
+
+
+def _load_vlans_and_devices(change: _Change) -> None:
+    """Справочные строки VLAN, упомянутых в области, и устройства меняемых портов."""
+    session, loader = change.loader.session, change.loader
     vlan_ids = {v for ids in change.group_vlans.values() for v in ids} | {v for ids in change.port_vlans.values() for v in ids}
     for chunk in _chunks(list(vlan_ids)):
         for vlan in session.scalars(select(VLAN).where(VLAN.id.in_(chunk))).all():
@@ -362,7 +374,11 @@ def _load_details(change: _Change) -> None:
     for chunk in _chunks(list(device_ids)):
         for device in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(chunk))).all():
             change.devices[device.id] = device
-    # Неактивные подключения: только для информирующего предупреждения.
+
+
+def _find_inactive_ports(change: _Change) -> None:
+    """Меняемые порты с неактивным подключением к порту в другом режиме — только для информирующего предупреждения."""
+    loader, edited = change.loader, change.edited
     changed = list(change.changed_ports)
     loader.load_links(changed)
     ports_to_check = {there for p in changed for there in loader.inactive[p]}
@@ -370,6 +386,16 @@ def _load_details(change: _Change) -> None:
     for port_id in changed:
         if any(edited.port_mode(loader.ports[o]) != change.target for o in loader.inactive[port_id] if o in loader.ports):
             change.inactive_ports.add(port_id)
+
+
+def _load_details(change: _Change) -> None:
+    """Подгружает VLAN, устройства и неактивные подключения для уже посчитанной области. VLAN и
+    имена у портов и групп редактируемого устройства берутся из черновика формы, у остальных — из БД."""
+    _index_group_members(change)
+    _collect_group_vlans(change)
+    _collect_port_vlans(change)
+    _load_vlans_and_devices(change)
+    _find_inactive_ports(change)
 
 
 def _build_plan(change: _Change) -> dict[str, Any]:
@@ -613,54 +639,54 @@ def _audit_text(plan: dict[str, Any], device_id: str, start_label: str) -> str:
     return "; ".join(parts)
 
 
-def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
-    """Применяет план к данным (кроме редактируемого устройства — его порты и группы клиент вносит
-    в черновик формы). Одна транзакция: либо записано всё, либо ничего.
-
-    payload: {mode, edited?, port?, plan_hash, confirm: true} — mode, edited и port те же, что при предпросмотре.
-    Без confirm=true — 422; если план при применении отличается от показанного при предпросмотре
-    (hash) — 409."""
+def _parse_apply_request(payload: Any) -> tuple[str, _Edited]:
+    """Проверки тела запроса применения — до любых обращений к БД. Порядок: объект → mode → edited → confirm."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
     mode, edited = _parse_mode(payload.get("mode")), _parse_edited(payload.get("edited"))
     if payload.get("confirm") is not True:
         raise HTTPException(422, "Применение требует подтверждения: confirm = true")
-    change = _compute(interface_id, mode, edited, session)
-    plan = change.plan
-    # Вся проверка роли и VLAN — до первой записи: ошибка не оставляет половину операции.
-    prepared = _prepare_port(interface_id, payload, mode, session)
-    if plan["empty"]:
-        # Режим уже целевой — каскаду нечего менять, но роль и VLAN из запроса всё равно записываются.
-        wrote = prepared is not None and write_port_change(prepared, session)
-        if wrote:
-            session.commit()
-        return {
-            "plan": plan,
-            "applied": {"ports": 0, "groups": 0, "devices": 0},
-            "interfaces": enrich_interfaces([prepared.iface], session) if wrote and prepared else [],
-            "port_written": wrote,
-        }
-    if payload.get("plan_hash") != plan["hash"]:
-        raise HTTPException(409, "Данные изменились после предпросмотра — повторите операцию и проверьте новый план")
-    loader = change.loader
+    return mode, edited
+
+
+def _apply_empty_plan(plan: dict[str, Any], prepared: PreparedPortChange | None, session: Session) -> dict[str, Any]:
+    """Режим уже целевой — каскаду нечего менять, но роль и VLAN из запроса всё равно записываются."""
+    wrote = prepared is not None and write_port_change(prepared, session)
+    if wrote:
+        session.commit()
+    return {
+        "plan": plan,
+        "applied": {"ports": 0, "groups": 0, "devices": 0},
+        "interfaces": enrich_interfaces([prepared.iface], session) if wrote and prepared else [],
+        "port_written": wrote,
+    }
+
+
+def _write_group(group: InterfaceGroup, target: str, keep: list[str], session: Session) -> None:
+    group.vlan_mode = target
+    group.all_vlans = False  # при смене режима «Все VLAN» группы не сохраняется (см. _write_port)
+    have: set[str] = set()
+    for row in session.scalars(select(InterfaceGroupVLAN).where(InterfaceGroupVLAN.group_id == group.id)).all():
+        if row.vlan_id not in keep or row.vlan_id in have:
+            session.delete(row)
+        else:
+            have.add(row.vlan_id)
+    # У группы с «Все VLAN» строк не было — явный набор после смены режима записывается заново.
+    for vlan_id in keep:
+        if vlan_id not in have:
+            session.add(InterfaceGroupVLAN(group_id=group.id, vlan_id=vlan_id))
+
+
+def _write_plan(change: _Change, session: Session) -> list[DeviceInterface]:
+    """Записывает группы и одиночные порты плана, кроме отложенных (устройство с открытой формой).
+    Возвращает записанные порты: сначала порты групп, затем одиночные."""
+    plan, loader, mode = change.plan, change.loader, change.target
     written_ports: list[DeviceInterface] = []
     for g in plan["groups"]:
         if g["deferred"]:
             continue
-        group = loader.groups[g["id"]]
         keep = [v["id"] for v in g["vlans_after"]]
-        group.vlan_mode = mode
-        group.all_vlans = False  # при смене режима «Все VLAN» группы не сохраняется (см. _write_port)
-        have: set[str] = set()
-        for row in session.scalars(select(InterfaceGroupVLAN).where(InterfaceGroupVLAN.group_id == group.id)).all():
-            if row.vlan_id not in keep or row.vlan_id in have:
-                session.delete(row)
-            else:
-                have.add(row.vlan_id)
-        # У группы с «Все VLAN» строк не было — явный набор после смены режима записывается заново.
-        for vlan_id in keep:
-            if vlan_id not in have:
-                session.add(InterfaceGroupVLAN(group_id=group.id, vlan_id=vlan_id))
+        _write_group(loader.groups[g["id"]], mode, keep, session)
         for member in g["ports"]:
             port = loader.ports[member["id"]]
             _write_port(port, mode, keep, session)
@@ -671,11 +697,37 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
         port = loader.ports[p["id"]]
         _write_port(port, mode, [v["id"] for v in p["vlans_after"]], session)
         written_ports.append(port)
-    start = loader.ports[interface_id]
+    return written_ports
+
+
+def _audit_cascade(change: _Change, session: Session) -> None:
+    """По записи аудита на каждое устройство, которое записано сейчас (отложенные пишет форма)."""
+    plan, loader = change.plan, change.loader
+    start = loader.ports[change.start_id]
     start_label = f"порт «{change.edited.port_name(start)}» устройства «{_device_name(change.devices.get(start.physical_device_id))}»"
     for device in plan["devices"]:
         if not device["deferred"]:
             audit(session, "interfaces", device["id"], AuditAction.UPDATE, _audit_text(plan, device["id"], start_label))
+
+
+def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """Применяет план к данным (кроме редактируемого устройства — его порты и группы клиент вносит
+    в черновик формы). Одна транзакция: либо записано всё, либо ничего.
+
+    payload: {mode, edited?, port?, plan_hash, confirm: true} — mode, edited и port те же, что при предпросмотре.
+    Без confirm=true — 422; если план при применении отличается от показанного при предпросмотре
+    (hash) — 409."""
+    mode, edited = _parse_apply_request(payload)
+    change = _compute(interface_id, mode, edited, session)
+    plan = change.plan
+    # Вся проверка роли и VLAN — до первой записи: ошибка не оставляет половину операции.
+    prepared = _prepare_port(interface_id, payload, mode, session)
+    if plan["empty"]:
+        return _apply_empty_plan(plan, prepared, session)
+    if payload.get("plan_hash") != plan["hash"]:
+        raise HTTPException(409, "Данные изменились после предпросмотра — повторите операцию и проверьте новый план")
+    written_ports = _write_plan(change, session)
+    _audit_cascade(change, session)
     applied = {"ports": len(written_ports), "groups": sum(1 for g in plan["groups"] if not g["deferred"]), "devices": plan["totals"]["immediate_devices"]}
     # Роль и VLAN порта-инициатора — после каскада, в той же транзакции: набор записывается точно как в запросе
     # (каскад мог урезать его до одного VLAN в access — проверка под целевой режим это учла).
