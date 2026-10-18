@@ -72,7 +72,7 @@ def seed_registry(session: Session) -> None:
         DeviceInterface(id="q2", physical_device_id="sw2", name="Gi0/2", is_data_transfer=True),
         DeviceInterface(id="q3", physical_device_id="sw2", name="Gi0/3", is_data_transfer=True),
         DeviceInterface(id="r1", physical_device_id="rt1", name="Gi0/0", is_data_transfer=True, vlan_mode="trunk"),
-        DeviceInterface(id="n1", physical_device_id="srv1", name="eth0", is_management=True),
+        DeviceInterface(id="n1", physical_device_id="srv1", name="Te0/0", is_management=True),
     ])
     session.flush()
     add([
