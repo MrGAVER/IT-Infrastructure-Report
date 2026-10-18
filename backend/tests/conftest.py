@@ -40,34 +40,72 @@ from sqlalchemy.pool import StaticPool
 #   INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest backend/tests
 # База должна быть пустой и принадлежать тестам: схема пересоздаётся при старте, а между тестами все таблицы
 # очищаются (TRUNCATE ... CASCADE). Тесты, которым нужна именно SQLite (миграции на файле-БД), помечены
-# @pytest.mark.sqlite_only и при этом режиме пропускаются.
+# @pytest.mark.sqlite_only и при этом режиме пропускаются, а тесты с @pytest.mark.postgres_only — наоборот,
+# выполняются только в нём.
+#
+# По умолчанию схема PostgreSQL создаётся из моделей (create_all). INFRA_REGISTRY_TEST_SCHEMA=migrations собирает
+# её цепочкой миграций Alembic (`alembic upgrade head`) — как при первом запуске docker-compose; так проверяется, что
+# приложение работает на схеме, которую получат реальные установки, а не только на «идеальной» схеме из моделей.
 TEST_DATABASE_URL = os.environ.get("INFRA_REGISTRY_TEST_DATABASE_URL", "").strip()
 IS_POSTGRES = TEST_DATABASE_URL.startswith("postgresql")
+SCHEMA_FROM_MIGRATIONS = os.environ.get("INFRA_REGISTRY_TEST_SCHEMA", "").strip() == "migrations"
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "sqlite_only: тест зависит от SQLite и пропускается при INFRA_REGISTRY_TEST_DATABASE_URL")
+    config.addinivalue_line("markers", "postgres_only: тест требует PostgreSQL и выполняется только при INFRA_REGISTRY_TEST_DATABASE_URL")
 
 
 def pytest_collection_modifyitems(config, items):
-    if not IS_POSTGRES:
-        return
-    skip = pytest.mark.skip(reason="тест только для SQLite (INFRA_REGISTRY_TEST_DATABASE_URL задан)")
+    if IS_POSTGRES:
+        skip = pytest.mark.skip(reason="тест только для SQLite (INFRA_REGISTRY_TEST_DATABASE_URL задан)")
+        marker = "sqlite_only"
+    else:
+        skip = pytest.mark.skip(reason="тест требует PostgreSQL (задайте INFRA_REGISTRY_TEST_DATABASE_URL)")
+        marker = "postgres_only"
     for item in items:
-        if "sqlite_only" in item.keywords:
+        if marker in item.keywords:
             item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")
 def _postgres_engine():
-    """Один движок PostgreSQL на весь прогон; схема создаётся заново из моделей (как create_all у SQLite-фикстуры)."""
+    """Один движок PostgreSQL на весь прогон; схема создаётся заново — из моделей (как create_all у SQLite-фикстуры)
+    или, при INFRA_REGISTRY_TEST_SCHEMA=migrations, цепочкой миграций Alembic."""
     from app.models import Base
 
     engine = create_engine(TEST_DATABASE_URL, future=True, pool_pre_ping=True)
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    if SCHEMA_FROM_MIGRATIONS:
+        _rebuild_schema_with_migrations(engine)
+    else:
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
+
+
+def _rebuild_schema_with_migrations(engine) -> None:
+    """Пустая схема public → `alembic upgrade head`. env.py читает app.config.DATABASE_URL при каждом запуске команды
+    (см. tests/test_migrations_diagram.py), поэтому адрес подставляется в сам модуль на время миграции."""
+    from pathlib import Path
+
+    import app.config as app_config
+    from alembic import command
+    from alembic.config import Config
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
+        connection.exec_driver_sql("CREATE SCHEMA public")
+    backend_dir = Path(__file__).resolve().parent.parent
+    cfg = Config(str(backend_dir / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+    cfg.attributes["configure_logger"] = False
+    original = app_config.DATABASE_URL
+    app_config.DATABASE_URL = TEST_DATABASE_URL
+    try:
+        command.upgrade(cfg, "head")
+    finally:
+        app_config.DATABASE_URL = original
 
 
 def _truncate_all(engine) -> None:
