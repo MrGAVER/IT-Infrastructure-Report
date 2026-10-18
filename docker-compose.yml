@@ -30,6 +30,13 @@ services:
       # Адреса прокси, которым доверяет uvicorn при определении IP клиента (X-Forwarded-For) — нужно
       # за обратным прокси, иначе в журнале аудита и сессиях будет адрес самого прокси.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Лицензионный ключ (см. docs/licensing.md). Каталог данных контейнера не смонтирован как том, поэтому ключ,
+      # установленный через интерфейс, пропал бы при пересоздании контейнера — задайте его здесь. Привязка к имени и
+      # адресам внутри Docker неустойчива (имя контейнера случайно): для сервера просите у вендора ключ с привязкой
+      # к INFRA_REGISTRY_LICENSE_HOSTNAME / INFRA_REGISTRY_LICENSE_HOST_IPS, заданным ниже, либо к параметру.
+      INFRA_REGISTRY_LICENSE_KEY: ${INFRA_REGISTRY_LICENSE_KEY:-}
+      INFRA_REGISTRY_LICENSE_HOSTNAME: ${INFRA_REGISTRY_LICENSE_HOSTNAME:-}
+      INFRA_REGISTRY_LICENSE_HOST_IPS: ${INFRA_REGISTRY_LICENSE_HOST_IPS:-}
     ports:
       - "8000:8000"
     depends_on:
