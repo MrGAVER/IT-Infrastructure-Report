@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import threading
@@ -86,11 +87,18 @@ def main():
     parser = argparse.ArgumentParser(description="РИС — Реестр ИТ-инфраструктуры")
     parser.add_argument("--no-browser", action="store_true", help="не открывать браузер автоматически")
     parser.add_argument("--port", type=int, default=None, help="порт (по умолчанию — из файла настроек, 8000)")
+    parser.add_argument("--license-info", action="store_true", help="вывести имя, IP-адреса и отпечаток этого компьютера (для запроса лицензионного ключа с привязкой) и выйти")
     args = parser.parse_args()
 
     root = bundle_dir()
     sys.path.insert(0, str(bundle_dir() / "backend"))
     sys.path.insert(0, str(bundle_dir()))
+
+    if args.license_info:
+        from app.licensing.context import collect_host_context
+
+        print(json.dumps(collect_host_context().describe(), ensure_ascii=False, indent=2))
+        return
 
     from app.services.exe_settings import SETTINGS_FILENAME, SettingsError
 

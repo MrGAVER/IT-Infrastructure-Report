@@ -16,3 +16,10 @@ node_modules/
 
 # Файл настроек EXE-версии (создаётся рядом с исходниками при запуске launcher.py)
 infra_registry.toml
+
+# Лицензирование: приватные ключи подписи и журнал выданных ключей (tools/license_admin.py) — только у вендора.
+license_keys/
+*.private.pem
+# Установленный ключ и состояние защиты от отката часов (создаются рядом с приложением).
+license.key
+license_state.json

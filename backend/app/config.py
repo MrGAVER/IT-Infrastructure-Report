@@ -17,7 +17,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_regi
 # файла (см. main.py:spa_fallback), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-APP_VERSION = '2.155.0'
+APP_VERSION = '2.156.0'
 
 def _csv_env(name: str, default: str = '') -> list[str]:
     """Список из переменной окружения через запятую: пробелы и пустые элементы отбрасываются."""
@@ -68,3 +68,13 @@ AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12
 AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', '10'))
 AUTH_LOCKOUT_MINUTES = float(os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', '15'))
 AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', '8'))
+
+# Лицензирование (см. docs/licensing.md и app/licensing). Ключ ищется в файле LICENSE_FILE, а если файла нет — в
+# INFRA_REGISTRY_LICENSE_KEY (удобно для Docker secrets). Файл состояния защиты от отката часов лежит рядом.
+LICENSE_FILE = Path(os.getenv('INFRA_REGISTRY_LICENSE_FILE', str(APP_DATA_DIR / 'license.key'))).expanduser()
+LICENSE_STATE_FILE = Path(os.getenv('INFRA_REGISTRY_LICENSE_STATE_FILE', str(APP_DATA_DIR / 'license_state.json'))).expanduser()
+LICENSE_KEY = os.getenv('INFRA_REGISTRY_LICENSE_KEY', '')
+# auto — принуждение включено, если в сборку встроен публичный ключ; on — всегда; off — выключено (но не в EXE).
+LICENSE_ENFORCEMENT = os.getenv('INFRA_REGISTRY_LICENSE_ENFORCEMENT', 'auto')
+# Что происходит без действующей лицензии: readonly — чтение работает, запись и отчёты закрыты; block — закрыт весь API.
+LICENSE_MODE = os.getenv('INFRA_REGISTRY_LICENSE_MODE', 'readonly')

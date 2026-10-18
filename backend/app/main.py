@@ -7,13 +7,17 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
+from .config import (
+    ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR,
+    LICENSE_ENFORCEMENT, LICENSE_FILE, LICENSE_KEY, LICENSE_MODE, LICENSE_STATE_FILE,
+)
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
 from .api.devices import router as devices_router
 from .api.diagrams import router as diagrams_router
 from .api.frontend_assets import router as frontend_assets_router
+from .api.license import router as license_router
 from .api.listings import router as listings_router
 from .api.port_config import router as port_config_router
 from .api.port_sync import router as port_sync_router
@@ -25,6 +29,8 @@ from .api.system import router as system_router
 from .api.vlan import router as vlan_router
 from .api.vms import router as vms_router
 from .db import SessionLocal
+from .licensing.bootstrap import build_license_manager, validate_mode
+from .licensing.middleware import LicenseGateMiddleware
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
 from .services.catalogs import seed_defaults
 from .services.integrity import ReferencedRecordError
@@ -43,12 +49,21 @@ logger = logging.getLogger(__name__)
 # должно молча стартовать с «открытым» доступом из-за опечатки в адресе.
 ALLOWED_CLIENT_NETWORKS: list[IPNetwork] = parse_client_networks(ALLOWED_CLIENTS)
 
+# Лицензирование (app/licensing, docs/licensing.md). Неверные настройки — ValueError при импорте, как и для списка клиентов.
+LICENSE_GATE_MODE = validate_mode(LICENSE_MODE)
+license_manager = build_license_manager(
+    key_file=LICENSE_FILE, state_file=LICENSE_STATE_FILE, env_token=LICENSE_KEY, enforcement_setting=LICENSE_ENFORCEMENT,
+)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_catalogs_on_startup()
+    _log_license_status()
     yield
+    license_manager.flush()
 
 app = FastAPI(title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan)
+app.state.license_manager = license_manager
 # Порядок add_middleware() важен: Starlette оборачивает мидлвари в порядке, ОБРАТНОМ порядку
 # регистрации (последний добавленный — самый внешний). auth_gate_middleware иногда завершает запрос
 # сам, не вызывая call_next (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
@@ -87,8 +102,13 @@ def install_http_security(
         app.add_middleware(ClientAccessMiddleware, networks=allowed_clients)
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
+# Проверка лицензии — СНАРУЖИ auth_gate_middleware (регистрируется позже): запись без лицензии закрыта независимо от роли,
+# а её 402 всё равно получает CORS-заголовки, потому что CORS и проверка Host добавляются ещё позже (см. комментарий выше).
+if license_manager.enforcement:
+    app.add_middleware(LicenseGateMiddleware, manager=license_manager, mode=LICENSE_GATE_MODE)
 install_http_security(app, allowed_hosts=ALLOWED_HOSTS, cors_origins=CORS_ALLOWED_ORIGINS, allowed_clients=ALLOWED_CLIENT_NETWORKS)
 app.include_router(auth_router)
+app.include_router(license_router)
 app.include_router(preferences_router)
 # Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
 app.include_router(system_router)
@@ -125,6 +145,18 @@ def seed_catalogs_on_startup():
         _warn_if_remote_access_without_auth(auth_settings.enabled)
     finally:
         session.close()
+
+def _log_license_status() -> None:
+    """Состояние лицензии в журнале при старте: администратор EXE видит его в консоли, не заходя в интерфейс."""
+    report = license_manager.report()
+    if not license_manager.enforcement:
+        logger.info("Проверка лицензии отключена (в сборке нет публичных ключей или INFRA_REGISTRY_LICENSE_ENFORCEMENT=off).")
+    elif report.allows_writes:
+        payload = report.payload
+        logger.info("Лицензия: %s, владелец %s, срок %s.", report.state.value, payload.licensee if payload else "?", report.to_public_dict()["expires_at"] or "бессрочно")
+    else:
+        logger.warning("Лицензия: %s (%s). %s Режим без лицензии: %s. Активация ключа: POST /api/v1/license (тело {\"key\": \"...\"}).",
+                       report.state.value, report.reason or ",".join(report.mismatched) or "-", report.message, LICENSE_GATE_MODE)
 
 def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
     """Доступ по сети открыт (в списке клиентов есть адреса не с этого компьютера), а аутентификация

@@ -163,6 +163,12 @@ class AuthSettingsUpdate(BaseModel):
     enabled: bool
 
 
+class LicenseActivateRequest(BaseModel):
+    """Тело POST /api/v1/license: лицензионный ключ как его прислал вендор (строки обрамления и переносы допустимы)."""
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=20_000)
+
+
 # --- Настройки интерфейса (services/preferences.py, api/preferences.py) -----------------------------
 # extra="forbid": набор ключей фиксирован — опечатка или чужой ключ дают 422, а не молча сохраняются.
 # Поле, которого нет в теле запроса, не трогается; поле со значением null сбрасывает настройку к значению
