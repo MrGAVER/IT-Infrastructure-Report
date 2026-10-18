@@ -74,7 +74,7 @@ def upgrade():
         sa.Column('ip_address', sa.String(64)),
         sa.Column('purpose', sa.String(500)),
         sa.Column('role', sa.String(255)),
-        sa.Column('external_interaction', sa.Boolean(), nullable=False, server_default=sa.text('0')),
+        sa.Column('external_interaction', sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column('created_at', sa.DateTime()),
         sa.Column('updated_at', sa.DateTime()),
         sa.ForeignKeyConstraint(['information_system_id'], ['information_systems.id']),
@@ -87,11 +87,11 @@ def upgrade():
 
     # Migrate existing separate IS relations into unified source rows.
     for row in bind.execute(sa.text('SELECT information_system_id, physical_device_id, role FROM information_system_devices')).fetchall():
-        bind.execute(sa.text("INSERT INTO information_system_sources (id,information_system_id,source_type,physical_device_id,role,external_interaction) VALUES (:id,:sid,'device',:did,:role,0)"), {'id':str(uuid.uuid4()),'sid':row[0],'did':row[1],'role':row[2]})
+        bind.execute(sa.text("INSERT INTO information_system_sources (id,information_system_id,source_type,physical_device_id,role,external_interaction) VALUES (:id,:sid,'device',:did,:role,:ext)"), {'id':str(uuid.uuid4()),'sid':row[0],'did':row[1],'role':row[2],'ext':False})
     for row in bind.execute(sa.text('SELECT information_system_id, virtual_machine_id, role FROM information_system_vms')).fetchall():
-        bind.execute(sa.text("INSERT INTO information_system_sources (id,information_system_id,source_type,virtual_machine_id,role,external_interaction) VALUES (:id,:sid,'vm',:vid,:role,0)"), {'id':str(uuid.uuid4()),'sid':row[0],'vid':row[1],'role':row[2]})
+        bind.execute(sa.text("INSERT INTO information_system_sources (id,information_system_id,source_type,virtual_machine_id,role,external_interaction) VALUES (:id,:sid,'vm',:vid,:role,:ext)"), {'id':str(uuid.uuid4()),'sid':row[0],'vid':row[1],'role':row[2],'ext':False})
     for row in bind.execute(sa.text('SELECT information_system_id, container_id, role FROM information_system_containers')).fetchall():
-        bind.execute(sa.text("INSERT INTO information_system_sources (id,information_system_id,source_type,container_id,role,external_interaction) VALUES (:id,:sid,'container',:cid,:role,0)"), {'id':str(uuid.uuid4()),'sid':row[0],'cid':row[1],'role':row[2]})
+        bind.execute(sa.text("INSERT INTO information_system_sources (id,information_system_id,source_type,container_id,role,external_interaction) VALUES (:id,:sid,'container',:cid,:role,:ext)"), {'id':str(uuid.uuid4()),'sid':row[0],'cid':row[1],'role':row[2],'ext':False})
     for row in bind.execute(sa.text('SELECT information_system_id,ip_address,purpose,external_interaction,physical_device_id,virtual_machine_id FROM information_system_ips')).fetchall():
         bind.execute(sa.text("INSERT INTO information_system_sources (id,information_system_id,source_type,physical_device_id,virtual_machine_id,ip_address,purpose,external_interaction) VALUES (:id,:sid,:stype,:did,:vid,:ip,:purpose,:external)"), {
             'id':str(uuid.uuid4()), 'sid':row[0], 'stype':'vm' if row[5] else ('device' if row[4] else 'manual'), 'did':row[4], 'vid':row[5], 'ip':row[1], 'purpose':row[2], 'external':row[3] or 0

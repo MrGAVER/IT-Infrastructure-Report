@@ -54,12 +54,12 @@ def upgrade() -> None:
     for vm_id, admin_ip in vms:
         existing_ip = bind.execute(sa.text("SELECT id FROM vm_ips WHERE virtual_machine_id = :vid AND ip_address = :ip"), {"vid": vm_id, "ip": admin_ip}).fetchone()
         if existing_ip:
-            bind.execute(sa.text("UPDATE vm_ips SET is_management = 1 WHERE id = :id"), {"id": existing_ip[0]})
+            bind.execute(sa.text("UPDATE vm_ips SET is_management = :t WHERE id = :id"), {"t": True, "id": existing_ip[0]})  # булев параметр: PostgreSQL не сравнивает boolean с 1
         else:
             import uuid as _uuid
             bind.execute(
-                sa.text("INSERT INTO vm_ips (id, virtual_machine_id, ip_address, is_management, created_at, updated_at) VALUES (:id, :vid, :ip, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
-                {"id": str(_uuid.uuid4()), "vid": vm_id, "ip": admin_ip},
+                sa.text("INSERT INTO vm_ips (id, virtual_machine_id, ip_address, is_management, created_at, updated_at) VALUES (:id, :vid, :ip, :t, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
+                {"id": str(_uuid.uuid4()), "vid": vm_id, "ip": admin_ip, "t": True},
             )
 
     with op.batch_alter_table("virtual_machines") as batch:
@@ -72,8 +72,8 @@ def downgrade() -> None:
         batch.add_column(sa.Column("administration_ip", sa.String(length=64), nullable=True))
     bind.execute(sa.text(
         "UPDATE virtual_machines SET administration_ip = ("
-        "SELECT ip_address FROM vm_ips WHERE vm_ips.virtual_machine_id = virtual_machines.id AND vm_ips.is_management = 1 LIMIT 1)"
-    ))
+        "SELECT ip_address FROM vm_ips WHERE vm_ips.virtual_machine_id = virtual_machines.id AND vm_ips.is_management = :t LIMIT 1)"
+    ), {"t": True})
 
     with op.batch_alter_table("information_systems") as batch:
         batch.add_column(sa.Column("crypto_protection_description", sa.Text(), nullable=True))

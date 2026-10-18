@@ -46,7 +46,7 @@ def upgrade() -> None:
     # rename the extra copies with a distinguishing suffix so the constraint can be
     # added, and report what was renamed so the admin can review/re-merge if needed.
     duplicates = bind.execute(
-        sa.text("SELECT name, COUNT(*) c FROM information_systems GROUP BY name HAVING c > 1")
+        sa.text("SELECT name, COUNT(*) c FROM information_systems GROUP BY name HAVING COUNT(*) > 1")
     ).fetchall()
     for name, _count in duplicates:
         rows = bind.execute(
@@ -104,7 +104,12 @@ def upgrade() -> None:
         # On PostgreSQL, op.batch_alter_table() executes native ALTER TABLE statements
         # rather than rebuilding the table, so this constraint was never silently lost
         # there in the first place -- just add it if it's somehow still missing.
-        op.create_unique_constraint(CONSTRAINT_NAME, "information_systems", ["name"])
+        inspector = sa.inspect(bind)
+        has_unique = any(uc["column_names"] == ["name"] for uc in inspector.get_unique_constraints("information_systems")) or any(
+            ix.get("unique") and ix["column_names"] == ["name"] for ix in inspector.get_indexes("information_systems")
+        )
+        if not has_unique:  # на чистой PostgreSQL ограничение с начальной схемы уже есть — второе не нужно
+            op.create_unique_constraint(CONSTRAINT_NAME, "information_systems", ["name"])
 
 
 def downgrade() -> None:
@@ -116,4 +121,6 @@ def downgrade() -> None:
             "Downgrade not supported: would require another full SQLite table rebuild "
             "to reintroduce a constraint gap that was a bug, not a feature."
         )
-    op.drop_constraint(CONSTRAINT_NAME, "information_systems", type_="unique")
+    # На PostgreSQL ограничение с начальной схемы называется иначе и принадлежит ей — откатываем только своё.
+    if any(uc["name"] == CONSTRAINT_NAME for uc in sa.inspect(op.get_bind()).get_unique_constraints("information_systems")):
+        op.drop_constraint(CONSTRAINT_NAME, "information_systems", type_="unique")

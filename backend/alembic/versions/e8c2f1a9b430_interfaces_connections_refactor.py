@@ -89,11 +89,11 @@ def upgrade():
             iface = bind.execute(sa.text("SELECT id FROM device_interfaces WHERE physical_device_id=:d ORDER BY id LIMIT 1"), {"d":did}).fetchone()
             if iface:
                 iid=iface[0]
-                bind.execute(sa.text("UPDATE device_interfaces SET is_management=1 WHERE id=:i"), {"i":iid})
+                bind.execute(sa.text("UPDATE device_interfaces SET is_management=:t WHERE id=:i"), {"t":True,"i":iid})  # булев параметр: PostgreSQL не сравнивает boolean с 1
                 if mip:
                     exists=bind.execute(sa.text("SELECT id FROM interface_ips WHERE interface_id=:i AND ip_address=:ip"), {"i":iid,"ip":mip}).fetchone()
                     if not exists:
-                        bind.execute(sa.text(f"INSERT INTO interface_ips(id,interface_id,ip_address,prefix_length,purpose,is_management,created_at,updated_at) VALUES (:id,:i,:ip,NULL,'Управление',1,{now_sql},{now_sql})"), {"id":uid(),"i":iid,"ip":mip})
+                        bind.execute(sa.text(f"INSERT INTO interface_ips(id,interface_id,ip_address,prefix_length,purpose,is_management,created_at,updated_at) VALUES (:id,:i,:ip,NULL,'Управление',:t,{now_sql},{now_sql})"), {"id":uid(),"i":iid,"ip":mip,"t":True})
     except Exception:
         # Best-effort: перенос старых полей management_port/management_ip в интерфейсы не должен
         # блокировать миграцию, если данные в старых колонках оказались в неожиданном формате —
@@ -120,7 +120,7 @@ def upgrade():
             except Exception: logger.debug("Migration e8c2f1a9b430: physical_devices.%s уже отсутствует, пропущено", col, exc_info=True)
 
     # All IPs on a management interface are management IPs.
-    bind.execute(sa.text("UPDATE interface_ips SET is_management=1 WHERE interface_id IN (SELECT id FROM device_interfaces WHERE is_management=1)"))
+    bind.execute(sa.text("UPDATE interface_ips SET is_management=:t WHERE interface_id IN (SELECT id FROM device_interfaces WHERE is_management=:t)"), {"t":True})
 
 def downgrade():
     # Recreate legacy columns and restore best-effort values.

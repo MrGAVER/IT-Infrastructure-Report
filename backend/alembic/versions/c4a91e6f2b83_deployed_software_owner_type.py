@@ -42,8 +42,8 @@ def upgrade() -> None:
         sa.Column("owner_id", sa.String(length=36), nullable=False),
         sa.Column("software_asset_id", sa.String(length=36), sa.ForeignKey("software_assets.id"), nullable=False, index=True),
         sa.Column("version", sa.String(length=100), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
     )
     op.create_index("ix_deployed_software_owner", "deployed_software", ["owner_type", "owner_id"])
 

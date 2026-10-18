@@ -75,7 +75,7 @@ def _migrate_legacy_is_links_to_sources(bind) -> None:
 
     def _insert_source(is_id, source_type, *, physical_device_id=None, virtual_machine_id=None,
                         container_id=None, ip_address=None, purpose=None, role=None,
-                        external_interaction=0):
+                        external_interaction=False):  # булево: PostgreSQL не принимает 0 для boolean-колонки
         bind.execute(
             sa.text(
                 "INSERT INTO information_system_sources (id, information_system_id, source_type, "
@@ -87,7 +87,7 @@ def _migrate_legacy_is_links_to_sources(bind) -> None:
                 "id": str(uuid.uuid4()), "is_id": is_id, "st": source_type,
                 "dev": physical_device_id, "vm": virtual_machine_id, "cont": container_id,
                 "ip": ip_address, "purpose": purpose, "role": role,
-                "ext": 1 if external_interaction else 0, "c": now,
+                "ext": bool(external_interaction), "c": now,
             },
         )
 
