@@ -32,6 +32,17 @@ class DummyAttr:
     def __eq__(self, other):
         return True
 
+    # Выражения сортировки вроде Model.column.is_(None).desc() в order_by(...): мок порядок не применяет, но вызов
+    # должен проходить, как у настоящей колонки SQLAlchemy.
+    def is_(self, other):
+        return self
+
+    def desc(self):
+        return self
+
+    def asc(self):
+        return self
+
 
 class Query:
     def __init__(self, entity):
