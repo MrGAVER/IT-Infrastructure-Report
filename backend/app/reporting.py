@@ -202,7 +202,9 @@ def _load_organization(session: Session, d: SimpleNamespace, only_is: Optional[s
 def _load_device_catalogs(session: Session, d: SimpleNamespace) -> None:
     """Устройства и справочники, на которые они ссылаются (тип, производитель, модель, место, ОС), а также
     справочники ИС (способ поддержки, СКЗИ, размещение) и типы интерфейсов."""
-    d.devices = session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name, PhysicalDevice.serial_number)).all()
+    # Устройства без системного имени — первыми: NULL в SQLite сортируется первым, в PostgreSQL последним, а порядок листов
+    # должен быть одинаковым на обоих (отсюда явное «IS NULL DESC», а не полагание на умолчание СУБД).
+    d.devices = session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name, PhysicalDevice.serial_number)).all()
     d.device_map = _by_id(d.devices)
     d.device_types = _by_id(session.scalars(select(DeviceType)).all())
     d.manufacturers = _by_id(session.scalars(select(Manufacturer)).all())

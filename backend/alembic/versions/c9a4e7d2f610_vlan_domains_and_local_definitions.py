@@ -47,55 +47,76 @@ def upgrade():
     # while global VLAN-ID uniqueness is removed.
     cols = {c["name"] for c in inspector.get_columns("vlans")}
     if "domain_id" not in cols:
-        op.execute("PRAGMA foreign_keys=OFF")
-        op.execute("""
-            CREATE TABLE vlans_new (
-                id VARCHAR(36) NOT NULL,
-                vlan_id INTEGER NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                description TEXT,
-                domain_id VARCHAR(36),
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL,
-                PRIMARY KEY (id),
-                FOREIGN KEY(domain_id) REFERENCES vlan_domains(id),
-                UNIQUE(domain_id, vlan_id)
-            )
-        """)
-        op.execute("""
-            INSERT INTO vlans_new
-                (id, vlan_id, name, description, domain_id, created_at, updated_at)
-            SELECT id, vlan_id, name, description, NULL, created_at, updated_at
-            FROM vlans
-        """)
-        op.execute("DROP TABLE vlans")
-        op.execute("ALTER TABLE vlans_new RENAME TO vlans")
-        op.execute("CREATE INDEX ix_vlans_domain_id ON vlans(domain_id)")
-        op.execute("PRAGMA foreign_keys=ON")
+        if bind.dialect.name == "postgresql":
+            # PostgreSQL меняет таблицу на месте — пересборка (ниже) нужна только SQLite. Имена прежних ограничений
+            # авто-сгенерированы, поэтому находим их через инспектор.
+            for uc in inspector.get_unique_constraints("vlans"):
+                if uc["column_names"] == ["vlan_id"]:
+                    op.drop_constraint(uc["name"], "vlans", type_="unique")
+            for ix in inspector.get_indexes("vlans"):
+                if ix.get("unique") and ix["column_names"] == ["vlan_id"]:
+                    op.drop_index(ix["name"], table_name="vlans")
+            op.add_column("vlans", sa.Column("domain_id", sa.String(36), nullable=True))
+            op.create_foreign_key("vlans_domain_id_fkey", "vlans", "vlan_domains", ["domain_id"], ["id"])
+            op.create_index("ix_vlans_domain_id", "vlans", ["domain_id"])
+            op.create_unique_constraint("uq_vlan_domain_id", "vlans", ["domain_id", "vlan_id"])
+        else:
+            op.execute("PRAGMA foreign_keys=OFF")
+            op.execute("""
+                CREATE TABLE vlans_new (
+                    id VARCHAR(36) NOT NULL,
+                    vlan_id INTEGER NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    domain_id VARCHAR(36),
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(domain_id) REFERENCES vlan_domains(id),
+                    UNIQUE(domain_id, vlan_id)
+                )
+            """)
+            op.execute("""
+                INSERT INTO vlans_new
+                    (id, vlan_id, name, description, domain_id, created_at, updated_at)
+                SELECT id, vlan_id, name, description, NULL, created_at, updated_at
+                FROM vlans
+            """)
+            op.execute("DROP TABLE vlans")
+            op.execute("ALTER TABLE vlans_new RENAME TO vlans")
+            op.execute("CREATE INDEX ix_vlans_domain_id ON vlans(domain_id)")
+            op.execute("PRAGMA foreign_keys=ON")
 
 def downgrade():
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if "vlans" in inspector.get_table_names():
-        op.execute("PRAGMA foreign_keys=OFF")
-        op.execute("""
-            CREATE TABLE vlans_old (
-                id VARCHAR(36) NOT NULL,
-                vlan_id INTEGER NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                description TEXT,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL,
-                PRIMARY KEY (id),
-                UNIQUE(vlan_id)
-            )
-        """)
-        op.execute("""
-            INSERT INTO vlans_old (id, vlan_id, name, description, created_at, updated_at)
-            SELECT id, vlan_id, name, description, created_at, updated_at FROM vlans
-        """)
-        op.execute("DROP TABLE vlans")
-        op.execute("ALTER TABLE vlans_old RENAME TO vlans")
-        op.execute("PRAGMA foreign_keys=ON")
+        if bind.dialect.name == "postgresql":
+            op.drop_constraint("uq_vlan_domain_id", "vlans", type_="unique")
+            op.drop_index("ix_vlans_domain_id", table_name="vlans")
+            op.drop_constraint("vlans_domain_id_fkey", "vlans", type_="foreignkey")
+            op.drop_column("vlans", "domain_id")
+            op.create_unique_constraint("vlans_vlan_id_key", "vlans", ["vlan_id"])
+        else:
+            op.execute("PRAGMA foreign_keys=OFF")
+            op.execute("""
+                CREATE TABLE vlans_old (
+                    id VARCHAR(36) NOT NULL,
+                    vlan_id INTEGER NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL,
+                    PRIMARY KEY (id),
+                    UNIQUE(vlan_id)
+                )
+            """)
+            op.execute("""
+                INSERT INTO vlans_old (id, vlan_id, name, description, created_at, updated_at)
+                SELECT id, vlan_id, name, description, created_at, updated_at FROM vlans
+            """)
+            op.execute("DROP TABLE vlans")
+            op.execute("ALTER TABLE vlans_old RENAME TO vlans")
+            op.execute("PRAGMA foreign_keys=ON")
     op.drop_table("vlan_domain_devices")
     op.drop_table("vlan_domains")

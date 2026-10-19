@@ -21,7 +21,7 @@ def list_information_systems(session: Session = Depends(get_db)):
 
 @router.get('/api/v1/devices')
 def list_devices(session: Session = Depends(get_db)):
-    rows = session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name)).all()
+    rows = session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name)).all()
     return {'items':enrich_devices(rows, session), 'total':len(rows)}
 
 @router.get('/api/v1/vms')

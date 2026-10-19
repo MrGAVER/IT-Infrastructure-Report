@@ -66,9 +66,9 @@ def _migrate_source_ip_addresses(bind) -> None:
             bind.execute(
                 sa.text(
                     "INSERT INTO ip_addresses (id, owner_type, owner_id, ip_address, is_management, created_at, updated_at) "
-                    "VALUES (:id, 'information_system_source', :owner_id, :ip, 0, :c, :c)"
+                    "VALUES (:id, 'information_system_source', :owner_id, :ip, :mgmt, :c, :c)"
                 ),
-                {"id": str(uuid.uuid4()), "owner_id": source_id, "ip": ip, "c": now},
+                {"id": str(uuid.uuid4()), "owner_id": source_id, "ip": ip, "mgmt": False, "c": now},  # булево: PostgreSQL не принимает 0
             )
 
 
@@ -145,8 +145,8 @@ def upgrade() -> None:
         sa.Column("prefix_length", sa.Integer(), nullable=True),
         sa.Column("purpose", sa.String(length=255), nullable=True),
         sa.Column("is_management", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
     )
     op.create_index("ix_ip_addresses_owner", "ip_addresses", ["owner_type", "owner_id"])
 
