@@ -1,8 +1,10 @@
 """Живой смоук приложения на PostgreSQL: тот же путь, что у контейнера (`alembic upgrade head && uvicorn`), затем
 запросы по HTTP к настоящему серверу. Не pytest: запускается из CI и вручную.
 
-Использование (из каталога backend, база должна быть пустой и принадлежать смоуку):
+Использование (из каталога backend, база должна быть пустой и принадлежать смоуку). Либо готовый адрес:
     DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_smoke python tests/tools/pg_app_smoke.py
+либо части — так сервер настраивает docker-compose.yml (пароль любых символов, экранирование делает приложение):
+    INFRA_REGISTRY_DB_HOST=localhost POSTGRES_USER=u POSTGRES_PASSWORD='p@ss' POSTGRES_DB=infra_smoke python tests/tools/pg_app_smoke.py
 Выход 0 — всё прошло; иначе в stderr причина и хвост лога сервера.
 """
 from __future__ import annotations
@@ -35,9 +37,11 @@ def call(method: str, path: str, body=None, expect=(200, 201)):
 
 
 def main() -> int:
-    url = os.environ.get("DATABASE_URL", "")
-    if not url.startswith("postgresql"):
-        print("DATABASE_URL должен указывать на PostgreSQL", file=sys.stderr)
+    sys.path.insert(0, os.getcwd())  # скрипт запускают из каталога backend; пакет app лежит там
+    from app.config import DATABASE_URL  # тот же разбор переменных окружения, что у сервера (DATABASE_URL или INFRA_REGISTRY_DB_HOST + POSTGRES_*)
+
+    if not DATABASE_URL.startswith("postgresql"):
+        print("Нужен PostgreSQL: задайте DATABASE_URL или INFRA_REGISTRY_DB_HOST (+ POSTGRES_USER/PASSWORD/DB)", file=sys.stderr)
         return 2
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True)
     log = tempfile.NamedTemporaryFile("w+", suffix=".log", delete=False)

@@ -164,11 +164,18 @@ jobs:
       - name: Живой запуск приложения на PostgreSQL
         working-directory: backend
         env:
-          DATABASE_URL: postgresql+psycopg://infra:infra_test@localhost:5432/infra_smoke
+          # Так сервер настраивает docker-compose.yml: части вместо готового адреса, пароль со спецсимволами
+          # (раньше «@» в пароле ломал адрес). Роль и база создаются тут, пароль проверяется сервером по-настоящему.
+          INFRA_REGISTRY_DB_HOST: localhost
+          POSTGRES_USER: smoke_user
+          POSTGRES_PASSWORD: "p@ss:w/rd#1%41?"
+          POSTGRES_DB: infra_smoke
         run: |
           python - <<'PY'
+          import os
           import psycopg
           with psycopg.connect("postgresql://infra:infra_test@localhost:5432/infra_test", autocommit=True) as connection:
-              connection.execute("CREATE DATABASE infra_smoke")
+              connection.execute(psycopg.sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(psycopg.sql.Identifier(os.environ["POSTGRES_USER"]), psycopg.sql.Literal(os.environ["POSTGRES_PASSWORD"])))
+              connection.execute(psycopg.sql.SQL("CREATE DATABASE {} OWNER {}").format(psycopg.sql.Identifier(os.environ["POSTGRES_DB"]), psycopg.sql.Identifier(os.environ["POSTGRES_USER"])))
           PY
           python tests/tools/pg_app_smoke.py
