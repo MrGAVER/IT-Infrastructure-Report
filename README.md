@@ -721,8 +721,8 @@ docker-compose.yml
 зафиксированы в `backend/requirements.lock` (runtime) и `backend/requirements-dev.lock` (runtime + тесты и анализ).
 Docker-образ и CI ставят пакеты из lock-файлов (`pip install --require-hashes -r ...`), поэтому сборка завтра даёт те же
 версии, что сегодня, а подмена пакета на PyPI не пройдёт проверку хеша. Lock универсальный (Linux, Windows, macOS),
-Python 3.12. Сборка EXE (`installer/build_windows.bat`, зависимости — `backend/requirements-build.txt`) пока
-ставит пакеты по диапазонам.
+Python 3.12. Сборка EXE (`installer/build_windows.bat`) ставит пакеты из `backend/requirements-build.lock`
+(runtime + PyInstaller; версии runtime те же, что в `requirements.lock`, поэтому в EXE попадает то, что тестирует CI).
 
 Обновление после правки `requirements*.txt` (или чтобы подтянуть свежие версии в пределах диапазонов):
 
@@ -731,6 +731,8 @@ pip install uv
 cd backend
 uv pip compile requirements.txt     --universal --generate-hashes --python-version 3.12 -o requirements.lock     --no-header
 uv pip compile requirements-dev.txt --universal --generate-hashes --python-version 3.12 -o requirements-dev.lock --no-header
+# lock сборки EXE — с ограничением версий по runtime-lock (-c), иначе в EXE попадут более новые версии, чем тестирует CI
+uv pip compile requirements-build.txt --universal --generate-hashes --python-version 3.12 -c requirements.lock -o requirements-build.lock --no-header
 # подтянуть новые версии: добавьте --upgrade (или --upgrade-package <имя> для одного пакета), затем прогоните тесты
 ```
 
