@@ -26,6 +26,9 @@ branch = true
 source = ["backend/app"]
 
 [tool.coverage.report]
+# Порог: покрытие (строки и ветви) не должно падать ниже достигнутого. На 2.157.0 измерено 94 %; запас в два пункта
+# оставлен на различия окружения CI (например, наличие LibreOffice для теста .vsdx). Поднимайте порог вместе с покрытием.
+fail_under = 92
 show_missing = true
 skip_covered = true
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

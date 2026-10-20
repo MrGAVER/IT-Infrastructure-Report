@@ -777,6 +777,11 @@ CI проверяет, что lock-файлы актуальны (пересбо
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
   видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
+- **Покрытие backend**: `pytest --cov` (настройки — `[tool.coverage]` в `pyproject.toml`, считаются и ветви; нужен
+  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На 2.157.0 покрытие
+  94 %, порог в `pyproject.toml` (`fail_under`) — 92 %; CI запускает тесты с `--cov`, печатает сводку в Summary job-а и
+  падает, если покрытие ниже порога. Самые слабые места: `api/report_builder.py` (68 %), `api/frontend_assets.py`,
+  `db.py`, `services/report_render.py`, `services/diagram_graph.py`.
 - **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 69 файлов) — Vitest +
   `@vue/test-utils` на `jsdom` (см. `vitest.config.ts`): сторы Pinia (catalogs, devices, auth,
   connections, vlans и т. д.), утилиты (`utils/gridCoverage.ts`, `utils/reportEntityPaths.ts` и

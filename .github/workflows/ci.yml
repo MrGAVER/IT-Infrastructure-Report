@@ -53,8 +53,14 @@ jobs:
       - name: pip-audit (известные уязвимости в закреплённых зависимостях runtime, requirements.lock) — gate
         run: pip-audit -r backend/requirements.lock --require-hashes
 
-      - name: Тесты backend (unittest + pytest, включая интеграционные)
-        run: pytest -v
+      - name: Тесты backend (unittest + pytest, включая интеграционные) с измерением покрытия
+        # Сводка по файлам с непокрытыми строками — в Summary job-а. Порог (fail_under) задан в pyproject.toml:
+        # покрытие не должно падать ниже достигнутого; поднимайте порог вместе с ростом покрытия.
+        run: |
+          status=0
+          pytest -v --cov --cov-report=term:skip-covered || status=$?
+          { echo "### Покрытие тестами backend"; echo; coverage report --format=markdown --skip-covered --fail-under=0 || true; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: Типы и сборка frontend-vue (vue-tsc + vite build) — концепция «Диспетчерская»
         run: npm run build
