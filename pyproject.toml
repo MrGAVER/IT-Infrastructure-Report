@@ -18,3 +18,14 @@ max-complexity = 12
 
 [tool.ruff.lint.per-file-ignores]
 "backend/alembic/versions/*.py" = ["C901"]                 # исторические миграции не переписываем
+
+[tool.coverage.run]
+# Покрытие тестами backend: `pytest --cov` (CI печатает сводку в итог job и прикладывает coverage.xml). Ветви считаем:
+# условие, не выполнявшееся ни в одну сторону, — тоже непокрытый код.
+branch = true
+source = ["backend/app"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

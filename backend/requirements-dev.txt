@@ -2,6 +2,7 @@
 # (backend/Dockerfile их не устанавливает). Устанавливаются поверх requirements.txt.
 -r requirements.txt
 pytest>=9.1,<10
+pytest-cov>=6,<8
 httpx>=0.27,<1
 ruff>=0.8,<1
 pip-audit>=2.7,<3
