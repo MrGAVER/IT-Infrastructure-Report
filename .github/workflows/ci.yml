@@ -53,8 +53,14 @@ jobs:
       - name: pip-audit (известные уязвимости в закреплённых зависимостях runtime, requirements.lock) — gate
         run: pip-audit -r backend/requirements.lock --require-hashes
 
-      - name: Тесты backend (unittest + pytest, включая интеграционные)
-        run: pytest -v
+      - name: Тесты backend (unittest + pytest, включая интеграционные) с измерением покрытия
+        # Сводка по файлам с непокрытыми строками — в Summary job-а. Порог (fail_under) задан в pyproject.toml:
+        # покрытие не должно падать ниже достигнутого; поднимайте порог вместе с ростом покрытия.
+        run: |
+          status=0
+          pytest -v --cov --cov-report=term:skip-covered || status=$?
+          { echo "### Покрытие тестами backend"; echo; coverage report --format=markdown --skip-covered --fail-under=0 || true; } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: Типы и сборка frontend-vue (vue-tsc + vite build) — концепция «Диспетчерская»
         run: npm run build
@@ -164,11 +170,18 @@ jobs:
       - name: Живой запуск приложения на PostgreSQL
         working-directory: backend
         env:
-          DATABASE_URL: postgresql+psycopg://infra:infra_test@localhost:5432/infra_smoke
+          # Так сервер настраивает docker-compose.yml: части вместо готового адреса, пароль со спецсимволами
+          # (раньше «@» в пароле ломал адрес). Роль и база создаются тут, пароль проверяется сервером по-настоящему.
+          INFRA_REGISTRY_DB_HOST: localhost
+          POSTGRES_USER: smoke_user
+          POSTGRES_PASSWORD: "p@ss:w/rd#1%41?"
+          POSTGRES_DB: infra_smoke
         run: |
           python - <<'PY'
+          import os
           import psycopg
           with psycopg.connect("postgresql://infra:infra_test@localhost:5432/infra_test", autocommit=True) as connection:
-              connection.execute("CREATE DATABASE infra_smoke")
+              connection.execute(psycopg.sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(psycopg.sql.Identifier(os.environ["POSTGRES_USER"]), psycopg.sql.Literal(os.environ["POSTGRES_PASSWORD"])))
+              connection.execute(psycopg.sql.SQL("CREATE DATABASE {} OWNER {}").format(psycopg.sql.Identifier(os.environ["POSTGRES_DB"]), psycopg.sql.Identifier(os.environ["POSTGRES_USER"])))
           PY
           python tests/tools/pg_app_smoke.py

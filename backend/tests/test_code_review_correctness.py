@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models import Manufacturer, PhysicalDevice
 from app.services.audit_export import build_audit_log_report
 from app.services.crud import list_resource, validate_resource
-from app.services.excel_safety import excel_safe
+from app.services.excel_safety import needs_text_guard
 from app.services.integrity import integrity_error_response
 from app.services.report_cleanup import cleanup_old_reports
 
@@ -405,17 +405,19 @@ class TestReportFiles:
         db_session.add(AuditLog(entity_type="devices", entity_id="x", action="UPDATE", details='=HYPERLINK("http://evil","клик")'))
         db_session.commit()
         sheet = load_workbook(build_audit_log_report(db_session, tmp_path)).active
-        details = [row[-1].value for row in sheet.iter_rows(min_row=2)]
-        assert not any(isinstance(v, str) and v.startswith("=") for v in details)
+        cells = [row[-1] for row in sheet.iter_rows(min_row=2)]
+        formula = next(c for c in cells if isinstance(c.value, str) and c.value.startswith("="))
+        assert formula.value == '=HYPERLINK("http://evil","клик")' and formula.data_type == "s" and formula.quotePrefix  # текст, не формула
+        assert not any(c.data_type == "f" for c in cells)
 
     @pytest.mark.parametrize("value", ["\tcmd", "\rcmd", "=1+1", "+1", "-1+1", "@SUM(A1)"])
     def test_tab_and_carriage_return_are_formula_triggers_too(self, value):
-        assert excel_safe(value) != value
+        assert needs_text_guard(value)
 
     def test_ordinary_text_and_placeholder_are_untouched(self):
-        assert excel_safe("Обычный текст") == "Обычный текст"
-        assert excel_safe("-") == "-"
-        assert excel_safe(42) == 42
+        assert not needs_text_guard("Обычный текст")
+        assert not needs_text_guard("-")
+        assert not needs_text_guard(42)
 
     def test_cleanup_removes_only_old_report_files(self, tmp_path):
         old_report, new_report, foreign = tmp_path / "old.xlsx", tmp_path / "new.xlsx", tmp_path / "notes.txt"

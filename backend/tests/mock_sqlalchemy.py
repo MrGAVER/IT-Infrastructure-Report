@@ -169,8 +169,8 @@ def load_reporting_module():
             "from app.services.computed import ip_label, device_management_ports_and_ips",
         )
         src = src.replace(
-            "from .services.excel_safety import excel_safe_row",
-            "from app.services.excel_safety import excel_safe_row",
+            "from .services.excel_safety import append_safe_row",
+            "from app.services.excel_safety import append_safe_row",
         )
         src = src.replace(
             "from .services.excel_layout import apply_sheet_layout",

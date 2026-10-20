@@ -299,14 +299,17 @@ class BuildXlsxGridTestCase(unittest.TestCase):
     def test_field_cell_value_starting_with_formula_char_is_escaped(self):
         """Код-ревью п.3.2 (Excel Formula Injection): в отличие от kind=="formula" (тест выше,
         задуман автором шаблона отчёта) — kind=="field" тянет данные из БД (потенциально
-        пользовательский ввод) и обязан пройти через excel_safe."""
+        пользовательский ввод) и обязан стать текстовой ячейкой (без <f>, значение без апострофа, quotePrefix)."""
         import openpyxl
         self.isys1.name = '=HYPERLINK("http://evil.example")'
         self.session.commit()
         path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
-            self.assertEqual(wb["Лист1"]["B2"].value, '\'=HYPERLINK("http://evil.example")')
+            cell = wb["Лист1"]["B2"]
+            self.assertEqual(cell.value, '=HYPERLINK("http://evil.example")')
+            self.assertEqual(cell.data_type, "s")
+            self.assertTrue(cell.quotePrefix)
         finally:
             path.unlink(missing_ok=True)
 

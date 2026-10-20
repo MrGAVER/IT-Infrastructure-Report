@@ -123,13 +123,16 @@ class Sheet1InformationSystems(ReportingTestCase):
 
     def test_information_system_name_starting_with_equals_is_escaped(self):
         """Код-ревью п.3.2 (Excel Formula Injection): имя ИС вида "=HYPERLINK(...)" не должно
-        попасть в .xlsx как формула — excel_safe_row должен добавить ведущий апостроф."""
+        попасть в .xlsx как формула: ячейка текстовая (без <f>), значение без апострофа, невидимый апостроф Excel — quotePrefix."""
         C = self.C
         isys = C["InformationSystem"](id="is1", name='=HYPERLINK("http://evil.example","клик")', crypto_protection_enabled=False)
         self.table.update({"InformationSystem": [isys]})
         wb = self.build(Path("/tmp/test_reports_15"))
         rows = self.sheet_rows(wb, "Перечень ИС")
-        self.assertEqual(rows[1][1], '\'=HYPERLINK("http://evil.example","клик")')
+        self.assertEqual(rows[1][1], '=HYPERLINK("http://evil.example","клик")')
+        cell = wb["Перечень ИС"].cell(row=2, column=2)
+        self.assertEqual(cell.data_type, "s")
+        self.assertTrue(cell.quotePrefix)
 
 
 class Sheet2PhysicalDevices(ReportingTestCase):

@@ -19,7 +19,7 @@ from .models import (
 from .constants import OwnerType
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
 from .services.excel_layout import apply_sheet_layout, fit_sheet_size, style_header
-from .services.excel_safety import excel_safe_row
+from .services.excel_safety import append_safe_row
 from .services.port_vlans import carries_all_vlans, effective_vlan_ids
 
 HEADERS1 = [
@@ -395,7 +395,7 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
 def _populate_sheet1(ws1, d: SimpleNamespace) -> None:
     """Лист 'Перечень ИС': все привязанные источники плюс детали протоколов/IP."""
     for n,obj in enumerate(d.systems,1):
-        ws1.append(excel_safe_row([n, *_is_row_values(obj, d)]))
+        append_safe_row(ws1, [n, *_is_row_values(obj, d)])
 
 
 def _device_row_values(dev, d: SimpleNamespace) -> list:
@@ -423,7 +423,7 @@ def _device_row_values(dev, d: SimpleNamespace) -> list:
 def _populate_sheet2(ws2, d: SimpleNamespace) -> None:
     """Лист 'Инвентаризац. физ. устройств ИС': одна строка на физическое устройство."""
     for n,dev in enumerate(d.devices,1):
-        ws2.append(excel_safe_row([n, *_device_row_values(dev, d)]))
+        append_safe_row(ws2, [n, *_device_row_values(dev, d)])
 
 
 class _ConnectionRows:
@@ -635,7 +635,7 @@ def _populate_sheet3(ws3, d: SimpleNamespace) -> list:
     устройства и обводит блок рамкой."""
     spans=[]; previous=object()
     for device_id,row in _connection_rows_by_device(d):
-        ws3.append(excel_safe_row(row))
+        append_safe_row(ws3, row)
         if device_id==previous: spans[-1]=(spans[-1][0], ws3.max_row)
         else: spans.append((ws3.max_row, ws3.max_row)); previous=device_id
     return spans
@@ -656,7 +656,7 @@ def _populate_sheet4(ws4, d: SimpleNamespace) -> None:
     """Лист 'Организация управления ВМ': хост/гипервизор берётся из ОС физического хоста;
     IP администрирования — все management-IP ВМ."""
     for v in d.vms:
-        ws4.append(excel_safe_row(_vm_row_values(v, d)))
+        append_safe_row(ws4, _vm_row_values(v, d))
 
 
 def build_report(session: Session, report_dir: Path, only_is: Optional[str] = None,

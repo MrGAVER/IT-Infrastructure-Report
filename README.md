@@ -244,8 +244,9 @@ docker compose up --build
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
-| `POSTGRES_PASSWORD` | — (обязательна) | пароль пользователя БД |
+| `POSTGRES_PASSWORD` | — (обязательна) | пароль пользователя БД; допустимы любые символы (при `#`, `$` или пробеле возьмите значение в одинарные кавычки) |
 | `POSTGRES_DB` / `POSTGRES_USER` | `infra_registry` / `infra` | имя БД и пользователя |
+| `DATABASE_URL` | пусто | готовый адрес БД (внешний сервер, нестандартные параметры); имеет приоритет над `POSTGRES_*`, пароль в нём нужно экранировать самому (`@` → `%40`). Без него адрес собирается из `POSTGRES_*` и `INFRA_REGISTRY_DB_HOST` (в compose — `db`), с экранированием |
 | `INFRA_REGISTRY_CORS_ORIGINS` | пусто (CORS выключен) | список разрешённых origin'ов через запятую; нужен только для отдельного фронтенда |
 | `INFRA_REGISTRY_ALLOWED_HOSTS` | `*` в compose, `localhost,127.0.0.1` без него | допустимые значения заголовка `Host` (защита от DNS-rebinding) |
 | `INFRA_REGISTRY_ALLOWED_CLIENTS` | пусто (без ограничений) | IP-адреса и подсети клиентов через запятую (`192.168.1.15,10.0.5.0/24`); остальные получают `403`. EXE задаёт его сам из `infra_registry.toml` |
@@ -776,6 +777,11 @@ CI проверяет, что lock-файлы актуальны (пересбо
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
   видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
+- **Покрытие backend**: `pytest --cov` (настройки — `[tool.coverage]` в `pyproject.toml`, считаются и ветви; нужен
+  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На 2.157.0 покрытие
+  94 %, порог в `pyproject.toml` (`fail_under`) — 92 %; CI запускает тесты с `--cov`, печатает сводку в Summary job-а и
+  падает, если покрытие ниже порога. Самые слабые места: `api/report_builder.py` (68 %), `api/frontend_assets.py`,
+  `db.py`, `services/report_render.py`, `services/diagram_graph.py`.
 - **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 69 файлов) — Vitest +
   `@vue/test-utils` на `jsdom` (см. `vitest.config.ts`): сторы Pinia (catalogs, devices, auth,
   connections, vlans и т. д.), утилиты (`utils/gridCoverage.ts`, `utils/reportEntityPaths.ts` и

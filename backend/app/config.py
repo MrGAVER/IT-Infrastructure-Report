@@ -10,14 +10,43 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 # Сколько дней хранятся сгенерированные отчёты: файл нужен только пока его скачивают, а каталог без
 # очистки рос бы бесконечно. 0 — не удалять никогда.
 REPORT_RETENTION_DAYS = int(os.getenv('INFRA_REGISTRY_REPORT_RETENTION_DAYS', '30'))
-DATABASE_URL = os.getenv('DATABASE_URL', f'sqlite:///{APP_DATA_DIR / "infra_registry.db"}')
+
+
+def _database_url() -> str:
+    """Адрес базы данных.
+
+    1. DATABASE_URL — готовая строка (внешний сервер, нестандартные параметры). Пароль в ней нужно экранировать самому:
+       символ «@», «%xx» и подобные в нём ломают разбор адреса.
+    2. Иначе, если задан INFRA_REGISTRY_DB_HOST, адрес PostgreSQL собирается из частей: INFRA_REGISTRY_DB_PORT (5432),
+       POSTGRES_USER (infra), POSTGRES_PASSWORD, POSTGRES_DB (infra_registry). Так работает docker-compose.yml: пароль
+       берётся из .env как есть, любые символы допустимы, экранирование делает SQLAlchemy.
+    3. Иначе — файл SQLite в каталоге данных."""
+    explicit = os.getenv('DATABASE_URL', '').strip()
+    if explicit:
+        return explicit
+    host = os.getenv('INFRA_REGISTRY_DB_HOST', '').strip()
+    if host:
+        from sqlalchemy.engine import URL
+
+        return URL.create(
+            'postgresql+psycopg',
+            username=os.getenv('POSTGRES_USER', 'infra') or 'infra',
+            password=os.getenv('POSTGRES_PASSWORD') or None,
+            host=host,
+            port=int(os.getenv('INFRA_REGISTRY_DB_PORT') or 5432),
+            database=os.getenv('POSTGRES_DB', 'infra_registry') or 'infra_registry',
+        ).render_as_string(hide_password=False)
+    return f'sqlite:///{APP_DATA_DIR / "infra_registry.db"}'
+
+
+DATABASE_URL = _database_url()
 # Основной UI — собранный Vue-фронтенд (frontend-vue/dist), см. frontend-vue/README.md.
 # Каталог появляется только после `npm run build` в frontend-vue — локально при разработке
 # из исходников (без сборки) GET '/' отдаст понятную 500-ошибку с указанием отсутствующего
 # файла (см. main.py:spa_fallback), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-APP_VERSION = '2.156.0'
+APP_VERSION = '2.157.0'
 
 def _csv_env(name: str, default: str = '') -> list[str]:
     """Список из переменной окружения через запятую: пробелы и пустые элементы отбрасываются."""
