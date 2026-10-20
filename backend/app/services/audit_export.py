@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from ..registry import DISPLAY_NAMES
 from .computed import local_timestamp_suffix
 from .crud import list_resource
-from .excel_safety import excel_safe_row
+from .excel_safety import guard_text_cell
 
 ACTION_LABELS = {"CREATE": "Создание", "UPDATE": "Изменение", "DELETE": "Удаление", "SYNC": "Синхронизация", "LOGIN": "Вход", "LOGIN_FAILED": "Неудачный вход", "LOGOUT": "Выход"}
 AUDIT_HEADERS = ["Дата и время", "Пользователь", "IP-адрес", "Раздел", "Идентификатор записи", "Действие", "Подробности"]
@@ -73,9 +73,7 @@ def build_audit_log_report(session: Session, report_dir: Path, date_from: str | 
     top_wrapped = Alignment(vertical="top", wrap_text=True)
     count = 0
     for row in _audit_rows(session, filters, date_from, date_to):
-        # excel_safe_row: details и имя пользователя — текст, который вводил человек; начинающийся с «=»
-        # он стал бы формулой в Excel получателя (см. services/excel_safety.py).
-        values = excel_safe_row([
+        values = [
             row["created_at"],
             row.get("actor_username") or "",
             row.get("actor_ip") or "",
@@ -83,11 +81,14 @@ def build_audit_log_report(session: Session, report_dir: Path, date_from: str | 
             row["entity_id"],
             ACTION_LABELS.get(row["action"], row["action"]),
             row["details"] or "",
-        ])
+        ]
         cells = []
         for value in values:
             cell = WriteOnlyCell(ws, value=value)
             cell.alignment = top_wrapped
+            # details и имя пользователя — текст, который вводил человек; начинающийся с «=» он стал бы формулой в
+            # Excel получателя (см. services/excel_safety.py).
+            guard_text_cell(cell)
             cells.append(cell)
         ws.append(cells)
         count += 1
