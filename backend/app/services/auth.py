@@ -25,13 +25,14 @@ import math
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from .. import db as db_module
 from ..config import (
@@ -621,38 +622,59 @@ async def auth_gate_middleware(request: Request, call_next):
     return _with_security_headers(response, path)
 
 
-async def _gate_api_request(request: Request, call_next):
-    path = request.url.path
-    # db_module.SessionLocal, а не `from ..db import SessionLocal` в заголовке файла: это
-    # мидлварь, а не FastAPI Depends — тесты (backend/tests/conftest.py:client) подменяют
-    # SessionLocal через monkeypatch.setattr(app.db, "SessionLocal", ...) на своё in-memory
-    # StaticPool-соединение, а `from X import Y` создал бы отдельную, непропатчиваемую ссылку.
+class _GateDecision(NamedTuple):
+    """Итог проверки доступа: кто пришёл и, если запрос надо отклонить, чем именно ответить."""
+
+    auth_enabled: bool
+    user: Optional[User]
+    deny_status: Optional[int] = None
+    deny_detail: str = ""
+
+
+def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDecision:
+    """Решение о доступе к /api/*: синхронная работа с БД, которую вызывают из пула потоков.
+
+    Сессия БД открывается и ГАРАНТИРОВАННО закрывается здесь же, до того как запрос уйдёт дальше по
+    цепочке: раньше при выключенной аутентификации (значение по умолчанию) `return await call_next()`
+    выполнялся внутри `try`, и соединение middleware висело в пуле весь запрос — вместе с соединением
+    обработчика (Depends(get_db)) каждый запрос занимал два соединения из пула в 15, и при ≥16
+    параллельных запросах половина получала 500. Синхронные вызовы БД в `async`-мидлвари к тому же
+    блокировали цикл событий, пока пул пуст.
+
+    db_module.SessionLocal, а не `from ..db import SessionLocal` в заголовке файла: это мидлварь, а не
+    FastAPI Depends — тесты (backend/tests/conftest.py:client) подменяют SessionLocal через
+    monkeypatch.setattr(app.db, "SessionLocal", ...) на своё in-memory StaticPool-соединение, а
+    `from X import Y` создал бы отдельную, непропатчиваемую ссылку."""
     db_session = db_module.SessionLocal()
     try:
-        settings_row = get_or_create_auth_settings(db_session)
-        request.state.auth_enabled = settings_row.enabled
-        request.state.user = None
+        auth_enabled = get_or_create_auth_settings(db_session).enabled
+        if not auth_enabled or path in PUBLIC_API_PATHS:
+            return _GateDecision(auth_enabled, None)
 
-        if not settings_row.enabled or path in PUBLIC_API_PATHS:
-            return await call_next(request)
-
-        token = _extract_bearer_token(request.headers.get("authorization"))
+        token = _extract_bearer_token(authorization)
         user = resolve_session(db_session, token) if token else None
         if user is None:
-            return JSONResponse({"detail": "Требуется аутентификация."}, status_code=401)
-        request.state.user = user
-        current_actor.set(Actor(user.id, user.username, _client_ip(request)))
-
+            return _GateDecision(True, None, 401, "Требуется аутентификация.")
         if (
             user.role != UserRole.ADMIN
-            and request.method in WRITE_METHODS
+            and method in WRITE_METHODS
             and not _is_role_check_exempt(path)
-            and not _is_read_only_post(request.method, path)
+            and not _is_read_only_post(method, path)
         ):
-            return JSONResponse({"detail": "Недостаточно прав: требуется роль администратора."}, status_code=403)
+            return _GateDecision(True, user, 403, "Недостаточно прав: требуется роль администратора.")
+        return _GateDecision(True, user)
     finally:
         db_session.close()
 
+
+async def _gate_api_request(request: Request, call_next):
+    decision = await run_in_threadpool(_authorize, request.method, request.url.path, request.headers.get("authorization"))
+    request.state.auth_enabled = decision.auth_enabled
+    request.state.user = decision.user
+    if decision.user is not None:
+        current_actor.set(Actor(decision.user.id, decision.user.username, _client_ip(request)))
+    if decision.deny_status is not None:
+        return JSONResponse({"detail": decision.deny_detail}, status_code=decision.deny_status)
     return await call_next(request)
 
 

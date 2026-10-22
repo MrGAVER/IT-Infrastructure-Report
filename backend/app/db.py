@@ -1,7 +1,7 @@
 from __future__ import annotations
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-from .config import DATABASE_URL
+from .config import DATABASE_URL, DB_POOL_OPTIONS
 
 def _unicode_lower(value):
     return value.lower() if isinstance(value, str) else value
@@ -24,7 +24,10 @@ def configure_sqlite_connection(dbapi_connection) -> None:
 
 
 connect_args = {'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True, pool_pre_ping=True)
+# Размер пула — только для серверных СУБД: у SQLite (файл или память) свои классы пула, и параметры QueuePool
+# для них недопустимы.
+pool_options = {} if DATABASE_URL.startswith('sqlite') else DB_POOL_OPTIONS
+engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True, pool_pre_ping=True, **pool_options)
 
 if DATABASE_URL.startswith('sqlite'):
     @event.listens_for(engine, 'connect')

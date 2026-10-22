@@ -40,6 +40,35 @@ def _database_url() -> str:
 
 
 DATABASE_URL = _database_url()
+
+
+def _optional_number_env(name: str, cast):
+    """Необязательное число из переменной окружения: не задана или пуста — None (остаётся значение SQLAlchemy по
+    умолчанию), нечисловое значение — явная ошибка запуска, а не молчаливое игнорирование опечатки."""
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return None
+    try:
+        value = cast(raw)
+    except ValueError as exc:
+        raise ValueError(f'{name}: ожидается число, получено {raw!r}') from exc
+    if value < 0:
+        raise ValueError(f'{name}: значение не может быть отрицательным ({raw})')
+    return value
+
+
+# Размер пула соединений для серверных СУБД (PostgreSQL): по умолчанию SQLAlchemy берёт 5 + 10 переполнения и ждёт
+# соединение 30 с. Каждый API-запрос держит соединение обработчика; при нескольких одновременных пользователях значения
+# можно поднять (не больше max_connections сервера БД). Для SQLite не применяется.
+DB_POOL_OPTIONS = {
+    key: value
+    for key, value in {
+        'pool_size': _optional_number_env('INFRA_REGISTRY_DB_POOL_SIZE', int),
+        'max_overflow': _optional_number_env('INFRA_REGISTRY_DB_MAX_OVERFLOW', int),
+        'pool_timeout': _optional_number_env('INFRA_REGISTRY_DB_POOL_TIMEOUT', float),
+    }.items()
+    if value is not None
+}
 # Основной UI — собранный Vue-фронтенд (frontend-vue/dist), см. frontend-vue/README.md.
 # Каталог появляется только после `npm run build` в frontend-vue — локально при разработке
 # из исходников (без сборки) GET '/' отдаст понятную 500-ошибку с указанием отсутствующего

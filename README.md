@@ -254,6 +254,7 @@ docker compose up --build
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | адреса обратных прокси, которым uvicorn доверяет при определении IP клиента |
 | `INFRA_REGISTRY_CSP` | строгая политика по умолчанию | `Content-Security-Policy` ответов; пустое значение отключает заголовок |
 | `INFRA_REGISTRY_REPORT_RETENTION_DAYS` | `30` | через сколько дней удаляются сформированные отчёты (очистка при формировании нового); `0` — не удалять |
+| `INFRA_REGISTRY_DB_POOL_SIZE` / `INFRA_REGISTRY_DB_MAX_OVERFLOW` / `INFRA_REGISTRY_DB_POOL_TIMEOUT` | не заданы (значения SQLAlchemy: `5` / `10` / `30` с) | размер пула соединений PostgreSQL и время ожидания соединения; поднимайте при многих одновременных пользователях (не выше `max_connections` сервера БД). Для SQLite не применяются |
 
 ### Безопасность по умолчанию
 
