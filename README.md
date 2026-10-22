@@ -231,8 +231,9 @@ API (`/api/v1/port-sync`): `GET|POST /rules`, `PUT|DELETE /rules/{id}`, `POST /r
 
 ### Docker
 
-Перед первым запуском скопируйте `.env.example` в `.env` и задайте свой `POSTGRES_PASSWORD`
-(без него `docker compose` откажется стартовать):
+Перед первым запуском скопируйте `.env.example` в `.env` и задайте свой `POSTGRES_PASSWORD` и
+`INFRA_REGISTRY_SETUP_TOKEN` (без них `docker compose` откажется стартовать; токен — длинная случайная строка,
+например `openssl rand -hex 24`):
 
 ```bash
 cp .env.example .env
@@ -240,7 +241,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Переменные окружения `.env` (все опциональны, кроме `POSTGRES_PASSWORD`):
+Переменные окружения `.env` (все опциональны, кроме `POSTGRES_PASSWORD` и `INFRA_REGISTRY_SETUP_TOKEN`):
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
@@ -250,13 +251,25 @@ docker compose up --build
 | `INFRA_REGISTRY_CORS_ORIGINS` | пусто (CORS выключен) | список разрешённых origin'ов через запятую; нужен только для отдельного фронтенда |
 | `INFRA_REGISTRY_ALLOWED_HOSTS` | `*` в compose, `localhost,127.0.0.1` без него | допустимые значения заголовка `Host` (защита от DNS-rebinding) |
 | `INFRA_REGISTRY_ALLOWED_CLIENTS` | пусто (без ограничений) | IP-адреса и подсети клиентов через запятую (`192.168.1.15,10.0.5.0/24`); остальные получают `403`. EXE задаёт его сам из `infra_registry.toml` |
-| `INFRA_REGISTRY_SETUP_TOKEN` | пусто | токен первичной настройки аутентификации (заголовок `X-Setup-Token`) |
+| `INFRA_REGISTRY_SETUP_TOKEN` | — (обязателен в compose) | токен первичной настройки аутентификации (заголовок `X-Setup-Token`); `docker compose` не стартует без него |
+| `INFRA_REGISTRY_BIND` | `127.0.0.1` | адрес, на котором compose публикует порт `8000`; `0.0.0.0` — доступ по сети (сначала включите аутентификацию) |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | адреса обратных прокси, которым uvicorn доверяет при определении IP клиента |
 | `INFRA_REGISTRY_CSP` | строгая политика по умолчанию | `Content-Security-Policy` ответов; пустое значение отключает заголовок |
 | `INFRA_REGISTRY_REPORT_RETENTION_DAYS` | `30` | через сколько дней удаляются сформированные отчёты (очистка при формировании нового); `0` — не удалять |
 | `INFRA_REGISTRY_DB_POOL_SIZE` / `INFRA_REGISTRY_DB_MAX_OVERFLOW` / `INFRA_REGISTRY_DB_POOL_TIMEOUT` | не заданы (значения SQLAlchemy: `5` / `10` / `30` с) | размер пула соединений PostgreSQL и время ожидания соединения; поднимайте при многих одновременных пользователях (не выше `max_connections` сервера БД). Для SQLite не применяются |
 
 ### Безопасность по умолчанию
+
+**Docker.** По умолчанию compose публикует порт только на `127.0.0.1`, а `INFRA_REGISTRY_SETUP_TOKEN` обязателен.
+Выключенная аутентификация оставляет реестр (IP-адреса, VLAN, ПО, топологию) открытым на чтение и запись всем, кто
+достаёт до порта, а из контейнера включить защиту без токена нельзя: адрес клиента — шлюз Docker, не `localhost`.
+Порядок для сервера:
+
+1. Задайте `INFRA_REGISTRY_SETUP_TOKEN` в `.env` и запустите `docker compose up --build`.
+2. Откройте `http://localhost:8000` на этом же компьютере (или по SSH-туннелю): «Настройки → Аутентификация», введите
+   токен, создайте администратора и включите вход.
+3. Только теперь, если нужен доступ по сети, добавьте в `.env` `INFRA_REGISTRY_BIND=0.0.0.0` и перечислите реальные
+   имена/адреса сервера в `INFRA_REGISTRY_ALLOWED_HOSTS`, затем `docker compose up -d`.
 
 Аутентификация по-прежнему **выключена** — реестр открыт без входа, как и раньше. Но выключенная
 аутентификация больше не позволяет постороннему захватить приложение:
