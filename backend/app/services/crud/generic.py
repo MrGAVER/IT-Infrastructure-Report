@@ -15,6 +15,7 @@ from ..integrity import integrity_error_response
 from .audit_log import _describe_update, audit
 from .columns import allowed_columns, model_for
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
+from ..timeutil import to_naive_utc
 from .payload import ensure_writable, validate_payload_schema
 from .stack_vlan_settings import apply_stack_settings_to_device
 from .validators import _release_rack_slot, validate_resource
@@ -30,7 +31,10 @@ def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
     if end_of_day and 'T' not in value:
         text = f'{value}T23:59:59.999999'
     try:
-        return datetime.fromisoformat(text)
+        # В БД время хранится как naive UTC, а API отдаёт его с «+00:00» (services/timeutil.py): значение со смещением,
+        # присланное клиентом обратно (например, created_at записи как граница периода), приводится к UTC без tzinfo —
+        # иначе сравнение с колонкой шло бы по тексту со смещением. Чистая дата и время без смещения — как раньше.
+        return to_naive_utc(datetime.fromisoformat(text))
     except ValueError as exc:
         raise HTTPException(422, f'Некорректная дата: {value}') from exc
 

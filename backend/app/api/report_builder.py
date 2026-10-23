@@ -16,6 +16,7 @@ from ..services.report_engine import ReportBuilderError, validate_config
 from ..services.report_grid import preview_grid, validate_grid_config
 from ..services.report_meta import build_entity_metadata, entity_metadata_public
 from ..services.report_render import build_report_from_template, preview_rows
+from ..services.timeutil import iso_utc
 
 
 def _validate_by_format(meta: dict, fmt: str, config: dict) -> None:
@@ -40,8 +41,8 @@ def _template_out(t: ReportTemplate) -> dict:
         config = {}
     return {
         "id": t.id, "name": t.name, "description": t.description, "format": t.format,
-        "config": config, "created_at": t.created_at.isoformat() if t.created_at else None,
-        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        "config": config, "created_at": iso_utc(t.created_at),
+        "updated_at": iso_utc(t.updated_at),
     }
 
 
@@ -167,7 +168,7 @@ def list_template_versions(template_id: str, session: Session = Depends(get_db))
         {
             "id": v.id, "version_number": v.version_number, "name": v.name,
             "description": v.description, "format": v.format,
-            "created_at": v.created_at.isoformat() if v.created_at else None,
+            "created_at": iso_utc(v.created_at),
         }
         for v in rows
     ]

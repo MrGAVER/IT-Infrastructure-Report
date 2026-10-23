@@ -27,6 +27,7 @@ from ..db import get_db
 from ..models import DiagramGroupState, DiagramLayout, SavedDiagram
 from ..services.crud import audit
 from ..services.diagram_export import export_drawio, export_svg, export_vsdx
+from ..services.timeutil import iso_utc
 from ..services.diagram_graph import GROUP_DIMENSIONS, MAX_LAYOUT_KEY_LENGTH, MAX_LAYOUT_NODES, build_graph, clean_position, clean_positions_lenient, parse_scope_filter
 
 logger = logging.getLogger(__name__)
@@ -50,8 +51,8 @@ def _diagram_out(d: SavedDiagram) -> dict:
         "group_by": d.group_by,
         "collapse_threshold": d.collapse_threshold,
         "last_export_format": d.last_export_format,
-        "created_at": d.created_at.isoformat() if d.created_at else None,
-        "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+        "created_at": iso_utc(d.created_at),
+        "updated_at": iso_utc(d.updated_at),
     }
 
 

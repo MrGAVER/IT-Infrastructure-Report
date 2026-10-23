@@ -24,7 +24,7 @@ import hmac
 import math
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import NamedTuple, Optional
 
 from fastapi import HTTPException, Request
@@ -49,6 +49,7 @@ from .actor_context import Actor, current_actor
 from .crud import audit
 from .login_throttle import LoginThrottle
 from .preferences import delete_user_preferences
+from .timeutil import iso_utc, utcnow_naive
 
 __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роутеры берут актора отсюда
 
@@ -60,7 +61,7 @@ __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роу
 # истечения сессии.
 # ---------------------------------------------------------------------------
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return utcnow_naive()
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +283,9 @@ def serialize_user(user: User) -> dict:
     """Публичное представление пользователя — намеренно без password_hash/failed_attempts."""
     return {
         "id": user.id, "username": user.username, "role": user.role, "is_active": user.is_active,
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        "last_login_at": iso_utc(user.last_login_at),
         "locked": bool(user.locked_until and user.locked_until > _now()),
-        "created_at": user.created_at.isoformat(),
+        "created_at": iso_utc(user.created_at),
     }
 
 
@@ -423,8 +424,8 @@ def list_active_sessions(session: Session, user_id: str) -> list[AuthSession]:
 
 def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) -> dict:
     return {
-        "id": row.id, "created_at": row.created_at.isoformat() if row.created_at else None,
-        "expires_at": row.expires_at.isoformat(), "user_agent": row.user_agent, "ip_address": row.ip_address,
+        "id": row.id, "created_at": iso_utc(row.created_at),
+        "expires_at": iso_utc(row.expires_at), "user_agent": row.user_agent, "ip_address": row.ip_address,
         "current": bool(current_token) and row.token_hash == _hash_token(current_token),
     }
 

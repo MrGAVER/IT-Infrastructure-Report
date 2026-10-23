@@ -1,5 +1,4 @@
 from __future__ import annotations
-from datetime import date
 from types import SimpleNamespace
 from typing import Any, Sequence
 from sqlalchemy import select
@@ -11,16 +10,15 @@ from .port_config_db import load_port_configs
 from .port_vlans import carries_all_vlans, effective_group_vlan_ids
 from ..constants import OwnerType, SourceType
 from .computed import device_management_ports_and_ips
+from .timeutil import iso_utc
 
 def serialize(obj: Any) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for col in inspect(obj).mapper.column_attrs:
         value = getattr(obj, col.key)
-        # datetime.datetime — подкласс datetime.date, поэтому одна проверка на date покрывает и
-        # DateTime-колонки (created_at/updated_at), и обычные Date-колонки (например,
-        # PhysicalDevice.oac_certificate_registry_date) — обе форматируются одинаково через
-        # .isoformat(), без отдельной ветки под каждый тип.
-        result[col.key] = value.isoformat() if isinstance(value, date) else value
+        # iso_utc покрывает и DateTime-колонки (created_at/updated_at — ISO 8601 с явным «+00:00», в БД лежит naive UTC),
+        # и обычные Date-колонки (например, PhysicalDevice.oac_certificate_registry_date — «YYYY-MM-DD» как раньше).
+        result[col.key] = iso_utc(value)
     return result
 
 def enrich_open_port(obj: OpenPort, session: Session) -> dict[str, Any]:
