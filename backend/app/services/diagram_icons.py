@@ -91,6 +91,26 @@ SHAPE_GLYPHS: dict[str, str] = {
 SHAPE_GLYPHS["switch"] = SHAPE_GLYPHS["switch_l2"]
 GLYPH_VIEWBOX = (24, 24)  # ширина, высота системы координат SHAPE_GLYPHS-разметки
 
+# Цвет и форма категории хранятся как произвольные строки (DeviceCategory.diagram_color/diagram_shape), а попадают в
+# разметку экспорта: .svg (атрибут fill), .drawio (стиль fillColor=…; «;» подставил бы чужие параметры стиля), .vsdx и
+# в JSON графа. Допустимые значения проверяются при записи (services/crud/validators.py), а при чтении любое другое
+# значение (уже сохранённое «грязное» или записанное мимо API) заменяется значением по умолчанию — ничего из данных
+# не должно доходить до разметки как есть.
+_HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
+
+
+def is_hex_color(value) -> bool:
+    """Строка вида #RGB или #RRGGBB (fullmatch: перевод строки в конце, который пропустил бы `$`, не допускается)."""
+    return isinstance(value, str) and _HEX_COLOR.fullmatch(value) is not None
+
+
+def safe_color(value, default: str = DEFAULT_COLOR) -> str:
+    return value if is_hex_color(value) else default
+
+
+def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
+    return value if isinstance(value, str) and value in SHAPE_GLYPHS else default
+
 # DiagramIcon.svg_markup попадает и в экспортируемый .svg (services/diagram_export.py), и во фронтенд
 # через v-html (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
 # <foreignObject> (произвольный HTML), обработчики событий (onload, onerror…), анимация атрибутов
@@ -204,7 +224,7 @@ def resolve_category_style(category: Optional[DeviceCategory], categories_by_id:
         if shape is not None and color is not None:
             break
         node = categories_by_id.get(node.parent_id) if node.parent_id else None
-    return shape or DEFAULT_SHAPE, color or DEFAULT_COLOR
+    return safe_shape(shape), safe_color(color)
 
 
 def port_ticks_for_count(interface_count: int) -> tuple[int, Optional[int]]:

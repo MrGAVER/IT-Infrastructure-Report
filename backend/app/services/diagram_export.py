@@ -44,6 +44,8 @@ import xml.etree.ElementTree as ET
 from urllib.parse import quote
 from xml.sax.saxutils import escape
 
+from .diagram_icons import safe_color
+
 logger = logging.getLogger(__name__)
 
 NODE_WIDTH = 160
@@ -106,6 +108,16 @@ def _vlan_label(edge: dict) -> str:
     return ", ".join(f"VLAN {v['vlan_id']}" for v in vlans)
 
 
+def _icon_color(icon: dict) -> str:
+    """Цвет сгенерированной иконки для разметки экспорта. Ключа нет — нейтральный откат экспорта; ключ есть, но значение
+    не HEX-цвет (граф строится из resolve_category_style, где это уже исключено, но функции экспорта принимают и готовые
+    словари) — DEFAULT_COLOR. Так в стиль .drawio (`fillColor=…;`, «;» подставил бы чужие параметры), .vsdx и атрибут
+    fill в .svg не попадает ничего, кроме #RGB/#RRGGBB."""
+    if "color" not in icon:
+        return CUSTOM_ICON_FALLBACK_COLOR
+    return safe_color(icon["color"])
+
+
 def _device_fill_color(icon: dict) -> str:
     """Общая для .drawio и .vsdx логика цвета узла-устройства (группы красятся отдельно, см.
     вызывающий код): цвет категории берём только у сгенерированных иконок — у custom-иконок
@@ -115,7 +127,7 @@ def _device_fill_color(icon: dict) -> str:
     остаётся нейтральной CUSTOM_ICON_FALLBACK_COLOR — под подпись и как откат, если иконку не
     удалось нарисовать (пустая/битая/слишком большая разметка)."""
     if icon.get("mode") == "generated":
-        return icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
+        return _icon_color(icon)
     return CUSTOM_ICON_FALLBACK_COLOR
 
 
@@ -323,8 +335,10 @@ def _svg_node(node: dict, x: float, y: float) -> str:
             f'xlink:href="data:image/svg+xml;base64,{encoded}"/>'
         )
     else:
-        color = icon.get("color", CUSTOM_ICON_FALLBACK_COLOR)
-        parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{color}" stroke="#333333" stroke-width="1.5"/>')
+        # Два слоя: _icon_color — значение должно быть HEX-цветом, _esc — разметка не собирается из данных ни при каких
+        # обстоятельствах.
+        color = _icon_color(icon)
+        parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{_esc(color)}" stroke="#333333" stroke-width="1.5"/>')
         # Находка №5 отчёта (Фаза 3, п.5): полноценная узнаваемая иконка категории (не мелкий
         # угловой акцент, как в Фазе 2, п.2) по центру верхней части узла — та же разметка
         # (viewBox "0 0 24 24"), что рисует канвас (DiagramDeviceNode.vue), приходит готовой в

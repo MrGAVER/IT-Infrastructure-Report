@@ -312,3 +312,89 @@ def test_switch_node_edge_carries_port_index_end_to_end(client, db_session):
     assert switch_node["icon"]["port_ticks"] == 1
     edge = detail["edges"][0]
     assert edge["source_interface"]["port_index"] == 0
+
+
+# --- A-04: валидация цвета/формы категории и экспорт с «грязными» данными ---------------------------------------------
+
+DIRTY_COLOR = 'x" onload="alert(1)'
+
+
+def _category_body(name: str, **extra) -> dict:
+    return {"name": name, **extra}
+
+
+def test_create_category_rejects_dirty_color(client):
+    r = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 цвет", diagram_color=DIRTY_COLOR))
+    assert r.status_code == 422, r.text
+    assert "diagram_color" in r.text
+
+
+def test_create_category_rejects_unknown_shape(client):
+    r = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 форма", diagram_shape="hexagon"))
+    assert r.status_code == 422, r.text
+    assert "diagram_shape" in r.text
+
+
+def test_create_category_accepts_valid_and_empty_values(client):
+    for index, extra in enumerate([
+        {"diagram_color": "#4f7cff", "diagram_shape": "server"},
+        {"diagram_color": "#4cf", "diagram_shape": "switch_l3"},
+        {"diagram_color": "", "diagram_shape": ""},
+        {},
+    ]):
+        r = client.post("/api/v1/resources/device-categories", json=_category_body(f"Категория А-04 ок {index}", **extra))
+        assert r.status_code == 201, r.text
+
+
+def test_update_category_rejects_dirty_color_and_keeps_old_value(client):
+    created = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 PUT", diagram_color="#112233")).json()
+    r = client.put(f"/api/v1/resources/device-categories/{created['id']}", json={**_category_body("Категория А-04 PUT", diagram_color=DIRTY_COLOR)})
+    assert r.status_code == 422, r.text
+    assert client.get(f"/api/v1/resources/device-categories/{created['id']}").json()["diagram_color"] == "#112233"
+
+
+def test_update_category_rejects_unknown_shape(client):
+    created = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 PUT форма")).json()
+    r = client.put(f"/api/v1/resources/device-categories/{created['id']}", json=_category_body("Категория А-04 PUT форма", diagram_shape="zzz"))
+    assert r.status_code == 422, r.text
+
+
+def _dirty_the_category_of_the_seeded_device(db_session, color=DIRTY_COLOR, shape=None):
+    from app.models import DeviceCategory
+
+    device = _seed_device(db_session)
+    device_type = db_session.get(DeviceType, device.device_type_id)
+    category = db_session.get(DeviceCategory, device_type.category_id)
+    category.diagram_color = color  # прямая запись мимо API: уже сохранённые «грязные» данные
+    if shape is not None:
+        category.diagram_shape = shape
+    db_session.commit()
+
+
+def test_export_svg_of_dirty_category_uses_default_color_and_has_no_injection(client, db_session):
+    from app.services.diagram_icons import DEFAULT_COLOR
+
+    _dirty_the_category_of_the_seeded_device(db_session)
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-04 svg"}).json()
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg"})
+    assert r.status_code == 200
+    assert "onload" not in r.text
+    assert f'fill="{DEFAULT_COLOR}"' in r.text
+
+
+def test_graph_json_of_dirty_category_carries_default_color(client, db_session):
+    from app.services.diagram_icons import DEFAULT_COLOR, DEFAULT_SHAPE
+
+    _dirty_the_category_of_the_seeded_device(db_session, shape="<script>")
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-04 json"}).json()
+    nodes = client.get(f"/api/v1/diagrams/{diagram['id']}").json()["nodes"]
+    icons = [n["icon"] for n in nodes if n["type"] == "device"]
+    assert icons and all(i["color"] == DEFAULT_COLOR and i["shape"] == DEFAULT_SHAPE for i in icons)
+
+
+def test_export_drawio_of_dirty_category_does_not_fail_and_has_no_foreign_style(client, db_session):
+    _dirty_the_category_of_the_seeded_device(db_session, color="#4f7cff;strokeColor=red")
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-04 drawio"}).json()
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "drawio"})
+    assert r.status_code == 200
+    assert "strokeColor=red" not in r.text

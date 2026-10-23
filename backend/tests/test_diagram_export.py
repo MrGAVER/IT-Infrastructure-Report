@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import re
 import shutil
@@ -27,6 +28,7 @@ from app.services.diagram_export import (
     NODE_HEIGHT,
     NODE_WIDTH,
     _custom_icon_tile_svg,
+    _device_fill_color,
     _rasterize_custom_icon_png,
     _standalone_custom_svg,
     export_drawio,
@@ -946,3 +948,54 @@ def test_trunk_edge_without_vlans_has_no_label():
     from app.services.diagram_export import _vlan_label
 
     assert _vlan_label({"is_trunk": True, "vlans": []}) == ""
+
+
+# --- A-04: цвет узла из данных не должен попадать в разметку как есть ----------------------------------------------------
+
+DIRTY_COLOR = 'x" onload="alert(1)'
+
+
+def _graph_with_color(color) -> dict:
+    graph = _sample_graph()
+    graph["nodes"][0]["icon"]["color"] = color
+    return graph
+
+
+def test_export_svg_replaces_dirty_color_with_default_and_injects_nothing():
+    from app.services.diagram_icons import DEFAULT_COLOR
+
+    svg = export_svg(_graph_with_color(DIRTY_COLOR))
+    assert "onload" not in svg
+    assert f'fill="{DEFAULT_COLOR}"' in svg
+    ET.fromstring(svg)  # разметка осталась корректным XML
+
+
+def test_export_svg_keeps_valid_color():
+    assert 'fill="#4f7cff"' in export_svg(_graph_with_color("#4f7cff"))
+
+
+def test_export_svg_without_color_key_keeps_neutral_fallback():
+    graph = _sample_graph()
+    del graph["nodes"][0]["icon"]["color"]
+    assert 'fill="#cccccc"' in export_svg(graph)
+
+
+@pytest.mark.parametrize("color", [DIRTY_COLOR, "red", "#4f7cff;strokeColor=red", None, 5])
+def test_device_fill_color_is_always_hex(color):
+    from app.services.diagram_icons import DEFAULT_COLOR, is_hex_color
+
+    resolved = _device_fill_color({"mode": "generated", "color": color})
+    assert is_hex_color(resolved)
+    assert resolved == DEFAULT_COLOR
+
+
+def test_export_drawio_does_not_accept_foreign_style_parameters_in_color():
+    xml_text = export_drawio(_graph_with_color("#4f7cff;strokeColor=red;shadow=1"))
+    assert "strokeColor=red" not in xml_text
+    assert "shadow=1" not in xml_text
+    ET.fromstring(xml_text)
+
+
+def test_export_vsdx_with_dirty_color_does_not_fail(tmp_path):
+    data = export_vsdx(_graph_with_color(DIRTY_COLOR))
+    assert zipfile.ZipFile(io.BytesIO(data)).testzip() is None

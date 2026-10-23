@@ -5,9 +5,9 @@ from typing import Any, Callable
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ...models import Connection, Container, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, InterfaceVLAN, PhysicalDevice, VirtualMachine, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
+from ...models import Connection, Container, DeviceCategory, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, InterfaceVLAN, PhysicalDevice, VirtualMachine, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
 from ...constants import ErrorCode
-from ..diagram_icons import validate_svg_markup
+from ..diagram_icons import SHAPE_GLYPHS, is_hex_color, validate_svg_markup
 from ..port_config import DEFAULT_VLAN_MODE, VLAN_MODE_ACCESS, VLAN_MODE_TRUNK
 from .stack_vlan_settings import assert_device_vlan_editable, locked_vlan_ids, normalize_ip
 from ..validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
@@ -115,6 +115,18 @@ def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id
     validate_svg_markup(data.get('svg_markup'))
 
 
+def _validate_device_category_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+    """Цвет и форма категории попадают в разметку экспорта диаграммы (.svg, .drawio, .vsdx): без проверки строка вроде
+    `x" onload="alert(1)` внедрялась бы в атрибут. Пустое значение допустимо — стиль наследуется от родителя или берётся
+    по умолчанию (services/diagram_icons.resolve_category_style)."""
+    color = data.get('diagram_color')
+    if color not in (None, '') and not is_hex_color(color):
+        raise HTTPException(422, 'diagram_color должен быть HEX-цветом вида #4f7cff или #4cf')
+    shape = data.get('diagram_shape')
+    if shape not in (None, '') and not (isinstance(shape, str) and shape in SHAPE_GLYPHS):
+        raise HTTPException(422, f'diagram_shape должен быть одним из значений: {", ".join(sorted(SHAPE_GLYPHS))}')
+
+
 def _validate_device_interface_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     """Порт через generic-ресурс `interfaces`: те же инварианты режима и «Все VLAN», что держит sync_interfaces.
 
@@ -188,6 +200,7 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
     Connection: _validate_connection_entry,
     DeviceType: _validate_device_type_entry,
     DiagramIcon: _validate_diagram_icon_entry,
+    DeviceCategory: _validate_device_category_entry,
     IPAddress: _validate_ip_address_entry,
     DeviceInterface: _validate_device_interface_entry,
     InterfaceVLAN: _validate_interface_vlan_entry,
