@@ -21,6 +21,8 @@ from app.services.diagram_graph import (
     GraphContext,
     apply_grouping,
     build_graph,
+    clean_position,
+    clean_positions_lenient,
     group_key_for_device,
     parse_scope_filter,
 )
@@ -424,3 +426,67 @@ def test_edge_with_unknown_interfaces_is_not_trunk():
     from app.services.diagram_graph import _is_trunk_connection
 
     assert _is_trunk_connection(None, None) is False
+
+
+# --- A-05: раскладке из БД нельзя доверять ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("raw", [{"x": 1, "y": 2}, {"x": 0, "y": 0}, {"x": -5.5, "y": 1e6}, {"x": 1, "y": 2, "extra": "ignored"}])
+def test_clean_position_keeps_finite_numbers_and_drops_extra_keys(raw):
+    cleaned = clean_position(raw)
+    assert cleaned == {"x": raw["x"], "y": raw["y"]}
+
+
+@pytest.mark.parametrize("raw", [
+    "str", None, 5, [1, 2], {}, {"x": 1}, {"y": 1}, {"x": "1", "y": 2}, {"x": True, "y": 2}, {"x": None, "y": 2},
+    {"x": float("nan"), "y": 1}, {"x": 1, "y": float("inf")}, {"x": 1, "y": float("-inf")}, {"x": {"a": 1}, "y": 1},
+])
+def test_clean_position_rejects_everything_else(raw):
+    assert clean_position(raw) is None
+
+
+def test_clean_positions_lenient_drops_only_broken_entries():
+    raw = {"ok": {"x": 1, "y": 2}, "str": "x", "nan": {"x": float("nan"), "y": 1}, "text": {"x": "a", "y": 1}}
+    assert clean_positions_lenient(raw) == {"ok": {"x": 1, "y": 2}}
+
+
+@pytest.mark.parametrize("raw", [None, "x", [1], 5, True])
+def test_clean_positions_lenient_returns_empty_for_non_objects(raw):
+    assert clean_positions_lenient(raw) == {}
+
+
+def test_build_graph_substitutes_grid_position_for_broken_saved_positions(db_session):
+    server_type, _ = _seed_base_catalogs(db_session)
+    good = _make_device(db_session, server_type.id, "SN-A05-GOOD")
+    bad_string = _make_device(db_session, server_type.id, "SN-A05-STR")
+    bad_text = _make_device(db_session, server_type.id, "SN-A05-TXT")
+    bad_nan = _make_device(db_session, server_type.id, "SN-A05-NAN")
+    diagram = SavedDiagram(name="Диаграмма А-05", scope_filter="{}", group_by="building", collapse_threshold=50)
+    db_session.add(diagram)
+    db_session.commit()
+
+    positions = {
+        good.id: {"x": 555, "y": 777},
+        bad_string.id: "str",
+        bad_text.id: {"x": '1" onload="x', "y": 1},
+        bad_nan.id: {"x": float("nan"), "y": 2},
+    }
+    graph = build_graph(db_session, diagram, node_positions=positions)
+    by_id = {n["id"]: n for n in graph["nodes"]}
+    assert (by_id[good.id]["x"], by_id[good.id]["y"]) == (555, 777)
+    for broken in (bad_string, bad_text, bad_nan):
+        node = by_id[broken.id]
+        assert isinstance(node["x"], (int, float)) and isinstance(node["y"], (int, float))
+        assert node["x"] == node["x"], "NaN не должен попадать в граф"
+
+
+def test_build_graph_accepts_non_dict_positions(db_session):
+    server_type, _ = _seed_base_catalogs(db_session)
+    _make_device(db_session, server_type.id, "SN-A05-ND")
+    diagram = SavedDiagram(name="Диаграмма А-05 не объект", scope_filter="{}", group_by="building", collapse_threshold=50)
+    db_session.add(diagram)
+    db_session.commit()
+    for raw in (["a"], "text", 7):
+        assert len(build_graph(db_session, diagram, node_positions=raw)["nodes"]) == 1

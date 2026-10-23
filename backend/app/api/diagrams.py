@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -26,7 +27,7 @@ from ..db import get_db
 from ..models import DiagramGroupState, DiagramLayout, SavedDiagram
 from ..services.crud import audit
 from ..services.diagram_export import export_drawio, export_svg, export_vsdx
-from ..services.diagram_graph import GROUP_DIMENSIONS, build_graph, parse_scope_filter
+from ..services.diagram_graph import GROUP_DIMENSIONS, MAX_LAYOUT_KEY_LENGTH, MAX_LAYOUT_NODES, build_graph, clean_position, clean_positions_lenient, parse_scope_filter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/diagrams", tags=["Diagrams"])
@@ -92,6 +93,47 @@ def _unique_diagram_name(session: Session, base_name: str) -> str:
     return name
 
 
+def _clean_positions(raw) -> dict[str, dict]:
+    """Строгая проверка раскладки из PUT: объект {id: {x, y}} с числами и не более MAX_LAYOUT_NODES узлов. Некорректный
+    элемент — 422 с названием узла, а не молчаливая запись в БД, после которой диаграмма не открывалась."""
+    if not isinstance(raw, dict) or len(raw) > MAX_LAYOUT_NODES:
+        raise HTTPException(422, f"node_positions должен быть объектом {{id: {{x, y}}}} (не более {MAX_LAYOUT_NODES} узлов)")
+    cleaned: dict[str, dict] = {}
+    for key, position in raw.items():
+        clean = clean_position(position)
+        if not isinstance(key, str) or len(key) > MAX_LAYOUT_KEY_LENGTH or clean is None:
+            raise HTTPException(422, f"Некорректная позиция узла «{str(key)[:60]}»: ожидается {{x: число, y: число}}")
+        cleaned[key] = clean
+    return cleaned
+
+
+# Поля viewport: x/y/zoom — как в описании контракта, pan_x/pan_y — как их шлёт и читает frontend (DiagramViewport).
+VIEWPORT_KEYS = frozenset({"x", "y", "zoom", "pan_x", "pan_y"})
+
+
+def _is_finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _clean_viewport(raw) -> dict | None:
+    """None либо объект только из VIEWPORT_KEYS с конечными числами; иначе 422."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not set(raw) <= VIEWPORT_KEYS or not all(_is_finite_number(v) for v in raw.values()):
+        raise HTTPException(422, "viewport должен быть объектом с числовыми полями " + ", ".join(sorted(VIEWPORT_KEYS)) + " или null")
+    return dict(raw)
+
+
+def _parse_viewport(text: str | None) -> dict | None:
+    """Уже сохранённый viewport: повреждённое значение читается как «нет сохранённого» вместо ошибки."""
+    if not text:
+        return None
+    try:
+        return _clean_viewport(json.loads(text))
+    except (ValueError, HTTPException):
+        return None
+
+
 def _load_layout(session: Session, diagram_id: str) -> tuple[DiagramLayout | None, dict]:
     layout = session.scalar(select(DiagramLayout).where(DiagramLayout.saved_diagram_id == diagram_id))
     if layout is None:
@@ -100,7 +142,7 @@ def _load_layout(session: Session, diagram_id: str) -> tuple[DiagramLayout | Non
         positions = json.loads(layout.node_positions or "{}")
     except json.JSONDecodeError:
         positions = {}
-    return layout, positions if isinstance(positions, dict) else {}
+    return layout, clean_positions_lenient(positions)
 
 
 def _save_layout(session: Session, diagram_id: str, graph: dict, existing: DiagramLayout | None) -> None:
@@ -116,7 +158,7 @@ def _save_layout(session: Session, diagram_id: str, graph: dict, existing: Diagr
         current = json.loads(existing.node_positions or "{}")
     except json.JSONDecodeError:
         current = {}
-    merged = {**computed, **(current if isinstance(current, dict) else {})}
+    merged = {**computed, **clean_positions_lenient(current)}
     existing.node_positions = json.dumps(merged, ensure_ascii=False)
 
 
@@ -154,12 +196,7 @@ def get_diagram(diagram_id: str, session: Session = Depends(get_db)):
     layout, positions = _load_layout(session, diagram_id)
     graph = build_graph(session, diagram, node_positions=positions)
     session.commit()  # build_graph могла создать новые DiagramGroupState по достижении порога
-    viewport = None
-    if layout and layout.viewport:
-        try:
-            viewport = json.loads(layout.viewport)
-        except json.JSONDecodeError:
-            viewport = None
+    viewport = _parse_viewport(layout.viewport) if layout else None
     return {**_diagram_out(diagram), "nodes": graph["nodes"], "edges": graph["edges"], "viewport": viewport}
 
 
@@ -189,10 +226,8 @@ def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(ge
 @router.put("/{diagram_id}/layout")
 def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
-    node_positions = payload.get("node_positions")
-    if not isinstance(node_positions, dict):
-        raise HTTPException(422, "node_positions должен быть объектом вида {id: {x, y}}")
-    viewport = payload.get("viewport")
+    node_positions = _clean_positions(payload.get("node_positions"))
+    viewport = _clean_viewport(payload.get("viewport"))
     layout = session.scalar(select(DiagramLayout).where(DiagramLayout.saved_diagram_id == diagram_id))
     positions_json = json.dumps(node_positions, ensure_ascii=False)
     if layout is None:
@@ -213,6 +248,8 @@ def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get
 @router.put("/{diagram_id}/groups/{group_key}")
 def update_group_state(diagram_id: str, group_key: str, payload: dict, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
+    if len(group_key) > MAX_LAYOUT_KEY_LENGTH:
+        raise HTTPException(422, f"group_key не должен быть длиннее {MAX_LAYOUT_KEY_LENGTH} символов")
     state = session.scalar(
         select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key)
     )

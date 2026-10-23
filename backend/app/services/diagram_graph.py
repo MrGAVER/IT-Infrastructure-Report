@@ -44,6 +44,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from typing import Optional
 
@@ -64,6 +65,39 @@ from .port_vlans import carries_all_vlans, effective_vlan_ids
 
 GROUP_DIMENSIONS = ("structural_unit", "vlan", "building", "device_category")
 UNASSIGNED_DIMENSION_VALUE = "none"
+# Раскладка приходит от клиента (PUT /diagrams/{id}/layout) и хранится как JSON, поэтому при сборке графа ей нельзя
+# доверять: одна запись вида {"id": "строка"} раньше роняла GET, пересборку и экспорт (500) до перезаписи раскладки.
+# Позиция допустима, только если это объект с конечными числами x и y (bool — не число, NaN/Infinity из json.loads — не
+# конечные); всё остальное при чтении молча заменяется сеточной позицией.
+MAX_LAYOUT_NODES = 5000
+MAX_LAYOUT_KEY_LENGTH = 200
+
+
+def _finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def clean_position(raw) -> Optional[dict]:
+    """{"x": число, "y": число} либо None, если позиция некорректна (лишние ключи отбрасываются)."""
+    if not isinstance(raw, dict):
+        return None
+    x, y = raw.get("x"), raw.get("y")
+    return {"x": x, "y": y} if _finite_number(x) and _finite_number(y) else None
+
+
+def clean_positions_lenient(raw) -> dict[str, dict]:
+    """Уже сохранённая раскладка: некорректные элементы отбрасываются, а не приводят к ошибке (для проверки входящих
+    данных есть строгая api/diagrams.py:_clean_positions)."""
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, dict] = {}
+    for key, position in raw.items():
+        clean = clean_position(position)
+        if isinstance(key, str) and clean is not None:
+            cleaned[key] = clean
+    return cleaned
+
+
 GRID_COLUMNS = 6
 GRID_STEP_X = 220
 GRID_STEP_Y = 160
@@ -419,7 +453,7 @@ def build_graph(session: Session, saved_diagram: SavedDiagram, *, node_positions
     (роутер) отвечает за commit. `node_positions` — уже распарсенный
     DiagramLayout.node_positions текущей диаграммы (пусто при первой генерации)."""
     ctx = GraphContext(session)
-    node_positions = node_positions or {}
+    node_positions = clean_positions_lenient(node_positions)
     scope_filter = parse_scope_filter(saved_diagram.scope_filter)
     device_ids = _filter_device_ids(ctx, scope_filter)
 
@@ -441,7 +475,7 @@ def build_graph(session: Session, saved_diagram: SavedDiagram, *, node_positions
         if key in collapsed_keys:
             continue
         device = ctx.devices[device_id]
-        position = node_positions.get(device_id) or _grid_position(node_index)
+        position = node_positions.get(device_id) or _grid_position(node_index)  # node_positions уже очищены (clean_positions_lenient)
         nodes.append(build_device_node(device, ctx, position))
         node_index += 1
 
