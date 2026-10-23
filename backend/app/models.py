@@ -177,7 +177,9 @@ class PhysicalDevice(TimestampMixin, Base):
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
     manufacturer_id: Mapped[Optional[str]] = mapped_column(ForeignKey("manufacturers.id"), index=True)
     model_id: Mapped[Optional[str]] = mapped_column(ForeignKey("device_models.id"), index=True)
-    serial_number: Mapped[str] = mapped_column(String(255), unique=True)
+    # НЕ уникален: серийные номера разных производителей совпадают (миграция b3f7a1d95c24 сняла ограничение). Проверок
+    # дублей нет сознательно; составное «производитель + серийный номер» — отдельное решение владельца продукта.
+    serial_number: Mapped[str] = mapped_column(String(255))
     system_name: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     operating_system_id: Mapped[Optional[str]] = mapped_column(ForeignKey("operating_systems.id"), index=True)
     embedded_os_id: Mapped[Optional[str]] = mapped_column(ForeignKey("embedded_operating_systems.id"), index=True)
