@@ -89,6 +89,10 @@ def _csv_env(name: str, default: str = '') -> list[str]:
 # фронтенда, например dev-сервера Vite: INFRA_REGISTRY_CORS_ORIGINS=http://localhost:5173
 CORS_ALLOWED_ORIGINS = _csv_env('INFRA_REGISTRY_CORS_ORIGINS')
 
+# Прокси, которым доверяет uvicorn (его собственная переменная, значение читаем так же). Здесь нужна только для
+# проверки происхождения запросов (services/csrf_guard.py): X-Forwarded-Host учитывается лишь за настоящим прокси.
+FORWARDED_ALLOW_IPS = _csv_env('FORWARDED_ALLOW_IPS')
+
 # Допустимые значения заголовка Host (защита от DNS-rebinding: страница чужого домена, перенацеленная
 # на 127.0.0.1, приходит с чужим Host). По умолчанию — только локальные имена, что верно для
 # EXE-режима (слушает 127.0.0.1) и разработки. Для серверного развёртывания добавьте реальное имя
