@@ -195,8 +195,9 @@ def create_diagram(payload: dict, session: Session = Depends(get_db)):
 def get_diagram(diagram_id: str, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
     layout, positions = _load_layout(session, diagram_id)
-    graph = build_graph(session, diagram, node_positions=positions)
-    session.commit()  # build_graph могла создать новые DiagramGroupState по достижении порога
+    # GET ничего не пишет: состояние групп выше порога считается в памяти (persist=False), его сохраняют создание и
+    # regenerate. Иначе просмотр менял данные от имени viewer и при параллельных запросах давал 500 (uq_diagram_group_state).
+    graph = build_graph(session, diagram, node_positions=positions, persist=False)
     viewport = _parse_viewport(layout.viewport) if layout else None
     return {**_diagram_out(diagram), "nodes": graph["nodes"], "edges": graph["edges"], "viewport": viewport}
 
@@ -314,12 +315,17 @@ def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
 
 
 @router.get("/{diagram_id}/export")
-def export_diagram(diagram_id: str, format: str = Query(..., alias="format"), session: Session = Depends(get_db)):
+def export_diagram(
+    diagram_id: str,
+    format: str = Query(..., alias="format"),
+    persist_export: bool = Query(False, description="Запомнить формат в last_export_format; без параметра экспорт ничего не пишет в БД"),
+    session: Session = Depends(get_db),
+):
     diagram = _get_diagram_or_404(session, diagram_id)
     if format not in EXPORT_FORMATS:
         raise HTTPException(422, f"format должен быть одним из: {', '.join(EXPORT_FORMATS)}")
     _, positions = _load_layout(session, diagram_id)
-    graph = build_graph(session, diagram, node_positions=positions)
+    graph = build_graph(session, diagram, node_positions=positions, persist=False)
     media_type, serialize = EXPORT_FORMATS[format]
     try:
         data = serialize(graph)
@@ -331,8 +337,9 @@ def export_diagram(diagram_id: str, format: str = Query(..., alias="format"), se
         # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
         logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
         raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
-    diagram.last_export_format = format
-    session.commit()
+    if persist_export:  # безопасный метод GET по умолчанию не пишет: запись — только по явной просьбе клиента
+        diagram.last_export_format = format
+        session.commit()
     filename = f"{diagram.name}.{format}"
     # HTTP-заголовки должны быть latin-1-совместимы (RFC 7230) — название диаграммы, как и
     # почти все данные в этом проекте, обычно на русском, поэтому ASCII-safe filename идёт как

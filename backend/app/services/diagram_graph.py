@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import math
+import uuid
 from collections import defaultdict
 from typing import Optional
 
@@ -57,6 +58,7 @@ from ..models import (
     PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN,
 )
 from ..constants import OwnerType
+from .timeutil import utcnow_naive
 from ..reporting import _expand_structural_unit_ids, device_label
 from ..services.computed import ip_label
 from .diagram_icons import MAX_PORT_TICKS, IconLookups, build_device_icon
@@ -288,28 +290,85 @@ def _group_label(group_by: str, dimension_id: str, ctx: GraphContext, device_cou
     return f"{name} ({device_count})"
 
 
-def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: dict[str, int]) -> dict[str, DiagramGroupState]:
-    """Раздел 8 ТЗ. Побочный эффект: создаёт/обновляет DiagramGroupState в переданной сессии
-    (commit — забота вызывающего кода). Группа НИЖЕ порога без существующей записи не получает
-    DiagramGroupState вообще — отсутствие записи трактуется как "не свёрнута" (см. build_graph).
-    Существующая запись никогда не получает переписанный is_collapsed/custom_threshold — только
-    device_count обновляется при каждом regenerate."""
+def _insert_missing_group_states(session: Session, states: list[DiagramGroupState]) -> None:
+    """Вставляет новые состояния групп, не падая при гонке: параллельный regenerate/создание, успевший вставить ту же пару
+    (saved_diagram_id, group_key), даёт нарушение uq_diagram_group_state, и «проверить, затем вставить» через session.add
+    заканчивалось необработанным IntegrityError (500). ``INSERT … ON CONFLICT DO NOTHING`` оставляет строку победителя; для
+    остальных СУБД — прежний session.add. Состояния после вставки нужно перечитать (core-вставка не заполняет сессию)."""
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+    elif dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as dialect_insert
+    else:
+        session.add_all(states)
+        return
+    now = utcnow_naive()
+    rows = [
+        {
+            "id": state.id or str(uuid.uuid4()),
+            "saved_diagram_id": state.saved_diagram_id,
+            "group_key": state.group_key,
+            "is_collapsed": state.is_collapsed,
+            "device_count": state.device_count,
+            "custom_threshold": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for state in states
+    ]
+    session.execute(dialect_insert(DiagramGroupState).on_conflict_do_nothing(index_elements=["saved_diagram_id", "group_key"]), rows)
+
+
+def apply_grouping(
+    session: Session, saved_diagram: SavedDiagram, group_counts: dict[str, int], *, persist: bool = True
+) -> dict[str, DiagramGroupState]:
+    """Раздел 8 ТЗ. Группа НИЖЕ порога без существующей записи не получает DiagramGroupState вообще —
+    отсутствие записи трактуется как "не свёрнута" (см. build_graph). Существующая запись никогда не получает
+    переписанный is_collapsed/custom_threshold — только device_count обновляется при каждом regenerate.
+
+    ``persist=True`` (создание и regenerate диаграммы): создаёт недостающие и обновляет device_count существующих состояний в
+    переданной сессии (commit — забота вызывающего кода); одновременное создание той же записи другим запросом не
+    приводит к ошибке (см. _insert_missing_group_states).
+
+    ``persist=False`` (чтение диаграммы и экспорт): сессия не изменяется. Для группы выше порога без записи возвращается
+    несохранённое состояние ``is_collapsed=True`` — результат тот же, что дала бы запись, но безопасный метод GET не
+    меняет данные (в том числе от имени роли viewer) и не конкурирует с другими запросами; device_count у существующих
+    записей не обновляется (граф берёт число устройств из текущего расчёта, а не из записи)."""
     existing = {
         s.group_key: s
         for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id)).all()
     }
     result: dict[str, DiagramGroupState] = {}
+    created: list[DiagramGroupState] = []
     for group_key, device_count in group_counts.items():
         state = existing.get(group_key)
         if state is not None:
-            state.device_count = device_count
+            if persist:
+                state.device_count = device_count
             result[group_key] = state
             continue
         threshold = saved_diagram.collapse_threshold
         if device_count >= threshold:
-            state = DiagramGroupState(saved_diagram_id=saved_diagram.id, group_key=group_key, is_collapsed=True, device_count=device_count)
-            session.add(state)
+            # Только внешний ключ, без relationship: иначе backref-каскад добавил бы объект в сессию даже при persist=False.
+            state = DiagramGroupState(
+                id=str(uuid.uuid4()), saved_diagram_id=saved_diagram.id, group_key=group_key, is_collapsed=True, device_count=device_count
+            )
+            created.append(state)
             result[group_key] = state
+    if persist and created:
+        session.flush()  # отложенные изменения (device_count существующих записей) — до core-вставки
+        _insert_missing_group_states(session, created)
+        stored = {
+            s.group_key: s
+            for s in session.scalars(
+                select(DiagramGroupState).where(
+                    DiagramGroupState.saved_diagram_id == saved_diagram.id, DiagramGroupState.group_key.in_([s.group_key for s in created])
+                )
+            ).all()
+        }
+        for state in created:
+            result[state.group_key] = stored.get(state.group_key, state)  # победитель гонки, если вставила другая транзакция
     return result
 
 
@@ -447,11 +506,15 @@ def _grid_position(index: int) -> dict:
     return {"x": (index % GRID_COLUMNS) * GRID_STEP_X, "y": (index // GRID_COLUMNS) * GRID_STEP_Y}
 
 
-def build_graph(session: Session, saved_diagram: SavedDiagram, *, node_positions: Optional[dict] = None) -> dict:
+def build_graph(
+    session: Session, saved_diagram: SavedDiagram, *, node_positions: Optional[dict] = None, persist: bool = True
+) -> dict:
     """Точка входа: собирает {"nodes": [...], "edges": [...]} для GET /diagrams/{id} (раздел 4.4/7
-    ТЗ). Обновляет DiagramGroupState по ходу построения (см. apply_grouping) — вызывающий код
-    (роутер) отвечает за commit. `node_positions` — уже распарсенный
-    DiagramLayout.node_positions текущей диаграммы (пусто при первой генерации)."""
+    ТЗ). `node_positions` — уже распарсенный DiagramLayout.node_positions текущей диаграммы (пусто при первой генерации).
+
+    ``persist=True`` (создание, regenerate): сохраняет состояния групп (см. apply_grouping) — вызывающий код (роутер)
+    отвечает за commit. ``persist=False`` (GET диаграммы, экспорт): ничего не пишет в сессию; свёрнутость групп выше порога
+    считается в памяти, результат графа тот же."""
     ctx = GraphContext(session)
     node_positions = clean_positions_lenient(node_positions)
     scope_filter = parse_scope_filter(saved_diagram.scope_filter)
@@ -465,7 +528,7 @@ def build_graph(session: Session, saved_diagram: SavedDiagram, *, node_positions
         group_key_by_device[device_id] = key
         devices_by_group[key].append(device_id)
 
-    group_states = apply_grouping(session, saved_diagram, {k: len(v) for k, v in devices_by_group.items()})
+    group_states = apply_grouping(session, saved_diagram, {k: len(v) for k, v in devices_by_group.items()}, persist=persist)
     collapsed_keys = {key for key, state in group_states.items() if state.is_collapsed}
 
     nodes: list[dict] = []

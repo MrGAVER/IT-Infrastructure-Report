@@ -198,7 +198,8 @@ def test_export_vsdx_returns_binary_content(client, db_session):
 def test_export_updates_last_export_format(client, db_session):
     _seed_device(db_session)
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма last-export"}).json()
-    client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg"})
+    # A-13: безопасный GET по умолчанию ничего не пишет; формат запоминается по явной просьбе клиента (persist_export).
+    client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg", "persist_export": "true"})
     updated = client.get(f"/api/v1/diagrams/{diagram['id']}").json()
     assert updated["last_export_format"] == "svg"
 
