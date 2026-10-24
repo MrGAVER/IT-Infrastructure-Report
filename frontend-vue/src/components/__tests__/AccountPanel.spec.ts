@@ -32,6 +32,18 @@ describe('AccountPanel.vue', () => {
     expect(wrapper.text()).toContain('эта сессия')
   })
 
+  it('время сессии без смещения пояса считается UTC и показывается в поясе браузера', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(sessionsFixture)))
+    const wrapper = mount(AccountPanel)
+    await flushPromises()
+
+    // sessionsFixture[0].created_at = '2026-01-01T10:00:00' (naive UTC на сервере)
+    const expected = new Date(Date.UTC(2026, 0, 1, 10, 0, 0)).toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    })
+    expect(wrapper.findAll('tbody tr')[0].findAll('td')[0].text()).toBe(expected)
+  })
+
   it('не показывает кнопку "Завершить" у текущей сессии', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(sessionsFixture)))
     const wrapper = mount(AccountPanel)

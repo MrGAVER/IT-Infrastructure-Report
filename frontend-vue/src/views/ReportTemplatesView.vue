@@ -12,6 +12,7 @@ import { useToast } from '../composables/useToast'
 import type { ReportTemplate } from '../api/types'
 import ReportTemplateFormModal from '../components/ReportTemplateFormModal.vue'
 import ReportTemplateVersionsModal from '../components/ReportTemplateVersionsModal.vue'
+import { formatServerDate } from '../utils/dateTime'
 
 const templates = useReportTemplatesStore()
 const router = useRouter()
@@ -148,7 +149,7 @@ async function generate(t: ReportTemplate) {
               <td class="tname">{{ t.name }}</td>
               <td><span class="format-badge" :class="t.format">{{ t.format === 'xlsx' ? 'Excel' : 'Word' }}</span></td>
               <td class="desc-cell">{{ t.description || '—' }}</td>
-              <td>{{ t.updated_at ? new Date(t.updated_at).toLocaleDateString('ru-RU') : '—' }}</td>
+              <td>{{ formatServerDate(t.updated_at) }}</td>
               <td>
                 <div class="row-actions">
                   <button
