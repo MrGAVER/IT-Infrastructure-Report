@@ -265,8 +265,17 @@ def change_own_password(
     keep_token — токен запроса, которым вызвана сама эта смена: его сессия не отзывается, иначе
     пользователь тут же вылетел бы из только что открытой вкладки настроек; отзываются все
     ОСТАЛЬНЫЕ его сессии — тот же принцип, что и при смене пароля администратором в update_user."""
+    now = _now()
+    if user.locked_until and user.locked_until > now:
+        # Как при входе: пока учётная запись заблокирована, пароль не проверяется. Без этого владелец (или тот, кто получил
+        # его токен) продолжал бы подбирать пароль через этот эндпоинт и после блокировки.
+        raise _account_locked(user.locked_until, now)
     if not verify_password(current_password, user.password_hash):
-        raise HTTPException(401, "Текущий пароль указан неверно.")
+        # Ошибка в поле формы, а не «сессия недействительна»: 401 в этом API означает отсутствующий или недействительный токен
+        # (клиент по нему завершает сессию), поэтому здесь 422 с собственным кодом. Попытка засчитывается так же, как неверный
+        # пароль при входе: тот, у кого оказался чужой токен, не должен подбирать пароль без ограничений и без следа в журнале.
+        _register_failed_password(session, user, details=f"Неверный текущий пароль при смене пароля «{user.username}»", now=now)
+        raise HTTPException(422, {"message": "Текущий пароль указан неверно.", "code": ErrorCode.WRONG_CURRENT_PASSWORD})
     validate_password_strength(new_password, username=user.username)
     user.password_hash = hash_password(new_password)
     user.failed_attempts = 0
@@ -462,6 +471,37 @@ def _increment_failed_attempts(session: Session, user_id: str) -> int:
     return session.scalar(select(User.failed_attempts).where(User.id == user_id)) or 0
 
 
+def _account_locked(locked_until: datetime, now: datetime) -> HTTPException:
+    remaining_minutes = max(1, int((locked_until - now).total_seconds() // 60) + 1)
+    return HTTPException(423, {
+        "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. "
+                   f"Повторите попытку через {remaining_minutes} мин.",
+        "code": ErrorCode.ACCOUNT_LOCKED,
+    })
+
+
+def _register_failed_password(
+    session: Session, user: User, *, details: str, now: datetime, actor: Optional[Actor] = None,
+) -> bool:
+    """Учёт неверного пароля — общий для входа и смены пароля: атомарный инкремент `failed_attempts`, блокировка учётной записи на
+    AUTH_LOCKOUT_MINUTES при достижении AUTH_MAX_FAILED_ATTEMPTS, запись LOGIN_FAILED в журнал аудита. Возвращает True, если эта
+    попытка заблокировала учётную запись. actor не передан — автор берётся из контекста запроса (см. crud.audit)."""
+    new_attempts = _increment_failed_attempts(session, user.id)
+    locked_now = new_attempts >= AUTH_MAX_FAILED_ATTEMPTS
+    if locked_now:
+        # Тоже атомарный UPDATE, не user.locked_until = ...; session.commit() — user здесь
+        # уже мог устареть относительно счётчика, только что изменённого выше отдельным
+        # запросом (см. _increment_failed_attempts); пишем оба поля явным UPDATE по id.
+        session.execute(update(User).where(User.id == user.id).values(
+            locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
+        ))
+        session.commit()
+    audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
+          details + (" — учётная запись заблокирована" if locked_now else ""), actor=actor)
+    session.commit()
+    return locked_now
+
+
 def authenticate(session: Session, username: str, password: str, *, request: Optional[Request] = None) -> tuple[User, str]:
     """Возвращает (пользователь, токен сессии) либо кидает HTTPException. Намеренно не различает
     в тексте ошибки «нет такого пользователя» и «неверный пароль» (защита от перебора логинов) —
@@ -492,29 +532,14 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
 
     now = _now()
     if user.locked_until and user.locked_until > now:
-        remaining_minutes = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
-        raise HTTPException(423, {
-            "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. "
-                       f"Повторите попытку через {remaining_minutes} мин.",
-            "code": ErrorCode.ACCOUNT_LOCKED,
-        })
+        raise _account_locked(user.locked_until, now)
 
     if not verify_password(password, user.password_hash):
-        new_attempts = _increment_failed_attempts(session, user.id)
-        locked_now = new_attempts >= AUTH_MAX_FAILED_ATTEMPTS
-        if locked_now:
-            # Тоже атомарный UPDATE, не user.locked_until = ...; session.commit() — user здесь
-            # уже мог устареть относительно счётчика, только что изменённого выше отдельным
-            # запросом (см. _increment_failed_attempts); пишем оба поля явным UPDATE по id.
-            session.execute(update(User).where(User.id == user.id).values(
-                locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
-            ))
-            session.commit()
         login_throttle.record_failure(throttle_key)
-        audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
-              f"Неудачная попытка входа «{user.username}»" + (" — учётная запись заблокирована" if locked_now else ""),
-              actor=Actor(user.id, user.username, client_ip))
-        session.commit()
+        _register_failed_password(
+            session, user, details=f"Неудачная попытка входа «{user.username}»", now=now,
+            actor=Actor(user.id, user.username, client_ip),
+        )
         raise _invalid_credentials()
 
     user.failed_attempts = 0
