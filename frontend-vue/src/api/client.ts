@@ -62,6 +62,12 @@ export function setStoredSetupToken(token: string | null): void {
  * импортируется отсюда), чтобы не заводить цикл client.ts -> stores/auth.ts -> client.ts. */
 export const UNAUTHORIZED_EVENT = 'itr:unauthorized'
 
+/** Пути, на которых ответ 401 означает «неверные данные в форме», а не «сессия недействительна»:
+ * вход (`/auth/login`) и смена собственного пароля (`/auth/me/password` отвечает 401 на неверный
+ * ТЕКУЩИЙ пароль — см. backend/app/services/auth.py:change_own_password). Для них
+ * UNAUTHORIZED_EVENT не отправляется, иначе опечатка в форме завершила бы сессию. */
+const SESSION_NEUTRAL_401_PATHS: ReadonlySet<string> = new Set(['/auth/login', '/auth/me/password'])
+
 export class ApiError extends Error {
   status: number
   /** Код ошибки из detail.code (см. backend/app/constants.py:ErrorCode) — например
@@ -100,9 +106,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* тело не JSON — оставляем текст как есть */
     }
-    // Не для /auth/login: там 401 — это ожидаемый "неверный пароль" в форме входа, а не
-    // разлогинивание уже вошедшего пользователя, событие тут ни к чему.
-    if (res.status === 401 && path !== '/auth/login') {
+    // Не для путей из SESSION_NEUTRAL_401_PATHS: там 401 — это ожидаемая ошибка в форме
+    // ("неверный пароль" при входе, "неверный текущий пароль" при смене), а не признак того,
+    // что сессия уже вошедшего пользователя недействительна.
+    if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
       window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
     }
     throw new ApiError(res.status, message, code)
