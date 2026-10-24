@@ -394,7 +394,7 @@ def test_graph_json_of_dirty_category_carries_default_color(client, db_session):
 
 
 def test_export_drawio_of_dirty_category_does_not_fail_and_has_no_foreign_style(client, db_session):
-    _dirty_the_category_of_the_seeded_device(db_session, color="#4f7cff;strokeColor=red")
+    _dirty_the_category_of_the_seeded_device(db_session, color="#fff;strokeColor=red")  # ровно 20 символов: колонка VARCHAR(20)
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-04 drawio"}).json()
     r = client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "drawio"})
     assert r.status_code == 200
