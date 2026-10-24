@@ -745,24 +745,28 @@ docker-compose.yml
 
 ### Зависимости backend
 
-`backend/requirements.txt` и `requirements-dev.txt` задают допустимые диапазоны версий; **точные версии с хешами**
-зафиксированы в `backend/requirements.lock` (runtime) и `backend/requirements-dev.lock` (runtime + тесты и анализ).
-Docker-образ и CI ставят пакеты из lock-файлов (`pip install --require-hashes -r ...`), поэтому сборка завтра даёт те же
-версии, что сегодня, а подмена пакета на PyPI не пройдёт проверку хеша. Lock универсальный (Linux, Windows, macOS),
-Python 3.12. Сборка EXE (`installer/build_windows.bat`, зависимости — `backend/requirements-build.txt`) пока
-ставит пакеты по диапазонам.
+`backend/requirements.txt`, `requirements-dev.txt` и `requirements-build.txt` задают допустимые диапазоны версий; **точные
+версии с хешами** зафиксированы в `backend/requirements.lock` (runtime), `backend/requirements-dev.lock` (runtime + тесты и
+анализ) и `backend/requirements-build.lock` (runtime + PyInstaller для сборки EXE). Docker-образ, CI и сборка EXE
+(`installer/build_windows.bat`) ставят пакеты из lock-файлов (`pip install --require-hashes -r ...`), поэтому сборка завтра даёт те
+же версии, что сегодня, а подмена пакета на PyPI не пройдёт проверку хеша. Версии общих пакетов во всех трёх lock-файлах
+одинаковы: в EXE попадает ровно то, что тестируется в CI. Lock универсальный (Linux, Windows, macOS), Python 3.12. Скрипт
+сборки EXE не обновляет `pip` (версия из venv Python 3.12 понимает `--require-hashes`) и не удаляет лишние пакеты из уже
+существующего `.venv`: для воспроизводимой сборки удалите каталог `.venv` перед запуском.
 
 Обновление после правки `requirements*.txt` (или чтобы подтянуть свежие версии в пределах диапазонов):
 
 ```bash
 pip install uv
 cd backend
-uv pip compile requirements.txt     --universal --generate-hashes --python-version 3.12 -o requirements.lock     --no-header
-uv pip compile requirements-dev.txt --universal --generate-hashes --python-version 3.12 -o requirements-dev.lock --no-header
+uv pip compile requirements.txt       --universal --generate-hashes --python-version 3.12 -o requirements.lock       --no-header
+uv pip compile requirements-dev.txt   --universal --generate-hashes --python-version 3.12 -o requirements-dev.lock   --no-header
+uv pip compile requirements-build.txt --universal --generate-hashes --python-version 3.12 -o requirements-build.lock --no-header
 # подтянуть новые версии: добавьте --upgrade (или --upgrade-package <имя> для одного пакета), затем прогоните тесты
 ```
 
-CI проверяет, что lock-файлы актуальны (пересборка не даёт diff), и запускает `pip-audit` по `requirements.lock`.
+CI проверяет, что lock-файлы актуальны (пересборка не даёт diff), запускает `pip-audit` по `requirements.lock` (блокирует сборку)
+и по `requirements-build.lock` (только сообщает: PyInstaller и его хуки иногда дают замечания, не относящиеся к рантайму).
 
 ### Пакет `backend/app/services/crud/`
 

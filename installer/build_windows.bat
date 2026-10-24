@@ -16,8 +16,11 @@ if errorlevel 1 exit /b 1
 popd
 if not exist .venv py -3.12 -m venv .venv
 call .venv\Scripts\activate.bat
-python -m pip install --upgrade pip
-pip install -r backend\requirements-build.txt
+rem Зависимости ставятся строго по lock-файлу с хешами (те же версии, что в Docker и CI, прошедшие pip-audit): сборка
+rem завтра даёт то же, что сегодня, а подмена пакета в индексе не пройдёт проверку хеша. pip не обновляем: версия pip из
+rem venv Python 3.12 понимает --require-hashes. Для чистой воспроизводимой сборки удалите каталог .venv перед запуском.
+python -m pip install --require-hashes -r backend\requirements-build.lock
+if errorlevel 1 exit /b 1
 rmdir /s /q build 2>nul
 rmdir /s /q dist 2>nul
 python -m PyInstaller --clean --noconfirm infra_registry.spec

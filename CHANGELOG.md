@@ -4446,3 +4446,26 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   при сроке хранения 30 дней и при `0`, троттлинг по часам, сбои файловой системы, разбор переменной в отдельном процессе); на прежних
   эндпоинтах 59 тестов красные. Не проверено: нагрузка параллельными клиентами; квота общая для пользователей, один пользователь
   может вытеснить отчёты другого.
+- **A-11. EXE собирается из закреплённых зависимостей с проверкой хешей (изменение поведения сборки).** Docker и CI ставили пакеты
+  из `requirements*.lock` с `--require-hashes` и проверяли их `pip-audit`, а `installer/build_windows.bat` выполнял
+  `pip install --upgrade pip` и `pip install -r backend\requirements-build.txt` (диапазоны, например `pyinstaller>=6.10,<7`):
+  в EXE попадали версии, не проходившие ни CI, ни аудит, сборки в разные дни расходились, подмена пакета в индексе не
+  обнаруживалась. Теперь есть `backend/requirements-build.lock` (runtime + PyInstaller и его зависимости, 1086 хешей, универсальный:
+  `pefile` и `pywin32-ctypes` с маркером `win32`, `macholib` — `darwin`), созданный той же командой `uv pip compile
+  requirements-build.txt --universal --generate-hashes --python-version 3.12 --no-header` (uv 0.11.32) с `requirements.lock` в
+  качестве исходных закреплений, поэтому **версии всех общих пакетов совпадают с `requirements.lock`** (в EXE — ровно то, что
+  тестируется в CI); добавлены `pyinstaller 6.22.3`, `pyinstaller-hooks-contrib 2026.9`, `altgraph`, `setuptools`, `pefile`,
+  `pywin32-ctypes`, `macholib`. Сборка: `python -m pip install --require-hashes -r backend\requirements-build.lock` и
+  `if errorlevel 1 exit /b 1` (раньше при сбое установки сборка шла дальше); `pip install --upgrade pip` убран (версия pip из venv
+  Python 3.12 понимает `--require-hashes`, а «последний pip» делал сборку невоспроизводимой). CI: шаг «Lock-файлы backend актуальны»
+  пересобирает и build-lock и проверяет `git diff --exit-code` для всех трёх; новый шаг `pip-audit -r backend/requirements-build.lock
+  --require-hashes` не блокирующий (`continue-on-error`, PyInstaller и его хуки иногда дают замечания не по рантайму); аудит
+  `requirements.lock` остался блокирующим. README, раздел «Зависимости backend»: build-lock, команда обновления, что делать с
+  существующим `.venv`. **Что делать при обновлении:** удалите каталог `.venv` в корне перед первой сборкой — скрипт не удаляет лишние
+  пакеты из уже существующего окружения, и `pip freeze` совпадёт с lock только в чистом venv. Тесты: `tests/test_build_lock.py` (12,
+  статические: хеши у каждого пакета, PyInstaller в заявленном диапазоне, runtime-версии равны `requirements.lock`, все прямые
+  зависимости закреплены, Windows-зависимости в универсальном lock, bat/CI/README); bat, CI и README на прежних файлах — 5 красных.
+  Проверено: повторная генерация даёт пустой diff; `pip install --require-hashes -r requirements-build.lock` в чистом venv (Linux,
+  Python 3.12.3) ставит пакеты, и `pip freeze` совпадает с lock (41 пакет без win32/darwin-пакетов); `pip-audit` — уязвимостей нет. Не
+  проверено: запуск `build_windows.bat` на Windows (нет Windows), установка `pefile`/`pywin32-ctypes` из этого lock; шаг CI в GitHub
+  Actions не запускался.
