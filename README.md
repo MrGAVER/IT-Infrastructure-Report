@@ -241,6 +241,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Данные хранятся в двух томах Docker: `pgdata` — база PostgreSQL, `appdata` (`/app/data` в контейнере приложения) —
+сформированные отчёты (и база, если `DATABASE_URL` указывает на SQLite). Оба переживают пересоздание контейнеров
+(`docker compose up --build`, `down`); `docker compose down -v` удаляет их. Процесс приложения работает от
+непривилегированного пользователя `app` и может писать только в `/app/data`: код в образе доступен ему лишь для чтения.
+`docker stop` завершает приложение штатно (uvicorn — PID 1 контейнера и получает SIGTERM).
+
 Переменные окружения `.env` (все опциональны, кроме `POSTGRES_PASSWORD` и `INFRA_REGISTRY_SETUP_TOKEN`):
 
 | Переменная | По умолчанию | Назначение |
