@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import DataError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FORWARDED_ALLOW_IPS, FRONTEND_DIR
@@ -124,6 +125,16 @@ async def referenced_record_handler(request: Request, exc: ReferencedRecordError
     """Защита уровня ORM (before_delete, см. services/integrity.py) сработала в обход
     delete_resource() — отдаём тот же 409 с тем же кодом и текстом, а не 500."""
     return JSONResponse(status_code=409, content={'detail': {'code': exc.code, 'message': str(exc)}})
+
+
+@app.exception_handler(DataError)
+async def data_error_handler(request: Request, exc: DataError) -> JSONResponse:
+    """Значение не подошло колонке по типу или размеру (на PostgreSQL — строка длиннее VARCHAR(n), число вне диапазона и т. п.)
+    и не было поймано раньше: 422 вместо 500, текст драйвера клиенту не показывается (в нём бывают имена таблиц и
+    значения). Подробности — в журнале сервера. Проверка типов и длин по метаданным модели (generic CRUD) срабатывает
+    раньше и называет поле; это обработчик последней линии для остальных путей записи."""
+    logger.warning('DataError при %s %s: %s', request.method, request.url.path, str(exc.orig)[:300] if exc.orig else type(exc).__name__)
+    return JSONResponse(status_code=422, content={'detail': 'Ошибка валидации: значение не подходит по типу или размеру.'})
 
 
 def seed_catalogs_on_startup():

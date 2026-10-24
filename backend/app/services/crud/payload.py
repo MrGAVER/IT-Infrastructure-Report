@@ -1,10 +1,14 @@
-"""Проверка входного payload generic CRUD: запись в защищённые ресурсы, схемы Pydantic и неизвестные ключи."""
+"""Проверка входного payload generic CRUD: запись в защищённые ресурсы, схемы Pydantic, неизвестные ключи, типы и длины колонок."""
 from __future__ import annotations
 
 import difflib
+from datetime import date, datetime
+from functools import lru_cache
 from typing import Any
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, SmallInteger, String
+from sqlalchemy.inspection import inspect
 from ...registry import READONLY_RESOURCES
 from ...schemas import RESOURCE_SCHEMAS
 from .columns import allowed_columns, model_for
@@ -79,3 +83,90 @@ def _format_schema_validation_error(exc: ValidationError) -> str:
     ошибки был единообразным независимо от того, какой слой её обнаружил."""
     parts = [f"{'.'.join(str(p) for p in err['loc']) or '(payload)'}: {err['msg']}" for err in exc.errors()]
     return 'Ошибка валидации: ' + '; '.join(parts)
+
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Типы и длины по метаданным модели (A-09)
+# ---------------------------------------------------------------------------------------------------------------------
+# Pydantic-схемы есть только у devices / information-systems / vlans, остальные ресурсы шли «сырым dict» в model(**data):
+# строка `{"a": 1}` или список в колонке-строке давали 500 (необработанная ошибка драйвера), число сохранялось как текст,
+# а строка длиннее VARCHAR(n) на PostgreSQL падала DataError. Проверка идёт по самим колонкам модели, поэтому не отстаёт
+# от моделей и не требует ручной схемы на каждый ресурс.
+_INT_RANGES = {SmallInteger: (-2**15, 2**15 - 1), BigInteger: (-2**63, 2**63 - 1)}
+_DEFAULT_INT_RANGE = (-2**31, 2**31 - 1)  # Integer: INTEGER в PostgreSQL; вне диапазона — DataError, а в SQLite OverflowError
+
+
+@lru_cache(maxsize=None)
+def _column_rules(model) -> dict[str, tuple[str, Any]]:
+    """Правила проверки по колонкам модели: {имя: (вид, параметр)}. Колонки других типов (их сейчас нет) не проверяются.
+    Text — это подкласс String без длины; Boolean не подкласс Integer, bool — подкласс int (проверяется отдельно)."""
+    rules: dict[str, tuple[str, Any]] = {}
+    for column in inspect(model).columns:
+        column_type = column.type
+        if isinstance(column_type, Boolean):
+            rules[column.key] = ('bool', None)
+        elif isinstance(column_type, Integer):
+            rules[column.key] = ('int', next((r for t, r in _INT_RANGES.items() if isinstance(column_type, t)), _DEFAULT_INT_RANGE))
+        elif isinstance(column_type, String):
+            rules[column.key] = ('str', column_type.length)
+        elif isinstance(column_type, DateTime):
+            rules[column.key] = ('datetime', None)
+        elif isinstance(column_type, Date):
+            rules[column.key] = ('date', None)
+    return rules
+
+
+def _column_value_error(kind: str, parameter: Any, value: Any) -> str | None:
+    """Текст ошибки для значения колонки или None, если значение допустимо."""
+    if kind == 'str':
+        if not isinstance(value, str):
+            return 'ожидается строка'
+        if parameter and len(value) > parameter:
+            return f'не более {parameter} символов'
+        if '\x00' in value:
+            return 'не должно содержать нулевой символ'
+        try:
+            value.encode('utf-8')
+        except UnicodeEncodeError:  # одиночный суррогат из JSON ("\ud800"): драйвер не сможет его записать
+            return 'содержит недопустимые символы'
+        return None
+    if kind == 'bool':
+        return None if isinstance(value, bool) else 'ожидается true/false'
+    if kind == 'int':
+        if isinstance(value, bool) or not isinstance(value, int):
+            return 'ожидается целое число'
+        low, high = parameter
+        return None if low <= value <= high else f'число должно быть от {low} до {high}'
+    # date / datetime: ISO-строка либо уже разобранное Pydantic значение (devices.oac_certificate_registry_date)
+    if isinstance(value, date):  # datetime — подкласс date
+        return None
+    if not isinstance(value, str):
+        return 'ожидается дата в формате ГГГГ-ММ-ДД' if kind == 'date' else 'ожидается дата и время в формате ISO 8601'
+    try:
+        date.fromisoformat(value) if kind == 'date' else datetime.fromisoformat(value)
+    except ValueError:
+        return 'некорректная дата, ожидается ГГГГ-ММ-ДД' if kind == 'date' else 'некорректные дата и время, ожидается ISO 8601'
+    return None
+
+
+def validate_column_types(model, data: dict[str, Any]) -> None:
+    """422 «Ошибка валидации: …» для значений, не подходящих колонке модели по типу или длине.
+
+    Строки — str не длиннее `String(n)`, без символа NUL и одиночных суррогатов; Boolean — true/false; Integer — int (не bool)
+    в диапазоне INTEGER; Date/DateTime — ISO-строка или значение date/datetime. `None` пропускается (NOT NULL проверяет БД и
+    отвечает 409 как раньше). Ключи вне колонок модели не проверяются: их отбрасывает `allowed_columns` до вызова (поэтому
+    «эхо» id/created_at из прочитанной записи не мешает), а опечатки в ключах ловит `_reject_unknown_keys`. Все ошибки
+    собираются в одно сообщение. Вызывать до бизнес-проверок: они делают запросы по значениям из payload (`session.get(...)`),
+    и словарь вместо id упал бы там 500-й."""
+    rules = _column_rules(model)
+    errors = []
+    for key, value in data.items():
+        rule = rules.get(key)
+        if rule is None or value is None:
+            continue
+        error = _column_value_error(rule[0], rule[1], value)
+        if error:
+            errors.append(f'{key}: {error}')
+    if errors:
+        raise HTTPException(422, 'Ошибка валидации: ' + '; '.join(errors))
