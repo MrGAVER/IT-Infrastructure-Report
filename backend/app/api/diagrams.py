@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -63,10 +64,32 @@ def _get_diagram_or_404(session: Session, diagram_id: str) -> SavedDiagram:
     return diagram
 
 
-def _validate_diagram_payload(payload: dict) -> dict:
-    name = (payload.get("name") or "").strip()
+MAX_DIAGRAM_NAME_LENGTH = 255  # длина колонки SavedDiagram.name
+COPY_SUFFIX = " (копия)"
+# Управляющие символы C0/C1 (в том числе CR, LF, табуляция, DEL) и разделители строк/абзацев Unicode.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def _clean_name(raw) -> str:
+    """Название диаграммы без управляющих символов: они заменяются пробелом, подряд идущие пробельные символы
+    схлопываются, края обрезаются. Нестрока даёт пустое название (его отвергает вызывающий код). Название попадает в
+    имя файла экспорта и в заголовок Content-Disposition, где CR/LF обрывали ответ (RuntimeError: Invalid HTTP header value)."""
+    if not isinstance(raw, str):
+        return ""
+    return " ".join(_CONTROL_CHARS.sub(" ", raw).split())
+
+
+def _checked_name(raw) -> str:
+    name = _clean_name(raw)
     if not name:
         raise HTTPException(422, "Укажите название диаграммы")
+    if len(name) > MAX_DIAGRAM_NAME_LENGTH:
+        raise HTTPException(422, f"Название диаграммы не должно быть длиннее {MAX_DIAGRAM_NAME_LENGTH} символов")
+    return name
+
+
+def _validate_diagram_payload(payload: dict) -> dict:
+    name = _checked_name(payload.get("name"))
     group_by = payload.get("group_by", "structural_unit")
     if group_by not in GROUP_DIMENSIONS:
         raise HTTPException(422, f"group_by должен быть одним из: {', '.join(GROUP_DIMENSIONS)}")
@@ -86,10 +109,13 @@ def _validate_diagram_payload(payload: dict) -> dict:
 
 
 def _unique_diagram_name(session: Session, base_name: str) -> str:
-    name = base_name
+    """Свободное название: base_name, затем «base_name 2», «base_name 3»… Результат не длиннее колонки: при необходимости
+    укорачивается основа, а не номер."""
+    name = base_name[:MAX_DIAGRAM_NAME_LENGTH]
     n = 2
     while session.scalar(select(SavedDiagram).where(SavedDiagram.name == name)):
-        name = f"{base_name} {n}"
+        suffix = f" {n}"
+        name = f"{base_name[:MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
         n += 1
     return name
 
@@ -210,9 +236,7 @@ def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(ge
     требует пересборки графа (см. POST /regenerate) — смешивать это с переименованием было бы
     двумя разными по цене и последствиям операциями под одной ручкой."""
     diagram = _get_diagram_or_404(session, diagram_id)
-    name = (payload.get("name") or "").strip()
-    if not name:
-        raise HTTPException(422, "Укажите название диаграммы")
+    name = _checked_name(payload.get("name"))
     dup = session.scalar(select(SavedDiagram).where(SavedDiagram.name == name, SavedDiagram.id != diagram_id))
     if dup:
         raise HTTPException(409, "Диаграмма с таким названием уже существует")
@@ -289,7 +313,10 @@ def regenerate_diagram(diagram_id: str, session: Session = Depends(get_db)):
 @router.post("/{diagram_id}/duplicate", status_code=201)
 def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
     src = _get_diagram_or_404(session, diagram_id)
-    name = _unique_diagram_name(session, f"{src.name} (копия)")
+    # Имя источника могло быть сохранено до очистки (с управляющими символами) или быть максимальной длины: копия не должна
+    # их наследовать и обязана помещаться в колонку вместе с суффиксом.
+    base = _clean_name(src.name)[: MAX_DIAGRAM_NAME_LENGTH - len(COPY_SUFFIX)] or "Диаграмма"
+    name = _unique_diagram_name(session, f"{base}{COPY_SUFFIX}")
     dup = SavedDiagram(
         name=name, description=src.description, scope_filter=src.scope_filter,
         group_by=src.group_by, collapse_threshold=src.collapse_threshold,
@@ -344,7 +371,8 @@ def export_diagram(
     # HTTP-заголовки должны быть latin-1-совместимы (RFC 7230) — название диаграммы, как и
     # почти все данные в этом проекте, обычно на русском, поэтому ASCII-safe filename идёт как
     # запасной вариант, а настоящее имя — RFC 6266 filename* с percent-encoded UTF-8.
-    ascii_fallback = "".join(c if c.isascii() and c not in '"\\' else "_" for c in filename) or f"diagram.{format}"
+    # isprintable() отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не должно ломать заголовок.
+    ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or f"diagram.{format}"
     content_disposition = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(filename)}'
     return Response(content=data, media_type=media_type, headers={"Content-Disposition": content_disposition})
 
