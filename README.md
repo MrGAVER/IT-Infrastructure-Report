@@ -404,6 +404,9 @@ installer\build_windows.bat
 
 Результат — `dist\InfraRegistry.exe`.
 
+Рядом с ним скрипт кладёт `dist\README_EXE.md` (краткая инструкция для пользователя; исходник — `installer\README_EXE.md`) и
+`dist\run_infra_registry.bat`. Ошибка копирования любого из файлов, как и ошибка PyInstaller, прерывает сборку с ненулевым кодом.
+
 **Запуск** — двойным щелчком по `InfraRegistry.exe`, либо с параметрами (они важнее файла настроек):
 
 ```bat

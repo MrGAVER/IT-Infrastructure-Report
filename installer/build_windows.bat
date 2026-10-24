@@ -24,10 +24,13 @@ if errorlevel 1 exit /b 1
 rmdir /s /q build 2>nul
 rmdir /s /q dist 2>nul
 python -m PyInstaller --clean --noconfirm infra_registry.spec
-copy /Y README_EXE.md dist\README_EXE.md
-copy /Y installer\run_infra_registry.bat dist\run_infra_registry.bat
 if errorlevel 1 exit /b 1
+rem Каждое копирование проверяется отдельно: прежний единственный "if errorlevel" после двух copy видел только результат
+rem второго, и сборка без README_EXE.md считалась успешной.
+copy /Y installer\README_EXE.md dist\README_EXE.md || exit /b 1
+copy /Y installer\run_infra_registry.bat dist\run_infra_registry.bat || exit /b 1
 echo.
 echo EXE создан: dist\InfraRegistry.exe
 echo Запуск: dist\InfraRegistry.exe
-echo Данные: %%LOCALAPPDATA%%\InfraRegistry
+echo Данные: рядом с InfraRegistry.exe ^(infra_registry.db, reports\^), либо в каталоге из переменной INFRA_REGISTRY_DATA_DIR
+echo Инструкция: dist\README_EXE.md
