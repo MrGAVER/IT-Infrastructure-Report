@@ -10,7 +10,8 @@ from ..config import REPORT_DIR
 from ..constants import AuditAction
 from ..db import get_db
 from ..models import ReportTemplate, ReportTemplateVersion
-from ..services.report_cleanup import cleanup_old_reports
+from ..services.report_cleanup import cleanup_before_new_report
+from ..services.report_params import parse_config_object, parse_preview_limit, parse_report_params, parse_structural_unit_ids
 from ..services.crud import audit
 from ..services.report_engine import ReportBuilderError, validate_config
 from ..services.report_grid import preview_grid, validate_grid_config
@@ -85,8 +86,8 @@ def preview(payload: dict, session: Session = Depends(get_db)):
     """Быстрый предпросмотр (первые строки/ячейки каждого листа-блока) без сохранения шаблона и
     файла. xlsx — материализованная сетка (report_grid.preview_grid), docx — таблицы блоков."""
     fmt = payload.get("format", "xlsx")
-    config = payload.get("config") or {}
-    limit = int(payload.get("limit", 15))
+    config = parse_config_object(payload.get("config"))
+    limit = parse_preview_limit(payload)
     try:
         _validate_by_format(build_entity_metadata(), fmt, config)
         if fmt == "xlsx":
@@ -215,9 +216,9 @@ def generate_template_report(template_id: str, payload: dict | None = None, sess
     t = session.get(ReportTemplate, template_id)
     if not t:
         raise HTTPException(404, "Шаблон отчёта не найден")
-    params = (payload or {}).get("params") or {}
-    structural_unit_ids = (payload or {}).get("structural_unit_ids") or None
-    cleanup_old_reports(REPORT_DIR)
+    params = parse_report_params((payload or {}).get("params"))
+    structural_unit_ids = parse_structural_unit_ids((payload or {}).get("structural_unit_ids"))
+    cleanup_before_new_report(REPORT_DIR)
     try:
         path = build_report_from_template(session, t, REPORT_DIR, params=params, structural_unit_ids=structural_unit_ids)
     except ReportBuilderError as e:
