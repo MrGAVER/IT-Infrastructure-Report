@@ -2,7 +2,7 @@
 // эндпоинта — контейнеры простой generic-ресурс, поэтому listResource('containers', ...),
 // как в vlanDomains.ts.
 import { defineStore } from 'pinia'
-import { listResource } from '../api/client'
+import { listAllResource } from '../api/client'
 import type { Container } from '../api/types'
 import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
 
@@ -45,7 +45,7 @@ export const useContainersStore = defineStore('containers', {
       this.loading = true
       this.error = null
       try {
-        const res = await listResource<Container>('containers', { limit: 1000 })
+        const res = await listAllResource<Container>('containers')
         this.all = res.items
         this.loaded = true
       } catch (e) {

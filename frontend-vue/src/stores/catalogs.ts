@@ -4,7 +4,7 @@
 // lookupLabel() в текущем vanilla-фронтенде (frontend/static/core.js), но с типами
 // и явным состоянием загрузки вместо ad-hoc Map-кеша поверх fetch().
 import { defineStore } from 'pinia'
-import { listResource, api } from '../api/client'
+import { listAllResource, api } from '../api/client'
 import type { CatalogItem, StructuralUnit, ResourceDescriptor, ProtocolPortCatalogEntry } from '../api/types'
 
 // Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
@@ -162,9 +162,9 @@ export const useCatalogsStore = defineStore('catalogs', {
       this.loading = true
       this.error = null
       try {
-        // limit=1000: справочники (типы устройств, здания и т.п.) обычно небольшие
-        // и должны загружаться целиком за один запрос — тот же лимит, что кеш
-        // CACHEABLE_LIST_RESOURCES в текущем vanilla-фронтенде (core.js).
+        // listAllResource: справочники (типы устройств, здания и т.п.) должны загружаться целиком.
+        // Обычно они небольшие и умещаются в одну страницу (1000 записей), но если записей
+        // больше, helper дочитывает остальные страницы — иначе лишние молча пропали бы из списков.
         //
         // Promise.allSettled, а не Promise.all: 21 каталог грузится одним пакетом, и раньше
         // сбой (сетевой сбой/таймаут) ХОТЯ БЫ ОДНОГО ресурса ронял весь Promise.all — ни один из
@@ -174,9 +174,9 @@ export const useCatalogsStore = defineStore('catalogs', {
         // редко нужный каталог. allSettled записывает то, что реально пришло, а не проваленные
         // ключи перечисляет в this.error.
         const [catalogResults, resources, protocolPorts] = await Promise.all([
-          Promise.allSettled(CATALOGS.map((key) => listResource<CatalogItem>(key, { limit: 1000 }))),
+          Promise.allSettled(CATALOGS.map((key) => listAllResource<CatalogItem>(key))),
           api.get<ResourceDescriptor[]>('/resources'),
-          listResource<ProtocolPortCatalogEntry>('protocol-port-catalog', { limit: 1000 }),
+          listAllResource<ProtocolPortCatalogEntry>('protocol-port-catalog'),
         ])
         const failedKeys: string[] = []
         CATALOGS.forEach((key, i) => {

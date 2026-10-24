@@ -11,7 +11,7 @@
 // для новой записи его ещё нет. Сохраните домен один раз, затем откройте его снова, чтобы
 // добавлять участников.
 import { computed, reactive, ref, watch } from 'vue'
-import { api, createResource, deleteResource, listResource, updateResource } from '../api/client'
+import { api, createResource, deleteResource, listAllResource, updateResource } from '../api/client'
 import type { Device, VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -58,7 +58,7 @@ watch(
       form.auto_sync = d.auto_sync
       loadingMembers.value = true
       try {
-        const res = await listResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id: d.id, limit: 1000 })
+        const res = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id: d.id })
         members.value = res.items
       } catch (err) {
         errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить состав домена'

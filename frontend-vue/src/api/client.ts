@@ -148,6 +148,40 @@ export function listResource<T>(resource: string, params?: Record<string, string
   return api.get<PagedResponse<T>>(`/resources/${resource}${qs}`)
 }
 
+/** Размер страницы при полной загрузке ресурса: серверный максимум (resources.py: le=1000). */
+const PAGE_LIMIT = 1000
+/** Предохранитель от бесконечного цикла при некорректном `total`: не более 50 000 записей. */
+const MAX_PAGES = 50
+
+/**
+ * Загружает ВСЕ записи ресурса, дочитывая страницы через `offset`, пока не получен весь `total`.
+ *
+ * Зачем: сервер отдаёт не более 1000 записей за запрос, а `listResource(..., { limit: 1000 })`
+ * молча обрезал бы всё сверх этого (таблицы, счётчики и проверки занятости работали бы по
+ * неполным данным без какой-либо ошибки). Порядок на сервере детерминирован (created_at, id),
+ * поэтому постраничное дочитывание не даёт ни дублей, ни пропусков.
+ *
+ * `params` — только фильтры ресурса; `limit` и `offset` выставляются здесь и из `params`
+ * перекрываются. Пустая страница при неполном `total` прерывает цикл (защита от зацикливания).
+ *
+ * @example
+ *   const res = await listAllResource<Connection>('connections')
+ *   const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id })
+ */
+export async function listAllResource<T>(
+  resource: string,
+  params: Record<string, string | number> = {},
+): Promise<PagedResponse<T>> {
+  const first = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: 0 })
+  const items = [...first.items]
+  for (let page = 1; items.length < first.total && page < MAX_PAGES; page++) {
+    const next = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: page * PAGE_LIMIT })
+    if (!next.items.length) break // сервер ничего не вернул — выходим, чтобы не зациклиться
+    items.push(...next.items)
+  }
+  return { items, total: first.total, offset: 0, limit: items.length }
+}
+
 export function createResource<T>(resource: string, payload: Record<string, unknown>) {
   return api.post<T>(`/resources/${resource}`, payload)
 }

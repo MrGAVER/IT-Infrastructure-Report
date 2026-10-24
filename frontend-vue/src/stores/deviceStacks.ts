@@ -3,7 +3,7 @@
 // входят — та деталь читается отдельно, по требованию, через GET /device-stacks/{id}/detail
 // (см. DeviceStackFormModal.vue), а не хранится в общем сторе всех стеков разом.
 import { defineStore } from 'pinia'
-import { listResource } from '../api/client'
+import { listAllResource } from '../api/client'
 import type { DeviceStack } from '../api/types'
 
 export const useDeviceStacksStore = defineStore('deviceStacks', {
@@ -22,7 +22,7 @@ export const useDeviceStacksStore = defineStore('deviceStacks', {
       this.loading = true
       this.error = null
       try {
-        const res = await listResource<DeviceStack>('device-stacks', { limit: 1000 })
+        const res = await listAllResource<DeviceStack>('device-stacks')
         this.all = res.items
         this.loaded = true
       } catch (e) {

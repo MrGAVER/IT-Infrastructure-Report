@@ -7,7 +7,7 @@
 // подтверждение через window.confirm() и повторную отправку с флагом, вместо
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { computed, reactive, ref, shallowRef, watch } from 'vue'
-import { ApiError, createResource, listResource, updateResource, ErrorCode } from '../api/client'
+import { ApiError, createResource, listAllResource, updateResource, ErrorCode } from '../api/client'
 import { syncDeviceDeployedSoftware } from '../api/deviceDeployedSoftware'
 import { persistDeviceVlans } from '../api/deviceVlans'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
@@ -378,15 +378,15 @@ watch(
     loadingNested.value = true
     try {
       const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds, deviceConnections] = await Promise.all([
-        listResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: source.id, limit: 1000 }),
+        listAllResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: source.id }),
         // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же
         // помощник использует DevicePortsModal.vue (управление портами с экрана «Подключения»).
         // Открытые порты каждого интерфейса (фикс п.1.4, батч4) приходят уже вложенными в
         // ifaceRows[].open_ports — отдельно их грузить не нужно.
         loadDeviceInterfaceDraftRows(source.id),
         loadDeviceInterfaceGroups(source.id),
-        listResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id, limit: 1000 }),
-        listResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id, limit: 1000 }),
+        listAllResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id }),
+        listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id }),
         // Загружается атомарно вместе с interfaces/deviceVlans (не через отдельный watch на
         // form.device_type_id — см. ниже) именно для того, чтобы portVlanOptions выше не
         // пересчитался с неполными данными между двумя разными по времени загрузками.

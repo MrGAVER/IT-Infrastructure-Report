@@ -7,7 +7,7 @@
 // backend/app/services/crud.py:sync_interfaces) — он одним запросом создаёт/обновляет/удаляет
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
-import { api, listResource } from './client'
+import { api, listAllResource } from './client'
 import type { DeviceInterface, DeviceSubinterface, IPAddress, InterfaceGroup, InterfaceGroupDraft, InterfaceVlansEntry, InterfaceDraftRow, OpenPort, ProtocolPortCatalogEntry } from './types'
 
 /**
@@ -30,7 +30,7 @@ import type { DeviceInterface, DeviceSubinterface, IPAddress, InterfaceGroup, In
  */
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
   const [ifaces, allIps, portVlans, allOpenPorts, subinterfaces] = await Promise.all([
-    listResource<DeviceInterface>('interfaces', { physical_device_id: deviceId, limit: 1000 }),
+    listAllResource<DeviceInterface>('interfaces', { physical_device_id: deviceId }),
     api.get<{ items: IPAddress[] }>(`/devices/${deviceId}/interface-ips`),
     api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${deviceId}/interface-vlans`),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=

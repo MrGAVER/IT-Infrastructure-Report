@@ -7,7 +7,7 @@
 import { onMounted, ref } from 'vue'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
 import { useDevicesStore } from '../stores/devices'
-import { api, deleteResource, listResource } from '../api/client'
+import { api, deleteResource, listAllResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import VLANDomainFormModal from './VLANDomainFormModal.vue'
@@ -23,7 +23,7 @@ const syncingId = ref<string | null>(null)
 const deletingId = ref<string | null>(null)
 
 async function loadMemberCounts() {
-  const links = await listResource<VLANDomainDeviceLink>('vlan-domain-devices', { limit: 1000 })
+  const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices')
   const counts: Record<string, number> = {}
   for (const l of links.items) counts[l.domain_id] = (counts[l.domain_id] ?? 0) + 1
   memberCounts.value = counts

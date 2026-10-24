@@ -8,7 +8,7 @@
 // типы с 422) — фильтрация здесь не замена серверной проверке, а просто не даёт
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch } from 'vue'
-import { createResource, listResource, updateResource } from '../api/client'
+import { createResource, listAllResource, updateResource } from '../api/client'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -102,9 +102,9 @@ watch(
     loadingNested.value = true
     try {
       const [ips, ports, software] = await Promise.all([
-        listResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
-        listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
-        listResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
+        listAllResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: source.id }),
+        listAllResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id }),
+        listAllResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id }),
       ])
       vmIps.value = isCopy ? stripIds(ips.items.map(toIpDraftRow)) : ips.items.map(toIpDraftRow)
       // Бэкенд отдаёт open-ports без сортировки по порту (list_resource) — упорядочиваем при загрузке,
