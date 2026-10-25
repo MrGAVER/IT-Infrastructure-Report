@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ErrorCode } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { safeRedirect } from '../utils/safeRedirect'
 
@@ -13,18 +14,51 @@ const router = useRouter()
 const form = reactive({ username: '', password: '' })
 const submitting = ref(false)
 const errorMessage = ref<string | null>(null)
+// 403 CLIENT_NOT_ALLOWED: адрес не разрешён настройками приложения — это не «неверный пароль», повтор не поможет.
+const clientNotAllowed = ref(false)
+
+// 429 TOO_MANY_ATTEMPTS: сервер временно не принимает попытки входа и сообщает паузу в Retry-After.
+// Показываем обратный отсчёт и держим кнопку отключённой — иначе пользователь зря долбит форму (а каждая
+// попытка за время блокировки только продлевает ожидание в его собственных глазах).
+const retryLeft = ref(0)
+const locked = computed(() => retryLeft.value > 0)
+let retryTimer: ReturnType<typeof setInterval> | null = null
+
+function stopCountdown() {
+  if (retryTimer !== null) clearInterval(retryTimer)
+  retryTimer = null
+}
+
+function startCountdown(seconds: number) {
+  stopCountdown()
+  retryLeft.value = seconds
+  retryTimer = setInterval(() => {
+    retryLeft.value -= 1
+    if (retryLeft.value <= 0) {
+      stopCountdown()
+      retryLeft.value = 0
+      errorMessage.value = null // пауза закончилась — можно пробовать снова
+    }
+  }, 1000)
+}
+
+onBeforeUnmount(stopCountdown)
 
 async function submit() {
+  if (locked.value) return // в обход отключённой кнопки (Enter в поле) попытку не отправляем
   if (!form.username.trim() || !form.password) {
     errorMessage.value = 'Введите имя пользователя и пароль.'
     return
   }
   submitting.value = true
   errorMessage.value = null
+  clientNotAllowed.value = false
   try {
     const ok = await auth.login(form.username.trim(), form.password)
     if (!ok) {
       errorMessage.value = auth.error ?? 'Не удалось войти.'
+      clientNotAllowed.value = auth.errorCode === ErrorCode.CLIENT_NOT_ALLOWED
+      if (auth.errorCode === ErrorCode.TOO_MANY_ATTEMPTS && auth.errorRetryAfter) startCountdown(auth.errorRetryAfter)
       return
     }
     router.replace(safeRedirect(route.query.redirect))
@@ -43,9 +77,14 @@ async function submit() {
         <p>Реестр ИТ-инфраструктуры — вход в систему</p>
       </div>
 
-      <div v-if="errorMessage" class="form-error">
+      <div v-if="locked" class="form-error" role="alert" data-testid="login-throttle">
+        <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+        Слишком много неудачных попыток входа. Повторите через {{ retryLeft }} с.
+      </div>
+      <div v-else-if="errorMessage" class="form-error" role="alert">
         <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
         {{ errorMessage }}
+        <template v-if="clientNotAllowed"> Повторные попытки не помогут: адрес должен разрешить администратор.</template>
       </div>
 
       <label class="field">
@@ -57,8 +96,8 @@ async function submit() {
         <input v-model="form.password" type="password" autocomplete="current-password" required />
       </label>
 
-      <button type="submit" class="btn btn-primary login-submit" :disabled="submitting">
-        {{ submitting ? 'Входим…' : 'Войти' }}
+      <button type="submit" class="btn btn-primary login-submit" :disabled="submitting || locked">
+        {{ submitting ? 'Входим…' : locked ? `Повторите через ${retryLeft} с` : 'Войти' }}
       </button>
     </form>
   </div>

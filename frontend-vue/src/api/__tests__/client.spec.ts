@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { api, ApiError, ClientErrorCode, DEFAULT_REQUEST_TIMEOUT_MS, listAllResource, request, setStoredToken, UNAUTHORIZED_EVENT } from '../client'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { api, ApiError, ClientErrorCode, DEFAULT_REQUEST_TIMEOUT_MS, ErrorCode, listAllResource, parseRetryAfter, request, setStoredToken, UNAUTHORIZED_EVENT } from '../client'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(body === null ? null : JSON.stringify(body), { status })
@@ -356,6 +359,73 @@ describe('api/client: таймаут и отмена запросов (B-11)', (
 
     expect((error as DOMException).name).toBe('AbortError')
     expect(seen.every((signal) => signal !== undefined)).toBe(true)
+  })
+})
+
+describe('api/client: Retry-After и новые коды ошибок (B-12)', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('429 TOO_MANY_ATTEMPTS: ApiError хранит code и retryAfter из заголовка Retry-After', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа. Повторите через 7 с.' } }),
+      { status: 429, headers: { 'Retry-After': '7' } },
+    )))
+
+    const error = await api.post('/auth/login', { username: 'a', password: 'b' }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: 429, code: ErrorCode.TOO_MANY_ATTEMPTS, retryAfter: 7 })
+  })
+
+  it('без заголовка Retry-After retryAfter = null; у обычных ошибок он тоже null', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Нет доступа' }, 403)))
+    await expect(api.get('/devices')).rejects.toMatchObject({ status: 403, retryAfter: null })
+  })
+
+  it.each<[string | null | undefined, number | null]>([
+    ['7', 7],
+    ['0', 0],
+    [' 15 ', 15],
+    ['', null],
+    [null, null],
+    [undefined, null],
+    ['-5', null],
+    ['1.5', null],
+    ['скоро', null],
+    ['99999999999999999999999', null], // не безопасное целое
+  ])('parseRetryAfter(%j) → %j', (value, expected) => {
+    expect(parseRetryAfter(value)).toBe(expected)
+  })
+
+  it('parseRetryAfter понимает HTTP-дату: секунды до неё, округление вверх; дата в прошлом даёт 0', () => {
+    const now = Date.UTC(2026, 9, 25, 12, 0, 0)
+    expect(parseRetryAfter('Sun, 25 Oct 2026 12:00:30 GMT', now)).toBe(30)
+    expect(parseRetryAfter('Sun, 25 Oct 2026 12:00:30 GMT', now - 500)).toBe(31)
+    expect(parseRetryAfter('Sun, 25 Oct 2026 11:59:00 GMT', now)).toBe(0)
+  })
+
+  it('ErrorCode содержит четыре кода, которых раньше не было', () => {
+    expect(ErrorCode).toMatchObject({
+      SETUP_ACCESS_DENIED: 'SETUP_ACCESS_DENIED',
+      CLIENT_NOT_ALLOWED: 'CLIENT_NOT_ALLOWED',
+      TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
+      INTEGRITY_ERROR: 'INTEGRITY_ERROR',
+    })
+  })
+
+  // Контрактный тест: список кодов фронтенда обязан совпадать с backend/app/constants.py:ErrorCode — иначе новый код
+  // сервера молча остаётся без обработки (причина B-12). Репозиторий целиком есть в CI; если фронтенд собирают
+  // отдельно от бэкенда, файла нет, и проверка пропускается.
+  const backendConstants = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../backend/app/constants.py')
+  it.skipIf(!existsSync(backendConstants))('набор ErrorCode совпадает с backend/app/constants.py', () => {
+    const source = readFileSync(backendConstants, 'utf-8')
+    const block = source.split('class ErrorCode:')[1].split(/\nclass /)[0]
+    const backendCodes = [...block.matchAll(/^\s+([A-Z_]+) = "([A-Z_]+)"/gm)].map((m) => {
+      expect(m[1]).toBe(m[2]) // имя константы и значение совпадают
+      return m[2]
+    })
+    expect(backendCodes.length).toBeGreaterThanOrEqual(12)
+    expect(Object.keys(ErrorCode).sort()).toEqual([...backendCodes].sort())
   })
 })
 

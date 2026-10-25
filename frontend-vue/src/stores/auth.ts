@@ -20,6 +20,9 @@ export const useAuthStore = defineStore('auth', {
     initialized: false,
     loading: false,
     error: null as string | null,
+    /** Код и Retry-After последней неудачной попытки входа (см. ApiError): экран входа показывает по ним обратный отсчёт. */
+    errorCode: null as string | null,
+    errorRetryAfter: null as number | null,
     users: [] as AuthUser[],
     usersLoading: false,
     sessions: [] as AuthSessionInfo[],
@@ -82,6 +85,8 @@ export const useAuthStore = defineStore('auth', {
     async login(username: string, password: string): Promise<boolean> {
       this.loading = true
       this.error = null
+      this.errorCode = null
+      this.errorRetryAfter = null
       try {
         const result = await api.post<LoginResponse>('/auth/login', { username, password })
         setStoredToken(result.token)
@@ -90,6 +95,8 @@ export const useAuthStore = defineStore('auth', {
         return true
       } catch (err) {
         this.error = err instanceof ApiError ? err.message : 'Не удалось войти'
+        this.errorCode = err instanceof ApiError ? err.code : null
+        this.errorRetryAfter = err instanceof ApiError ? err.retryAfter : null
         return false
       } finally {
         this.loading = false

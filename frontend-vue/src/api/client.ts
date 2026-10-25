@@ -75,11 +75,30 @@ export class ApiError extends Error {
    * Используется, чтобы предлагать "сохранить всё равно?" так же, как в текущем
    * vanilla-фронтенде (см. parseApiError()/confirm() в frontend/static/app.js:saveForm). */
   code: string | null
-  constructor(status: number, message: string, code: string | null = null) {
+  /** Через сколько секунд повторить запрос — из заголовка Retry-After (429 TOO_MANY_ATTEMPTS при переборе пароля).
+   * null — заголовка нет или он не распознан. */
+  retryAfter: number | null
+  constructor(status: number, message: string, code: string | null = null, retryAfter: number | null = null) {
     super(message)
     this.status = status
     this.code = code
+    this.retryAfter = retryAfter
   }
+}
+
+/** Retry-After: целое число секунд либо HTTP-дата (RFC 9110). Возвращает секунды (≥ 0, округление вверх) или null. */
+export function parseRetryAfter(value: string | null | undefined, now: number = Date.now()): number | null {
+  const text = value?.trim()
+  if (!text) return null
+  if (/^\d+$/.test(text)) {
+    const seconds = Number(text)
+    return Number.isSafeInteger(seconds) ? seconds : null
+  }
+  // HTTP-дата всегда содержит названия дня и месяца; без этой проверки Date.parse принял бы за дату и «-5», и «1.5».
+  if (!/[A-Za-z]/.test(text)) return null
+  const at = Date.parse(text)
+  if (Number.isNaN(at)) return null
+  return Math.max(0, Math.ceil((at - now) / 1000))
 }
 
 /** Ожидание ответа по умолчанию: зависший запрос не должен блокировать экран бесконечно. */
@@ -161,7 +180,7 @@ export async function request<T>(path: string, init: RequestInit = {}, options: 
       if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
       }
-      throw new ApiError(res.status, message, code)
+      throw new ApiError(res.status, message, code, parseRetryAfter(res.headers.get('Retry-After')))
     }
     if (res.status === 204) return null as T
     return (await res.json()) as T
@@ -263,4 +282,11 @@ export const ErrorCode = {
   LAST_ADMIN_ACCOUNT: 'LAST_ADMIN_ACCOUNT',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
   AUTH_REQUIRES_ADMIN: 'AUTH_REQUIRES_ADMIN',
+  /** 403: первичная настройка аутентификации — только с localhost или по токену установки (заголовок X-Setup-Token). */
+  SETUP_ACCESS_DENIED: 'SETUP_ACCESS_DENIED',
+  /** 403: адрес клиента не входит в список разрешённых (фильтр адресов приложения) — повтор запроса не поможет. */
+  CLIENT_NOT_ALLOWED: 'CLIENT_NOT_ALLOWED',
+  /** 429: слишком много неудачных попыток входа; заголовок Retry-After → ApiError.retryAfter. */
+  TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
+  INTEGRITY_ERROR: 'INTEGRITY_ERROR',
 } as const
