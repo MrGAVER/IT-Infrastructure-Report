@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { usePreferencesStore } from '../stores/preferences'
+import { safeRedirect } from '../utils/safeRedirect'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -147,8 +148,7 @@ router.beforeEach(async (to) => {
   // бросает и повторно для того же пользователя ничего не делает, поэтому на остальных навигациях это просто проверка.
   await preferences.load({ userId: auth.enabled ? (auth.user?.id ?? null) : null, canWriteGlobal: !auth.enabled || auth.isAdmin })
   if (to.name === 'login') {
-    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard'
-    return redirect
+    return safeRedirect(to.query.redirect)
   }
   // Редакторы шаблонов сохраняют изменения через запись — роли «только чтение» там нечего делать (сервер всё равно ответил бы
   // 403). Формирование отчёта по шаблону viewer'у доступно, поэтому его уводим на список шаблонов, а не на дашборд.

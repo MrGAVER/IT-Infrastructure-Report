@@ -64,6 +64,44 @@ describe('LoginView.vue', () => {
     expect(replaceMock).toHaveBeenCalledWith('/devices')
   })
 
+  it.each([
+    ['адрес без схемы', '//evil.example'],
+    ['абсолютный адрес', 'https://evil.example'],
+    ['экран входа (цикл «вход → вход»)', '/login'],
+    ['слишком длинная строка', '/' + 'a'.repeat(600)],
+  ])('небезопасный ?redirect= (%s) заменяется на дашборд', async (_title, redirect) => {
+    routeQuery = { redirect }
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      token: 'tok-1',
+      user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
+    })))
+    const wrapper = mount(LoginView)
+
+    await wrapper.find('input[type="text"]').setValue('admin')
+    await wrapper.find('input[type="password"]').setValue('Admin1234')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(replaceMock).toHaveBeenCalledTimes(1)
+    expect(replaceMock).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('адрес возврата с query-параметрами сохраняется целиком', async () => {
+    routeQuery = { redirect: '/devices?x=1' }
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      token: 'tok-1',
+      user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
+    })))
+    const wrapper = mount(LoginView)
+
+    await wrapper.find('input[type="text"]').setValue('admin')
+    await wrapper.find('input[type="password"]').setValue('Admin1234')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(replaceMock).toHaveBeenCalledWith('/devices?x=1')
+  })
+
   it('при неверном пароле показывает сообщение об ошибке и не редиректит', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Неверное имя пользователя или пароль.' }, 401)))
     const wrapper = mount(LoginView)

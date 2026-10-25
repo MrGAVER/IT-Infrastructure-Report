@@ -2,6 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { safeRedirect } from '../utils/safeRedirect'
 
 // Форма — не модалка, поэтому не переиспользует useOverlayDismiss (закрывать тут нечего,
 // это единственный экран, который видит непрошедший аутентификацию пользователь).
@@ -26,8 +27,7 @@ async function submit() {
       errorMessage.value = auth.error ?? 'Не удалось войти.'
       return
     }
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
-    router.replace(redirect)
+    router.replace(safeRedirect(route.query.redirect))
   } finally {
     submitting.value = false
   }
