@@ -7,7 +7,7 @@ import QuickAddModal from './QuickAddModal.vue'
 import type { CatalogItem } from '../api/types'
 import type { QuickAddFkScope } from '../quickAdd/schema'
 
-const props = defineProps<{ resource: string; title?: string; initialValues?: Record<string, string>; fkScope?: QuickAddFkScope }>()
+defineProps<{ resource: string; title?: string; initialValues?: Record<string, string>; fkScope?: QuickAddFkScope }>()
 const emit = defineEmits<{ created: [record: CatalogItem]; 'nested-created': [fieldName: string, fkResource: string, record: CatalogItem] }>()
 
 const open = ref(false)

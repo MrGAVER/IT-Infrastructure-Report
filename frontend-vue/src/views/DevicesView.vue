@@ -54,7 +54,8 @@ function toggleUnit(id: string) {
 }
 
 function toggleStack(id: string) {
-  expandedStacks.value.has(id) ? expandedStacks.value.delete(id) : expandedStacks.value.add(id)
+  if (expandedStacks.value.has(id)) expandedStacks.value.delete(id)
+  else expandedStacks.value.add(id)
 }
 
 /** Русское склонение "N устройство/устройства/устройств" для счётчика в строке стека. */

@@ -6,7 +6,13 @@
 
 const MAX_REDIRECT_LENGTH = 512
 /** Обратная косая черта и управляющие символы: браузеры нормализуют `/\host` в `//host`, а табуляция и перевод строки внутри адреса отбрасываются. */
-const FORBIDDEN_CHARS = /[\\\u0000-\u001f\u007f]/
+function hasForbiddenChars(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f || text[i] === '\\') return true
+  }
+  return false
+}
 
 function decodePath(path: string): string | null {
   try {
@@ -30,11 +36,11 @@ function decodePath(path: string): string | null {
  */
 export function safeRedirect(value: unknown, fallback = '/dashboard'): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_REDIRECT_LENGTH) return fallback
-  if (!value.startsWith('/') || value.startsWith('//') || FORBIDDEN_CHARS.test(value)) return fallback
+  if (!value.startsWith('/') || value.startsWith('//') || hasForbiddenChars(value)) return fallback
 
   const path = decodePath(value.split(/[?#]/, 1)[0])
   // Проверки повторяются для раскодированного пути: `%2f%2fhost`, `%5c`, `%6cogin` не должны обходить правила выше.
-  if (path === null || path.startsWith('//') || FORBIDDEN_CHARS.test(path)) return fallback
+  if (path === null || path.startsWith('//') || hasForbiddenChars(path)) return fallback
   if (path.split('/').some((segment) => segment === '.' || segment === '..')) return fallback
   if (path === '/login' || path.startsWith('/login/')) return fallback
   return value

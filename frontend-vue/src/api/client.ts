@@ -96,6 +96,8 @@ export function parseRetryAfter(value: string | null | undefined, now: number = 
   }
   // HTTP-дата всегда содержит названия дня и месяца; без этой проверки Date.parse принял бы за дату и «-5», и «1.5».
   if (!/[A-Za-z]/.test(text)) return null
+  // HTTP-дата (RFC 9110) всегда с поясом (GMT), поэтому Date.parse здесь однозначен — правило B-03 про naive-даты сервера не при чём.
+  // eslint-disable-next-line no-restricted-syntax
   const at = Date.parse(text)
   if (Number.isNaN(at)) return null
   return Math.max(0, Math.ceil((at - now) / 1000))

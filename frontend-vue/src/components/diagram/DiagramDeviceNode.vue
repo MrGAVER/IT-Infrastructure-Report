@@ -91,9 +91,11 @@ const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? saniti
     <Handle v-if="portTicks === 0" type="source" :position="Position.Bottom" />
 
     <template v-if="isCustom && icon.mode === 'custom'">
+      <!-- eslint-disable-next-line vue/no-v-html -- sanitizedCustomSvg проходит через sanitizeSvg() (utils/sanitizeSvg.ts) -->
       <div class="custom-icon" v-html="sanitizedCustomSvg"></div>
     </template>
     <div v-else class="generated-icon" :style="{ background: fillColor }">
+      <!-- eslint-disable-next-line vue/no-v-html -- glyphMarkup собран из glyph иконки и проходит через sanitizeSvg() -->
       <div class="shape-glyph" v-html="glyphMarkup"></div>
     </div>
 

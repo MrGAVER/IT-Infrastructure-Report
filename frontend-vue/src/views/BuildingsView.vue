@@ -18,10 +18,12 @@ onMounted(() => catalogs.ensureLoaded())
 const expandedBuildings = ref(new Set<string>())
 const expandedRooms = ref(new Set<string>())
 function toggleBuilding(id: string) {
-  expandedBuildings.value.has(id) ? expandedBuildings.value.delete(id) : expandedBuildings.value.add(id)
+  if (expandedBuildings.value.has(id)) expandedBuildings.value.delete(id)
+  else expandedBuildings.value.add(id)
 }
 function toggleRoom(id: string) {
-  expandedRooms.value.has(id) ? expandedRooms.value.delete(id) : expandedRooms.value.add(id)
+  if (expandedRooms.value.has(id)) expandedRooms.value.delete(id)
+  else expandedRooms.value.add(id)
 }
 
 function roomsOf(buildingId: string): Room[] {

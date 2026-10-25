@@ -7,7 +7,7 @@
 import { useCatalogsStore } from '../stores/catalogs'
 import type { Device } from '../api/types'
 
-const props = defineProps<{
+defineProps<{
   device: Device
   /** Задан только для строки участника стека — номер позиции показывается вместо обычного
    * порядкового индекса и слегка отступает имя, чтобы визуально показать вложенность в стек. */
