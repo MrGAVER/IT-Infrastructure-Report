@@ -209,7 +209,7 @@ describe('разовый перенос значений из localStorage', () 
     localStorage.setItem('itr.colorScheme', 'Teal Dark!')
     localStorage.setItem('itr.deviceVlanCollapseRows', '0')
     localStorage.setItem('itr.pageSize.vms', 'много')
-    localStorage.setItem('itr:auth-token', 'секретный-токен')
+    localStorage.setItem('itr:auth-token', 'secret-session-token') // ASCII, как у сервера: Headers отвергает значения не из Latin-1
     localStorage.setItem('itr.somethingElse', 'x')
 
     await usePreferencesStore().load(SERVER)
@@ -218,7 +218,7 @@ describe('разовый перенос значений из localStorage', () 
     expect(localStorage.getItem('itr.colorScheme')).toBeNull()
     expect(localStorage.getItem('itr.deviceVlanCollapseRows')).toBeNull()
     expect(localStorage.getItem('itr.pageSize.vms')).toBeNull()
-    expect(localStorage.getItem('itr:auth-token')).toBe('секретный-токен')
+    expect(localStorage.getItem('itr:auth-token')).toBe('secret-session-token')
     expect(localStorage.getItem('itr.somethingElse')).toBe('x')
   })
 

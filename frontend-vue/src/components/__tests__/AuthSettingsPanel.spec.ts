@@ -83,13 +83,13 @@ describe('AuthSettingsPanel.vue', () => {
   })
 
   it('при отказе в первичной настройке (403 SETUP_ACCESS_DENIED) просит токен установки и повторяет запрос с ним', async () => {
-    const calls: Array<{ url: string; headers: Record<string, string> }> = []
+    const calls: Array<{ url: string; headers: Headers }> = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
-        const headers = (init?.headers ?? {}) as Record<string, string>
+        const headers = new Headers(init?.headers) // клиент отдаёт fetch объект Headers (B-11)
         calls.push({ url, headers })
-        if (headers['X-Setup-Token'] === 's3cret') return jsonResponse([viewerUser])
+        if (headers.get('X-Setup-Token') === 's3cret') return jsonResponse([viewerUser])
         return jsonResponse({ detail: { code: 'SETUP_ACCESS_DENIED', message: 'Первичная настройка только с localhost' } }, 403)
       }),
     )
@@ -97,7 +97,7 @@ describe('AuthSettingsPanel.vue', () => {
     await flushPromises()
 
     expect(wrapper.find('.setup-token-row').exists()).toBe(true)
-    expect(calls[0].headers['X-Setup-Token']).toBeUndefined()
+    expect(calls[0].headers.get('X-Setup-Token')).toBeNull()
 
     await wrapper.find('.setup-token-row input').setValue('s3cret')
     await wrapper.find('.setup-token-row').trigger('submit')

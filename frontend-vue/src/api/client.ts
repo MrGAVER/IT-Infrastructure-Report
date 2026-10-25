@@ -82,49 +82,106 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Ожидание ответа по умолчанию: зависший запрос не должен блокировать экран бесконечно. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+/** Для заведомо долгих операций (формирование отчётов, расчёт и применение синхронизации портов). */
+export const LONG_REQUEST_TIMEOUT_MS = 180_000
+
+/** Коды ошибок, которые порождает сам клиент (в отличие от ErrorCode — кодов ответов сервера). */
+export const ClientErrorCode = {
+  /** Сервер не ответил за отведённое время (см. RequestOptions.timeoutMs). */
+  REQUEST_TIMEOUT: 'REQUEST_TIMEOUT',
+} as const
+
+/** Необязательные параметры запроса для методов `api.*`. */
+export interface RequestOptions {
+  /** Отмена запроса снаружи (смена фильтра, уход с экрана). Отменённый запрос отклоняется исходным `AbortError`,
+   * а не `ApiError`, — вызывающий код отличает «отменили сами» от «сервер не ответил». */
+  signal?: AbortSignal
+  /** Сколько ждать ответ целиком (включая тело), мс. По умолчанию DEFAULT_REQUEST_TIMEOUT_MS. */
+  timeoutMs?: number
+}
+
+/** Объединяет внешнюю отмену и таймаут в один AbortSignal. Таймер сделан на AbortController + setTimeout, а не на
+ * AbortSignal.timeout()/any(): работает в любом браузере и управляется фейковыми таймерами в тестах. */
+function createRequestSignal(external: AbortSignal | null | undefined, timeoutMs: number) {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const onExternalAbort = () => controller.abort(external?.reason)
+  if (external?.aborted) onExternalAbort()
+  else external?.addEventListener('abort', onExternalAbort, { once: true })
+  return {
+    signal: controller.signal,
+    wasTimeout: () => timedOut && !external?.aborted,
+    dispose() {
+      clearTimeout(timer)
+      external?.removeEventListener('abort', onExternalAbort)
+    },
+  }
+}
+
+/** Низкоуровневый запрос: то же, что `api.*`, но с произвольным `init` (свои заголовки, метод, тело). Служебные
+ * заголовки добавляются, а не заменяются, поэтому `init.headers` безопасен. Обычному коду достаточно `api.*`. */
+export async function request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
+  // Заголовки вызывающего кода дополняются, а не заменяются: служебные (Content-Type, Authorization, X-Setup-Token)
+  // выставляются только если вызывающий не задал их сам. Раньше `{ headers, ...init }` целиком подменял набор.
+  const headers = new Headers(init.headers)
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getStoredToken()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
   // Токен установки уходит только на /auth/*: остальным эндпоинтам он ни к чему.
   const setupToken = path.startsWith('/auth/') ? getStoredSetupToken() : null
-  if (setupToken) headers['X-Setup-Token'] = setupToken
+  if (setupToken && !headers.has('X-Setup-Token')) headers.set('X-Setup-Token', setupToken)
 
-  const res = await fetch(`${API_BASE}${path}`, { headers, ...init })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    let message = text || res.statusText
-    let code: string | null = null
-    try {
-      const parsed = JSON.parse(text)
-      if (typeof parsed.detail === 'string') {
-        message = parsed.detail
-      } else if (parsed.detail && typeof parsed.detail === 'object') {
-        message = parsed.detail.message ?? message
-        code = parsed.detail.code ?? null
+  const guard = createRequestSignal(options.signal ?? init.signal, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: guard.signal })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      let message = text || res.statusText
+      let code: string | null = null
+      try {
+        const parsed = JSON.parse(text)
+        if (typeof parsed.detail === 'string') {
+          message = parsed.detail
+        } else if (parsed.detail && typeof parsed.detail === 'object') {
+          message = parsed.detail.message ?? message
+          code = parsed.detail.code ?? null
+        }
+      } catch {
+        /* тело не JSON — оставляем текст как есть */
       }
-    } catch {
-      /* тело не JSON — оставляем текст как есть */
+      // Не для путей из SESSION_NEUTRAL_401_PATHS: там 401 — это ожидаемая ошибка в форме
+      // ("неверный пароль" при входе, "неверный текущий пароль" при смене), а не признак того,
+      // что сессия уже вошедшего пользователя недействительна.
+      if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
+        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+      }
+      throw new ApiError(res.status, message, code)
     }
-    // Не для путей из SESSION_NEUTRAL_401_PATHS: там 401 — это ожидаемая ошибка в форме
-    // ("неверный пароль" при входе, "неверный текущий пароль" при смене), а не признак того,
-    // что сессия уже вошедшего пользователя недействительна.
-    if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
-      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+    if (res.status === 204) return null as T
+    return (await res.json()) as T
+  } catch (e) {
+    if (guard.wasTimeout()) {
+      throw new ApiError(0, 'Сервер не отвечает. Проверьте соединение и повторите попытку.', ClientErrorCode.REQUEST_TIMEOUT)
     }
-    throw new ApiError(res.status, message, code)
+    throw e
+  } finally {
+    guard.dispose()
   }
-  if (res.status === 204) return null as T
-  return res.json() as Promise<T>
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  get: <T>(path: string, options?: RequestOptions) => request<T>(path, {}, options),
+  post: <T>(path: string, body: unknown, options?: RequestOptions) =>
+    request<T>(path, { method: 'POST', body: JSON.stringify(body) }, options),
+  put: <T>(path: string, body: unknown, options?: RequestOptions) =>
+    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, options),
+  delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { method: 'DELETE' }, options),
 }
 
 /**
@@ -141,11 +198,11 @@ export interface PagedResponse<T> {
   limit: number
 }
 
-export function listResource<T>(resource: string, params?: Record<string, string | number>) {
+export function listResource<T>(resource: string, params?: Record<string, string | number>, options?: RequestOptions) {
   const qs = params
     ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
     : ''
-  return api.get<PagedResponse<T>>(`/resources/${resource}${qs}`)
+  return api.get<PagedResponse<T>>(`/resources/${resource}${qs}`, options)
 }
 
 /** Размер страницы при полной загрузке ресурса: серверный максимум (resources.py: le=1000). */
@@ -163,6 +220,7 @@ const MAX_PAGES = 50
  *
  * `params` — только фильтры ресурса; `limit` и `offset` выставляются здесь и из `params`
  * перекрываются. Пустая страница при неполном `total` прерывает цикл (защита от зацикливания).
+ * `options.signal` отменяет всю загрузку, `options.timeoutMs` относится к каждому запросу страницы.
  *
  * @example
  *   const res = await listAllResource<Connection>('connections')
@@ -171,11 +229,12 @@ const MAX_PAGES = 50
 export async function listAllResource<T>(
   resource: string,
   params: Record<string, string | number> = {},
+  options?: RequestOptions,
 ): Promise<PagedResponse<T>> {
-  const first = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: 0 })
+  const first = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: 0 }, options)
   const items = [...first.items]
   for (let page = 1; items.length < first.total && page < MAX_PAGES; page++) {
-    const next = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: page * PAGE_LIMIT })
+    const next = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: page * PAGE_LIMIT }, options)
     if (!next.items.length) break // сервер ничего не вернул — выходим, чтобы не зациклиться
     items.push(...next.items)
   }

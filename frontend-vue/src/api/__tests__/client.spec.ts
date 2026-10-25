@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { api, listAllResource, UNAUTHORIZED_EVENT } from '../client'
+import { api, ApiError, ClientErrorCode, DEFAULT_REQUEST_TIMEOUT_MS, listAllResource, request, setStoredToken, UNAUTHORIZED_EVENT } from '../client'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(body === null ? null : JSON.stringify(body), { status })
@@ -138,3 +138,224 @@ describe('api/client: listAllResource — дочитывание страниц 
     expect(offsetsOf(fetchMock)).toEqual([0, 1000])
   })
 })
+
+type FetchInit = RequestInit & { signal?: AbortSignal }
+
+/** fetch-заглушка, которая не отвечает никогда, но честно реагирует на отмену через signal — как настоящий fetch. */
+function stubHangingFetch() {
+  const fetchMock = vi.fn((_url: string, init?: FetchInit) => {
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      const abort = () => reject(signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+      if (signal?.aborted) abort()
+      else signal?.addEventListener('abort', abort, { once: true })
+    })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+describe('api/client: заголовки запроса (B-11)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+
+  function stubOk() {
+    const fetchMock = vi.fn(async (_url: string, _init?: FetchInit) => jsonResponse({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+  const sent = (fetchMock: ReturnType<typeof stubOk>) => new Headers(fetchMock.mock.calls[0][1]?.headers)
+
+  it('по умолчанию отправляет Content-Type: application/json и Bearer-токен', async () => {
+    setStoredToken('tok-1')
+    const fetchMock = stubOk()
+
+    await api.get('/resources/devices')
+
+    expect(sent(fetchMock).get('Content-Type')).toBe('application/json')
+    expect(sent(fetchMock).get('Authorization')).toBe('Bearer tok-1')
+  })
+
+  it('без сохранённого токена заголовка Authorization нет', async () => {
+    const fetchMock = stubOk()
+    await api.get('/resources/devices')
+    expect(sent(fetchMock).has('Authorization')).toBe(false)
+  })
+
+  it('заголовки вызывающего кода (init.headers) не затирают Authorization и Content-Type, а добавляются к ним', async () => {
+    setStoredToken('tok-1')
+    const fetchMock = stubOk()
+
+    await request('/resources/devices', { method: 'POST', body: '{}', headers: { 'X-Trace-Id': 'abc' } })
+
+    expect(sent(fetchMock).get('X-Trace-Id')).toBe('abc')
+    expect(sent(fetchMock).get('Authorization')).toBe('Bearer tok-1')
+    expect(sent(fetchMock).get('Content-Type')).toBe('application/json')
+  })
+
+  it('заголовок, заданный вызывающим кодом явно (Content-Type), имеет приоритет над умолчанием', async () => {
+    const fetchMock = stubOk()
+
+    await request('/resources/devices', { method: 'POST', body: 'a,b', headers: new Headers({ 'content-type': 'text/csv' }) })
+
+    expect(sent(fetchMock).get('Content-Type')).toBe('text/csv')
+  })
+
+  it('метод, тело и адрес передаются как раньше', async () => {
+    const fetchMock = stubOk()
+
+    await api.put('/resources/devices/d1', { name: 'x' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/resources/devices/d1')
+    expect(init?.method).toBe('PUT')
+    expect(init?.body).toBe(JSON.stringify({ name: 'x' }))
+  })
+})
+
+describe('api/client: разбор ответа (B-11)', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('204 возвращает null', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
+    await expect(api.delete('/resources/devices/d1')).resolves.toBeNull()
+  })
+
+  it('ошибка с detail-объектом: message и code берутся из detail', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: { message: 'Позиция занята', code: 'RACK_POSITION_OCCUPIED' } }, 409)))
+
+    const error = await api.post('/resources/devices', {}).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: 409, message: 'Позиция занята', code: 'RACK_POSITION_OCCUPIED' })
+  })
+
+  it('ошибка с телом не в JSON: текст ответа становится сообщением, code = null', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('Bad Gateway', { status: 502 })))
+
+    await expect(api.get('/devices')).rejects.toMatchObject({ status: 502, message: 'Bad Gateway', code: null })
+  })
+})
+
+describe('api/client: таймаут и отмена запросов (B-11)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('по умолчанию ждёт 30 секунд', () => {
+    expect(DEFAULT_REQUEST_TIMEOUT_MS).toBe(30_000)
+  })
+
+  it('зависший запрос отклоняется ApiError «Сервер не отвечает» с кодом REQUEST_TIMEOUT ровно через таймаут', async () => {
+    stubHangingFetch()
+    const result = api.get('/resources/devices').catch((e: unknown) => e)
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS - 1)
+    let settled = false
+    void result.then(() => (settled = true))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe(false) // за миллисекунду до таймаута запрос ещё ждёт
+
+    await vi.advanceTimersByTimeAsync(1)
+    const error = await result
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: 0, code: ClientErrorCode.REQUEST_TIMEOUT })
+    expect((error as ApiError).message).toContain('Сервер не отвечает')
+  })
+
+  it('timeoutMs из параметров перекрывает значение по умолчанию', async () => {
+    stubHangingFetch()
+    const result = api.get('/resources/devices', { timeoutMs: 1_000 }).catch((e: unknown) => e)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(await result).toMatchObject({ code: ClientErrorCode.REQUEST_TIMEOUT })
+  })
+
+  it('своевременный ответ таймером не прерывается, а таймер снимается (после ответа отмены нет)', async () => {
+    let seenSignal: AbortSignal | undefined
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: FetchInit) => {
+      seenSignal = init?.signal
+      return jsonResponse({ ok: true })
+    }))
+
+    await expect(api.get('/resources/devices')).resolves.toEqual({ ok: true })
+    await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS * 2)
+
+    expect(seenSignal?.aborted).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('переданный signal отменяет запрос: исходный AbortError, а не «Сервер не отвечает»', async () => {
+    stubHangingFetch()
+    const controller = new AbortController()
+    const result = api.get('/resources/devices', { signal: controller.signal }).catch((e: unknown) => e)
+
+    controller.abort()
+    const error = await result
+
+    expect(error).not.toBeInstanceOf(ApiError)
+    expect((error as DOMException).name).toBe('AbortError')
+    expect(vi.getTimerCount()).toBe(0) // таймер таймаута снят
+  })
+
+  it('уже отменённый signal отклоняет запрос сразу', async () => {
+    stubHangingFetch()
+    const controller = new AbortController()
+    controller.abort()
+
+    const error = await api.get('/resources/devices', { signal: controller.signal }).catch((e: unknown) => e)
+
+    expect((error as DOMException).name).toBe('AbortError')
+  })
+
+  it('отмена после таймаута ничего не меняет: ошибка остаётся «Сервер не отвечает»', async () => {
+    stubHangingFetch()
+    const controller = new AbortController()
+    const result = api.get('/resources/devices', { signal: controller.signal, timeoutMs: 500 }).catch((e: unknown) => e)
+
+    await vi.advanceTimersByTimeAsync(500)
+    controller.abort()
+
+    expect(await result).toMatchObject({ code: ClientErrorCode.REQUEST_TIMEOUT })
+  })
+
+  it('signal и timeoutMs доступны во всех методах api.*', async () => {
+    for (const call of [
+      (o: object) => api.get('/x', o),
+      (o: object) => api.post('/x', {}, o),
+      (o: object) => api.put('/x', {}, o),
+      (o: object) => api.delete('/x', o),
+    ]) {
+      stubHangingFetch()
+      const result = call({ timeoutMs: 100 }).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(await result).toMatchObject({ code: ClientErrorCode.REQUEST_TIMEOUT })
+    }
+  })
+
+  it('listAllResource передаёт signal во все запросы страниц и прерывается при отмене', async () => {
+    const controller = new AbortController()
+    const seen: Array<AbortSignal | undefined> = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: FetchInit) => {
+      seen.push(init?.signal)
+      if (seen.length === 1) {
+        controller.abort() // отмена между страницами
+        return jsonResponse({ items: [{ id: 'a' }], total: 2500, offset: 0, limit: 1000 })
+      }
+      throw init?.signal?.reason
+    }))
+
+    const error = await listAllResource('connections', {}, { signal: controller.signal }).catch((e: unknown) => e)
+
+    expect((error as DOMException).name).toBe('AbortError')
+    expect(seen.every((signal) => signal !== undefined)).toBe(true)
+  })
+})
+
