@@ -26,6 +26,17 @@ import {
 // эффекта, ему незачем быть реактивным (и не нужно захламлять state приложения).
 const LAYOUT_SAVE_DEBOUNCE_MS = 600
 let layoutSaveTimer: ReturnType<typeof setTimeout> | null = null
+// id диаграммы, ради которой запланировано сохранение: к моменту срабатывания таймера (или принудительной
+// отправки) в сторе уже может лежать другая диаграмма — «чужую» раскладку на её id отправлять нельзя.
+let pendingLayoutDiagramId: string | null = null
+
+/** Снимает запланированное сохранение; true — оно было (то есть есть неотправленные перемещения). */
+function takePendingLayoutSave(): boolean {
+  if (!layoutSaveTimer) return false
+  clearTimeout(layoutSaveTimer)
+  layoutSaveTimer = null
+  return true
+}
 
 export type DiagramSelection = { kind: 'node'; node: DiagramNode } | { kind: 'edge'; edge: DiagramEdge } | null
 
@@ -44,6 +55,9 @@ export const useDiagramStore = defineStore('diagram', {
   },
   actions: {
     async load(id: string) {
+      // Перемещения предыдущей диаграммы, ещё не ушедшие на сервер (окно debounce), отправляем ДО замены
+      // this.diagram — иначе таймер сработал бы уже по новой диаграмме и последний сдвиг был бы потерян.
+      await this.flushLayoutSave()
       this.loading = true
       this.error = null
       this.selection = null
@@ -96,23 +110,35 @@ export const useDiagramStore = defineStore('diagram', {
     },
 
     scheduleLayoutSave() {
-      if (layoutSaveTimer) clearTimeout(layoutSaveTimer)
+      takePendingLayoutSave()
+      pendingLayoutDiagramId = this.diagram?.id ?? null
       // Стрелочная функция — лексически захватывает `this` вызова scheduleLayoutSave() (Pinia
       // гарантирует корректный `this` для методов-действий), а не только что созданной обёртки:
       // если бы persistLayout вызывался через отдельную именованную функцию, переданную как
       // ссылка (напр. через универсальный debounce()-хелпер utils/debounce.ts), `this` внутри
       // неё оказался бы undefined — эта же ошибка была замечена и исправлена на этапе разработки.
       layoutSaveTimer = setTimeout(() => {
+        layoutSaveTimer = null // сработал — отправлять больше нечего (повторный flush не должен слать запрос)
         void this.persistLayout()
       }, LAYOUT_SAVE_DEBOUNCE_MS)
     },
 
+    /** Немедленно отправляет отложенное сохранение раскладки, если оно запланировано. Вызывать перед тем, как
+     * диаграмма в сторе будет заменена (load, regenerate) и при уходе с экрана диаграммы. Без запланированного
+     * сохранения ничего не делает. */
+    async flushLayoutSave() {
+      if (!takePendingLayoutSave()) return
+      await this.persistLayout()
+    },
+
     async persistLayout() {
-      if (!this.diagram) return
-      const node_positions = Object.fromEntries(this.diagram.nodes.map((n) => [n.id, { x: n.x, y: n.y }]))
+      const diagram = this.diagram
+      // Диаграмма могла смениться или исчезнуть (remove, ошибка загрузки) с момента планирования.
+      if (!diagram || diagram.id !== pendingLayoutDiagramId) return
+      const node_positions = Object.fromEntries(diagram.nodes.map((n) => [n.id, { x: n.x, y: n.y }]))
       this.savingLayout = true
       try {
-        await updateDiagramLayout(this.diagram.id, { node_positions })
+        await updateDiagramLayout(diagram.id, { node_positions })
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось сохранить раскладку'
       } finally {
@@ -134,6 +160,8 @@ export const useDiagramStore = defineStore('diagram', {
 
     async regenerate() {
       if (!this.diagram) return
+      // Пересборка заменяет this.diagram данными сервера: несохранённый сдвиг узла иначе затёрся бы.
+      await this.flushLayoutSave()
       this.loading = true
       try {
         const refreshed = await apiRegenerateDiagram(this.diagram.id)
@@ -155,7 +183,15 @@ export const useDiagramStore = defineStore('diagram', {
 
     async remove() {
       if (!this.diagram) return
-      await apiDeleteDiagram(this.diagram.id)
+      // Диаграмма удаляется — сохранять её раскладку незачем (сервер ответил бы 404). Если удалить не удалось,
+      // диаграмма остаётся открытой, и сдвиги нужно вернуть в очередь.
+      const hadPendingSave = takePendingLayoutSave()
+      try {
+        await apiDeleteDiagram(this.diagram.id)
+      } catch (e) {
+        if (hadPendingSave) this.scheduleLayoutSave()
+        throw e
+      }
       this.diagram = null
     },
 

@@ -11,7 +11,7 @@
 // localNodes/localEdges пересобираются из него заново при каждой загрузке/пересборке диаграммы
 // (см. syncFromStore), а обратно в стор данные идут ТОЛЬКО через явные действия
 // (onNodeDragStop -> store.moveNode, раздел 4.6 ТЗ), а не автоматической синхронизацией.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
 import { useDiagramStore } from '../stores/diagram'
@@ -56,6 +56,11 @@ async function loadAndFit() {
 
 onMounted(loadAndFit)
 watch(diagramId, loadAndFit)
+// Сдвиг узла уходит на сервер с задержкой (debounce в сторе): при уходе с экрана отправляем его сразу.
+// Смену диаграммы на этом же экране покрывает store.load(). Ошибка сохранения остаётся в store.error.
+onBeforeUnmount(() => {
+  void store.flushLayoutSave()
+})
 
 /** Раздел 13 ТЗ (план фронтенда): "клик по свёрнутой группе → локальное обновление без полной
  * перезагрузки" — под "полной перезагрузкой" имеется в виду перезагрузка СТРАНИЦЫ/навигация, а

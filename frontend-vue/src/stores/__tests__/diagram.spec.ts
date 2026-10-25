@@ -188,6 +188,156 @@ describe('useDiagramStore', () => {
   })
 })
 
+
+describe('useDiagramStore — отложенное сохранение раскладки не теряется (B-09)', () => {
+  type Call = { method: string; url: string; body: unknown }
+
+  /** fetch-заглушка: пишет все запросы по порядку; d2 отдаёт как другую диаграмму. */
+  function setupFetch(options: { failDelete?: boolean } = {}) {
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'DELETE') return options.failDelete ? jsonResponse({ detail: 'Сбой удаления' }, 500) : jsonResponse({ status: 'ok' })
+        if (method === 'PUT') return jsonResponse({ status: 'ok' })
+        if (url.endsWith('/regenerate')) return jsonResponse(sampleDiagram())
+        if (url.endsWith('/diagrams/d2')) return jsonResponse(sampleDiagram({ id: 'd2', name: 'Диаграмма 2' }))
+        return jsonResponse(sampleDiagram())
+      }),
+    )
+    return {
+      calls,
+      puts: () => calls.filter((c) => c.method === 'PUT'),
+    }
+  }
+
+  it('moveNode → load(другой id) до истечения 600 мс: PUT уходит один раз, на id исходной диаграммы, с её позициями', async () => {
+    vi.useFakeTimers()
+    const net = setupFetch()
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    store.moveNode('dev-1', 111, 222)
+    await vi.advanceTimersByTimeAsync(200) // окно debounce ещё открыто
+    expect(net.puts()).toHaveLength(0)
+
+    await store.load('d2')
+    await vi.advanceTimersByTimeAsync(2000) // таймер не должен «выстрелить» повторно уже по новой диаграмме
+
+    expect(net.puts()).toEqual([
+      { method: 'PUT', url: '/api/v1/diagrams/d1/layout', body: { node_positions: { 'dev-1': { x: 111, y: 222 } } } },
+    ])
+    expect(store.diagram?.id).toBe('d2')
+    // порядок: сохранение исходной диаграммы ушло раньше, чем загрузилась новая
+    expect(net.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/v1/diagrams/d1/layout', 'GET /api/v1/diagrams/d2'])
+  })
+
+  it('flushLayoutSave без изменений запроса не шлёт; повторный flush после отправки — тоже', async () => {
+    vi.useFakeTimers()
+    const net = setupFetch()
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    await store.flushLayoutSave() // ничего не планировалось
+    expect(net.calls).toHaveLength(0)
+
+    store.moveNode('dev-1', 5, 6)
+    await store.flushLayoutSave()
+    expect(net.puts()).toHaveLength(1)
+
+    await store.flushLayoutSave() // повторно, без новых перемещений
+    await vi.advanceTimersByTimeAsync(2000) // и таймер был снят — сам тоже не отправит
+    expect(net.puts()).toHaveLength(1)
+  })
+
+  it('после срабатывания таймера flushLayoutSave ничего не дублирует', async () => {
+    vi.useFakeTimers()
+    const net = setupFetch()
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    store.moveNode('dev-1', 7, 8)
+    await vi.advanceTimersByTimeAsync(600)
+    expect(net.puts()).toHaveLength(1)
+
+    await store.flushLayoutSave()
+    expect(net.puts()).toHaveLength(1)
+  })
+
+  it('persistLayout не отправляет раскладку, если диаграмма в сторе уже другая (чужие позиции на чужой id)', async () => {
+    vi.useFakeTimers()
+    const net = setupFetch()
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    store.moveNode('dev-1', 1, 2)
+    store.diagram = sampleDiagram({ id: 'd2' }) // подмена в обход load() — защита должна сработать и здесь
+    await vi.advanceTimersByTimeAsync(600)
+
+    expect(net.puts()).toHaveLength(0)
+  })
+
+  it('регенерация диаграммы сначала отправляет несохранённые перемещения, а не затирает их данными сервера', async () => {
+    vi.useFakeTimers()
+    const net = setupFetch()
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    store.moveNode('dev-1', 30, 40)
+    await store.regenerate()
+
+    expect(net.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/v1/diagrams/d1/layout', 'POST /api/v1/diagrams/d1/regenerate'])
+    expect(net.puts()[0].body).toEqual({ node_positions: { 'dev-1': { x: 30, y: 40 } } })
+  })
+
+  it('remove() снимает отложенное сохранение: после удаления диаграммы раскладка не отправляется', async () => {
+    vi.useFakeTimers()
+    const net = setupFetch()
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    store.moveNode('dev-1', 9, 9)
+    await store.remove()
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(net.puts()).toHaveLength(0)
+    expect(store.error).toBeNull()
+  })
+
+  it('remove(): если удалить не удалось, перемещения возвращаются в очередь и всё же сохраняются', async () => {
+    vi.useFakeTimers()
+    const net = setupFetch({ failDelete: true })
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    store.moveNode('dev-1', 9, 9)
+    await expect(store.remove()).rejects.toThrow('Сбой удаления')
+    expect(store.diagram?.id).toBe('d1') // диаграмма осталась открытой
+
+    await vi.advanceTimersByTimeAsync(600)
+    expect(net.puts()).toHaveLength(1)
+  })
+
+  it('ошибка отправки при flush попадает в store.error и не выбрасывается из load()', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'PUT') return jsonResponse({ detail: 'Нет связи с сервером' }, 500)
+        return jsonResponse(sampleDiagram({ id: 'd2' }))
+      }),
+    )
+    const store = useDiagramStore()
+    store.diagram = sampleDiagram()
+
+    store.moveNode('dev-1', 1, 1)
+    await expect(store.load('d2')).resolves.toBeUndefined()
+    expect(store.diagram?.id).toBe('d2') // переход на новую диаграмму не заблокирован сбоем сохранения старой
+  })
+})
+
 afterEach(() => {
   vi.useRealTimers()
 })
