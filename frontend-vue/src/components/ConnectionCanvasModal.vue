@@ -11,7 +11,7 @@
 // в списке его интерфейсов), а не измерением DOM через getBoundingClientRect() на каждый порт —
 // это делает координаты пинов детерминированными, дешёвыми для computed() и не требующими
 // перерасчёта после каждого рендера.
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import type { Connection, Device, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { sortOptionsByLabel } from '../utils/selectOptions'
@@ -126,14 +126,17 @@ const draggingNode = ref<{ deviceId: string; offsetX: number; offsetY: number } 
 // отстаёт от курсора вверх (сам баг). Прокрутка СТРАНИЦЫ (.overlay, overflow-y:auto) сюда не
 // относится — getBoundingClientRect() уже сама пересчитывается при любой прокрутке страницы, в
 // отличие от прокрутки СОДЕРЖИМОГО самого canvasEl.
-function canvasPoint(event: MouseEvent): { x: number; y: number } {
-  const el = canvasEl.value!
+// null — холста уже нет в DOM (модалку закрыли посреди перетаскивания): координаты считать не из чего.
+function canvasPoint(event: MouseEvent): { x: number; y: number } | null {
+  const el = canvasEl.value
+  if (!el) return null
   const rect = el.getBoundingClientRect()
   return { x: event.clientX - rect.left + el.scrollLeft, y: event.clientY - rect.top + el.scrollTop }
 }
 
 function onNodeHeaderMouseDown(deviceId: string, event: MouseEvent) {
   const point = canvasPoint(event)
+  if (!point) return
   const pos = positions[deviceId]
   draggingNode.value = { deviceId, offsetX: point.x - pos.x, offsetY: point.y - pos.y }
   window.addEventListener('mousemove', onWindowMouseMove)
@@ -142,6 +145,7 @@ function onNodeHeaderMouseDown(deviceId: string, event: MouseEvent) {
 
 function onWindowMouseMove(event: MouseEvent) {
   const point = canvasPoint(event)
+  if (!point) return
   if (draggingNode.value) {
     const { deviceId, offsetX, offsetY } = draggingNode.value
     positions[deviceId] = { x: Math.max(0, point.x - offsetX), y: Math.max(0, point.y - offsetY) }
@@ -153,9 +157,21 @@ function onWindowMouseMove(event: MouseEvent) {
 function onWindowMouseUp(event: MouseEvent) {
   if (draggingNode.value) draggingNode.value = null
   if (connectDrag.value) finishConnectDrag(event)
+  detachWindowDragListeners()
+}
+
+/** Слушатели вешаются на window на время перетаскивания (иначе движение за пределами холста терялось бы) и
+ * обязаны сниматься всегда: не только по отпусканию кнопки, но и при закрытии модалки посреди перетаскивания
+ * (Esc, клик по оверлею, смена маршрута) или если mouseup пришёлся вне окна браузера. */
+function detachWindowDragListeners() {
   window.removeEventListener('mousemove', onWindowMouseMove)
   window.removeEventListener('mouseup', onWindowMouseUp)
 }
+onBeforeUnmount(() => {
+  detachWindowDragListeners()
+  draggingNode.value = null
+  connectDrag.value = null
+})
 
 // --- Протягивание соединения курсором мыши от порта к порту ---
 const connectDrag = ref<{ sourceInterfaceId: string; x: number; y: number } | null>(null)
@@ -164,6 +180,7 @@ function onPinMouseDown(interfaceId: string, event: MouseEvent) {
   event.stopPropagation() // иначе всплыло бы до .node-header и запустило бы перетаскивание узла
   if (isOccupied(interfaceId)) return
   const point = canvasPoint(event)
+  if (!point) return
   connectDrag.value = { sourceInterfaceId: interfaceId, x: point.x, y: point.y }
   window.addEventListener('mousemove', onWindowMouseMove)
   window.addEventListener('mouseup', onWindowMouseUp)

@@ -421,3 +421,61 @@ describe('ConnectionCanvasModal.vue — координаты курсора пр
   })
 })
 
+describe('ConnectionCanvasModal.vue — слушатели перетаскивания на window (B-08)', () => {
+  const DRAG_EVENTS = ['mousemove', 'mouseup'] as const
+
+  /** Вызовы window.removeEventListener для двух событий перетаскивания. */
+  const removedTypes = (spy: { mock: { calls: unknown[][] } }): string[] =>
+    spy.mock.calls.map((args) => String(args[0])).filter((t) => (DRAG_EVENTS as readonly string[]).includes(t))
+
+  it('закрытие модалки посреди перетаскивания карточки снимает оба слушателя, mousemove после этого не бросает исключений', async () => {
+    const wrapper = mount(ConnectionCanvasModal, { attachTo: document.body })
+    await chooseDevice(wrapper, 'srv-a')
+    await wrapper.find('.node-header').trigger('mousedown', { clientX: 40, clientY: 40 })
+
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    const errors: unknown[] = []
+    const onError = (e: ErrorEvent) => errors.push(e.error)
+    window.addEventListener('error', onError)
+    try {
+      wrapper.unmount()
+
+      expect(removedTypes(removeSpy).sort()).toEqual(['mousemove', 'mouseup'])
+      expect(() => window.dispatchEvent(mouseEvent('mousemove', 240, 140))).not.toThrow()
+      expect(() => window.dispatchEvent(mouseEvent('mouseup', 240, 140))).not.toThrow()
+      expect(errors).toEqual([]) // исключения слушателей window не всплывают через dispatchEvent — ловим их как error-события
+    } finally {
+      window.removeEventListener('error', onError)
+    }
+  })
+
+  it('закрытие модалки посреди протяжки соединения (от свободного порта) тоже снимает оба слушателя', async () => {
+    const wrapper = mount(ConnectionCanvasModal, { attachTo: document.body })
+    await chooseDevice(wrapper, 'srv-a')
+    await choosePort(wrapper, 'if-a1').trigger('mousedown', { clientX: 40, clientY: 40 })
+
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    wrapper.unmount()
+
+    expect(removedTypes(removeSpy).sort()).toEqual(['mousemove', 'mouseup'])
+    expect(() => window.dispatchEvent(mouseEvent('mousemove', 300, 200))).not.toThrow()
+  })
+
+  it('обычное отпускание кнопки по-прежнему снимает слушатели один раз, а размонтирование после этого — безвредно', async () => {
+    const wrapper = mount(ConnectionCanvasModal, { attachTo: document.body })
+    await chooseDevice(wrapper, 'srv-a')
+    await wrapper.find('.node-header').trigger('mousedown', { clientX: 40, clientY: 40 })
+
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    window.dispatchEvent(mouseEvent('mouseup', 60, 60))
+    expect(removedTypes(removeSpy).sort()).toEqual(['mousemove', 'mouseup'])
+
+    expect(() => wrapper.unmount()).not.toThrow()
+  })
+
+  it('без перетаскивания размонтирование не падает и ничего лишнего не ломает', () => {
+    const wrapper = mount(ConnectionCanvasModal, { attachTo: document.body })
+    expect(() => wrapper.unmount()).not.toThrow()
+  })
+})
+
