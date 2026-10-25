@@ -9,7 +9,9 @@ import { listReportTemplateVersions, restoreReportTemplateVersion } from '../api
 import type { ReportTemplate, ReportTemplateVersion } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { formatServerDateTime } from '../utils/dateTime'
+import { useAuthStore } from '../stores/auth'
 
+const auth = useAuthStore() // «Восстановить версию» меняет шаблон — только для роли с правом записи
 const props = defineProps<{ template: ReportTemplate }>()
 const emit = defineEmits<{ close: []; restored: [template: ReportTemplate] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
@@ -69,7 +71,7 @@ async function restore(v: ReportTemplateVersion) {
             <b>№{{ v.version_number }} — {{ v.name }}</b>
             <span class="version-meta">{{ formatServerDateTime(v.created_at) }}<template v-if="v.description"> · {{ v.description }}</template></span>
           </div>
-          <button type="button" class="btn btn-secondary" :disabled="restoringId === v.id" @click="restore(v)">
+          <button v-if="auth.canWrite" type="button" class="btn btn-secondary" :disabled="restoringId === v.id" @click="restore(v)">
             {{ restoringId === v.id ? 'Восстановление…' : 'Восстановить' }}
           </button>
         </li>

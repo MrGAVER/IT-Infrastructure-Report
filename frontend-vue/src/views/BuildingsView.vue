@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Building, Room, Rack } from '../api/types'
@@ -9,6 +10,7 @@ import RoomFormModal from '../components/RoomFormModal.vue'
 import RackFormModal from '../components/RackFormModal.vue'
 
 const catalogs = useCatalogsStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 onMounted(() => catalogs.ensureLoaded())
@@ -98,7 +100,7 @@ async function removeRack(r: Rack) {
   <div class="buildings-view">
     <div class="toolbar">
       <p class="hint">Здания → помещения → стойки. Удаление здания/помещения возможно только когда в нём не осталось вложенных записей.</p>
-      <button class="btn btn-primary" @click="openCreateBuilding">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreateBuilding">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить здание
       </button>
@@ -121,9 +123,9 @@ async function removeRack(r: Rack) {
           </div>
           <span class="count-badge">{{ roomsOf(b.id).length }} помещ.</span>
           <div class="row-actions">
-            <button type="button" aria-label="Добавить помещение" @click="openCreateRoom(b.id)"><svg class="icon"><use href="/icons.svg#i-plus" /></svg></button>
-            <button type="button" aria-label="Редактировать" @click="openEditBuilding(b)"><svg class="icon"><use href="/icons.svg#i-edit" /></svg></button>
-            <button type="button" aria-label="Удалить" @click="removeBuilding(b)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
+            <button v-if="auth.canWrite" type="button" aria-label="Добавить помещение" @click="openCreateRoom(b.id)"><svg class="icon"><use href="/icons.svg#i-plus" /></svg></button>
+            <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditBuilding(b)"><svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg></button>
+            <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeBuilding(b)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
           </div>
         </div>
 
@@ -137,9 +139,9 @@ async function removeRack(r: Rack) {
               <span class="row-name">{{ r.name }}</span>
               <span class="count-badge">{{ racksOf(r.id).length }} стоек</span>
               <div class="row-actions">
-                <button type="button" aria-label="Добавить стойку" @click="openCreateRack(r.id)"><svg class="icon"><use href="/icons.svg#i-plus" /></svg></button>
-                <button type="button" aria-label="Редактировать" @click="openEditRoom(r)"><svg class="icon"><use href="/icons.svg#i-edit" /></svg></button>
-                <button type="button" aria-label="Удалить" @click="removeRoom(r)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
+                <button v-if="auth.canWrite" type="button" aria-label="Добавить стойку" @click="openCreateRack(r.id)"><svg class="icon"><use href="/icons.svg#i-plus" /></svg></button>
+                <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditRoom(r)"><svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg></button>
+                <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeRoom(r)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
               </div>
             </div>
 
@@ -149,8 +151,8 @@ async function removeRack(r: Rack) {
                 <span class="row-name">{{ rack.name }}</span>
                 <span v-if="rack.height_u" class="mono rack-height">{{ rack.height_u }}U</span>
                 <div class="row-actions">
-                  <button type="button" aria-label="Редактировать" @click="openEditRack(rack)"><svg class="icon"><use href="/icons.svg#i-edit" /></svg></button>
-                  <button type="button" aria-label="Удалить" @click="removeRack(rack)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
+                  <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditRack(rack)"><svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg></button>
+                  <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeRack(rack)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
                 </div>
               </div>
             </div>

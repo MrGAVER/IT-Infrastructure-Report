@@ -15,6 +15,9 @@ const props = defineProps<{
   /** true, пока это устройство удаляется (см. DevicesView.vue:removeDevice) — блокирует кнопку
    * удаления от повторного клика, пока запрос в процессе. */
   removing?: boolean
+  /** Роль без права записи (viewer): вместо «Редактировать» — «Просмотр» (карточка откроется в режиме
+   * просмотра), кнопок «Копировать» и «Удалить» нет. Задаётся родителем (authStore.canWrite). */
+  readOnly?: boolean
 }>()
 defineEmits<{ edit: [d: Device]; copy: [d: Device]; remove: [d: Device] }>()
 
@@ -53,13 +56,13 @@ function roomLabel(id: string | null) {
     </td>
     <td>
       <div class="row-actions">
-        <button type="button" aria-label="Редактировать" @click="$emit('edit', device)">
-          <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+        <button type="button" :aria-label="readOnly ? 'Просмотр' : 'Редактировать'" @click="$emit('edit', device)">
+          <svg class="icon"><use :href="readOnly ? '/icons.svg#i-file' : '/icons.svg#i-edit'" /></svg>
         </button>
-        <button type="button" aria-label="Копировать" @click="$emit('copy', device)">
+        <button v-if="!readOnly" type="button" aria-label="Копировать" @click="$emit('copy', device)">
           <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
         </button>
-        <button type="button" aria-label="Удалить" :disabled="removing" @click="$emit('remove', device)">
+        <button v-if="!readOnly" type="button" aria-label="Удалить" :disabled="removing" @click="$emit('remove', device)">
           <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
         </button>
       </div>

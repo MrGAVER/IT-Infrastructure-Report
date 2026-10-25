@@ -2,6 +2,13 @@ import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vu
 import { useAuthStore } from '../stores/auth'
 import { usePreferencesStore } from '../stores/preferences'
 
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** Маршрут доступен только тем, кто может менять данные (authStore.canWrite): редакторы шаблонов отчётов. */
+    requiresWrite?: boolean
+  }
+}
+
 // Экспортируется ради тестов: проверка, что ссылки дашборда ведут на существующие маршруты, строит тестовый
 // роутер из этой же таблицы (без гарда ниже и без загрузки самих экранов).
 export const routes = [
@@ -79,11 +86,13 @@ export const routes = [
     path: '/report-templates/:id/editor',
     name: 'report-template-editor',
     component: () => import('../views/ReportGridEditorView.vue'),
+    meta: { requiresWrite: true },
   },
   {
     path: '/report-templates/:id/editor-docx',
     name: 'report-template-editor-docx',
     component: () => import('../views/ReportDocxEditorView.vue'),
+    meta: { requiresWrite: true },
   },
   {
     path: '/diagrams',
@@ -141,5 +150,8 @@ router.beforeEach(async (to) => {
     const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard'
     return redirect
   }
+  // Редакторы шаблонов сохраняют изменения через запись — роли «только чтение» там нечего делать (сервер всё равно ответил бы
+  // 403). Формирование отчёта по шаблону viewer'у доступно, поэтому его уводим на список шаблонов, а не на дашборд.
+  if (to.meta.requiresWrite && !auth.canWrite) return { name: 'report-templates' }
   return true
 })

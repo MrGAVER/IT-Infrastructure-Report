@@ -5,6 +5,7 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
 import { useContainersStore } from '../stores/containers'
+import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { InformationSystem } from '../api/types'
@@ -17,6 +18,7 @@ const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
 const vms = useVMsStore()
 const containers = useContainersStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const modalSystem = ref<InformationSystem | null>(null)
@@ -106,7 +108,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
-      <button class="btn btn-primary" @click="openCreate">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить ИС
       </button>
@@ -157,13 +159,13 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
               </td>
               <td>
                 <div class="row-actions">
-                  <button type="button" aria-label="Редактировать" @click="openEdit(s)">
-                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEdit(s)">
+                    <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
                   </button>
-                  <button type="button" aria-label="Копировать" @click="openCopy(s)">
+                  <button v-if="auth.canWrite" type="button" aria-label="Копировать" @click="openCopy(s)">
                     <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
                   </button>
-                  <button type="button" aria-label="Удалить" :disabled="deletingId === s.id" @click="removeSystem(s)">
+                  <button v-if="auth.canWrite" type="button" aria-label="Удалить" :disabled="deletingId === s.id" @click="removeSystem(s)">
                     <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                   </button>
                 </div>

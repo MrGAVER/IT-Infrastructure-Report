@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
+import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Device, DeviceStack } from '../api/types'
@@ -16,6 +17,7 @@ import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
 const vlans = useVLANsStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const modalDevice = ref<Device | null>(null)
@@ -196,11 +198,11 @@ async function onStackSaved(stack: DeviceStack) {
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
-      <button class="btn btn-secondary" @click="openCreateStack">
+      <button v-if="auth.canWrite" class="btn btn-secondary" @click="openCreateStack">
         <svg class="icon"><use href="/icons.svg#i-layers" /></svg>
         Стек
       </button>
-      <button class="btn btn-primary" @click="openCreate">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить устройство
       </button>
@@ -233,6 +235,7 @@ async function onStackSaved(stack: DeviceStack) {
                 v-if="row.kind === 'device'"
                 :device="row.device"
                 :removing="deletingId === row.device.id"
+                :read-only="!auth.canWrite"
                 @edit="openEdit"
                 @copy="openCopy"
                 @remove="removeDevice"
@@ -260,6 +263,7 @@ async function onStackSaved(stack: DeviceStack) {
                     :device="m"
                     :stack-position="m.stack_position"
                     :removing="deletingId === m.id"
+                    :read-only="!auth.canWrite"
                     @edit="openEdit"
                     @copy="openCopy"
                     @remove="removeDevice"

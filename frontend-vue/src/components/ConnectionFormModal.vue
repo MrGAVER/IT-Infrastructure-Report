@@ -36,6 +36,10 @@ import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { facetsLabel, formatVlans, hasRoleMismatch, modeLabel, portRoleOf, roleLabel } from '../utils/portConfig'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{
   connection: Connection | null
@@ -317,6 +321,7 @@ function validateForm(): boolean {
 }
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!validateForm()) return
   await previewPending // сверка могла ещё не вернуться
@@ -329,6 +334,7 @@ async function submit() {
 }
 
 async function resolveAndSave(resolution: MismatchResolution) {
+  if (readOnly.value) return // шаг достижим только из submit(), но запись не должна уйти ни при каких обстоятельствах
   resolving.value = false
   if (resolution === 'approve') {
     await persist('approve')
@@ -469,6 +475,7 @@ async function persist(resolution: 'approve' | null) {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form @submit.prevent="submit">
         <div class="endpoint-pair">
           <fieldset class="endpoint">
@@ -580,6 +587,7 @@ async function persist(resolution: 'approve' | null) {
           </label>
         </div>
       </form>
+      </fieldset>
 
       <div v-if="resolving && portMismatch" class="resolution" role="alertdialog" aria-label="Расхождение конфигурации портов">
         <p class="warning-text">
@@ -619,8 +627,8 @@ async function persist(resolution: 'approve' | null) {
       </div>
 
       <div v-else class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

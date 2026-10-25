@@ -4,9 +4,11 @@
 // перегружен текстом на каждом узле), полные данные — по выделению."
 import { computed } from 'vue'
 import type { DiagramSelection } from '../../stores/diagram'
+import { useAuthStore } from '../../stores/auth'
 
 const props = defineProps<{ selection: DiagramSelection }>()
 const emit = defineEmits<{ close: []; 'expand-group': [groupKey: string] }>()
+const auth = useAuthStore() // разворот группы сохраняется на сервере — только для роли с правом записи
 
 const node = computed(() => (props.selection?.kind === 'node' ? props.selection.node : null))
 const edge = computed(() => (props.selection?.kind === 'edge' ? props.selection.edge : null))
@@ -47,7 +49,7 @@ function groupKeyFromNodeId(id: string): string {
     <template v-else-if="node && node.type === 'group'">
       <div class="row"><span class="k">Название</span><span class="v">{{ node.label }}</span></div>
       <div class="row"><span class="k">Устройств в группе</span><span class="v">{{ node.device_count }}</span></div>
-      <button class="btn btn-secondary expand-btn" type="button" @click="emit('expand-group', groupKeyFromNodeId(node.id))">
+      <button v-if="auth.canWrite" class="btn btn-secondary expand-btn" type="button" @click="emit('expand-group', groupKeyFromNodeId(node.id))">
         Развернуть группу
       </button>
     </template>

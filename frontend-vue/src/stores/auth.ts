@@ -34,6 +34,13 @@ export const useAuthStore = defineStore('auth', {
     isAdmin(state): boolean {
       return state.user?.role === 'admin'
     },
+    /** Единый источник правды «можно ли менять данные» для интерфейса: при выключенной аутентификации
+     * пользователь один и с полным доступом, иначе писать может только администратор (роль viewer —
+     * только чтение, остальные методы записи сервер отклоняет кодом 403, см. backend/app/services/auth.py).
+     * Формирование отчётов viewer'у доступно (READ_ONLY_POST_PATHS на сервере) — их кнопки canWrite не скрывает. */
+    canWrite(state): boolean {
+      return !state.enabled || state.user?.role === 'admin'
+    },
     /** Инвертирована относительно isAuthenticated ради читаемости в router-guard'е
      * (router/index.ts) — там нужно именно «требуется ли сейчас показать форму входа». */
     needsLogin(state): boolean {

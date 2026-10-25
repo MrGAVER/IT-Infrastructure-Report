@@ -44,6 +44,10 @@ import { filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansI
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig, type PortRowLike } from '../utils/portConflicts'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import { attachConnectionDrafts, changedConnectionRowIds, hasConnectionChanges, snapshotConnections, validateConnectionDrafts, type ConnectionBaseline } from '../utils/interfaceConnections'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
@@ -750,6 +754,7 @@ async function persistPendingSourceDomains(deviceId: string) {
 }
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!form.device_type_id) {
     errorMessage.value = 'Укажите тип устройства.'
@@ -910,6 +915,7 @@ async function submit() {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form class="form-grid" @submit.prevent="submit">
         <!-- п.3.6: три поля (Тип устройства/Производитель/Модель) объединены в одно — единственный
              select с опциями "голых" типов (без модели) и моделей, сгруппированных по
@@ -1057,10 +1063,11 @@ async function submit() {
           @removed="onStackVlanRemoved"
         />
       </form>
+      </fieldset>
 
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

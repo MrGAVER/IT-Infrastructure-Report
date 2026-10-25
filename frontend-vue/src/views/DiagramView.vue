@@ -16,6 +16,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
 import { useDiagramStore } from '../stores/diagram'
 import { useToast } from '../composables/useToast'
+import { useAuthStore } from '../stores/auth'
 import DiagramDeviceNode from '../components/diagram/DiagramDeviceNode.vue'
 import DiagramGroupNode from '../components/diagram/DiagramGroupNode.vue'
 import DiagramConnectionEdge from '../components/diagram/DiagramConnectionEdge.vue'
@@ -27,6 +28,7 @@ import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagr
 const route = useRoute()
 const router = useRouter()
 const store = useDiagramStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 const { fitView } = useVueFlow()
 
@@ -71,7 +73,7 @@ async function expandGroup(nodeId: string) {
 
 function onNodeClick({ node }: NodeMouseEvent) {
   const data = node.data as DiagramNode
-  if (data.type === 'group') {
+  if (data.type === 'group' && auth.canWrite) {
     void expandGroup(data.id)
     return
   }
@@ -223,7 +225,7 @@ async function commitRename() {
       </button>
       <div v-if="!renaming" class="diagram-name-wrap">
         <span class="diagram-name">{{ store.diagram?.name }}</span>
-        <button type="button" class="icon-btn" aria-label="Переименовать диаграмму" @click="startRename">
+        <button v-if="auth.canWrite" type="button" class="icon-btn" aria-label="Переименовать диаграмму" @click="startRename">
           <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
         </button>
       </div>
@@ -242,12 +244,12 @@ async function commitRename() {
       </div>
       <span v-if="store.savingLayout" class="saving-hint">сохранение раскладки…</span>
       <div class="spacer"></div>
-      <button class="btn btn-secondary" type="button" :disabled="store.loading" @click="onRegenerate">
+      <button v-if="auth.canWrite" class="btn btn-secondary" type="button" :disabled="store.loading" @click="onRegenerate">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Пересобрать
       </button>
-      <button class="btn btn-secondary" type="button" @click="onDuplicate">Дублировать</button>
-      <button class="btn btn-secondary" type="button" @click="onDelete">
+      <button v-if="auth.canWrite" class="btn btn-secondary" type="button" @click="onDuplicate">Дублировать</button>
+      <button v-if="auth.canWrite" class="btn btn-secondary" type="button" @click="onDelete">
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
         Удалить
       </button>
@@ -268,6 +270,7 @@ async function commitRename() {
         :min-zoom="0.1"
         :max-zoom="2.5"
         :nodes-connectable="false"
+        :nodes-draggable="auth.canWrite"
         @node-click="onNodeClick"
         @edge-click="onEdgeClick"
         @pane-click="onPaneClick"
