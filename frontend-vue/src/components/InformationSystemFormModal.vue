@@ -3,7 +3,7 @@
 // протоколы, источники размещения/IP, места размещения — через отдельный атомарный ресурс
 // /resources/information-systems/{id}/details (см. InformationSystemDetails в api/types.ts).
 // Портировано с openInformationSystemForm/saveInformationSystemForm в
-// frontend/static/information-systems.js. Устаревшие связанные таблицы (ips/devices/vms/
+// прежнем vanilla-фронтенде (до 2.60.0). Устаревшие связанные таблицы (ips/devices/vms/
 // containers) удалены вместе со всей их поддержкой (миграция b7f2c1e5a904, см. models.py) —
 // sources (InformationSystemSource) теперь единственный источник этих данных.
 import { computed, reactive, ref, watch } from 'vue'

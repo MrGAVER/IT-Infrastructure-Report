@@ -75,8 +75,8 @@ async function removeDomain(d: VLANDomain) {
 }
 
 // Синхронизирует набор VLAN устройства-источника со всеми остальными участниками домена —
-// см. POST /api/v1/vlan-domains/{id}/sync (backend/app/api/system.py:sync_vlan_domain).
-// Портировано с syncVlanDomain() в frontend/static/vlan.js.
+// см. POST /api/v1/vlan-domains/{id}/sync (backend/app/api/vlan.py:sync_vlan_domain).
+// Портировано с syncVlanDomain() прежнего vanilla-фронтенда (до 2.60.0).
 async function syncDomain(d: VLANDomain) {
   syncingId.value = d.id
   try {

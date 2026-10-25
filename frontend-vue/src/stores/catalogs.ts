@@ -1,7 +1,7 @@
 // Стор справочников: подгружает статичные каталоги (типы устройств, производители,
 // здания, помещения, структурные единицы и т.п.) один раз за сессию и резолвит
 // id → отображаемое имя для колонок таблиц. Аналог CACHEABLE_LIST_RESOURCES +
-// lookupLabel() в текущем vanilla-фронтенде (frontend/static/core.js), но с типами
+// lookupLabel() в прежнем vanilla-фронтенде (удалён в 2.60.0), но с типами
 // и явным состоянием загрузки вместо ad-hoc Map-кеша поверх fetch().
 import { defineStore } from 'pinia'
 import { listAllResource, api } from '../api/client'

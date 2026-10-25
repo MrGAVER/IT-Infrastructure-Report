@@ -1,5 +1,5 @@
 // Сохранение программных активов физического устройства одним атомарным запросом
-// PUT /devices/{id}/deployed-software (см. backend/app/services/crud.py:sync_device_deployed_software)
+// PUT /devices/{id}/deployed-software (см. backend/app/services/crud/owned_rows.py:sync_device_deployed_software)
 // — тем же способом, что и у ВМ (api/vmNestedLists.ts). Раньше DeviceFormModal.vue при каждом
 // сохранении удалял всё ПО устройства и создавал его заново: новые id и даты создания, 2N+1 запросов,
 // потерянное ПО при сбое посередине. Теперь записи с id обновляются на месте, без id создаются, а

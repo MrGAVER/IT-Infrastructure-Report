@@ -1,5 +1,5 @@
 // Генерация отчётов — не CRUD-ресурс: POST возвращает {file_name, download_url},
-// сам файл читается отдельным GET (см. backend/app/api/system.py:
+// сам файл читается отдельным GET (см. backend/app/api/reports.py:
 // generate_report/generate_audit_log_report/download_report).
 import { api, getStoredToken, LONG_REQUEST_TIMEOUT_MS } from './client'
 

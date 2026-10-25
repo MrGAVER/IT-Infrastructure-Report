@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // hypervisor_os_id НЕ отправляется пользователем — бэкенд всегда пересчитывает его
-// сам из ОС выбранного физического хоста (см. backend/app/services/crud.py:
+// сам из ОС выбранного физического хоста (см. backend/app/services/crud/generic.py:
 // create_resource/update_resource, VirtualMachine: "data['hypervisor_os_id'] = host.
 // operating_system_id..."). Поле показано только как read-only предпросмотр того,
 // что реально запишется. Хост-устройство дополнительно отфильтровано на клиенте
@@ -53,7 +53,7 @@ function emptyForm() {
 const form = reactive(emptyForm())
 
 // Staged локально до сохранения самой ВМ — так же, как vmIpRows/vmOpenPortRows
-// в vanilla-версии (frontend/static/vm-editors.js): для НОВОЙ ВМ строки можно
+// в vanilla-версии (до 2.60.0): для НОВОЙ ВМ строки можно
 // заполнить сразу в той же форме, ещё до того, как у записи появится id, а
 // реально отправить на сервер только после того, как известен id (см. submit()).
 const vmIps = ref<VmIpDraftRow[]>([])

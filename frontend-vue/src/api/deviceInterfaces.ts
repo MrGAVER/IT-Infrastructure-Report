@@ -4,7 +4,7 @@
 // переиспользовал DevicePortsModal.vue — управление портами прямо с экрана «Подключения»
 // (см. frontend-vue/README.md: было в «Ещё не сделано», теперь реализовано). Обе точки входа
 // используют один и тот же атомарный эндпоинт PUT /devices/{id}/interfaces (см.
-// backend/app/services/crud.py:sync_interfaces) — он одним запросом создаёт/обновляет/удаляет
+// backend/app/services/crud/interfaces.py:sync_interfaces) — он одним запросом создаёт/обновляет/удаляет
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
 import { api, listAllResource } from './client'
@@ -35,7 +35,7 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
     api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${deviceId}/interface-vlans`),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
     // 'device_interface', owner_id=id интерфейса), не всего устройства, см. комментарий к
-    // InterfaceDraftRow.open_ports в types.ts и backend/app/services/crud.py:
+    // InterfaceDraftRow.open_ports в types.ts и backend/app/services/crud/interfaces.py:
     // _sync_interface_open_ports. Читаются по устройству, как IP и VLAN выше.
     api.get<{ items: OpenPort[] }>(`/devices/${deviceId}/interface-open-ports`),
     // Подинтерфейсы портов — тоже одним запросом по устройству, уже с их IP и открытыми портами: подинтерфейс
@@ -252,7 +252,7 @@ export async function persistDeviceInterfaces(
       // у строк, чьи подинтерфейсы форма не загружала (subinterfaces не задано): сервер их не трогает.
       ...(row.subinterfaces ? { subinterfaces: subinterfacesPayload(row.subinterfaces) } : {}),
       // Фикс п.1.4 (батч4): открытые порты round-trip'ятся вместе со своим интерфейсом в том же
-      // атомарном PUT — см. backend/app/services/crud.py:_sync_interface_open_ports. Правка
+      // атомарном PUT — см. backend/app/services/crud/interfaces.py:_sync_interface_open_ports. Правка
       // "убрать текстовые поля Порт/Протокол": строка без выбранной записи справочника (после
       // добавления "+ Открытый порт", пока пользователь ещё ничего не выбрал) пропускается так
       // же, как раньше пустой port; port/protocol в payload не отправляем вовсе — сервер сам

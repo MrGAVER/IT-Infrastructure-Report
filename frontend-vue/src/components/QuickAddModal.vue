@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Универсальная модалка быстрого добавления записи справочника — форма строится динамически
 // по схеме из quickAdd/schema.ts, без отдельного Vue-компонента на каждый из полутора десятков
-// справочников. Портировано с openQuickModal()/saveQuickForm() в frontend/static/core.js/app.js
+// справочников. Портировано с openQuickModal()/saveQuickForm() прежнего vanilla-фронтенда (до 2.60.0)
 // (см. schema.ts про то, что сознательно не перенесено).
 import { computed, reactive, ref } from 'vue'
 import { createResource } from '../api/client'

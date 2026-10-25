@@ -3,7 +3,7 @@
 // В dev-режиме запросы идут на относительный путь /api/v1/..., а Vite dev-сервер
 // проксирует их на бэкенд (см. vite.config.ts, server.proxy) — то же самое
 // поведение, что и в проде, где FastAPI отдаёт собранный dist/ со своего же origin
-// (см. backend/app/api/system.py: GET '/' отдаёт FRONTEND_DIR/index.html).
+// (см. backend/app/main.py:spa_fallback: отдаёт index.html из FRONTEND_DIR).
 // Благодаря этому не нужен CORS в dev и не нужно переключать base URL между режимами.
 const API_BASE = '/api/v1'
 
@@ -72,8 +72,8 @@ export class ApiError extends Error {
   status: number
   /** Код ошибки из detail.code (см. backend/app/constants.py:ErrorCode) — например
    * DUPLICATE_SYSTEM_NAME, RACK_POSITION_OCCUPIED, REFERENCED_BY_OTHER_RECORDS.
-   * Используется, чтобы предлагать "сохранить всё равно?" так же, как в текущем
-   * vanilla-фронтенде (см. parseApiError()/confirm() в frontend/static/app.js:saveForm). */
+   * Используется, чтобы предлагать "сохранить всё равно?" так же, как в прежнем
+   * vanilla-фронтенде (parseApiError()/confirm() в saveForm, до 2.60.0). */
   code: string | null
   /** Через сколько секунд повторить запрос — из заголовка Retry-After (429 TOO_MANY_ATTEMPTS при переборе пароля).
    * null — заголовка нет или он не распознан. */
@@ -206,7 +206,7 @@ export const api = {
 /**
  * Универсальный CRUD-ресурс — см. backend/app/api/resources.py, /api/v1/resources/{resource}.
  * Важно: эндпоинт всегда отдаёт {items, total, offset, limit} (см.
- * backend/app/services/crud.py:list_resource), а НЕ голый массив — легко перепутать
+ * backend/app/services/crud/generic.py:list_resource), а НЕ голый массив — легко перепутать
  * с /api/v1/devices, у которого total есть, но offset/limit нет (там нет пагинации
  * на бэкенде, см. api/types.ts:DevicesResponse).
  */

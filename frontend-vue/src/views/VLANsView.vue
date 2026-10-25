@@ -28,9 +28,9 @@ const deletingId = ref<string | null>(null)
 // Разовое назначение одного VLAN сразу нескольким устройствам — в отличие от доменов VLAN
 // (которые синхронизируют весь набор VLAN с "устройства-источника" и рассчитаны на повторное
 // использование), это одноразовое действие без создания домена. Портировано с
-// vlanBulkAssignPanelHtml()/applyVlanBulkAssign() в frontend/static/vlan.js. IP-адрес
+// vlanBulkAssignPanelHtml()/applyVlanBulkAssign() прежнего vanilla-фронтенда (до 2.60.0). IP-адрес
 // намеренно не запрашивается — см. docstring bulk_assign_vlan() на бэкенде
-// (backend/app/api/system.py): один и тот же IP на нескольких устройствах в одном VLAN был бы
+// (backend/app/api/vlan.py): один и тот же IP на нескольких устройствах в одном VLAN был бы
 // некорректен, а разные IP для каждого устройства — уже не массовое действие.
 const bulkAssignOpen = ref(false)
 const bulkVlanId = ref('')

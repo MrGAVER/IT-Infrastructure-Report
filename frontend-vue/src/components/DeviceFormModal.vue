@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Форма создания/редактирования устройства.
 //
-// Повторяет логику подтверждения конфликтов из текущего vanilla-фронтенда
-// (frontend/static/app.js:saveForm) для консистентности UX: два специфичных
+// Повторяет логику подтверждения конфликтов из прежнего vanilla-фронтенда
+// (saveForm, до 2.60.0) для консистентности UX: два специфичных
 // кода 409-ошибки (см. backend/app/constants.py:ErrorCode) предлагают
 // подтверждение через window.confirm() и повторную отправку с флагом, вместо
 // того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
@@ -65,8 +65,8 @@ const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 // Устройство, которое ЭТА форма уже создала, но не смогла сохранить целиком: после createResource идёт
 // несколько отдельных запросов (ПО, домены, VLAN, порты и подключения), и сбой любого из них оставляет
-// устройство в БД. Пока оно задано, повторное «Сохранить» ОБНОВЛЯЕТ его — иначе второй POST создал бы дубль
-// (или упёрся бы в уникальность серийного номера), а пользователь не смог бы исправить данные и дозаписать.
+// устройство в БД. Пока оно задано, повторное «Сохранить» ОБНОВЛЯЕТ его — иначе второй POST создал бы дубль,
+// а пользователь не смог бы исправить данные и дозаписать.
 const createdDevice = ref<Device | null>(null)
 // Домены, в которые устройство уже включено запросом этой формы: повтор после сбоя не должен отправлять
 // POST vlan-domain-devices второй раз (связь уже создана).
@@ -403,7 +403,7 @@ watch(
       ])
       // При копировании каждая вложенная строка должна создаться заново под НОВЫМ устройством, а
       // не обновить запись донора — id донора здесь означал бы именно "обновить эту же запись", и
-      // backend/app/services/crud.py:sync_interfaces (для интерфейсов) или generic create/update
+      // backend/app/services/crud/interfaces.py:sync_interfaces (для интерфейсов) или generic create/update
       // (для device-vlans/deployed-software — оба без выделенной sync-функции) отклонит его 422
       // "не принадлежит выбранному устройству", т.к. у нового устройства такого id ещё нет и
       // появиться неоткуда. stripIds() (см. ниже) убирает id из каждой строки — тогда backend
@@ -694,7 +694,7 @@ async function onJoinDomainRequested(domainId: string) {
   // Пункт 4: VLAN выбранного домена сразу попадают в черновик "VLAN устройства". Это не только
   // удобство: persistDeviceVlans() (PUT /devices/{id}/vlans) приводит VLAN устройства в БД ровно к
   // черновику — записи, которых в нём нет, удаляются. Поэтому VLAN, которые бэкенд сам назначит при
-  // создании членства (services/crud.py:assign_domain_vlans_to_device), но которых нет в черновике,
+  // создании членства (services/crud/vlan_domains.py:assign_domain_vlans_to_device), но которых нет в черновике,
   // были бы тут же убраны при этом же сохранении. Стор перезагружается (а не ensureLoaded), чтобы набор
   // VLAN домена был актуален на момент нажатия, а не на момент первой загрузки экрана.
   await vlansStore.reload()
@@ -730,7 +730,7 @@ async function persistSoftwareAssets(deviceId: string, deviceExisted: boolean) {
 
 // Фикс п.1.3.8: закрепляет на бэкенде членство устройства в доменах, добавленных локально через
 // onVlanCreated() выше (см. её комментарий и комментарий к pendingDomainMemberships). ДО
-// persistDeviceVlans() ниже — _validate_physical_device_vlan в backend/app/services/crud.py
+// persistDeviceVlans() ниже — _validate_physical_device_vlan в backend/app/services/crud/validators.py
 // проверяет членство устройства в домене VLAN при сохранении device-vlans и отклоняет запись
 // с 422 "Устройство не включено в домен этого VLAN", если членства ещё нет.
 // Уже созданные связи (joinedDomainIds) при повторе после сбоя пропускаются: POST — не идемпотентен.
@@ -830,7 +830,7 @@ async function submit() {
         await persistPendingSourceDomains(saved.id)
         // persistDeviceVlans ДО persistDeviceInterfaces (не как раньше) — sync_interfaces на
         // бэкенде проверяет vlan_ids порта против уже сохранённых в БД PhysicalDeviceVLAN (см.
-        // allowed_vlans в backend/app/services/crud.py). Если VLAN только что добавлен в блок
+        // allowed_vlans в backend/app/services/crud/interfaces.py). Если VLAN только что добавлен в блок
         // "VLAN устройства" и тут же назначен порту в этом же сохранении, к моменту проверки он
         // должен уже быть в БД — иначе 422 "VLAN не разрешён" на ровном месте для пользователя.
         const deviceVlansChanged = !!props.device && deviceVlanKey(deviceVlans.value) !== initialDeviceVlanKey

@@ -3,11 +3,11 @@
 // Переиспользуется DeviceFormModal.vue (динамически, вместе с ещё не сохранёнными правками
 // блока "VLAN устройства" самой формы) и DevicePortsModal.vue (статически, по уже сохранённым в
 // БД данным устройства — см. управление портами с экрана «Подключения»). Разрешённый набор
-// совпадает с тем, что backend/app/services/crud.py:sync_interfaces фактически примет как
+// совпадает с тем, что backend/app/services/crud/interfaces.py:sync_interfaces фактически примет как
 // allowed_vlans при PUT /devices/{id}/interfaces: DeviceTypeVLAN (каталог типа устройства) ∪
 // PhysicalDeviceVLAN (уже назначенные устройству VLAN). Портировано из
 // loadInterfaceEditor()/deviceVlanOptions/sortedVlanOptions() в
-// frontend/static/device-interfaces.js.
+// прежнем vanilla-фронтенде (до 2.60.0).
 import { api, listAllResource } from './client'
 import type { Device, DeviceInterface, DeviceTypeVLAN, DeviceVLAN, InterfaceVlansEntry, VLANDefinition, VlanMode } from './types'
 

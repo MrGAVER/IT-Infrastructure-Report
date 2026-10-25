@@ -1,6 +1,6 @@
 // Сохранение вложенных списков ВМ — открытых портов, IP-адресов и программных активов — одним
 // атомарным запросом на список: PUT /vms/{id}/open-ports | /ip-addresses | /deployed-software
-// (см. backend/app/services/crud.py: sync_vm_open_ports, sync_vm_ip_addresses,
+// (см. backend/app/services/crud/owned_rows.py: sync_vm_open_ports, sync_vm_ip_addresses,
 // sync_vm_deployed_software). Сервер сам сравнивает присланный список с тем, что уже есть в БД, по id:
 // строка с id обновляет существующую запись, без id создаёт новую, записи, которых в списке нет,
 // удаляются. Поэтому форма ВМ больше не удаляет и не создаёт записи заново при каждом сохранении —

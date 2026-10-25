@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Форма VLAN-домена. В отличие от generic-формы vanilla-версии (core.js:FORM_FIELDS —
+// Форма VLAN-домена. В отличие от generic-формы vanilla-версии (до 2.60.0, FORM_FIELDS —
 // только name/description/auto_sync), здесь дополнительно редактируется source_device_id и
 // состав участников — иначе домен, созданный через новый UI, никогда нельзя было бы
-// синхронизировать (backend/app/api/system.py:sync_vlan_domain требует source_device_id), а
+// синхронизировать (backend/app/api/vlan.py:sync_vlan_domain требует source_device_id), а
 // единственный способ добавить участника в vanilla — косвенный, через "Создать домен VLAN" в
 // редакторе VLAN устройства (см. DeviceVlanListEditor.vue), который сюда не перенесён.
 //
@@ -129,7 +129,7 @@ async function submit() {
     else await createResource('vlan-domains', payload)
     // Сама перезапись — это то, ради чего только что подтверждено предупреждение выше; без этого
     // вызова оно описывало бы последствие, которого на самом деле не происходит (см. docstring
-    // sync_vlan_domain в api/system.py про replace=true).
+    // sync_vlan_domain в api/vlan.py про replace=true).
     if (sourceChanged) {
       await api.post(`/vlan-domains/${props.domain!.id}/sync`, { replace: true })
     }

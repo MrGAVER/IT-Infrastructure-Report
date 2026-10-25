@@ -1,7 +1,7 @@
 // Плоский список путей полей до 2 связей вглубь (field / relation.field / relation[].relation2.field)
 // для палитры полей и подсказки рядом с полем пути ячейки. Ровно один сегмент "[]" на путь — то же
 // ограничение, что и в report_engine.py:validate_path на бэкенде (не более одной связи "многие" в
-// одном пути). Портировано из rbFlattenPaths()/rbLabel() в frontend/static/report_builder.js —
+// одном пути). Портировано из rbFlattenPaths()/rbLabel() прежнего vanilla-фронтенда (до 2.60.0) —
 // один в один та же логика обхода, чтобы палитра предлагала ровно те пути, которые бэкенд примет.
 import type { ReportEntityMeta } from '../api/types'
 

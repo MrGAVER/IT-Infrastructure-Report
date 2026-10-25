@@ -2,7 +2,7 @@
 // Назначение VLAN устройству (device-vlans) — в отличие от interface_vlans (см.
 // DeviceInterfacesEditor.vue), не привязано к конкретному порту, а к устройству в целом.
 // Портировано с loadDeviceVlanEditor()/saveDeviceVlans() в
-// frontend/static/device-interfaces.js.
+// прежнем vanilla-фронтенде (до 2.60.0).
 //
 // СОЗНАТЕЛЬНО НЕ ПЕРЕНЕСЕНО: "Создать домен VLAN" и "Скопировать VLAN с другого устройства" —
 // в vanilla-версии оба построены на нативных window.prompt(), что не вписывается в стиль этого

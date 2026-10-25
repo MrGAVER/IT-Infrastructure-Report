@@ -8,7 +8,7 @@ import type { useCatalogsStore } from '../stores/catalogs'
  * ISSourcesListEditor.vue (физический источник ИС) — вынесено сюда, чтобы оба места не
  * разошлись в определении "что считается сервером/СХД" при будущих правках. Совпадает с
  * фильтром бэкенда (validate_vm_host в backend/app/services/validation.py) и с vanilla-версией
- * (openInformationSystemForm в frontend/static/information-systems.js) — фильтрация здесь не
+ * (openInformationSystemForm прежнего vanilla-фронтенда (до 2.60.0)) — фильтрация здесь не
  * замена серверной проверке, а просто не даёт пользователю выбрать заведомо неподходящее
  * устройство в выпадающем списке.
  */
