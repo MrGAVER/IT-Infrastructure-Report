@@ -31,6 +31,9 @@ beforeEach(async () => {
   localStorage.clear()
   setStoredToken(null)
   await router.replace('/report-templates').catch(() => undefined) // не оставляем состояния от прошлого теста
+  // Возврат на нейтральный маршрут идёт через гард с настоящим (не подменённым) fetch и мог бы инициализировать стор
+  // аутентификации «выключенной аутентификацией» — тесту нужен чистый стор, иначе результат зависит от порядка тестов.
+  setActivePinia(createPinia())
 })
 
 describe('meta.requiresWrite в таблице маршрутов', () => {
