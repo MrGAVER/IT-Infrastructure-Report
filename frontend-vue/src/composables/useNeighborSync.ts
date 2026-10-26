@@ -19,7 +19,6 @@ import { rowRef, type ConfigDiffKind, type PeerConfigTarget } from '../utils/int
 import type { ConflictKind } from '../utils/interfaceRowView'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useAllVlansSettle } from './useAllVlansSettle'
-import { useOverlayDismiss } from './useOverlayDismiss'
 import { useToast } from './useToast'
 import { useVlanModeCascade } from './useVlanModeCascade'
 
@@ -75,7 +74,6 @@ export function useNeighborSync(deps: NeighborSyncDeps) {
   function closeConflict() {
     activeConflict.value = null
   }
-  const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(closeConflict)
 
   const { allVlansPrompt, answerAllVlansPrompt, ownSide, peerSide, conflictPeerSide, settleAllVlans } = useAllVlansSettle({
     rows: deps.rows,
@@ -374,8 +372,6 @@ export function useNeighborSync(deps: NeighborSyncDeps) {
     rowConflict,
     openConflict,
     closeConflict,
-    onOverlayPointerDown,
-    onOverlayClick,
     cascadePending,
     cascadeApplying,
     cascadeConfirm,

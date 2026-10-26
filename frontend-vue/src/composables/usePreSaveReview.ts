@@ -8,7 +8,6 @@ import type { InterfaceDraftRow } from '../api/types'
 import type { ConfigDiffKind, ConnectionBaseline, PeerConfigTarget } from '../utils/interfaceConnections'
 import { buildReviewItems, collectReviewEntries, type ReviewEntry, type ReviewItem, type ReviewPeers } from '../utils/neighborReview'
 import type { PortConfig } from '../utils/portConflicts'
-import { useOverlayDismiss } from './useOverlayDismiss'
 import { useToast } from './useToast'
 
 export interface PreSaveReviewDeps {
@@ -72,7 +71,6 @@ export function usePreSaveReview(deps: PreSaveReviewDeps) {
     reviewResolve = null
     resolve?.(proceed)
   }
-  const { onOverlayPointerDown: onReviewOverlayPointerDown, onOverlayClick: onReviewOverlayClick } = useOverlayDismiss(() => finishReview(false))
 
   async function reviewApplyNeighbor(item: ReviewItem) {
     await deps.applyPeerConfigToPort(item.index, item.peer, item.kinds)
@@ -113,5 +111,5 @@ export function usePreSaveReview(deps: PreSaveReviewDeps) {
     })
   }
 
-  return { reviewOpen, reviewItems, onReviewOverlayPointerDown, onReviewOverlayClick, finishReview, reviewApplyNeighbor, reviewApplyCurrent, refreshReviewPeers, reviewNeighborMismatches }
+  return { reviewOpen, reviewItems, finishReview, reviewApplyNeighbor, reviewApplyCurrent, refreshReviewPeers, reviewNeighborMismatches }
 }

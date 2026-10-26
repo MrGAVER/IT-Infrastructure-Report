@@ -4,7 +4,6 @@ import { computed, ref } from 'vue'
 import type { InterfaceDraftRow, VLANDefinition } from '../api/types'
 import type { ManagedFields } from '../utils/interfaceGroups'
 import { applyBulkEditToRows } from '../utils/interfaceBulkEdit'
-import { useOverlayDismiss } from './useOverlayDismiss'
 import { useToast } from './useToast'
 import type { RowUiState } from './useRowUiState'
 
@@ -31,7 +30,6 @@ export function useBulkEdit(deps: BulkEditDeps, ui: RowUiState) {
   // (а с ней — всю таблицу). Сама ячейка показывает только краткую сводку.
   const bulkVlanPickerOpen = ref(false)
   const bulkVlanSummary = computed(() => (bulkAllVlans.value ? 'Все VLAN' : bulkVlanIds.value.size ? `Выбрано VLAN: ${bulkVlanIds.value.size}` : '— выбрать VLAN —'))
-  const { onOverlayPointerDown: onVlanPickerOverlayPointerDown, onOverlayClick: onVlanPickerOverlayClick } = useOverlayDismiss(() => (bulkVlanPickerOpen.value = false))
 
   function toggleBulkVlan(vlanDefId: string, checked: boolean) {
     if (checked) bulkVlanIds.value.add(vlanDefId)
@@ -82,8 +80,6 @@ export function useBulkEdit(deps: BulkEditDeps, ui: RowUiState) {
     bulkAllVlans,
     bulkVlanPickerOpen,
     bulkVlanSummary,
-    onVlanPickerOverlayPointerDown,
-    onVlanPickerOverlayClick,
     toggleBulkVlan,
     toggleBulkAllVlans,
     applyBulkEdit,

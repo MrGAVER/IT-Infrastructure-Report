@@ -45,9 +45,8 @@ import { useVlanSelection } from '../composables/useVlanSelection'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import { TEMPLATE_HELP_TEXT } from '../utils/interfaceRowDraft'
-import { conflictSummary, conflictTitle, connectionSummary, duplicatePortsText, staleSubinterfaceText, trunkVlanSummary, trunkVlanTitle, vlanCellSummary } from '../utils/interfaceRowView'
+import { conflictSummary, connectionSummary, duplicatePortsText, staleSubinterfaceText, trunkVlanSummary, trunkVlanTitle, vlanCellSummary } from '../utils/interfaceRowView'
 import { freedPeerIds as computeFreedPeerIds, selfPortCandidates, takenPeerIds } from '../utils/interfacePeers'
-import { carriesAllVlans } from '../utils/allVlans'
 import { duplicatePortNumbers } from '../utils/openPorts'
 import { moveStaleMessage, moveStaleSubinterfaces, portVlanOptions, staleSubinterfaces } from '../utils/subinterfaces'
 import { newRowKey, type ConnectionBaseline } from '../utils/interfaceConnections'
@@ -59,6 +58,11 @@ import InterfaceSubinterfacesEditor from './InterfaceSubinterfacesEditor.vue'
 import InterfaceGroupsPanel from './InterfaceGroupsPanel.vue'
 import InterfaceConnectionEditor from './InterfaceConnectionEditor.vue'
 import AllVlansChoiceModal from './AllVlansChoiceModal.vue'
+import BulkVlanPickerModal from './BulkVlanPickerModal.vue'
+import InterfaceBulkBar from './InterfaceBulkBar.vue'
+import InterfaceStaleBar from './InterfaceStaleBar.vue'
+import NeighborReviewModal from './NeighborReviewModal.vue'
+import PortConflictModal from './PortConflictModal.vue'
 import PortVlanPickerModal from './PortVlanPickerModal.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import VlanModeCascadeModal from './VlanModeCascadeModal.vue'
@@ -169,8 +173,6 @@ const {
   bulkAllVlans,
   bulkVlanPickerOpen,
   bulkVlanSummary,
-  onVlanPickerOverlayPointerDown,
-  onVlanPickerOverlayClick,
   toggleBulkVlan,
   toggleBulkAllVlans,
   applyBulkEdit,
@@ -182,16 +184,11 @@ const { vlanPickerIndex, vlanPickerRow, toggleVlan, setVlanMode, setAccessVlan, 
 })
 
 const staleSubinterfaceCount = computed(() => props.modelValue.reduce((sum, row) => sum + staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).length, 0))
-const sortedVlanOptions = computed(() => [...props.vlanOptions].sort((a, b) => a.vlan_id - b.vlan_id))
-const bulkMoveTargetId = ref('')
 
-// Массовый перенос: все подинтерфейсы на недоступных VLAN — на один выбранный VLAN устройства одним действием (вместо правки
-// каждого). Там, где на порту этот VLAN уже занят, подинтерфейс остаётся на месте — о таких говорит предупреждение.
-function moveAllStaleSubinterfaces() {
-  const target = props.vlanOptions.find((v) => v.id === bulkMoveTargetId.value)
-  if (!target) return
+// Массовый перенос (InterfaceStaleBar.vue): все подинтерфейсы на недоступных VLAN — на один выбранный VLAN устройства одним действием
+// (вместо правки каждого). Там, где на порту этот VLAN уже занят, подинтерфейс остаётся на месте — о таких говорит предупреждение.
+function moveAllStaleSubinterfaces(target: VLANDefinition) {
   const result = moveStaleSubinterfaces(props.modelValue, target, allowedVlanIds.value, knownVlans.value)
-  bulkMoveTargetId.value = ''
   if (result.moved.length) emit('update:modelValue', result.rows)
   const message = moveStaleMessage(result, target)
   if (message) notify(message.text, message.type)
@@ -214,6 +211,9 @@ watch(
   { immediate: true },
 )
 
+// Порт, у которого открыто окно решения расхождения (по индексу из activeConflict; пока окно открыто, строки могут измениться).
+const conflictRow = computed(() => (activeConflict.value ? props.modelValue[activeConflict.value.index] : undefined))
+
 // Порты соседей, которые эта форма освобождает: подключение порта снято или переставлено на другой порт.
 const freedPeerIds = computed(() => computeFreedPeerIds(props.modelValue, props.connectionBaseline))
 
@@ -227,8 +227,6 @@ const {
   rowConflict,
   openConflict,
   closeConflict,
-  onOverlayPointerDown,
-  onOverlayClick,
   cascadePending,
   cascadeApplying,
   cascadeConfirm,
@@ -256,7 +254,7 @@ const {
   onCascadeFinished: () => void refreshReviewPeers(),
 })
 
-const { reviewOpen, reviewItems, onReviewOverlayPointerDown, onReviewOverlayClick, finishReview, reviewApplyNeighbor, reviewApplyCurrent, refreshReviewPeers, reviewNeighborMismatches } = usePreSaveReview({
+const { reviewOpen, reviewItems, finishReview, reviewApplyNeighbor, reviewApplyCurrent, refreshReviewPeers, reviewNeighborMismatches } = usePreSaveReview({
   rows: () => props.modelValue,
   deviceId: () => props.deviceId,
   editConnections: () => props.editConnections,
@@ -318,14 +316,7 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
       <span class="hint">Управление отмечается на одном или нескольких интерфейсах — все их IP считаются IP управления.</span>
     </div>
 
-    <div v-if="staleSubinterfaceCount" class="stale-bulk" role="status">
-      <span>Подинтерфейсов на VLAN, не назначенном устройству: {{ staleSubinterfaceCount }}.</span>
-      <select v-model="bulkMoveTargetId" aria-label="Перенести все такие подинтерфейсы на VLAN" :disabled="!vlanOptions.length">
-        <option value="">Перенести все на VLAN…</option>
-        <option v-for="v in sortedVlanOptions" :key="v.id" :value="v.id">{{ vlanLabel(v) }}</option>
-      </select>
-      <button type="button" class="btn btn-secondary" :disabled="!bulkMoveTargetId" @click="moveAllStaleSubinterfaces">Перенести</button>
-    </div>
+    <InterfaceStaleBar v-if="staleSubinterfaceCount" :count="staleSubinterfaceCount" :vlan-options="vlanOptions" @move="moveAllStaleSubinterfaces" />
 
     <div class="generator">
       <label>
@@ -425,66 +416,19 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
           </tr>
         </thead>
         <tbody>
-          <tr class="bulk-edit-row">
-            <td class="col-select">—</td>
-            <td class="col-index">—</td>
-            <td class="col-order">—</td>
-            <td><b>Массовое редактирование</b></td>
-            <td>
-              <select class="cell-input" v-model="bulkTypeId" aria-label="Тип интерфейса — массовое редактирование">
-                <option value="">— не менять —</option>
-                <option v-for="t in typeOptions" :key="t.id" :value="t.id">{{ t.name }}</option>
-              </select>
-            </td>
-            <td>—</td>
-            <td>
-              <select class="cell-input" v-model="bulkSpeedId" aria-label="Скорость — массовое редактирование">
-                <option value="">— не менять —</option>
-                <option v-for="s in speedOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-              </select>
-            </td>
-            <td class="col-check">
-              <select class="cell-input bulk-tri-select" v-model="bulkManagement" aria-label="Управление — массовое редактирование">
-                <option value="">—</option>
-                <option value="true">Вкл</option>
-                <option value="false">Выкл</option>
-              </select>
-            </td>
-            <td class="col-check">
-              <select class="cell-input bulk-tri-select" v-model="bulkDataTransfer" aria-label="Передача данных — массовое редактирование">
-                <option value="">—</option>
-                <option value="true">Вкл</option>
-                <option value="false">Выкл</option>
-              </select>
-            </td>
-            <td class="col-vlan-bulk">
-              <select class="cell-input" v-model="bulkVlanMode" aria-label="Режим порта — массовое редактирование">
-                <option value="">— не менять —</option>
-                <option value="trunk">Trunk</option>
-                <option value="access">Access</option>
-              </select>
-              <button
-                v-if="vlanOptions.length"
-                type="button"
-                class="btn btn-secondary vlan-picker-btn"
-                @click="bulkVlanPickerOpen = true"
-              >
-                {{ bulkVlanSummary }}
-              </button>
-              <span v-else class="empty">VLAN не назначены</span>
-            </td>
-            <td class="col-actions">
-              <button
-                type="button"
-                class="icon-btn"
-                title="Применить заполненные поля этой строки к отмеченным галочкой интерфейсам ниже"
-                aria-label="Применить к выбранным"
-                @click="applyBulkEdit"
-              >
-                <svg class="icon"><use href="/icons.svg#i-check" /></svg>
-              </button>
-            </td>
-          </tr>
+          <InterfaceBulkBar
+            v-model:type-id="bulkTypeId"
+            v-model:speed-id="bulkSpeedId"
+            v-model:management="bulkManagement"
+            v-model:data-transfer="bulkDataTransfer"
+            v-model:vlan-mode="bulkVlanMode"
+            :type-options="typeOptions"
+            :speed-options="speedOptions"
+            :has-vlans="vlanOptions.length > 0"
+            :vlan-summary="bulkVlanSummary"
+            @open-vlan-picker="bulkVlanPickerOpen = true"
+            @apply="applyBulkEdit"
+          />
           <template v-for="(row, i) in modelValue" :key="row.id ?? row.key ?? i">
             <tr class="iface-row">
               <td class="col-select">
@@ -773,34 +717,17 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
     </div>
   </div>
 
-  <!-- Пункт 3 правки "физическое устройство: массовое редактирование" — список VLAN для
-       массового назначения вынесен из ячейки таблицы во всплывающее окно (см. bulkVlanPickerOpen
-       выше) — сама модалка со своей внутренней прокруткой, а не растягивающийся список в ячейке. -->
-  <div v-if="bulkVlanPickerOpen" class="overlay" @mousedown="onVlanPickerOverlayPointerDown" @click="onVlanPickerOverlayClick">
-    <div class="vlan-picker-modal card" role="dialog" aria-modal="true">
-      <div class="conflict-modal-head">
-        <h3>Выбор VLAN — массовое редактирование</h3>
-        <button type="button" class="icon-btn" aria-label="Закрыть" @click="bulkVlanPickerOpen = false">
-          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
-        </button>
-      </div>
-      <div class="vlan-checks vlan-picker-list">
-        <!-- Пункт 4 (предыдущая правка): галочка "Все VLAN" — показывается только при выбранном
-             Trunk, т.к. для access (не более одного VLAN) она не имеет смысла. -->
-        <label v-if="bulkVlanMode === 'trunk'" class="vlan-check vlan-check-all">
-          <input type="checkbox" :checked="bulkAllVlans" @change="toggleBulkAllVlans(($event.target as HTMLInputElement).checked)" />
-          <b>Все VLAN</b>
-        </label>
-        <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
-          <input type="checkbox" :checked="bulkVlanIds.has(v.id)" @change="toggleBulkVlan(v.id, ($event.target as HTMLInputElement).checked)" />
-          {{ vlanLabel(v) }}
-        </label>
-      </div>
-      <div class="conflict-modal-actions">
-        <button type="button" class="btn btn-primary" @click="bulkVlanPickerOpen = false">Готово</button>
-      </div>
-    </div>
-  </div>
+  <!-- Список VLAN для массового назначения — во всплывающем окне (useBulkEdit: bulkVlanPickerOpen), а не растягивающийся список в ячейке. -->
+  <BulkVlanPickerModal
+    v-if="bulkVlanPickerOpen"
+    :vlan-options="vlanOptions"
+    :vlan-mode="bulkVlanMode"
+    :all-vlans="bulkAllVlans"
+    :selected-ids="bulkVlanIds"
+    @toggle-all="toggleBulkAllVlans"
+    @toggle-vlan="toggleBulkVlan"
+    @close="bulkVlanPickerOpen = false"
+  />
 
   <!-- Выбор VLAN trunk-порта строки таблицы: окно со своим поиском вместо длинного списка чекбоксов в карточке порта. -->
   <PortVlanPickerModal
@@ -816,107 +743,28 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
     @close="vlanPickerIndex = null"
   />
 
-  <!-- Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения:
-       показывает конфигурацию текущего порта и соседнего рядом, даёт применить любую из двух. -->
   <!-- Проверка расхождений с соседями при нажатии «Сохранить». Стоит ДО окна последствий каскада режима порта
        (VlanModeCascadeModal): оно открывается из этого диалога и должно быть выше него. -->
-  <div v-if="reviewOpen" class="overlay" @mousedown="onReviewOverlayPointerDown" @click="onReviewOverlayClick">
-    <div class="conflict-modal review-modal card" role="alertdialog" aria-modal="true" aria-labelledby="neighbor-review-title">
-      <div class="conflict-modal-head">
-        <h3 id="neighbor-review-title">Настройки порта расходятся с соседним портом</h3>
-        <button type="button" class="icon-btn" aria-label="Вернуться к форме" @click="finishReview(false)">
-          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
-        </button>
-      </div>
-      <template v-if="reviewItems.length">
-        <p class="conflict-modal-desc">
-          Назначение («Управление» / «Передача данных»), режим порта (Trunk / Access) или «Все VLAN» отличается от настроек порта на другом конце подключения. Можно
-          привести их к одному виду сейчас (для «Все VLAN» значение выбираете вы) или сохранить как есть — расхождение будет отмечено на экране «Подключения».
-        </p>
-        <ul class="review-list">
-          <li v-for="item in reviewItems" :key="item.key" class="review-item">
-            <div class="review-item-title">Порт «{{ item.row.name.trim() || 'без имени' }}» ↔ {{ item.peer.label }}</div>
-            <div class="review-item-diffs">{{ item.texts.join('; ') }}</div>
-            <div class="review-item-actions">
-              <button type="button" class="btn btn-secondary" :disabled="applyingPeerConfig || cascadeApplying" title="Этому порту — назначение, режим порта и «Все VLAN» соседа" @click="reviewApplyNeighbor(item)">
-                Применить конфигурацию соседа
-              </button>
-              <button type="button" class="btn btn-secondary" :disabled="applyingPeerConfig || cascadeApplying" title="Соседу — назначение, режим порта и «Все VLAN» этого порта" @click="reviewApplyCurrent(item)">
-                Применить текущую конфигурацию
-              </button>
-            </div>
-            <small v-if="!item.peer.isSelf" class="review-item-note">Сосед — порт другого устройства: его настройки изменятся сразу, не дожидаясь сохранения формы.</small>
-          </li>
-        </ul>
-      </template>
-      <p v-else class="conflict-modal-desc review-done">Расхождений не осталось.</p>
-      <div class="review-footer">
-        <button type="button" class="btn btn-secondary" @click="finishReview(false)">Вернуться к форме</button>
-        <button type="button" class="btn btn-primary" @click="finishReview(true)">{{ reviewItems.length ? 'Сохранить как есть' : 'Сохранить' }}</button>
-      </div>
-    </div>
-  </div>
+  <NeighborReviewModal
+    v-if="reviewOpen"
+    :items="reviewItems"
+    :busy="applyingPeerConfig || cascadeApplying"
+    @finish="finishReview"
+    @apply-neighbor="reviewApplyNeighbor"
+    @apply-current="reviewApplyCurrent"
+  />
 
-  <div v-if="activeConflict" class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="conflict-modal card" role="dialog" aria-modal="true">
-      <div class="conflict-modal-head">
-        <h3>{{ conflictTitle(activeConflict.kind) }}</h3>
-        <button type="button" class="icon-btn" aria-label="Закрыть" @click="closeConflict">
-          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
-        </button>
-      </div>
-      <p class="conflict-modal-desc">
-        Порт «{{ modelValue[activeConflict.index].name }}» соединён с портом «{{ rowConflict(modelValue[activeConflict.index])?.otherInterfaceName }}» устройства
-        «{{ rowConflict(modelValue[activeConflict.index])?.otherDeviceName }}», но их настройки разошлись.
-      </p>
-      <table class="conflict-compare">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Этот порт</th>
-            <th>Соседний порт</th>
-          </tr>
-        </thead>
-        <tbody v-if="activeConflict.kind === 'flags'">
-          <tr>
-            <td>Управление</td>
-            <td>{{ modelValue[activeConflict.index].is_management ? 'Да' : 'Нет' }}</td>
-            <td>{{ rowConflict(modelValue[activeConflict.index])?.other.is_management ? 'Да' : 'Нет' }}</td>
-          </tr>
-          <tr>
-            <td>Передача данных</td>
-            <td>{{ modelValue[activeConflict.index].is_data_transfer ? 'Да' : 'Нет' }}</td>
-            <td>{{ rowConflict(modelValue[activeConflict.index])?.other.is_data_transfer ? 'Да' : 'Нет' }}</td>
-          </tr>
-        </tbody>
-        <tbody v-else-if="activeConflict.kind === 'all_vlans'">
-          <tr>
-            <td>Все VLAN</td>
-            <td>{{ carriesAllVlans(modelValue[activeConflict.index]) ? 'Да' : 'Нет' }}</td>
-            <td>{{ rowConflict(modelValue[activeConflict.index])?.other.all_vlans ? 'Да' : 'Нет' }}</td>
-          </tr>
-        </tbody>
-        <tbody v-else>
-          <tr>
-            <td>Режим порта</td>
-            <td>{{ modelValue[activeConflict.index].vlan_mode === 'access' ? 'Access' : 'Trunk' }}</td>
-            <td>{{ rowConflict(modelValue[activeConflict.index])?.other.vlan_mode === 'access' ? 'Access' : 'Trunk' }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="conflict-modal-actions">
-        <button type="button" class="btn btn-secondary" :disabled="applyingConflict" @click="applyNeighborConfig">Применить конфигурацию соседа</button>
-        <button type="button" class="btn btn-primary" :disabled="applyingConflict" @click="applyCurrentConfigToNeighbor">Применить текущую конфигурацию</button>
-      </div>
-      <p v-if="activeConflict.kind === 'vlan_mode'" class="conflict-modal-hint">
-        Если порт (свой или соседа) входит в группу или связан с другими портами, режим сменится у всей группы и у связанных портов, чтобы расхождения не появились
-        в другом месте. Перед применением будет показан список всех последствий. Если после смены режима у портов разойдётся «Все VLAN», предложим выбрать значение.
-      </p>
-      <p v-if="activeConflict.kind === 'all_vlans'" class="conflict-modal-hint">
-        «Все VLAN» у устройств — разные наборы номеров, поэтому значение для порта выбираете вы: как у порта-источника или другое.
-      </p>
-    </div>
-  </div>
+  <!-- Окно решения расхождения порта с соседним: конфигурация текущего и соседнего порта рядом, можно применить любую из двух. -->
+  <PortConflictModal
+    v-if="activeConflict && conflictRow"
+    :row="conflictRow"
+    :conflict="rowConflict(conflictRow)"
+    :kind="activeConflict.kind"
+    :applying="applyingConflict"
+    @close="closeConflict"
+    @apply-neighbor="applyNeighborConfig"
+    @apply-current="applyCurrentConfigToNeighbor"
+  />
 
   <VlanModeCascadeModal
     v-if="cascadePending"
@@ -941,6 +789,9 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
   />
 </template>
 
+<style scoped src="../styles/interfaceTable.css"></style>
+<style scoped src="../styles/interfaceCellInput.css"></style>
+<style scoped src="../styles/interfaceVlanControls.css"></style>
 <style scoped>
 .nested-editor {
   grid-column: 1 / -1;
@@ -1031,10 +882,8 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
 .generator .lookup-row select {
   width: 130px;
 }
-/* Пункт 4 правки "создание физического устройства": панель массового редактирования стала
-   первой строкой той же <table class="iface-table"> ниже (было — отдельная flex-панель со
-   своими подписанными полями, см. историю фикса п.1.3.5 выше — тогда объединили только общую
-   рамку .iface-panel, не саму разметку). */
+/* Панель массового редактирования — первая строка той же <table class="iface-table"> (InterfaceBulkBar.vue), а не отдельная
+   flex-панель; общая рамка — .iface-panel. */
 .iface-panel {
   display: flex;
   flex-direction: column;
@@ -1042,39 +891,6 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
   border: 1px solid var(--border);
   border-radius: var(--r-m);
   padding: 10px;
-}
-.bulk-edit-row {
-  background: var(--surface-2);
-}
-.bulk-edit-row .cell-input {
-  width: 100%;
-}
-/* Тройной выбор "не менять/вкл/выкл" не помещается в узкую .col-check (рассчитанную на один
-   чекбокс 14×14) без переноса — расширяем только для этого select, не трогая ширину самой
-   колонки у остальных строк (у них там обычный чекбокс, ему запас не нужен). */
-.bulk-tri-select {
-  min-width: 64px;
-}
-.col-vlan-bulk {
-  min-width: 220px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.vlan-picker-btn {
-  white-space: nowrap;
-}
-.vlan-picker-modal {
-  width: 100%;
-  max-width: 360px;
-  padding: 18px 20px 16px;
-  display: flex;
-  flex-direction: column;
-  max-height: 80vh;
-}
-.vlan-picker-list {
-  overflow-y: auto;
-  margin-bottom: 14px;
 }
 .iface-list-head {
   display: flex;
@@ -1112,29 +928,7 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
   padding: 0 6px 6px;
   white-space: nowrap;
 }
-.iface-table td {
-  padding: 4px 6px;
-  vertical-align: middle;
-  border-top: 1px solid var(--border);
-}
-.iface-table .col-select,
-.iface-table .col-index,
-.iface-table .col-order,
-.iface-table .col-check,
-.iface-table .col-actions {
-  width: 1%;
-  white-space: nowrap;
-  text-align: center;
-}
-.iface-table .col-select input,
-.iface-table .col-check input {
-  accent-color: var(--brand);
-  width: 14px;
-  height: 14px;
-}
-.iface-table .col-index {
-  color: var(--ink-muted);
-}
+/* Ячейки и колонки таблицы (td, .col-*) — styles/interfaceTable.css, общий с InterfaceBulkBar.vue. */
 /* Столбец порядка: две кнопки-стрелки рядом, чтобы столбец оставался узким. */
 .iface-table .col-order .order-btn {
   display: inline-flex;
@@ -1159,37 +953,6 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
   position: absolute;
   top: 2px;
   right: 2px;
-}
-.cell-input {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 6px 7px;
-  font-size: 12px;
-  color: var(--ink);
-  font-family: inherit;
-  width: 100%;
-  min-width: 90px;
-  box-sizing: border-box;
-}
-.stale-bulk {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--status-warn);
-  border-radius: var(--r-s);
-  font-size: 12px;
-}
-.stale-bulk select {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 5px 8px;
-  font-size: 12px;
-  color: var(--ink);
-  font-family: inherit;
 }
 .expand-toggle {
   display: flex;
@@ -1275,11 +1038,6 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
   height: 14px;
   margin: 0;
 }
-.vlan-check-all {
-  padding-right: 10px;
-  margin-right: 4px;
-  border-right: 1px solid var(--border);
-}
 .trunk-row {
   display: flex;
   align-items: center;
@@ -1292,23 +1050,6 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
 .vlan-summary {
   font-size: 12px;
   color: var(--ink-muted);
-}
-.vlan-checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-}
-.vlan-check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--ink);
-}
-.vlan-check input {
-  accent-color: var(--brand);
-  width: 14px;
-  height: 14px;
 }
 .ip-block {
   display: flex;
@@ -1393,130 +1134,6 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
   color: var(--ink-muted);
 }
 
-/* Пункты 1-2 правки "физическое устройство: расхождение с соседним портом" — окно решения
-   конфликта. .overlay/.modal-head — та же база, что и в остальных модалках приложения (напр.
-   ConnectionFormModal.vue), но пошире карточка не нужна — здесь всего сравнительная таблица из
-   двух-трёх строк и две кнопки. */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 70;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 60px 16px;
-  overflow-y: auto;
-}
-.conflict-modal {
-  width: 100%;
-  max-width: 420px;
-  padding: 18px 20px 16px;
-}
-.conflict-modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.conflict-modal-head h3 {
-  font-family: var(--font-display);
-  font-size: 14.5px;
-  margin: 0;
-}
-.conflict-modal-desc {
-  font-size: 12px;
-  color: var(--ink-muted);
-  margin: 0 0 12px;
-}
-.conflict-compare {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
-  margin-bottom: 14px;
-}
-.conflict-compare th {
-  text-align: left;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ink-muted);
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-}
-.conflict-compare td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-}
-.conflict-compare tr:last-child td {
-  border-bottom: none;
-}
-.conflict-modal-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.conflict-modal-actions .btn {
-  width: 100%;
-  justify-content: center;
-}
-.conflict-modal-hint {
-  font-size: 11.5px;
-  color: var(--ink-muted);
-  margin: 10px 0 0;
-}
-.review-modal {
-  max-width: 560px;
-  max-height: 85vh;
-  overflow-y: auto;
-}
-.review-list {
-  list-style: none;
-  margin: 0 0 14px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.review-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.review-item-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.review-item-diffs {
-  font-size: 12px;
-  color: var(--status-warn);
-}
-.review-item-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.review-item-actions .btn {
-  padding: 5px 9px;
-  font-size: 11.5px;
-}
-.review-item-note {
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-.review-done {
-  color: var(--ink);
-}
-.review-footer {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 .conflict-icon-btn {
   border: none;
   background: transparent;
