@@ -31,47 +31,27 @@
 // 1.4.3.2) InterfaceDraftRow.vlan_mode — access (один VLAN, select) / trunk (чекбоксы, в т.ч.
 //   "Все VLAN" одним кликом).
 import { computed, nextTick, ref, watch } from 'vue'
-import { updateResource } from '../api/client'
-import { fetchAllFreeInterfaces } from '../api/deviceConnectivity'
-import { setPortConfig, type PortConfigPatch } from '../api/portConfig'
-import { loadPortVlanContext } from '../api/portVlans'
-import { useCatalogsStore } from '../stores/catalogs'
-import { useVLANsStore } from '../stores/vlans'
 import { useFormPreferencesStore } from '../stores/formPreferences'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useBulkEdit } from '../composables/useBulkEdit'
 import { useGroupLocks } from '../composables/useGroupLocks'
 import { useInterfaceRows } from '../composables/useInterfaceRows'
+import { useNeighborSync } from '../composables/useNeighborSync'
 import { usePortGenerator } from '../composables/usePortGenerator'
+import { usePreSaveReview } from '../composables/usePreSaveReview'
 import { useRowUiState } from '../composables/useRowUiState'
 import { useVlanSelection } from '../composables/useVlanSelection'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
 import { TEMPLATE_HELP_TEXT } from '../utils/interfaceRowDraft'
-import { conflictSummary, conflictTitle, connectionSummary, duplicatePortsText, staleSubinterfaceText, trunkVlanSummary, trunkVlanTitle, vlanCellSummary, type ConflictKind } from '../utils/interfaceRowView'
+import { conflictSummary, conflictTitle, connectionSummary, duplicatePortsText, staleSubinterfaceText, trunkVlanSummary, trunkVlanTitle, vlanCellSummary } from '../utils/interfaceRowView'
 import { freedPeerIds as computeFreedPeerIds, selfPortCandidates, takenPeerIds } from '../utils/interfacePeers'
-import { carriesAllVlans, describeVlanValue, valueFromSource, type AllVlansState, type VlanValue } from '../utils/allVlans'
-import { numbersOf } from '../utils/portEdit'
-import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
-import { useVlanModeCascade } from '../composables/useVlanModeCascade'
+import { carriesAllVlans } from '../utils/allVlans'
 import { duplicatePortNumbers } from '../utils/openPorts'
 import { moveStaleMessage, moveStaleSubinterfaces, portVlanOptions, staleSubinterfaces } from '../utils/subinterfaces'
-import {
-  SELF_DEVICE,
-  changedConnectionRowIds,
-  connectionConfigDiffKinds,
-  connectionConfigDiffs,
-  newRowKey,
-  peerRef,
-  rowRef,
-  type ConfigDiffKind,
-  type ConnectionBaseline,
-  type PeerConfigTarget,
-  type PortConfigLike,
-} from '../utils/interfaceConnections'
-import { portConfigOf, samePortConfig, type PortConfig } from '../utils/portConflicts'
+import { newRowKey, type ConnectionBaseline } from '../utils/interfaceConnections'
+import { portConfigOf } from '../utils/portConflicts'
 import QuickAddButton from './QuickAddButton.vue'
 import HelpTip from './HelpTip.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
@@ -128,9 +108,7 @@ const emit = defineEmits<{
    * считает расхождения по данным соседей, должен перечитать их. */
   'neighbors-changed': []
 }>()
-const { notify, notifyError } = useToast()
-const catalogs = useCatalogsStore()
-const vlansStore = useVLANsStore()
+const { notify } = useToast()
 // Общий порог сворачивания длинных списков (из «Настроек») — передаётся вложенным редакторам открытых портов.
 const formPreferences = useFormPreferencesStore()
 
@@ -239,667 +217,54 @@ watch(
 // Порты соседей, которые эта форма освобождает: подключение порта снято или переставлено на другой порт.
 const freedPeerIds = computed(() => computeFreedPeerIds(props.modelValue, props.connectionBaseline))
 
-function rowConflict(row: InterfaceDraftRow): PortConflictInfo | undefined {
-  return row.id ? props.conflicts[row.id] : undefined
-}
-
-// Пункты 1-2 правки "физическое устройство: расхождение с соседним портом": одно окно на оба
-// вида расхождения — kind определяет, какие именно поля показать/применить, но сам механизм
-// (два действия — "оставить как у меня" / "взять как у соседа") общий.
-const activeConflict = ref<{ index: number; kind: ConflictKind } | null>(null)
-const applyingConflict = ref(false)
-// Счётчик изменений портов соседей, сделанных отсюда (конфигурация применена соседу или каскад режима дошёл до его
-// порта): блоки «Подключение» по нему перечитывают порты соседа с сервера и убирают уже устранённое расхождение.
-const peersVersion = ref(0)
-// Идёт применение конфигурации из блока «Подключение» (запрос соседу или предпросмотр каскада).
-const applyingPeerConfig = ref(false)
-
-function openConflict(index: number, kind: ConflictKind) {
-  activeConflict.value = { index, kind }
-}
-function closeConflict() {
-  activeConflict.value = null
-}
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(closeConflict)
-
-// Каскадная смена режима порта (composables/useVlanModeCascade.ts, backend services/vlan_mode_cascade.py):
-// режим могут задавать группы, и у связанных портов он тоже должен совпасть, иначе расхождения просто
-// переедут дальше. Сервер считает область изменения по СОСТОЯНИЮ ЭТОЙ ФОРМЫ (режим, группа, VLAN портов
-// в черновике), порты и группы формы не пишет, а отдаёт как deferred — applyDeferred вносит их в черновик,
-// и они сохраняются вместе с формой. Остальные устройства записываются сразу.
+// Согласование портов с соседними (composables/useNeighborSync.ts): окно решения расхождения по значку, действия блока
+// «Подключение», каскад режима порта и сверка «Все VLAN». Проверка расхождений перед сохранением формы — usePreSaveReview.
 const {
-  pending: cascadePending,
-  applying: cascadeApplying,
-  preview: cascadePreview,
-  review: cascadeReview,
-  start: cascadeStart,
-  confirm: cascadeConfirm,
-  cancel: cascadeCancel,
-} = useVlanModeCascade({
-  edited: () => buildEditedState(props.deviceId, props.modelValue, props.groups),
-  applyDeferred(plan) {
-    const draft = applyCascadeToDraft(props.modelValue, props.groups, plan)
-    if (draft.changedPorts > 0) {
-      emit('update:modelValue', draft.rows)
-      emit('update:groups', draft.groups)
-    }
-    return draft.changedPorts
-  },
-  onFinished: async () => {
-    closeConflict()
-    peersVersion.value++
-    emit('neighbors-changed')
-    void refreshReviewPeers() // каскад дошёл до порта соседа или группы — окно проверки перед сохранением обновляется
-    await runAfterCascade()
-  },
+  activeConflict,
+  applyingConflict,
+  peersVersion,
+  applyingPeerConfig,
+  rowConflict,
+  openConflict,
+  closeConflict,
+  onOverlayPointerDown,
+  onOverlayClick,
+  cascadePending,
+  cascadeApplying,
+  cascadeConfirm,
+  cancelCascadeReview,
+  allVlansPrompt,
+  answerAllVlansPrompt,
+  applyNeighborConfig,
+  applyCurrentConfigToNeighbor,
+  applyPeerConfigToPort,
+  applyPortConfigToPeer,
+} = useNeighborSync({
+  rows: () => props.modelValue,
+  groups: () => props.groups,
+  deviceId: () => props.deviceId,
+  conflicts: () => props.conflicts,
+  vlanOptions: () => props.vlanOptions,
+  knownVlans: () => knownVlans.value,
+  setRows,
+  setGroups: (groups: InterfaceGroupDraft[]) => emit('update:groups', groups),
+  updateRow,
+  setVlanMode,
+  rowManaged,
+  groupLockNote,
+  emitNeighborsChanged: () => emit('neighbors-changed'),
+  onCascadeFinished: () => void refreshReviewPeers(),
 })
 
-// Что сделать, когда каскад режима завершится: сверить «Все VLAN» портов уже ПОСЛЕ смены режима (она меняет и признак:
-// сервер снимает его у порта, который уходит из trunk, а форма ставит у порта, который в trunk приходит). Каскад может
-// ждать подтверждения в окне последствий — тогда действие хранится здесь, пока пользователь не подтвердит или не откажется.
-let afterCascade: (() => Promise<void>) | null = null
+const { reviewOpen, reviewItems, onReviewOverlayPointerDown, onReviewOverlayClick, finishReview, reviewApplyNeighbor, reviewApplyCurrent, refreshReviewPeers, reviewNeighborMismatches } = usePreSaveReview({
+  rows: () => props.modelValue,
+  deviceId: () => props.deviceId,
+  editConnections: () => props.editConnections,
+  connectionBaseline: () => props.connectionBaseline,
+  applyPeerConfigToPort,
+  applyPortConfigToPeer,
+})
 
-async function runAfterCascade() {
-  const action = afterCascade
-  afterCascade = null
-  if (!action) return
-  const wasApplying = applyingPeerConfig.value
-  applyingPeerConfig.value = true
-  try {
-    await nextTick() // правка черновика из каскада доходит до props на следующем тике
-    await action()
-  } catch (err) {
-    notifyError(err)
-  } finally {
-    applyingPeerConfig.value = wasApplying
-  }
-}
-
-/** «Отмена» в окне последствий каскада: отложенная сверка «Все VLAN» не выполняется — режим не менялся. */
-function cancelCascadeReview() {
-  afterCascade = null
-  cascadeCancel()
-}
-
-// "Применить конфигурацию соседа [ко мне]":
-//  * Назначение порта (flags) — меняет только ЭТУ строку черновика, сохраняется вместе с остальной формой.
-//  * Режим порта (vlan_mode) — каскад от СВОЕГО порта с режимом соседа: если режим этого порта задан его
-//    группой, меняется вся группа (и связанные с ней порты, чтобы не осталось расхождений). Когда
-//    затрагивается только эта строка — правится черновик, как раньше; иначе открывается окно последствий.
-async function applyNeighborConfig() {
-  if (!activeConflict.value) return
-  const { index, kind } = activeConflict.value
-  const row = props.modelValue[index]
-  const conflict = rowConflict(row)
-  if (!conflict) return
-  if (kind === 'flags') {
-    updateRow(index, { is_management: conflict.other.is_management, is_data_transfer: conflict.other.is_data_transfer })
-    closeConflict()
-    return
-  }
-  if (!row.id) return // расхождение бывает только у сохранённого порта
-  applyingConflict.value = true
-  try {
-    // «Все VLAN»: порту — значение соседа (или другое по выбору пользователя), см. settleAllVlans.
-    const settle = () => settleAllVlans(conflictPeerSide(conflict), ownSide(row))
-    if (kind === 'all_vlans') {
-      await settle()
-      closeConflict()
-      return
-    }
-    const current = await cascadePreview(row.id, conflict.other.vlan_mode, `«${row.name}» (это устройство)`)
-    if (!current) return
-    if (isFormOnlyPlan(current.plan)) {
-      setVlanMode(index, conflict.other.vlan_mode)
-      closeConflict()
-      await nextTick()
-      await settle()
-    } else {
-      cascadeReview(current)
-      afterCascade = settle
-    }
-  } catch (err) {
-    notifyError(err)
-  } finally {
-    applyingConflict.value = false
-  }
-}
-
-// Назначение порта соседа (другого устройства) — точечный PUT generic-ресурса 'interfaces'; группы флажки не
-// задают. Локальный кэш catalogs.items['interfaces'] правим на месте: без этого значок расхождения пропал бы
-// только после полной перезагрузки каталогов.
-async function writeFlagsToNeighbor(interfaceId: string, from: Pick<InterfaceDraftRow, 'is_management' | 'is_data_transfer'>) {
-  const payload = { is_management: from.is_management, is_data_transfer: from.is_data_transfer }
-  await updateResource('interfaces', interfaceId, payload)
-  const cached = ((catalogs.items['interfaces'] ?? []) as unknown as { id: string }[]).find((i) => i.id === interfaceId)
-  if (cached) Object.assign(cached, payload)
-}
-
-// "Применить текущую конфигурацию [соседу]" — сам сосед принадлежит ДРУГОМУ устройству, не
-// входящему в modelValue этой формы, поэтому это не черновик, а немедленный запрос.
-//  * Назначение порта (flags): точечный PUT generic-ресурса 'interfaces'; группы флажки не задают.
-//  * Режим порта (vlan_mode): каскад от порта соседа с режимом этой строки. Тривиальный случай (один
-//    порт, без групп и снимаемых VLAN) применяется сразу, остальное — через окно подтверждения.
-// После успешного ответа правим локальный кэш catalogs.items['interfaces'] на месте — иначе значок
-// расхождения пропал бы только после полной перезагрузки каталогов, а не сразу.
-async function applyCurrentConfigToNeighbor() {
-  if (!activeConflict.value) return
-  const { index, kind } = activeConflict.value
-  const row = props.modelValue[index]
-  const conflict = rowConflict(row)
-  if (!conflict) return
-  applyingConflict.value = true
-  try {
-    if (kind === 'all_vlans') {
-      await settleAllVlans(ownSide(row), conflictPeerSide(conflict))
-      closeConflict()
-      return
-    }
-    if (kind === 'vlan_mode') {
-      // Сверка «Все VLAN» — после смены режима соседа: каскад может ждать подтверждения, тогда она выполнится по его завершении.
-      afterCascade = () => settleAllVlans(ownSide(row), conflictPeerSide(conflict, true))
-      try {
-        await cascadeStart(conflict.otherInterfaceId, row.vlan_mode, `«${conflict.otherInterfaceName}» (${conflict.otherDeviceName})`)
-      } catch (err) {
-        afterCascade = null
-        throw err
-      }
-      return
-    }
-    await writeFlagsToNeighbor(conflict.otherInterfaceId, row)
-    notify('Конфигурация применена к соседнему порту', 'success')
-    closeConflict()
-    peersVersion.value++
-    emit('neighbors-changed')
-  } catch (err) {
-    notifyError(err)
-  } finally {
-    applyingConflict.value = false
-  }
-}
-
-// Режим порта строки формы → mode (общий шаг обоих действий из блока «Подключение»).
-//  * Сохранённый порт — каскад (composables/useVlanModeCascade.ts): режим может задавать группа, а у связанных
-//    портов он тоже должен совпасть. Затрагивается только эта строка — правится черновик, иначе окно последствий.
-//  * Ещё не сохранённый порт: серверу считать нечего — правим саму строку, но если режим задан её группой,
-//    менять его нельзя (группу правят в панели групп).
-// Возвращает: 'draft' — изменён черновик, 'pending' — ждёт подтверждения в окне, 'none' — менять нечего/нельзя.
-async function changeRowVlanMode(index: number, mode: 'access' | 'trunk'): Promise<'draft' | 'pending' | 'none'> {
-  const row = props.modelValue[index]
-  if (!row) return 'none'
-  if (row.vlan_mode === mode) return 'none'
-  if (!row.id) {
-    if (rowManaged(row).vlan) {
-      notify(groupLockNote(row, 'Режим порта'), 'warning')
-      return 'none'
-    }
-    setVlanMode(index, mode)
-    return 'draft'
-  }
-  const current = await cascadePreview(row.id, mode, `«${row.name}» (это устройство)`)
-  if (!current) return 'none'
-  if (isFormOnlyPlan(current.plan)) {
-    setVlanMode(index, mode)
-    return 'draft'
-  }
-  cascadeReview(current)
-  return 'pending'
-}
-
-// ===== «Все VLAN» при приведении порта к соседу =====
-// Признак «Все VLAN» (utils/allVlans.ts) — часть конфигурации порта, и «Применить конфигурацию соседа» / «Применить
-// текущую конфигурацию» приводят к одному виду и его. Но «Все VLAN» устройства A и B — разные наборы номеров, а набор,
-// выбранный вручную, у другого устройства может быть недоступен, поэтому значение пользователь выбирает сам: как у
-// источника (признак либо набор, перенесённый по номерам VLAN) или другое (AllVlansChoiceModal).
-//
-// Сверка идёт ПОСЛЕ применения назначения и режима: смена режима сама меняет признак (из trunk в access он снимается,
-// порт формы, переходящий в trunk, получает «Все VLAN» по умолчанию), и сравнивать нужно итоговое состояние. Значение
-// нужно, только когда оба порта в trunk и признак есть у одного из них; если порт остался в access, признака у него нет.
-// Порт формы правится в черновике (сохранится вместе с формой), порт другого устройства — сразу (PUT port-config).
-
-/** Порт, участвующий в сверке «Все VLAN»: строка этой формы (ref — rowRef) либо порт другого устройства (interfaceId). */
-type VlanSideRef =
-  | { kind: 'row'; ref: string; label: string }
-  // known — состояние порта, которое уже известно и не менялось (порт-источник: сосед из блока «Подключение»): по нему сверка
-  // обходится без запроса. У порта, который только что меняли (режим каскадом), known не задаётся — состояние читается с сервера.
-  | { kind: 'port'; interfaceId: string; label: string; known?: AllVlansState }
-
-interface VlanSide {
-  label: string
-  mode: 'access' | 'trunk'
-  allVlans: boolean
-  /** Номера выбранных VLAN (нужны, когда набор переносится на другое устройство). */
-  numbers: number[]
-  /** VLAN, допустимые устройству порта. */
-  options: VLANDefinition[]
-  /** Не пусто — набор порта задаёт группа и здесь не правится; текст — причина. */
-  lockNote: string
-  /** Порт этой формы: запись — правка черновика, а не запрос. */
-  isDraft: boolean
-  write: (value: VlanValue) => Promise<void>
-}
-
-interface AllVlansPrompt {
-  portLabel: string
-  sourceLabel: string
-  description: string
-  sourceValue: VlanValue
-  missing: number[]
-  options: VLANDefinition[]
-  resolve: (value: VlanValue | null) => void
-}
-const allVlansPrompt = ref<AllVlansPrompt | null>(null)
-
-function askAllVlansValue(prompt: Omit<AllVlansPrompt, 'resolve'>): Promise<VlanValue | null> {
-  return new Promise((resolve) => {
-    allVlansPrompt.value = { ...prompt, resolve }
-  })
-}
-function answerAllVlansPrompt(value: VlanValue | null) {
-  const prompt = allVlansPrompt.value
-  allVlansPrompt.value = null
-  prompt?.resolve(value)
-}
-
-function ownSide(row: InterfaceDraftRow): VlanSideRef {
-  return { kind: 'row', ref: rowRef(row), label: `«${row.name.trim() || 'без имени'}»` }
-}
-
-/** Сосед из выбранного в блоке «Подключение»: строка этой формы либо порт другого устройства. */
-function peerSide(peer: PeerConfigTarget): VlanSideRef | null {
-  if (peer.isSelf) return { kind: 'row', ref: peer.ref, label: peer.label }
-  return peer.interfaceId ? { kind: 'port', interfaceId: peer.interfaceId, label: peer.label, known: peer.config } : null
-}
-
-/** Сосед из расхождения по значку: порт этого же устройства (кабель между двумя его портами) — строка формы, иначе порт другого.
- * `fresh` — состояние порта уже могло измениться (ему меняли режим): не полагаться на данные расхождения, читать с сервера. */
-function conflictPeerSide(conflict: PortConflictInfo, fresh = false): VlanSideRef {
-  const peerRow = props.modelValue.find((r) => r.id === conflict.otherInterfaceId)
-  if (peerRow) return { kind: 'row', ref: rowRef(peerRow), label: `«${conflict.otherInterfaceName}» (это устройство)` }
-  const label = `«${conflict.otherInterfaceName}» (${conflict.otherDeviceName})`
-  return { kind: 'port', interfaceId: conflict.otherInterfaceId, label, ...(fresh ? {} : { known: { vlan_mode: conflict.other.vlan_mode, all_vlans: conflict.other.all_vlans } }) }
-}
-
-/** Режим и «Все VLAN» порта без запроса к серверу — когда они известны сразу (строка формы, порт-источник с известным состоянием). */
-function knownVlanState(side: VlanSideRef): AllVlansState | null {
-  if (side.kind === 'port') return side.known ?? null
-  const row = props.modelValue.find((r) => rowRef(r) === side.ref)
-  return row ? { vlan_mode: row.vlan_mode, all_vlans: carriesAllVlans(row) } : null
-}
-
-/** Значение VLAN порта в виде строки формы: «Все VLAN» зеркалит все VLAN устройства (так форма показывает их отмеченными). */
-function rowPatchForValue(value: VlanValue): Partial<InterfaceDraftRow> {
-  return { all_vlans: value.allVlans, vlan_ids: value.allVlans ? props.vlanOptions.map((v) => v.id) : [...value.vlanIds] }
-}
-
-async function resolveVlanSide(side: VlanSideRef): Promise<VlanSide | null> {
-  if (side.kind === 'row') {
-    const row = props.modelValue.find((r) => rowRef(r) === side.ref)
-    if (!row) return null
-    return {
-      label: side.label,
-      mode: row.vlan_mode,
-      allVlans: carriesAllVlans(row),
-      numbers: numbersOf(knownVlans.value, row.vlan_ids),
-      options: props.vlanOptions,
-      lockNote: rowManaged(row).vlan ? groupLockNote(row, 'Набор VLAN') : '',
-      isDraft: true,
-      write: async (value) => {
-        const index = props.modelValue.findIndex((r) => rowRef(r) === side.ref)
-        if (index !== -1) updateRow(index, rowPatchForValue(value))
-      },
-    }
-  }
-  await vlansStore.ensureLoaded()
-  const ctx = await loadPortVlanContext(side.interfaceId, vlansStore.allDefinitions)
-  return {
-    label: side.label,
-    mode: ctx.mode,
-    allVlans: ctx.allVlans,
-    numbers: numbersOf(vlansStore.allDefinitions, ctx.vlanIds),
-    options: ctx.options,
-    lockNote: '', // порт в группе, задающей VLAN, сервер не изменит и ответит понятной ошибкой
-    isDraft: false,
-    write: async (value) => {
-      const patch: PortConfigPatch = value.allVlans ? { all_vlans: true, mode: 'trunk' } : { all_vlans: false, vlan_ids: value.vlanIds, mode: 'trunk' }
-      catalogs.replaceInterface(await setPortConfig(side.interfaceId, patch))
-      peersVersion.value++
-      emit('neighbors-changed')
-    },
-  }
-}
-
-/**
- * Приводит «Все VLAN» порта `to` к порту `from` — но значение выбирает пользователь: по умолчанию как у `from`, либо другое.
- * Ничего не делает, если порты (уже) не расходятся по «Все VLAN»: хотя бы один не в trunk или признак у обоих одинаков.
- * Отказ в окне оставляет порт как есть (расхождение сохраняется и видно в блоке «Подключение»).
- */
-async function settleAllVlans(from: VlanSideRef, to: VlanSideRef) {
-  // Обходимся без запросов, когда ответ ясен по уже известному: порт в access (признака нет) или признак у портов одинаков.
-  const knownFrom = knownVlanState(from)
-  const knownTo = knownVlanState(to)
-  if (knownFrom?.vlan_mode === 'access' || knownTo?.vlan_mode === 'access') return
-  if (knownFrom && knownTo && carriesAllVlans(knownFrom) === carriesAllVlans(knownTo)) return
-  const [source, target] = await Promise.all([resolveVlanSide(from), resolveVlanSide(to)])
-  if (!source || !target) return
-  if (source.mode !== 'trunk' || target.mode !== 'trunk' || source.allVlans === target.allVlans) return
-  if (target.lockNote) {
-    notify(`${target.lockNote} «Все VLAN» порта ${target.label} не изменено.`, 'warning')
-    return
-  }
-  const { value, missing } = valueFromSource(source, target.options)
-  const yesNo = (v: boolean) => (v ? 'стоит' : 'не стоит')
-  const chosen = await askAllVlansValue({
-    portLabel: target.label,
-    sourceLabel: `порта ${source.label}`,
-    description: `«Все VLAN»: у порта ${source.label} ${yesNo(source.allVlans)}, у порта ${target.label} ${yesNo(target.allVlans)}.`,
-    sourceValue: value,
-    missing,
-    options: target.options,
-  })
-  if (!chosen) {
-    notify(`«Все VLAN» порта ${target.label} не изменено — расхождение осталось`, 'info')
-    return
-  }
-  await target.write(chosen)
-  notify(`Порту ${target.label} установлено: ${describeVlanValue(chosen, target.options)}${target.isDraft ? ' — сохраните форму' : ''}`, 'success')
-}
-
-/** Нужна ли сверка «Все VLAN»: после смены режима и при явном расхождении признака. */
-const needsAllVlansSettle = (kinds: readonly ConfigDiffKind[]) => kinds.includes('vlan_mode') || kinds.includes('all_vlans')
-
-// Блок «Подключение» (InterfaceConnectionEditor): расхождение с выбранным соседом показывается сразу, ещё до
-// сохранения формы, и тут же его можно устранить — любым из двух способов. kinds — что именно расходится.
-//
-// «Применить конфигурацию соседа»: этому порту — назначение (Управление/Передача данных) и/или режим соседа.
-// Назначение правит только строку черновика (сохранится вместе с формой), режим — см. changeRowVlanMode.
-async function applyPeerConfigToPort(index: number, peer: PeerConfigTarget, kinds: ConfigDiffKind[]) {
-  const row = props.modelValue[index]
-  if (!row || applyingPeerConfig.value) return
-  applyingPeerConfig.value = true
-  try {
-    let changedDraft = false
-    let waitsForCascade = false
-    const source = peerSide(peer)
-    const settle = () => (source ? settleAllVlans(source, ownSide(row)) : Promise.resolve())
-    if (kinds.includes('flags')) {
-      updateRow(index, { is_management: peer.config.is_management, is_data_transfer: peer.config.is_data_transfer })
-      changedDraft = true
-      // Следующий шаг читает строку из props: ждём, пока родитель применит правку, иначе она перетрётся.
-      await nextTick()
-    }
-    if (kinds.includes('vlan_mode')) {
-      const outcome = await changeRowVlanMode(index, peer.config.vlan_mode)
-      if (outcome === 'draft') changedDraft = true
-      if (outcome === 'pending') {
-        waitsForCascade = true
-        afterCascade = settle // сверка «Все VLAN» — когда пользователь подтвердит каскад
-      }
-    }
-    if (changedDraft) notify(`Порту «${row.name.trim() || 'без имени'}» применена конфигурация соседа — сохраните форму`, 'success')
-    if (!waitsForCascade && needsAllVlansSettle(kinds)) {
-      await nextTick()
-      await settle()
-    }
-  } catch (err) {
-    notifyError(err)
-  } finally {
-    applyingPeerConfig.value = false
-  }
-}
-
-// «Применить текущую конфигурацию»: соседу — назначение и/или режим порта этой строки.
-//  * Сосед — другой порт ЭТОГО устройства: правим его строку черновика (сохранится вместе с формой).
-//  * Сосед — порт ДРУГОГО устройства: это не черновик, а немедленный запрос, как у «Применить текущую
-//    конфигурацию» в окне расхождения: PUT назначения и каскад режима (writeFlagsToNeighbor / cascadeStart).
-//    Подключение при этом пока не сохранено — сообщение честно говорит, что порт соседа уже изменён.
-async function applyPortConfigToPeer(index: number, peer: PeerConfigTarget, kinds: ConfigDiffKind[]) {
-  const row = props.modelValue[index]
-  if (!row || applyingPeerConfig.value) return
-  applyingPeerConfig.value = true
-  try {
-    if (peer.isSelf) {
-      const peerIndex = props.modelValue.findIndex((r) => rowRef(r) === peer.ref)
-      if (peerIndex === -1) {
-        notify('Порт соседа уже убран из формы — выберите соседа заново', 'warning')
-        return
-      }
-      let changedDraft = false
-      let waitsForCascade = false
-      const settle = () => settleAllVlans(ownSide(row), { kind: 'row', ref: peer.ref, label: peer.label })
-      if (kinds.includes('flags')) {
-        updateRow(peerIndex, { is_management: row.is_management, is_data_transfer: row.is_data_transfer })
-        changedDraft = true
-        await nextTick()
-      }
-      if (kinds.includes('vlan_mode')) {
-        const outcome = await changeRowVlanMode(peerIndex, row.vlan_mode)
-        if (outcome === 'draft') changedDraft = true
-        if (outcome === 'pending') {
-          waitsForCascade = true
-          afterCascade = settle
-        }
-      }
-      if (changedDraft) notify(`Соседнему порту ${peer.label} применена текущая конфигурация — сохраните форму`, 'success')
-      if (!waitsForCascade && needsAllVlansSettle(kinds)) {
-        await nextTick()
-        await settle()
-      }
-      return
-    }
-    if (!peer.interfaceId) return
-    const settleRemote = () => settleAllVlans(ownSide(row), { kind: 'port', interfaceId: peer.interfaceId!, label: peer.label })
-    if (kinds.includes('flags')) {
-      await writeFlagsToNeighbor(peer.interfaceId, row)
-      notify(`Назначение порта соседа ${peer.label} изменено сразу (это порт другого устройства)`, 'success')
-    }
-    if (kinds.includes('vlan_mode')) {
-      // Каскад сам запускает сверку «Все VLAN» по завершении (в т.ч. после подтверждения в окне последствий).
-      afterCascade = settleRemote
-      try {
-        await cascadeStart(peer.interfaceId, row.vlan_mode, peer.label)
-      } catch (err) {
-        afterCascade = null
-        throw err
-      }
-    } else if (needsAllVlansSettle(kinds)) {
-      await settleRemote()
-    }
-    // Одно «Все VLAN»: порт соседа записывает и обновляет панель сам (resolveVlanSide) — второе уведомление ни к чему.
-    if (kinds.some((kind) => kind !== 'all_vlans')) {
-      peersVersion.value++
-      emit('neighbors-changed')
-    }
-  } catch (err) {
-    notifyError(err)
-  } finally {
-    applyingPeerConfig.value = false
-  }
-}
-
-// ===== Проверка расхождений с соседями ПЕРЕД сохранением формы =====
-// Предупреждение в блоке «Подключение» легко не заметить (строка порта свёрнута), а уведомление после записи
-// ничего не предлагает и появляется, когда форма уже закрыта. Поэтому при нажатии «Сохранить» (DeviceFormModal
-// вызывает reviewNeighborMismatches) расхождения, которые появляются именно в этом сохранении, выносятся в диалог:
-// по каждому — те же два действия, что и в блоке «Подключение» (applyPeerConfigToPort / applyPortConfigToPeer),
-// а внизу «Сохранить как есть» или «Вернуться к форме».
-//
-// Что считается «появляется в этом сохранении» — как у уведомления после записи (utils/portConflicts.ts): порт новый,
-// его подключение создано или заменено в форме, либо конфигурация порта отличается от снимка при открытии формы.
-// Старое, никем не тронутое расхождение диалог не поднимает — иначе он выскакивал бы при каждом сохранении.
-interface ReviewPeerRef {
-  ref: string
-  isSelf: boolean
-  deviceId?: string
-  interfaceId?: string
-  nameHint?: string
-  deviceNameHint?: string
-}
-interface ReviewEntry {
-  rowRef: string
-  peer: ReviewPeerRef
-}
-interface ReviewItem {
-  key: string
-  index: number
-  row: InterfaceDraftRow
-  peer: PeerConfigTarget
-  kinds: ConfigDiffKind[]
-  texts: string[]
-}
-
-const reviewOpen = ref(false)
-const reviewEntries = ref<ReviewEntry[]>([])
-// Конфигурация портов соседей на ДРУГИХ устройствах (id порта → имя и конфигурация): с сервера, перечитывается после
-// каждого применённого действия. Соседи с этого же устройства берутся из строк формы — они всегда актуальны.
-const reviewPeers = ref<Record<string, { name: string; config: PortConfigLike }>>({})
-let reviewResolve: ((proceed: boolean) => void) | null = null
-
-function collectReviewEntries(initial: ReadonlyMap<string, PortConfig>): ReviewEntry[] {
-  const changed = changedConnectionRowIds(props.modelValue, props.connectionBaseline ?? new Map())
-  const self = props.deviceId ?? SELF_DEVICE
-  const seenPairs = new Set<string>()
-  const entries: ReviewEntry[] = []
-  for (const row of props.modelValue) {
-    const draft = row.connection
-    const ref = rowRef(row)
-    const peer = draft ? peerRef(draft) : ''
-    if (!draft || !ref || !peer) continue
-    const before = row.id ? initial.get(row.id) : undefined
-    if (row.id && before && !changed.has(row.id) && samePortConfig(before, portConfigOf(row))) continue
-    const isSelf = !!draft.peer_row_key || draft.peer_device_id === self
-    if (isSelf) {
-      // Два порта этого устройства, соединённые друг с другом, — одно расхождение, а не два.
-      const pair = [ref, peer].sort().join('|')
-      if (seenPairs.has(pair)) continue
-      seenPairs.add(pair)
-    }
-    entries.push({
-      rowRef: ref,
-      peer: {
-        ref: peer,
-        isSelf,
-        deviceId: isSelf ? undefined : draft.peer_device_id,
-        interfaceId: draft.peer_interface_id || undefined,
-        nameHint: draft.peer_interface_name,
-        deviceNameHint: draft.peer_device_name,
-      },
-    })
-  }
-  return entries
-}
-
-async function loadReviewPeers(entries: readonly ReviewEntry[]): Promise<Record<string, { name: string; config: PortConfigLike }>> {
-  const idsByDevice = new Map<string, Set<string>>()
-  for (const { peer } of entries) {
-    if (peer.isSelf || !peer.deviceId || !peer.interfaceId) continue
-    const ids = idsByDevice.get(peer.deviceId) ?? new Set<string>()
-    ids.add(peer.interfaceId)
-    idsByDevice.set(peer.deviceId, ids)
-  }
-  const peers: Record<string, { name: string; config: PortConfigLike }> = {}
-  await Promise.all(
-    [...idsByDevice].map(async ([deviceId, ids]) => {
-      // Порт соседа уже занят этим подключением — на сервере он отдаётся только по явному include.
-      for (const port of await fetchAllFreeInterfaces(deviceId, [...ids])) {
-        if (ids.has(port.id)) peers[port.id] = { name: port.name, config: { is_management: port.is_management, is_data_transfer: port.is_data_transfer, vlan_mode: port.vlan_mode, all_vlans: port.all_vlans } }
-      }
-    }),
-  )
-  return peers
-}
-
-function reviewPeerTarget(peer: ReviewPeerRef): PeerConfigTarget | null {
-  if (peer.isSelf) {
-    const index = props.modelValue.findIndex((r) => rowRef(r) === peer.ref)
-    if (index === -1) return null
-    const target = props.modelValue[index]
-    return {
-      ref: peer.ref,
-      label: `«${target.name.trim() || 'без имени'}» (это устройство, строка ${index + 1})`,
-      config: portConfigOf(target),
-      interfaceId: target.id,
-      rowKey: target.id ? undefined : target.key,
-      isSelf: true,
-    }
-  }
-  const info = peer.interfaceId ? reviewPeers.value[peer.interfaceId] : undefined
-  if (!peer.interfaceId || !info) return null
-  return { ref: peer.ref, label: `«${peer.nameHint ?? info.name}» (${peer.deviceNameHint ?? 'другое устройство'})`, config: info.config, interfaceId: peer.interfaceId, isSelf: false }
-}
-
-// Расхождения, оставшиеся ПРЯМО СЕЙЧАС: считаются заново из строк формы и конфигурации соседей, поэтому
-// устранённое действием из диалога пропадает из списка само.
-const reviewItems = computed<ReviewItem[]>(() =>
-  reviewEntries.value.flatMap((entry) => {
-    const index = props.modelValue.findIndex((r) => rowRef(r) === entry.rowRef)
-    const peer = reviewPeerTarget(entry.peer)
-    if (index === -1 || !peer) return []
-    const row = props.modelValue[index]
-    const own = portConfigOf(row)
-    const kinds = connectionConfigDiffKinds(own, peer.config)
-    return kinds.length ? [{ key: `${entry.rowRef}>${entry.peer.ref}`, index, row, peer, kinds, texts: connectionConfigDiffs(own, peer.config) }] : []
-  }),
-)
-
-async function refreshReviewPeers() {
-  if (!reviewOpen.value) return
-  try {
-    reviewPeers.value = await loadReviewPeers(reviewEntries.value)
-  } catch (err) {
-    notifyError(err)
-  }
-}
-
-function finishReview(proceed: boolean) {
-  if (!reviewOpen.value) return
-  reviewOpen.value = false
-  reviewEntries.value = []
-  reviewPeers.value = {}
-  const resolve = reviewResolve
-  reviewResolve = null
-  resolve?.(proceed)
-}
-const { onOverlayPointerDown: onReviewOverlayPointerDown, onOverlayClick: onReviewOverlayClick } = useOverlayDismiss(() => finishReview(false))
-
-async function reviewApplyNeighbor(item: ReviewItem) {
-  await applyPeerConfigToPort(item.index, item.peer, item.kinds)
-  await refreshReviewPeers()
-}
-async function reviewApplyCurrent(item: ReviewItem) {
-  await applyPortConfigToPeer(item.index, item.peer, item.kinds)
-  await refreshReviewPeers()
-}
-
-/**
- * Вызывается формой перед записью. Если среди подключений есть расхождение назначения (Управление / Передача данных) или
- * режима порта с соседом, появившееся в этом сохранении, показывает диалог и ждёт решения.
- *
- * @param initial снимок конфигурации сохранённых портов на момент открытия формы (snapshotPortConfigs)
- * @returns true — сохранять (расхождений нет, устранены или пользователь выбрал «Сохранить как есть»);
- *          false — «Вернуться к форме». Не отклоняется: сбой чтения соседей не блокирует сохранение (проверка —
- *          подсказка, а не условие), но показывается уведомлением.
- */
-async function reviewNeighborMismatches(initial: ReadonlyMap<string, PortConfig> = new Map()): Promise<boolean> {
-  if (!props.editConnections || reviewOpen.value) return true
-  const entries = collectReviewEntries(initial)
-  if (!entries.length) return true
-  try {
-    reviewPeers.value = await loadReviewPeers(entries)
-  } catch (err) {
-    notifyError(err)
-    return true
-  }
-  reviewEntries.value = entries
-  if (!reviewItems.value.length) {
-    reviewEntries.value = []
-    return true
-  }
-  reviewOpen.value = true
-  return new Promise<boolean>((resolve) => {
-    reviewResolve = resolve
-  })
-}
 // «Показать» в уведомлении о подинтерфейсах на снятом VLAN: раскрывает порты с такими подинтерфейсами (остальные
 // раскрытые не сворачивает) и прокручивает к первому предупреждению. Возвращает число найденных портов.
 const rootEl = ref<HTMLElement | null>(null)
