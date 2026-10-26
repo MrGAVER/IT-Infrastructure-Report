@@ -41,19 +41,22 @@ import { useFormPreferencesStore } from '../stores/formPreferences'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition } from '../api/types'
 import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useBulkEdit } from '../composables/useBulkEdit'
+import { useGroupLocks } from '../composables/useGroupLocks'
+import { useInterfaceRows } from '../composables/useInterfaceRows'
+import { usePortGenerator } from '../composables/usePortGenerator'
+import { useRowUiState } from '../composables/useRowUiState'
+import { useVlanSelection } from '../composables/useVlanSelection'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
-import { applyBulkEditToRows } from '../utils/interfaceBulkEdit'
-import { clearReferencesTo, emptyInterfaceRow, generateNewRows, portNamePatch, replaceWithGenerated, resolveStartNumber, TEMPLATE_HELP_TEXT, type GeneratorSettings } from '../utils/interfaceRowDraft'
+import { TEMPLATE_HELP_TEXT } from '../utils/interfaceRowDraft'
 import { conflictSummary, conflictTitle, connectionSummary, duplicatePortsText, staleSubinterfaceText, trunkVlanSummary, trunkVlanTitle, vlanCellSummary, type ConflictKind } from '../utils/interfaceRowView'
 import { freedPeerIds as computeFreedPeerIds, selfPortCandidates, takenPeerIds } from '../utils/interfacePeers'
 import { carriesAllVlans, describeVlanValue, valueFromSource, type AllVlansState, type VlanValue } from '../utils/allVlans'
 import { numbersOf } from '../utils/portEdit'
-import { findGroup, managedFields } from '../utils/interfaceGroups'
 import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/vlanModeCascade'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
-import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
-import { moveRow, swapIndexes } from '../utils/interfaceOrder'
+import { duplicatePortNumbers } from '../utils/openPorts'
 import { moveStaleMessage, moveStaleSubinterfaces, portVlanOptions, staleSubinterfaces } from '../utils/subinterfaces'
 import {
   SELF_DEVICE,
@@ -131,50 +134,12 @@ const vlansStore = useVLANsStore()
 // Общий порог сворачивания длинных списков (из «Настроек») — передаётся вложенным редакторам открытых портов.
 const formPreferences = useFormPreferencesStore()
 
-// Поля генератора — черновой ввод формы, не часть modelValue (как if-count/if-name-template в
-// vanilla). Начальное количество подставляется от уже загруженных интерфейсов один раз при
-// монтировании — компонент монтируется уже после загрузки данных (см. DeviceFormModal.vue:
-// loadingNested), так что на момент монтирования modelValue уже в актуальном состоянии.
-const genCount = ref(String(props.modelValue.length))
-const genNameTemplate = ref('eth{n}')
-const genTypeId = ref('')
-const genSpeedId = ref('')
-// Фикс п.1.3.3: "нужно больше вариаций шаблонов — например, нумерация с определённого до
-// определённого номера". Раньше {n} всегда отсчитывался от 1 (режим "Заменить все порты") или от
-// количества уже существующих интерфейсов (режим "Дополнить", см. applyGenerator()) — не было
-// способа явно продолжить нумерацию портов с произвольного номера, например сгенерировать порты
-// 5-24, когда 1-4 уже заняты чем-то другим и не участвуют в этом списке вовсе. Пустая строка —
-// прежнее поведение без изменений (авто: 1 или продолжение от количества строк).
-const genStartAt = ref('')
-// Фикс п.1.3.4: были две отдельные кнопки — "Сгенерировать" (заменяет) и "Дополнить" (добавляет),
-// путавшие своими названиями, какая из них разрушительна. Теперь одна кнопка + галочка,
-// отключенная по умолчанию — безопасный режим (append) остаётся действием по умолчанию, а
-// разрушительный (replace) требует явного осознанного действия (поставить галочку) и всегда
-// показывает предупреждение, если есть что терять (см. generate() ниже).
-const replaceAllPorts = ref(false)
-
-// Группа порта и то, чем она управляет. Управляемые поля в строке заблокированы: чтобы задать
-// порту своё значение, его сначала выводят из группы (значения при этом остаются в порте).
-function rowGroup(row: InterfaceDraftRow): InterfaceGroupDraft | undefined {
-  return findGroup(row, props.groups)
-}
-function rowManaged(row: InterfaceDraftRow) {
-  return managedFields(rowGroup(row))
-}
-function groupLockNote(row: InterfaceDraftRow, what: string): string {
-  return `${what} задан группой «${rowGroup(row)?.name ?? ''}» — измените в группе или выведите порт из группы.`
-}
-
 // Панель групп отдаёт согласованное изменение порт+группа одним событием.
 function onGroupsChange(payload: { rows: InterfaceDraftRow[]; groups: InterfaceGroupDraft[] }) {
   emit('update:modelValue', payload.rows)
   emit('update:groups', payload.groups)
   selectedIndices.value = new Set()
 }
-
-// Пустая строка нового порта (utils/interfaceRowDraft.ts). Ключ нужен, чтобы подключение другого порта могло
-// сослаться на строку, у которой ещё нет id.
-const emptyRow = () => emptyInterfaceRow(props.editConnections)
 
 // Повторяющиеся номера открытых портов по строкам (индекс → номера). Показываются индикатором на
 // свёрнутой строке — иначе подсвеченную внутри раскрытого блока строку увидит только тот, кто его
@@ -189,6 +154,53 @@ const allowedVlanIds = computed(() => new Set(props.vlanOptions.map((v) => v.id)
 const knownVlans = computed(() => {
   const byId = new Map([...(props.vlanCatalog ?? []), ...props.vlanOptions].map((v) => [v.id, v]))
   return [...byId.values()]
+})
+
+// Группа порта и то, чем она управляет (composables/useGroupLocks.ts).
+const { rowGroup, rowManaged, groupLockNote } = useGroupLocks(() => props.groups)
+
+// Список портов — проп родителя: любое изменение уходит наверх событием update:modelValue. Состояние списка (отметки,
+// раскрытие, получатель копирования) — useRowUiState, операции над строками — useInterfaceRows, генератор — usePortGenerator,
+// массовое редактирование — useBulkEdit, выбор VLAN — useVlanSelection.
+const setRows = (rows: InterfaceDraftRow[]) => emit('update:modelValue', rows)
+const rowUi = useRowUiState(() => props.modelValue.length)
+const { selectedIndices, expandedIndices, copyTargetIndex, toggleSelect, toggleSelectAll, toggleExpand, setCopyTarget } = rowUi
+const { emptyRow, addRow, removeRow, moveRowBy, updateRow, renamePort, applyCopyPorts } = useInterfaceRows(
+  {
+    rows: () => props.modelValue,
+    setRows,
+    knownVlans: () => knownVlans.value,
+    protocolPortCatalog: () => props.protocolPortCatalog,
+    editConnections: () => props.editConnections,
+    rowManaged,
+    groupLockNote,
+  },
+  rowUi,
+)
+const { genCount, genStartAt, genNameTemplate, genTypeId, genSpeedId, replaceAllPorts, applyGenerator } = usePortGenerator(
+  { rows: () => props.modelValue, setRows, knownVlans: () => knownVlans.value, emptyRow },
+  rowUi,
+)
+const {
+  bulkTypeId,
+  bulkSpeedId,
+  bulkManagement,
+  bulkDataTransfer,
+  bulkVlanMode,
+  bulkVlanIds,
+  bulkAllVlans,
+  bulkVlanPickerOpen,
+  bulkVlanSummary,
+  onVlanPickerOverlayPointerDown,
+  onVlanPickerOverlayClick,
+  toggleBulkVlan,
+  toggleBulkAllVlans,
+  applyBulkEdit,
+} = useBulkEdit({ rows: () => props.modelValue, setRows, vlanOptions: () => props.vlanOptions, rowManaged }, rowUi)
+const { vlanPickerIndex, vlanPickerRow, toggleVlan, setVlanMode, setAccessVlan, toggleAllVlans } = useVlanSelection({
+  rows: () => props.modelValue,
+  vlanOptions: () => props.vlanOptions,
+  updateRow,
 })
 
 const staleSubinterfaceCount = computed(() => props.modelValue.reduce((sum, row) => sum + staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).length, 0))
@@ -903,130 +915,6 @@ async function revealStaleSubinterfaces(): Promise<number> {
 
 defineExpose({ reviewNeighborMismatches, revealStaleSubinterfaces })
 
-// Сохраняет существующие строки по индексу (вместе с их id/ips/vlan_ids) — повторное нажатие
-// "Заменить" с другим количеством не должно рвать связь с уже сохранёнными интерфейсами и их IP,
-// если индекс совпал. Совпадает по смыслу с generateInterfaces() в vanilla-версии.
-//
-// п.3.3, два фикса:
-// 1) Если хотя бы одна строка уже содержит реальные данные (не просто пустая карточка,
-//    добавленная кнопкой "+ Интерфейс"), генерация без предупреждения перезаписывала бы их
-//    шаблонными значениями — теперь сначала спрашиваем подтверждение (тот же паттерн confirm(),
-//    что и в DeviceFormModal.vue для конфликтов сохранения).
-// 2) genTypeId/genSpeedId, оставленные "— не выбрано —", раньше ВСЕГДА принудительно затирали
-//    interface_type_id/speed_id уже существующих строк пустым значением — даже если
-//    пользователь нажал "Заменить" только чтобы поменять количество или шаблон имени, а тип
-//    со скоростью на строках были выставлены вручную ранее. applyBulkEdit() ниже для того же
-//    случая уже трактует пустое значение поля как "не менять" (bulkTypeId.value || row.type) —
-//    generate() приведён к тому же принципу.
-//
-// п.1.4.1: раньше это была ЕДИНСТВЕННАЯ кнопка генератора — "заменить" было единственным
-// доступным режимом, добавить N интерфейсов К уже существующим, не трогая их, было нельзя (кроме
-// как по одному через "+ Интерфейс"). appendGenerated() ниже — второй режим именно для этого,
-// доступный без галочки "Заменить все порты" (см. applyGenerator() и фикс п.1.3.4).
-// Фикс п.1.3.3: явное «Начать нумерацию с» переопределяет умолчание (1 при замене, продолжение от числа строк при
-// добавлении); пустое поле — «не задано», а не 0 (utils/interfaceRowDraft.ts:resolveStartNumber).
-function generatorSettings(count: number, defaultStart: number): GeneratorSettings {
-  return { count, startNumber: resolveStartNumber(genStartAt.value, defaultStart), nameTemplate: genNameTemplate.value, typeId: genTypeId.value, speedId: genSpeedId.value }
-}
-
-function generate() {
-  // Фикс п.1.3.4: раньше подтверждение спрашивалось только если строки содержали "осмысленные"
-  // данные (эвристика hasExistingData) — неочевидно и непредсказуемо для пользователя, когда
-  // именно спросят, а когда молча заменят. Теперь режим "заменить" явно включается галочкой
-  // "Заменить все порты" (по умолчанию выключена, см. applyGenerator()), поэтому предупреждение
-  // безусловно показывается при любом непустом списке — раз уж галочка стоит, значит замена
-  // ожидаема, но масштаб (сколько именно портов будет затронуто) всё равно стоит подтвердить.
-  const count = Math.max(0, Number(genCount.value) || 0)
-  // Фикс (аудит fix/usability-batch4, находка №1): count вычисляется ДО текста подтверждения,
-  // чтобы отдельно предупредить про случай "Заменить все порты" + "Количество" = 0 — раньше это
-  // молча удаляло все существующие порты устройства, а диалог говорил только про "заменит N шт.
-  // новыми", не сообщая, что новых будет ноль.
-  if (props.modelValue.length > 0) {
-    const existingCount = props.modelValue.length
-    const message = count === 0
-      ? `Количество для генерации равно 0 — все ${existingCount} уже добавленных порта(ов) будут удалены, новые созданы не будут. Продолжить?`
-      : `Это полностью заменит все порты устройства (${existingCount} шт.) новыми, сгенерированными по шаблону. Продолжить?`
-    const ok = confirm(message)
-    if (!ok) return
-  }
-  const rows = replaceWithGenerated(props.modelValue, generatorSettings(count, 1), knownVlans.value, emptyRow)
-  selectedIndices.value = new Set()
-  expandedIndices.value = new Set()
-  copyTargetIndex.value = {}
-  emit('update:modelValue', clearReferencesTo(rows, props.modelValue.slice(count)))
-  replaceAllPorts.value = false // одноразовая осознанная галочка — не должна оставаться взведённой "на будущее" (см. её комментарий)
-}
-
-// п.1.4.1: добавляет genCount НОВЫХ интерфейсов к уже существующим, не трогая их вовсе — ни
-// имена, ни тип/скорость, ни VLAN/IP. Нумерация в шаблоне имени продолжается от количества уже
-// существующих строк (а не начинается заново с 1), чтобы не плодить дублирующиеся имена вроде
-// второго eth1 при повторном использовании генератора. Подтверждение не нужно — действие ничего
-// не перезаписывает.
-function appendGenerated() {
-  const count = Math.max(0, Number(genCount.value) || 0)
-  if (!count) return
-  const newRows = generateNewRows(generatorSettings(count, props.modelValue.length + 1), emptyRow)
-  selectedIndices.value = new Set()
-  emit('update:modelValue', [...props.modelValue, ...newRows])
-}
-
-// Фикс п.1.3.4: единственный обработчик кнопки "Сгенерировать" — маршрутизирует в один из двух
-// прежних режимов по состоянию галочки "Заменить все порты" вместо двух отдельных кнопок.
-function applyGenerator() {
-  if (replaceAllPorts.value) {
-    generate()
-  } else {
-    appendGenerated()
-  }
-}
-
-function addRow() {
-  selectedIndices.value = new Set()
-  // п.1.4.3.1: новая строка НЕ разворачивается автоматически — блок VLAN/IP свёрнут по
-  // умолчанию для любой строки, включая только что добавленную (было наоборот: разворачивалась
-  // принудительно — см. историю, до этого фикса строка ниже была `expandedIndices.value.add(...)`).
-  emit('update:modelValue', [...props.modelValue, emptyRow()])
-}
-
-function removeRow(index: number) {
-  selectedIndices.value = new Set()
-  expandedIndices.value = new Set()
-  copyTargetIndex.value = {}
-  emit(
-    'update:modelValue',
-    clearReferencesTo(
-      props.modelValue.filter((_, i) => i !== index),
-      [props.modelValue[index]],
-    ),
-  )
-}
-
-// Перестановка порта стрелками «вверх»/«вниз» в столбце порядка. Порядок строк массива и есть порядок, заданный
-// пользователем: он уходит на сервер вместе со списком портов и сохраняется (device_interfaces.sort_order). Отмеченные
-// галочкой и развёрнутые строки едут вместе со своим портом (индексы меняются местами); выбор получателя в «Копировать»
-// сбрасывается, как при любом другом структурном изменении списка (см. removeRow).
-function moveRowBy(index: number, direction: -1 | 1) {
-  const moved = moveRow(props.modelValue, index, direction)
-  if (!moved) return
-  const target = index + direction
-  selectedIndices.value = swapIndexes(selectedIndices.value, index, target)
-  expandedIndices.value = swapIndexes(expandedIndices.value, index, target)
-  copyTargetIndex.value = {}
-  emit('update:modelValue', moved)
-}
-
-function updateRow(index: number, patch: Partial<InterfaceDraftRow>) {
-  emit(
-    'update:modelValue',
-    props.modelValue.map((row, i) => (i === index ? { ...row, ...patch } : row)),
-  )
-}
-
-function renamePort(index: number, name: string) {
-  const row = props.modelValue[index]
-  if (row) updateRow(index, portNamePatch(row, name, knownVlans.value))
-}
-
 function addIp(index: number) {
   const row = props.modelValue[index]
   if (!row) return
@@ -1045,89 +933,8 @@ function updateIp(index: number, ipIndex: number, patch: Partial<InterfaceIpDraf
   updateRow(index, { ips: row.ips.map((ip, j) => (j === ipIndex ? { ...ip, ...patch } : ip)) })
 }
 
-// п.1.4 (батч4): выбранный в select'е индекс интерфейса-получателя для кнопки "Копировать" в
-// блоке "Открытые порты" каждой строки — ключ по индексу СТРОКИ-ИСТОЧНИКА (не по её id: у ещё не
-// сохранённой строки id нет). Чисто UI-состояние этого компонента, как selectedIndices/
-// expandedIndices выше — сбрасывается при любом структурном изменении списка (см. generate()/
-// addRow()/removeRow()), чтобы после сдвига индексов старый выбор не указывал на другую строку.
-const copyTargetIndex = ref<Record<number, string>>({})
-
-function setCopyTarget(index: number, targetIndexStr: string) {
-  copyTargetIndex.value = { ...copyTargetIndex.value, [index]: targetIndexStr }
-}
-
-/** Копирует набор открытых портов строки sourceIndex на targetIndex — именно КОПИРУЕТ (у
- * источника порты остаются как есть), а не переносит: id каждого порта сбрасывается, чтобы при
- * сохранении backend/app/services/crud/interfaces.py:_sync_interface_open_ports создал НОВЫЕ записи для
- * целевого интерфейса, а не попытался переприсвоить владельца уже существующих (это отдельно
- * отклоняется как "порт не принадлежит выбранному интерфейсу" — порт физически размещён на
- * одном порту устройства, скопировать можно только сам список технологий/протоколов). Если у
- * получателя уже есть какие-то порты, требует подтверждения — молчаливая замена была бы
- * неожиданной потерей уже введённых данных. */
-function copyPortsTo(sourceIndex: number, targetIndex: number) {
-  const source = props.modelValue[sourceIndex]
-  const target = props.modelValue[targetIndex]
-  if (!source || !target || sourceIndex === targetIndex || !source.open_ports.length) return
-  const sourceLabel = source.name || `#${sourceIndex + 1}`
-  const targetLabel = target.name || `#${targetIndex + 1}`
-  if (rowManaged(target).openPorts) {
-    notify(groupLockNote(target, `Список открытых портов порта «${targetLabel}»`), 'error')
-    return
-  }
-  if (target.open_ports.length) {
-    const ok = confirm(`На порту «${targetLabel}» уже есть открытые порты (${target.open_ports.length} шт.) — заменить их копией с «${sourceLabel}» (${source.open_ports.length} шт.)?`)
-    if (!ok) return
-  }
-  // Копия упорядочивается по номеру порта — как список, к которому пользователь добавил порт кнопкой.
-  updateRow(targetIndex, { open_ports: sortOpenPortRows(source.open_ports.map((p) => ({ ...p, id: undefined })), props.protocolPortCatalog) })
-  notify(`Открытые порты скопированы с «${sourceLabel}» на «${targetLabel}».`, 'success')
-  setCopyTarget(sourceIndex, '')
-}
-
-function applyCopyPorts(sourceIndex: number) {
-  const targetIndexStr = copyTargetIndex.value[sourceIndex]
-  if (!targetIndexStr) return
-  copyPortsTo(sourceIndex, Number(targetIndexStr))
-}
-
-function toggleVlan(index: number, vlanDefId: string, checked: boolean) {
-  const row = props.modelValue[index]
-  if (!row) return
-  const vlan_ids = checked ? [...row.vlan_ids, vlanDefId] : row.vlan_ids.filter((id) => id !== vlanDefId)
-  // Ручной выбор VLAN снимает признак «Все VLAN» — даже если в итоге выбраны все: признак не выводится из числа VLAN.
-  updateRow(index, { vlan_ids, all_vlans: false })
-}
-
-// п.1.4.3.2: режим порта — access (ровно один VLAN) или trunk (несколько, в т.ч. "все").
-function setVlanMode(index: number, mode: 'access' | 'trunk') {
-  const row = props.modelValue[index]
-  if (!row) return
-  if (mode === 'access') {
-    // При переключении в access оставляем только первый уже отмеченный VLAN — сохранить
-    // несколько было бы некорректным сочетанием (см. validateInterfaceDraftRows).
-    updateRow(index, { vlan_mode: 'access', vlan_ids: row.vlan_ids.slice(0, 1), all_vlans: false })
-  } else {
-    // Фикс п.2.1.1: переключение на trunk сразу отмечает "Все VLAN" — раньше vlan_ids оставался
-    // как есть (пустым для новой строки), и пользователю приходилось ещё и сообразить, что нужно
-    // отдельно поставить галочку "Все VLAN" самому. Теперь это сохраняемый признак (all_vlans): он ставится
-    // сразу, а vlan_ids зеркалит все допустимые VLAN, чтобы форма показывала их отмеченными. Если у устройства
-    // VLAN ещё нет, признак не ставится — «всех» пока нет, а порт не должен подхватывать VLAN, которые
-    // пользователь потом добавит, не выбирая «Все VLAN» осознанно.
-    updateRow(index, { vlan_mode: 'trunk', vlan_ids: props.vlanOptions.map((v) => v.id), all_vlans: props.vlanOptions.length > 0 })
-  }
-}
-
-function setAccessVlan(index: number, vlanDefId: string) {
-  updateRow(index, { vlan_ids: vlanDefId ? [vlanDefId] : [] })
-}
-
 // Access-порт: VLAN выбирается из списка с поиском (SearchableSelect) — VLAN у устройства может быть много.
 const accessVlanOptions = computed(() => props.vlanOptions.map((v) => ({ value: v.id, label: vlanLabel(v) })))
-
-// Trunk-порт: набор VLAN выбирается во всплывающем окне строки (PortVlanPickerModal). vlanPickerIndex — индекс строки,
-// чьё окно открыто; пока окно открыто, форма под ним не редактируется, поэтому индекс остаётся верным.
-const vlanPickerIndex = ref<number | null>(null)
-const vlanPickerRow = computed(() => (vlanPickerIndex.value === null ? undefined : props.modelValue[vlanPickerIndex.value]))
 
 /** "Все VLAN" в trunk-режиме — сохраняемый признак порта (InterfaceDraftRow.all_vlans, колонка
  * device_interfaces.all_vlans), а НЕ вывод из числа выбранных VLAN: порт, у которого вручную отмечены все VLAN,
@@ -1137,97 +944,6 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
   return row.all_vlans === true
 }
 
-function toggleAllVlans(index: number, checked: boolean) {
-  updateRow(index, { all_vlans: checked, vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] })
-}
-
-const selectedIndices = ref<Set<number>>(new Set())
-// п.3.4: какие строки таблицы сейчас показывают развёрнутую панель (VLAN на порту, IP-адреса,
-// описание) — вынесены из компактной таблицы под toggle, иначе редко нужные на каждый день поля
-// съедали бы всю выгоду от перехода с карточек на таблицу.
-const expandedIndices = ref<Set<number>>(new Set())
-const bulkTypeId = ref('')
-const bulkSpeedId = ref('')
-const bulkManagement = ref('') // '' — не менять, 'true'/'false' — включить/выключить
-const bulkDataTransfer = ref('')
-const bulkVlanMode = ref('') // '' — не менять, 'access'/'trunk' — режим порта (п.1.4.3.2)
-const bulkVlanIds = ref<Set<string>>(new Set())
-// «Все VLAN» панели — тот же признак, что у порта (all_vlans), а не вывод из набора bulkVlanIds: ставится кликом по чекбоксу и
-// снимается любым ручным выбором VLAN.
-const bulkAllVlans = ref(false)
-// Пункт 3 правки "физическое устройство: массовое редактирование" — при большом числе VLAN на
-// устройстве инлайновый список чекбоксов в ячейке "растягивал" всю строку массового
-// редактирования (а с ней — и всю таблицу). Список чекбоксов переехал во всплывающее окно,
-// открываемое кнопкой; сама ячейка показывает только краткую сводку (сколько выбрано).
-const bulkVlanPickerOpen = ref(false)
-const bulkVlanSummary = computed(() => (bulkAllVlans.value ? 'Все VLAN' : bulkVlanIds.value.size ? `Выбрано VLAN: ${bulkVlanIds.value.size}` : '— выбрать VLAN —'))
-const { onOverlayPointerDown: onVlanPickerOverlayPointerDown, onOverlayClick: onVlanPickerOverlayClick } = useOverlayDismiss(() => (bulkVlanPickerOpen.value = false))
-
-function toggleSelect(index: number, checked: boolean) {
-  if (checked) selectedIndices.value.add(index)
-  else selectedIndices.value.delete(index)
-}
-
-function toggleSelectAll(checked: boolean) {
-  selectedIndices.value = checked ? new Set(props.modelValue.map((_, i) => i)) : new Set()
-}
-
-function toggleExpand(index: number) {
-  if (expandedIndices.value.has(index)) expandedIndices.value.delete(index)
-  else expandedIndices.value.add(index)
-}
-
-function toggleBulkVlan(vlanDefId: string, checked: boolean) {
-  if (checked) bulkVlanIds.value.add(vlanDefId)
-  else bulkVlanIds.value.delete(vlanDefId)
-  bulkAllVlans.value = false
-}
-
-// Пункт 4 правки "создание физического устройства": та же механика "Все VLAN", что и у
-// isAllVlansSelected()/toggleAllVlans() для одиночного порта выше, только применительно к панели массового
-// редактирования: отмеченные порты получают признак «Все VLAN» (а не просто набор из всех VLAN).
-function isBulkAllVlansSelected(): boolean {
-  return bulkAllVlans.value
-}
-
-function toggleBulkAllVlans(checked: boolean) {
-  bulkAllVlans.value = checked
-  bulkVlanIds.value = new Set(checked ? props.vlanOptions.map((v) => v.id) : [])
-}
-
-// Применяет накопленные в панели правки ко всем отмеченным карточкам разом — портировано из
-// applyBulkInterfaceEdit() в vanilla-версии. Поля со значением "— не менять —" (пустая строка)
-// не трогают соответствующее поле выбранных строк; VLAN добавляется К уже стоящим на порту
-// (объединение множеств, не замена) — так же, как в vanilla, где легко случайно снять чужой VLAN
-// массовым действием было бы хуже, чем просто ничего не убрать.
-function applyBulkEdit() {
-  if (!selectedIndices.value.size) {
-    notify('Отметьте хотя бы один интерфейс галочкой "Выбрать".', 'error')
-    return
-  }
-  emit(
-    'update:modelValue',
-    applyBulkEditToRows(
-      props.modelValue,
-      selectedIndices.value,
-      { typeId: bulkTypeId.value, speedId: bulkSpeedId.value, management: bulkManagement.value, dataTransfer: bulkDataTransfer.value, vlanMode: bulkVlanMode.value, vlanIds: bulkVlanIds.value, allVlans: bulkAllVlans.value },
-      props.vlanOptions,
-      (row) => rowManaged(row).vlan,
-    ),
-  )
-  // Полный сброс панели после применения — та же логика, что и полная перерисовка после
-  // applyBulkInterfaceEdit() в vanilla-версии: без сброса "не менять" select бы продолжал
-  // показывать уже применённое значение, будто его можно применить ещё раз.
-  selectedIndices.value = new Set()
-  bulkTypeId.value = ''
-  bulkSpeedId.value = ''
-  bulkManagement.value = ''
-  bulkDataTransfer.value = ''
-  bulkVlanMode.value = ''
-  bulkVlanIds.value = new Set()
-  bulkAllVlans.value = false
-  bulkVlanPickerOpen.value = false
-}
 </script>
 
 <template>
@@ -1707,7 +1423,7 @@ function applyBulkEdit() {
         <!-- Пункт 4 (предыдущая правка): галочка "Все VLAN" — показывается только при выбранном
              Trunk, т.к. для access (не более одного VLAN) она не имеет смысла. -->
         <label v-if="bulkVlanMode === 'trunk'" class="vlan-check vlan-check-all">
-          <input type="checkbox" :checked="isBulkAllVlansSelected()" @change="toggleBulkAllVlans(($event.target as HTMLInputElement).checked)" />
+          <input type="checkbox" :checked="bulkAllVlans" @change="toggleBulkAllVlans(($event.target as HTMLInputElement).checked)" />
           <b>Все VLAN</b>
         </label>
         <label v-for="v in vlanOptions" :key="v.id" class="vlan-check">
