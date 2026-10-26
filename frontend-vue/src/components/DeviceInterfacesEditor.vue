@@ -43,6 +43,10 @@ import { useToast } from '../composables/useToast'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { vlanLabel } from '../utils/vlan'
+import { applyBulkEditToRows } from '../utils/interfaceBulkEdit'
+import { clearReferencesTo, emptyInterfaceRow, generateNewRows, portNamePatch, replaceWithGenerated, resolveStartNumber, TEMPLATE_HELP_TEXT, type GeneratorSettings } from '../utils/interfaceRowDraft'
+import { conflictSummary, conflictTitle, connectionSummary, duplicatePortsText, staleSubinterfaceText, trunkVlanSummary, trunkVlanTitle, vlanCellSummary, type ConflictKind } from '../utils/interfaceRowView'
+import { freedPeerIds as computeFreedPeerIds, selfPortCandidates, takenPeerIds } from '../utils/interfacePeers'
 import { carriesAllVlans, describeVlanValue, valueFromSource, type AllVlansState, type VlanValue } from '../utils/allVlans'
 import { numbersOf } from '../utils/portEdit'
 import { findGroup, managedFields } from '../utils/interfaceGroups'
@@ -50,13 +54,12 @@ import { applyCascadeToDraft, buildEditedState, isFormOnlyPlan } from '../utils/
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
 import { moveRow, swapIndexes } from '../utils/interfaceOrder'
-import { moveStaleMessage, moveStaleSubinterfaces, portVlanOptions, renameSubinterfacesForPort, staleSubinterfaces, subinterfacesOffPortVlans } from '../utils/subinterfaces'
+import { moveStaleMessage, moveStaleSubinterfaces, portVlanOptions, staleSubinterfaces } from '../utils/subinterfaces'
 import {
   SELF_DEVICE,
   changedConnectionRowIds,
   connectionConfigDiffKinds,
   connectionConfigDiffs,
-  connectionPointsTo,
   newRowKey,
   peerRef,
   rowRef,
@@ -64,7 +67,6 @@ import {
   type ConnectionBaseline,
   type PeerConfigTarget,
   type PortConfigLike,
-  type SelfPortCandidate,
 } from '../utils/interfaceConnections'
 import { portConfigOf, samePortConfig, type PortConfig } from '../utils/portConflicts'
 import QuickAddButton from './QuickAddButton.vue'
@@ -170,59 +172,14 @@ function onGroupsChange(payload: { rows: InterfaceDraftRow[]; groups: InterfaceG
   selectedIndices.value = new Set()
 }
 
-function emptyRow(): InterfaceDraftRow {
-  return {
-    // Ключ нужен, чтобы подключение другого порта могло сослаться на строку, у которой ещё нет id.
-    ...(props.editConnections ? { key: newRowKey() } : {}),
-    name: '',
-    interface_type_id: '',
-    mac_address: '',
-    speed_id: '',
-    is_management: false,
-    is_data_transfer: false,
-    description: '',
-    vlan_ids: [],
-    all_vlans: false,
-    // access по умолчанию — п.1.3.1 ("'Режим порта' по умолчанию должен быть 'Access'"). Ранее
-    // здесь стоял 'trunk' как "нейтральный старт, раз есть все VLAN" (см. историю), но по новой
-    // явной формулировке требования старт должен быть access — trunk теперь осознанный выбор
-    // пользователя, а не стартовое состояние. Инференс режима для СТРОК, УЖЕ ЗАГРУЖЕННЫХ из БД
-    // (в т.ч. исторических с mode=null), — отдельная, намеренно не тронутая здесь логика в
-    // api/deviceInterfaces.ts:loadDeviceInterfaceDraftRows (менять её означало бы на лету менять
-    // трактовку уже сохранённых в БД связей интерфейс-VLAN, а не старт для НОВОЙ пустой строки).
-    vlan_mode: 'access',
-    ips: [],
-    open_ports: [],
-    // subinterfaces у новой строки намеренно нет: undefined = «не трогали» (на сервер не уходит), список
-    // появляется, когда пользователь добавил первый подинтерфейс (см. InterfaceSubinterfacesEditor).
-  }
-}
-
-const TEMPLATE_HELP_TEXT =
-  'В шаблоне можно использовать:\n' +
-  '{n} — порядковый номер порта: 1, 2, 3…\n' +
-  '{n0} — тот же номер с ведущим нулём: 01, 02, 03…\n\n' +
-  'Примеры:\n' +
-  'eth{n} → eth1, eth2, eth3…\n' +
-  'GigabitEthernet0/{n0} → GigabitEthernet0/01, GigabitEthernet0/02…\n\n' +
-  'Номер отсчитывается от 1 в пределах одного нажатия (при "Заменить все порты" выключено — от '
-  + 'количества уже существующих интерфейсов), если поле "Начать нумерацию с" пустое.\n\n' +
-  'Нумерация с определённого до определённого номера: заполните "Начать нумерацию с" явным '
-  + 'числом — например, "Количество: 20" и "Начать с: 5" сгенерируют порты с номерами 5-24 '
-  + '(GigabitEthernet0/5 … GigabitEthernet0/24 для шаблона GigabitEthernet0/{n}).'
-
-function applyTemplate(template: string, n: number): string {
-  return template.replaceAll('{n}', String(n)).replaceAll('{n0}', String(n).padStart(2, '0'))
-}
+// Пустая строка нового порта (utils/interfaceRowDraft.ts). Ключ нужен, чтобы подключение другого порта могло
+// сослаться на строку, у которой ещё нет id.
+const emptyRow = () => emptyInterfaceRow(props.editConnections)
 
 // Повторяющиеся номера открытых портов по строкам (индекс → номера). Показываются индикатором на
 // свёрнутой строке — иначе подсвеченную внутри раскрытого блока строку увидит только тот, кто его
 // раскроет; сохранение с повтором всё равно блокируется (validateInterfaceDraftRows).
 const duplicatePortsByRow = computed(() => props.modelValue.map((row) => duplicatePortNumbers(row.open_ports, props.protocolPortCatalog)))
-
-function duplicatePortsText(index: number): string {
-  return `Повторяются номера открытых портов: ${duplicatePortsByRow.value[index].join(', ')}`
-}
 
 // Подинтерфейсы на VLAN, которого у устройства больше нет (снят в блоке «VLAN устройства», сменили тип устройства,
 // VLAN перенесён в другой домен). Подинтерфейс молча не удаляется — на нём IP-адреса и открытые порты, — а сохранение
@@ -250,28 +207,9 @@ function moveAllStaleSubinterfaces() {
   if (message) notify(message.text, message.type)
 }
 
-// Значок на свёрнутой строке порта: подинтерфейсы, VLAN которых выбрать уже нельзя, — он не выбран на порту (убран с порта)
-// либо снят с устройства. VLAN подинтерфейса выбирается из VLAN порта (см. InterfaceSubinterfacesEditor), поэтому такой
-// подинтерфейс нужно перенести на другой VLAN порта или удалить — иначе форма не сохранится.
-function staleSubinterfaceText(row: InterfaceDraftRow): string {
-  const names = subinterfacesOffPortVlans(row, allowedVlanIds.value).map((sub) => `«${sub.name.trim() || 'без имени'}»`)
-  return names.length ? `Подинтерфейсы на VLAN, не выбранном на порту или не назначенном устройству: ${names.join(', ')} — выберите другой VLAN или удалите их` : ''
-}
-
 // VLAN, из которых выбирается VLAN подинтерфейса порта: выбранные на самом порту (с «Все VLAN» — все VLAN устройства).
 function subinterfaceVlanOptions(row: InterfaceDraftRow) {
   return portVlanOptions(row, props.vlanOptions)
-}
-
-// Подключение порта (блок «Подключение», InterfaceConnectionEditor.vue): порты соседей, уже выбранные в
-// ДРУГИХ строках, — чтобы один порт соседа нельзя было выбрать дважды, — и краткая подпись для свёрнутой строки.
-function takenPeerIds(index: number): Set<string> {
-  const ids = new Set<string>()
-  props.modelValue.forEach((r, j) => {
-    const ref = j !== index && r.connection ? peerRef(r.connection) : ''
-    if (ref) ids.add(ref)
-  })
-  return ids
 }
 
 // Строка без id может стать соседом подключения другого порта этой же формы, а ссылаться на неё нужно по
@@ -286,83 +224,11 @@ watch(
   { immediate: true },
 )
 
-// Другие порты ЭТОГО устройства, доступные строке `index` в роли соседа: не она сама, не выбранные соседом
-// другой строки и не имеющие собственного подключения (порт участвует только в одном подключении, а кабель
-// между двумя портами формы описывается с одной стороны). Уже выбранный этой строкой сосед остаётся в списке.
-function selfPortCandidates(index: number): SelfPortCandidate[] {
-  const me = props.modelValue[index]
-  const taken = takenPeerIds(index)
-  return props.modelValue.flatMap((row, i): SelfPortCandidate[] => {
-    const ref = rowRef(row)
-    if (i === index || !ref) return []
-    if (!connectionPointsTo(me.connection, row) && (taken.has(ref) || row.connection)) return []
-    return [
-      {
-        value: ref,
-        label: `${row.name.trim() || 'без имени'} (строка ${i + 1})`,
-        interfaceId: row.id,
-        rowKey: row.id ? undefined : row.key,
-        config: portConfigOf(row),
-      },
-    ]
-  })
-}
-
 // Порты соседей, которые эта форма освобождает: подключение порта снято или переставлено на другой порт.
-const freedPeerIds = computed(() => {
-  const freed = new Set<string>()
-  const baseline = props.connectionBaseline
-  if (!baseline) return freed
-  for (const row of props.modelValue) {
-    const before = row.id ? baseline.get(row.id) : null
-    if (before?.peer_interface_id && row.connection?.peer_interface_id !== before.peer_interface_id) freed.add(before.peer_interface_id)
-  }
-  return freed
-})
-
-// Строки удалены: подключения других портов, ссылавшиеся на них, теряют соседа (форма потребует выбрать
-// другого или нажать «Отключить»), а не уходят на сервер с несуществующей ссылкой.
-function clearReferencesTo(rows: InterfaceDraftRow[], removed: readonly InterfaceDraftRow[]): InterfaceDraftRow[] {
-  const refs = new Set(removed.map(rowRef).filter(Boolean))
-  if (!refs.size) return rows
-  return rows.map((r) => {
-    if (!r.connection || !refs.has(peerRef(r.connection))) return r
-    const connection = { ...r.connection, peer_interface_id: '' }
-    delete connection.peer_row_key
-    return { ...r, connection }
-  })
-}
-
-function connectionSummary(row: InterfaceDraftRow): string {
-  const draft = row.connection
-  if (!draft) return ''
-  const ref = peerRef(draft)
-  if (!ref) return '↔ порт не выбран'
-  if (draft.peer_row_key || draft.peer_device_id === (props.deviceId ?? SELF_DEVICE)) {
-    const target = props.modelValue.find((r) => rowRef(r) === ref)
-    return `↔ это устройство · ${target ? target.name.trim() || 'без имени' : '?'}`
-  }
-  return `↔ ${draft.peer_device_name ?? '?'} · ${draft.peer_interface_name ?? '?'}`
-}
+const freedPeerIds = computed(() => computeFreedPeerIds(props.modelValue, props.connectionBaseline))
 
 function rowConflict(row: InterfaceDraftRow): PortConflictInfo | undefined {
   return row.id ? props.conflicts[row.id] : undefined
-}
-
-type ConflictKind = 'flags' | 'vlan_mode' | 'all_vlans'
-
-const CONFLICT_TITLES: Record<ConflictKind, string> = {
-  flags: 'Расхождение назначения порта',
-  vlan_mode: 'Расхождение режима порта',
-  all_vlans: 'Расхождение «Все VLAN»',
-}
-const conflictTitle = (kind: ConflictKind) => CONFLICT_TITLES[kind]
-
-function conflictSummary(conflict: PortConflictInfo, kind: ConflictKind): string {
-  const where = `${conflict.otherDeviceName} · ${conflict.otherInterfaceName}`
-  if (kind === 'flags') return `На связанном порту (${where}) указано другое назначение (Управление/Передача данных).`
-  if (kind === 'all_vlans') return `На связанном порту (${where}) ${conflict.other.all_vlans ? 'стоит' : 'не стоит'} «Все VLAN».`
-  return `На связанном порту (${where}) установлен другой режим порта (Trunk/Access).`
 }
 
 // Пункты 1-2 правки "физическое устройство: расхождение с соседним портом": одно окно на оба
@@ -1037,19 +903,6 @@ async function revealStaleSubinterfaces(): Promise<number> {
 
 defineExpose({ reviewNeighborMismatches, revealStaleSubinterfaces })
 
-// Фикс п.1.3.3: явный genStartAt переопределяет дефолтную нумерацию (1 при замене, продолжение
-// от текущего количества строк при добавлении) — см. её комментарий выше. Пустое поле (юзер
-// стёр значение) трактуется как "не задано", а не как 0. genStartAt.value может быть как строкой,
-// так и числом — v-model на <input type="number"> в Vue 3 сам приводит валидное числовое значение
-// к Number, а не оставляет строкой (в отличие от обычного текстового input), поэтому явных
-// строковых методов вроде .trim() здесь быть не должно.
-function resolveStartNumber(defaultStart: number): number {
-  const raw = genStartAt.value
-  if (raw === '' || raw === null || raw === undefined) return defaultStart
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) ? parsed : defaultStart
-}
-
 // Сохраняет существующие строки по индексу (вместе с их id/ips/vlan_ids) — повторное нажатие
 // "Заменить" с другим количеством не должно рвать связь с уже сохранёнными интерфейсами и их IP,
 // если индекс совпал. Совпадает по смыслу с generateInterfaces() в vanilla-версии.
@@ -1070,6 +923,12 @@ function resolveStartNumber(defaultStart: number): number {
 // доступным режимом, добавить N интерфейсов К уже существующим, не трогая их, было нельзя (кроме
 // как по одному через "+ Интерфейс"). appendGenerated() ниже — второй режим именно для этого,
 // доступный без галочки "Заменить все порты" (см. applyGenerator() и фикс п.1.3.4).
+// Фикс п.1.3.3: явное «Начать нумерацию с» переопределяет умолчание (1 при замене, продолжение от числа строк при
+// добавлении); пустое поле — «не задано», а не 0 (utils/interfaceRowDraft.ts:resolveStartNumber).
+function generatorSettings(count: number, defaultStart: number): GeneratorSettings {
+  return { count, startNumber: resolveStartNumber(genStartAt.value, defaultStart), nameTemplate: genNameTemplate.value, typeId: genTypeId.value, speedId: genSpeedId.value }
+}
+
 function generate() {
   // Фикс п.1.3.4: раньше подтверждение спрашивалось только если строки содержали "осмысленные"
   // данные (эвристика hasExistingData) — неочевидно и непредсказуемо для пользователя, когда
@@ -1090,16 +949,7 @@ function generate() {
     const ok = confirm(message)
     if (!ok) return
   }
-  const startNumber = resolveStartNumber(1)
-  const rows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => {
-    const existing = props.modelValue[i] ?? emptyRow()
-    return {
-      ...existing,
-      ...portNamePatch(existing, applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i)),
-      interface_type_id: genTypeId.value || existing.interface_type_id,
-      speed_id: genSpeedId.value || existing.speed_id,
-    }
-  })
+  const rows = replaceWithGenerated(props.modelValue, generatorSettings(count, 1), knownVlans.value, emptyRow)
   selectedIndices.value = new Set()
   expandedIndices.value = new Set()
   copyTargetIndex.value = {}
@@ -1115,14 +965,7 @@ function generate() {
 function appendGenerated() {
   const count = Math.max(0, Number(genCount.value) || 0)
   if (!count) return
-  const startIndex = props.modelValue.length
-  const startNumber = resolveStartNumber(startIndex + 1)
-  const newRows: InterfaceDraftRow[] = Array.from({ length: count }, (_, i) => ({
-    ...emptyRow(),
-    name: applyTemplate(genNameTemplate.value || 'eth{n}', startNumber + i),
-    interface_type_id: genTypeId.value,
-    speed_id: genSpeedId.value,
-  }))
+  const newRows = generateNewRows(generatorSettings(count, props.modelValue.length + 1), emptyRow)
   selectedIndices.value = new Set()
   emit('update:modelValue', [...props.modelValue, ...newRows])
 }
@@ -1179,18 +1022,9 @@ function updateRow(index: number, patch: Partial<InterfaceDraftRow>) {
   )
 }
 
-// Новое имя порта вместе с подинтерфейсами: их автоимена («Gi0/0.10») следуют за именем порта («Gi0/1.10»), а имена,
-// введённые вручную, остаются как есть (utils/subinterfaces.ts:renameSubinterfacesForPort). Без подинтерфейсов или
-// если пересчитывать нечего — только имя; ключ subinterfaces тогда не появляется («не трогали» остаётся «не трогали»).
-function portNamePatch(row: InterfaceDraftRow, name: string): Partial<InterfaceDraftRow> {
-  if (!row.subinterfaces?.length) return { name }
-  const subinterfaces = renameSubinterfacesForPort(row.subinterfaces, row.name, name, knownVlans.value)
-  return subinterfaces === row.subinterfaces ? { name } : { name, subinterfaces }
-}
-
 function renamePort(index: number, name: string) {
   const row = props.modelValue[index]
-  if (row) updateRow(index, portNamePatch(row, name))
+  if (row) updateRow(index, portNamePatch(row, name, knownVlans.value))
 }
 
 function addIp(index: number) {
@@ -1295,18 +1129,6 @@ const accessVlanOptions = computed(() => props.vlanOptions.map((v) => ({ value: 
 const vlanPickerIndex = ref<number | null>(null)
 const vlanPickerRow = computed(() => (vlanPickerIndex.value === null ? undefined : props.modelValue[vlanPickerIndex.value]))
 
-/** Сводка набора VLAN trunk-порта рядом с кнопкой выбора: с признаком «Все VLAN» — число всех VLAN устройства. */
-function trunkVlanSummary(row: InterfaceDraftRow): string {
-  const selected = props.vlanOptions.filter((v) => row.vlan_ids.includes(v.id)).length
-  return `Выбрано VLAN: ${selected} из ${props.vlanOptions.length}`
-}
-
-/** Всплывающая подсказка со списком выбранных VLAN trunk-порта (длинный список в строку не помещается). */
-function trunkVlanTitle(row: InterfaceDraftRow): string {
-  const labels = props.vlanOptions.filter((v) => row.vlan_ids.includes(v.id)).map((v) => vlanLabel(v))
-  return labels.length ? labels.join('\n') : 'VLAN не выбраны'
-}
-
 /** "Все VLAN" в trunk-режиме — сохраняемый признак порта (InterfaceDraftRow.all_vlans, колонка
  * device_interfaces.all_vlans), а НЕ вывод из числа выбранных VLAN: порт, у которого вручную отмечены все VLAN,
  * признака не имеет, и наоборот. Пока признак стоит, vlan_ids зеркалит все допустимые VLAN устройства (так форма
@@ -1317,17 +1139,6 @@ function isAllVlansSelected(row: InterfaceDraftRow): boolean {
 
 function toggleAllVlans(index: number, checked: boolean) {
   updateRow(index, { all_vlans: checked, vlan_ids: checked ? props.vlanOptions.map((v) => v.id) : [] })
-}
-
-/** Краткая сводка для свёрнутой строки таблицы (ячейка "VLAN / IP") — показывает режим порта,
- * не разворачивая деталь. Для access с ещё не выбранным VLAN — просто "Access", без "0 VLAN"
- * (звучало бы как ошибка, хотя это обычное промежуточное состояние при заполнении формы). */
-function vlanCellSummary(row: InterfaceDraftRow): string {
-  if (row.vlan_mode === 'access') {
-    const vlan = props.vlanOptions.find((v) => v.id === row.vlan_ids[0])
-    return vlan ? `Access: ${vlanLabel(vlan)}` : 'Access'
-  }
-  return row.all_vlans ? `Trunk · все VLAN (${row.vlan_ids.length})` : `Trunk · ${row.vlan_ids.length} VLAN`
 }
 
 const selectedIndices = ref<Set<number>>(new Set())
@@ -1394,37 +1205,15 @@ function applyBulkEdit() {
     notify('Отметьте хотя бы один интерфейс галочкой "Выбрать".', 'error')
     return
   }
-  const vlanIds = [...bulkVlanIds.value]
   emit(
     'update:modelValue',
-    props.modelValue.map((row, i) => {
-      if (!selectedIndices.value.has(i)) return row
-      // Режим порта и VLAN порта из группы, управляющей ими, массовое редактирование не меняет.
-      const vlanLocked = rowManaged(row).vlan
-      const vlan_mode = (vlanLocked ? row.vlan_mode : bulkVlanMode.value || row.vlan_mode) as 'access' | 'trunk'
-      let vlan_ids = vlanLocked ? row.vlan_ids : vlanIds.length ? Array.from(new Set([...row.vlan_ids, ...vlanIds])) : row.vlan_ids
-      // access допускает не более одного VLAN — если массовое действие переключает режим в
-      // access (или строка уже была в access, а панель добавляет VLAN), лишние отбрасываем,
-      // чтобы не сохранить некорректную комбинацию (см. validateInterfaceDraftRows).
-      if (vlan_mode === 'access' && vlan_ids.length > 1) vlan_ids = vlan_ids.slice(0, 1)
-      // Признак «Все VLAN» держится, пока порт в trunk и его набор не менялся вручную; панель с «Все VLAN» ставит его
-      // отмеченным trunk-портам (vlan_ids при этом зеркалит все допустимые VLAN), в access он невозможен.
-      let all_vlans = vlan_mode === 'trunk' && row.all_vlans === true
-      if (!vlanLocked && bulkAllVlans.value && vlan_mode === 'trunk') {
-        all_vlans = true
-        vlan_ids = props.vlanOptions.map((v) => v.id)
-      }
-      return {
-        ...row,
-        interface_type_id: bulkTypeId.value || row.interface_type_id,
-        speed_id: bulkSpeedId.value || row.speed_id,
-        is_management: bulkManagement.value === '' ? row.is_management : bulkManagement.value === 'true',
-        is_data_transfer: bulkDataTransfer.value === '' ? row.is_data_transfer : bulkDataTransfer.value === 'true',
-        vlan_mode,
-        vlan_ids,
-        all_vlans,
-      }
-    }),
+    applyBulkEditToRows(
+      props.modelValue,
+      selectedIndices.value,
+      { typeId: bulkTypeId.value, speedId: bulkSpeedId.value, management: bulkManagement.value, dataTransfer: bulkDataTransfer.value, vlanMode: bulkVlanMode.value, vlanIds: bulkVlanIds.value, allVlans: bulkAllVlans.value },
+      props.vlanOptions,
+      (row) => rowManaged(row).vlan,
+    ),
   )
   // Полный сброс панели после применения — та же логика, что и полная перерисовка после
   // applyBulkInterfaceEdit() в vanilla-версии: без сброса "не менять" select бы продолжал
@@ -1670,11 +1459,11 @@ function applyBulkEdit() {
               </td>
               <td>
                 <button type="button" class="expand-toggle" @click="toggleExpand(i)">
-                  <svg v-if="duplicatePortsByRow[i]?.length" class="icon conflict-icon ports-dup-icon" :aria-label="duplicatePortsText(i)" :title="duplicatePortsText(i)"><use href="/icons.svg#i-alert" /></svg>
+                  <svg v-if="duplicatePortsByRow[i]?.length" class="icon conflict-icon ports-dup-icon" :aria-label="duplicatePortsText(duplicatePortsByRow[i])" :title="duplicatePortsText(duplicatePortsByRow[i])"><use href="/icons.svg#i-alert" /></svg>
                   <svg v-if="rowConflict(row)?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
                   <svg v-if="rowConflict(row)?.allVlansDiffer" class="icon conflict-icon" aria-label="Расхождение «Все VLAN» с подключённым портом" :title="conflictSummary(rowConflict(row)!, 'all_vlans')"><use href="/icons.svg#i-alert" /></svg>
-                  <svg v-if="staleSubinterfaceText(row)" class="icon conflict-icon stale-sub-icon" :aria-label="staleSubinterfaceText(row)" :title="staleSubinterfaceText(row)"><use href="/icons.svg#i-alert" /></svg>
-                  <span v-truncate-tooltip>{{ vlanCellSummary(row) }} · {{ row.ips.length }} IP<template v-if="row.subinterfaces?.length"> · {{ row.subinterfaces.length }} подинт.</template><template v-if="row.connection"> · {{ connectionSummary(row) }}</template><template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
+                  <svg v-if="staleSubinterfaceText(row, allowedVlanIds)" class="icon conflict-icon stale-sub-icon" :aria-label="staleSubinterfaceText(row, allowedVlanIds)" :title="staleSubinterfaceText(row, allowedVlanIds)"><use href="/icons.svg#i-alert" /></svg>
+                  <span v-truncate-tooltip>{{ vlanCellSummary(row, vlanOptions) }} · {{ row.ips.length }} IP<template v-if="row.subinterfaces?.length"> · {{ row.subinterfaces.length }} подинт.</template><template v-if="row.connection"> · {{ connectionSummary(row, modelValue, deviceId) }}</template><template v-if="rowGroup(row)"> · Группа «{{ rowGroup(row)!.name }}»</template></span>
                   <svg class="icon chev" :class="{ open: expandedIndices.has(i) }"><use href="/icons.svg#i-chevd" /></svg>
                 </button>
               </td>
@@ -1765,7 +1554,7 @@ function applyBulkEdit() {
                         >
                           <svg class="icon conflict-icon"><use href="/icons.svg#i-alert" /></svg>
                         </button>
-                        <span class="vlan-summary" :title="trunkVlanTitle(row)">{{ trunkVlanSummary(row) }}</span>
+                        <span class="vlan-summary" :title="trunkVlanTitle(row, vlanOptions)">{{ trunkVlanSummary(row, vlanOptions) }}</span>
                         <button type="button" class="btn btn-secondary vlan-picker-btn" @click="vlanPickerIndex = i">
                           {{ rowManaged(row).vlan ? 'Показать VLAN…' : 'Выбрать VLAN…' }}
                         </button>
@@ -1833,8 +1622,8 @@ function applyBulkEdit() {
                     :device-id="deviceId"
                     :device-label="deviceLabel"
                     :config="portConfigOf(row)"
-                    :taken-peer-ids="takenPeerIds(i)"
-                    :self-ports="selfPortCandidates(i)"
+                    :taken-peer-ids="takenPeerIds(modelValue, i)"
+                    :self-ports="selfPortCandidates(modelValue, i)"
                     :freed-peer-ids="freedPeerIds"
                     :applying="applyingPeerConfig"
                     :peers-version="peersVersion"
