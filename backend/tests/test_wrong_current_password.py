@@ -70,12 +70,14 @@ def test_the_attempt_is_counted_and_written_to_the_audit_log(client, admin_token
     assert row.actor_username == "admin" and row.actor_ip == "127.0.0.1"
 
 
-def test_account_is_locked_after_the_configured_number_of_wrong_values(client, admin_token, db_session):
+def test_account_is_locked_after_the_configured_number_of_wrong_values(client, client_factory, admin_token, db_session):
     for _ in range(THRESHOLD):
         assert _change(client, admin_token, "wrong-one1").status_code == 422
     locked = _user(db_session)
     assert locked.locked_until is not None and locked.failed_attempts == 0
-    login = client.post("/api/v1/auth/login", json={"username": "admin", "password": "Admin1234"})
+    # Вход с адреса, с которого пользователь ещё не входил: со «знакомого» (127.0.0.1, где открыта сессия) блокировка пропускает (A-08)
+    stranger = client_factory("203.0.113.9")
+    login = stranger.post("/api/v1/auth/login", json={"username": "admin", "password": "Admin1234"})
     assert login.status_code == 423 and login.json()["detail"]["code"] == "ACCOUNT_LOCKED"
     assert any("учётная запись заблокирована" in row.details for row in _failed_rows(db_session))
 

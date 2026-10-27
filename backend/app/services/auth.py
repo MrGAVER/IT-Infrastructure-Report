@@ -36,6 +36,8 @@ from starlette.concurrency import run_in_threadpool
 
 from .. import db as db_module
 from ..config import (
+    AUTH_KNOWN_CLIENT_DAYS,
+    AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS,
     AUTH_LOCKOUT_MINUTES,
     AUTH_MAX_FAILED_ATTEMPTS,
     AUTH_MIN_PASSWORD_LENGTH,
@@ -44,7 +46,7 @@ from ..config import (
     SETUP_TOKEN,
 )
 from ..constants import AuditAction, ErrorCode, UserRole
-from ..models import AuthSession, AuthSettings, User
+from ..models import AuditLog, AuthSession, AuthSettings, User
 from .actor_context import Actor, current_actor
 from .crud import audit
 from .login_throttle import LoginThrottle
@@ -471,6 +473,29 @@ def _increment_failed_attempts(session: Session, user_id: str) -> int:
     return session.scalar(select(User.failed_attempts).where(User.id == user_id)) or 0
 
 
+def _is_known_client(session: Session, user_id: str, client_ip: Optional[str], now: datetime) -> bool:
+    """Входил ли этот пользователь успешно с этого адреса за последние AUTH_KNOWN_CLIENT_DAYS дней.
+
+    Источник — записи LOGIN журнала аудита (в них хранится адрес входа), а не таблица сессий: просроченные сессии удаляются при
+    каждом входе любого пользователя (cleanup_expired_sessions), так что «память» об адресе жила бы часы, а не дни. Журнал только
+    растёт. Неизвестный адрес (нет данных о клиенте) знакомым не считается; неудачные входы и чужие входы с того же адреса — тоже."""
+    if not client_ip:
+        return False
+    since = now - timedelta(days=AUTH_KNOWN_CLIENT_DAYS)
+    found = session.scalar(
+        select(AuditLog.id)
+        .where(
+            AuditLog.action == AuditAction.LOGIN,
+            AuditLog.entity_type == "auth",
+            AuditLog.actor_id == user_id,
+            AuditLog.actor_ip == client_ip,
+            AuditLog.created_at >= since,
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
 def _account_locked(locked_until: datetime, now: datetime) -> HTTPException:
     remaining_minutes = max(1, int((locked_until - now).total_seconds() // 60) + 1)
     return HTTPException(423, {
@@ -531,7 +556,11 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         raise _invalid_credentials()
 
     now = _now()
-    if user.locked_until and user.locked_until > now:
+    if user.locked_until and user.locked_until > now and not (
+        AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and _is_known_client(session, user.id, client_ip, now)
+    ):
+        # С «знакомого» адреса пароль проверяется и во время блокировки (см. config.AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS): иначе
+        # посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг выше и счётчик ниже действуют.
         raise _account_locked(user.locked_until, now)
 
     if not verify_password(password, user.password_hash):

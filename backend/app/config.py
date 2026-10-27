@@ -136,3 +136,10 @@ AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12
 AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', '10'))
 AUTH_LOCKOUT_MINUTES = float(os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', '15'))
 AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', '8'))
+# Блокировка учётной записи после серии неудачных входов (выше) сама становится оружием: любой, кто достаёт до /login, может
+# держать администратора заблокированным, посылая неверные пароли (имена пользователей перечисляются — 423 подтверждает
+# существование). Поэтому блокировка отклоняет вход только с «незнакомых» адресов: адрес, с которого этот пользователь уже входил
+# успешно за последние AUTH_KNOWN_CLIENT_DAYS дней, проходит проверку пароля, а подбор с него ограничивают счётчик и троттлинг входа.
+# За обратным прокси задайте FORWARDED_ALLOW_IPS: иначе у всех клиентов адрес прокси, и «знакомым» окажется любой. 0 — отключить.
+AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS = os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
+AUTH_KNOWN_CLIENT_DAYS = int(os.getenv('INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS', '30'))
