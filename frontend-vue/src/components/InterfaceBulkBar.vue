@@ -105,16 +105,8 @@ const vlanMode = defineModel<string>('vlanMode', { required: true })
   align-items: center;
   gap: 8px;
 }
-.empty {
-  font-size: 12px;
-  color: var(--ink-muted);
-  padding: 4px 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
 </style>
 <style scoped src="../styles/interfaceVlanControls.css"></style>
 <style scoped src="../styles/interfaceCellInput.css"></style>
 <style scoped src="../styles/interfaceTable.css"></style>
+<style scoped src="../styles/interfaceEditorShared.css"></style>
