@@ -2,7 +2,7 @@
 // Источники размещения/IP ИС — унифицированная замена устаревших отдельных таблиц
 // ISDevice/ISVM/ISContainer/ISIP (см. комментарий к InformationSystemDetails в api/types.ts).
 // Портировано с renderISDetails()/onISSourceTypeChanged()/onISSourceDeviceChanged()/
-// onISSourceVMChanged() в frontend/static/information-systems.js — включая не самую очевидную,
+// onISSourceVMChanged() прежнего vanilla-фронтенда (до 2.60.0) — включая не самую очевидную,
 // но сознательную деталь исходной реализации: при типе "ВМ" оба селекта (физический сервер И
 // сама ВМ) остаются активны одновременно — выбор ВМ подставляет её хост автоматически, но хост
 // можно потом переопределить вручную (это сбросит выбранную ВМ). Сохранено как есть ради

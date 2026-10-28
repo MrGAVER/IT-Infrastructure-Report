@@ -25,6 +25,15 @@ export function carriesAllVlans(port: AllVlansState): boolean {
   return port.vlan_mode === 'trunk' && port.all_vlans === true
 }
 
+/** «Все VLAN» в trunk-режиме строки редактора портов — сохраняемый признак порта (InterfaceDraftRow.all_vlans, колонка
+ * device_interfaces.all_vlans), а НЕ вывод из числа выбранных VLAN: порт, у которого вручную отмечены все VLAN,
+ * признака не имеет, и наоборот. Пока признак стоит, vlan_ids зеркалит все допустимые VLAN устройства (так форма
+ * показывает их отмеченными), а в БД хранится только признак — набор вычисляется из VLAN устройства. Режим здесь не
+ * проверяется (в отличие от carriesAllVlans): так решает, отмечена ли галочка, а не несёт ли порт все VLAN. */
+export function isAllVlansSelected(port: { all_vlans?: boolean }): boolean {
+  return port.all_vlans === true
+}
+
 /** Расходятся ли порты по «Все VLAN»: оба в trunk, и признак есть только у одного из них. */
 export function allVlansDiffer(own: AllVlansState, peer: AllVlansState): boolean {
   return own.vlan_mode === 'trunk' && peer.vlan_mode === 'trunk' && carriesAllVlans(own) !== carriesAllVlans(peer)

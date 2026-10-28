@@ -4,6 +4,7 @@ import App from './App.vue'
 import { router } from './router'
 import { UNAUTHORIZED_EVENT } from './api/client'
 import { useAuthStore } from './stores/auth'
+import { vWriteOnly } from './directives/writeOnly'
 import { useThemeStore } from './stores/theme'
 import './styles/theme.css'
 import './styles/base.css'
@@ -17,6 +18,7 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
+app.directive('write-only', vWriteOnly)
 
 // Цветовая схема хранится на сервере: сначала применяется схема по умолчанию, а когда роутер загрузит
 // настройки (до первой отрисовки маршрута, см. router/index.ts) или пользователь выйдет из учётной записи,

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import ReportTemplateFormModal from '../ReportTemplateFormModal.vue'
 import type { ReportTemplate } from '../../api/types'
 
@@ -18,6 +19,7 @@ const templateFixture: ReportTemplate = {
 }
 
 beforeEach(() => {
+  setActivePinia(createPinia()) // компонент читает authStore.canWrite (режим просмотра для роли viewer)
   document.body.innerHTML = ''
 })
 

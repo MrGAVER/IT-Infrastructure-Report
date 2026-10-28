@@ -7,13 +7,15 @@
 import { onMounted, ref } from 'vue'
 import { useVLANDomainsStore } from '../stores/vlanDomains'
 import { useDevicesStore } from '../stores/devices'
-import { api, deleteResource, listResource } from '../api/client'
+import { useAuthStore } from '../stores/auth'
+import { api, deleteResource, listAllResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import VLANDomainFormModal from './VLANDomainFormModal.vue'
 
 const domains = useVLANDomainsStore()
 const devicesStore = useDevicesStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const memberCounts = ref<Record<string, number>>({})
@@ -23,7 +25,7 @@ const syncingId = ref<string | null>(null)
 const deletingId = ref<string | null>(null)
 
 async function loadMemberCounts() {
-  const links = await listResource<VLANDomainDeviceLink>('vlan-domain-devices', { limit: 1000 })
+  const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices')
   const counts: Record<string, number> = {}
   for (const l of links.items) counts[l.domain_id] = (counts[l.domain_id] ?? 0) + 1
   memberCounts.value = counts
@@ -73,8 +75,8 @@ async function removeDomain(d: VLANDomain) {
 }
 
 // Синхронизирует набор VLAN устройства-источника со всеми остальными участниками домена —
-// см. POST /api/v1/vlan-domains/{id}/sync (backend/app/api/system.py:sync_vlan_domain).
-// Портировано с syncVlanDomain() в frontend/static/vlan.js.
+// см. POST /api/v1/vlan-domains/{id}/sync (backend/app/api/vlan.py:sync_vlan_domain).
+// Портировано с syncVlanDomain() прежнего vanilla-фронтенда (до 2.60.0).
 async function syncDomain(d: VLANDomain) {
   syncingId.value = d.id
   try {
@@ -92,7 +94,7 @@ async function syncDomain(d: VLANDomain) {
   <div class="domains-panel card">
     <div class="domains-head">
       <b>VLAN-домены</b>
-      <button type="button" class="btn btn-primary" @click="openCreate">
+      <button v-if="auth.canWrite" type="button" class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Домен
       </button>
@@ -112,9 +114,9 @@ async function syncDomain(d: VLANDomain) {
         </span>
       </div>
       <div class="domain-actions">
-        <button type="button" class="btn btn-secondary" @click="openEdit(d)">Изменить</button>
+        <button type="button" class="btn btn-secondary" @click="openEdit(d)">{{ auth.canWrite ? 'Изменить' : 'Просмотр' }}</button>
         <button
-          v-if="d.source_device_id"
+          v-if="auth.canWrite && d.source_device_id"
           type="button"
           class="btn btn-secondary"
           :disabled="syncingId === d.id"
@@ -122,7 +124,7 @@ async function syncDomain(d: VLANDomain) {
         >
           {{ syncingId === d.id ? 'Синхронизация…' : 'Синхронизировать' }}
         </button>
-        <button type="button" class="icon-btn danger" :disabled="deletingId === d.id" aria-label="Удалить домен" @click="removeDomain(d)">
+        <button v-if="auth.canWrite" type="button" class="icon-btn danger" :disabled="deletingId === d.id" aria-label="Удалить домен" @click="removeDomain(d)">
           <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
         </button>
       </div>

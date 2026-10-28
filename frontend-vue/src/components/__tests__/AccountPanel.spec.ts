@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import AccountPanel from '../AccountPanel.vue'
+import { UNAUTHORIZED_EVENT } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 
 function jsonResponse(body: unknown, status = 200) {
@@ -29,6 +30,18 @@ describe('AccountPanel.vue', () => {
     expect(wrapper.text()).toContain('Chrome/Windows')
     expect(wrapper.text()).toContain('Firefox/Linux')
     expect(wrapper.text()).toContain('эта сессия')
+  })
+
+  it('время сессии без смещения пояса считается UTC и показывается в поясе браузера', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(sessionsFixture)))
+    const wrapper = mount(AccountPanel)
+    await flushPromises()
+
+    // sessionsFixture[0].created_at = '2026-01-01T10:00:00' (naive UTC на сервере)
+    const expected = new Date(Date.UTC(2026, 0, 1, 10, 0, 0)).toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    })
+    expect(wrapper.findAll('tbody tr')[0].findAll('td')[0].text()).toBe(expected)
   })
 
   it('не показывает кнопку "Завершить" у текущей сессии', async () => {
@@ -116,5 +129,39 @@ describe('AccountPanel.vue', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Текущий пароль указан неверно')
+  })
+
+  it('неверный текущий пароль (401) не завершает сессию: форма остаётся, пользователь не сброшен', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/auth/me/password') && init?.method === 'PUT') {
+          return jsonResponse({ detail: 'Текущий пароль указан неверно.' }, 401)
+        }
+        return jsonResponse([])
+      }),
+    )
+    // Подписка как в main.ts: на событие 401 стор сбрасывает локальную сессию.
+    const auth = useAuthStore()
+    const onUnauthorized = () => auth.handleUnauthorized()
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    try {
+      const wrapper = mount(AccountPanel)
+      await flushPromises()
+
+      const inputs = wrapper.findAll('.pwd-form input')
+      await inputs[0].setValue('WrongPass1')
+      await inputs[1].setValue('NewPass1234')
+      await inputs[2].setValue('NewPass1234')
+      await wrapper.find('.pwd-form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.find('.pwd-form').exists()).toBe(true)
+      expect(wrapper.find('.form-error').text()).toContain('Текущий пароль указан неверно')
+      expect(auth.user).not.toBeNull()
+      expect(auth.user?.username).toBe('admin')
+    } finally {
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    }
   })
 })

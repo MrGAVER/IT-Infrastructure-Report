@@ -5,6 +5,10 @@ import type { Building, CatalogItem } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ building: Building | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -34,6 +38,7 @@ watch(
 )
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите наименование здания.'
@@ -72,6 +77,7 @@ async function submit() {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form class="form-grid" @submit.prevent="submit">
         <label class="field field-wide">
           <span>Наименование *</span>
@@ -96,10 +102,11 @@ async function submit() {
           </div>
         </label>
       </form>
+      </fieldset>
 
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

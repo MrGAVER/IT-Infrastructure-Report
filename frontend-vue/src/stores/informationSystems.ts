@@ -1,6 +1,6 @@
 // Стор для экрана "Информационные системы" (Лист 1).
 //
-// GET /api/v1/information-systems отдаёт ПЛОСКИЙ МАССИВ (см. backend/app/api/system.py:list_is) —
+// GET /api/v1/information-systems отдаёт ПЛОСКИЙ МАССИВ (см. backend/app/api/listings.py:list_information_systems) —
 // третья форма ответа в этом бэкенде наряду с {items,total} (/devices) и
 // {items,total,offset,limit} (/resources/{r}). Не перепутать снова, как уже случалось
 // с listResource() (см. историю коммитов) — здесь просто api.get<InformationSystem[]>.

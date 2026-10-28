@@ -290,3 +290,19 @@ describe('AuditLogView.vue — автор действия', () => {
     expect(first.attributes('title')).toBeUndefined()
   })
 })
+
+describe('AuditLogView.vue — время записи', () => {
+  it('время без смещения пояса считается UTC и показывается в поясе браузера (а не как локальное)', async () => {
+    const entry = { ...auditJournal(1)[0], created_at: '2026-10-19T18:08:54.336386' } // naive UTC, как отдаёт сервер
+    const server = auditServer([entry])
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(server(url)))))
+    useCatalogsStore().loaded = true
+    const wrapper = mount(AuditLogView)
+    await flushPromises()
+
+    const expected = new Date(Date.UTC(2026, 9, 19, 18, 8, 54)).toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    })
+    expect(wrapper.find('tbody tr .when-cell').text()).toBe(expected)
+  })
+})

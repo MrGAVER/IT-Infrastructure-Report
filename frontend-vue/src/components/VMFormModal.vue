@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // hypervisor_os_id НЕ отправляется пользователем — бэкенд всегда пересчитывает его
-// сам из ОС выбранного физического хоста (см. backend/app/services/crud.py:
+// сам из ОС выбранного физического хоста (см. backend/app/services/crud/generic.py:
 // create_resource/update_resource, VirtualMachine: "data['hypervisor_os_id'] = host.
 // operating_system_id..."). Поле показано только как read-only предпросмотр того,
 // что реально запишется. Хост-устройство дополнительно отфильтровано на клиенте
@@ -8,7 +8,7 @@
 // типы с 422) — фильтрация здесь не замена серверной проверке, а просто не даёт
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch } from 'vue'
-import { createResource, listResource, updateResource } from '../api/client'
+import { createResource, listAllResource, updateResource } from '../api/client'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -25,6 +25,10 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { stripIds } from '../utils/copyEntity'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ vm: VirtualMachine | null; copyFrom?: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
@@ -49,7 +53,7 @@ function emptyForm() {
 const form = reactive(emptyForm())
 
 // Staged локально до сохранения самой ВМ — так же, как vmIpRows/vmOpenPortRows
-// в vanilla-версии (frontend/static/vm-editors.js): для НОВОЙ ВМ строки можно
+// в vanilla-версии (до 2.60.0): для НОВОЙ ВМ строки можно
 // заполнить сразу в той же форме, ещё до того, как у записи появится id, а
 // реально отправить на сервер только после того, как известен id (см. submit()).
 const vmIps = ref<VmIpDraftRow[]>([])
@@ -102,9 +106,9 @@ watch(
     loadingNested.value = true
     try {
       const [ips, ports, software] = await Promise.all([
-        listResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
-        listResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
-        listResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id, limit: 1000 }),
+        listAllResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: source.id }),
+        listAllResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id }),
+        listAllResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id }),
       ])
       vmIps.value = isCopy ? stripIds(ips.items.map(toIpDraftRow)) : ips.items.map(toIpDraftRow)
       // Бэкенд отдаёт open-ports без сортировки по порту (list_resource) — упорядочиваем при загрузке,
@@ -191,6 +195,7 @@ async function persistSoftwareAssets(vmId: string) {
 }
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите название виртуальной машины.'
@@ -246,6 +251,7 @@ async function submit() {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form class="form-grid" @submit.prevent="submit">
         <label class="field field-wide">
           <span>Название *</span>
@@ -292,10 +298,11 @@ async function submit() {
         />
         <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
       </form>
+      </fieldset>
 
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

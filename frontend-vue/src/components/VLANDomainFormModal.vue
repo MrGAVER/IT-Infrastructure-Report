@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Форма VLAN-домена. В отличие от generic-формы vanilla-версии (core.js:FORM_FIELDS —
+// Форма VLAN-домена. В отличие от generic-формы vanilla-версии (до 2.60.0, FORM_FIELDS —
 // только name/description/auto_sync), здесь дополнительно редактируется source_device_id и
 // состав участников — иначе домен, созданный через новый UI, никогда нельзя было бы
-// синхронизировать (backend/app/api/system.py:sync_vlan_domain требует source_device_id), а
+// синхронизировать (backend/app/api/vlan.py:sync_vlan_domain требует source_device_id), а
 // единственный способ добавить участника в vanilla — косвенный, через "Создать домен VLAN" в
 // редакторе VLAN устройства (см. DeviceVlanListEditor.vue), который сюда не перенесён.
 //
@@ -11,10 +11,14 @@
 // для новой записи его ещё нет. Сохраните домен один раз, затем откройте его снова, чтобы
 // добавлять участников.
 import { computed, reactive, ref, watch } from 'vue'
-import { api, createResource, deleteResource, listResource, updateResource } from '../api/client'
+import { api, createResource, deleteResource, listAllResource, updateResource } from '../api/client'
 import type { Device, VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ domain: VLANDomain | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -58,7 +62,7 @@ watch(
       form.auto_sync = d.auto_sync
       loadingMembers.value = true
       try {
-        const res = await listResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id: d.id, limit: 1000 })
+        const res = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id: d.id })
         members.value = res.items
       } catch (err) {
         errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить состав домена'
@@ -95,6 +99,7 @@ async function removeMember(link: VLANDomainDeviceLink) {
 }
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите наименование домена.'
@@ -124,7 +129,7 @@ async function submit() {
     else await createResource('vlan-domains', payload)
     // Сама перезапись — это то, ради чего только что подтверждено предупреждение выше; без этого
     // вызова оно описывало бы последствие, которого на самом деле не происходит (см. docstring
-    // sync_vlan_domain в api/system.py про replace=true).
+    // sync_vlan_domain в api/vlan.py про replace=true).
     if (sourceChanged) {
       await api.post(`/vlan-domains/${props.domain!.id}/sync`, { replace: true })
     }
@@ -152,6 +157,7 @@ async function submit() {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form class="form-grid" @submit.prevent="submit">
         <label class="field field-wide">
           <span>Наименование *</span>
@@ -206,10 +212,11 @@ async function submit() {
         </div>
         <p v-else class="loading-hint field-wide">Состав домена можно настроить после первого сохранения.</p>
       </form>
+      </fieldset>
 
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

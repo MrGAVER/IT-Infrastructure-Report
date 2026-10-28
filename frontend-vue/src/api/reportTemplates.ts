@@ -11,7 +11,7 @@
 // не принимает пустой config (validate_grid_config/validate_config требуют хотя бы один
 // лист/блок с содержимым), а переименование округляет уже существующий config как есть, не
 // затрагивая его.
-import { api } from './client'
+import { api, LONG_REQUEST_TIMEOUT_MS } from './client'
 import type { ReportResult } from './reports'
 import type { ReportTemplate, ReportTemplateVersion } from './types'
 
@@ -69,5 +69,5 @@ export function restoreReportTemplateVersion(templateId: string, versionId: stri
  * то же, что кнопка "Сформировать" без фильтров в /legacy. Результат скачивается через
  * downloadReport() из api/reports.ts, как и остальные отчёты. */
 export function generateReportFromTemplate(id: string) {
-  return api.post<ReportResult>(`/report-templates/${id}/generate`, null)
+  return api.post<ReportResult>(`/report-templates/${id}/generate`, null, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })
 }

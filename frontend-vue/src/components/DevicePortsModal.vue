@@ -8,7 +8,7 @@
 // конкретного устройства вокруг него, вынесенные в api/deviceInterfaces.ts и api/portVlans.ts
 // (используются так же DeviceFormModal.vue). Порты, занятые активным подключением, при удалении
 // отклоняются бэкендом 409-ошибкой (FK-констрейнт Connection → DeviceInterface, см.
-// delete_resource/sync_interfaces в backend/app/services/crud.py) — то же сообщение об ошибке,
+// delete_resource в backend/app/services/crud/deletion.py, sync_interfaces в crud/interfaces.py) — то же сообщение об ошибке,
 // что и у остальных форм.
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'

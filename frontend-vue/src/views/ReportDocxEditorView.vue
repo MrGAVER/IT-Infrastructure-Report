@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Визуальный блочный редактор Word-шаблона (.docx) для шаблона конструктора отчётов. Портирован
-// с блочного редактора vanilla-версии (frontend/static/report_builder.js, rbRenderDocxEditor() и
+// с блочного редактора vanilla-версии (до 2.60.0: rbRenderDocxEditor() и
 // соседние rbXxx-функции) — тот же формат config.blocks (см.
 // backend/app/services/report_engine.py:validate_config/report_render.py:build_docx). Блок
 // "Таблица" — самостоятельный компонент DocxTableBlockEditor.vue (props-in/events-out, не

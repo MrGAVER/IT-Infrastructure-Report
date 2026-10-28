@@ -4,12 +4,14 @@
 // DevicesView.vue — стеков в организации ожидаемо на порядки меньше, чем самих устройств.
 import { onMounted, ref } from 'vue'
 import { useDeviceStacksStore } from '../stores/deviceStacks'
+import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { DeviceStack } from '../api/types'
 import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
 
 const stacks = useDeviceStacksStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const modalStack = ref<DeviceStack | null>(null)
@@ -58,7 +60,7 @@ async function removeStack(s: DeviceStack) {
   <div class="stacks-view">
     <div class="stacks-head">
       <b>Стеки устройств</b>
-      <button type="button" class="btn btn-primary" @click="openCreate">
+      <button v-if="auth.canWrite" type="button" class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Стек
       </button>
@@ -76,7 +78,7 @@ async function removeStack(s: DeviceStack) {
         </div>
         <div class="stack-actions">
           <button type="button" class="btn btn-secondary" @click="openEdit(s)">Открыть</button>
-          <button type="button" class="icon-btn danger" :disabled="deletingId === s.id" aria-label="Удалить стек" @click="removeStack(s)">
+          <button v-if="auth.canWrite" type="button" class="icon-btn danger" :disabled="deletingId === s.id" aria-label="Удалить стек" @click="removeStack(s)">
             <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
           </button>
         </div>

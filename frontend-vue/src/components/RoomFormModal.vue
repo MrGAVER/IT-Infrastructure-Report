@@ -3,6 +3,10 @@ import { computed, reactive, ref, watch } from 'vue'
 import { createResource, updateResource } from '../api/client'
 import type { Room } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ room: Room | null; buildingId: string }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -23,6 +27,7 @@ watch(
 )
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите наименование помещения.'
@@ -55,15 +60,17 @@ async function submit() {
         <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
         {{ errorMessage }}
       </div>
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form @submit.prevent="submit">
         <label class="field">
           <span>Наименование *</span>
           <input v-model.trim="form.name" type="text" required maxlength="255" autofocus />
         </label>
       </form>
+      </fieldset>
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

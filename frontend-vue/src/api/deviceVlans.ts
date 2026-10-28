@@ -1,5 +1,5 @@
 // Сохранение блока «VLAN устройства» (PhysicalDeviceVLAN) одним атомарным запросом
-// PUT /devices/{id}/vlans (см. backend/app/services/crud.py:sync_device_vlans) — по образцу
+// PUT /devices/{id}/vlans (см. backend/app/services/crud/device_vlans.py:sync_device_vlans) — по образцу
 // api/deviceInterfaces.ts:persistDeviceInterfaces. Раньше DeviceFormModal.vue сам удалял все записи
 // устройства и создавал их заново отдельными запросами без транзакции: ошибка на середине оставляла
 // устройство без части VLAN, а неизменённые записи каждый раз получали новые id.

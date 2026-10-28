@@ -1,5 +1,5 @@
 // Схема полей для быстрого добавления записи справочника прямо из формы (кнопка "+" рядом с
-// select'ом) — портировано с quickFields/quickLabels в frontend/static/core.js. Не 1:1 копия:
+// select'ом) — портировано с quickFields/quickLabels прежнего vanilla-фронтенда (до 2.60.0). Не 1:1 копия:
 // вложенное быстрое добавление ВНУТРИ формы быстрого добавления (у device-models в vanilla
 // можно добавить тип устройства/производителя, не закрывая модалку создания модели) теперь
 // частично перенесено — точечно, через флаг nestedQuickAdd на конкретных fk-полях (см. тип
@@ -88,7 +88,7 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     // DeviceType.category_id — обязательный NOT NULL FK (models.py, миграция 38e9b2624a53,
     // нужен для автогенерации иконки узла на диаграмме топологии сети), но эта форма запрашивала
     // только name — POST без category_id падал сырым 409 "NOT NULL constraint failed" (см. новую
-    // проверку в backend/app/services/crud.py:validate_resource). nestedQuickAdd — по аналогии с
+    // проверку в backend/app/services/crud/validators.py:validate_resource). nestedQuickAdd — по аналогии с
     // device_type_id/manufacturer_id у device-models чуть ниже: справочник категорий короткий и
     // фиксированный (засеян services/catalogs.py), но не создавать же тип устройства без права
     // добавить недостающую категорию, не выходя из этой формы.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Визуальный grid-редактор листа Excel для шаблона конструктора отчётов (xlsx). Портирован с
-// самого большого оставшегося блока vanilla-фронтенда (frontend/static/report_builder.js,
+// самого большого оставшегося блока vanilla-фронтенда (до 2.60.0:
 // rbRenderGridEditor() и соседние rbXxx-функции) — тот же формат config.sheets (см.
 // backend/app/services/report_grid.py), та же модель выделения/объединения, тот же набор типов
 // ячеек. Главное отличие от vanilla — вставка полей БД по клику (select "Вставить поле" в

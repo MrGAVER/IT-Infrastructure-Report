@@ -4,6 +4,7 @@ import { useVMsStore } from '../stores/vms'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useInformationSystemsStore } from '../stores/informationSystems'
+import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { VirtualMachine } from '../api/types'
@@ -15,6 +16,7 @@ const vms = useVMsStore()
 const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
 const informationSystems = useInformationSystemsStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const modalVM = ref<VirtualMachine | null>(null)
@@ -104,7 +106,7 @@ function hostLabel(id: string | null) {
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
-      <button class="btn btn-primary" @click="openCreate">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить ВМ
       </button>
@@ -137,13 +139,13 @@ function hostLabel(id: string | null) {
               <td class="purpose-cell">{{ vm.purpose || '—' }}</td>
               <td>
                 <div class="row-actions">
-                  <button type="button" aria-label="Редактировать" @click="openEdit(vm)">
-                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEdit(vm)">
+                    <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
                   </button>
-                  <button type="button" aria-label="Копировать" @click="openCopy(vm)">
+                  <button v-if="auth.canWrite" type="button" aria-label="Копировать" @click="openCopy(vm)">
                     <svg class="icon"><use href="/icons.svg#i-copy" /></svg>
                   </button>
-                  <button type="button" aria-label="Удалить" :disabled="deletingId === vm.id" @click="removeVM(vm)">
+                  <button v-if="auth.canWrite" type="button" aria-label="Удалить" :disabled="deletingId === vm.id" @click="removeVM(vm)">
                     <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                   </button>
                 </div>

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import ReportTemplateVersionsModal from '../ReportTemplateVersionsModal.vue'
 import type { ReportTemplate, ReportTemplateVersion } from '../../api/types'
 
@@ -23,6 +24,7 @@ const versionsFixture: ReportTemplateVersion[] = [
 ]
 
 beforeEach(() => {
+  setActivePinia(createPinia()) // компонент читает authStore.canWrite («Восстановить» — только запись)
   vi.stubGlobal('confirm', vi.fn(() => true))
 })
 

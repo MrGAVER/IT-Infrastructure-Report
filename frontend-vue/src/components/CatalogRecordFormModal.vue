@@ -21,6 +21,10 @@ import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
 import DeviceIconPicker from './DeviceIconPicker.vue'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{
   resource: string
@@ -80,6 +84,7 @@ function onNestedCreated(fieldName: string, record: CatalogItem) {
 }
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   for (const f of fields) {
     if (f.required && !String(values[f.name] ?? '').trim()) {
@@ -143,7 +148,8 @@ async function removeItem() {
         </div>
         <div v-if="!fields.length" class="form-error">Для «{{ resourceLabel }}» форма не настроена.</div>
 
-        <form v-else class="form-grid" @submit.prevent="submit">
+        <fieldset v-else class="readonly-fieldset" :disabled="readOnly">
+        <form class="form-grid" @submit.prevent="submit">
           <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
             <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
             <div v-if="f.type === 'fk'" class="fk-row">
@@ -178,14 +184,15 @@ async function removeItem() {
             <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
           </label>
         </form>
+        </fieldset>
 
         <div class="modal-foot">
-          <button v-if="isEdit" type="button" class="btn btn-danger" :disabled="saving || deleting" @click="removeItem">
+          <button v-if="isEdit && !readOnly" type="button" class="btn btn-danger" :disabled="saving || deleting" @click="removeItem">
             {{ deleting ? 'Удаление…' : 'Удалить' }}
           </button>
           <div class="spacer" />
-          <button type="button" class="btn btn-secondary" :disabled="saving || deleting" @click="$emit('close')">Отмена</button>
-          <button type="button" class="btn btn-primary" :disabled="saving || deleting || !fields.length" @click="submit">
+          <button type="button" class="btn btn-secondary" :disabled="saving || deleting" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+          <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving || deleting || !fields.length" @click="submit">
             {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
           </button>
         </div>

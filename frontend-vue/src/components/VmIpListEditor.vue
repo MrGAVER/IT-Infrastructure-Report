@@ -5,7 +5,7 @@
 // v-model — сам список не знает о vm_id и не обращается к API, персистентность
 // (создание/удаление через /resources/vm-ips) — забота вызывающего кода, ровно
 // так же как saveVMIPs() отделён от рендеринга формы в vanilla-фронтенде
-// (frontend/static/vm-editors.js).
+// (до 2.60.0).
 import type { VmIpDraftRow } from '../api/types'
 
 const props = defineProps<{ modelValue: VmIpDraftRow[] }>()

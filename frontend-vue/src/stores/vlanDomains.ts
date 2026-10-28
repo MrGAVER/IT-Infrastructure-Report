@@ -1,7 +1,7 @@
 // Стор VLAN-доменов — простой generic-ресурс (в отличие от vlans.ts, которому нужна
 // группировка через /vlan-dashboard). Используется в VLANDomainsPanel.vue.
 import { defineStore } from 'pinia'
-import { listResource } from '../api/client'
+import { listAllResource } from '../api/client'
 import type { VLANDomain } from '../api/types'
 
 export const useVLANDomainsStore = defineStore('vlanDomains', {
@@ -20,7 +20,7 @@ export const useVLANDomainsStore = defineStore('vlanDomains', {
       this.loading = true
       this.error = null
       try {
-        const res = await listResource<VLANDomain>('vlan-domains', { limit: 1000 })
+        const res = await listAllResource<VLANDomain>('vlan-domains')
         this.all = res.items
         this.loaded = true
       } catch (e) {

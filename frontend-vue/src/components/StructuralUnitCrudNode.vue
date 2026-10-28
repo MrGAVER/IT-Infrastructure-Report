@@ -4,6 +4,7 @@
 // (см. DevicesView/ReportsView), а этой нужны кнопки добавить-потомка/редактировать/
 // удалить и раскрытие по клику, а не через <details>.
 import type { StructuralUnitNode } from '../stores/catalogs'
+import { useAuthStore } from '../stores/auth'
 
 defineProps<{ node: StructuralUnitNode; depth: number }>()
 const emit = defineEmits<{
@@ -11,6 +12,8 @@ const emit = defineEmits<{
   edit: [node: StructuralUnitNode]
   remove: [node: StructuralUnitNode]
 }>()
+
+const auth = useAuthStore()
 </script>
 
 <template>
@@ -20,13 +23,13 @@ const emit = defineEmits<{
       <span class="row-name">{{ node.name }}</span>
       <span v-if="node.description" class="row-desc">{{ node.description }}</span>
       <div class="row-actions">
-        <button type="button" aria-label="Добавить дочернюю единицу" @click="emit('addChild', node.id)">
+        <button v-if="auth.canWrite" type="button" aria-label="Добавить дочернюю единицу" @click="emit('addChild', node.id)">
           <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         </button>
-        <button type="button" aria-label="Редактировать" @click="emit('edit', node)">
-          <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+        <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="emit('edit', node)">
+          <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
         </button>
-        <button type="button" aria-label="Удалить" @click="emit('remove', node)">
+        <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="emit('remove', node)">
           <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
         </button>
       </div>

@@ -4,7 +4,7 @@
 // данных). "Глупый" props-in/events-out компонент: не мутирует row/cell сам, только эмитит патчи —
 // вся мутация состояния листа (sheets) остаётся в ReportGridEditorView.vue, как и updateRow() в
 // DeviceInterfacesEditor.vue. Портировано из панели свойств в rbRenderGridEditor()
-// (frontend/static/report_builder.js).
+// прежнего vanilla-фронтенда (до 2.60.0).
 import { computed } from 'vue'
 import type { GridCell, GridDataSource, GridDataSourceFilter, GridFilterOp, GridRow, ReportEntityMeta } from '../api/types'
 import { entityLabel, flattenEntityPaths, indexEntitiesByKey } from '../utils/reportEntityPaths'

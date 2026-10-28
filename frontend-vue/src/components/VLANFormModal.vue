@@ -5,6 +5,10 @@ import type { CatalogItem, VLANDefinition } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ definition: VLANDefinition | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -44,6 +48,7 @@ watch(
 )
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   const vlanIdEmpty = typeof form.vlan_id === 'string' && form.vlan_id.trim() === ''
   const vlanIdNum = Number(form.vlan_id)
@@ -90,6 +95,7 @@ async function submit() {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form class="form-grid" @submit.prevent="submit">
         <label class="field">
           <span>VLAN ID *</span>
@@ -117,10 +123,11 @@ async function submit() {
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
       </form>
+      </fieldset>
 
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

@@ -99,6 +99,36 @@ describe('useAuthStore', () => {
     expect(localStorage.getItem('itr:auth-token')).toBeNull()
   })
 
+  it('login(): при 429 TOO_MANY_ATTEMPTS сохраняет код и Retry-After; следующая удачная попытка их сбрасывает (B-12)', async () => {
+    let attempt = 0
+    stubFetch({
+      '/auth/login': () =>
+        ++attempt === 1
+          ? new Response(JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа.' } }), { status: 429, headers: { 'Retry-After': '9' } })
+          : new Response(JSON.stringify({ token: 'tok-1', user: adminUser })),
+    })
+    const auth = useAuthStore()
+
+    expect(await auth.login('admin', 'x')).toBe(false)
+    expect(auth.errorCode).toBe('TOO_MANY_ATTEMPTS')
+    expect(auth.errorRetryAfter).toBe(9)
+
+    expect(await auth.login('admin', 'Admin1234')).toBe(true)
+    expect(auth.errorCode).toBeNull()
+    expect(auth.errorRetryAfter).toBeNull()
+    expect(auth.error).toBeNull()
+  })
+
+  it('login(): обычная ошибка (401) оставляет errorCode и errorRetryAfter пустыми (B-12)', async () => {
+    stubFetch({ '/auth/login': () => new Response(JSON.stringify({ detail: 'Неверное имя пользователя или пароль.' }), { status: 401 }) })
+    const auth = useAuthStore()
+
+    await auth.login('admin', 'wrong')
+
+    expect(auth.errorCode).toBeNull()
+    expect(auth.errorRetryAfter).toBeNull()
+  })
+
   it('logout(): очищает пользователя и токен даже если запрос к серверу не удался', async () => {
     localStorage.setItem('itr:auth-token', 'tok-123')
     stubFetch({ '/auth/logout': () => new Response(JSON.stringify({ detail: 'boom' }), { status: 500 }) })

@@ -4,6 +4,7 @@ import { useConnectionsStore } from '../stores/connections'
 import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
+import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { Connection } from '../api/types'
@@ -25,6 +26,7 @@ const dashboard = useConnectionsDashboardStore()
 const connections = useConnectionsStore()
 const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const modalConnection = ref<Connection | null>(null)
@@ -232,7 +234,7 @@ async function removeConnection(c: Connection) {
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
-      <button class="btn btn-primary" @click="openCreate">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить подключение
       </button>
@@ -267,10 +269,10 @@ async function removeConnection(c: Connection) {
                 <span class="devname">{{ c.source_device_name }}</span>
                 <span class="portname mono">
                   {{ c.source_interface_name }}
-                  <button type="button" class="port-manage-btn" data-action="edit-port-source" aria-label="Изменить роль, режим и VLAN порта источника" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'source')">
+                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" data-action="edit-port-source" aria-label="Изменить роль, режим и VLAN порта источника" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'source')">
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
-                  <button type="button" class="port-manage-btn" aria-label="Управлять портами исходного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.source_interface_id, c.source_device_name)">
+                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" aria-label="Управлять портами исходного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.source_interface_id, c.source_device_name)">
                     <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                   </button>
                 </span>
@@ -280,10 +282,10 @@ async function removeConnection(c: Connection) {
                 <span class="devname">{{ c.destination_device_name }}</span>
                 <span class="portname mono">
                   {{ c.destination_interface_name }}
-                  <button type="button" class="port-manage-btn" data-action="edit-port-destination" aria-label="Изменить роль, режим и VLAN порта назначения" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'destination')">
+                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" data-action="edit-port-destination" aria-label="Изменить роль, режим и VLAN порта назначения" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'destination')">
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
-                  <button type="button" class="port-manage-btn" aria-label="Управлять портами конечного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.destination_interface_id, c.destination_device_name)">
+                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" aria-label="Управлять портами конечного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.destination_interface_id, c.destination_device_name)">
                     <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                   </button>
                 </span>
@@ -319,10 +321,10 @@ async function removeConnection(c: Connection) {
               </td>
               <td>
                 <div class="row-actions">
-                  <button type="button" aria-label="Редактировать" @click="openEdit(c)">
-                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEdit(c)">
+                    <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
                   </button>
-                  <button type="button" aria-label="Удалить" :disabled="deletingId === c.id" @click="removeConnection(c)">
+                  <button v-if="auth.canWrite" type="button" aria-label="Удалить" :disabled="deletingId === c.id" @click="removeConnection(c)">
                     <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                   </button>
                 </div>

@@ -1,0 +1,21 @@
+/* Элементы выбора VLAN, общие для строки порта и окна массового выбора VLAN (BulkVlanPickerModal.vue, InterfaceBulkBar.vue). */
+.vlan-picker-btn {
+  white-space: nowrap;
+}
+.vlan-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.vlan-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
+}
+.vlan-check-all {
+  padding-right: 10px;
+  margin-right: 4px;
+  border-right: 1px solid var(--border);
+}

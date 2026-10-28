@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import StructuralUnitCrudNode from '../StructuralUnitCrudNode.vue'
 import type { StructuralUnitNode } from '../../stores/catalogs'
 
@@ -11,6 +12,10 @@ const node: StructuralUnitNode = {
     { id: 'child-1', name: 'Отдел эксплуатации', parent_id: 'root-1', children: [] },
   ],
 }
+
+beforeEach(() => {
+  setActivePinia(createPinia()) // компонент читает authStore.canWrite (кнопки записи — только с правом записи)
+})
 
 describe('StructuralUnitCrudNode.vue', () => {
   it('рекурсивно рендерит узел и его потомков', () => {
