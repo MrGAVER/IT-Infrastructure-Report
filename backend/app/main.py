@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import DataError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FORWARDED_ALLOW_IPS, FRONTEND_DIR
+from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, ENABLE_DOCS, FORWARDED_ALLOW_IPS, FRONTEND_DIR
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
@@ -50,7 +50,13 @@ async def lifespan(app: FastAPI):
     seed_catalogs_on_startup()
     yield
 
-app = FastAPI(title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan)
+# Документация API выключена по умолчанию (config.ENABLE_DOCS): None вместо адреса снимает сами маршруты.
+app = FastAPI(
+    title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan,
+    docs_url='/docs' if ENABLE_DOCS else None,
+    redoc_url='/redoc' if ENABLE_DOCS else None,
+    openapi_url='/openapi.json' if ENABLE_DOCS else None,
+)
 # Порядок add_middleware() важен: Starlette оборачивает мидлвари в порядке, ОБРАТНОМ порядку
 # регистрации (последний добавленный — самый внешний). auth_gate_middleware иногда завершает запрос
 # сам, не вызывая call_next (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
@@ -207,9 +213,15 @@ if assets_dir.is_dir():
 # из них. /api/* исключён явно: иначе опечатка в пути API или обращение к несуществующему
 # эндпоинту молча превращалось бы в 200 с HTML вместо честного 404, маскируя реальную ошибку
 # интеграции.
+_DOCS_PATHS = frozenset({'docs', 'redoc', 'openapi.json', 'docs/oauth2-redirect'})
+
+
 @app.get('/{full_path:path}', include_in_schema=False)
 def spa_fallback(full_path: str):
     if full_path == 'api' or full_path.startswith('api/'):
+        raise HTTPException(404, 'Not Found')
+    if full_path in _DOCS_PATHS:
+        # Документация выключена (иначе маршрут ответил бы раньше этого фоллбэка): честный 404, а не 200 с HTML оболочки.
         raise HTTPException(404, 'Not Found')
     index = FRONTEND_DIR / 'index.html'
     if not index.is_file():

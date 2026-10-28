@@ -118,8 +118,11 @@ class TestOtherSyncBodies:
         assert r.json()["position"] == 1
 
 
-def test_openapi_documents_the_request_bodies(client):
-    spec = client.get("/openapi.json").json()
+def test_openapi_documents_the_request_bodies():
+    # HTTP-маршрут /openapi.json по умолчанию выключен (A-18) — схему берём у самого приложения.
+    from app.main import app
+
+    spec = app.openapi()
     schemas = spec["components"]["schemas"]
     for name in ("DeviceInterfacesSync", "DeviceVlansSync", "DeployedSoftwareSync", "VMOpenPortsSync", "VMIPAddressesSync",
                  "VlanCopyRequest", "BulkVlanAssignRequest", "VLANDomainMemberRequest", "VLANDomainSyncRequest", "DeviceStackMemberRequest"):

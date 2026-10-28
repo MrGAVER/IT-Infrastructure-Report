@@ -143,3 +143,8 @@ AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGT
 # За обратным прокси задайте FORWARDED_ALLOW_IPS: иначе у всех клиентов адрес прокси, и «знакомым» окажется любой. 0 — отключить.
 AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS = os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
 AUTH_KNOWN_CLIENT_DAYS = int(os.getenv('INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS', '30'))
+
+# Интерактивная документация API (/docs, /redoc, /openapi.json) по умолчанию выключена: она раскрывает полную карту API и
+# моделей данных любому посетителю (проверка входа касается только /api/*), а Swagger UI/ReDoc подгружают скрипты с внешнего CDN —
+# в закрытом контуре страницы всё равно не работают. Для разработки: INFRA_REGISTRY_ENABLE_DOCS=1 (страницы открыты без входа).
+ENABLE_DOCS = os.getenv('INFRA_REGISTRY_ENABLE_DOCS', '').strip().lower() in {'1', 'true', 'yes', 'on'}
