@@ -4652,3 +4652,22 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   (31 — нет, 29 — да); память переживает очистку сессий; неудачные и чужие входы не делают адрес знакомым; нет адреса клиента;
   отключение опцией; разбор переменной окружения); на прежнем `auth.py` 7 красных из 17 (остальные — защита от регрессий поведения
   для незнакомых адресов). Проверено на SQLite и PostgreSQL (`test_auth.py`, `test_wrong_current_password.py`, новый файл — 62 теста).
+- **A-14. Схема из миграций сверяется с models.py автоматически; добавлены недостающие индексы внешних ключей.** Раньше CI не
+  проверял, что база, собранная `alembic upgrade head` (EXE, PostgreSQL), совпадает с моделями, а тесты по умолчанию строят схему
+  `create_all`, поэтому расхождения копились незаметно. Новый тест-страж `tests/test_migrations_match_models.py` применяет цепочку
+  миграций к пустой базе, сравнивает результат с `Base.metadata` (механизм `alembic revision --autogenerate`, `compare_type=True`, как в
+  `env.py`) и падает в обе стороны: на новом расхождении (забыта миграция) и на исчезнувшем расхождении из whitelist (список надо
+  почистить). Проверено, что страж ловит новое поле и новую таблицу модели без миграции. Работает на SQLite и на PostgreSQL
+  (`INFRA_REGISTRY_TEST_DATABASE_URL`, временная база), есть проверка `upgrade head → downgrade -1 → upgrade head`.
+  **Миграция `c5d2e8a4b713`** создаёт индексы, которые объявлены в моделях, но отсутствовали: `containers.physical_device_id`,
+  `vlan_domain_devices.domain_id` и `.physical_device_id`, `vlan_domains.source_device_id` (на обеих СУБД) и три индекса
+  `information_systems` (`support_method_id`, `crypto_protection_description_id`, `support_organization_id`), которые на SQLite терялись
+  при пересборке таблицы. Миграция идемпотентна (определяет состояние по схеме; индекс по той же колонке под другим именем дубля не
+  создаёт), данные не меняет; `downgrade` удаляет только четыре индекса, появившиеся впервые в ней. **Не изменено и зафиксировано в
+  whitelist теста (нужно решение владельца продукта):** (1) NOT NULL у `created_at`/`updated_at` (41 колонка) и у
+  `connections.connection_type_id`, `device_models.device_type_id` — модель требует значение, база допускает NULL; выравнивание
+  требует бэкфилла; (2) устаревшие `physical_devices.os_name/os_version`, `virtual_machines.os_name/os_version/virtualization_platform_id`
+  и таблица `virtualization_platforms` — удаление деструктивно; (3) на SQLite нет `UNIQUE(domain_id, vlan_id)` у `vlans` (потерян
+  пересборкой таблицы; на PostgreSQL есть) — добавление может упасть на накопленных дублях; (4) несколько индексов, существующих только
+  в базе или названных иначе. **Заодно** тесты тикета A-03 перестали требовать, чтобы его миграция была последней (проверяют, что она
+  входит в цепочку единственного head).

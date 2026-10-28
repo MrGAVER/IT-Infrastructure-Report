@@ -122,11 +122,15 @@ def _insert_device(conn: sqlite3.Connection, serial: str) -> None:
 
 @pytest.mark.sqlite_only
 class TestSqliteChain:
-    def test_head_is_the_new_revision(self, alembic_config):
+    def test_the_new_revision_is_in_the_single_chain(self, alembic_config):
+        """Ревизия входит в цепочку единственного head (позже на неё могут лечь другие миграции, например A-14)."""
         from alembic.script import ScriptDirectory
 
         cfg, _ = alembic_config
-        assert ScriptDirectory.from_config(cfg).get_heads() == [MIGRATION_REV]
+        script = ScriptDirectory.from_config(cfg)
+        heads = script.get_heads()
+        assert len(heads) == 1
+        assert MIGRATION_REV in {revision.revision for revision in script.iterate_revisions(heads[0], "base")}
 
     def test_schema_from_migrations_accepts_duplicates(self, alembic_config):
         cfg, db_path = alembic_config
@@ -150,7 +154,7 @@ class TestSqliteChain:
             assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == PREVIOUS_HEAD
         finally:
             conn.close()
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, MIGRATION_REV)  # именно эта ревизия: поверх неё могут лежать более поздние миграции
         conn = sqlite3.connect(str(db_path))
         try:
             assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == MIGRATION_REV
