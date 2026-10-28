@@ -38,6 +38,7 @@ import math
 from typing import Iterable, Optional
 
 from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles.cell_style import StyleArray
 from openpyxl.utils import get_column_letter
 
 # Тонкая сетка внутри записи и рамка средней толщины вокруг записи/шапки.
@@ -91,32 +92,61 @@ def merge_vertical(ws, spans: Iterable[RowSpan], columns: Iterable[int]) -> None
             ws.merge_cells(start_row=first, end_row=last, start_column=column, end_column=column)
 
 
-def _with_edges(cell, *, left=None, right=None, top=None, bottom=None) -> None:
-    """Подменяет у ячейки только указанные стороны границы, остальные оставляет как были."""
-    border = cell.border
-    cell.border = Border(
-        left=left or border.left, right=right or border.right,
-        top=top or border.top, bottom=bottom or border.bottom,
-    )
+def _style_of(cell) -> StyleArray:
+    """Массив стиля ячейки (у ещё не оформлявшейся ячейки он создаётся лениво — так же делает присваивание `cell.border = ...`)."""
+    if not cell._style:
+        cell._style = StyleArray()
+    return cell._style
 
 
-def _frame(ws, first: int, last: int, max_col: int) -> None:
+class _FrameEdges:
+    """Подмена сторон границы у ячеек с кэшем — без создания и хеширования `Border` на каждую ячейку.
+
+    Рамка касается тысяч ячеек, а различных сочетаний «прежняя граница + одна сторона рамки» всего несколько. Раньше на каждую
+    ячейку создавался новый `Border`, который openpyxl хешировал и сравнивал (`IndexedList.add`) — это была основная часть времени
+    формирования отчёта (A-19). Теперь результат для пары (номер прежней границы, сторона) считается один раз и дальше берётся из
+    словаря; номер границы пишется прямо в стиль ячейки (то, что делает присваивание `cell.border`). Границы в таблицу книги
+    добавляются в том же порядке и с теми же значениями, что и раньше, поэтому оформление файла не меняется.
+
+    Меняется только указанная сторона, остальные остаются как были."""
+
+    _SIDES = ("left", "right", "top", "bottom")
+
+    def __init__(self, ws) -> None:
+        self._borders = ws.parent._borders
+        self._cache: dict[tuple[int, str], int] = {}
+
+    def apply(self, cell, edge: str) -> None:
+        style = _style_of(cell)
+        key = (style.borderId, edge)
+        border_id = self._cache.get(key)
+        if border_id is None:
+            current = self._borders[style.borderId]
+            sides = {name: getattr(current, name) for name in self._SIDES}
+            sides[edge] = FRAME_SIDE
+            border_id = self._borders.add(Border(**sides))
+            self._cache[key] = border_id
+        style.borderId = border_id
+
+
+def _frame(ws, first: int, last: int, max_col: int, max_row: int, edges: _FrameEdges) -> None:
     """Обводит строки first..last по всей ширине листа рамкой FRAME_SIDE.
 
     Горизонтальные границы прорисовываются с обеих сторон (нижняя граница верхней записи и
     верхняя граница нижней): для общей грани двух ячеек Excel не гарантирует, какое из двух
-    описаний он покажет, если они различаются."""
-    max_row = ws.max_row
+    описаний он покажет, если они различаются.
+
+    max_row — число строк листа, вычисленное вызывающим один раз: `ws.max_row` обходит все ячейки листа."""
     for column in range(1, max_col + 1):
-        _with_edges(ws.cell(row=first, column=column), top=FRAME_SIDE)
-        _with_edges(ws.cell(row=last, column=column), bottom=FRAME_SIDE)
+        edges.apply(ws.cell(row=first, column=column), "top")
+        edges.apply(ws.cell(row=last, column=column), "bottom")
         if first > 1:
-            _with_edges(ws.cell(row=first - 1, column=column), bottom=FRAME_SIDE)
+            edges.apply(ws.cell(row=first - 1, column=column), "bottom")
         if last < max_row:
-            _with_edges(ws.cell(row=last + 1, column=column), top=FRAME_SIDE)
+            edges.apply(ws.cell(row=last + 1, column=column), "top")
     for row in range(first, last + 1):
-        _with_edges(ws.cell(row=row, column=1), left=FRAME_SIDE)
-        _with_edges(ws.cell(row=row, column=max_col), right=FRAME_SIDE)
+        edges.apply(ws.cell(row=row, column=1), "left")
+        edges.apply(ws.cell(row=row, column=max_col), "right")
 
 
 def apply_borders(ws, spans: Iterable[RowSpan], header_rows: int = 1) -> None:
@@ -128,12 +158,16 @@ def apply_borders(ws, spans: Iterable[RowSpan], header_rows: int = 1) -> None:
     if max_row < 1 or max_col < 1:
         return
     grid = Border(left=THIN_SIDE, right=THIN_SIDE, top=THIN_SIDE, bottom=THIN_SIDE)
+    # Одна и та же сетка у всех ячеек: номер границы в таблице книги берём один раз и пишем в стиль напрямую,
+    # вместо `cell.border = grid` с хешированием Border на каждую ячейку.
+    grid_id = ws.parent._borders.add(grid)
     for row in ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col):
         for cell in row:
-            cell.border = grid
-    _frame(ws, 1, min(header_rows, max_row), max_col)
+            _style_of(cell).borderId = grid_id
+    edges = _FrameEdges(ws)
+    _frame(ws, 1, min(header_rows, max_row), max_col, max_row, edges)
     for first, last in spans:
-        _frame(ws, first, last, max_col)
+        _frame(ws, first, last, max_col, max_row, edges)
 
 
 def freeze_header(ws, header_rows: int = 1) -> None:
@@ -259,9 +293,11 @@ def fit_sheet_size(ws, header_rows: int = 1) -> None:
     fit_header_height(ws, header_rows)
 
 
-def _row_lines(ws, row: int, skip_columns: tuple) -> int:
-    """Строк, нужных самой высокой ячейке строки (кроме колонок skip_columns), не меньше 1."""
-    return max([1] + [_text_lines(ws, row, column) for column in range(1, ws.max_column + 1) if column not in skip_columns])
+def _row_lines(ws, row: int, skip_columns: tuple, max_col: int) -> int:
+    """Строк, нужных самой высокой ячейке строки (кроме колонок skip_columns), не меньше 1.
+
+    max_col — число колонок листа, вычисленное вызывающим один раз: `ws.max_column` обходит все ячейки листа."""
+    return max([1] + [_text_lines(ws, row, column) for column in range(1, max_col + 1) if column not in skip_columns])
 
 
 def fit_merged_block_heights(ws, spans: Iterable[RowSpan], columns: Iterable[int]) -> None:
@@ -272,11 +308,12 @@ def fit_merged_block_heights(ws, spans: Iterable[RowSpan], columns: Iterable[int
     строки. Недостающие строки поровну добавляются к строкам блока; у блоков, где места хватает,
     высоты остаются автоматическими."""
     columns = tuple(columns)
+    max_col = ws.max_column  # один раз: свойство обходит все ячейки листа, а группы строк исчисляются сотнями
     for first, last in spans:
         rows = list(range(first, last + 1))
         if len(rows) < 2 or not columns:
             continue
-        own = [_row_lines(ws, row, columns) for row in rows]
+        own = [_row_lines(ws, row, columns, max_col) for row in rows]
         extra = max(_text_lines(ws, first, column) for column in columns) - sum(own)
         if extra <= 0:
             continue
