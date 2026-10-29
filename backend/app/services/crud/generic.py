@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ...models import AuditLog, Connection, DeviceInterface, DeviceStackMember, InformationSystem, ISProtocol, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
@@ -15,7 +15,8 @@ from ..integrity import integrity_error_response
 from .audit_log import _describe_update, audit
 from .columns import allowed_columns, model_for
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
-from .payload import ensure_writable, validate_payload_schema
+from ..timeutil import to_naive_utc
+from .payload import ensure_writable, validate_column_types, validate_payload_schema
 from .stack_vlan_settings import apply_stack_settings_to_device
 from .validators import _release_rack_slot, validate_resource
 from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _stale_group_subinterfaces_on_vlan, _stale_subinterfaces_on_vlan, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
@@ -30,7 +31,10 @@ def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
     if end_of_day and 'T' not in value:
         text = f'{value}T23:59:59.999999'
     try:
-        return datetime.fromisoformat(text)
+        # В БД время хранится как naive UTC, а API отдаёт его с «+00:00» (services/timeutil.py): значение со смещением,
+        # присланное клиентом обратно (например, created_at записи как граница периода), приводится к UTC без tzinfo —
+        # иначе сравнение с колонкой шло бы по тексту со смещением. Чистая дата и время без смещения — как раньше.
+        return to_naive_utc(datetime.fromisoformat(text))
     except ValueError as exc:
         raise HTTPException(422, f'Некорректная дата: {value}') from exc
 
@@ -156,6 +160,7 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     payload = validate_payload_schema(resource, payload, is_update=False)
     model = model_for(resource); allowed = allowed_columns(model)
     data = {k: v for k, v in payload.items() if k in allowed}
+    validate_column_types(model, data)
     if model is VirtualMachine:
         _set_vm_hypervisor_os(data, session)
     _validate_new_owned_row(model, data, session)
@@ -176,6 +181,10 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise integrity_error_response(resource, exc) from exc
+    except DataError:
+        # Значение не подошло колонке (тип/размер) уже в БД: откатываем явно, а не полагаясь на закрытие сессии, и отдаём
+        # дальше — main.data_error_handler ответит 422 без текста драйвера.
+        session.rollback(); raise
 
 
 def _follow_vlan_domain_move(model, obj, payload: dict[str, Any], before: dict[str, Any], session: Session) -> int:
@@ -214,7 +223,9 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     allowed = allowed_columns(model); before = {k: getattr(obj, k) for k in allowed}
-    proposed = dict(before); proposed.update({k: v for k, v in payload.items() if k in allowed})
+    changes = {k: v for k, v in payload.items() if k in allowed}
+    validate_column_types(model, changes)
+    proposed = dict(before); proposed.update(changes)
     if model is VirtualMachine:
         _set_vm_hypervisor_os(proposed, session)
     _validate_changed_owned_row(model, proposed, before, session, item_id)
@@ -233,3 +244,7 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
         return enrich_open_port(obj, session) if model is OpenPort else serialize(obj)
     except IntegrityError as exc:
         session.rollback(); raise integrity_error_response(resource, exc) from exc
+    except DataError:
+        # Значение не подошло колонке (тип/размер) уже в БД: откатываем явно, а не полагаясь на закрытие сессии, и отдаём
+        # дальше — main.data_error_handler ответит 422 без текста драйвера.
+        session.rollback(); raise

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useVLANsStore } from '../stores/vlans'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
+import { useAuthStore } from '../stores/auth'
 import { api, deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import { usePagedList } from '../composables/usePagedList'
@@ -17,6 +18,7 @@ import DeviceFormModal from '../components/DeviceFormModal.vue'
 const vlans = useVLANsStore()
 const catalogs = useCatalogsStore()
 const devices = useDevicesStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const modalDefinition = ref<VLANDefinition | null>(null)
@@ -26,9 +28,9 @@ const deletingId = ref<string | null>(null)
 // Разовое назначение одного VLAN сразу нескольким устройствам — в отличие от доменов VLAN
 // (которые синхронизируют весь набор VLAN с "устройства-источника" и рассчитаны на повторное
 // использование), это одноразовое действие без создания домена. Портировано с
-// vlanBulkAssignPanelHtml()/applyVlanBulkAssign() в frontend/static/vlan.js. IP-адрес
+// vlanBulkAssignPanelHtml()/applyVlanBulkAssign() прежнего vanilla-фронтенда (до 2.60.0). IP-адрес
 // намеренно не запрашивается — см. docstring bulk_assign_vlan() на бэкенде
-// (backend/app/api/system.py): один и тот же IP на нескольких устройствах в одном VLAN был бы
+// (backend/app/api/vlan.py): один и тот же IP на нескольких устройствах в одном VLAN был бы
 // некорректен, а разные IP для каждого устройства — уже не массовое действие.
 const bulkAssignOpen = ref(false)
 const bulkVlanId = ref('')
@@ -173,13 +175,13 @@ async function removeDefinition(d: VLANDefinition) {
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
-      <button class="btn btn-secondary" @click="toggleBulkAssign">
+      <button v-if="auth.canWrite" class="btn btn-secondary" @click="toggleBulkAssign">
         {{ bulkAssignOpen ? 'Скрыть массовое назначение' : 'Массовое назначение VLAN' }}
       </button>
       <button class="btn btn-secondary" @click="domainsPanelOpen = !domainsPanelOpen">
         {{ domainsPanelOpen ? 'Скрыть домены VLAN' : 'Домены VLAN' }}
       </button>
-      <button class="btn btn-primary" @click="openCreate">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить VLAN
       </button>
@@ -244,10 +246,10 @@ async function removeDefinition(d: VLANDefinition) {
                 <span v-if="d.description" class="def-desc">{{ d.description }}</span>
               </div>
               <div class="row-actions">
-                <button type="button" aria-label="Редактировать" @click="openEdit(d)">
-                  <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEdit(d)">
+                  <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
                 </button>
-                <button type="button" aria-label="Удалить" :disabled="deletingId === d.id" @click="removeDefinition(d)">
+                <button v-if="auth.canWrite" type="button" aria-label="Удалить" :disabled="deletingId === d.id" @click="removeDefinition(d)">
                   <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                 </button>
               </div>

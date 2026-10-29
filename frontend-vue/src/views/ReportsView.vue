@@ -7,12 +7,14 @@
 import { onMounted, ref } from 'vue'
 import { useInformationSystemsStore } from '../stores/informationSystems'
 import { useCatalogsStore } from '../stores/catalogs'
+import { useAuthStore } from '../stores/auth'
 import { generateInventoryReport, generateStructuralAppendixReport, generateAuditLogReport, downloadReport } from '../api/reports'
 import { useToast } from '../composables/useToast'
 import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 
 const systems = useInformationSystemsStore()
 const catalogs = useCatalogsStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 onMounted(async () => {
@@ -156,7 +158,7 @@ async function runAuditLogReport() {
       </button>
     </section>
 
-    <section class="card report-card">
+    <section v-if="auth.canViewAuditLog" class="card report-card" data-report="audit-log">
       <div class="report-head">
         <h2>Журнал аудита</h2>
         <p>Excel-выгрузка изменений реестра за период.</p>

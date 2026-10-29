@@ -37,21 +37,32 @@ jobs:
         run: npm ci
         working-directory: frontend-vue
 
+      - name: ESLint frontend-vue (npm run lint; форматтер Prettier в CI не входит — код ещё не отформатирован)
+        run: npm run lint
+        working-directory: frontend-vue
+
       - name: ruff (реальные ошибки — pyflakes F + синтаксис E9 — и сложность функций C901 ≤ 12, см. pyproject.toml)
         run: ruff check backend
 
-      - name: Lock-файлы backend актуальны (requirements.lock / requirements-dev.lock соответствуют requirements*.txt)
-        # Правили requirements.txt, но не пересобрали lock — Docker и CI поставили бы старые версии. Пересборка идёт с
-        # учётом уже закреплённых версий, поэтому при актуальном lock diff пуст. Как обновить — README, «Зависимости backend».
+      - name: Lock-файлы backend актуальны (requirements*.lock соответствуют requirements*.txt, включая набор для сборки EXE)
+        # Правили requirements.txt, но не пересобрали lock — Docker, CI и сборка EXE поставили бы старые версии. Пересборка идёт
+        # с учётом уже закреплённых версий, поэтому при актуальном lock diff пуст. Как обновить — README, «Зависимости backend».
         run: |
           pip install uv
           cd backend
           uv pip compile requirements.txt --universal --generate-hashes --python-version 3.12 -o requirements.lock --no-header
           uv pip compile requirements-dev.txt --universal --generate-hashes --python-version 3.12 -o requirements-dev.lock --no-header
-          git diff --exit-code -- requirements.lock requirements-dev.lock
+          uv pip compile requirements-build.txt --universal --generate-hashes --python-version 3.12 -o requirements-build.lock --no-header
+          git diff --exit-code -- requirements.lock requirements-dev.lock requirements-build.lock
 
       - name: pip-audit (известные уязвимости в закреплённых зависимостях runtime, requirements.lock) — gate
         run: pip-audit -r backend/requirements.lock --require-hashes
+
+      - name: pip-audit набора для сборки EXE (requirements-build.lock) — не блокирует
+        # Тот же runtime плюс PyInstaller и его зависимости: из EXE в продукт попадает всё это. PyInstaller и его хуки
+        # изредка дают замечания, не относящиеся к рантайму, поэтому шаг сообщает о них, но не валит сборку.
+        continue-on-error: true
+        run: pip-audit -r backend/requirements-build.lock --require-hashes
 
       - name: Тесты backend (unittest + pytest, включая интеграционные) с измерением покрытия
         # Сводка по файлам с непокрытыми строками — в Summary job-а. Порог (fail_under) задан в pyproject.toml:

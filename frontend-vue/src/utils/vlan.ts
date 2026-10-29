@@ -20,7 +20,7 @@ export function vlanLabel(v: VLANDefinition): string {
  * массив не мутируется, при отсутствии новых VLAN возвращается ТОТ ЖЕ массив (можно сравнивать по
  * ссылке, чтобы не вызывать лишний реактивный апдейт).
  *
- * Зеркалит бэкенд (services/crud.py:assign_domain_vlans_to_device): description строки берётся из
+ * Зеркалит бэкенд (services/crud/vlan_domains.py:assign_domain_vlans_to_device): description строки берётся из
  * определения VLAN, IP/префикс пустые, is_management выключен. Зачем это нужно на фронтенде: форма
  * устройства приводит VLAN устройства в БД ровно к черновику (api/deviceVlans.ts:persistDeviceVlans),
  * поэтому VLAN, которые бэкенд назначит при создании членства, но которых нет в черновике, были бы

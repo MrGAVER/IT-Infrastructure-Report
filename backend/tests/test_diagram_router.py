@@ -198,7 +198,8 @@ def test_export_vsdx_returns_binary_content(client, db_session):
 def test_export_updates_last_export_format(client, db_session):
     _seed_device(db_session)
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма last-export"}).json()
-    client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg"})
+    # A-13: безопасный GET по умолчанию ничего не пишет; формат запоминается по явной просьбе клиента (persist_export).
+    client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg", "persist_export": "true"})
     updated = client.get(f"/api/v1/diagrams/{diagram['id']}").json()
     assert updated["last_export_format"] == "svg"
 
@@ -312,3 +313,247 @@ def test_switch_node_edge_carries_port_index_end_to_end(client, db_session):
     assert switch_node["icon"]["port_ticks"] == 1
     edge = detail["edges"][0]
     assert edge["source_interface"]["port_index"] == 0
+
+
+# --- A-04: валидация цвета/формы категории и экспорт с «грязными» данными ---------------------------------------------
+
+DIRTY_COLOR = 'x" onload="alert(1)'
+
+
+def _category_body(name: str, **extra) -> dict:
+    return {"name": name, **extra}
+
+
+def test_create_category_rejects_dirty_color(client):
+    r = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 цвет", diagram_color=DIRTY_COLOR))
+    assert r.status_code == 422, r.text
+    assert "diagram_color" in r.text
+
+
+def test_create_category_rejects_unknown_shape(client):
+    r = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 форма", diagram_shape="hexagon"))
+    assert r.status_code == 422, r.text
+    assert "diagram_shape" in r.text
+
+
+def test_create_category_accepts_valid_and_empty_values(client):
+    for index, extra in enumerate([
+        {"diagram_color": "#4f7cff", "diagram_shape": "server"},
+        {"diagram_color": "#4cf", "diagram_shape": "switch_l3"},
+        {"diagram_color": "", "diagram_shape": ""},
+        {},
+    ]):
+        r = client.post("/api/v1/resources/device-categories", json=_category_body(f"Категория А-04 ок {index}", **extra))
+        assert r.status_code == 201, r.text
+
+
+def test_update_category_rejects_dirty_color_and_keeps_old_value(client):
+    created = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 PUT", diagram_color="#112233")).json()
+    r = client.put(f"/api/v1/resources/device-categories/{created['id']}", json={**_category_body("Категория А-04 PUT", diagram_color=DIRTY_COLOR)})
+    assert r.status_code == 422, r.text
+    assert client.get(f"/api/v1/resources/device-categories/{created['id']}").json()["diagram_color"] == "#112233"
+
+
+def test_update_category_rejects_unknown_shape(client):
+    created = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 PUT форма")).json()
+    r = client.put(f"/api/v1/resources/device-categories/{created['id']}", json=_category_body("Категория А-04 PUT форма", diagram_shape="zzz"))
+    assert r.status_code == 422, r.text
+
+
+def _dirty_the_category_of_the_seeded_device(db_session, color=DIRTY_COLOR, shape=None):
+    from app.models import DeviceCategory
+
+    device = _seed_device(db_session)
+    device_type = db_session.get(DeviceType, device.device_type_id)
+    category = db_session.get(DeviceCategory, device_type.category_id)
+    category.diagram_color = color  # прямая запись мимо API: уже сохранённые «грязные» данные
+    if shape is not None:
+        category.diagram_shape = shape
+    db_session.commit()
+
+
+def test_export_svg_of_dirty_category_uses_default_color_and_has_no_injection(client, db_session):
+    from app.services.diagram_icons import DEFAULT_COLOR
+
+    _dirty_the_category_of_the_seeded_device(db_session)
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-04 svg"}).json()
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "svg"})
+    assert r.status_code == 200
+    assert "onload" not in r.text
+    assert f'fill="{DEFAULT_COLOR}"' in r.text
+
+
+def test_graph_json_of_dirty_category_carries_default_color(client, db_session):
+    from app.services.diagram_icons import DEFAULT_COLOR, DEFAULT_SHAPE
+
+    _dirty_the_category_of_the_seeded_device(db_session, shape="<script>")
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-04 json"}).json()
+    nodes = client.get(f"/api/v1/diagrams/{diagram['id']}").json()["nodes"]
+    icons = [n["icon"] for n in nodes if n["type"] == "device"]
+    assert icons and all(i["color"] == DEFAULT_COLOR and i["shape"] == DEFAULT_SHAPE for i in icons)
+
+
+def test_export_drawio_of_dirty_category_does_not_fail_and_has_no_foreign_style(client, db_session):
+    _dirty_the_category_of_the_seeded_device(db_session, color="#fff;strokeColor=red")  # ровно 20 символов: колонка VARCHAR(20)
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-04 drawio"}).json()
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "drawio"})
+    assert r.status_code == 200
+    assert "strokeColor=red" not in r.text
+
+
+# --- A-05: PUT /layout проверяет вход, а сохранённая раскладка не ломает чтение -----------------------------------------
+
+import json as _json  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+def _put_layout(client, diagram_id, **body):
+    return client.put(f"/api/v1/diagrams/{diagram_id}/layout", json=body)
+
+
+def _put_layout_raw(client, diagram_id, text):
+    return client.put(f"/api/v1/diagrams/{diagram_id}/layout", content=text, headers={"content-type": "application/json"})
+
+
+@pytest.mark.parametrize("positions", [
+    {"id": "str"},
+    {"id": {"x": "a", "y": 1}},
+    {"id": {"x": 1}},
+    {"id": {"x": True, "y": 1}},
+    {"id": None},
+    {"id": [1, 2]},
+    {"id": {"x": '1" onload="alert(1)', "y": 1}},
+    {"k" * 201: {"x": 1, "y": 1}},
+])
+def test_put_layout_rejects_malformed_positions(client, positions):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 вход"}).json()
+    assert _put_layout(client, diagram["id"], node_positions=positions).status_code == 422
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_put_layout_rejects_non_finite_numbers(client, token):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 NaN"}).json()
+    r = _put_layout_raw(client, diagram["id"], '{"node_positions": {"id": {"x": %s, "y": 1}}}' % token)
+    assert r.status_code == 422
+
+
+def test_put_layout_limits_node_count(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 размер"}).json()
+    too_many = {f"n{i}": {"x": i, "y": i} for i in range(5001)}
+    assert _put_layout(client, diagram["id"], node_positions=too_many).status_code == 422
+    exactly = {f"n{i}": {"x": i, "y": i} for i in range(5000)}
+    assert _put_layout(client, diagram["id"], node_positions=exactly).status_code == 200
+
+
+def test_rejected_put_keeps_the_previous_layout(client, db_session):
+    from app.models import DiagramLayout
+
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 сохранность"}).json()
+    assert _put_layout(client, diagram["id"], node_positions={"keep": {"x": 1, "y": 2}}).status_code == 200
+    assert _put_layout(client, diagram["id"], node_positions={"keep": "broken"}).status_code == 422
+    db_session.expire_all()
+    stored = db_session.query(DiagramLayout).filter_by(saved_diagram_id=diagram["id"]).one()
+    assert _json.loads(stored.node_positions) == {"keep": {"x": 1, "y": 2}}
+
+
+def test_put_layout_stores_only_x_and_y(client, db_session):
+    from app.models import DiagramLayout
+
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 лишние поля"}).json()
+    assert _put_layout(client, diagram["id"], node_positions={"n": {"x": 1, "y": 2, "junk": "<script>"}}).status_code == 200
+    db_session.expire_all()
+    stored = db_session.query(DiagramLayout).filter_by(saved_diagram_id=diagram["id"]).one()
+    assert _json.loads(stored.node_positions)["n"] == {"x": 1, "y": 2}
+
+
+@pytest.mark.parametrize("viewport", [{"zoom": 1.5}, {"x": 1, "y": -2, "zoom": 0.5}, {"zoom": 2, "pan_x": 40, "pan_y": -10}, {}])
+def test_put_layout_accepts_valid_viewport(client, viewport):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 viewport ок"}).json()
+    assert _put_layout(client, diagram["id"], node_positions={}, viewport=viewport).status_code == 200
+    assert client.get(f"/api/v1/diagrams/{diagram['id']}").json()["viewport"] == viewport
+
+
+@pytest.mark.parametrize("viewport", ["text", [1, 2], 5, {"zoom": "1"}, {"zoom": True}, {"zoom": None}, {"foo": 1}, {"zoom": 1, "x": {"a": 1}}])
+def test_put_layout_rejects_invalid_viewport(client, viewport):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 viewport"}).json()
+    assert _put_layout(client, diagram["id"], node_positions={}, viewport=viewport).status_code == 422
+
+
+def test_put_layout_rejects_non_finite_viewport(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 viewport NaN"}).json()
+    r = _put_layout_raw(client, diagram["id"], '{"node_positions": {}, "viewport": {"zoom": NaN}}')
+    assert r.status_code == 422
+
+
+def test_put_layout_without_viewport_keeps_the_saved_one(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 viewport остаётся"}).json()
+    _put_layout(client, diagram["id"], node_positions={}, viewport={"zoom": 3})
+    assert _put_layout(client, diagram["id"], node_positions={"a": {"x": 1, "y": 1}}).status_code == 200
+    assert client.get(f"/api/v1/diagrams/{diagram['id']}").json()["viewport"] == {"zoom": 3}
+
+
+def test_group_key_longer_than_200_is_rejected(client):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 group_key"}).json()
+    assert client.put(f"/api/v1/diagrams/{diagram['id']}/groups/{'g' * 201}", json={"is_collapsed": True}).status_code == 422
+    assert client.put(f"/api/v1/diagrams/{diagram['id']}/groups/{'g' * 200}", json={"is_collapsed": True}).status_code == 200
+
+
+def _poison_layout(db_session, diagram_id, node_positions, viewport=None):
+    """Прямая запись мимо API: так выглядят уже испорченные данные или раскладка, записанная прежней версией."""
+    from app.models import DiagramLayout
+
+    layout = db_session.query(DiagramLayout).filter_by(saved_diagram_id=diagram_id).one()
+    layout.node_positions = node_positions
+    layout.viewport = viewport
+    db_session.commit()
+
+
+@pytest.mark.parametrize("stored", [
+    '{{DEV}: "str"}',
+    '{{DEV}: {"x": "1\\" onload=\\"alert(1)", "y": 1}}',
+    '{{DEV}: {"x": NaN, "y": 1}}',
+    '{{DEV}: [1, 2]}',
+    '{{DEV}: null}',
+    '["not", "an", "object"]',
+    '"just a string"',
+    "not json at all",
+    "",
+])
+def test_poisoned_layout_does_not_break_get_regenerate_and_exports(client, db_session, stored):
+    device = _seed_device(db_session)
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 испорчена"}).json()
+    stored = stored.replace("{DEV}", _json.dumps(device.id))
+    _poison_layout(db_session, diagram["id"], stored)
+
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}")
+    assert r.status_code == 200, r.text
+    node = next(n for n in r.json()["nodes"] if n["id"] == device.id)
+    assert isinstance(node["x"], (int, float)) and isinstance(node["y"], (int, float))
+
+    assert client.post(f"/api/v1/diagrams/{diagram['id']}/regenerate").status_code == 200
+    for fmt in ("svg", "drawio", "vsdx"):
+        assert client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": fmt}).status_code == 200, fmt
+
+
+def test_regenerate_replaces_poisoned_positions_with_valid_ones(client, db_session):
+    from app.models import DiagramLayout
+
+    device = _seed_device(db_session)
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 регенерация"}).json()
+    _poison_layout(db_session, diagram["id"], _json.dumps({device.id: "str", "ghost": {"x": "a", "y": 1}, "kept": {"x": 3, "y": 4}}))
+    assert client.post(f"/api/v1/diagrams/{diagram['id']}/regenerate").status_code == 200
+    db_session.expire_all()
+    stored = _json.loads(db_session.query(DiagramLayout).filter_by(saved_diagram_id=diagram["id"]).one().node_positions)
+    assert stored["kept"] == {"x": 3, "y": 4}, "корректные позиции сохраняются"
+    assert "ghost" not in stored
+    assert set(stored[device.id]) == {"x", "y"}
+
+
+@pytest.mark.parametrize("viewport", ['"text"', '{"zoom": "a"}', "[1]", "not json", '{"zoom": NaN}', '{"unknown": 1}'])
+def test_poisoned_viewport_is_read_as_absent(client, db_session, viewport):
+    diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 viewport испорчен"}).json()
+    _poison_layout(db_session, diagram["id"], "{}", viewport)
+    r = client.get(f"/api/v1/diagrams/{diagram['id']}")
+    assert r.status_code == 200
+    assert r.json()["viewport"] is None

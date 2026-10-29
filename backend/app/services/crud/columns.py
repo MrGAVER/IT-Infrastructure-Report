@@ -12,8 +12,18 @@ def model_for(resource: str):
     except KeyError as exc: raise HTTPException(404, f"Ресурс '{resource}' не найден") from exc
 
 
+def _static_default(column) -> str | None:
+    """Значение по умолчанию как строка — только для постоянных значений. У вычисляемых умолчаний (`default=lambda: ...`,
+    `utcnow_naive`) у `default.arg` нет осмысленного текста: `str()` давал `<function ... at 0x7f…>` — имя внутренней
+    функции и адрес в памяти процесса. Для них отдаём `null` (ключ `default` в ответе остаётся)."""
+    default = column.default
+    if default is None or default.is_callable:
+        return None
+    return str(default.arg)
+
+
 def columns_for(model):
-    return [{'name': c.key, 'type': str(c.type), 'nullable': c.nullable, 'primary_key': c.primary_key, 'default': None if c.default is None else str(c.default.arg), 'foreign_key': next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None} for c in inspect(model).columns]
+    return [{'name': c.key, 'type': str(c.type), 'nullable': c.nullable, 'primary_key': c.primary_key, 'default': _static_default(c), 'foreign_key': next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None} for c in inspect(model).columns]
 
 
 def allowed_columns(model) -> set[str]:

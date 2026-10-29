@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
@@ -9,6 +10,8 @@ const emit = defineEmits<{ close: [] }>()
 const organization = useOrganizationStore()
 const auth = useAuthStore()
 const router = useRouter()
+// Журнал аудита виден только тому, кому его отдаёт сервер (A-23): viewer получил бы 403.
+const visibleSystemNav = computed(() => systemNav.filter((item) => !item.adminOnly || auth.canViewAuditLog))
 
 async function logout() {
   await auth.logout()
@@ -36,7 +39,7 @@ const systemNav = [
   { to: '/reports', icon: 'i-file', label: 'Отчёты' },
   { to: '/report-templates', icon: 'i-layers', label: 'Шаблоны отчётов' },
   { to: '/port-sync-rules', icon: 'i-network', label: 'Правила согласования портов' },
-  { to: '/audit-log', icon: 'i-activity', label: 'Журнал аудита' },
+  { to: '/audit-log', icon: 'i-activity', label: 'Журнал аудита', adminOnly: true },
 ]
 </script>
 
@@ -72,7 +75,7 @@ const systemNav = [
 
     <div class="nav-group-label">Система</div>
     <ul class="nav">
-      <li v-for="item in systemNav" :key="item.to">
+      <li v-for="item in visibleSystemNav" :key="item.to">
         <router-link :to="item.to" @click="$emit('close')">
           <svg class="icon"><use :href="`/icons.svg#${item.icon}`" /></svg>
           {{ item.label }}

@@ -3,7 +3,7 @@
 Публичный API пакета прежний: всё, что раньше импортировалось из `services.crud`, доступно и отсюда, поэтому
 вызывающий код и тесты менять не нужно. Модули:
   - columns: Метаданные ресурсов: какая модель стоит за ключом ресурса и какие колонки в неё можно писать.
-  - payload: Проверка входного payload generic CRUD: запись в защищённые ресурсы, схемы Pydantic и неизвестные ключи.
+  - payload: Проверка входного payload generic CRUD: запись в защищённые ресурсы, схемы Pydantic, неизвестные ключи, типы и длины колонок.
   - audit_log: Запись в журнал аудита и человекочитаемое описание изменений (кто — см. services/actor_context.py).
   - validators: Доменная валидация записей generic CRUD: реестр валидаторов по моделям, слот в стойке.
   - vlan_domains: Согласование VLAN устройств с VLAN-доменами при создании и изменении ресурсов.
@@ -29,6 +29,7 @@ from .columns import (  # noqa: F401
 )
 from .payload import (  # noqa: F401
     ensure_writable,
+    validate_column_types,
     validate_payload_schema,
     _SERVICE_PAYLOAD_KEYS,
     _ECHOED_READONLY_KEYS,
@@ -290,6 +291,7 @@ __all__ = [
     'sync_vm_ip_addresses',
     'sync_vm_open_ports',
     'update_resource',
+    'validate_column_types',
     'validate_device_subinterfaces',
     'validate_payload_schema',
     'validate_resource',

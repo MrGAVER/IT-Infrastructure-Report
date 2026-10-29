@@ -2038,7 +2038,7 @@ describe('DeviceFormModal.vue', () => {
 describe('правки формы физического устройства: порядок типов, поиск ОС, домен VLAN, уведомление о портах', () => {
   const emptyList = () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
 
-  it('пункт 1: группы моделей (добавленные пользователем) идут первыми, а \"Тип устройства (без конкретной модели)\" — в самом конце', async () => {
+  it('пункт 1: группы моделей (добавленные пользователем) идут первыми, а "Тип устройства (без конкретной модели)" — в самом конце', async () => {
     const wrapper = await mountWithLoadedCatalogs()
     const catalogs = useCatalogsStore()
     catalogs.items['manufacturers'] = [
@@ -3181,7 +3181,8 @@ describe('подинтерфейсы портов: сквозное сохран
     await flushPromises()
 
     const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-copy/interfaces'))
-    const [sub] = put?.body.interfaces[0].subinterfaces
+    expect(put).toBeDefined()
+    const [sub] = put!.body.interfaces[0].subinterfaces
     expect(sub).toMatchObject({ name: 'Gi0/0.10', vlan_id: 'v-10', is_data_transfer: true })
     expect(sub.id).toBeUndefined()
     expect(sub.ips[0].id).toBeUndefined()

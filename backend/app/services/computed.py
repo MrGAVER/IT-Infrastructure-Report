@@ -21,8 +21,8 @@ def local_timestamp_suffix() -> str:
     секунду, перезаписали бы файлы друг друга (код-ревью, п. 11).
 
     Намеренно локальное время сервера (datetime.now(), без timezone), а не UTC: это не хранимая
-    и не сравниваемая метка времени вроде created_at/updated_at (те уже используют
-    datetime.now(timezone.utc) — см. TimestampMixin в models.py), а разовое форматирование
+    и не сравниваемая метка времени вроде created_at/updated_at (те хранятся как naive UTC —
+    см. TimestampMixin в models.py и services/timeutil.py), а разовое форматирование
     момента генерации файла для человека — в имени файла должно быть то время, которое человек
     увидит на часах в момент скачивания, а не смещённое на часовой пояс UTC значение."""
     return f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_{uuid4().hex[:8]}"

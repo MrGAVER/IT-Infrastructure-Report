@@ -1,8 +1,8 @@
 // Типы отражают реальные поля моделей бэкенда (backend/app/models.py) и то, что
 // действительно возвращают эндпоинты (backend/app/services/serialization.py) —
 // см. serialize(): отдаёт сырые колонки как есть, без резолва FK в имена.
-// Резолв имён — задача фронтенда (см. stores/catalogs.ts), как и в текущем
-// vanilla-фронтенде (frontend/static/core.js: lookupLabel/resourceMap).
+// Резолв имён — задача фронтенда (см. stores/catalogs.ts), как и в прежнем
+// vanilla-фронтенде (до 2.60.0: lookupLabel/resourceMap).
 
 /** Справочная запись общего вида — id + name достаточно для большинства каталогов. */
 export interface CatalogItem {
@@ -39,7 +39,7 @@ export interface DeviceModel extends CatalogItem {
 
 /** GET /api/v1/resources/interfaces?physical_device_id=... — физический/логический порт
  * устройства (Лист 3 отчёта). Persist идёт НЕ через обычный CRUD /resources/interfaces, а через
- * атомарный PUT /api/v1/devices/{device_id}/interfaces (см. backend/app/services/crud.py:
+ * атомарный PUT /api/v1/devices/{device_id}/interfaces (см. backend/app/services/crud/interfaces.py:
  * sync_interfaces) — он одним запросом создаёт/обновляет/удаляет интерфейсы и их IP по diff'у с
  * тем, что уже есть в БД, и заодно валидирует vlan_ids. См. DeviceInterfacesEditor.vue.
  *
@@ -359,7 +359,7 @@ export interface Container {
 }
 
 /** GET /api/v1/resources/information-systems/{id}/details — атомарно синхронизируется через
- * PUT на тот же путь (backend/app/services/crud.py:sync_information_system_details), так же
+ * PUT на тот же путь (backend/app/services/crud/information_system.py:sync_information_system_details), так же
  * как интерфейсы устройства (см. DeviceInterfacesEditor.vue), только эндпоинт лежит под
  * /resources/, а не /devices/. sources — единственный (с миграции b7f2c1e5a904) механизм связи
  * ИС с оборудованием/ВМ/контейнером и IP-адресом источника, не относящегося ни к одному из них
@@ -435,7 +435,7 @@ export interface ISSourceDraftRow {
 /** GET /api/v1/resources/device-type-vlans?device_type_id=... — какие определения VLAN
  * разрешены для типа устройства. Бэкенд использует то же самое множество (объединённое с уже
  * назначенными устройству VLAN, PhysicalDeviceVLAN) как allowed_vlans при валидации vlan_ids
- * интерфейса — см. sync_interfaces в backend/app/services/crud.py и api/portVlans.ts. */
+ * интерфейса — см. sync_interfaces в backend/app/services/crud/interfaces.py и api/portVlans.ts. */
 export interface DeviceTypeVLAN {
   id: string
   device_type_id: string
@@ -477,7 +477,7 @@ export interface InterfaceIpDraftRow {
 /** Черновая строка интерфейса внутри DeviceInterfacesEditor.vue. vlan_ids — id записей vlans
  * (VLANDefinition.id), назначенных этому порту через чекбоксы "VLAN на порту"; допустимый набор
  * опций вычисляется в api/portVlans.ts:computePortVlanOptions (тип устройства ∪ уже назначенные
- * устройству VLAN — то же множество, которое backend/app/services/crud.py:sync_interfaces
+ * устройству VLAN — то же множество, которое backend/app/services/crud/interfaces.py:sync_interfaces
  * фактически разрешит при сохранении).
  *
  * vlan_mode (п.1.4.3.2) — режим порта: 'access' (ровно один VLAN) или 'trunk' (несколько VLAN,
@@ -651,7 +651,7 @@ export interface InterfaceGroupSubinterface {
 }
 
 /** GET /api/v1/vlan-dashboard — сгруппировано по vlan_id, т.к. один и тот же VLAN ID
- * может иметь разные определения в разных доменах (см. backend/app/api/system.py:
+ * может иметь разные определения в разных доменах (см. backend/app/api/vlan.py:
  * vlan_dashboard). Формат ответа специфичный, четвёртый вариант в этом API. */
 export interface VLANDeviceAssignment {
   device_id: string
@@ -661,10 +661,10 @@ export interface VLANDeviceAssignment {
 }
 /** GET /api/v1/resources/vlan-domains — CRUD через generic /resources/vlan-domains, участники —
  * VLANDomainDeviceLink (см. ниже), синхронизация — POST /api/v1/vlan-domains/{id}/sync
- * (backend/app/api/system.py:sync_vlan_domain), копирует VLAN устройства source_device_id на
+ * (backend/app/api/vlan.py:sync_vlan_domain), копирует VLAN устройства source_device_id на
  * всех остальных участников домена. source_device_id опционален: без него синхронизация
- * недоступна (кнопка скрыта в VLANDomainsPanel.vue, как и в vanilla-версии — см. app.js, рендер
- * списка ресурсов: кнопка «Синхронизировать» показывается только при x.source_device_id). */
+ * недоступна (кнопка скрыта в VLANDomainsPanel.vue, как и в vanilla-версии до 2.60.0, где в рендере
+ * списка ресурсов кнопка «Синхронизировать» показывается только при x.source_device_id). */
 export interface VLANDomain {
   id: string
   name: string
@@ -676,7 +676,7 @@ export interface VLANDomain {
  * (в отличие от interface_vlans — не привязано к конкретному порту, а к устройству в целом).
  * persist — обычный delete-затем-recreate через createResource/deleteResource (НЕ атомарный
  * PUT, в отличие от интерфейсов устройства и деталей ИС) — так же, как в vanilla-версии
- * (saveDeviceVlans в frontend/static/device-interfaces.js). */
+ * (saveDeviceVlans в vanilla-версии до 2.60.0). */
 export interface DeviceVLAN {
   id: string
   physical_device_id: string
@@ -699,7 +699,7 @@ export interface VLANDomainDeviceLink {
 /** Пункт 5 правки "создание физического устройства": стек физических устройств. CRUD — через
  * generic /resources/device-stacks, членство — через /resources/device-stack-members (не путать
  * с добавлением участника — POST /device-stacks/{id}/members ниже, идемпотентный и с понятной
- * 409, если устройство уже в другом стеке, см. backend/app/api/system.py). */
+ * 409, если устройство уже в другом стеке, см. backend/app/api/device_stacks.py). */
 export interface DeviceStack {
   id: string
   name: string
@@ -713,7 +713,7 @@ export interface DeviceStackMember {
   position: number
 }
 
-/** GET /api/v1/device-stacks/{id}/detail (backend/app/api/system.py:device_stack_detail) —
+/** GET /api/v1/device-stacks/{id}/detail (backend/app/api/device_stacks.py:device_stack_detail) —
  * "просмотр... вместе": участники — Device (см. enrich_devices) плюс два поля из членства, и
  * связывающие подключения — та же форма, что Connection ниже (см. enrich_connections),
  * вычисленные на лету по признаку "оба конца — интерфейсы устройств из этого стека" (не

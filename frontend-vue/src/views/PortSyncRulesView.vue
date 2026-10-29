@@ -12,9 +12,11 @@ import type { PortSyncRule } from '../api/types'
 import type { PortSyncScope } from '../api/portSync'
 import { useToast } from '../composables/useToast'
 import { usePortSyncRulesStore } from '../stores/portSyncRules'
+import { useAuthStore } from '../stores/auth'
 import { actionLabel, describeRule } from '../utils/portSyncRules'
 
 const store = usePortSyncRulesStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const formOpen = ref(false)
@@ -93,7 +95,7 @@ function showPlan(scope: PortSyncScope, title?: string) {
     </p>
 
     <div class="toolbar">
-      <button class="btn btn-primary" data-action="create" @click="openCreate">
+      <button v-if="auth.canWrite" class="btn btn-primary" data-action="create" @click="openCreate">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Новое правило
       </button>
@@ -133,12 +135,12 @@ function showPlan(scope: PortSyncScope, title?: string) {
               <span>{{ rule.enabled ? 'Вкл' : 'Выкл' }}</span>
             </label>
             <div class="buttons">
-              <button type="button" class="icon-btn" aria-label="Выше" title="Проверять раньше" data-action="up" :disabled="busyId === rule.id || index === 0" @click="move(rule, -1)">↑</button>
-              <button type="button" class="icon-btn" aria-label="Ниже" title="Проверять позже" data-action="down" :disabled="busyId === rule.id || index === store.rules.length - 1" @click="move(rule, 1)">↓</button>
+              <button v-if="auth.canWrite" type="button" class="icon-btn" aria-label="Выше" title="Проверять раньше" data-action="up" :disabled="busyId === rule.id || index === 0" @click="move(rule, -1)">↑</button>
+              <button v-if="auth.canWrite" type="button" class="icon-btn" aria-label="Ниже" title="Проверять позже" data-action="down" :disabled="busyId === rule.id || index === store.rules.length - 1" @click="move(rule, 1)">↓</button>
               <button type="button" class="btn btn-secondary btn-sm" data-action="preview" @click="showPlan({ rule_id: rule.id }, `Что сделает правило «${rule.name}»`)">Что сделает</button>
-              <button type="button" class="btn btn-secondary btn-sm" data-action="edit" @click="openEdit(rule)">Изменить</button>
-              <button v-if="rule.builtin && rule.modified" type="button" class="btn btn-secondary btn-sm" data-action="reset" :disabled="busyId === rule.id" @click="reset(rule)">Сбросить</button>
-              <button v-if="!rule.builtin" type="button" class="btn btn-secondary btn-sm danger" data-action="delete" :disabled="busyId === rule.id" @click="remove(rule)">Удалить</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-action="edit" @click="openEdit(rule)">{{ auth.canWrite ? 'Изменить' : 'Просмотр' }}</button>
+              <button v-if="auth.canWrite && rule.builtin && rule.modified" type="button" class="btn btn-secondary btn-sm" data-action="reset" :disabled="busyId === rule.id" @click="reset(rule)">Сбросить</button>
+              <button v-if="auth.canWrite && !rule.builtin" type="button" class="btn btn-secondary btn-sm danger" data-action="delete" :disabled="busyId === rule.id" @click="remove(rule)">Удалить</button>
             </div>
           </div>
         </li>

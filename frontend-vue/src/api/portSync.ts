@@ -1,6 +1,9 @@
 // Правила автоматического согласования данных порта и согласование по ним — /api/v1/port-sync
 // (backend/app/api/port_sync.py).
-import { api } from './client'
+import { api, LONG_REQUEST_TIMEOUT_MS } from './client'
+
+// Расчёт и применение плана по большому реестру — долгие операции: таймаут по умолчанию (30 с) для них мал.
+const LONG_OPTIONS = { timeoutMs: LONG_REQUEST_TIMEOUT_MS }
 import type { PortSyncApplyResult, PortSyncPlan, PortSyncRule, PortSyncRuleInput } from './types'
 
 export function fetchPortSyncRules() {
@@ -54,10 +57,10 @@ export interface PortSyncPageRequest {
  */
 export function previewPortSync(scope: PortSyncScope = {}, page: PortSyncPageRequest = {}) {
   const { planHash, ...range } = page
-  return api.post<PortSyncPlan>('/port-sync/preview', { ...scope, ...range, ...(planHash ? { plan_hash: planHash } : {}) })
+  return api.post<PortSyncPlan>('/port-sync/preview', { ...scope, ...range, ...(planHash ? { plan_hash: planHash } : {}) }, LONG_OPTIONS)
 }
 
 /** Применяет план; plan_hash — из предпросмотра, иначе сервер ответит 409. */
 export function applyPortSync(scope: PortSyncScope, planHash: string) {
-  return api.post<PortSyncApplyResult>('/port-sync/apply', { ...scope, plan_hash: planHash, confirm: true })
+  return api.post<PortSyncApplyResult>('/port-sync/apply', { ...scope, plan_hash: planHash, confirm: true }, LONG_OPTIONS)
 }

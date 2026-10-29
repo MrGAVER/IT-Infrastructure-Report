@@ -13,6 +13,10 @@ import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
 import { filterHostDevices } from '../utils/deviceFilters'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ container: Container | null; copyFrom?: Container | null }>()
 const emit = defineEmits<{ close: []; saved: [container: Container] }>()
@@ -89,6 +93,7 @@ function toPayload() {
 }
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите наименование контейнера.'
@@ -124,6 +129,7 @@ async function submit() {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form class="form-grid" @submit.prevent="submit">
         <label class="field field-wide">
           <span>Наименование *</span>
@@ -170,10 +176,11 @@ async function submit() {
           <textarea v-model.trim="form.purpose" rows="2" maxlength="2000"></textarea>
         </label>
       </form>
+      </fieldset>
 
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

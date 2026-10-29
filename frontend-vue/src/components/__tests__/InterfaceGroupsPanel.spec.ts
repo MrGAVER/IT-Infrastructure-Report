@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import InterfaceGroupsPanel from '../InterfaceGroupsPanel.vue'
 import InterfaceSubinterfacesEditor from '../InterfaceSubinterfacesEditor.vue'
+import OpenPortListEditor from '../OpenPortListEditor.vue'
 import SearchableSelect from '../SearchableSelect.vue'
 import { useToast } from '../../composables/useToast'
 import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, VLANDefinition } from '../../api/types'
@@ -23,7 +24,7 @@ function savedGroup(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDra
 
 type Change = { rows: InterfaceDraftRow[]; groups: InterfaceGroupDraft[] }
 
-function mountPanel(props: { rows: InterfaceDraftRow[]; groups?: InterfaceGroupDraft[]; selectedIndices?: number[] }) {
+function mountPanel(props: { rows: InterfaceDraftRow[]; groups?: InterfaceGroupDraft[]; selectedIndices?: number[]; collapseAfter?: number }) {
   return mount(InterfaceGroupsPanel, { props: { groups: [], vlanOptions, protocolPortCatalog: catalog, ...props } })
 }
 
@@ -873,6 +874,48 @@ describe('InterfaceGroupsPanel.vue', () => {
       await wrapper.find('button[aria-label="Удалить группу"]').trigger('click')
 
       expect(wrapper.find('.delete-modal').text()).toContain('подинтерфейсы')
+    })
+  })
+
+  describe('связка с окнами', () => {
+    it('окно удаления получает число портов группы и перечень того, чем она управляла', async () => {
+      const rows = [row('Gi0/1', { group_key: 'g1' }), row('Gi0/2'), row('Gi0/3', { group_key: 'g1' })]
+      const wrapper = mountPanel({ rows, groups: [savedGroup({ ip_address: '10.0.0.5' })] })
+
+      await wrapper.find('button[aria-label="Удалить группу"]').trigger('click')
+
+      expect(wrapper.find('.delete-desc').text()).toBe('В группе портов: 2. Группа задавала: IP-адрес. Что сделать со значениями в этих портах?')
+    })
+
+    it('порог сворачивания открытых портов доходит до редакторов открытых портов и подинтерфейсов в окне группы', async () => {
+      const group = savedGroup({ vlan_mode: 'access', vlan_ids: ['v10'], manage_open_ports: true, manage_subinterfaces: true })
+      const wrapper = mountPanel({ rows: [row('Gi0/1', { group_key: 'g1' })], groups: [group], collapseAfter: 3 })
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+
+      expect(wrapper.getComponent(OpenPortListEditor).props('collapseAfter')).toBe(3)
+      expect(wrapper.getComponent(InterfaceSubinterfacesEditor).props('collapseAfter')).toBe(3)
+    })
+
+    it('при повторном открытии окно группы начинает с чистого состояния: выбор порта для копирования и окно VLAN не переживают закрытие', async () => {
+      const source = row('Gi0/1', { vlan_mode: 'access', vlan_ids: ['v10'] })
+      const wrapper = mountPanel({ rows: [source], groups: [savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v10'], all_vlans: false })] })
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      const select = wrapper.find('.copy-row .searchable-select')
+      await select.find('input').trigger('focus')
+      await select.findAll('.ss-option')[0].trigger('mousedown')
+      await wrapper.find('.vlan-picker-btn').trigger('click')
+      expect(wrapper.find('.copy-what').exists()).toBe(true)
+      expect(wrapper.find('.vlan-picker-modal').exists()).toBe(true)
+
+      await wrapper.find('.group-modal-actions .btn-secondary').trigger('click')
+      expect(wrapper.find('.group-modal').exists()).toBe(false)
+      expect(wrapper.find('.vlan-picker-modal').exists()).toBe(false)
+
+      await wrapper.find('button[aria-label="Изменить группу"]').trigger('click')
+      expect(wrapper.find('.copy-what').exists()).toBe(false)
+      expect(wrapper.find('.vlan-picker-modal').exists()).toBe(false)
     })
   })
 })

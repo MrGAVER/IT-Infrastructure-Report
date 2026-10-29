@@ -53,6 +53,7 @@ SCHEMA_FROM_MIGRATIONS = os.environ.get("INFRA_REGISTRY_TEST_SCHEMA", "").strip(
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "sqlite_only: тест зависит от SQLite и пропускается при INFRA_REGISTRY_TEST_DATABASE_URL")
+    config.addinivalue_line("markers", "slow: замер времени/нагрузочная проверка; по умолчанию выполняется, исключить можно ключом -m 'not slow'")
     config.addinivalue_line("markers", "postgres_only: тест требует PostgreSQL и выполняется только при INFRA_REGISTRY_TEST_DATABASE_URL")
 
 

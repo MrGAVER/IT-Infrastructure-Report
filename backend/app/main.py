@@ -5,9 +5,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import DataError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, FRONTEND_DIR
+from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, ENABLE_DOCS, FORWARDED_ALLOW_IPS, FRONTEND_DIR
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
@@ -27,6 +28,7 @@ from .api.vms import router as vms_router
 from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
 from .services.catalogs import seed_defaults
+from .services.csrf_guard import SameOriginGuardMiddleware, forwarded_host_trusted
 from .services.integrity import ReferencedRecordError
 from .services.network_access import (
     ClientAccessMiddleware,
@@ -48,7 +50,13 @@ async def lifespan(app: FastAPI):
     seed_catalogs_on_startup()
     yield
 
-app = FastAPI(title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan)
+# Документация API выключена по умолчанию (config.ENABLE_DOCS): None вместо адреса снимает сами маршруты.
+app = FastAPI(
+    title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan,
+    docs_url='/docs' if ENABLE_DOCS else None,
+    redoc_url='/redoc' if ENABLE_DOCS else None,
+    openapi_url='/openapi.json' if ENABLE_DOCS else None,
+)
 # Порядок add_middleware() важен: Starlette оборачивает мидлвари в порядке, ОБРАТНОМ порядку
 # регистрации (последний добавленный — самый внешний). auth_gate_middleware иногда завершает запрос
 # сам, не вызывая call_next (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
@@ -62,8 +70,9 @@ def install_http_security(
     allowed_hosts: list[str],
     cors_origins: list[str],
     allowed_clients: list[IPNetwork] | None = None,
+    trust_forwarded_host: bool = False,
 ) -> None:
-    """CORS, проверка заголовка Host и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
+    """CORS, проверка заголовка Host, проверка origin и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
 
     - Пустой cors_origins — CORS не включается вовсе: чужие origin'ы не получают ни заголовков
       Access-Control-*, ни ответа на preflight, то есть браузер не даст стороннему сайту читать API.
@@ -74,8 +83,13 @@ def install_http_security(
     - allowed_clients — подсети, с которых принимаются подключения (403 всем остальным). Пустой или None —
       без ограничений по адресу. Фильтр — САМЫЙ внешний слой: чужой адрес не доходит ни до проверки
       Host, ни до аутентификации.
+    - SameOriginGuardMiddleware (всегда, при любом режиме аутентификации) — 403 CROSS_ORIGIN_BLOCKED на POST/PUT/PATCH/
+      DELETE к /api/ с чужого origin (CSRF: CORS защищает чтение, но не мешает браузеру отправить сам запрос). Origin'ы
+      из cors_origins считаются доверенными; X-Forwarded-Host учитывается при trust_forwarded_host. Стоит внутри CORS
+      и проверки Host, но снаружи auth_gate_middleware: чужая страница получает отказ раньше, чем 401/обработчик.
     allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через
     куки — широкий allow_origins вместе с allow_credentials=True был бы лишним риском без пользы."""
+    app.add_middleware(SameOriginGuardMiddleware, extra_origins=cors_origins, trust_forwarded_host=trust_forwarded_host)
     if cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
     trusted_hosts = allowed_hosts or ['localhost', '127.0.0.1']
@@ -87,7 +101,13 @@ def install_http_security(
         app.add_middleware(ClientAccessMiddleware, networks=allowed_clients)
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
-install_http_security(app, allowed_hosts=ALLOWED_HOSTS, cors_origins=CORS_ALLOWED_ORIGINS, allowed_clients=ALLOWED_CLIENT_NETWORKS)
+install_http_security(
+    app,
+    allowed_hosts=ALLOWED_HOSTS,
+    cors_origins=CORS_ALLOWED_ORIGINS,
+    allowed_clients=ALLOWED_CLIENT_NETWORKS,
+    trust_forwarded_host=forwarded_host_trusted(FORWARDED_ALLOW_IPS),
+)
 app.include_router(auth_router)
 app.include_router(preferences_router)
 # Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
@@ -111,6 +131,16 @@ async def referenced_record_handler(request: Request, exc: ReferencedRecordError
     """Защита уровня ORM (before_delete, см. services/integrity.py) сработала в обход
     delete_resource() — отдаём тот же 409 с тем же кодом и текстом, а не 500."""
     return JSONResponse(status_code=409, content={'detail': {'code': exc.code, 'message': str(exc)}})
+
+
+@app.exception_handler(DataError)
+async def data_error_handler(request: Request, exc: DataError) -> JSONResponse:
+    """Значение не подошло колонке по типу или размеру (на PostgreSQL — строка длиннее VARCHAR(n), число вне диапазона и т. п.)
+    и не было поймано раньше: 422 вместо 500, текст драйвера клиенту не показывается (в нём бывают имена таблиц и
+    значения). Подробности — в журнале сервера. Проверка типов и длин по метаданным модели (generic CRUD) срабатывает
+    раньше и называет поле; это обработчик последней линии для остальных путей записи."""
+    logger.warning('DataError при %s %s: %s', request.method, request.url.path, str(exc.orig)[:300] if exc.orig else type(exc).__name__)
+    return JSONResponse(status_code=422, content={'detail': 'Ошибка валидации: значение не подходит по типу или размеру.'})
 
 
 def seed_catalogs_on_startup():
@@ -183,9 +213,15 @@ if assets_dir.is_dir():
 # из них. /api/* исключён явно: иначе опечатка в пути API или обращение к несуществующему
 # эндпоинту молча превращалось бы в 200 с HTML вместо честного 404, маскируя реальную ошибку
 # интеграции.
+_DOCS_PATHS = frozenset({'docs', 'redoc', 'openapi.json', 'docs/oauth2-redirect'})
+
+
 @app.get('/{full_path:path}', include_in_schema=False)
 def spa_fallback(full_path: str):
     if full_path == 'api' or full_path.startswith('api/'):
+        raise HTTPException(404, 'Not Found')
+    if full_path in _DOCS_PATHS:
+        # Документация выключена (иначе маршрут ответил бы раньше этого фоллбэка): честный 404, а не 200 с HTML оболочки.
         raise HTTPException(404, 'Not Found')
     index = FRONTEND_DIR / 'index.html'
     if not index.is_file():

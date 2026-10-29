@@ -1,7 +1,7 @@
 from __future__ import annotations
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-from .config import DATABASE_URL
+from .config import DATABASE_URL, DB_POOL_OPTIONS
 
 def _unicode_lower(value):
     return value.lower() if isinstance(value, str) else value
@@ -23,8 +23,23 @@ def configure_sqlite_connection(dbapi_connection) -> None:
     dbapi_connection.create_function('lower', 1, _unicode_lower, deterministic=True)
 
 
-connect_args = {'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True, pool_pre_ping=True)
+def engine_connect_args(database_url: str) -> dict:
+    """Параметры подключения драйвера. SQLite: соединение используют потоки пула FastAPI. PostgreSQL: часовой пояс сессии —
+    UTC. Время в БД хранится как naive UTC (services/timeutil.py), и сессия в другом поясе не должна менять смысл значений:
+    это касается серверных значений (`CURRENT_TIMESTAMP`, `now()` в миграциях и SQL) и любых aware-значений, приведённых
+    сервером к своему поясу при записи в `timestamp without time zone`."""
+    if database_url.startswith('sqlite'):
+        return {'check_same_thread': False}
+    if database_url.startswith('postgresql'):
+        return {'options': '-c timezone=UTC'}
+    return {}
+
+
+connect_args = engine_connect_args(DATABASE_URL)
+# Размер пула — только для серверных СУБД: у SQLite (файл или память) свои классы пула, и параметры QueuePool
+# для них недопустимы.
+pool_options = {} if DATABASE_URL.startswith('sqlite') else DB_POOL_OPTIONS
+engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True, pool_pre_ping=True, **pool_options)
 
 if DATABASE_URL.startswith('sqlite'):
     @event.listens_for(engine, 'connect')

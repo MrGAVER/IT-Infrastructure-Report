@@ -20,6 +20,9 @@ export const useAuthStore = defineStore('auth', {
     initialized: false,
     loading: false,
     error: null as string | null,
+    /** Код и Retry-After последней неудачной попытки входа (см. ApiError): экран входа показывает по ним обратный отсчёт. */
+    errorCode: null as string | null,
+    errorRetryAfter: null as number | null,
     users: [] as AuthUser[],
     usersLoading: false,
     sessions: [] as AuthSessionInfo[],
@@ -33,6 +36,19 @@ export const useAuthStore = defineStore('auth', {
     },
     isAdmin(state): boolean {
       return state.user?.role === 'admin'
+    },
+    /** Единый источник правды «можно ли менять данные» для интерфейса: при выключенной аутентификации
+     * пользователь один и с полным доступом, иначе писать может только администратор (роль viewer —
+     * только чтение, остальные методы записи сервер отклоняет кодом 403, см. backend/app/services/auth.py).
+     * Формирование отчётов и предпросмотр согласования портов viewer'у доступны (READ_ONLY_POST_PATHS на сервере) — эти кнопки canWrite не
+     * скрывает; отчёт по журналу аудита и сам журнал — только администратору (canViewAuditLog). */
+    canWrite(state): boolean {
+      return !state.enabled || state.user?.role === 'admin'
+    },
+    /** Журнал аудита (раздел и отчёт) — только администратору: в нём имена, IP-адреса и неудачные входы (сервер отвечает viewer'у 403,
+     * backend/app/api/audit_log.py). Пока аутентификация выключена, пользователь один и журнал открыт. */
+    canViewAuditLog(state): boolean {
+      return !state.enabled || state.user?.role === 'admin'
     },
     /** Инвертирована относительно isAuthenticated ради читаемости в router-guard'е
      * (router/index.ts) — там нужно именно «требуется ли сейчас показать форму входа». */
@@ -75,6 +91,8 @@ export const useAuthStore = defineStore('auth', {
     async login(username: string, password: string): Promise<boolean> {
       this.loading = true
       this.error = null
+      this.errorCode = null
+      this.errorRetryAfter = null
       try {
         const result = await api.post<LoginResponse>('/auth/login', { username, password })
         setStoredToken(result.token)
@@ -83,6 +101,8 @@ export const useAuthStore = defineStore('auth', {
         return true
       } catch (err) {
         this.error = err instanceof ApiError ? err.message : 'Не удалось войти'
+        this.errorCode = err instanceof ApiError ? err.code : null
+        this.errorRetryAfter = err instanceof ApiError ? err.retryAfter : null
         return false
       } finally {
         this.loading = false

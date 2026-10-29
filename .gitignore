@@ -16,3 +16,10 @@ node_modules/
 
 # Файл настроек EXE-версии (создаётся рядом с исходниками при запуске launcher.py)
 infra_registry.toml
+
+# Артефакты покрытия тестами (`pytest --cov`): .coverage хранит абсолютные пути рабочей машины, coverage.xml и htmlcov/ — отчёты.
+# Файл backend/.coverage удалён из индекса (A-21): теперь правило не даёт ему вернуться случайным `git add -A`.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

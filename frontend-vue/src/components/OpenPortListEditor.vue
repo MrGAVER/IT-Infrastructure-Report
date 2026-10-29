@@ -14,8 +14,9 @@
 // самое "поле дублирует справочник и может с ним разойтись", убранное этой правкой. Теперь
 // единственный вход — выбор записи (SearchableSelect ниже, фикс п.2 — сортировка и поиск
 // вводом текста, как и у остальных подобных полей, см. catalogEntries prop и
-// stores/catalogs.ts:sortProtocolPortCatalog), а сервер сам подставляет порт/протокол из
-// справочника при сохранении (backend/app/services/crud.py:_apply_open_port_catalog) —
+// stores/catalogs.ts:sortProtocolPortCatalog), а порт/протокол сервер берёт из
+// справочника сам: join при каждом чтении (backend/app/services/serialization.py:enrich_open_port), а при
+// сохранении проверяет лишь существование записи (services/crud/owned_rows.py:_validate_open_port_catalog) —
 // хранить их в черновике смысла больше нет, см. OpenPortDraftRow в api/types.ts.
 import { computed } from 'vue'
 import type { OpenPortDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'

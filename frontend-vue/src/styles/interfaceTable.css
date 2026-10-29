@@ -1,0 +1,28 @@
+/* Ячейки и колонки таблицы портов — общие для строк самой таблицы (DeviceInterfacesEditor.vue) и строк, которые рисуют вложенные
+   компоненты (InterfaceBulkBar.vue). Подключается через <style scoped src> в каждый из них: scope-атрибут компонента получают
+   только его собственные <td>, поэтому правила не просачиваются в таблицы подинтерфейсов внутри раскрытой строки (а :deep(td)
+   в родителе просачивался бы). Подключать ДО собственных стилей компонента: .iface-detail-row td и т.п. переопределяют их при
+   равной специфичности. */
+.iface-table td {
+  padding: 4px 6px;
+  vertical-align: middle;
+  border-top: 1px solid var(--border);
+}
+.iface-table .col-select,
+.iface-table .col-index,
+.iface-table .col-order,
+.iface-table .col-check,
+.iface-table .col-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+.iface-table .col-select input,
+.iface-table .col-check input {
+  accent-color: var(--brand);
+  width: 14px;
+  height: 14px;
+}
+.iface-table .col-index {
+  color: var(--ink-muted);
+}

@@ -227,7 +227,9 @@ class TestOwnPasswordChange:
             json={"current_password": "wrong-one1", "new_password": "NewPass1234"},
             headers=_auth_headers(token),
         )
-        assert r.status_code == 401
+        # A-22: ошибка в поле формы — 422 с кодом, а не 401 («токен недействителен», по нему клиент завершает сессию)
+        assert r.status_code == 422
+        assert r.json()["detail"]["code"] == "WRONG_CURRENT_PASSWORD"
 
     def test_weak_new_password_is_rejected(self, client):
         _bootstrap_admin(client)

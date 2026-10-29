@@ -1,19 +1,22 @@
 // Генерация отчётов — не CRUD-ресурс: POST возвращает {file_name, download_url},
-// сам файл читается отдельным GET (см. backend/app/api/system.py:
+// сам файл читается отдельным GET (см. backend/app/api/reports.py:
 // generate_report/generate_audit_log_report/download_report).
-import { api, getStoredToken } from './client'
+import { api, getStoredToken, LONG_REQUEST_TIMEOUT_MS } from './client'
 
 export interface ReportResult {
   file_name: string
   download_url: string
 }
 
+/** Формирование отчёта на больших данных может занимать заметно дольше обычных запросов — таймаут по умолчанию (30 с) мал. */
+const LONG_OPTIONS = { timeoutMs: LONG_REQUEST_TIMEOUT_MS }
+
 /** POST /api/v1/reports/inventory — регламентный отчёт (Листы 1-4).
  * informationSystemId ограничивает отчёт одной ИС; structuralUnitIds — оборудованием
  * в выбранных структурных единицах и их потомках (см. build_report в reporting.py). */
 export function generateInventoryReport(informationSystemId: string | null, structuralUnitIds: string[]) {
   const qs = informationSystemId ? `?information_system_id=${encodeURIComponent(informationSystemId)}` : ''
-  return api.post<ReportResult>(`/reports/inventory${qs}`, { structural_unit_ids: structuralUnitIds.length ? structuralUnitIds : null })
+  return api.post<ReportResult>(`/reports/inventory${qs}`, { structural_unit_ids: structuralUnitIds.length ? structuralUnitIds : null }, LONG_OPTIONS)
 }
 
 /** POST /api/v1/reports/structural-appendix — Word-документ «Приложение к структурной схеме»
@@ -25,7 +28,7 @@ export function generateStructuralAppendixReport(isName: string, structuralUnitI
   return api.post<ReportResult>('/reports/structural-appendix', {
     is_name: isName,
     structural_unit_ids: structuralUnitIds.length ? structuralUnitIds : null,
-  })
+  }, LONG_OPTIONS)
 }
 
 /** POST /api/v1/reports/audit-log — выгрузка журнала аудита за период. */
@@ -34,7 +37,7 @@ export function generateAuditLogReport(dateFrom: string | null, dateTo: string |
   if (dateFrom) params.set('date_from', dateFrom)
   if (dateTo) params.set('date_to', dateTo)
   const qs = params.toString() ? `?${params.toString()}` : ''
-  return api.post<ReportResult>(`/reports/audit-log${qs}`, null)
+  return api.post<ReportResult>(`/reports/audit-log${qs}`, null, LONG_OPTIONS)
 }
 
 /** Скачивает уже сгенерированный отчёт, не уводя пользователя со страницы SPA.

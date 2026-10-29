@@ -24,17 +24,20 @@ import hmac
 import math
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import NamedTuple, Optional
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from .. import db as db_module
 from ..config import (
+    AUTH_KNOWN_CLIENT_DAYS,
+    AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS,
     AUTH_LOCKOUT_MINUTES,
     AUTH_MAX_FAILED_ATTEMPTS,
     AUTH_MIN_PASSWORD_LENGTH,
@@ -43,11 +46,12 @@ from ..config import (
     SETUP_TOKEN,
 )
 from ..constants import AuditAction, ErrorCode, UserRole
-from ..models import AuthSession, AuthSettings, User
+from ..models import AuditLog, AuthSession, AuthSettings, User
 from .actor_context import Actor, current_actor
 from .crud import audit
 from .login_throttle import LoginThrottle
 from .preferences import delete_user_preferences
+from .timeutil import iso_utc, utcnow_naive
 
 __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роутеры берут актора отсюда
 
@@ -59,7 +63,7 @@ __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роу
 # истечения сессии.
 # ---------------------------------------------------------------------------
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return utcnow_naive()
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +267,17 @@ def change_own_password(
     keep_token — токен запроса, которым вызвана сама эта смена: его сессия не отзывается, иначе
     пользователь тут же вылетел бы из только что открытой вкладки настроек; отзываются все
     ОСТАЛЬНЫЕ его сессии — тот же принцип, что и при смене пароля администратором в update_user."""
+    now = _now()
+    if user.locked_until and user.locked_until > now:
+        # Как при входе: пока учётная запись заблокирована, пароль не проверяется. Без этого владелец (или тот, кто получил
+        # его токен) продолжал бы подбирать пароль через этот эндпоинт и после блокировки.
+        raise _account_locked(user.locked_until, now)
     if not verify_password(current_password, user.password_hash):
-        raise HTTPException(401, "Текущий пароль указан неверно.")
+        # Ошибка в поле формы, а не «сессия недействительна»: 401 в этом API означает отсутствующий или недействительный токен
+        # (клиент по нему завершает сессию), поэтому здесь 422 с собственным кодом. Попытка засчитывается так же, как неверный
+        # пароль при входе: тот, у кого оказался чужой токен, не должен подбирать пароль без ограничений и без следа в журнале.
+        _register_failed_password(session, user, details=f"Неверный текущий пароль при смене пароля «{user.username}»", now=now)
+        raise HTTPException(422, {"message": "Текущий пароль указан неверно.", "code": ErrorCode.WRONG_CURRENT_PASSWORD})
     validate_password_strength(new_password, username=user.username)
     user.password_hash = hash_password(new_password)
     user.failed_attempts = 0
@@ -281,9 +294,9 @@ def serialize_user(user: User) -> dict:
     """Публичное представление пользователя — намеренно без password_hash/failed_attempts."""
     return {
         "id": user.id, "username": user.username, "role": user.role, "is_active": user.is_active,
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        "last_login_at": iso_utc(user.last_login_at),
         "locked": bool(user.locked_until and user.locked_until > _now()),
-        "created_at": user.created_at.isoformat(),
+        "created_at": iso_utc(user.created_at),
     }
 
 
@@ -422,8 +435,8 @@ def list_active_sessions(session: Session, user_id: str) -> list[AuthSession]:
 
 def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) -> dict:
     return {
-        "id": row.id, "created_at": row.created_at.isoformat() if row.created_at else None,
-        "expires_at": row.expires_at.isoformat(), "user_agent": row.user_agent, "ip_address": row.ip_address,
+        "id": row.id, "created_at": iso_utc(row.created_at),
+        "expires_at": iso_utc(row.expires_at), "user_agent": row.user_agent, "ip_address": row.ip_address,
         "current": bool(current_token) and row.token_hash == _hash_token(current_token),
     }
 
@@ -460,6 +473,60 @@ def _increment_failed_attempts(session: Session, user_id: str) -> int:
     return session.scalar(select(User.failed_attempts).where(User.id == user_id)) or 0
 
 
+def _is_known_client(session: Session, user_id: str, client_ip: Optional[str], now: datetime) -> bool:
+    """Входил ли этот пользователь успешно с этого адреса за последние AUTH_KNOWN_CLIENT_DAYS дней.
+
+    Источник — записи LOGIN журнала аудита (в них хранится адрес входа), а не таблица сессий: просроченные сессии удаляются при
+    каждом входе любого пользователя (cleanup_expired_sessions), так что «память» об адресе жила бы часы, а не дни. Журнал только
+    растёт. Неизвестный адрес (нет данных о клиенте) знакомым не считается; неудачные входы и чужие входы с того же адреса — тоже."""
+    if not client_ip:
+        return False
+    since = now - timedelta(days=AUTH_KNOWN_CLIENT_DAYS)
+    found = session.scalar(
+        select(AuditLog.id)
+        .where(
+            AuditLog.action == AuditAction.LOGIN,
+            AuditLog.entity_type == "auth",
+            AuditLog.actor_id == user_id,
+            AuditLog.actor_ip == client_ip,
+            AuditLog.created_at >= since,
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+def _account_locked(locked_until: datetime, now: datetime) -> HTTPException:
+    remaining_minutes = max(1, int((locked_until - now).total_seconds() // 60) + 1)
+    return HTTPException(423, {
+        "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. "
+                   f"Повторите попытку через {remaining_minutes} мин.",
+        "code": ErrorCode.ACCOUNT_LOCKED,
+    })
+
+
+def _register_failed_password(
+    session: Session, user: User, *, details: str, now: datetime, actor: Optional[Actor] = None,
+) -> bool:
+    """Учёт неверного пароля — общий для входа и смены пароля: атомарный инкремент `failed_attempts`, блокировка учётной записи на
+    AUTH_LOCKOUT_MINUTES при достижении AUTH_MAX_FAILED_ATTEMPTS, запись LOGIN_FAILED в журнал аудита. Возвращает True, если эта
+    попытка заблокировала учётную запись. actor не передан — автор берётся из контекста запроса (см. crud.audit)."""
+    new_attempts = _increment_failed_attempts(session, user.id)
+    locked_now = new_attempts >= AUTH_MAX_FAILED_ATTEMPTS
+    if locked_now:
+        # Тоже атомарный UPDATE, не user.locked_until = ...; session.commit() — user здесь
+        # уже мог устареть относительно счётчика, только что изменённого выше отдельным
+        # запросом (см. _increment_failed_attempts); пишем оба поля явным UPDATE по id.
+        session.execute(update(User).where(User.id == user.id).values(
+            locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
+        ))
+        session.commit()
+    audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
+          details + (" — учётная запись заблокирована" if locked_now else ""), actor=actor)
+    session.commit()
+    return locked_now
+
+
 def authenticate(session: Session, username: str, password: str, *, request: Optional[Request] = None) -> tuple[User, str]:
     """Возвращает (пользователь, токен сессии) либо кидает HTTPException. Намеренно не различает
     в тексте ошибки «нет такого пользователя» и «неверный пароль» (защита от перебора логинов) —
@@ -489,30 +556,19 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         raise _invalid_credentials()
 
     now = _now()
-    if user.locked_until and user.locked_until > now:
-        remaining_minutes = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
-        raise HTTPException(423, {
-            "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. "
-                       f"Повторите попытку через {remaining_minutes} мин.",
-            "code": ErrorCode.ACCOUNT_LOCKED,
-        })
+    if user.locked_until and user.locked_until > now and not (
+        AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and _is_known_client(session, user.id, client_ip, now)
+    ):
+        # С «знакомого» адреса пароль проверяется и во время блокировки (см. config.AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS): иначе
+        # посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг выше и счётчик ниже действуют.
+        raise _account_locked(user.locked_until, now)
 
     if not verify_password(password, user.password_hash):
-        new_attempts = _increment_failed_attempts(session, user.id)
-        locked_now = new_attempts >= AUTH_MAX_FAILED_ATTEMPTS
-        if locked_now:
-            # Тоже атомарный UPDATE, не user.locked_until = ...; session.commit() — user здесь
-            # уже мог устареть относительно счётчика, только что изменённого выше отдельным
-            # запросом (см. _increment_failed_attempts); пишем оба поля явным UPDATE по id.
-            session.execute(update(User).where(User.id == user.id).values(
-                locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
-            ))
-            session.commit()
         login_throttle.record_failure(throttle_key)
-        audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
-              f"Неудачная попытка входа «{user.username}»" + (" — учётная запись заблокирована" if locked_now else ""),
-              actor=Actor(user.id, user.username, client_ip))
-        session.commit()
+        _register_failed_password(
+            session, user, details=f"Неудачная попытка входа «{user.username}»", now=now,
+            actor=Actor(user.id, user.username, client_ip),
+        )
         raise _invalid_credentials()
 
     user.failed_attempts = 0
@@ -555,8 +611,9 @@ def _is_role_check_exempt(path: str) -> bool:
 # создание, правка, удаление и дублирование шаблонов, как и /seed, остаются только для администратора.
 READ_ONLY_POST_PATHS = frozenset({
     "/api/v1/reports/inventory",
-    "/api/v1/reports/audit-log",
     "/api/v1/report-builder/preview",
+    "/api/v1/reports/structural-appendix",  # формирует Word-файл, реестр не меняет (A-23)
+    "/api/v1/port-sync/preview",            # «план согласования портов — ничего не записывает» (api/port_sync.py, A-23)
 })
 _TEMPLATE_GENERATE_PATH = re.compile(r"^/api/v1/report-templates/[^/]+/generate$")
 
@@ -621,38 +678,59 @@ async def auth_gate_middleware(request: Request, call_next):
     return _with_security_headers(response, path)
 
 
-async def _gate_api_request(request: Request, call_next):
-    path = request.url.path
-    # db_module.SessionLocal, а не `from ..db import SessionLocal` в заголовке файла: это
-    # мидлварь, а не FastAPI Depends — тесты (backend/tests/conftest.py:client) подменяют
-    # SessionLocal через monkeypatch.setattr(app.db, "SessionLocal", ...) на своё in-memory
-    # StaticPool-соединение, а `from X import Y` создал бы отдельную, непропатчиваемую ссылку.
+class _GateDecision(NamedTuple):
+    """Итог проверки доступа: кто пришёл и, если запрос надо отклонить, чем именно ответить."""
+
+    auth_enabled: bool
+    user: Optional[User]
+    deny_status: Optional[int] = None
+    deny_detail: str = ""
+
+
+def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDecision:
+    """Решение о доступе к /api/*: синхронная работа с БД, которую вызывают из пула потоков.
+
+    Сессия БД открывается и ГАРАНТИРОВАННО закрывается здесь же, до того как запрос уйдёт дальше по
+    цепочке: раньше при выключенной аутентификации (значение по умолчанию) `return await call_next()`
+    выполнялся внутри `try`, и соединение middleware висело в пуле весь запрос — вместе с соединением
+    обработчика (Depends(get_db)) каждый запрос занимал два соединения из пула в 15, и при ≥16
+    параллельных запросах половина получала 500. Синхронные вызовы БД в `async`-мидлвари к тому же
+    блокировали цикл событий, пока пул пуст.
+
+    db_module.SessionLocal, а не `from ..db import SessionLocal` в заголовке файла: это мидлварь, а не
+    FastAPI Depends — тесты (backend/tests/conftest.py:client) подменяют SessionLocal через
+    monkeypatch.setattr(app.db, "SessionLocal", ...) на своё in-memory StaticPool-соединение, а
+    `from X import Y` создал бы отдельную, непропатчиваемую ссылку."""
     db_session = db_module.SessionLocal()
     try:
-        settings_row = get_or_create_auth_settings(db_session)
-        request.state.auth_enabled = settings_row.enabled
-        request.state.user = None
+        auth_enabled = get_or_create_auth_settings(db_session).enabled
+        if not auth_enabled or path in PUBLIC_API_PATHS:
+            return _GateDecision(auth_enabled, None)
 
-        if not settings_row.enabled or path in PUBLIC_API_PATHS:
-            return await call_next(request)
-
-        token = _extract_bearer_token(request.headers.get("authorization"))
+        token = _extract_bearer_token(authorization)
         user = resolve_session(db_session, token) if token else None
         if user is None:
-            return JSONResponse({"detail": "Требуется аутентификация."}, status_code=401)
-        request.state.user = user
-        current_actor.set(Actor(user.id, user.username, _client_ip(request)))
-
+            return _GateDecision(True, None, 401, "Требуется аутентификация.")
         if (
             user.role != UserRole.ADMIN
-            and request.method in WRITE_METHODS
+            and method in WRITE_METHODS
             and not _is_role_check_exempt(path)
-            and not _is_read_only_post(request.method, path)
+            and not _is_read_only_post(method, path)
         ):
-            return JSONResponse({"detail": "Недостаточно прав: требуется роль администратора."}, status_code=403)
+            return _GateDecision(True, user, 403, "Недостаточно прав: требуется роль администратора.")
+        return _GateDecision(True, user)
     finally:
         db_session.close()
 
+
+async def _gate_api_request(request: Request, call_next):
+    decision = await run_in_threadpool(_authorize, request.method, request.url.path, request.headers.get("authorization"))
+    request.state.auth_enabled = decision.auth_enabled
+    request.state.user = decision.user
+    if decision.user is not None:
+        current_actor.set(Actor(decision.user.id, decision.user.username, _client_ip(request)))
+    if decision.deny_status is not None:
+        return JSONResponse({"detail": decision.deny_detail}, status_code=decision.deny_status)
     return await call_next(request)
 
 
@@ -689,6 +767,18 @@ def require_setup_access(request: Request) -> None:
                    "(заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN).",
         "code": ErrorCode.SETUP_ACCESS_DENIED,
     })
+
+
+def require_admin_if_auth_enabled(request: Request) -> None:
+    """Журнал аудита (имена пользователей, IP-адреса, неудачные попытки входа) — только администратору (A-23).
+
+    В отличие от `require_admin`, при выключенной аутентификации ничего не требует: однопользовательский режим по умолчанию
+    открыт, как и весь остальной API (иначе журнал пропал бы у владельца локальной установки)."""
+    if not getattr(request.state, "auth_enabled", False):
+        return
+    user: Optional[User] = getattr(request.state, "user", None)
+    if user is None or user.role != UserRole.ADMIN:
+        raise HTTPException(403, "Журнал аудита доступен только администратору.")
 
 
 def require_admin(request: Request) -> None:

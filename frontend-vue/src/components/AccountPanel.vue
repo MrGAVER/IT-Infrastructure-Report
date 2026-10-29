@@ -3,8 +3,9 @@
 // про администрирование чужих учёток и сам тумблер). Показывается только когда есть реальная
 // сессия — при выключенной аутентификации тут нечего показывать (см. SettingsView.vue).
 import { onMounted, reactive, ref } from 'vue'
-import { ApiError } from '../api/client'
+import { ApiError, ErrorCode } from '../api/client'
 import { useAuthStore } from '../stores/auth'
+import { formatServerDateTime } from '../utils/dateTime'
 
 const auth = useAuthStore()
 
@@ -19,12 +20,6 @@ const sessionsError = ref<string | null>(null)
 onMounted(() => {
   void auth.fetchMySessions()
 })
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 
 async function changePassword() {
   pwdError.value = null
@@ -47,6 +42,8 @@ async function changePassword() {
     setTimeout(() => (pwdSaved.value = false), 2500)
   } catch (err) {
     pwdError.value = err instanceof ApiError ? err.message : 'Не удалось сменить пароль'
+    // Неверный текущий пароль — опечатка, а не конец сессии (сервер отвечает 422 WRONG_CURRENT_PASSWORD): поле очищаем для повторного ввода.
+    if (err instanceof ApiError && err.code === ErrorCode.WRONG_CURRENT_PASSWORD) pwd.current = ''
   } finally {
     pwdSaving.value = false
   }
@@ -102,8 +99,8 @@ async function revoke(id: string) {
       </thead>
       <tbody>
         <tr v-for="s in auth.sessions" :key="s.id">
-          <td>{{ formatWhen(s.created_at) }}</td>
-          <td>{{ formatWhen(s.expires_at) }}</td>
+          <td>{{ formatServerDateTime(s.created_at) }}</td>
+          <td>{{ formatServerDateTime(s.expires_at) }}</td>
           <td class="ua" :title="s.user_agent ?? undefined">{{ s.user_agent ?? '—' }}</td>
           <td>{{ s.ip_address ?? '—' }}</td>
           <td>

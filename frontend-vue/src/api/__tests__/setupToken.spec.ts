@@ -7,8 +7,9 @@ function stubFetch() {
   return fetchMock
 }
 
-function sentHeaders(fetchMock: ReturnType<typeof stubFetch>): Record<string, string> {
-  return (fetchMock.mock.calls[0][1]?.headers ?? {}) as Record<string, string>
+// Клиент отдаёт fetch заголовки объектом Headers (B-11), имена в нём регистронезависимы.
+function sentHeaders(fetchMock: ReturnType<typeof stubFetch>): Headers {
+  return new Headers(fetchMock.mock.calls[0][1]?.headers)
 }
 
 describe('токен первичной настройки (X-Setup-Token)', () => {
@@ -21,17 +22,17 @@ describe('токен первичной настройки (X-Setup-Token)', () 
     setStoredSetupToken('s3cret')
     const fetchMock = stubFetch()
     await api.get('/auth/users')
-    expect(sentHeaders(fetchMock)['X-Setup-Token']).toBe('s3cret')
+    expect(sentHeaders(fetchMock).get('X-Setup-Token')).toBe('s3cret')
 
     const other = stubFetch()
     await api.get('/resources/devices')
-    expect(sentHeaders(other)['X-Setup-Token']).toBeUndefined()
+    expect(sentHeaders(other).get('X-Setup-Token')).toBeNull()
   })
 
   it('без сохранённого токена заголовка нет', async () => {
     const fetchMock = stubFetch()
     await api.get('/auth/users')
-    expect(sentHeaders(fetchMock)['X-Setup-Token']).toBeUndefined()
+    expect(sentHeaders(fetchMock).get('X-Setup-Token')).toBeNull()
   })
 
   it('хранится в sessionStorage и сбрасывается пустым значением', () => {

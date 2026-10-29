@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import type { VLANDefinition } from '../../api/types'
-import { allVlansDiffer, carriesAllVlans, describeVlanValue, pickerSelection, toggleValueAll, toggleValueVlan, valueFromSource } from '../allVlans'
+import { allVlansDiffer, carriesAllVlans, describeVlanValue, isAllVlansSelected, pickerSelection, toggleValueAll, toggleValueVlan, valueFromSource } from '../allVlans'
 
 const vlan = (id: string, number: number): VLANDefinition => ({ id, vlan_id: number, name: `VLAN ${number}`, description: '', domain_id: null, domain_name: '', devices: [] })
 const options = [vlan('a10', 10), vlan('a20', 20), vlan('a30', 30)]
+
+describe('isAllVlansSelected', () => {
+  it('галочка «Все VLAN» — это сохраняемый признак порта, а не вывод из набора выбранных VLAN', () => {
+    expect(isAllVlansSelected({ all_vlans: true })).toBe(true)
+    expect(isAllVlansSelected({ all_vlans: false })).toBe(false)
+    expect(isAllVlansSelected({})).toBe(false)
+  })
+
+  it('режим порта не проверяется (в отличие от carriesAllVlans): отмечена ли галочка, решает один признак', () => {
+    expect(isAllVlansSelected({ all_vlans: true, vlan_mode: 'access' } as { all_vlans: boolean })).toBe(true)
+    expect(carriesAllVlans({ all_vlans: true, vlan_mode: 'access' })).toBe(false)
+  })
+})
 
 describe('carriesAllVlans / allVlansDiffer', () => {
   it('признак значим только в trunk', () => {

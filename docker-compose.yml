@@ -31,16 +31,24 @@ services:
       # '*' — не проверять заголовок Host: так обновление не ломает доступ по IP/имени сервера. Для
       # защиты от DNS-rebinding перечислите реальные имена: INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local,10.0.0.5
       INFRA_REGISTRY_ALLOWED_HOSTS: ${INFRA_REGISTRY_ALLOWED_HOSTS:-*}
-      # Токен первичной настройки аутентификации: из Docker адрес клиента не localhost, и без токена
-      # заводить пользователей и включать аутентификацию через интерфейс нельзя (заголовок X-Setup-Token).
-      INFRA_REGISTRY_SETUP_TOKEN: ${INFRA_REGISTRY_SETUP_TOKEN:-}
+      # Токен первичной настройки аутентификации — ОБЯЗАТЕЛЕН: из Docker адрес клиента не localhost, и без
+      # токена заводить пользователей и включать аутентификацию через интерфейс нельзя (заголовок
+      # X-Setup-Token), а выключенная аутентификация оставляет реестр открытым всем, кто достаёт до порта.
+      INFRA_REGISTRY_SETUP_TOKEN: ${INFRA_REGISTRY_SETUP_TOKEN:?Задайте INFRA_REGISTRY_SETUP_TOKEN в .env (длинная случайная строка, например значение команды openssl rand -hex 24), см. .env.example}
       # Адреса прокси, которым доверяет uvicorn при определении IP клиента (X-Forwarded-For) — нужно
       # за обратным прокси, иначе в журнале аудита и сессиях будет адрес самого прокси.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    volumes:
+      # Каталог данных приложения: сформированные отчёты (а при DATABASE_URL на SQLite — и база). Код в образе
+      # доступен только для чтения, писать процессу можно лишь сюда; без тома отчёты терялись при пересоздании контейнера.
+      - appdata:/app/data
     ports:
-      - "8000:8000"
+      # По умолчанию порт доступен только с этого же компьютера (127.0.0.1). Для доступа по сети задайте
+      # INFRA_REGISTRY_BIND=0.0.0.0 — но сначала включите аутентификацию (README, «Безопасность по умолчанию»).
+      - "${INFRA_REGISTRY_BIND:-127.0.0.1}:8000:8000"
     depends_on:
       db:
         condition: service_healthy
 volumes:
   pgdata:
+  appdata:

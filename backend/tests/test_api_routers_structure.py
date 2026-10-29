@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from app import main as app_main
 from app.api import device_stacks, frontend_assets, listings, reports, system, vlan, vms
 
 API_DIR = Path(system.__file__).parent
@@ -59,9 +60,10 @@ def test_router_owns_exactly_its_endpoints(name):
     assert _routes_of(module) == expected
 
 
-def test_every_documented_endpoint_is_served_by_the_application(client):
+def test_every_documented_endpoint_is_served_by_the_application():
     # app.routes хранит вложенные роутеры лениво, поэтому «что подключено» читаем из OpenAPI, где они развёрнуты.
-    spec = client.get("/openapi.json").json()["paths"]
+    # HTTP-маршрут /openapi.json по умолчанию выключен (A-18) — схему берём у самого приложения.
+    spec = app_main.app.openapi()["paths"]
     served = {(method.upper(), path) for path, operations in spec.items() for method in operations}
     for name, (_module, expected) in EXPECTED_ROUTES.items():
         if name == "frontend_assets":

@@ -7,9 +7,11 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { deleteDiagram, duplicateDiagram, listDiagrams, GROUP_BY_OPTIONS, type SavedDiagramSummary } from '../api/diagrams'
 import { useToast } from '../composables/useToast'
+import { useAuthStore } from '../stores/auth'
 import DiagramFormModal from '../components/diagram/DiagramFormModal.vue'
 
 const router = useRouter()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 const items = ref<SavedDiagramSummary[]>([])
@@ -85,7 +87,7 @@ function onCreated(id: string) {
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить
       </button>
-      <button class="btn btn-primary" @click="createOpen = true">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="createOpen = true">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Новая диаграмма
       </button>
@@ -106,8 +108,8 @@ function onCreated(id: string) {
         </div>
         <div class="row-actions">
           <button class="btn btn-secondary" type="button" @click="open(d)">Открыть</button>
-          <button class="btn btn-secondary" type="button" :disabled="busyId === d.id" @click="duplicate(d)">Дублировать</button>
-          <button class="icon-btn" type="button" aria-label="Удалить" :disabled="busyId === d.id" @click="remove(d)">
+          <button v-if="auth.canWrite" class="btn btn-secondary" type="button" :disabled="busyId === d.id" @click="duplicate(d)">Дублировать</button>
+          <button v-if="auth.canWrite" class="icon-btn" type="button" aria-label="Удалить" :disabled="busyId === d.id" @click="remove(d)">
             <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
           </button>
         </div>

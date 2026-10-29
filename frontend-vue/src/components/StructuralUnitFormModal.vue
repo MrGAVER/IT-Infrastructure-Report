@@ -5,6 +5,10 @@ import type { CatalogItem, StructuralUnit } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import QuickAddButton from './QuickAddButton.vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ unit: StructuralUnit | null; defaultParentId: string | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -40,6 +44,7 @@ const availableParents = computed(() =>
 )
 
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = null
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите наименование структурной единицы.'
@@ -78,6 +83,7 @@ async function submit() {
         {{ errorMessage }}
       </div>
 
+      <fieldset class="readonly-fieldset" :disabled="readOnly">
       <form class="form-grid" @submit.prevent="submit">
         <label class="field">
           <span>Наименование *</span>
@@ -102,10 +108,11 @@ async function submit() {
           <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
         </label>
       </form>
+      </fieldset>
 
       <div class="modal-foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>

@@ -5,7 +5,7 @@
 // сервер всё равно отклонит эти запросы (require_admin), но незачем рисовать элементы,
 // которые гарантированно приведут к 403.
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ApiError, getStoredSetupToken, setStoredSetupToken } from '../api/client'
+import { ApiError, ErrorCode, getStoredSetupToken, setStoredSetupToken } from '../api/client'
 import type { UserRole } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 
@@ -25,12 +25,11 @@ const userActionError = ref<string | null>(null)
 // Первичная настройка при выключенной аутентификации разрешена только с localhost или по токену
 // установки (backend/app/services/auth.py:require_setup_access) — с другого компьютера сервер отвечает
 // 403 SETUP_ACCESS_DENIED, и панель просит ввести токен.
-const SETUP_DENIED = 'SETUP_ACCESS_DENIED'
 const setupTokenNeeded = ref(false)
 const setupTokenInput = ref(getStoredSetupToken() ?? '')
 
 function noteSetupDenied(err: unknown): boolean {
-  if (err instanceof ApiError && err.code === SETUP_DENIED) {
+  if (err instanceof ApiError && err.code === ErrorCode.SETUP_ACCESS_DENIED) {
     setupTokenNeeded.value = true
     return true
   }

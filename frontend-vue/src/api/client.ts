@@ -3,7 +3,7 @@
 // В dev-режиме запросы идут на относительный путь /api/v1/..., а Vite dev-сервер
 // проксирует их на бэкенд (см. vite.config.ts, server.proxy) — то же самое
 // поведение, что и в проде, где FastAPI отдаёт собранный dist/ со своего же origin
-// (см. backend/app/api/system.py: GET '/' отдаёт FRONTEND_DIR/index.html).
+// (см. backend/app/main.py:spa_fallback: отдаёт index.html из FRONTEND_DIR).
 // Благодаря этому не нужен CORS в dev и не нужно переключать base URL между режимами.
 const API_BASE = '/api/v1'
 
@@ -62,68 +62,153 @@ export function setStoredSetupToken(token: string | null): void {
  * импортируется отсюда), чтобы не заводить цикл client.ts -> stores/auth.ts -> client.ts. */
 export const UNAUTHORIZED_EVENT = 'itr:unauthorized'
 
+/** Пути, на которых ответ 401 означает «неверные данные в форме», а не «сессия недействительна»:
+ * вход (`/auth/login`) и смена собственного пароля (`/auth/me/password`). Сервер отвечает на неверный ТЕКУЩИЙ пароль кодом
+ * 422 WRONG_CURRENT_PASSWORD (backend/app/services/auth.py:change_own_password, A-22), а не 401 — запись оставлена на случай старого
+ * сервера. Для этих путей UNAUTHORIZED_EVENT не отправляется, иначе опечатка в форме завершила бы сессию. */
+const SESSION_NEUTRAL_401_PATHS: ReadonlySet<string> = new Set(['/auth/login', '/auth/me/password'])
+
 export class ApiError extends Error {
   status: number
   /** Код ошибки из detail.code (см. backend/app/constants.py:ErrorCode) — например
    * DUPLICATE_SYSTEM_NAME, RACK_POSITION_OCCUPIED, REFERENCED_BY_OTHER_RECORDS.
-   * Используется, чтобы предлагать "сохранить всё равно?" так же, как в текущем
-   * vanilla-фронтенде (см. parseApiError()/confirm() в frontend/static/app.js:saveForm). */
+   * Используется, чтобы предлагать "сохранить всё равно?" так же, как в прежнем
+   * vanilla-фронтенде (parseApiError()/confirm() в saveForm, до 2.60.0). */
   code: string | null
-  constructor(status: number, message: string, code: string | null = null) {
+  /** Через сколько секунд повторить запрос — из заголовка Retry-After (429 TOO_MANY_ATTEMPTS при переборе пароля).
+   * null — заголовка нет или он не распознан. */
+  retryAfter: number | null
+  constructor(status: number, message: string, code: string | null = null, retryAfter: number | null = null) {
     super(message)
     this.status = status
     this.code = code
+    this.retryAfter = retryAfter
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Retry-After: целое число секунд либо HTTP-дата (RFC 9110). Возвращает секунды (≥ 0, округление вверх) или null. */
+export function parseRetryAfter(value: string | null | undefined, now: number = Date.now()): number | null {
+  const text = value?.trim()
+  if (!text) return null
+  if (/^\d+$/.test(text)) {
+    const seconds = Number(text)
+    return Number.isSafeInteger(seconds) ? seconds : null
+  }
+  // HTTP-дата всегда содержит названия дня и месяца; без этой проверки Date.parse принял бы за дату и «-5», и «1.5».
+  if (!/[A-Za-z]/.test(text)) return null
+  // HTTP-дата (RFC 9110) всегда с поясом (GMT), поэтому Date.parse здесь однозначен — правило B-03 про naive-даты сервера не при чём.
+  // eslint-disable-next-line no-restricted-syntax
+  const at = Date.parse(text)
+  if (Number.isNaN(at)) return null
+  return Math.max(0, Math.ceil((at - now) / 1000))
+}
+
+/** Ожидание ответа по умолчанию: зависший запрос не должен блокировать экран бесконечно. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+/** Для заведомо долгих операций (формирование отчётов, расчёт и применение синхронизации портов). */
+export const LONG_REQUEST_TIMEOUT_MS = 180_000
+
+/** Коды ошибок, которые порождает сам клиент (в отличие от ErrorCode — кодов ответов сервера). */
+export const ClientErrorCode = {
+  /** Сервер не ответил за отведённое время (см. RequestOptions.timeoutMs). */
+  REQUEST_TIMEOUT: 'REQUEST_TIMEOUT',
+} as const
+
+/** Необязательные параметры запроса для методов `api.*`. */
+export interface RequestOptions {
+  /** Отмена запроса снаружи (смена фильтра, уход с экрана). Отменённый запрос отклоняется исходным `AbortError`,
+   * а не `ApiError`, — вызывающий код отличает «отменили сами» от «сервер не ответил». */
+  signal?: AbortSignal
+  /** Сколько ждать ответ целиком (включая тело), мс. По умолчанию DEFAULT_REQUEST_TIMEOUT_MS. */
+  timeoutMs?: number
+}
+
+/** Объединяет внешнюю отмену и таймаут в один AbortSignal. Таймер сделан на AbortController + setTimeout, а не на
+ * AbortSignal.timeout()/any(): работает в любом браузере и управляется фейковыми таймерами в тестах. */
+function createRequestSignal(external: AbortSignal | null | undefined, timeoutMs: number) {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const onExternalAbort = () => controller.abort(external?.reason)
+  if (external?.aborted) onExternalAbort()
+  else external?.addEventListener('abort', onExternalAbort, { once: true })
+  return {
+    signal: controller.signal,
+    wasTimeout: () => timedOut && !external?.aborted,
+    dispose() {
+      clearTimeout(timer)
+      external?.removeEventListener('abort', onExternalAbort)
+    },
+  }
+}
+
+/** Низкоуровневый запрос: то же, что `api.*`, но с произвольным `init` (свои заголовки, метод, тело). Служебные
+ * заголовки добавляются, а не заменяются, поэтому `init.headers` безопасен. Обычному коду достаточно `api.*`. */
+export async function request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
+  // Заголовки вызывающего кода дополняются, а не заменяются: служебные (Content-Type, Authorization, X-Setup-Token)
+  // выставляются только если вызывающий не задал их сам. Раньше `{ headers, ...init }` целиком подменял набор.
+  const headers = new Headers(init.headers)
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getStoredToken()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
   // Токен установки уходит только на /auth/*: остальным эндпоинтам он ни к чему.
   const setupToken = path.startsWith('/auth/') ? getStoredSetupToken() : null
-  if (setupToken) headers['X-Setup-Token'] = setupToken
+  if (setupToken && !headers.has('X-Setup-Token')) headers.set('X-Setup-Token', setupToken)
 
-  const res = await fetch(`${API_BASE}${path}`, { headers, ...init })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    let message = text || res.statusText
-    let code: string | null = null
-    try {
-      const parsed = JSON.parse(text)
-      if (typeof parsed.detail === 'string') {
-        message = parsed.detail
-      } else if (parsed.detail && typeof parsed.detail === 'object') {
-        message = parsed.detail.message ?? message
-        code = parsed.detail.code ?? null
+  const guard = createRequestSignal(options.signal ?? init.signal, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: guard.signal })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      let message = text || res.statusText
+      let code: string | null = null
+      try {
+        const parsed = JSON.parse(text)
+        if (typeof parsed.detail === 'string') {
+          message = parsed.detail
+        } else if (parsed.detail && typeof parsed.detail === 'object') {
+          message = parsed.detail.message ?? message
+          code = parsed.detail.code ?? null
+        }
+      } catch {
+        /* тело не JSON — оставляем текст как есть */
       }
-    } catch {
-      /* тело не JSON — оставляем текст как есть */
+      // Не для путей из SESSION_NEUTRAL_401_PATHS: там 401 — это ожидаемая ошибка в форме
+      // ("неверный пароль" при входе, "неверный текущий пароль" при смене), а не признак того,
+      // что сессия уже вошедшего пользователя недействительна.
+      if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
+        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+      }
+      throw new ApiError(res.status, message, code, parseRetryAfter(res.headers.get('Retry-After')))
     }
-    // Не для /auth/login: там 401 — это ожидаемый "неверный пароль" в форме входа, а не
-    // разлогинивание уже вошедшего пользователя, событие тут ни к чему.
-    if (res.status === 401 && path !== '/auth/login') {
-      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+    if (res.status === 204) return null as T
+    return (await res.json()) as T
+  } catch (e) {
+    if (guard.wasTimeout()) {
+      throw new ApiError(0, 'Сервер не отвечает. Проверьте соединение и повторите попытку.', ClientErrorCode.REQUEST_TIMEOUT)
     }
-    throw new ApiError(res.status, message, code)
+    throw e
+  } finally {
+    guard.dispose()
   }
-  if (res.status === 204) return null as T
-  return res.json() as Promise<T>
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  get: <T>(path: string, options?: RequestOptions) => request<T>(path, {}, options),
+  post: <T>(path: string, body: unknown, options?: RequestOptions) =>
+    request<T>(path, { method: 'POST', body: JSON.stringify(body) }, options),
+  put: <T>(path: string, body: unknown, options?: RequestOptions) =>
+    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, options),
+  delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { method: 'DELETE' }, options),
 }
 
 /**
  * Универсальный CRUD-ресурс — см. backend/app/api/resources.py, /api/v1/resources/{resource}.
  * Важно: эндпоинт всегда отдаёт {items, total, offset, limit} (см.
- * backend/app/services/crud.py:list_resource), а НЕ голый массив — легко перепутать
+ * backend/app/services/crud/generic.py:list_resource), а НЕ голый массив — легко перепутать
  * с /api/v1/devices, у которого total есть, но offset/limit нет (там нет пагинации
  * на бэкенде, см. api/types.ts:DevicesResponse).
  */
@@ -134,11 +219,47 @@ export interface PagedResponse<T> {
   limit: number
 }
 
-export function listResource<T>(resource: string, params?: Record<string, string | number>) {
+export function listResource<T>(resource: string, params?: Record<string, string | number>, options?: RequestOptions) {
   const qs = params
     ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
     : ''
-  return api.get<PagedResponse<T>>(`/resources/${resource}${qs}`)
+  return api.get<PagedResponse<T>>(`/resources/${resource}${qs}`, options)
+}
+
+/** Размер страницы при полной загрузке ресурса: серверный максимум (resources.py: le=1000). */
+const PAGE_LIMIT = 1000
+/** Предохранитель от бесконечного цикла при некорректном `total`: не более 50 000 записей. */
+const MAX_PAGES = 50
+
+/**
+ * Загружает ВСЕ записи ресурса, дочитывая страницы через `offset`, пока не получен весь `total`.
+ *
+ * Зачем: сервер отдаёт не более 1000 записей за запрос, а `listResource(..., { limit: 1000 })`
+ * молча обрезал бы всё сверх этого (таблицы, счётчики и проверки занятости работали бы по
+ * неполным данным без какой-либо ошибки). Порядок на сервере детерминирован (created_at, id),
+ * поэтому постраничное дочитывание не даёт ни дублей, ни пропусков.
+ *
+ * `params` — только фильтры ресурса; `limit` и `offset` выставляются здесь и из `params`
+ * перекрываются. Пустая страница при неполном `total` прерывает цикл (защита от зацикливания).
+ * `options.signal` отменяет всю загрузку, `options.timeoutMs` относится к каждому запросу страницы.
+ *
+ * @example
+ *   const res = await listAllResource<Connection>('connections')
+ *   const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id })
+ */
+export async function listAllResource<T>(
+  resource: string,
+  params: Record<string, string | number> = {},
+  options?: RequestOptions,
+): Promise<PagedResponse<T>> {
+  const first = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: 0 }, options)
+  const items = [...first.items]
+  for (let page = 1; items.length < first.total && page < MAX_PAGES; page++) {
+    const next = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: page * PAGE_LIMIT }, options)
+    if (!next.items.length) break // сервер ничего не вернул — выходим, чтобы не зациклиться
+    items.push(...next.items)
+  }
+  return { items, total: first.total, offset: 0, limit: items.length }
 }
 
 export function createResource<T>(resource: string, payload: Record<string, unknown>) {
@@ -163,4 +284,15 @@ export const ErrorCode = {
   LAST_ADMIN_ACCOUNT: 'LAST_ADMIN_ACCOUNT',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
   AUTH_REQUIRES_ADMIN: 'AUTH_REQUIRES_ADMIN',
+  /** 403: первичная настройка аутентификации — только с localhost или по токену установки (заголовок X-Setup-Token). */
+  SETUP_ACCESS_DENIED: 'SETUP_ACCESS_DENIED',
+  /** 403: адрес клиента не входит в список разрешённых (фильтр адресов приложения) — повтор запроса не поможет. */
+  CLIENT_NOT_ALLOWED: 'CLIENT_NOT_ALLOWED',
+  /** 429: слишком много неудачных попыток входа; заголовок Retry-After → ApiError.retryAfter. */
+  TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
+  INTEGRITY_ERROR: 'INTEGRITY_ERROR',
+  /** 403: запрос, меняющий данные, пришёл со страницы другого origin (защита от CSRF); повтор не поможет — см. INFRA_REGISTRY_CORS_ORIGINS. */
+  CROSS_ORIGIN_BLOCKED: 'CROSS_ORIGIN_BLOCKED',
+  /** 422: неверный текущий пароль при смене собственного пароля. Сессию не завершает (в отличие от 401), попытка считается неудачным входом. */
+  WRONG_CURRENT_PASSWORD: 'WRONG_CURRENT_PASSWORD',
 } as const

@@ -12,6 +12,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
+import { useAuthStore } from '../stores/auth'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { QuickField } from '../quickAdd/schema'
 import { useToast } from '../composables/useToast'
@@ -50,6 +51,7 @@ function isOtherCatalogKey(value: string | undefined): value is OtherCatalogKey 
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 const loading = ref(true)
 
@@ -172,7 +174,7 @@ async function onDeleted() {
       <section class="catalog-content">
         <div class="content-head">
           <h2>{{ QUICK_ADD_LABELS[selected] ?? selected }}</h2>
-          <button type="button" class="btn btn-primary" :disabled="!fields.length" @click="openCreate">
+          <button v-if="auth.canWrite" type="button" class="btn btn-primary" :disabled="!fields.length" @click="openCreate">
             <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
             Добавить
           </button>
@@ -194,8 +196,8 @@ async function onDeleted() {
                   <span class="cell-text" v-truncate-tooltip>{{ cellValue(record, f) }}</span>
                 </td>
                 <td class="col-actions">
-                  <button type="button" class="icon-btn" aria-label="Редактировать" @click="openEdit(record)">
-                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
+                  <button type="button" class="icon-btn" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEdit(record)">
+                    <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
                   </button>
                 </td>
               </tr>

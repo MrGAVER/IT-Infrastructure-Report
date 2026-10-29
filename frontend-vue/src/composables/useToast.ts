@@ -1,5 +1,5 @@
 // Единообразные toast-уведомления — тот же UX-контракт, что notify()/notifyError()
-// в текущем vanilla-фронтенде (frontend/static/core.js): не блокируют интерфейс,
+// в прежнем vanilla-фронтенде (до 2.60.0): не блокируют интерфейс,
 // успех/инфо скрываются сами через 5с, предупреждения (warning) — через 10с (их нужно успеть
 // прочитать и, как правило, что-то по ним сделать), ошибки остаются, пока их не закроют.
 // Необязательное действие (кнопка в уведомлении) и своё время показа — для уведомлений, по которым надо что-то сделать.
@@ -45,7 +45,7 @@ function notify(message: string, type: Toast['type'] = 'info', options: NotifyOp
 }
 
 /** Разворачивает ApiError/Error в читаемое сообщение — тот же принцип, что errorMessage()
- * в core.js (parseApiError().message), плюс явный type для toast. */
+ * в прежнем vanilla-фронтенде (parseApiError().message), плюс явный type для toast. */
 function notifyError(err: unknown) {
   const message = err instanceof ApiError || err instanceof Error ? err.message : String(err)
   return notify(message, 'error')

@@ -30,9 +30,16 @@ COPY --from=frontend-vue-build /frontend-vue/dist ./frontend-vue/dist
 ENV PYTHONPATH=/app
 ENV INFRA_REGISTRY_DATA_DIR=/app/data
 ENV INFRA_REGISTRY_FRONTEND_DIR=/app/frontend-vue/dist
-RUN groupadd --system app && useradd --system --gid app --home-dir /app app \
-    && chown -R app:app /app
+# Код (/app/app, /app/alembic, frontend-vue/dist) остаётся у root и доступен процессу приложения только для чтения: при
+# уязвимости, позволяющей писать файлы, подмена кода не пережила бы перезапуск. Записывать нужно только в /app/data
+# (отчёты, при SQLite — база) — он принадлежит app и подключается томом (см. docker-compose.yml: appdata). Домашний
+# каталог пользователя — тоже /app/data, чтобы любые кеши библиотек (~/.cache) писались в доступное место.
+RUN groupadd --system app && useradd --system --gid app --home-dir /app/data app \
+    && mkdir -p /app/data && chown app:app /app/data \
+    && chmod -R a+rX /app
 USER app
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=5 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3).status==200 else 1)"
-CMD ["sh","-c","alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# exec: uvicorn заменяет оболочку и становится PID 1, поэтому SIGTERM от `docker stop` доходит до приложения и оно завершается
+# корректно, а не через 10 с по SIGKILL (без exec процесс был потомком sh, который сигнал не пересылает).
+CMD ["sh","-c","alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

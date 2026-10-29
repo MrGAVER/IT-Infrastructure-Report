@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from ..constants import AuditAction
 from ..models import PortSyncRule
 from .crud import audit
+from .timeutil import iso_utc
 from .port_sync_rules import (
     DEFAULT_RULES,
     DEFAULT_RULES_BY_CODE,
@@ -112,8 +113,8 @@ def spec_to_dict(spec: RuleSpec) -> dict[str, Any]:
 
 def serialize_rule(row: PortSyncRule) -> dict[str, Any]:
     data = spec_to_dict(row_to_spec(row))
-    data["created_at"] = row.created_at.isoformat() if row.created_at else None
-    data["updated_at"] = row.updated_at.isoformat() if row.updated_at else None
+    data["created_at"] = iso_utc(row.created_at)
+    data["updated_at"] = iso_utc(row.updated_at)
     return data
 
 

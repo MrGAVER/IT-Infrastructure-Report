@@ -195,7 +195,7 @@ export async function exportDiagram(id: string, format: DiagramExportFormat): Pr
   const token = getStoredToken()
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
-  const res = await fetch(`/api/v1/diagrams/${id}/export?format=${format}`, { headers })
+  const res = await fetch(`/api/v1/diagrams/${id}/export?format=${format}&persist_export=true`, { headers })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     throw new Error(text || res.statusText)

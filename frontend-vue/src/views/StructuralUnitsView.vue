@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useCatalogsStore, type StructuralUnitNode } from '../stores/catalogs'
+import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { StructuralUnit } from '../api/types'
@@ -8,6 +9,7 @@ import StructuralUnitFormModal from '../components/StructuralUnitFormModal.vue'
 import StructuralUnitCrudNode from '../components/StructuralUnitCrudNode.vue'
 
 const catalogs = useCatalogsStore()
+const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 onMounted(() => catalogs.ensureLoaded())
@@ -60,7 +62,7 @@ async function removeUnit(node: StructuralUnitNode) {
         Иерархический справочник — используется для фильтрации отчётов и устройств по
         подразделениям (через привязку к зданиям).
       </p>
-      <button class="btn btn-primary" @click="openCreateRoot">
+      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreateRoot">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить корневую единицу
       </button>

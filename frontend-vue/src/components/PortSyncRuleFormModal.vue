@@ -9,6 +9,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { PortSyncRule } from '../api/types'
 import { usePortSyncRulesStore } from '../stores/portSyncRules'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 import {
   ACTION_OPTIONS,
   MODE_CONDITION_OPTIONS,
@@ -50,7 +51,11 @@ watch(isUnion, (union) => {
   }
 })
 
+// Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
+const { readOnly } = useReadOnlyForm()
+
 async function submit() {
+  if (readOnly.value) return
   errorMessage.value = validateRuleDraft(form)
   if (errorMessage.value) return
   saving.value = true
@@ -86,6 +91,7 @@ async function submit() {
       </div>
 
       <form @submit.prevent="submit">
+        <fieldset class="readonly-fieldset" :disabled="readOnly">
         <label class="field">
           <span>Название *</span>
           <input v-model="form.name" type="text" maxlength="200" data-field="name" />
@@ -220,9 +226,11 @@ async function submit() {
           {{ sentence }}
         </div>
 
+        </fieldset>
+
         <div class="modal-foot">
-          <button type="button" class="btn btn-secondary" @click="$emit('close')">Отмена</button>
-          <button type="submit" class="btn btn-primary" :disabled="saving">{{ isEdit ? 'Сохранить' : 'Создать правило' }}</button>
+          <button type="button" class="btn btn-secondary" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+          <button v-if="!readOnly" type="submit" class="btn btn-primary" :disabled="saving">{{ isEdit ? 'Сохранить' : 'Создать правило' }}</button>
         </div>
       </form>
     </div>

@@ -7,21 +7,23 @@ from ..config import REPORT_DIR
 from ..db import get_db
 from ..reporting import build_report
 from ..services.audit_export import build_audit_log_report
-from ..services.report_cleanup import cleanup_old_reports
+from ..services.auth import require_admin_if_auth_enabled
+from ..services.report_cleanup import cleanup_before_new_report
+from ..services.report_params import parse_structural_unit_ids
 from ..services.structural_appendix_docx import DEFAULT_IS_NAME, StructuralAppendixError, build_structural_appendix
 
 router = APIRouter(tags=['Reports'])
 
 @router.post('/api/v1/reports/inventory')
 def generate_report(information_system_id: str | None = None, payload: dict | None = None, session: Session = Depends(get_db)):
-    structural_unit_ids = (payload or {}).get('structural_unit_ids') or None
-    cleanup_old_reports(REPORT_DIR)
+    structural_unit_ids = parse_structural_unit_ids((payload or {}).get('structural_unit_ids'))
+    cleanup_before_new_report(REPORT_DIR)
     path = build_report(session, REPORT_DIR, information_system_id, structural_unit_ids)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
-@router.post('/api/v1/reports/audit-log')
+@router.post('/api/v1/reports/audit-log', dependencies=[Depends(require_admin_if_auth_enabled)])
 def generate_audit_log_report(date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None, session: Session = Depends(get_db)):
-    cleanup_old_reports(REPORT_DIR)
+    cleanup_before_new_report(REPORT_DIR)
     path = build_audit_log_report(session, REPORT_DIR, date_from, date_to, entity_type)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
@@ -33,12 +35,10 @@ def generate_structural_appendix(payload: dict | None = None, session: Session =
     structural_unit_ids — ограничение оборудованием выбранных структурных единиц, как у регламентированного отчёта."""
     payload = payload or {}
     is_name = payload.get('is_name', DEFAULT_IS_NAME)
-    unit_ids = payload.get('structural_unit_ids') or None
     if not isinstance(is_name, str):
         raise HTTPException(422, 'Короткое имя ИС должно быть строкой')
-    if unit_ids is not None and not (isinstance(unit_ids, list) and all(isinstance(x, str) for x in unit_ids)):
-        raise HTTPException(422, 'structural_unit_ids должен быть списком идентификаторов')
-    cleanup_old_reports(REPORT_DIR)
+    unit_ids = parse_structural_unit_ids(payload.get('structural_unit_ids'))
+    cleanup_before_new_report(REPORT_DIR)
     try:
         path = build_structural_appendix(session, REPORT_DIR, is_name=is_name, structural_unit_ids=unit_ids)
     except StructuralAppendixError as e:

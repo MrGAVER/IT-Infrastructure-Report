@@ -23,9 +23,12 @@ from app.services.diagram_icons import (
     IconLookups,
     MAX_PORT_TICKS,
     build_device_icon,
+    is_hex_color,
     port_ticks_for_count,
     resolve_category_style,
     resolve_custom_icon,
+    safe_color,
+    safe_shape,
     validate_svg_markup,
 )
 
@@ -211,3 +214,56 @@ def test_validate_svg_markup_rejects_executable_content(svg_markup):
 )
 def test_validate_svg_markup_allows_plain_shapes(svg_markup):
     validate_svg_markup(svg_markup)  # не должно бросить исключение
+
+
+# --- A-04: цвет и форма категории не доходят до разметки как есть ---------------------------------------------------
+
+DIRTY_COLOR = 'x" onload="alert(1)'
+
+
+@pytest.mark.parametrize("value", ["#fff", "#FFF", "#4f7cff", "#4F7CFF", "#000000"])
+def test_hex_colors_are_accepted(value):
+    assert is_hex_color(value)
+    assert safe_color(value) == value
+
+
+@pytest.mark.parametrize("value", [DIRTY_COLOR, "", "red", "#ff", "#ffff", "#fffff", "#fffffff", "#12345g", "4f7cff", "#fff\n", " #fff", "#fff;stroke:red", None, 123, ["#fff"]])
+def test_non_hex_colors_fall_back_to_default(value):
+    assert not is_hex_color(value)
+    assert safe_color(value) == DEFAULT_COLOR
+
+
+def test_safe_color_uses_explicit_default():
+    assert safe_color("nope", "#cccccc") == "#cccccc"
+
+
+@pytest.mark.parametrize("shape", sorted(SHAPE_GLYPHS))
+def test_known_shapes_are_kept(shape):
+    assert safe_shape(shape) == shape
+
+
+@pytest.mark.parametrize("shape", ["", "hexagon", 'server" onload="x', None, 5, "Server"])
+def test_unknown_shapes_fall_back_to_default(shape):
+    assert safe_shape(shape) == DEFAULT_SHAPE
+
+
+def test_resolve_category_style_replaces_dirty_color_and_shape_with_defaults():
+    dirty = _category("dirty", shape="<script>", color=DIRTY_COLOR)
+    assert resolve_category_style(dirty, {"dirty": dirty}) == (DEFAULT_SHAPE, DEFAULT_COLOR)
+
+
+def test_resolve_category_style_keeps_valid_inherited_values_next_to_dirty_ones():
+    parent = _category("parent", shape="server", color="#4f7cff")
+    child = _category("child", parent_id="parent", shape=None, color=None)
+    assert resolve_category_style(child, {"parent": parent, "child": child}) == ("server", "#4f7cff")
+
+
+def test_build_device_icon_never_puts_dirty_category_values_into_the_descriptor():
+    dirty = _category("cat", shape="nope", color=DIRTY_COLOR)
+    device_type = DeviceType(id="dt", name="Тип", category_id="cat")
+    device = PhysicalDevice(id="dev", device_type_id="dt", serial_number="SN-1")
+    lookups = IconLookups(categories_by_id={"cat": dirty}, device_types_by_id={"dt": device_type})
+    descriptor = build_device_icon(device, interface_count=0, lookups=lookups)
+    assert descriptor["color"] == DEFAULT_COLOR
+    assert descriptor["shape"] == DEFAULT_SHAPE
+    assert "onload" not in repr(descriptor)

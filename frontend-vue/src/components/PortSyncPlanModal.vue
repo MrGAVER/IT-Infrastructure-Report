@@ -12,11 +12,14 @@ import { computed, onMounted, ref } from 'vue'
 import { ApiError } from '../api/client'
 import { applyPortSync, previewPortSync, type PortSyncScope } from '../api/portSync'
 import type { PortSyncApplyResult, PortSyncPlan, PortSyncPlanItem } from '../api/types'
+import { useAuthStore } from '../stores/auth'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useToast } from '../composables/useToast'
 import { OUTCOME_LABELS, changeLines, optionLine, plannedTargets, summaryLine } from '../utils/portSyncRules'
 
 const props = defineProps<{ scope: PortSyncScope; title?: string }>()
+// Предпросмотр плана доступен и роли «только чтение» (ничего не записывает); применить план может только тот, кто меняет данные.
+const canWrite = computed(() => useAuthStore().canWrite)
 const emit = defineEmits<{ close: []; applied: [result: PortSyncApplyResult] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 const { notify } = useToast()
@@ -163,13 +166,13 @@ onMounted(load)
       </template>
 
       <div class="modal-foot">
-        <label v-if="applicable > 0 && !loading" class="confirm">
+        <label v-if="canWrite && applicable > 0 && !loading" class="confirm">
           <input v-model="confirmed" type="checkbox" data-field="confirm" />
           <span>Я проверил план и согласен изменить данные портов ({{ applicable }})</span>
         </label>
         <div class="spacer"></div>
         <button type="button" class="btn btn-secondary" @click="$emit('close')">Закрыть</button>
-        <button type="button" class="btn btn-primary" data-action="apply" :disabled="!canApply" @click="apply">
+        <button v-if="canWrite" type="button" class="btn btn-primary" data-action="apply" :disabled="!canApply" @click="apply">
           Применить{{ applicable ? ` (${applicable})` : '' }}
         </button>
       </div>

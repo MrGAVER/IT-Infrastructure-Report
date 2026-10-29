@@ -72,6 +72,7 @@ async function uploadCustomIcon() {
       </select>
     </label>
 
+    <!-- eslint-disable-next-line vue/no-v-html -- sanitizedSelectedIconSvg проходит через sanitizeSvg() (utils/sanitizeSvg.ts) -->
     <div v-if="selectedIcon" class="preview" v-html="sanitizedSelectedIconSvg"></div>
 
     <button type="button" class="btn btn-secondary btn-sm" @click="showUpload = !showUpload">

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -26,7 +28,8 @@ from ..db import get_db
 from ..models import DiagramGroupState, DiagramLayout, SavedDiagram
 from ..services.crud import audit
 from ..services.diagram_export import export_drawio, export_svg, export_vsdx
-from ..services.diagram_graph import GROUP_DIMENSIONS, build_graph, parse_scope_filter
+from ..services.timeutil import iso_utc
+from ..services.diagram_graph import GROUP_DIMENSIONS, MAX_LAYOUT_KEY_LENGTH, MAX_LAYOUT_NODES, build_graph, clean_position, clean_positions_lenient, parse_scope_filter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/diagrams", tags=["Diagrams"])
@@ -49,8 +52,8 @@ def _diagram_out(d: SavedDiagram) -> dict:
         "group_by": d.group_by,
         "collapse_threshold": d.collapse_threshold,
         "last_export_format": d.last_export_format,
-        "created_at": d.created_at.isoformat() if d.created_at else None,
-        "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+        "created_at": iso_utc(d.created_at),
+        "updated_at": iso_utc(d.updated_at),
     }
 
 
@@ -61,10 +64,32 @@ def _get_diagram_or_404(session: Session, diagram_id: str) -> SavedDiagram:
     return diagram
 
 
-def _validate_diagram_payload(payload: dict) -> dict:
-    name = (payload.get("name") or "").strip()
+MAX_DIAGRAM_NAME_LENGTH = 255  # длина колонки SavedDiagram.name
+COPY_SUFFIX = " (копия)"
+# Управляющие символы C0/C1 (в том числе CR, LF, табуляция, DEL) и разделители строк/абзацев Unicode.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def _clean_name(raw) -> str:
+    """Название диаграммы без управляющих символов: они заменяются пробелом, подряд идущие пробельные символы
+    схлопываются, края обрезаются. Нестрока даёт пустое название (его отвергает вызывающий код). Название попадает в
+    имя файла экспорта и в заголовок Content-Disposition, где CR/LF обрывали ответ (RuntimeError: Invalid HTTP header value)."""
+    if not isinstance(raw, str):
+        return ""
+    return " ".join(_CONTROL_CHARS.sub(" ", raw).split())
+
+
+def _checked_name(raw) -> str:
+    name = _clean_name(raw)
     if not name:
         raise HTTPException(422, "Укажите название диаграммы")
+    if len(name) > MAX_DIAGRAM_NAME_LENGTH:
+        raise HTTPException(422, f"Название диаграммы не должно быть длиннее {MAX_DIAGRAM_NAME_LENGTH} символов")
+    return name
+
+
+def _validate_diagram_payload(payload: dict) -> dict:
+    name = _checked_name(payload.get("name"))
     group_by = payload.get("group_by", "structural_unit")
     if group_by not in GROUP_DIMENSIONS:
         raise HTTPException(422, f"group_by должен быть одним из: {', '.join(GROUP_DIMENSIONS)}")
@@ -84,12 +109,56 @@ def _validate_diagram_payload(payload: dict) -> dict:
 
 
 def _unique_diagram_name(session: Session, base_name: str) -> str:
-    name = base_name
+    """Свободное название: base_name, затем «base_name 2», «base_name 3»… Результат не длиннее колонки: при необходимости
+    укорачивается основа, а не номер."""
+    name = base_name[:MAX_DIAGRAM_NAME_LENGTH]
     n = 2
     while session.scalar(select(SavedDiagram).where(SavedDiagram.name == name)):
-        name = f"{base_name} {n}"
+        suffix = f" {n}"
+        name = f"{base_name[:MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
         n += 1
     return name
+
+
+def _clean_positions(raw) -> dict[str, dict]:
+    """Строгая проверка раскладки из PUT: объект {id: {x, y}} с числами и не более MAX_LAYOUT_NODES узлов. Некорректный
+    элемент — 422 с названием узла, а не молчаливая запись в БД, после которой диаграмма не открывалась."""
+    if not isinstance(raw, dict) or len(raw) > MAX_LAYOUT_NODES:
+        raise HTTPException(422, f"node_positions должен быть объектом {{id: {{x, y}}}} (не более {MAX_LAYOUT_NODES} узлов)")
+    cleaned: dict[str, dict] = {}
+    for key, position in raw.items():
+        clean = clean_position(position)
+        if not isinstance(key, str) or len(key) > MAX_LAYOUT_KEY_LENGTH or clean is None:
+            raise HTTPException(422, f"Некорректная позиция узла «{str(key)[:60]}»: ожидается {{x: число, y: число}}")
+        cleaned[key] = clean
+    return cleaned
+
+
+# Поля viewport: x/y/zoom — как в описании контракта, pan_x/pan_y — как их шлёт и читает frontend (DiagramViewport).
+VIEWPORT_KEYS = frozenset({"x", "y", "zoom", "pan_x", "pan_y"})
+
+
+def _is_finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _clean_viewport(raw) -> dict | None:
+    """None либо объект только из VIEWPORT_KEYS с конечными числами; иначе 422."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not set(raw) <= VIEWPORT_KEYS or not all(_is_finite_number(v) for v in raw.values()):
+        raise HTTPException(422, "viewport должен быть объектом с числовыми полями " + ", ".join(sorted(VIEWPORT_KEYS)) + " или null")
+    return dict(raw)
+
+
+def _parse_viewport(text: str | None) -> dict | None:
+    """Уже сохранённый viewport: повреждённое значение читается как «нет сохранённого» вместо ошибки."""
+    if not text:
+        return None
+    try:
+        return _clean_viewport(json.loads(text))
+    except (ValueError, HTTPException):
+        return None
 
 
 def _load_layout(session: Session, diagram_id: str) -> tuple[DiagramLayout | None, dict]:
@@ -100,7 +169,7 @@ def _load_layout(session: Session, diagram_id: str) -> tuple[DiagramLayout | Non
         positions = json.loads(layout.node_positions or "{}")
     except json.JSONDecodeError:
         positions = {}
-    return layout, positions if isinstance(positions, dict) else {}
+    return layout, clean_positions_lenient(positions)
 
 
 def _save_layout(session: Session, diagram_id: str, graph: dict, existing: DiagramLayout | None) -> None:
@@ -116,7 +185,7 @@ def _save_layout(session: Session, diagram_id: str, graph: dict, existing: Diagr
         current = json.loads(existing.node_positions or "{}")
     except json.JSONDecodeError:
         current = {}
-    merged = {**computed, **(current if isinstance(current, dict) else {})}
+    merged = {**computed, **clean_positions_lenient(current)}
     existing.node_positions = json.dumps(merged, ensure_ascii=False)
 
 
@@ -152,14 +221,10 @@ def create_diagram(payload: dict, session: Session = Depends(get_db)):
 def get_diagram(diagram_id: str, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
     layout, positions = _load_layout(session, diagram_id)
-    graph = build_graph(session, diagram, node_positions=positions)
-    session.commit()  # build_graph могла создать новые DiagramGroupState по достижении порога
-    viewport = None
-    if layout and layout.viewport:
-        try:
-            viewport = json.loads(layout.viewport)
-        except json.JSONDecodeError:
-            viewport = None
+    # GET ничего не пишет: состояние групп выше порога считается в памяти (persist=False), его сохраняют создание и
+    # regenerate. Иначе просмотр менял данные от имени viewer и при параллельных запросах давал 500 (uq_diagram_group_state).
+    graph = build_graph(session, diagram, node_positions=positions, persist=False)
+    viewport = _parse_viewport(layout.viewport) if layout else None
     return {**_diagram_out(diagram), "nodes": graph["nodes"], "edges": graph["edges"], "viewport": viewport}
 
 
@@ -171,9 +236,7 @@ def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(ge
     требует пересборки графа (см. POST /regenerate) — смешивать это с переименованием было бы
     двумя разными по цене и последствиям операциями под одной ручкой."""
     diagram = _get_diagram_or_404(session, diagram_id)
-    name = (payload.get("name") or "").strip()
-    if not name:
-        raise HTTPException(422, "Укажите название диаграммы")
+    name = _checked_name(payload.get("name"))
     dup = session.scalar(select(SavedDiagram).where(SavedDiagram.name == name, SavedDiagram.id != diagram_id))
     if dup:
         raise HTTPException(409, "Диаграмма с таким названием уже существует")
@@ -189,10 +252,8 @@ def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(ge
 @router.put("/{diagram_id}/layout")
 def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
-    node_positions = payload.get("node_positions")
-    if not isinstance(node_positions, dict):
-        raise HTTPException(422, "node_positions должен быть объектом вида {id: {x, y}}")
-    viewport = payload.get("viewport")
+    node_positions = _clean_positions(payload.get("node_positions"))
+    viewport = _clean_viewport(payload.get("viewport"))
     layout = session.scalar(select(DiagramLayout).where(DiagramLayout.saved_diagram_id == diagram_id))
     positions_json = json.dumps(node_positions, ensure_ascii=False)
     if layout is None:
@@ -213,6 +274,8 @@ def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get
 @router.put("/{diagram_id}/groups/{group_key}")
 def update_group_state(diagram_id: str, group_key: str, payload: dict, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
+    if len(group_key) > MAX_LAYOUT_KEY_LENGTH:
+        raise HTTPException(422, f"group_key не должен быть длиннее {MAX_LAYOUT_KEY_LENGTH} символов")
     state = session.scalar(
         select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key)
     )
@@ -250,7 +313,10 @@ def regenerate_diagram(diagram_id: str, session: Session = Depends(get_db)):
 @router.post("/{diagram_id}/duplicate", status_code=201)
 def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
     src = _get_diagram_or_404(session, diagram_id)
-    name = _unique_diagram_name(session, f"{src.name} (копия)")
+    # Имя источника могло быть сохранено до очистки (с управляющими символами) или быть максимальной длины: копия не должна
+    # их наследовать и обязана помещаться в колонку вместе с суффиксом.
+    base = _clean_name(src.name)[: MAX_DIAGRAM_NAME_LENGTH - len(COPY_SUFFIX)] or "Диаграмма"
+    name = _unique_diagram_name(session, f"{base}{COPY_SUFFIX}")
     dup = SavedDiagram(
         name=name, description=src.description, scope_filter=src.scope_filter,
         group_by=src.group_by, collapse_threshold=src.collapse_threshold,
@@ -276,12 +342,17 @@ def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
 
 
 @router.get("/{diagram_id}/export")
-def export_diagram(diagram_id: str, format: str = Query(..., alias="format"), session: Session = Depends(get_db)):
+def export_diagram(
+    diagram_id: str,
+    format: str = Query(..., alias="format"),
+    persist_export: bool = Query(False, description="Запомнить формат в last_export_format; без параметра экспорт ничего не пишет в БД"),
+    session: Session = Depends(get_db),
+):
     diagram = _get_diagram_or_404(session, diagram_id)
     if format not in EXPORT_FORMATS:
         raise HTTPException(422, f"format должен быть одним из: {', '.join(EXPORT_FORMATS)}")
     _, positions = _load_layout(session, diagram_id)
-    graph = build_graph(session, diagram, node_positions=positions)
+    graph = build_graph(session, diagram, node_positions=positions, persist=False)
     media_type, serialize = EXPORT_FORMATS[format]
     try:
         data = serialize(graph)
@@ -293,13 +364,15 @@ def export_diagram(diagram_id: str, format: str = Query(..., alias="format"), se
         # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
         logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
         raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
-    diagram.last_export_format = format
-    session.commit()
+    if persist_export:  # безопасный метод GET по умолчанию не пишет: запись — только по явной просьбе клиента
+        diagram.last_export_format = format
+        session.commit()
     filename = f"{diagram.name}.{format}"
     # HTTP-заголовки должны быть latin-1-совместимы (RFC 7230) — название диаграммы, как и
     # почти все данные в этом проекте, обычно на русском, поэтому ASCII-safe filename идёт как
     # запасной вариант, а настоящее имя — RFC 6266 filename* с percent-encoded UTF-8.
-    ascii_fallback = "".join(c if c.isascii() and c not in '"\\' else "_" for c in filename) or f"diagram.{format}"
+    # isprintable() отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не должно ломать заголовок.
+    ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or f"diagram.{format}"
     content_disposition = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(filename)}'
     return Response(content=data, media_type=media_type, headers={"Content-Disposition": content_disposition})
 

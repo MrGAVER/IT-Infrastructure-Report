@@ -3,7 +3,7 @@ import type { GridFilterOp } from '../api/types'
 /** Общий список операторов фильтра источника данных — переиспользуется GridCellInspector.vue
  * (фильтр повторяющейся строки xlsx) и DocxTableBlockEditor.vue (фильтр блока-таблицы docx),
  * т.к. формат фильтра {path, op, value} общий для обоих (см. backend/app/services/report_engine.py:
- * _FILTER_OPS). Порядок соответствует RB_FILTER_OPS в frontend/static/report_builder.js. */
+ * _FILTER_OPS). Порядок соответствует RB_FILTER_OPS прежнего vanilla-фронтенда (до 2.60.0). */
 export const FILTER_OPS: Array<[GridFilterOp, string]> = [
   ['eq', 'равно'],
   ['ne', 'не равно'],

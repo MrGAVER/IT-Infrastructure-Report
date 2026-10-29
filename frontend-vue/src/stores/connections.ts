@@ -5,7 +5,7 @@
 // Таблица дашборда «Подключения» этот кэш НЕ использует: она постраничная, с поиском, фильтрами и
 // статусом сверки ролей портов на сервере — см. stores/connectionsDashboard.ts.
 import { defineStore } from 'pinia'
-import { listResource } from '../api/client'
+import { listAllResource } from '../api/client'
 import type { Connection } from '../api/types'
 
 export const useConnectionsStore = defineStore('connections', {
@@ -39,7 +39,7 @@ export const useConnectionsStore = defineStore('connections', {
       this.loading = true
       this.error = null
       try {
-        const res = await listResource<Connection>('connections', { limit: 1000 })
+        const res = await listAllResource<Connection>('connections')
         this.all = res.items
         this.total = res.total
         this.loaded = true

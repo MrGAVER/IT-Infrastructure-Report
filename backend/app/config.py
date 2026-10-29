@@ -40,6 +40,41 @@ def _database_url() -> str:
 
 
 DATABASE_URL = _database_url()
+
+
+def _optional_number_env(name: str, cast):
+    """Необязательное число из переменной окружения: не задана или пуста — None (остаётся значение SQLAlchemy по
+    умолчанию), нечисловое значение — явная ошибка запуска, а не молчаливое игнорирование опечатки."""
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return None
+    try:
+        value = cast(raw)
+    except ValueError as exc:
+        raise ValueError(f'{name}: ожидается число, получено {raw!r}') from exc
+    if value < 0:
+        raise ValueError(f'{name}: значение не может быть отрицательным ({raw})')
+    return value
+
+# Сколько файлов отчётов остаётся в каталоге: отчёт может сформировать любой клиент (роль viewer или вход выключен), и без
+# квоты цикл запросов заполнил бы диск; срок хранения (REPORT_RETENTION_DAYS) этому не мешает. Лишние удаляются, самые
+# старые первыми, независимо от возраста. 0 — без ограничения по количеству; нечисловое значение — ошибка запуска.
+_report_max_files = _optional_number_env('INFRA_REGISTRY_REPORT_MAX_FILES', int)
+REPORT_MAX_FILES = 200 if _report_max_files is None else _report_max_files
+
+
+# Размер пула соединений для серверных СУБД (PostgreSQL): по умолчанию SQLAlchemy берёт 5 + 10 переполнения и ждёт
+# соединение 30 с. Каждый API-запрос держит соединение обработчика; при нескольких одновременных пользователях значения
+# можно поднять (не больше max_connections сервера БД). Для SQLite не применяется.
+DB_POOL_OPTIONS = {
+    key: value
+    for key, value in {
+        'pool_size': _optional_number_env('INFRA_REGISTRY_DB_POOL_SIZE', int),
+        'max_overflow': _optional_number_env('INFRA_REGISTRY_DB_MAX_OVERFLOW', int),
+        'pool_timeout': _optional_number_env('INFRA_REGISTRY_DB_POOL_TIMEOUT', float),
+    }.items()
+    if value is not None
+}
 # Основной UI — собранный Vue-фронтенд (frontend-vue/dist), см. frontend-vue/README.md.
 # Каталог появляется только после `npm run build` в frontend-vue — локально при разработке
 # из исходников (без сборки) GET '/' отдаст понятную 500-ошибку с указанием отсутствующего
@@ -59,6 +94,10 @@ def _csv_env(name: str, default: str = '') -> list[str]:
 # менять данные локального приложения. Разрешить конкретные origin'ы нужно только для отдельного
 # фронтенда, например dev-сервера Vite: INFRA_REGISTRY_CORS_ORIGINS=http://localhost:5173
 CORS_ALLOWED_ORIGINS = _csv_env('INFRA_REGISTRY_CORS_ORIGINS')
+
+# Прокси, которым доверяет uvicorn (его собственная переменная, значение читаем так же). Здесь нужна только для
+# проверки происхождения запросов (services/csrf_guard.py): X-Forwarded-Host учитывается лишь за настоящим прокси.
+FORWARDED_ALLOW_IPS = _csv_env('FORWARDED_ALLOW_IPS')
 
 # Допустимые значения заголовка Host (защита от DNS-rebinding: страница чужого домена, перенацеленная
 # на 127.0.0.1, приходит с чужим Host). По умолчанию — только локальные имена, что верно для
@@ -97,3 +136,15 @@ AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12
 AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', '10'))
 AUTH_LOCKOUT_MINUTES = float(os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', '15'))
 AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', '8'))
+# Блокировка учётной записи после серии неудачных входов (выше) сама становится оружием: любой, кто достаёт до /login, может
+# держать администратора заблокированным, посылая неверные пароли (имена пользователей перечисляются — 423 подтверждает
+# существование). Поэтому блокировка отклоняет вход только с «незнакомых» адресов: адрес, с которого этот пользователь уже входил
+# успешно за последние AUTH_KNOWN_CLIENT_DAYS дней, проходит проверку пароля, а подбор с него ограничивают счётчик и троттлинг входа.
+# За обратным прокси задайте FORWARDED_ALLOW_IPS: иначе у всех клиентов адрес прокси, и «знакомым» окажется любой. 0 — отключить.
+AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS = os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
+AUTH_KNOWN_CLIENT_DAYS = int(os.getenv('INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS', '30'))
+
+# Интерактивная документация API (/docs, /redoc, /openapi.json) по умолчанию выключена: она раскрывает полную карту API и
+# моделей данных любому посетителю (проверка входа касается только /api/*), а Swagger UI/ReDoc подгружают скрипты с внешнего CDN —
+# в закрытом контуре страницы всё равно не работают. Для разработки: INFRA_REGISTRY_ENABLE_DOCS=1 (страницы открыты без входа).
+ENABLE_DOCS = os.getenv('INFRA_REGISTRY_ENABLE_DOCS', '').strip().lower() in {'1', 'true', 'yes', 'on'}

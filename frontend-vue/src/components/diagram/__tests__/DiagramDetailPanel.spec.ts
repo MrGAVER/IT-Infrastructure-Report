@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import DiagramDetailPanel from '../DiagramDetailPanel.vue'
 import type { DiagramSelection } from '../../../stores/diagram'
+
+beforeEach(() => {
+  setActivePinia(createPinia()) // компонент читает authStore.canWrite («Развернуть группу» — только запись)
+})
 
 describe('DiagramDetailPanel.vue', () => {
   it('не рендерится, если ничего не выделено', () => {

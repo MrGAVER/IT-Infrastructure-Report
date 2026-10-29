@@ -3,7 +3,7 @@
 // вывод по связи, сортировка, фильтры, колонки. Props-in/events-out, тот же принцип, что
 // GridCellInspector.vue: не мутирует block сам, только эмитит патчи. Портировано из
 // rbTableBlockHTML()/rbSetTableEntity()/rbAddTableColumn() и соседних rbXxx-функций
-// (frontend/static/report_builder.js).
+// прежнего vanilla-фронтенда (до 2.60.0).
 import { computed } from 'vue'
 import type { DocxTableBlock, DocxTableColumn, GridDataSourceFilter, GridFilterOp, ReportEntityMeta } from '../api/types'
 import { entityLabel, flattenEntityPaths, indexEntitiesByKey } from '../utils/reportEntityPaths'

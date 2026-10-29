@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from .services.timeutil import utcnow_naive
+
 class Base(DeclarativeBase):
     pass
 
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
 class SupportOrganization(TimestampMixin, Base):
     __tablename__ = "support_organizations"
@@ -177,7 +179,9 @@ class PhysicalDevice(TimestampMixin, Base):
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
     manufacturer_id: Mapped[Optional[str]] = mapped_column(ForeignKey("manufacturers.id"), index=True)
     model_id: Mapped[Optional[str]] = mapped_column(ForeignKey("device_models.id"), index=True)
-    serial_number: Mapped[str] = mapped_column(String(255), unique=True)
+    # НЕ уникален: серийные номера разных производителей совпадают (миграция b3f7a1d95c24 сняла ограничение). Проверок
+    # дублей нет сознательно; составное «производитель + серийный номер» — отдельное решение владельца продукта.
+    serial_number: Mapped[str] = mapped_column(String(255))
     system_name: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     operating_system_id: Mapped[Optional[str]] = mapped_column(ForeignKey("operating_systems.id"), index=True)
     embedded_os_id: Mapped[Optional[str]] = mapped_column(ForeignKey("embedded_operating_systems.id"), index=True)
@@ -843,7 +847,7 @@ class AuthSession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     user_agent: Mapped[Optional[str]] = mapped_column(String(255))
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
@@ -858,7 +862,7 @@ class AuthSettings(Base):
     __tablename__ = "auth_settings"
     id: Mapped[str] = mapped_column(String(20), primary_key=True, default="singleton")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
 class AppPreference(Base):
     """Серверная настройка интерфейса (раньше жила в localStorage браузера — тема, название организации,
@@ -878,7 +882,7 @@ class AppPreference(Base):
     owner: Mapped[str] = mapped_column(String(50), primary_key=True)
     key: Mapped[str] = mapped_column(String(60), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
 class CatalogSeedMarker(Base):
     """Отметка «стартовые значения справочников уже заведены» (см. services/catalogs.py:
@@ -888,7 +892,7 @@ class CatalogSeedMarker(Base):
     именем, поэтому ранее удалённые записи старого набора не возвращаются."""
     __tablename__ = "catalog_seed_markers"
     name: Mapped[str] = mapped_column(String(100), primary_key=True)
-    applied_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    applied_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
 
 
 class SavedDiagram(TimestampMixin, Base):

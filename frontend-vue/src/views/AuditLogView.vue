@@ -6,6 +6,7 @@ import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
 import { debounce } from '../utils/debounce'
+import { formatServerDateTime } from '../utils/dateTime'
 
 const log = useAuditLogStore()
 const catalogs = useCatalogsStore()
@@ -28,12 +29,6 @@ watch(
   },
 )
 onBeforeUnmount(() => searchDebounced.cancel())
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 </script>
 
 <template>
@@ -87,7 +82,7 @@ function formatWhen(iso: string): string {
           </thead>
           <tbody>
             <tr v-for="e in log.items" :key="e.id">
-              <td class="mono when-cell">{{ formatWhen(e.created_at) }}</td>
+              <td class="mono when-cell">{{ formatServerDateTime(e.created_at) }}</td>
               <td class="actor-cell" :title="e.actor_ip ? `IP-адрес: ${e.actor_ip}` : undefined">{{ e.actor_username || '—' }}</td>
               <td>{{ catalogs.resourceLabel(e.entity_type) }}</td>
               <td>

@@ -8,7 +8,10 @@ import { onMounted, ref } from 'vue'
 import { listReportTemplateVersions, restoreReportTemplateVersion } from '../api/reportTemplates'
 import type { ReportTemplate, ReportTemplateVersion } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import { formatServerDateTime } from '../utils/dateTime'
+import { useAuthStore } from '../stores/auth'
 
+const auth = useAuthStore() // «Восстановить версию» меняет шаблон — только для роли с правом записи
 const props = defineProps<{ template: ReportTemplate }>()
 const emit = defineEmits<{ close: []; restored: [template: ReportTemplate] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
@@ -41,11 +44,6 @@ async function restore(v: ReportTemplateVersion) {
     restoringId.value = null
   }
 }
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 </script>
 
 <template>
@@ -71,9 +69,9 @@ function formatDate(iso: string | null): string {
         <li v-for="v in versions" :key="v.id" class="version-row">
           <div class="version-info">
             <b>№{{ v.version_number }} — {{ v.name }}</b>
-            <span class="version-meta">{{ formatDate(v.created_at) }}<template v-if="v.description"> · {{ v.description }}</template></span>
+            <span class="version-meta">{{ formatServerDateTime(v.created_at) }}<template v-if="v.description"> · {{ v.description }}</template></span>
           </div>
-          <button type="button" class="btn btn-secondary" :disabled="restoringId === v.id" @click="restore(v)">
+          <button v-if="auth.canWrite" type="button" class="btn btn-secondary" :disabled="restoringId === v.id" @click="restore(v)">
             {{ restoringId === v.id ? 'Восстановление…' : 'Восстановить' }}
           </button>
         </li>
