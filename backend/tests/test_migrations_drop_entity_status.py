@@ -223,3 +223,89 @@ class TestMigrationOnADatabase:
         monkeypatch.setattr(migration.sqlite3, "sqlite_version", "3.34.0")
         with pytest.raises(RuntimeError, match="SQLite 3.35"):
             command.upgrade(cfg, REVISION)
+
+
+# ----- сквозная проверка: отчёт по шаблону, который до миграции ссылался на status -----------------------------------------------
+# Раньше проверялись только преобразование JSON и validate_config. Здесь шаблон проходит настоящую миграцию, а затем по нему строятся
+# настоящие файлы xlsx и docx из ORM-сессии на мигрированной базе.
+
+E2E_GRID = {"sheets": [{"title": "ИС", "columns": [{"width": 6}, {"width": 30}, {"width": 18}], "rows": [
+    {"height": 20, "repeat": False, "cells": [{"col": 0, "kind": "static", "text": "№", "colspan": 1}, {"col": 1, "kind": "static", "text": "Наименование"}, {"col": 2, "kind": "static", "text": "Состояние"}]},
+    {"height": 18, "repeat": True,
+     "data_source": {"root_entity": "information-systems", "expand": None, "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}], "sort_by": "status"},
+     "cells": [{"col": 0, "kind": "index"}, {"col": 1, "kind": "field", "path": "name"}, {"col": 2, "kind": "field", "path": "status"}]},
+]}]}
+
+E2E_DOCX = {"blocks": [
+    {"type": "heading", "text": "Устройства", "level": 1},
+    {"type": "table", "root_entity": "devices", "filters": [{"path": "status", "op": "ne", "value": "retired"}], "sort_by": "status",
+     "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}]},
+]}
+
+
+def _xlsx_names(path) -> list[str]:
+    from openpyxl import load_workbook
+
+    sheet = load_workbook(path).active
+    return [row[1] for row in sheet.iter_rows(min_row=2, values_only=True) if row[1]]
+
+
+def _docx_cells(path) -> list[list[str]]:
+    from docx import Document
+
+    return [[cell.text for cell in row.cells] for row in Document(str(path)).tables[0].rows]
+
+
+@pytest.fixture()
+def migrated_reports(database, tmp_path):
+    """Старая схема с ИС и устройствами в разных состояниях и двумя шаблонами со status → миграция → (ORM-сессия, id шаблонов, каталог отчётов)."""
+    from sqlalchemy.orm import sessionmaker
+
+    cfg, engine = database
+    command.upgrade(cfg, PRE_REVISION)
+    with engine.begin() as connection:
+        for name, status, siem in (("ИС-A", "active", True), ("ИС-B", "planned", True), ("ИС-C", "retired", True), ("ИС-D", "active", False)):
+            insert_row(connection, "information_systems", name=name, status=status, siem_enabled=siem)
+        for serial, status in (("SN-1", "retired"), ("SN-2", "active")):
+            insert_row(connection, "physical_devices", serial_number=serial, system_name=f"SW-{serial[-1]}", status=status)
+        grid = insert_row(connection, "report_templates", name="Сетка со статусом", format="xlsx", config=json.dumps(E2E_GRID, ensure_ascii=False))
+        docx = insert_row(connection, "report_templates", name="Документ со статусом", format="docx", config=json.dumps(E2E_DOCX, ensure_ascii=False))
+    command.upgrade(cfg, REVISION)
+    with sessionmaker(bind=engine)() as session:
+        yield session, {"grid": grid, "docx": docx}, tmp_path / "reports"
+
+
+class TestReportsBuiltAfterMigration:
+    def test_xlsx_from_a_migrated_template_shows_every_record_the_remaining_filters_allow(self, migrated_reports, database):
+        from app.services.report_grid import build_xlsx_grid, validate_grid_config
+        from app.services.report_meta import build_entity_metadata
+
+        session, ids, report_dir = migrated_reports
+        config = json.loads(_config(database[1], "report_templates", ids["grid"]))
+        validate_grid_config(build_entity_metadata(), config)  # результат миграции сохраняем тем же правилам, что и в конструкторе
+        path = build_xlsx_grid(session, config, report_dir, template_name="Сетка")
+        # фильтр «status = active» исчез, фильтр «SIEM» остался: A, B, C — в отчёте, D (без SIEM) — нет
+        assert sorted(_xlsx_names(path)) == ["ИС-A", "ИС-B", "ИС-C"]
+
+    def test_the_same_template_without_the_rewrite_would_silently_produce_an_empty_report(self, migrated_reports):
+        """Обоснование миграции: резолвер пути берёт getattr(obj, name, None), поэтому фильтр по удалённой колонке отсекает ВСЕ строки."""
+        from app.services.report_grid import build_xlsx_grid
+
+        session, _, report_dir = migrated_reports
+        assert _xlsx_names(build_xlsx_grid(session, E2E_GRID, report_dir, template_name="Без переписывания")) == []
+
+    def test_docx_from_a_migrated_template_has_every_device_and_no_status_column(self, migrated_reports, database):
+        from app.services.report_render import build_docx
+
+        session, ids, report_dir = migrated_reports
+        config = json.loads(_config(database[1], "report_templates", ids["docx"]))
+        rows = _docx_cells(build_docx(session, config, report_dir, template_name="Документ"))
+        assert rows[0] == ["Имя"] and sorted(r[0] for r in rows[1:]) == ["SW-1", "SW-2"]  # «ne retired» исчез — вернулось и списанное устройство
+
+    def test_the_same_docx_template_without_the_rewrite_keeps_a_blank_column_and_a_filter_that_filters_nothing(self, migrated_reports):
+        """Для Word последствия мягче, чем для «eq»-фильтра в Excel: «ne retired» по пустому значению пропускает всё, колонка «Состояние» — пустая."""
+        from app.services.report_render import build_docx
+
+        session, _, report_dir = migrated_reports
+        rows = _docx_cells(build_docx(session, E2E_DOCX, report_dir, template_name="Без переписывания"))
+        assert rows[0] == ["Имя", "Состояние"] and sorted(rows[1:]) == [["SW-1", ""], ["SW-2", ""]]
