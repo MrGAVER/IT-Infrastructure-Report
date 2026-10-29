@@ -4701,3 +4701,13 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   `READ_ONLY_POST_PATHS`. Журнал содержит имена пользователей, IP-адреса и неудачные входы (`LOGIN_FAILED`) — для роли «только просмотр реестра»
   это больше необходимого. Тест `test_viewer_can_generate_reports_and_preview` обновлён (отчёт по журналу — 403). Фронтенд: пункт меню
   «Журнал аудита» скрыт от viewer (см. слитую ветку).
+- **Интеграция пакетов A и B: фронтенд подогнан под новые контракты бэкенда; `npm audit` — 0 уязвимостей.** `frontend-vue`:
+  (1) `ErrorCode` дополнен кодами `CROSS_ORIGIN_BLOCKED` (A-07) и `WRONG_CURRENT_PASSWORD` (A-22) — тест `набор ErrorCode совпадает с
+  backend/app/constants.py` на слитой ветке падал; при `WRONG_CURRENT_PASSWORD` панель «Учётная запись» показывает сообщение сервера и очищает
+  поле текущего пароля, сессия сохраняется; (2) скачивание диаграммы просит `persist_export=true` (A-13: без него сервер больше не запоминает
+  «последний формат экспорта»); (3) A-23: у viewer доступны кнопки «Что сделает» и «Согласование портов по правилам» (план показывается, но
+  флажка подтверждения и «Применить» нет), «Приложение к структурной схеме` уже было доступно; пункт меню «Журнал аудита», маршрут `/audit-log` (уводит
+  на дашборд) и карточка отчёта по журналу скрыты от viewer (новый геттер `canViewAuditLog`; при выключенной аутентификации всё открыто);
+  (4) `npm audit fix`: dompurify 3.4.17 (critical, runtime), vite 8.3.5, vitest/@vitest/ui 5.0.5, undici 8.12.3 (было 6 уязвимостей: 1 critical,
+  2 high, 3 moderate). Тесты: `auditAccessGuard.spec.ts`, `diagramExport.spec.ts`, дополнены `Sidebar`, `ReportsView`, `PortSyncPlanModal`,
+  `AccountPanel`, `writeAccess`; на прежних исходниках 10 из них красные. CI: после `npm ci` выполняется `npm run lint`.

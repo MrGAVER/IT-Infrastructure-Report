@@ -164,4 +164,38 @@ describe('AccountPanel.vue', () => {
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
     }
   })
+
+  // A-22: сервер отвечает на неверный текущий пароль 422 с кодом WRONG_CURRENT_PASSWORD (а не 401): сессия не завершается.
+  it('неверный текущий пароль (422 WRONG_CURRENT_PASSWORD): сообщение сервера, поле текущего пароля очищено, сессия сохранена', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/auth/me/password') && init?.method === 'PUT') {
+          return jsonResponse({ detail: { message: 'Текущий пароль указан неверно.', code: 'WRONG_CURRENT_PASSWORD' } }, 422)
+        }
+        return jsonResponse([])
+      }),
+    )
+    const auth = useAuthStore()
+    const onUnauthorized = () => auth.handleUnauthorized()
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    try {
+      const wrapper = mount(AccountPanel)
+      await flushPromises()
+
+      const inputs = wrapper.findAll('.pwd-form input')
+      await inputs[0].setValue('WrongPass1')
+      await inputs[1].setValue('NewPass1234')
+      await inputs[2].setValue('NewPass1234')
+      await wrapper.find('.pwd-form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.find('.form-error').text()).toContain('Текущий пароль указан неверно')
+      expect((wrapper.findAll('.pwd-form input')[0].element as HTMLInputElement).value).toBe('')
+      expect((wrapper.findAll('.pwd-form input')[1].element as HTMLInputElement).value).toBe('NewPass1234')
+      expect(auth.user).not.toBeNull()
+    } finally {
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    }
+  })
 })

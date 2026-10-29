@@ -99,7 +99,7 @@ function showPlan(scope: PortSyncScope, title?: string) {
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Новое правило
       </button>
-      <button v-if="auth.canWrite" class="btn btn-secondary" data-action="plan-all" @click="showPlan({}, 'Согласование портов по правилам')">
+      <button class="btn btn-secondary" data-action="plan-all" @click="showPlan({}, 'Согласование портов по правилам')">
         Согласовать по правилам…
       </button>
       <div class="spacer"></div>
@@ -137,7 +137,7 @@ function showPlan(scope: PortSyncScope, title?: string) {
             <div class="buttons">
               <button v-if="auth.canWrite" type="button" class="icon-btn" aria-label="Выше" title="Проверять раньше" data-action="up" :disabled="busyId === rule.id || index === 0" @click="move(rule, -1)">↑</button>
               <button v-if="auth.canWrite" type="button" class="icon-btn" aria-label="Ниже" title="Проверять позже" data-action="down" :disabled="busyId === rule.id || index === store.rules.length - 1" @click="move(rule, 1)">↓</button>
-              <button v-if="auth.canWrite" type="button" class="btn btn-secondary btn-sm" data-action="preview" @click="showPlan({ rule_id: rule.id }, `Что сделает правило «${rule.name}»`)">Что сделает</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-action="preview" @click="showPlan({ rule_id: rule.id }, `Что сделает правило «${rule.name}»`)">Что сделает</button>
               <button type="button" class="btn btn-secondary btn-sm" data-action="edit" @click="openEdit(rule)">{{ auth.canWrite ? 'Изменить' : 'Просмотр' }}</button>
               <button v-if="auth.canWrite && rule.builtin && rule.modified" type="button" class="btn btn-secondary btn-sm" data-action="reset" :disabled="busyId === rule.id" @click="reset(rule)">Сбросить</button>
               <button v-if="auth.canWrite && !rule.builtin" type="button" class="btn btn-secondary btn-sm danger" data-action="delete" :disabled="busyId === rule.id" @click="remove(rule)">Удалить</button>

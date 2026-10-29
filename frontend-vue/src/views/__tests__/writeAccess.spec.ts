@@ -313,11 +313,9 @@ const SCREENS: Screen[] = [
       await flushPromises()
       return wrapper
     },
-    write: [
-      '[data-action="create"]', '[data-action="plan-all"]', '[data-action="up"]', '[data-action="down"]',
-      '[data-action="preview"]', '[data-action="reset"]', '[data-action="delete"]',
-    ],
-    read: ['[data-action="edit"]'],
+    write: ['[data-action="create"]', '[data-action="up"]', '[data-action="down"]', '[data-action="reset"]', '[data-action="delete"]'],
+    // предпросмотр плана согласования ничего не записывает (POST /port-sync/preview разрешён viewer'у, A-23); применить план он не может
+    read: ['[data-action="edit"]', '[data-action="plan-all"]', '[data-action="preview"]'],
   },
   {
     name: 'ReportTemplatesView (шаблоны отчётов)',

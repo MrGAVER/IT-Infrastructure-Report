@@ -63,9 +63,9 @@ export function setStoredSetupToken(token: string | null): void {
 export const UNAUTHORIZED_EVENT = 'itr:unauthorized'
 
 /** Пути, на которых ответ 401 означает «неверные данные в форме», а не «сессия недействительна»:
- * вход (`/auth/login`) и смена собственного пароля (`/auth/me/password` отвечает 401 на неверный
- * ТЕКУЩИЙ пароль — см. backend/app/services/auth.py:change_own_password). Для них
- * UNAUTHORIZED_EVENT не отправляется, иначе опечатка в форме завершила бы сессию. */
+ * вход (`/auth/login`) и смена собственного пароля (`/auth/me/password`). Сервер отвечает на неверный ТЕКУЩИЙ пароль кодом
+ * 422 WRONG_CURRENT_PASSWORD (backend/app/services/auth.py:change_own_password, A-22), а не 401 — запись оставлена на случай старого
+ * сервера. Для этих путей UNAUTHORIZED_EVENT не отправляется, иначе опечатка в форме завершила бы сессию. */
 const SESSION_NEUTRAL_401_PATHS: ReadonlySet<string> = new Set(['/auth/login', '/auth/me/password'])
 
 export class ApiError extends Error {
@@ -291,4 +291,8 @@ export const ErrorCode = {
   /** 429: слишком много неудачных попыток входа; заголовок Retry-After → ApiError.retryAfter. */
   TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
   INTEGRITY_ERROR: 'INTEGRITY_ERROR',
+  /** 403: запрос, меняющий данные, пришёл со страницы другого origin (защита от CSRF); повтор не поможет — см. INFRA_REGISTRY_CORS_ORIGINS. */
+  CROSS_ORIGIN_BLOCKED: 'CROSS_ORIGIN_BLOCKED',
+  /** 422: неверный текущий пароль при смене собственного пароля. Сессию не завершает (в отличие от 401), попытка считается неудачным входом. */
+  WRONG_CURRENT_PASSWORD: 'WRONG_CURRENT_PASSWORD',
 } as const

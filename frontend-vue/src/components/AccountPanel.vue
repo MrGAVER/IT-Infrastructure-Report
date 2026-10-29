@@ -3,7 +3,7 @@
 // про администрирование чужих учёток и сам тумблер). Показывается только когда есть реальная
 // сессия — при выключенной аутентификации тут нечего показывать (см. SettingsView.vue).
 import { onMounted, reactive, ref } from 'vue'
-import { ApiError } from '../api/client'
+import { ApiError, ErrorCode } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { formatServerDateTime } from '../utils/dateTime'
 
@@ -42,6 +42,8 @@ async function changePassword() {
     setTimeout(() => (pwdSaved.value = false), 2500)
   } catch (err) {
     pwdError.value = err instanceof ApiError ? err.message : 'Не удалось сменить пароль'
+    // Неверный текущий пароль — опечатка, а не конец сессии (сервер отвечает 422 WRONG_CURRENT_PASSWORD): поле очищаем для повторного ввода.
+    if (err instanceof ApiError && err.code === ErrorCode.WRONG_CURRENT_PASSWORD) pwd.current = ''
   } finally {
     pwdSaving.value = false
   }

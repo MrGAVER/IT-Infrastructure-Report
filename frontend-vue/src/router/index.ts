@@ -7,6 +7,8 @@ declare module 'vue-router' {
   interface RouteMeta {
     /** Маршрут доступен только тем, кто может менять данные (authStore.canWrite): редакторы шаблонов отчётов. */
     requiresWrite?: boolean
+    /** Маршрут доступен тому, кто видит журнал аудита (authStore.canViewAuditLog): сервер отвечает остальным 403. */
+    requiresAuditAccess?: boolean
   }
 }
 
@@ -114,6 +116,7 @@ export const routes = [
     path: '/audit-log',
     name: 'audit-log',
     component: () => import('../views/AuditLogView.vue'),
+    meta: { requiresAuditAccess: true },
   },
   {
     path: '/settings',
@@ -153,5 +156,6 @@ router.beforeEach(async (to) => {
   // Редакторы шаблонов сохраняют изменения через запись — роли «только чтение» там нечего делать (сервер всё равно ответил бы
   // 403). Формирование отчёта по шаблону viewer'у доступно, поэтому его уводим на список шаблонов, а не на дашборд.
   if (to.meta.requiresWrite && !auth.canWrite) return { name: 'report-templates' }
+  if (to.meta.requiresAuditAccess && !auth.canViewAuditLog) return { name: 'dashboard' }
   return true
 })

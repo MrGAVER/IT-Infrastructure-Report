@@ -40,8 +40,14 @@ export const useAuthStore = defineStore('auth', {
     /** Единый источник правды «можно ли менять данные» для интерфейса: при выключенной аутентификации
      * пользователь один и с полным доступом, иначе писать может только администратор (роль viewer —
      * только чтение, остальные методы записи сервер отклоняет кодом 403, см. backend/app/services/auth.py).
-     * Формирование отчётов viewer'у доступно (READ_ONLY_POST_PATHS на сервере) — их кнопки canWrite не скрывает. */
+     * Формирование отчётов и предпросмотр согласования портов viewer'у доступны (READ_ONLY_POST_PATHS на сервере) — эти кнопки canWrite не
+     * скрывает; отчёт по журналу аудита и сам журнал — только администратору (canViewAuditLog). */
     canWrite(state): boolean {
+      return !state.enabled || state.user?.role === 'admin'
+    },
+    /** Журнал аудита (раздел и отчёт) — только администратору: в нём имена, IP-адреса и неудачные входы (сервер отвечает viewer'у 403,
+     * backend/app/api/audit_log.py). Пока аутентификация выключена, пользователь один и журнал открыт. */
+    canViewAuditLog(state): boolean {
       return !state.enabled || state.user?.role === 'admin'
     },
     /** Инвертирована относительно isAuthenticated ради читаемости в router-guard'е

@@ -4,6 +4,8 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PortSyncPlanModal from '../PortSyncPlanModal.vue'
 import { useToast } from '../../composables/useToast'
+import { useAuthStore } from '../../stores/auth'
+import type { AuthUser } from '../../api/types'
 import type { PortSyncPlan, PortSyncPlanItem, PortSyncSummary } from '../../api/types'
 
 const port = (name: string, device: string, vlans: number[] = []) => ({
@@ -435,5 +437,36 @@ describe('PortSyncPlanModal.vue', () => {
 
     expect(wrapper.find('[data-partial]').exists()).toBe(false)
     expect(wrapper.find('[data-summary]').text()).not.toContain('останется')
+  })
+})
+
+// A-23: предпросмотр плана ничего не записывает и доступен роли «только чтение»; применить план она не может.
+describe('PortSyncPlanModal.vue — роль «только чтение»', () => {
+  const signIn = (role: AuthUser['role']) => {
+    const auth = useAuthStore()
+    auth.enabled = true
+    auth.user = { id: 'u1', username: role, role, is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' } as AuthUser
+  }
+
+  it('viewer видит план, но у него нет флажка подтверждения и кнопки «Применить»', async () => {
+    signIn('viewer')
+    stub(plan([item()]))
+    const wrapper = mountModal({})
+    await flushPromises()
+
+    expect(previewCalls()).toHaveLength(1)
+    expect(wrapper.find('[data-field="confirm"]').exists()).toBe(false)
+    expect(wrapper.find('[data-action="apply"]').exists()).toBe(false)
+    expect(applyCalls()).toHaveLength(0)
+  })
+
+  it('администратор по-прежнему видит флажок и кнопку «Применить»', async () => {
+    signIn('admin')
+    stub(plan([item()]))
+    const wrapper = mountModal({})
+    await flushPromises()
+
+    expect(wrapper.find('[data-field="confirm"]').exists()).toBe(true)
+    expect(wrapper.find('[data-action="apply"]').exists()).toBe(true)
   })
 })
