@@ -288,7 +288,7 @@ class TestViewerReports:
         admin, viewer = _admin_and_viewer_tokens(client)
         headers = _bearer(viewer)
         assert client.post("/api/v1/reports/inventory", headers=headers).status_code == 200
-        assert client.post("/api/v1/reports/audit-log", headers=headers).status_code == 200
+        assert client.post("/api/v1/reports/audit-log", headers=headers).status_code == 403  # A-23: журнал — только администратору
         preview = client.post("/api/v1/report-builder/preview", json={"format": "xlsx", "config": {}}, headers=headers)
         assert preview.status_code != 403, preview.text
 

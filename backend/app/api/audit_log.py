@@ -4,10 +4,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..services.auth import require_admin_if_auth_enabled
 from ..services.audit_query import AuditQuery, MAX_SEARCH_LENGTH, list_audit_log
 
 # Только чтение: журнал аудита изменяется исключительно самим приложением (crud.audit()).
-router = APIRouter(prefix='/api/v1', tags=['Audit'])
+router = APIRouter(prefix='/api/v1', tags=['Audit'], dependencies=[Depends(require_admin_if_auth_enabled)])
 
 
 @router.get('/audit-log')

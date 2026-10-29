@@ -4594,16 +4594,12 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   `ps -o pid,comm` внутри контейнера, `docker stop` < 3 с, `touch /app/app/x` от пользователя `app` → «Permission denied», CI-смоук
   с `curl /api/v1/health` на изменённом образе; в CI изменённый образ собирается и запускается шагом «docker build / smoke» — результат
   нужно посмотреть после отправки ветки.
-- **A-21. `.gitignore` игнорирует артефакты покрытия тестами; `backend/.coverage` из индекса не удалён.** В репозитории закоммичен
+- **A-21. `backend/.coverage` удалён из репозитория; `.gitignore` игнорирует артефакты покрытия тестами.** В репозитории был закоммичен
   `backend/.coverage` (содержит абсолютные пути рабочей машины), а правила игнорирования не было: каждый `pytest --cov` оставлял
   новые `.coverage*`, готовые попасть в коммит. Добавлены правила `.coverage`, `.coverage.*` (файлы параллельных прогонов),
-  `coverage.xml` (его создаёт CI) и `htmlcov/`. **Файл из индекса не удалялся** (`git rm --cached backend/.coverage` — удаление, по
-  правилам пакета делается только с разрешения владельца репозитория): пока файл отслеживается, `git status` будет показывать его
-  изменения после `pytest --cov`, а `git check-ignore -v backend/.coverage` без `--no-index` ничего не печатает (для отслеживаемых
-  файлов команда молчит) — правило видно с `git check-ignore --no-index -v backend/.coverage` (`.gitignore:23:.coverage`). Решение для
-  владельца: выполнить `git rm --cached backend/.coverage` одним коммитом — после него остаётся только правило. Тесты:
-  `tests/test_gitignore_coverage.py` (6: правила присутствуют; `git check-ignore --no-index` подтверждает `backend/.coverage`,
-  `.coverage`, `backend/.coverage.host.12345.abc`, `coverage.xml`, `backend/htmlcov/index.html`); на прежнем `.gitignore` 6 красных.
+  `coverage.xml` (его создаёт CI) и `htmlcov/`; по решению владельца файл удалён (`git rm backend/.coverage`) — остаётся только правило.
+  Тесты: `tests/test_gitignore_coverage.py` (7: правила присутствуют; `git check-ignore --no-index` подтверждает `backend/.coverage`,
+  `.coverage`, `backend/.coverage.host.12345.abc`, `coverage.xml`, `backend/htmlcov/index.html`; файл больше не отслеживается).
 - **A-22. Неверный текущий пароль при смене пароля — 422 `WRONG_CURRENT_PASSWORD`, попытка засчитывается как неудачный вход
   (изменение контракта API).** `PUT /api/v1/auth/me/password` при неверном текущем пароле отвечал 401 — кодом, которым API сообщает
   «токен отсутствует или недействителен»; клиент по нему завершает сессию, и опечатка в поле пароля разлогинивала пользователя. Кроме
@@ -4694,3 +4690,14 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   обновлении openpyxl сработают тесты оформления и новый тест таблицы границ. Тесты: `tests/test_report_layout_performance.py`
   (`@pytest.mark.slow`: 200 устройств × 8 портов ≤ 4 с, доля `apply_sheet_layout` < 40%, лучший из двух прогонов ≤ 3 с; таблица границ не плодит
   дубли), вспомогательный набор данных `tests/report_bench_seed.py`; маркер `slow` зарегистрирован в `conftest.py` (исключить: `-m "not slow"`).
+- **A-23 (решение владельца: «разрешить»). Роль viewer формирует «Приложение к структурной схеме» и смотрит предпросмотр согласования портов.**
+  В `READ_ONLY_POST_PATHS` добавлены `POST /api/v1/reports/structural-appendix` (формирует Word-файл, как `/reports/inventory`) и
+  `POST /api/v1/port-sync/preview` (по докстрингу «ничего не записывает»); `/port-sync/apply` и похожие пути остаются только администратору.
+  README обновлён; тесты — `tests/test_viewer_read_only_posts.py`. Фронтенд: кнопки «Приложение к структурной схеме» и «Что сделает»/«Согласование…»
+  больше не скрываются от viewer (см. слитую ветку).
+- **A-23 (решение владельца: «закрыть журнал аудита»). Журнал аудита доступен только администратору (изменение поведения).** `GET /api/v1/audit-log`
+  и `POST /api/v1/reports/audit-log` проверяют роль зависимостью `require_admin_if_auth_enabled`: viewer получает 403, admin — 200,
+  без токена — 401; при выключенной аутентификации (однопользовательский режим) журнал открыт, как и прежде. `/reports/audit-log` убран из
+  `READ_ONLY_POST_PATHS`. Журнал содержит имена пользователей, IP-адреса и неудачные входы (`LOGIN_FAILED`) — для роли «только просмотр реестра»
+  это больше необходимого. Тест `test_viewer_can_generate_reports_and_preview` обновлён (отчёт по журналу — 403). Фронтенд: пункт меню
+  «Журнал аудита» скрыт от viewer (см. слитую ветку).

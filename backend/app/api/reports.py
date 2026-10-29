@@ -7,6 +7,7 @@ from ..config import REPORT_DIR
 from ..db import get_db
 from ..reporting import build_report
 from ..services.audit_export import build_audit_log_report
+from ..services.auth import require_admin_if_auth_enabled
 from ..services.report_cleanup import cleanup_before_new_report
 from ..services.report_params import parse_structural_unit_ids
 from ..services.structural_appendix_docx import DEFAULT_IS_NAME, StructuralAppendixError, build_structural_appendix
@@ -20,7 +21,7 @@ def generate_report(information_system_id: str | None = None, payload: dict | No
     path = build_report(session, REPORT_DIR, information_system_id, structural_unit_ids)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
-@router.post('/api/v1/reports/audit-log')
+@router.post('/api/v1/reports/audit-log', dependencies=[Depends(require_admin_if_auth_enabled)])
 def generate_audit_log_report(date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None, session: Session = Depends(get_db)):
     cleanup_before_new_report(REPORT_DIR)
     path = build_audit_log_report(session, REPORT_DIR, date_from, date_to, entity_type)
