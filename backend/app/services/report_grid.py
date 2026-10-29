@@ -26,7 +26,7 @@ Grid-движок конструктора произвольных отчёто
         "root_entity": "information-systems",   # ключ из /report-builder/entities
         "expand": null,                # опц.: связь "многие" — строка размножается по её элементам
         "include_empty_expand": true,
-        "filters": [{"path": "status", "op": "eq", "value": "active"}],
+        "filters": [{"path": "siem_enabled", "op": "is_true"}],
         "sort_by": "name"
       },
       "cells": [
