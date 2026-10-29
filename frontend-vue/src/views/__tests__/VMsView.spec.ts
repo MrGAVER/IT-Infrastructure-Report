@@ -17,7 +17,6 @@ function vm(i: number, overrides: Partial<VirtualMachine> = {}): VirtualMachine 
     physical_device_id: null,
     hypervisor_os_id: null,
     purpose: null,
-    status: 'active',
     description: null,
     ...overrides,
   }

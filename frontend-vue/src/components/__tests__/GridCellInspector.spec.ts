@@ -67,7 +67,7 @@ describe('GridCellInspector.vue — режим строки', () => {
     expect(patch.data_source.filters).toHaveLength(1)
 
     const rowWithFilter = repeatingRow()
-    rowWithFilter.data_source!.filters = [{ path: 'status', op: 'eq', value: 'active' }]
+    rowWithFilter.data_source!.filters = [{ path: 'name', op: 'eq', value: 'ИС-1' }]
     const wrapper2 = mount(GridCellInspector, { props: { mode: 'row', row: rowWithFilter, cell: cell(), entities } })
     await wrapper2.find('.filter-row .icon-btn').trigger('click')
     patch = wrapper2.emitted('update-row')![0][0] as { data_source: { filters: unknown[] } }
@@ -76,7 +76,7 @@ describe('GridCellInspector.vue — режим строки', () => {
 
   it('оператор "не пусто" скрывает поле значения фильтра', () => {
     const rowWithFilter = repeatingRow()
-    rowWithFilter.data_source!.filters = [{ path: 'status', op: 'not_empty', value: '' }]
+    rowWithFilter.data_source!.filters = [{ path: 'name', op: 'not_empty', value: '' }]
     const wrapper = mount(GridCellInspector, { props: { mode: 'row', row: rowWithFilter, cell: cell(), entities } })
     expect(wrapper.find('.filter-row input[placeholder="значение"]').exists()).toBe(false)
   })

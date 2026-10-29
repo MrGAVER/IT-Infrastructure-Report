@@ -32,7 +32,6 @@ describe('VMFormModal.vue', () => {
       physical_device_id: null,
       hypervisor_os_id: null,
       purpose: null,
-      status: 'active',
       description: null,
     }
     const catalogs = useCatalogsStore()
@@ -85,7 +84,7 @@ describe('VMFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (method === 'POST' && url.endsWith('/resources/vms')) {
-          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }, 201)
+          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null }, 201)
         }
         if (method === 'GET' && (url.includes('/resources/ip-addresses') || url.includes('/resources/open-ports'))) {
           return jsonResponse(EMPTY_PAGE)
@@ -161,7 +160,7 @@ describe('VMFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method })
         if (method === 'POST' && url.endsWith('/resources/vms')) {
-          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }, 201)
+          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null }, 201)
         }
         return jsonResponse(EMPTY_PAGE)
       }),
@@ -183,7 +182,6 @@ describe('VMFormModal.vue', () => {
       physical_device_id: null,
       hypervisor_os_id: null,
       purpose: null,
-      status: 'active',
       description: null,
     }
     const apiIp = (id: string, ip: string) => ({ id, owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: ip, prefix_length: null, purpose: null, is_management: false })
@@ -297,7 +295,7 @@ describe('VMFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (method === 'POST' && url.endsWith('/resources/vms')) {
-          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }, 201)
+          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null }, 201)
         }
         if (method === 'PUT' && url.endsWith('/vms/vm-new/deployed-software')) {
           return jsonResponse({ items: [{ id: 'sw-new' }] })
@@ -357,7 +355,6 @@ describe('VMFormModal.vue', () => {
       physical_device_id: null,
       hypervisor_os_id: null,
       purpose: 'веб-сервер',
-      status: 'active',
       description: null,
     }
 
@@ -398,7 +395,7 @@ describe('VMFormModal.vue', () => {
             return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-src', owner_type: 'virtual_machine', owner_id: 'vm-src', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }] })
           }
           if (method === 'POST' && url.endsWith('/resources/vms')) {
-            return jsonResponse({ id: 'vm-new', name: 'app-server-02', operating_system_id: 'os-1', physical_device_id: null, hypervisor_os_id: null, purpose: 'веб-сервер', status: 'active', description: null }, 201)
+            return jsonResponse({ id: 'vm-new', name: 'app-server-02', operating_system_id: 'os-1', physical_device_id: null, hypervisor_os_id: null, purpose: 'веб-сервер', description: null }, 201)
           }
           return jsonResponse(EMPTY_PAGE)
         }),
@@ -431,7 +428,7 @@ describe('VMFormModal.vue — открытые порты: сортировка 
   ]
   const existingVm: VirtualMachine = {
     id: 'vm-1', name: 'app-server-01', operating_system_id: null, physical_device_id: null,
-    hypervisor_os_id: null, purpose: null, status: 'active', description: null,
+    hypervisor_os_id: null, purpose: null, description: null,
   }
   const apiPort = (id: string, catalogId: string) => ({
     id, owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', protocol_catalog_id: catalogId, ip_address: null, description: null,
@@ -571,7 +568,7 @@ describe('VMFormModal.vue — открытые порты сворачивают
   const catalog = Array.from({ length: 4 }, (_, i) => ({ id: `cat-${i}`, port: 8000 + i, protocol_type: `P${i}`, description: null }))
   const vm: VirtualMachine = {
     id: 'vm-1', name: 'app-server-01', operating_system_id: null, physical_device_id: null,
-    hypervisor_os_id: null, purpose: null, status: 'active', description: null,
+    hypervisor_os_id: null, purpose: null, description: null,
   }
   const apiPort = (i: number) => ({
     id: `op-${i}`, owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', protocol_catalog_id: `cat-${i}`, ip_address: null, description: null,
@@ -733,7 +730,7 @@ describe('VMFormModal.vue — «Операционная система» и «�
     // Тип «Коммутатор» не проходит фильтр хостов, но у ВМ он мог остаться в БД (сменили тип устройства).
     const staleVm: VirtualMachine = {
       id: 'vm-1', name: 'app-01', operating_system_id: null, physical_device_id: 'd-sw',
-      hypervisor_os_id: null, purpose: null, status: 'active', description: null,
+      hypervisor_os_id: null, purpose: null, description: null,
     }
     function seedDevices() {
       seedCatalogs()
