@@ -1,8 +1,8 @@
 """A-21: артефакты покрытия тестами (`pytest --cov`) игнорируются git.
 
-В репозитории был закоммичен backend/.coverage (абсолютные пути рабочей машины), а правила в .gitignore не было. Файл из индекса
-здесь не удаляется (это решение владельца репозитория: `git rm --cached backend/.coverage`) — правило защищает от новых артефактов.
-Для уже отслеживаемого файла `git check-ignore` без `--no-index` молчит, поэтому проверка идёт с `--no-index`.
+В репозитории был закоммичен backend/.coverage (абсолютные пути рабочей машины), а правила в .gitignore не было. Файл удалён из
+репозитория по решению владельца (`git rm backend/.coverage`), правило защищает от его возвращения и от новых артефактов.
+Проверка идёт с `--no-index`: она не зависит от того, отслеживается ли файл.
 Запуск: pytest backend/tests/test_gitignore_coverage.py -v
 """
 from __future__ import annotations
@@ -30,3 +30,10 @@ def test_git_ignores_the_artifact(path):
     )
     assert result.returncode == 0, f"{path} не игнорируется: {result.stdout}{result.stderr}"
     assert ".gitignore" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("git") is None or not (ROOT / ".git").exists(), reason="нужны git и рабочая копия репозитория")
+def test_coverage_artifact_is_not_tracked_any_more():
+    result = subprocess.run(["git", "ls-files", "--", "backend/.coverage", ".coverage"], cwd=ROOT, capture_output=True, text=True, check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "", "backend/.coverage снова отслеживается git"

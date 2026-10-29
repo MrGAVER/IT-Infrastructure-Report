@@ -4594,16 +4594,12 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   `ps -o pid,comm` внутри контейнера, `docker stop` < 3 с, `touch /app/app/x` от пользователя `app` → «Permission denied», CI-смоук
   с `curl /api/v1/health` на изменённом образе; в CI изменённый образ собирается и запускается шагом «docker build / smoke» — результат
   нужно посмотреть после отправки ветки.
-- **A-21. `.gitignore` игнорирует артефакты покрытия тестами; `backend/.coverage` из индекса не удалён.** В репозитории закоммичен
+- **A-21. `backend/.coverage` удалён из репозитория; `.gitignore` игнорирует артефакты покрытия тестами.** В репозитории был закоммичен
   `backend/.coverage` (содержит абсолютные пути рабочей машины), а правила игнорирования не было: каждый `pytest --cov` оставлял
   новые `.coverage*`, готовые попасть в коммит. Добавлены правила `.coverage`, `.coverage.*` (файлы параллельных прогонов),
-  `coverage.xml` (его создаёт CI) и `htmlcov/`. **Файл из индекса не удалялся** (`git rm --cached backend/.coverage` — удаление, по
-  правилам пакета делается только с разрешения владельца репозитория): пока файл отслеживается, `git status` будет показывать его
-  изменения после `pytest --cov`, а `git check-ignore -v backend/.coverage` без `--no-index` ничего не печатает (для отслеживаемых
-  файлов команда молчит) — правило видно с `git check-ignore --no-index -v backend/.coverage` (`.gitignore:23:.coverage`). Решение для
-  владельца: выполнить `git rm --cached backend/.coverage` одним коммитом — после него остаётся только правило. Тесты:
-  `tests/test_gitignore_coverage.py` (6: правила присутствуют; `git check-ignore --no-index` подтверждает `backend/.coverage`,
-  `.coverage`, `backend/.coverage.host.12345.abc`, `coverage.xml`, `backend/htmlcov/index.html`); на прежнем `.gitignore` 6 красных.
+  `coverage.xml` (его создаёт CI) и `htmlcov/`; по решению владельца файл удалён (`git rm backend/.coverage`) — остаётся только правило.
+  Тесты: `tests/test_gitignore_coverage.py` (7: правила присутствуют; `git check-ignore --no-index` подтверждает `backend/.coverage`,
+  `.coverage`, `backend/.coverage.host.12345.abc`, `coverage.xml`, `backend/htmlcov/index.html`; файл больше не отслеживается).
 - **A-22. Неверный текущий пароль при смене пароля — 422 `WRONG_CURRENT_PASSWORD`, попытка засчитывается как неудачный вход
   (изменение контракта API).** `PUT /api/v1/auth/me/password` при неверном текущем пароле отвечал 401 — кодом, которым API сообщает
   «токен отсутствует или недействителен»; клиент по нему завершает сессию, и опечатка в поле пароля разлогинивала пользователя. Кроме
