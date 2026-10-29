@@ -613,6 +613,8 @@ READ_ONLY_POST_PATHS = frozenset({
     "/api/v1/reports/inventory",
     "/api/v1/reports/audit-log",
     "/api/v1/report-builder/preview",
+    "/api/v1/reports/structural-appendix",  # формирует Word-файл, реестр не меняет (A-23)
+    "/api/v1/port-sync/preview",            # «план согласования портов — ничего не записывает» (api/port_sync.py, A-23)
 })
 _TEMPLATE_GENERATE_PATH = re.compile(r"^/api/v1/report-templates/[^/]+/generate$")
 

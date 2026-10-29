@@ -4690,3 +4690,8 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   обновлении openpyxl сработают тесты оформления и новый тест таблицы границ. Тесты: `tests/test_report_layout_performance.py`
   (`@pytest.mark.slow`: 200 устройств × 8 портов ≤ 4 с, доля `apply_sheet_layout` < 40%, лучший из двух прогонов ≤ 3 с; таблица границ не плодит
   дубли), вспомогательный набор данных `tests/report_bench_seed.py`; маркер `slow` зарегистрирован в `conftest.py` (исключить: `-m "not slow"`).
+- **A-23 (решение владельца: «разрешить»). Роль viewer формирует «Приложение к структурной схеме» и смотрит предпросмотр согласования портов.**
+  В `READ_ONLY_POST_PATHS` добавлены `POST /api/v1/reports/structural-appendix` (формирует Word-файл, как `/reports/inventory`) и
+  `POST /api/v1/port-sync/preview` (по докстрингу «ничего не записывает»); `/port-sync/apply` и похожие пути остаются только администратору.
+  README обновлён; тесты — `tests/test_viewer_read_only_posts.py`. Фронтенд: кнопки «Приложение к структурной схеме» и «Что сделает»/«Согласование…»
+  больше не скрываются от viewer (см. слитую ветку).
