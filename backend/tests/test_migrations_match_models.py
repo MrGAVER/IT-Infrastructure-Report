@@ -72,23 +72,11 @@ NULLABLE_TIMESTAMPS = {
 }
 
 COMMON = NULLABLE_TIMESTAMPS | {
-    # 2. Внешние ключи, обязательные в модели, но допускающие NULL в базе (модель требует значение, старые строки — нет).
-    "modify_nullable connections.connection_type_id: db=NULL model=NOT NULL",
-    "modify_nullable device_models.device_type_id: db=NULL model=NOT NULL",
-    # 3. Устаревшие колонки и таблица: данные перенесены миграциями (c4e8a7d91b20, 4ea6658f69bf и др.), но сами объекты не
-    #    удалены. Удаление деструктивно — только по отдельному решению владельца.
-    "remove_column physical_devices.os_name",
-    "remove_column physical_devices.os_version",
-    "remove_column virtual_machines.os_name",
-    "remove_column virtual_machines.os_version",
-    "remove_column virtual_machines.virtualization_platform_id",
-    "remove_fk virtual_machines",
-    "remove_table virtualization_platforms",
-    # 4. Индексы, которые есть в базе, но не объявлены в моделях. Безвредны (ускоряют запросы), в моделях не описаны.
+    # 2. Индексы, которые есть в базе, но не объявлены в моделях. Безвредны (ускоряют запросы), в моделях не описаны.
     "remove_index deployed_software(owner_type,owner_id) ix_deployed_software_owner",
     "remove_index deployed_software(software_asset_id) ix_deployed_software_software_asset_id",
     "remove_index ip_addresses(owner_type,owner_id) ix_ip_addresses_owner",
-    # 5. Одно и то же, выраженное по-разному: UNIQUE-ограничение в базе против unique-индекса в модели (`unique=True,
+    # 3. Одно и то же, выраженное по-разному: UNIQUE-ограничение в базе против unique-индекса в модели (`unique=True,
     #    index=True` у одной колонки), либо индекс под другим именем. Свойство (уникальность/быстрый поиск) обеспечено.
     "add_index auth_sessions(token_hash) ix_auth_sessions_token_hash",
     "remove_constraint UniqueConstraint auth_sessions.uq_auth_sessions_token_hash",

@@ -21,8 +21,9 @@ downgrade() удаляет только индексы, появившиеся �
 более ранним миграциям (их downgrade удаляет сам), поэтому откат этой ревизии их не трогает.
 
 Намеренно НЕ входит (решения владельца продукта, см. whitelist в тесте-страже): выравнивание NOT NULL у created_at /
-updated_at и ещё двух колонок, удаление устаревших колонок os_name / os_version / virtualization_platform_id и таблицы
-virtualization_platforms, уникальные ограничения, дублирующие индексы.
+updated_at, уникальные ограничения, дублирующие индексы. NOT NULL у connection_type_id / device_type_id и удаление
+устаревших колонок os_name / os_version / virtualization_platform_id с таблицей virtualization_platforms выполнены позже —
+миграциями d7a3f1c8b254 и e9b4c2a7d136.
 """
 import sqlalchemy as sa
 from alembic import op

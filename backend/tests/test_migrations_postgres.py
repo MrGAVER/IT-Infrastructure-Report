@@ -164,7 +164,7 @@ class TestSchemaMatchesWhatTheAppNeeds:
         assert not missing_columns
 
     def test_columns_left_behind_by_old_migrations_never_block_an_insert(self, migrated):
-        """Остатки прежних схем (например, os_name у устройства) допустимы, пока они необязательны: ORM их не заполняет."""
+        """Остатки прежних схем допустимы, пока они необязательны: ORM их не заполняет."""
         inspector = sa.inspect(migrated.engine)
         blocking = []
         for table in Base.metadata.tables.values():
