@@ -278,7 +278,8 @@ class TestPostgresConstraint:
         return names
 
     def test_constraint_exists_before_and_is_dropped_by_the_migration(self):
-        from test_migrations_postgres import ScratchDatabase, _insert
+        from migration_support import insert_row as _insert
+        from test_migrations_postgres import ScratchDatabase
 
         database = ScratchDatabase()
         try:
