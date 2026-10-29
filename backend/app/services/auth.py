@@ -611,7 +611,6 @@ def _is_role_check_exempt(path: str) -> bool:
 # создание, правка, удаление и дублирование шаблонов, как и /seed, остаются только для администратора.
 READ_ONLY_POST_PATHS = frozenset({
     "/api/v1/reports/inventory",
-    "/api/v1/reports/audit-log",
     "/api/v1/report-builder/preview",
     "/api/v1/reports/structural-appendix",  # формирует Word-файл, реестр не меняет (A-23)
     "/api/v1/port-sync/preview",            # «план согласования портов — ничего не записывает» (api/port_sync.py, A-23)
@@ -768,6 +767,18 @@ def require_setup_access(request: Request) -> None:
                    "(заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN).",
         "code": ErrorCode.SETUP_ACCESS_DENIED,
     })
+
+
+def require_admin_if_auth_enabled(request: Request) -> None:
+    """Журнал аудита (имена пользователей, IP-адреса, неудачные попытки входа) — только администратору (A-23).
+
+    В отличие от `require_admin`, при выключенной аутентификации ничего не требует: однопользовательский режим по умолчанию
+    открыт, как и весь остальной API (иначе журнал пропал бы у владельца локальной установки)."""
+    if not getattr(request.state, "auth_enabled", False):
+        return
+    user: Optional[User] = getattr(request.state, "user", None)
+    if user is None or user.role != UserRole.ADMIN:
+        raise HTTPException(403, "Журнал аудита доступен только администратору.")
 
 
 def require_admin(request: Request) -> None:

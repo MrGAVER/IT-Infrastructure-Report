@@ -44,3 +44,19 @@ def test_anonymous_still_needs_a_token(client):
     _admin_and_viewer(client)
     assert client.post("/api/v1/reports/structural-appendix", json={}).status_code == 401
     assert client.post("/api/v1/port-sync/preview", json={}).status_code == 401
+
+
+# --- A-23 (вариант «закрыть журнал аудита»): журнал с IP-адресами и неудачными входами — только администратору ----------------
+
+def test_audit_log_is_admin_only_once_authentication_is_enabled(client):
+    admin, viewer = _admin_and_viewer(client)
+    assert client.get("/api/v1/audit-log", headers=admin).status_code == 200
+    assert client.get("/api/v1/audit-log", headers=viewer).status_code == 403
+    assert client.post("/api/v1/reports/audit-log", headers=admin).status_code == 200
+    assert client.post("/api/v1/reports/audit-log", headers=viewer).status_code == 403
+    assert client.get("/api/v1/audit-log").status_code == 401
+
+
+def test_audit_log_stays_open_in_the_single_user_mode(client):
+    assert client.get("/api/v1/audit-log").status_code == 200
+    assert client.post("/api/v1/reports/audit-log").status_code == 200
