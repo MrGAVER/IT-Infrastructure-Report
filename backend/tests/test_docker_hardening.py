@@ -106,12 +106,15 @@ class TestShellSemantics:
 
     @staticmethod
     def _comm_of_the_shell_process(command: str) -> str:
+        # Между fork и exec у дочернего процесса имя родителя (pytest/python): его тоже пропускаем, иначе на загруженной машине
+        # читается имя ещё не запущенной оболочки и тест краснеет случайно.
+        own_name = Path("/proc/self/comm").read_text().strip()
         process = subprocess.Popen(["sh", "-c", command], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 comm = Path(f"/proc/{process.pid}/comm").read_text().strip()
-                if comm != "sh":
+                if comm not in {"sh", own_name}:
                     return comm
                 time.sleep(0.05)
             return Path(f"/proc/{process.pid}/comm").read_text().strip()
