@@ -74,9 +74,13 @@ jobs:
         # -n auto (pytest-xdist): тесты идут на SQLite in-memory/временных файлах и друг от друга не зависят, поэтому
         # раскладываются по ядрам раннера; pytest-cov сам собирает покрытие со всех процессов. Job-ы на PostgreSQL ниже
         # без -n: у них одна общая база, которую каждый тест очищает (TRUNCATE), — параллельные процессы мешали бы друг другу.
+        # Тесты с меткой slow (test_report_layout_performance.py) проверяют время работы и на 2-ядерном раннере в паре со вторым
+        # процессом и измерением покрытия выходят за лимит (3,8–4,0 с при лимите 3,0 с), поэтому идут отдельным шагом без -n,
+        # а покрытие дописывается (--cov-append). Порог покрытия проверяет только второй шаг — по сумме обоих.
         run: |
           status=0
-          pytest -n auto -v --cov --cov-report=term:skip-covered || status=$?
+          pytest -n auto -m "not slow" -v --cov --cov-fail-under=0 --cov-report= || status=$?
+          pytest -m slow -v --cov --cov-append --cov-report=term:skip-covered || status=$?
           { echo "### Покрытие тестами backend"; echo; coverage report --format=markdown --skip-covered --fail-under=0 || true; } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 

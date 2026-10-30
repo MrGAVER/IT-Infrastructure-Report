@@ -878,8 +878,9 @@ CI проверяет, что lock-файлы актуальны (пересбо
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
   видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
-- **Скорость прогона backend** (~3 200 тестов): `pytest -n auto` раскладывает их по ядрам (`pytest-xdist` из dev-зависимостей;
-  на SQLite тесты независимы). Без `-n` для отладки (`--pdb`, `-s`) и на PostgreSQL (`INFRA_REGISTRY_TEST_DATABASE_URL`):
+- **Скорость прогона backend** (~3 200 тестов): `pytest -n auto -m "not slow"` раскладывает их по ядрам (`pytest-xdist` из dev-зависимостей;
+  на SQLite тесты независимы), а три теста на время (метка `slow`, `test_report_layout_performance.py`) идут отдельно: `pytest -m slow` —
+  рядом с другим процессом они выходят за лимит; так же сделан шаг в CI. Без `-n` для отладки (`--pdb`, `-s`) и на PostgreSQL (`INFRA_REGISTRY_TEST_DATABASE_URL`):
   там одна общая база, и параллельные процессы мешали бы друг другу. Внутри `conftest.py` три ускорения: схема SQLite из
   моделей копируется из шаблона, а не строится в каждом тесте; результат `alembic upgrade` на пустой файловой SQLite
   запоминается на процесс (отключить: `INFRA_REGISTRY_TEST_NO_UPGRADE_CACHE=1`); PBKDF2 в тестах идёт на 1 000 итераций
