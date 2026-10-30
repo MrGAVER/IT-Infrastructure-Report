@@ -123,17 +123,17 @@ describe('DeviceFormModal.vue', () => {
       }
       devicePostCalls += 1
       if (devicePostCalls === 1) {
-        return new Response(
-          JSON.stringify({ detail: { code: 'DUPLICATE_SYSTEM_NAME', message: 'Уже используется. Сохранить дубликат?' } }),
-          { status: 409 },
-        )
+        return new Response(JSON.stringify({ detail: { code: 'DUPLICATE_SYSTEM_NAME', message: 'Уже используется. Сохранить дубликат?' } }), { status: 409 })
       }
       const body = JSON.parse(init!.body as string)
       expect(body.confirm_system_name_duplicate).toBe(true)
       return new Response(JSON.stringify({ id: 'new-2', serial_number: 'SN-2' }), { status: 201 })
     })
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
 
     await pickTypeModel(wrapper, 'Сервер')
     await setSerial(wrapper, 'SN-2')
@@ -160,7 +160,10 @@ describe('DeviceFormModal.vue', () => {
       return new Response(JSON.stringify({ detail: { code: 'DUPLICATE_SYSTEM_NAME', message: 'Уже используется.' } }), { status: 409 })
     })
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
 
     await pickTypeModel(wrapper, 'Сервер')
     await setSerial(wrapper, 'SN-3')
@@ -196,7 +199,20 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/resources/interfaces')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }],
+              items: [
+                {
+                  id: 'if-1',
+                  physical_device_id: 'dev-1',
+                  name: 'eth0',
+                  interface_type_id: null,
+                  mac_address: null,
+                  speed_id: null,
+                  is_management: false,
+                  is_data_transfer: false,
+                  description: null,
+                  vlan_mode: 'access',
+                },
+              ],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -206,7 +222,19 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/interface-open-ports')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'op-1', owner_type: 'device_interface', owner_id: 'if-1', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }],
+              items: [
+                {
+                  id: 'op-1',
+                  owner_type: 'device_interface',
+                  owner_id: 'if-1',
+                  transport_protocol: 'TCP',
+                  port: 22,
+                  protocol: 'SSH',
+                  protocol_catalog_id: 'cat-ssh',
+                  ip_address: null,
+                  description: null,
+                },
+              ],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -266,7 +294,10 @@ describe('DeviceFormModal.vue', () => {
     await addButtons[0].trigger('click') // + Программный актив — единственная кнопка add-btn на пустой форме (открытые порты теперь внутри интерфейса, см. фикс п.1.4)
     // Поле ПО — SearchableSelect: выбираем опцию по подписи, а не по порядку (в каталоге их может быть больше одной).
     await wrapper.find('.col-asset .searchable-select input').trigger('focus')
-    await wrapper.findAll('.col-asset .ss-option').find((o) => o.text() === 'Active Directory')!.trigger('mousedown')
+    await wrapper
+      .findAll('.col-asset .ss-option')
+      .find((o) => o.text() === 'Active Directory')!
+      .trigger('mousedown')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -305,7 +336,8 @@ describe('DeviceFormModal.vue', () => {
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method })
-        if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-6' }), { status: 201 })
+        if (method === 'POST' && url.includes('/resources/devices'))
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-6' }), { status: 201 })
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       }),
     )
@@ -321,7 +353,13 @@ describe('DeviceFormModal.vue', () => {
 
   describe('ПО существующего устройства сохраняется без удаления и пересоздания', () => {
     const device = { id: 'dev-sw', device_type_id: 'dt-server', serial_number: 'SN-SW' } as never
-    const apiSoftware = (id: string, assetId: string, version: string | null) => ({ id, owner_type: 'physical_device', owner_id: 'dev-sw', software_asset_id: assetId, version })
+    const apiSoftware = (id: string, assetId: string, version: string | null) => ({
+      id,
+      owner_type: 'physical_device',
+      owner_id: 'dev-sw',
+      software_asset_id: assetId,
+      version,
+    })
 
     async function mountWithSoftware(software: unknown[]) {
       stubCatalogsFetch()
@@ -332,7 +370,8 @@ describe('DeviceFormModal.vue', () => {
         vi.fn(async (url: string, init?: RequestInit) => {
           const method = init?.method ?? 'GET'
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
-          if (method === 'GET' && url.includes('/resources/deployed-software')) return new Response(JSON.stringify({ items: software, total: software.length, offset: 0, limit: 1000 }))
+          if (method === 'GET' && url.includes('/resources/deployed-software'))
+            return new Response(JSON.stringify({ items: software, total: software.length, offset: 0, limit: 1000 }))
           if (method === 'PUT' && url.endsWith('/devices/dev-sw/deployed-software')) return new Response(JSON.stringify({ items: [] }))
           if (method === 'PUT' && url.includes('/resources/devices/dev-sw')) return new Response(JSON.stringify({ id: 'dev-sw', serial_number: 'SN-SW' }))
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
@@ -361,7 +400,9 @@ describe('DeviceFormModal.vue', () => {
       await wrapper.findAll('button[aria-label="Удалить программный актив"]')[0].trigger('click')
       await wrapper.find('form').trigger('submit')
       await flushPromises()
-      expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-sw/deployed-software'))?.body).toEqual({ deployed_software: [{ id: 'sw-2', software_asset_id: 'sa-nginx', version: '1.25' }] })
+      expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-sw/deployed-software'))?.body).toEqual({
+        deployed_software: [{ id: 'sw-2', software_asset_id: 'sa-nginx', version: '1.25' }],
+      })
       expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
     })
 
@@ -388,7 +429,19 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/resources/interfaces')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'if-1', physical_device_id: 'dev-2', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: true, description: null }],
+              items: [
+                {
+                  id: 'if-1',
+                  physical_device_id: 'dev-2',
+                  name: 'eth0',
+                  interface_type_id: null,
+                  mac_address: null,
+                  speed_id: null,
+                  is_management: false,
+                  is_data_transfer: true,
+                  description: null,
+                },
+              ],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -397,7 +450,22 @@ describe('DeviceFormModal.vue', () => {
         }
         if (url.includes('/interface-ips')) {
           return new Response(
-            JSON.stringify({ items: [{ id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '192.168.1.1', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }),
+            JSON.stringify({
+              items: [
+                {
+                  id: 'ip-1',
+                  owner_type: 'device_interface',
+                  owner_id: 'if-1',
+                  ip_address: '192.168.1.1',
+                  prefix_length: 24,
+                  purpose: null,
+                  is_management: false,
+                },
+              ],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
           )
         }
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
@@ -414,12 +482,27 @@ describe('DeviceFormModal.vue', () => {
 
   describe('группы портов (правка формы устройства, п.4)', () => {
     const groupDto = {
-      id: 'g-1', physical_device_id: 'dev-g', name: 'Серверные', vlan_mode: null, vlan_ids: [],
-      ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null }], manage_open_ports: false, open_ports: [],
+      id: 'g-1',
+      physical_device_id: 'dev-g',
+      name: 'Серверные',
+      vlan_mode: null,
+      vlan_ids: [],
+      ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null }],
+      manage_open_ports: false,
+      open_ports: [],
     }
     const ifaceDto = (id: string, name: string, groupId: string | null) => ({
-      id, physical_device_id: 'dev-g', name, interface_type_id: null, mac_address: null, speed_id: null,
-      is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access', group_id: groupId,
+      id,
+      physical_device_id: 'dev-g',
+      name,
+      interface_type_id: null,
+      mac_address: null,
+      speed_id: null,
+      is_management: false,
+      is_data_transfer: false,
+      description: null,
+      vlan_mode: 'access',
+      group_id: groupId,
     })
     const device = { id: 'dev-g', device_type_id: 'dt-server', serial_number: 'SN-G' } as never
 
@@ -433,13 +516,33 @@ describe('DeviceFormModal.vue', () => {
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
           if (url.includes('/devices/dev-g/interface-groups')) return new Response(JSON.stringify({ items: [groupDto] }))
           if (url.includes('/resources/interfaces') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [ifaceDto('if-1', 'Gi0/1', 'g-1'), ifaceDto('if-2', 'Gi0/2', null)], total: 2, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({ items: [ifaceDto('if-1', 'Gi0/1', 'g-1'), ifaceDto('if-2', 'Gi0/2', null)], total: 2, offset: 0, limit: 1000 }),
+            )
           }
           if (url.includes('/interface-ips') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'ip-1', owner_type: 'device_interface', owner_id: 'if-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null, is_management: false }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    id: 'ip-1',
+                    owner_type: 'device_interface',
+                    owner_id: 'if-1',
+                    ip_address: '10.0.0.5',
+                    prefix_length: 24,
+                    purpose: null,
+                    is_management: false,
+                  },
+                ],
+                total: 1,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
           }
           if (method === 'PUT' && url.includes('/devices/dev-g/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
-          if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
+          if (method === 'POST' && url.includes('/resources/devices'))
+            return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
           if (method === 'PUT' && url.includes('/resources/devices/dev-g')) return new Response(JSON.stringify({ id: 'dev-g', serial_number: 'SN-G' }))
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
@@ -461,8 +564,19 @@ describe('DeviceFormModal.vue', () => {
 
       const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-g/interfaces'))
       const body = put?.body as { groups: Array<Record<string, unknown>>; interfaces: Array<{ name: string; group_key: string | null }> }
-      expect(body.groups).toEqual([expect.objectContaining({ id: 'g-1', key: 'g-1', name: 'Серверные', ips: [expect.objectContaining({ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24 })], vlan_mode: null })])
-      expect(body.interfaces.map((i) => [i.name, i.group_key])).toEqual([['Gi0/1', 'g-1'], ['Gi0/2', null]])
+      expect(body.groups).toEqual([
+        expect.objectContaining({
+          id: 'g-1',
+          key: 'g-1',
+          name: 'Серверные',
+          ips: [expect.objectContaining({ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24 })],
+          vlan_mode: null,
+        }),
+      ])
+      expect(body.interfaces.map((i) => [i.name, i.group_key])).toEqual([
+        ['Gi0/1', 'g-1'],
+        ['Gi0/2', null],
+      ])
     })
 
     it('копирование устройства: группы донора создаются заново без id, порты перевязываются на новые ключи', async () => {
@@ -474,11 +588,17 @@ describe('DeviceFormModal.vue', () => {
       await flushPromises()
 
       const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-copy/interfaces'))
-      const body = put?.body as { groups: Array<{ id?: string; key: string; name: string }>; interfaces: Array<{ id?: string; name: string; group_key: string | null }> }
+      const body = put?.body as {
+        groups: Array<{ id?: string; key: string; name: string }>
+        interfaces: Array<{ id?: string; name: string; group_key: string | null }>
+      }
       expect(body.groups).toHaveLength(1)
       expect(body.groups[0].id).toBeUndefined()
       expect(body.groups[0].key).not.toBe('g-1')
-      expect(body.interfaces.map((i) => [i.id, i.name, i.group_key])).toEqual([[undefined, 'Gi0/1', body.groups[0].key], [undefined, 'Gi0/2', null]])
+      expect(body.interfaces.map((i) => [i.id, i.name, i.group_key])).toEqual([
+        [undefined, 'Gi0/1', body.groups[0].key],
+        [undefined, 'Gi0/2', null],
+      ])
     })
 
     it('группа с некорректным IP не применяется: окно группы остаётся открытым, запрос сохранения не уходит', async () => {
@@ -573,7 +693,19 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/resources/interfaces')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'if-1', physical_device_id: 'dev-3', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null }],
+              items: [
+                {
+                  id: 'if-1',
+                  physical_device_id: 'dev-3',
+                  name: 'eth0',
+                  interface_type_id: null,
+                  mac_address: null,
+                  speed_id: null,
+                  is_management: false,
+                  is_data_transfer: false,
+                  description: null,
+                },
+              ],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -618,7 +750,19 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/resources/interfaces')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'if-1', physical_device_id: 'dev-5', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null }],
+              items: [
+                {
+                  id: 'if-1',
+                  physical_device_id: 'dev-5',
+                  name: 'eth0',
+                  interface_type_id: null,
+                  mac_address: null,
+                  speed_id: null,
+                  is_management: false,
+                  is_data_transfer: false,
+                  description: null,
+                },
+              ],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -630,7 +774,22 @@ describe('DeviceFormModal.vue', () => {
         }
         if (url.includes('/resources/device-vlans')) {
           return new Response(
-            JSON.stringify({ items: [{ id: 'dv-1', physical_device_id: 'dev-5', vlan_id: 'v-assigned', ip_address: null, prefix_length: null, is_management: false, description: null }], total: 1, offset: 0, limit: 1000 }),
+            JSON.stringify({
+              items: [
+                {
+                  id: 'dv-1',
+                  physical_device_id: 'dev-5',
+                  vlan_id: 'v-assigned',
+                  ip_address: null,
+                  prefix_length: null,
+                  is_management: false,
+                  description: null,
+                },
+              ],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
           )
         }
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
@@ -679,7 +838,12 @@ describe('DeviceFormModal.vue', () => {
           // (а значит и в availableVlans) до следующей полной перезагрузки стора.
           return new Response(
             JSON.stringify({
-              items: [{ vlan_id: 55, definitions: [{ id: 'v-new', vlan_id: 55, name: 'Гостевой-X', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }] }],
+              items: [
+                {
+                  vlan_id: 55,
+                  definitions: [{ id: 'v-new', vlan_id: 55, name: 'Гостевой-X', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }],
+                },
+              ],
             }),
           )
         }
@@ -757,7 +921,14 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/vlan-dashboard')) {
           return new Response(
             JSON.stringify({
-              items: [{ vlan_id: 66, definitions: [{ id: 'v-new', vlan_id: 66, name: 'Новый VLAN', description: '', domain_id: 'domain-new', domain_name: 'Домен для dev-9', devices: [] }] }],
+              items: [
+                {
+                  vlan_id: 66,
+                  definitions: [
+                    { id: 'v-new', vlan_id: 66, name: 'Новый VLAN', description: '', domain_id: 'domain-new', domain_name: 'Домен для dev-9', devices: [] },
+                  ],
+                },
+              ],
             }),
           )
         }
@@ -878,7 +1049,9 @@ describe('DeviceFormModal.vue', () => {
     // vlan_ids из /legacy (см. предыдущий тест) — здесь же проверяем, что реальное удаление VLAN
     // устройства ПОСЛЕ загрузки корректно убирает его и из уже заведённого порта.
     const vlans = useVLANsStore()
-    vlans.groups = [{ vlan_id: 20, definitions: [{ id: 'v-assigned', vlan_id: 20, name: 'Назначенный', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+    vlans.groups = [
+      { vlan_id: 20, definitions: [{ id: 'v-assigned', vlan_id: 20, name: 'Назначенный', description: '', domain_id: null, domain_name: '', devices: [] }] },
+    ]
     vlans.loaded = true
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
@@ -894,7 +1067,19 @@ describe('DeviceFormModal.vue', () => {
         if (url.includes('/resources/interfaces') && method === 'GET') {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'if-1', physical_device_id: 'dev-6', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null }],
+              items: [
+                {
+                  id: 'if-1',
+                  physical_device_id: 'dev-6',
+                  name: 'eth0',
+                  interface_type_id: null,
+                  mac_address: null,
+                  speed_id: null,
+                  is_management: false,
+                  is_data_transfer: false,
+                  description: null,
+                },
+              ],
               total: 1,
               offset: 0,
               limit: 1000,
@@ -906,7 +1091,22 @@ describe('DeviceFormModal.vue', () => {
         }
         if (url.includes('/resources/device-vlans') && method === 'GET') {
           return new Response(
-            JSON.stringify({ items: [{ id: 'dv-1', physical_device_id: 'dev-6', vlan_id: 'v-assigned', ip_address: null, prefix_length: null, is_management: false, description: null }], total: 1, offset: 0, limit: 1000 }),
+            JSON.stringify({
+              items: [
+                {
+                  id: 'dv-1',
+                  physical_device_id: 'dev-6',
+                  vlan_id: 'v-assigned',
+                  ip_address: null,
+                  prefix_length: null,
+                  is_management: false,
+                  description: null,
+                },
+              ],
+              total: 1,
+              offset: 0,
+              limit: 1000,
+            }),
           )
         }
         if (method === 'PUT' && url.includes('/resources/devices/dev-6')) {
@@ -970,7 +1170,10 @@ describe('DeviceFormModal.vue', () => {
     const vlans = useVLANsStore()
     vlans.groups = [
       { vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] },
-      { vlan_id: 20, definitions: [{ id: 'v-20', vlan_id: 20, name: 'Управление', description: '', domain_id: 'dom-1', domain_name: 'Ядро сети', devices: [] }] },
+      {
+        vlan_id: 20,
+        definitions: [{ id: 'v-20', vlan_id: 20, name: 'Управление', description: '', domain_id: 'dom-1', domain_name: 'Ядро сети', devices: [] }],
+      },
     ]
     vlans.loaded = true
 
@@ -998,7 +1201,13 @@ describe('DeviceFormModal.vue', () => {
   it('пункт 3: если устройство состоит в домене VLAN, в списке «VLAN устройства» только VLAN этого домена; уже выбранный VLAN без домена остаётся виден в своей строке', async () => {
     const vlans = useVLANsStore()
     const definition = (id: string, vlanId: number, name: string, domainId: string | null, domainName: string) => ({
-      id, vlan_id: vlanId, name, description: '', domain_id: domainId, domain_name: domainName, devices: [],
+      id,
+      vlan_id: vlanId,
+      name,
+      description: '',
+      domain_id: domainId,
+      domain_name: domainName,
+      devices: [],
     })
     vlans.groups = [
       { vlan_id: 10, definitions: [definition('v-10', 10, 'Мониторинг', null, '')] },
@@ -1016,13 +1225,19 @@ describe('DeviceFormModal.vue', () => {
       vi.fn(async (url: string) => {
         // Устройство состоит в домене dom-1 и уже имеет VLAN без домена (v-10) — назначен до включения в домен.
         if (url.includes('/resources/vlan-domain-devices')) {
-          return new Response(JSON.stringify({ items: [{ id: 'link-1', domain_id: 'dom-1', physical_device_id: 'dev-dom' }], total: 1, offset: 0, limit: 1000 }))
+          return new Response(
+            JSON.stringify({ items: [{ id: 'link-1', domain_id: 'dom-1', physical_device_id: 'dev-dom' }], total: 1, offset: 0, limit: 1000 }),
+          )
         }
         if (url.includes('/resources/device-vlans')) {
           return new Response(
             JSON.stringify({
-              items: [{ id: 'dv-1', physical_device_id: 'dev-dom', vlan_id: 'v-10', ip_address: null, prefix_length: null, is_management: false, description: null }],
-              total: 1, offset: 0, limit: 1000,
+              items: [
+                { id: 'dv-1', physical_device_id: 'dev-dom', vlan_id: 'v-10', ip_address: null, prefix_length: null, is_management: false, description: null },
+              ],
+              total: 1,
+              offset: 0,
+              limit: 1000,
             }),
           )
         }
@@ -1043,7 +1258,9 @@ describe('DeviceFormModal.vue', () => {
 
   it('сохраняет добавленный VLAN устройства под id нового устройства', async () => {
     const vlans = useVLANsStore()
-    vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+    vlans.groups = [
+      { vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] },
+    ]
     vlans.loaded = true
 
     const wrapper = await mountWithLoadedCatalogs()
@@ -1089,9 +1306,7 @@ describe('DeviceFormModal.vue', () => {
     const wrapper = await mountWithLoadedCatalogs()
     const catalogs = useCatalogsStore()
     catalogs.items['manufacturers'] = [{ id: 'mf-cisco', name: 'Cisco' }]
-    catalogs.items['device-models'] = [
-      { id: 'dm-1', name: 'WS-C2960-48TD-L', manufacturer_id: 'mf-cisco', device_type_id: 'dt-net', model: 'WS-C2960-48TD-L' },
-    ]
+    catalogs.items['device-models'] = [{ id: 'dm-1', name: 'WS-C2960-48TD-L', manufacturer_id: 'mf-cisco', device_type_id: 'dt-net', model: 'WS-C2960-48TD-L' }]
     await wrapper.vm.$nextTick()
 
     const field = wrapper.find('.form-grid .lookup-row .searchable-select')
@@ -1345,7 +1560,10 @@ describe('DeviceFormModal.vue', () => {
     async function pickInField(wrapper: VueWrapper, fieldLabel: string, optionLabel: string) {
       const field = wrapper.findAll('.field').find((f) => f.find('span').text() === fieldLabel)!
       await field.find('.searchable-select input').trigger('focus')
-      await field.findAll('.ss-option').find((o) => o.text() === optionLabel)!.trigger('mousedown')
+      await field
+        .findAll('.ss-option')
+        .find((o) => o.text() === optionLabel)!
+        .trigger('mousedown')
     }
     async function openRackModal(wrapper: VueWrapper) {
       const rackRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Стойка')!
@@ -1355,8 +1573,14 @@ describe('DeviceFormModal.vue', () => {
     async function mountWithBuildingsAndRooms() {
       const wrapper = await mountWithLoadedCatalogs()
       const catalogs = useCatalogsStore()
-      catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }, { id: 'b-2', name: 'Корпус Б' }]
-      catalogs.items['rooms'] = [{ id: 'room-1', building_id: 'b-1', name: '204' }, { id: 'room-2', building_id: 'b-2', name: '305' }]
+      catalogs.items['buildings'] = [
+        { id: 'b-1', name: 'Корпус А' },
+        { id: 'b-2', name: 'Корпус Б' },
+      ]
+      catalogs.items['rooms'] = [
+        { id: 'room-1', building_id: 'b-1', name: '204' },
+        { id: 'room-2', building_id: 'b-2', name: '305' },
+      ]
       return wrapper
     }
     async function roomChoicesInRackModal(body: DOMWrapper<HTMLElement>): Promise<string[]> {
@@ -1406,7 +1630,10 @@ describe('DeviceFormModal.vue', () => {
     async function pickInField(wrapper: VueWrapper, fieldLabel: string, optionLabel: string) {
       const field = wrapper.findAll('.field').find((f) => f.find('span').text() === fieldLabel)!
       await field.find('.searchable-select input').trigger('focus')
-      await field.findAll('.ss-option').find((o) => o.text() === optionLabel)!.trigger('mousedown')
+      await field
+        .findAll('.ss-option')
+        .find((o) => o.text() === optionLabel)!
+        .trigger('mousedown')
     }
     async function openRoomModal(wrapper: VueWrapper) {
       const roomRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Помещение')!
@@ -1416,7 +1643,10 @@ describe('DeviceFormModal.vue', () => {
     async function mountWithBuildings() {
       const wrapper = await mountWithLoadedCatalogs()
       const catalogs = useCatalogsStore()
-      catalogs.items['buildings'] = [{ id: 'b-1', name: 'Корпус А' }, { id: 'b-2', name: 'Корпус Б' }]
+      catalogs.items['buildings'] = [
+        { id: 'b-1', name: 'Корпус А' },
+        { id: 'b-2', name: 'Корпус Б' },
+      ]
       catalogs.items['rooms'] = []
       return wrapper
     }
@@ -1445,7 +1675,10 @@ describe('DeviceFormModal.vue', () => {
 
       const body = await openRoomModal(wrapper)
       await body.find('.overlay .searchable-select input').trigger('focus')
-      await body.findAll('.overlay .ss-option').find((o) => o.text() === 'Корпус Б')!.trigger('mousedown')
+      await body
+        .findAll('.overlay .ss-option')
+        .find((o) => o.text() === 'Корпус Б')!
+        .trigger('mousedown')
 
       expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
     })
@@ -1571,10 +1804,49 @@ describe('DeviceFormModal.vue', () => {
           // Фикс п.1.4 (батч4): открытый порт донора висит на его интерфейсе (owner_type=
           // 'device_interface', owner_id интерфейса), а не на самом устройстве.
           if (url.includes('/interface-open-ports') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'op-src', owner_type: 'device_interface', owner_id: 'if-src', transport_protocol: 'TCP', port: 22, protocol: 'SSH', protocol_catalog_id: 'cat-ssh', ip_address: null, description: null }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    id: 'op-src',
+                    owner_type: 'device_interface',
+                    owner_id: 'if-src',
+                    transport_protocol: 'TCP',
+                    port: 22,
+                    protocol: 'SSH',
+                    protocol_catalog_id: 'cat-ssh',
+                    ip_address: null,
+                    description: null,
+                  },
+                ],
+                total: 1,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
           }
           if (url.includes('/resources/interfaces') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'if-src', physical_device_id: 'dev-src', name: 'eth0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'access' }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    id: 'if-src',
+                    physical_device_id: 'dev-src',
+                    name: 'eth0',
+                    interface_type_id: null,
+                    mac_address: null,
+                    speed_id: null,
+                    is_management: false,
+                    is_data_transfer: false,
+                    description: null,
+                    vlan_mode: 'access',
+                  },
+                ],
+                total: 1,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
           }
           if (method === 'POST' && url.includes('/resources/devices')) {
             return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
@@ -1611,7 +1883,12 @@ describe('DeviceFormModal.vue', () => {
       const catalogs = useCatalogsStore()
       await catalogs.ensureLoaded()
       const vlans = useVLANsStore()
-      vlans.groups = [{ vlan_id: 77, definitions: [{ id: 'v-domain', vlan_id: 77, name: 'Гостевой', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }] }]
+      vlans.groups = [
+        {
+          vlan_id: 77,
+          definitions: [{ id: 'v-domain', vlan_id: 77, name: 'Гостевой', description: '', domain_id: 'domain-x', domain_name: 'Домен X', devices: [] }],
+        },
+      ]
       vlans.loaded = true
 
       const calls: Array<{ url: string; method: string; body?: unknown }> = []
@@ -1621,7 +1898,9 @@ describe('DeviceFormModal.vue', () => {
           const method = init?.method ?? 'GET'
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
           if (url.includes('/resources/vlan-domain-devices') && method === 'GET') {
-            return new Response(JSON.stringify({ items: [{ id: 'link-src', domain_id: 'domain-x', physical_device_id: 'dev-src' }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({ items: [{ id: 'link-src', domain_id: 'domain-x', physical_device_id: 'dev-src' }], total: 1, offset: 0, limit: 1000 }),
+            )
           }
           if (method === 'POST' && url.includes('/resources/devices')) {
             return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
@@ -1666,11 +1945,31 @@ describe('DeviceFormModal.vue', () => {
         'fetch',
         vi.fn(async (url: string) => {
           if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
-            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }),
+            )
           }
           if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
             const peer = otherIface as { is_management: boolean; is_data_transfer: boolean; vlan_mode: string }
-            return new Response(JSON.stringify({ items: [{ interface_id: 'if-this', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'if-other', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: peer.is_management, peer_is_data_transfer: peer.is_data_transfer, peer_vlan_mode: peer.vlan_mode }] }))
+            return new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    interface_id: 'if-this',
+                    connection_id: 'c-1',
+                    connection_type_id: 'ct-1',
+                    description: null,
+                    peer_interface_id: 'if-other',
+                    peer_interface_name: 'Gi0/2',
+                    peer_device_id: 'dev-2',
+                    peer_device_name: 'sw-02',
+                    peer_is_management: peer.is_management,
+                    peer_is_data_transfer: peer.is_data_transfer,
+                    peer_vlan_mode: peer.vlan_mode,
+                  },
+                ],
+              }),
+            )
           }
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
@@ -1691,7 +1990,9 @@ describe('DeviceFormModal.vue', () => {
 
     it('интерфейс без активных подключений — предупреждения нет', async () => {
       const catalogs = useCatalogsStore()
-      catalogs.items['interfaces'] = [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }] as never
+      catalogs.items['interfaces'] = [
+        { id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' },
+      ] as never
       const connections = useConnectionsStore()
       connections.all = []
       connections.loaded = true
@@ -1700,7 +2001,14 @@ describe('DeviceFormModal.vue', () => {
         'fetch',
         vi.fn(async (url: string) => {
           if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
-            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({
+                items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk' }],
+                total: 1,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
           }
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
@@ -1746,14 +2054,39 @@ describe('DeviceFormModal.vue', () => {
           const method = init?.method ?? 'GET'
           calls.push({ url, method })
           if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
-            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: true, vlan_mode: 'trunk' }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({
+                items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', is_management: true, is_data_transfer: true, vlan_mode: 'trunk' }],
+                total: 1,
+                offset: 0,
+                limit: 1000,
+              }),
+            )
           }
           if (method === 'PUT' && url.endsWith('/resources/interfaces/if-other')) {
             neighborIsManagement = true // сервер записал конфигурацию соседа
             return new Response(JSON.stringify({ id: 'if-other' }))
           }
           if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
-            return new Response(JSON.stringify({ items: [{ interface_id: 'if-this', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'if-other', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: neighborIsManagement, peer_is_data_transfer: true, peer_vlan_mode: 'trunk' }] }))
+            return new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    interface_id: 'if-this',
+                    connection_id: 'c-1',
+                    connection_type_id: 'ct-1',
+                    description: null,
+                    peer_interface_id: 'if-other',
+                    peer_interface_name: 'Gi0/2',
+                    peer_device_id: 'dev-2',
+                    peer_device_name: 'sw-02',
+                    peer_is_management: neighborIsManagement,
+                    peer_is_data_transfer: true,
+                    peer_vlan_mode: 'trunk',
+                  },
+                ],
+              }),
+            )
           }
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
@@ -1794,7 +2127,16 @@ describe('DeviceFormModal.vue', () => {
     function stubScenarioFetch(calls: Call[], opts: { withGroup: boolean; deviceVlanIds?: string[]; groupVlanIds?: string[]; allVlans?: boolean }) {
       const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' }
       const allVlans = opts.allVlans ?? true
-      const group = { id: 'g-1', name: 'Транки', vlan_mode: 'trunk', all_vlans: allVlans, vlan_ids: opts.groupVlanIds ?? ['v-old'], ips: [], manage_open_ports: false, open_ports: [] }
+      const group = {
+        id: 'g-1',
+        name: 'Транки',
+        vlan_mode: 'trunk',
+        all_vlans: allVlans,
+        vlan_ids: opts.groupVlanIds ?? ['v-old'],
+        ips: [],
+        manage_open_ports: false,
+        open_ports: [],
+      }
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string, init?: RequestInit) => {
@@ -1808,11 +2150,31 @@ describe('DeviceFormModal.vue', () => {
           // VLAN устройства (v-old) уже выбран на порту как "Все VLAN".
           if (url.includes('/resources/device-type-vlans')) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
           if (url.includes('/resources/device-vlans') && method === 'GET') {
-            const items = (opts.deviceVlanIds ?? ['v-old']).map((vlan_id, i) => ({ id: `dv-${i + 1}`, physical_device_id: 'dev-1', vlan_id, ip_address: null, prefix_length: null, is_management: false, description: null }))
+            const items = (opts.deviceVlanIds ?? ['v-old']).map((vlan_id, i) => ({
+              id: `dv-${i + 1}`,
+              physical_device_id: 'dev-1',
+              vlan_id,
+              ip_address: null,
+              prefix_length: null,
+              is_management: false,
+              description: null,
+            }))
             return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
           }
           if (url.includes('/resources/interfaces') && method === 'GET') {
-            const iface = { id: 'if-1', physical_device_id: 'dev-1', name: 'Gi0/1', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk', ...(opts.withGroup ? { group_id: 'g-1' } : {}) }
+            const iface = {
+              id: 'if-1',
+              physical_device_id: 'dev-1',
+              name: 'Gi0/1',
+              interface_type_id: null,
+              mac_address: null,
+              speed_id: null,
+              is_management: false,
+              is_data_transfer: false,
+              description: null,
+              vlan_mode: 'trunk',
+              ...(opts.withGroup ? { group_id: 'g-1' } : {}),
+            }
             return new Response(JSON.stringify({ items: [iface], total: 1, offset: 0, limit: 1000 }))
           }
           if (url.includes('/devices/dev-1/interface-vlans') && method === 'GET') {
@@ -1870,7 +2232,10 @@ describe('DeviceFormModal.vue', () => {
       await flushPromises()
     }
 
-    type SavedBody = { interfaces: Array<{ id: string; vlan_ids: string[]; all_vlans: boolean; group_key?: string | null }>; groups?: Array<{ id: string; vlan_mode: string | null; all_vlans: boolean; vlan_ids: string[] }> }
+    type SavedBody = {
+      interfaces: Array<{ id: string; vlan_ids: string[]; all_vlans: boolean; group_key?: string | null }>
+      groups?: Array<{ id: string; vlan_mode: string | null; all_vlans: boolean; vlan_ids: string[] }>
+    }
     const savedBody = (calls: Call[]) => calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))!.body as SavedBody
 
     it('интерфейс с признаком «Все VLAN» в trunk-режиме получает вновь добавленный VLAN устройства и остаётся с признаком', async () => {
@@ -1962,7 +2327,9 @@ describe('DeviceFormModal.vue', () => {
         'fetch',
         vi.fn(async (url: string) => {
           if (url.includes('/resources/vlan-domain-devices') && url.includes('dev-1')) {
-            return new Response(JSON.stringify({ items: [{ id: 'link-1', domain_id: 'domain-x', physical_device_id: 'dev-1' }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({ items: [{ id: 'link-1', domain_id: 'domain-x', physical_device_id: 'dev-1' }], total: 1, offset: 0, limit: 1000 }),
+            )
           }
           return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
         }),
@@ -1981,7 +2348,10 @@ describe('DeviceFormModal.vue', () => {
 
     it('устройство ни в одном домене — поле домена пустое', async () => {
       const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
-      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))),
+      )
 
       const wrapper = mount(DeviceFormModal, { props: { device } })
       await flushPromises()
@@ -2108,7 +2478,13 @@ describe('правки формы физического устройства: �
     const wrapper = await mountWithLoadedCatalogs()
 
     const definition = (id: string, vlanId: number, domainId: string | null) => ({
-      id, vlan_id: vlanId, name: `VLAN ${vlanId}`, description: '', domain_id: domainId, domain_name: domainId ? 'Ядро сети' : '', devices: [],
+      id,
+      vlan_id: vlanId,
+      name: `VLAN ${vlanId}`,
+      description: '',
+      domain_id: domainId,
+      domain_name: domainId ? 'Ядро сети' : '',
+      devices: [],
     })
     const calls: Array<{ url: string; method: string; body?: Record<string, unknown> }> = []
     vi.stubGlobal(
@@ -2127,7 +2503,8 @@ describe('правки формы физического устройства: �
             }),
           )
         }
-        if (method === 'POST' && url.endsWith('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-DOM' }), { status: 201 })
+        if (method === 'POST' && url.endsWith('/resources/devices'))
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-DOM' }), { status: 201 })
         if (method === 'POST') return new Response(JSON.stringify({ id: 'created' }), { status: 201 })
         return emptyList()
       }),
@@ -2170,7 +2547,13 @@ describe('правки формы физического устройства: �
     vlanDomains.all = [{ id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: null, auto_sync: false }]
     vlanDomains.loaded = true
     const definition = (id: string, vlanId: number, domainId: string | null) => ({
-      id, vlan_id: vlanId, name: `VLAN ${vlanId}`, description: '', domain_id: domainId, domain_name: domainId ? 'Ядро сети' : '', devices: [],
+      id,
+      vlan_id: vlanId,
+      name: `VLAN ${vlanId}`,
+      description: '',
+      domain_id: domainId,
+      domain_name: domainId ? 'Ядро сети' : '',
+      devices: [],
     })
     const vlans = useVLANsStore()
     vlans.groups = [{ vlan_id: 30, definitions: [definition('v-30', 30, null)] }] // глобальный VLAN доступен сразу
@@ -2184,9 +2567,17 @@ describe('правки формы физического устройства: �
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (url.includes('/vlan-dashboard')) {
-          return new Response(JSON.stringify({ items: [{ vlan_id: 10, definitions: [definition('v-10', 10, 'dom-1')] }, { vlan_id: 30, definitions: [definition('v-30', 30, null)] }] }))
+          return new Response(
+            JSON.stringify({
+              items: [
+                { vlan_id: 10, definitions: [definition('v-10', 10, 'dom-1')] },
+                { vlan_id: 30, definitions: [definition('v-30', 30, null)] },
+              ],
+            }),
+          )
         }
-        if (method === 'POST' && url.endsWith('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-CANCEL' }), { status: 201 })
+        if (method === 'POST' && url.endsWith('/resources/devices'))
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-CANCEL' }), { status: 201 })
         if (method === 'PUT' && url.includes('/devices/dev-new/vlans')) return new Response(JSON.stringify({ items: [] }))
         return emptyList()
       }),
@@ -2239,13 +2630,34 @@ describe('правки формы физического устройства: �
         'fetch',
         vi.fn(async (url: string, init?: RequestInit) => {
           const method = init?.method ?? 'GET'
-          if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }] }))
+          if (method === 'PUT' && url.includes('/devices/dev-1/interfaces'))
+            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }] }))
           if (method === 'PUT' && url.includes('/resources/devices/dev-1')) return new Response(JSON.stringify(device))
           if (url.includes('/resources/interfaces') && url.includes('dev-1')) {
-            return new Response(JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }))
+            return new Response(
+              JSON.stringify({ items: [{ id: 'if-this', physical_device_id: 'dev-1', name: 'Gi0/1', ...thisIface }], total: 1, offset: 0, limit: 1000 }),
+            )
           }
           if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
-            return new Response(JSON.stringify({ items: [{ interface_id: 'if-this', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'if-other', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: peer.is_management, peer_is_data_transfer: peer.is_data_transfer, peer_vlan_mode: peer.vlan_mode }] }))
+            return new Response(
+              JSON.stringify({
+                items: [
+                  {
+                    interface_id: 'if-this',
+                    connection_id: 'c-1',
+                    connection_type_id: 'ct-1',
+                    description: null,
+                    peer_interface_id: 'if-other',
+                    peer_interface_name: 'Gi0/2',
+                    peer_device_id: 'dev-2',
+                    peer_device_name: 'sw-02',
+                    peer_is_management: peer.is_management,
+                    peer_is_data_transfer: peer.is_data_transfer,
+                    peer_vlan_mode: peer.vlan_mode,
+                  },
+                ],
+              }),
+            )
           }
           return emptyList()
         }),
@@ -2307,7 +2719,9 @@ function deviceOptionsResponse(url: string): Response | undefined {
   const exclude = new Set(params.getAll('exclude'))
   const include = new Set(params.getAll('include'))
   const q = (params.get('q') ?? '').toLowerCase()
-  const items = SERVER_DEVICES.filter((d) => !exclude.has(d.id) && (include.has(d.id) || !q || d.system_name.toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q))).map((d) => ({ id: d.id, label: d.system_name, system_name: d.system_name, serial_number: d.serial_number }))
+  const items = SERVER_DEVICES.filter(
+    (d) => !exclude.has(d.id) && (include.has(d.id) || !q || d.system_name.toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q)),
+  ).map((d) => ({ id: d.id, label: d.system_name, system_name: d.system_name, serial_number: d.serial_number }))
   return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 50 }))
 }
 
@@ -2324,13 +2738,28 @@ describe('подключения портов в блоке «Порты / ин�
     if (devices) return devices
     if (/\/devices\/dev-b\/free-interfaces\?/.test(url)) {
       const include = new URLSearchParams(url.split('?')[1]).getAll('include')
-      const items = connectivityState.peerBusy && !include.includes('b-1') ? [] : [{ id: 'b-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access', occupied: connectivityState.peerBusy }]
+      const items =
+        connectivityState.peerBusy && !include.includes('b-1')
+          ? []
+          : [{ id: 'b-1', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access', occupied: connectivityState.peerBusy }]
       return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 200 }))
     }
     if (/\/devices\/dev-1\/interface-connections$/.test(url)) return new Response(JSON.stringify({ items: connectivityState.own }))
     return undefined
   }
-  const ownConnectionRow = { interface_id: 'if-1', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_is_management: true, peer_is_data_transfer: false, peer_vlan_mode: 'access' }
+  const ownConnectionRow = {
+    interface_id: 'if-1',
+    connection_id: 'c-1',
+    connection_type_id: 'ct-1',
+    description: null,
+    peer_interface_id: 'b-1',
+    peer_interface_name: 'Gi0/1',
+    peer_device_id: 'dev-b',
+    peer_device_name: 'sw-b',
+    peer_is_management: true,
+    peer_is_data_transfer: false,
+    peer_vlan_mode: 'access',
+  }
 
   // Соседнее устройство sw-b с портом Gi0/1 (у него включено «Управление»), тип линии «Витая пара».
   function seedStores(connections: Array<Record<string, unknown>> = [], own: Array<Record<string, unknown>> = []) {
@@ -2343,7 +2772,9 @@ describe('подключения портов в блоке «Порты / ин�
     ] as never
     devices.loaded = true
     const catalogs = useCatalogsStore()
-    catalogs.items['interfaces'] = [{ id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] as never
+    catalogs.items['interfaces'] = [
+      { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' },
+    ] as never
     catalogs.items['connection-types'] = [{ id: 'ct-1', name: 'Витая пара' }] as never
     const store = useConnectionsStore()
     store.all = connections as never
@@ -2396,13 +2827,37 @@ describe('подключения портов в блоке «Порты / ин�
   it('новое устройство: подключение нового порта уходит в тот же PUT, что и порт; после сохранения — предупреждение о расхождении с соседом', async () => {
     const wrapper = await mountNewDeviceWithPort()
     const calls = recordingFetch((url, method) => {
-      if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+      if (method === 'POST' && url.includes('/resources/devices'))
+        return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
       if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
-        return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: false, is_data_transfer: false, vlan_mode: 'access' }], groups: [] }))
+        return new Response(
+          JSON.stringify({
+            items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: false, is_data_transfer: false, vlan_mode: 'access' }],
+            groups: [],
+          }),
+        )
       }
       // Соседа для предупреждения форма спрашивает у сервера по только что сохранённому устройству.
       if (method === 'GET' && /\/devices\/dev-new\/interface-connections$/.test(url)) {
-        return new Response(JSON.stringify({ items: [{ interface_id: 'if-new', connection_id: 'c-new', connection_type_id: 'ct-1', description: 'патч-корд №5', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_is_management: true, peer_is_data_transfer: false, peer_vlan_mode: 'access' }] }))
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                interface_id: 'if-new',
+                connection_id: 'c-new',
+                connection_type_id: 'ct-1',
+                description: 'патч-корд №5',
+                peer_interface_id: 'b-1',
+                peer_interface_name: 'Gi0/1',
+                peer_device_id: 'dev-b',
+                peer_device_name: 'sw-b',
+                peer_is_management: true,
+                peer_is_data_transfer: false,
+                peer_vlan_mode: 'access',
+              },
+            ],
+          }),
+        )
       }
       if (method === 'GET' && url.includes('/resources/connections')) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       return undefined
@@ -2427,7 +2882,9 @@ describe('подключения портов в блоке «Порты / ин�
     await flushPromises()
 
     const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-new/interfaces'))
-    expect(put?.body).toMatchObject({ interfaces: [{ name: 'eth0', connection: { peer_interface_id: 'b-1', connection_type_id: 'ct-1', description: 'патч-корд №5' } }] })
+    expect(put?.body).toMatchObject({
+      interfaces: [{ name: 'eth0', connection: { peer_interface_id: 'b-1', connection_type_id: 'ct-1', description: 'патч-корд №5' } }],
+    })
     expect(calls.some((c) => c.method === 'GET' && c.url.includes('/devices/dev-new/interface-connections'))).toBe(true) // сосед — у сервера
     expect(calls.some((c) => c.method === 'GET' && c.url.includes('/resources/connections'))).toBe(true) // общий список был загружен — обновлён
     expect(wrapper.emitted('saved')).toBeTruthy()
@@ -2463,12 +2920,36 @@ describe('подключения портов в блоке «Порты / ин�
     const wrapper = await mountNewDeviceWithPort()
     useConnectionsStore().loaded = false
     const calls = recordingFetch((url, method) => {
-      if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+      if (method === 'POST' && url.includes('/resources/devices'))
+        return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
       if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
-        return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }], groups: [] }))
+        return new Response(
+          JSON.stringify({
+            items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }],
+            groups: [],
+          }),
+        )
       }
       if (method === 'GET' && /\/devices\/dev-new\/interface-connections$/.test(url)) {
-        return new Response(JSON.stringify({ items: [{ interface_id: 'if-new', connection_id: 'c-new', connection_type_id: 'ct-1', description: null, peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_is_management: true, peer_is_data_transfer: false, peer_vlan_mode: 'access' }] }))
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                interface_id: 'if-new',
+                connection_id: 'c-new',
+                connection_type_id: 'ct-1',
+                description: null,
+                peer_interface_id: 'b-1',
+                peer_interface_name: 'Gi0/1',
+                peer_device_id: 'dev-b',
+                peer_device_name: 'sw-b',
+                peer_is_management: true,
+                peer_is_data_transfer: false,
+                peer_vlan_mode: 'access',
+              },
+            ],
+          }),
+        )
       }
       return undefined
     })
@@ -2492,11 +2973,26 @@ describe('подключения портов в блоке «Порты / ин�
     async function connectedNewDevice() {
       const wrapper = await mountNewDeviceWithPort()
       const calls = recordingFetch((url, method) => {
-        if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
+        if (method === 'POST' && url.includes('/resources/devices'))
+          return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-NEW' }), { status: 201 })
         if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
           // Сервер возвращает порт таким, каким его прислали (calls.at(-1) — этот самый запрос).
           const sent = (calls.at(-1)?.body as { interfaces?: Array<{ is_management?: boolean }> } | undefined)?.interfaces?.[0]
-          return new Response(JSON.stringify({ items: [{ id: 'if-new', physical_device_id: 'dev-new', name: 'eth0', is_management: !!sent?.is_management, is_data_transfer: false, vlan_mode: 'access' }], groups: [] }))
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'if-new',
+                  physical_device_id: 'dev-new',
+                  name: 'eth0',
+                  is_management: !!sent?.is_management,
+                  is_data_transfer: false,
+                  vlan_mode: 'access',
+                },
+              ],
+              groups: [],
+            }),
+          )
         }
         if (method === 'GET' && /\/devices\/dev-new\/interface-connections$/.test(url)) return new Response(JSON.stringify({ items: [] }))
         if (method === 'GET' && url.includes('/resources/connections')) return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
@@ -2571,7 +3067,18 @@ describe('подключения портов в блоке «Порты / ин�
 
   describe('редактирование устройства с уже подключённым портом', () => {
     const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
-    const existing = { id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'b-1', connection_type_id: 'ct-1', is_active: true, description: null, source_device_name: 'srv-1', source_interface_name: 'eth0', destination_device_name: 'sw-b', destination_interface_name: 'Gi0/1' }
+    const existing = {
+      id: 'c-1',
+      source_interface_id: 'if-1',
+      destination_interface_id: 'b-1',
+      connection_type_id: 'ct-1',
+      is_active: true,
+      description: null,
+      source_device_name: 'srv-1',
+      source_interface_name: 'eth0',
+      destination_device_name: 'sw-b',
+      destination_interface_name: 'Gi0/1',
+    }
     const port = { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }
 
     // devicesCold — стор устройств и общий список подключений не загружены: так видно, обращается ли к ним сама форма.
@@ -2581,7 +3088,10 @@ describe('подключения портов в блоке «Порты / ин�
         useDevicesStore().loaded = false
         useConnectionsStore().loaded = false
       }
-      useCatalogsStore().items['interfaces'] = [port, { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] as never
+      useCatalogsStore().items['interfaces'] = [
+        port,
+        { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' },
+      ] as never
       const calls = recordingFetch((url, method) => {
         if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return new Response(JSON.stringify({ items: [port], groups: [] }))
         if (method === 'PUT' && url.includes('/resources/devices/dev-1')) return new Response(JSON.stringify(device))
@@ -2632,7 +3142,10 @@ describe('подключения портов в блоке «Порты / ин�
 
     it('изменение типа линии отправляет обновлённое подключение с тем же соседом', async () => {
       const { wrapper, calls } = mountEdit()
-      useCatalogsStore().items['connection-types'] = [{ id: 'ct-1', name: 'Витая пара' }, { id: 'ct-2', name: 'Оптическое волокно' }] as never
+      useCatalogsStore().items['connection-types'] = [
+        { id: 'ct-1', name: 'Витая пара' },
+        { id: 'ct-2', name: 'Оптическое волокно' },
+      ] as never
       await flushPromises()
       await wrapper.find('.expand-toggle').trigger('click')
 
@@ -2641,17 +3154,28 @@ describe('подключения портов в блоке «Порты / ин�
       await flushPromises()
 
       const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-1/interfaces'))
-      expect((put?.body?.interfaces as Array<Record<string, unknown>>)[0].connection).toEqual({ peer_interface_id: 'b-1', connection_type_id: 'ct-2', description: null })
+      expect((put?.body?.interfaces as Array<Record<string, unknown>>)[0].connection).toEqual({
+        peer_interface_id: 'b-1',
+        connection_type_id: 'ct-2',
+        description: null,
+      })
     })
   })
 
   it('копия устройства не наследует подключения донора: порты копии сохраняются без connection', async () => {
     const donor = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
     const port = { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', is_management: true, is_data_transfer: false, vlan_mode: 'access' }
-    seedStores([{ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'b-1', connection_type_id: 'ct-1', is_active: true, description: null }], [ownConnectionRow])
-    useCatalogsStore().items['interfaces'] = [port, { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' }] as never
+    seedStores(
+      [{ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'b-1', connection_type_id: 'ct-1', is_active: true, description: null }],
+      [ownConnectionRow],
+    )
+    useCatalogsStore().items['interfaces'] = [
+      port,
+      { id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', is_management: true, is_data_transfer: false, vlan_mode: 'access' },
+    ] as never
     const calls = recordingFetch((url, method) => {
-      if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
+      if (method === 'POST' && url.includes('/resources/devices'))
+        return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
       if (method === 'PUT' && url.includes('/devices/dev-copy/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
       if (method === 'GET' && url.includes('/resources/interfaces')) return new Response(JSON.stringify({ items: [port], total: 1, offset: 0, limit: 1000 }))
       return undefined
@@ -2714,7 +3238,9 @@ describe('сбой после создания устройства: повто�
     await flushPromises()
 
     expect(wrapper.emitted('saved')).toBeFalsy()
-    expect(wrapper.find('.form-error').text()).toContain('Устройство создано, но остальные данные сохранить не удалось: Порт соседа уже участвует в другом подключении.')
+    expect(wrapper.find('.form-error').text()).toContain(
+      'Устройство создано, но остальные данные сохранить не удалось: Порт соседа уже участвует в другом подключении.',
+    )
     expect(wrapper.find('.form-error').text()).toContain('будет обновлено, а не создано повторно')
     expect(state.calls.some((c) => c.method === 'GET' && /\/devices(\?|$)/.test(c.url))).toBe(true) // список устройств перезагружен
     expect(wrapper.find('h2').text()).toBe('Редактировать устройство')
@@ -2777,7 +3303,9 @@ describe('сбой после создания устройства: повто�
         const method = init?.method ?? 'GET'
         calls.push({ url, method })
         if (method === 'POST' && url.endsWith('/resources/devices')) {
-          return failCreate ? new Response(JSON.stringify({ detail: 'Серийный номер уже используется.' }), { status: 409 }) : new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-R' }), { status: 201 })
+          return failCreate
+            ? new Response(JSON.stringify({ detail: 'Серийный номер уже используется.' }), { status: 409 })
+            : new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-R' }), { status: 201 })
         }
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       }),
@@ -2855,7 +3383,10 @@ describe('подключения между портами одного устр
     await pickTypeModel(wrapper, 'Сервер')
     await setSerial(wrapper, 'SN-LOOP')
     await wrapper.find('.empty button.btn-secondary').trigger('click') // + Интерфейс
-    await wrapper.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click') // + ещё один
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Интерфейс'))!
+      .trigger('click') // + ещё один
     // В каждой строке два поля .cell-input (имя и MAC): имя первой строки — первое поле, второй — третье.
     const names = wrapper.findAll('.iface-table input.cell-input')
     await names[0].setValue('eth0')
@@ -2864,9 +3395,18 @@ describe('подключения между портами одного устр
     await wrapper.findAll('.expand-toggle')[0].trigger('click')
 
     const calls = recordingFetch((url, method) => {
-      if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-LOOP' }), { status: 201 })
+      if (method === 'POST' && url.includes('/resources/devices'))
+        return new Response(JSON.stringify({ id: 'dev-new', serial_number: 'SN-LOOP' }), { status: 201 })
       if (method === 'PUT' && url.includes('/devices/dev-new/interfaces')) {
-        return new Response(JSON.stringify({ items: [{ id: 'if-0', physical_device_id: 'dev-new', name: 'eth0', vlan_mode: 'access' }, { id: 'if-1', physical_device_id: 'dev-new', name: 'eth1', vlan_mode: 'access' }], groups: [] }))
+        return new Response(
+          JSON.stringify({
+            items: [
+              { id: 'if-0', physical_device_id: 'dev-new', name: 'eth0', vlan_mode: 'access' },
+              { id: 'if-1', physical_device_id: 'dev-new', name: 'eth1', vlan_mode: 'access' },
+            ],
+            groups: [],
+          }),
+        )
       }
       return undefined
     })
@@ -2917,7 +3457,19 @@ describe('подключения между портами одного устр
         return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 200 }))
       }
       if (method === 'GET' && /\/devices\/dev-1\/interface-connections$/.test(url)) {
-        const row = (iface: string, conn: string, peer: string, peerName: string) => ({ interface_id: iface, connection_id: conn, connection_type_id: 'ct-1', description: null, peer_interface_id: peer, peer_interface_name: peerName, peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_is_management: false, peer_is_data_transfer: true, peer_vlan_mode: 'access' })
+        const row = (iface: string, conn: string, peer: string, peerName: string) => ({
+          interface_id: iface,
+          connection_id: conn,
+          connection_type_id: 'ct-1',
+          description: null,
+          peer_interface_id: peer,
+          peer_interface_name: peerName,
+          peer_device_id: 'dev-b',
+          peer_device_name: 'sw-b',
+          peer_is_management: false,
+          peer_is_data_transfer: true,
+          peer_vlan_mode: 'access',
+        })
         return new Response(JSON.stringify({ items: [row('if-1', 'c-1', 'b-1', 'Gi0/1'), row('if-2', 'c-2', 'b-2', 'Gi0/2')] }))
       }
       if (method === 'GET' && url.includes('/resources/interfaces')) return new Response(JSON.stringify({ items: own, total: 2, offset: 0, limit: 1000 }))
@@ -2960,7 +3512,10 @@ describe('подключения между портами одного устр
     await pickTypeModel(wrapper, 'Сервер')
     await setSerial(wrapper, 'SN-DEL')
     await wrapper.find('.empty button.btn-secondary').trigger('click')
-    await wrapper.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Интерфейс'))!
+      .trigger('click')
     // В каждой строке два поля .cell-input (имя и MAC): имя первой строки — первое поле, второй — третье.
     const names = wrapper.findAll('.iface-table input.cell-input')
     await names[0].setValue('eth0')
@@ -2986,7 +3541,17 @@ describe('уведомление о согласовании портов пос
   const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
   const emptyList = () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
   const summary = (patch: Record<string, number> = {}) => ({
-    connections: 1, applicable: 0, shown: 0, total_items: 0, auto: 0, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0, ...patch,
+    connections: 1,
+    applicable: 0,
+    shown: 0,
+    total_items: 0,
+    auto: 0,
+    blocked: 0,
+    manual: 0,
+    ignored: 0,
+    none: 0,
+    skipped: 0,
+    ...patch,
   })
   type Call = { url: string; method: string; body?: Record<string, unknown> }
 
@@ -2995,7 +3560,9 @@ describe('уведомление о согласовании портов пос
     useToast().toasts.splice(0)
     usePortSyncPlanRequest().close()
     const vlans = useVLANsStore()
-    vlans.groups = [{ vlan_id: 30, definitions: [{ id: 'v-30', vlan_id: 30, name: 'VLAN 30', description: '', domain_id: null, domain_name: '', devices: [] }] }] as never
+    vlans.groups = [
+      { vlan_id: 30, definitions: [{ id: 'v-30', vlan_id: 30, name: 'VLAN 30', description: '', domain_id: null, domain_name: '', devices: [] }] },
+    ] as never
     vlans.loaded = true
     const connections = useConnectionsStore()
     connections.all = []
@@ -3010,7 +3577,19 @@ describe('уведомление о согласовании портов пос
         if (method === 'PUT' && url.includes('/devices/dev-1/interfaces')) return new Response(JSON.stringify({ items: [] }))
         if (method === 'PUT' && url.includes('/resources/devices/dev-1')) return new Response(JSON.stringify(device))
         if (/\/devices\/dev-1\/interface-connections$/.test(url)) {
-          const link = { interface_id: 'if-1', connection_id: 'c-1', connection_type_id: 'ct', description: null, peer_interface_id: 'p', peer_interface_name: 'Gi0/2', peer_device_id: 'dev-2', peer_device_name: 'sw-02', peer_is_management: false, peer_is_data_transfer: true, peer_vlan_mode: 'trunk' }
+          const link = {
+            interface_id: 'if-1',
+            connection_id: 'c-1',
+            connection_type_id: 'ct',
+            description: null,
+            peer_interface_id: 'p',
+            peer_interface_name: 'Gi0/2',
+            peer_device_id: 'dev-2',
+            peer_device_name: 'sw-02',
+            peer_is_management: false,
+            peer_is_data_transfer: true,
+            peer_vlan_mode: 'trunk',
+          }
           return new Response(JSON.stringify({ items: [link] }))
         }
         if (method === 'POST' && url.endsWith('/port-sync/preview')) {
@@ -3100,7 +3679,18 @@ describe('уведомление о согласовании портов пос
 describe('подинтерфейсы портов: сквозное сохранение формы устройства', () => {
   type Call = { url: string; method: string; body?: any }
   const donor = { id: 'dev-s', device_type_id: 'dt-server', serial_number: 'SN-S' } as never
-  const ifaceDto = { id: 'if-1', physical_device_id: 'dev-s', name: 'Gi0/0', interface_type_id: null, mac_address: null, speed_id: null, is_management: false, is_data_transfer: false, description: null, vlan_mode: 'trunk' }
+  const ifaceDto = {
+    id: 'if-1',
+    physical_device_id: 'dev-s',
+    name: 'Gi0/0',
+    interface_type_id: null,
+    mac_address: null,
+    speed_id: null,
+    is_management: false,
+    is_data_transfer: false,
+    description: null,
+    vlan_mode: 'trunk',
+  }
   const subDto = {
     id: 'sub-1',
     parent_interface_id: 'if-1',
@@ -3133,15 +3723,26 @@ describe('подинтерфейсы портов: сквозное сохран
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (url.endsWith('/devices/dev-s/subinterfaces')) return new Response(JSON.stringify({ items: [subDto] }))
         // VLAN подинтерфейса — один из VLAN порта: на порту выбраны все VLAN устройства.
-        if (url.endsWith('/devices/dev-s/interface-vlans')) return new Response(JSON.stringify({ items: [{ interface_id: 'if-1', all_vlans: false, vlan_ids: deviceVlanIds }] }))
+        if (url.endsWith('/devices/dev-s/interface-vlans'))
+          return new Response(JSON.stringify({ items: [{ interface_id: 'if-1', all_vlans: false, vlan_ids: deviceVlanIds }] }))
         if (url.includes('/resources/device-vlans') && method === 'GET') {
-          const items = deviceVlanIds.map((vlan_id, i) => ({ id: `dv-${i + 1}`, physical_device_id: 'dev-s', vlan_id, ip_address: null, prefix_length: null, is_management: false, description: null }))
+          const items = deviceVlanIds.map((vlan_id, i) => ({
+            id: `dv-${i + 1}`,
+            physical_device_id: 'dev-s',
+            vlan_id,
+            ip_address: null,
+            prefix_length: null,
+            is_management: false,
+            description: null,
+          }))
           return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
         }
-        if (url.includes('/resources/interfaces') && method === 'GET') return new Response(JSON.stringify({ items: [ifaceDto], total: 1, offset: 0, limit: 1000 }))
+        if (url.includes('/resources/interfaces') && method === 'GET')
+          return new Response(JSON.stringify({ items: [ifaceDto], total: 1, offset: 0, limit: 1000 }))
         if (method === 'PUT' && url.includes('/devices/dev-copy/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
         if (method === 'PUT' && url.includes('/devices/dev-s/interfaces')) return new Response(JSON.stringify({ items: [], groups: [] }))
-        if (method === 'POST' && url.includes('/resources/devices')) return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
+        if (method === 'POST' && url.includes('/resources/devices'))
+          return new Response(JSON.stringify({ id: 'dev-copy', serial_number: 'SN-COPY' }), { status: 201 })
         if (method === 'PUT' && url.includes('/resources/devices/dev-s')) return new Response(JSON.stringify({ id: 'dev-s', serial_number: 'SN-S' }))
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       }),
@@ -3266,19 +3867,40 @@ describe('подинтерфейсы портов: сквозное сохран
 // Блок «VLAN устройства»: список упорядочен по номеру, повторов нет, длинный список сворачивается по порогу из «Настроек».
 describe('DeviceFormModal.vue — «VLAN устройства»: сортировка, повторы, сворачивание', () => {
   const definition = (id: string, vlanId: number, name: string) => ({
-    id, vlan_id: vlanId, name, description: '', domain_id: null, domain_name: '', devices: [],
+    id,
+    vlan_id: vlanId,
+    name,
+    description: '',
+    domain_id: null,
+    domain_name: '',
+    devices: [],
   })
   interface DeviceVlanItem {
-    id: string; physical_device_id: string; vlan_id: string; ip_address: string | null; prefix_length: number | null; is_management: boolean; description: string | null
+    id: string
+    physical_device_id: string
+    vlan_id: string
+    ip_address: string | null
+    prefix_length: number | null
+    is_management: boolean
+    description: string | null
   }
   const deviceVlanItem = (id: string, vlanId: string): DeviceVlanItem => ({
-    id, physical_device_id: 'dev-v', vlan_id: vlanId, ip_address: null, prefix_length: null, is_management: false, description: null,
+    id,
+    physical_device_id: 'dev-v',
+    vlan_id: vlanId,
+    ip_address: null,
+    prefix_length: null,
+    is_management: false,
+    description: null,
   })
 
   // Устройство с уже сохранёнными VLAN (в порядке items) и журналом запросов; PUT /devices/dev-v/vlans отвечает пустым списком.
   async function mountDeviceWithVlans(items: DeviceVlanItem[], count = 4) {
     const vlans = useVLANsStore()
-    vlans.groups = Array.from({ length: count }, (_, i) => ({ vlan_id: (i + 1) * 10, definitions: [definition(`v-${(i + 1) * 10}`, (i + 1) * 10, `Сеть ${(i + 1) * 10}`)] }))
+    vlans.groups = Array.from({ length: count }, (_, i) => ({
+      vlan_id: (i + 1) * 10,
+      definitions: [definition(`v-${(i + 1) * 10}`, (i + 1) * 10, `Сеть ${(i + 1) * 10}`)],
+    }))
     vlans.loaded = true
     stubCatalogsFetch()
     await useCatalogsStore().ensureLoaded()
@@ -3288,9 +3910,11 @@ describe('DeviceFormModal.vue — «VLAN устройства»: сортиро�
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ method, url })
-        if (method === 'GET' && url.includes('/resources/device-vlans')) return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
+        if (method === 'GET' && url.includes('/resources/device-vlans'))
+          return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
         if (method === 'PUT' && url.endsWith('/devices/dev-v/vlans')) return new Response(JSON.stringify({ items: [] }))
-        if (method === 'PUT' && url.includes('/resources/devices/dev-v')) return new Response(JSON.stringify({ id: 'dev-v', device_type_id: 'dt-server', serial_number: 'SN-V-1' }))
+        if (method === 'PUT' && url.includes('/resources/devices/dev-v'))
+          return new Response(JSON.stringify({ id: 'dev-v', device_type_id: 'dt-server', serial_number: 'SN-V-1' }))
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       }),
     )
@@ -3352,12 +3976,37 @@ describe('DeviceFormModal.vue — «VLAN устройства»: сортиро�
 
 describe('DeviceFormModal.vue — общие настройки VLAN стека на самом устройстве', () => {
   const definition = (id: string, vlanId: number, name: string) => ({
-    id, vlan_id: vlanId, name, description: '', domain_id: null, domain_name: '', devices: [],
+    id,
+    vlan_id: vlanId,
+    name,
+    description: '',
+    domain_id: null,
+    domain_name: '',
+    devices: [],
   })
   const sharedRow = (overrides: Record<string, unknown> = {}) => ({
-    vlan_id: 'v-10', vlan_number: 10, vlan_name: 'Сеть 10', domain_id: null, is_shared: true as const, ip_address: '10.0.10.1', prefix_length: 24,
-    is_management: true, is_uniform: true, assigned_count: 2, member_count: 2,
-    members: [{ physical_device_id: 'dev-s', device_name: 'sw-1', assigned: true, ip_address: '10.0.10.1', prefix_length: 24, is_management: true, description: 'кластер' }],
+    vlan_id: 'v-10',
+    vlan_number: 10,
+    vlan_name: 'Сеть 10',
+    domain_id: null,
+    is_shared: true as const,
+    ip_address: '10.0.10.1',
+    prefix_length: 24,
+    is_management: true,
+    is_uniform: true,
+    assigned_count: 2,
+    member_count: 2,
+    members: [
+      {
+        physical_device_id: 'dev-s',
+        device_name: 'sw-1',
+        assigned: true,
+        ip_address: '10.0.10.1',
+        prefix_length: 24,
+        is_management: true,
+        description: 'кластер',
+      },
+    ],
     ...overrides,
   })
   const stackState = (items: unknown[]) => ({ stack_name: 'Ядро', member_count: 2, items, available: [] })
@@ -3366,7 +4015,11 @@ describe('DeviceFormModal.vue — общие настройки VLAN стека 
     { id: 'dv-2', physical_device_id: 'dev-s', vlan_id: 'v-20', ip_address: '10.0.20.7', prefix_length: 24, is_management: false, description: null },
   ]
 
-  interface Call { method: string; url: string; body?: unknown }
+  interface Call {
+    method: string
+    url: string
+    body?: unknown
+  }
 
   // Устройство-участник стека «Ядро» (или обычное устройство, если inStack = false); состояние стека и PUT настройки отдаёт мок.
   async function mountDevice(inStack: boolean, opts: { applied?: unknown; afterDelete?: unknown } = {}) {
@@ -3381,16 +4034,24 @@ describe('DeviceFormModal.vue — общие настройки VLAN стека 
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
-        if (method === 'GET' && url.includes('/resources/device-vlans')) return new Response(JSON.stringify({ items: ownVlans, total: 2, offset: 0, limit: 1000 }))
+        if (method === 'GET' && url.includes('/resources/device-vlans'))
+          return new Response(JSON.stringify({ items: ownVlans, total: 2, offset: 0, limit: 1000 }))
         if (method === 'GET' && url.includes('/device-stacks/stack-1/vlans')) return new Response(JSON.stringify(stackState([sharedRow()])))
-        if (method === 'PUT' && url.includes('/device-stacks/stack-1/vlans/v-10')) return new Response(JSON.stringify(opts.applied ?? stackState([sharedRow()])))
+        if (method === 'PUT' && url.includes('/device-stacks/stack-1/vlans/v-10'))
+          return new Response(JSON.stringify(opts.applied ?? stackState([sharedRow()])))
         if (method === 'DELETE' && url.includes('/device-stacks/stack-1/vlans/v-10')) return new Response(JSON.stringify(opts.afterDelete ?? stackState([])))
         if (method === 'PUT' && url.endsWith('/devices/dev-s/vlans')) return new Response(JSON.stringify({ items: [] }))
-        if (method === 'PUT' && url.includes('/resources/devices/dev-s')) return new Response(JSON.stringify({ id: 'dev-s', device_type_id: 'dt-server', serial_number: 'SN-S-1' }))
+        if (method === 'PUT' && url.includes('/resources/devices/dev-s'))
+          return new Response(JSON.stringify({ id: 'dev-s', device_type_id: 'dt-server', serial_number: 'SN-S-1' }))
         return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
       }),
     )
-    const device = { id: 'dev-s', device_type_id: 'dt-server', serial_number: 'SN-S-1', ...(inStack ? { stack_id: 'stack-1', stack_name: 'Ядро' } : {}) } as never
+    const device = {
+      id: 'dev-s',
+      device_type_id: 'dt-server',
+      serial_number: 'SN-S-1',
+      ...(inStack ? { stack_id: 'stack-1', stack_name: 'Ядро' } : {}),
+    } as never
     const wrapper = mount(DeviceFormModal, { props: { device } })
     await flushPromises()
     const vlanEditor = wrapper.findAll('.nested-editor').find((e) => e.text().includes('VLAN устройства'))!

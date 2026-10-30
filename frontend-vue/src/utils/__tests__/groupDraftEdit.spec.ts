@@ -32,7 +32,12 @@ describe('cloneGroupForEdit', () => {
     const original = group({
       vlan_ids: ['v10'],
       open_ports: [{ protocol_catalog_id: 'c22', transport_protocol: 'TCP', description: 'ssh' }],
-      subinterfaces: [sub('s1', 'v10', { ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }], open_ports: [{ protocol_catalog_id: 'c443', transport_protocol: 'TCP', description: '' }] })],
+      subinterfaces: [
+        sub('s1', 'v10', {
+          ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }],
+          open_ports: [{ protocol_catalog_id: 'c443', transport_protocol: 'TCP', description: '' }],
+        }),
+      ],
     })
     const copy = cloneGroupForEdit(original)
 
@@ -55,7 +60,13 @@ describe('cloneGroupForEdit', () => {
 
   it('остальные поля (ключ, id, имя, IP) переносятся как есть', () => {
     const copy = cloneGroupForEdit(group({ id: 'srv-1', ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }], manage_open_ports: true }))
-    expect(copy).toMatchObject({ id: 'srv-1', key: 'g1', name: 'Серверные', ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }], manage_open_ports: true })
+    expect(copy).toMatchObject({
+      id: 'srv-1',
+      key: 'g1',
+      name: 'Серверные',
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }],
+      manage_open_ports: true,
+    })
   })
 })
 
@@ -112,7 +123,10 @@ describe('setGroupAllVlans', () => {
   it('«Все VLAN» включён: признак и все VLAN устройства; выключен: признак снят и набор пуст', () => {
     const base = group({ vlan_mode: 'trunk', vlan_ids: ['v10'] })
     expect(setGroupAllVlans(base, true, vlans)).toMatchObject({ all_vlans: true, vlan_ids: ['v10', 'v20', 'v30'] })
-    expect(setGroupAllVlans(group({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20', 'v30'], all_vlans: true }), false, vlans)).toMatchObject({ all_vlans: false, vlan_ids: [] })
+    expect(setGroupAllVlans(group({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20', 'v30'], all_vlans: true }), false, vlans)).toMatchObject({
+      all_vlans: false,
+      vlan_ids: [],
+    })
   })
 })
 
@@ -151,7 +165,14 @@ describe('normalizeGroupSubinterfaces', () => {
   })
 
   it('открытые порты каждого шаблона — по возрастанию номера порта', () => {
-    const rows = [sub('a', 'v10', { open_ports: [{ protocol_catalog_id: 'c443', transport_protocol: 'TCP', description: '' }, { protocol_catalog_id: 'c22', transport_protocol: 'TCP', description: '' }] })]
+    const rows = [
+      sub('a', 'v10', {
+        open_ports: [
+          { protocol_catalog_id: 'c443', transport_protocol: 'TCP', description: '' },
+          { protocol_catalog_id: 'c22', transport_protocol: 'TCP', description: '' },
+        ],
+      }),
+    ]
     expect(normalizeGroupSubinterfaces(rows, vlans, catalog)[0].open_ports.map((p) => p.protocol_catalog_id)).toEqual(['c22', 'c443'])
   })
 

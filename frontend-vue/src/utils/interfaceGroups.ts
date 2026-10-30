@@ -21,7 +21,18 @@ export function newGroupKey(): string {
 }
 
 export function emptyGroup(name = ''): InterfaceGroupDraft {
-  return { key: newGroupKey(), name, vlan_mode: '', vlan_ids: [], all_vlans: false, ips: [], manage_open_ports: false, open_ports: [], manage_subinterfaces: false, subinterfaces: [] }
+  return {
+    key: newGroupKey(),
+    name,
+    vlan_mode: '',
+    vlan_ids: [],
+    all_vlans: false,
+    ips: [],
+    manage_open_ports: false,
+    open_ports: [],
+    manage_subinterfaces: false,
+    subinterfaces: [],
+  }
 }
 
 /** Параметры порта, которыми может управлять группа и которые можно скопировать с порта в группу. */
@@ -37,7 +48,12 @@ export interface ManagedFields {
  * manage_subinterfaces (пустой список тоже значение: у портов группы подинтерфейсов не будет). */
 export function managedFields(group: InterfaceGroupDraft | undefined): ManagedFields {
   if (!group) return { vlan: false, ip: false, openPorts: false, subinterfaces: false }
-  return { vlan: group.vlan_mode !== '', ip: groupIps(group).length > 0, openPorts: group.manage_open_ports, subinterfaces: group.manage_subinterfaces === true }
+  return {
+    vlan: group.vlan_mode !== '',
+    ip: groupIps(group).length > 0,
+    openPorts: group.manage_open_ports,
+    subinterfaces: group.manage_subinterfaces === true,
+  }
 }
 
 export function findGroup(row: InterfaceDraftRow, groups: InterfaceGroupDraft[]): InterfaceGroupDraft | undefined {
@@ -104,7 +120,12 @@ export function applyGroupSubinterfaces(row: InterfaceDraftRow, group: Interface
       is_data_transfer: template.is_data_transfer,
       description: template.description,
       ips: ips.map((ip, i) => ({ id: ipIds[i], ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length, purpose: ip.purpose })),
-      open_ports: ports.map((p, i) => ({ id: portIds[i], protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })),
+      open_ports: ports.map((p, i) => ({
+        id: portIds[i],
+        protocol_catalog_id: p.protocol_catalog_id,
+        transport_protocol: p.transport_protocol || 'TCP',
+        description: p.description,
+      })),
     })
   }
   return result
@@ -120,7 +141,12 @@ export function applyGroupToRow(row: InterfaceDraftRow, group: InterfaceGroupDra
   if (managed.vlan) {
     // «Все VLAN» группы — тот же признак у порта (сервер хранит только его); vlan_ids группы при этом зеркалит все
     // допустимые VLAN устройства, поэтому форма показывает их отмеченными.
-    next = { ...next, vlan_mode: group.vlan_mode as 'access' | 'trunk', vlan_ids: [...group.vlan_ids], all_vlans: group.vlan_mode === 'trunk' && group.all_vlans === true }
+    next = {
+      ...next,
+      vlan_mode: group.vlan_mode as 'access' | 'trunk',
+      vlan_ids: [...group.vlan_ids],
+      all_vlans: group.vlan_mode === 'trunk' && group.all_vlans === true,
+    }
   }
   if (managed.ip) {
     // Группа задаёт ПОЛНЫЙ список IP порта. Записи порта не пересоздаются (правило сервера — with_reused_ids в
@@ -128,7 +154,10 @@ export function applyGroupToRow(row: InterfaceDraftRow, group: InterfaceGroupDra
     // записи порта по порядку; остаток без пары удаляется. Назначение — часть IP: группа записывает его безусловно (пустое очищает).
     const wantedIps = groupIps(group)
     const ids = reusedIds(row.ips, row.ips.map(ipKey), wantedIps.map(ipKey))
-    next = { ...next, ips: wantedIps.map((ip, i) => ({ id: ids[i], ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length, purpose: ip.purpose.trim() })) }
+    next = {
+      ...next,
+      ips: wantedIps.map((ip, i) => ({ id: ids[i], ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length, purpose: ip.purpose.trim() })),
+    }
   }
   if (managed.openPorts) {
     // Записи порта не пересоздаются (как и на сервере, services/crud/interfaces.py:_apply_group_open_ports):
@@ -220,8 +249,12 @@ export function subinterfaceTemplatesFromRow(
       is_management: sub.is_management,
       is_data_transfer: sub.is_data_transfer,
       description: sub.description,
-      ips: sub.ips.filter((ip) => ip.ip_address.trim() !== '').map((ip) => ({ ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length, purpose: ip.purpose })),
-      open_ports: sub.open_ports.filter((p) => p.protocol_catalog_id !== '').map((p) => ({ protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })),
+      ips: sub.ips
+        .filter((ip) => ip.ip_address.trim() !== '')
+        .map((ip) => ({ ip_address: ip.ip_address.trim(), prefix_length: ip.prefix_length, purpose: ip.purpose })),
+      open_ports: sub.open_ports
+        .filter((p) => p.protocol_catalog_id !== '')
+        .map((p) => ({ protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol || 'TCP', description: p.description })),
     })
   }
   return { templates, skipped }
@@ -243,7 +276,12 @@ export function copyValuesFromRow(
   const available = copyableFields(row)
   let next = group
   if (what.vlan && available.vlan) {
-    next = { ...next, vlan_mode: row.vlan_mode, vlan_ids: row.vlan_mode === 'access' ? row.vlan_ids.slice(0, 1) : [...row.vlan_ids], all_vlans: row.vlan_mode === 'trunk' && row.all_vlans === true }
+    next = {
+      ...next,
+      vlan_mode: row.vlan_mode,
+      vlan_ids: row.vlan_mode === 'access' ? row.vlan_ids.slice(0, 1) : [...row.vlan_ids],
+      all_vlans: row.vlan_mode === 'trunk' && row.all_vlans === true,
+    }
   }
   if (what.ip && available.ip) {
     // Все непустые IP порта без id (это новые строки группы); одинаковые адреса (у порта они допустимы) схлопываются в первый.
@@ -294,7 +332,9 @@ export function describeGroup(group: InterfaceGroupDraft, vlanLabel: (vlanDefini
   }
   const ips = groupIps(group)
   if (ips.length) {
-    const labels = ips.map((ip) => `${ip.ip_address.trim()}${ip.prefix_length !== '' ? `/${ip.prefix_length}` : ''}${ip.purpose.trim() ? ` (${ip.purpose.trim()})` : ''}`)
+    const labels = ips.map(
+      (ip) => `${ip.ip_address.trim()}${ip.prefix_length !== '' ? `/${ip.prefix_length}` : ''}${ip.purpose.trim() ? ` (${ip.purpose.trim()})` : ''}`,
+    )
     parts.push(`IP ${labels.join(', ')}`)
   }
   if (group.manage_open_ports) {
@@ -350,14 +390,20 @@ function validateGroupIps(group: InterfaceGroupDraft, name: string): string | nu
 
 /** Подинтерфейсы группы: VLAN обязателен, входит в VLAN группы и не повторяется, IP и открытые порты корректны.
  * Правила зеркальны серверным (backend/app/services/crud/interface_group_subinterfaces.py). */
-function validateGroupSubinterfaces(group: InterfaceGroupDraft, name: string, portCatalog: readonly ProtocolPortCatalogEntry[], deviceVlanIds?: ReadonlySet<string>): string | null {
+function validateGroupSubinterfaces(
+  group: InterfaceGroupDraft,
+  name: string,
+  portCatalog: readonly ProtocolPortCatalogEntry[],
+  deviceVlanIds?: ReadonlySet<string>,
+): string | null {
   const subs = group.subinterfaces ?? []
   if (subs.length && group.vlan_mode === '') return `Подинтерфейсы группы «${name}» можно задать только вместе с режимом порта и VLAN группы.`
   const groupVlans = group.all_vlans === true ? deviceVlanIds : new Set(group.vlan_ids)
   const seen = new Set<string>()
   for (const sub of subs) {
     if (!sub.vlan_id) return `У подинтерфейса группы «${name}» не выбран VLAN.`
-    if (groupVlans && !groupVlans.has(sub.vlan_id)) return `VLAN подинтерфейса группы «${name}» не входит в VLAN группы — выберите другой VLAN или удалите подинтерфейс.`
+    if (groupVlans && !groupVlans.has(sub.vlan_id))
+      return `VLAN подинтерфейса группы «${name}» не входит в VLAN группы — выберите другой VLAN или удалите подинтерфейс.`
     if (seen.has(sub.vlan_id)) return `В группе «${name}» несколько подинтерфейсов на одном VLAN — на порту VLAN используется один раз.`
     seen.add(sub.vlan_id)
     for (const ip of sub.ips) {
@@ -372,15 +418,20 @@ function validateGroupSubinterfaces(group: InterfaceGroupDraft, name: string, po
 
 /** Копия устройства: у нового устройства нет групп донора, поэтому группы копируются заново —
  * без id, под новыми ключами, а порты перевязываются на эти ключи. */
-export function cloneGroupsForCopy(
-  groups: InterfaceGroupDraft[],
-  rows: InterfaceDraftRow[],
-): { groups: InterfaceGroupDraft[]; rows: InterfaceDraftRow[] } {
+export function cloneGroupsForCopy(groups: InterfaceGroupDraft[], rows: InterfaceDraftRow[]): { groups: InterfaceGroupDraft[]; rows: InterfaceDraftRow[] } {
   const keyMap = new Map<string, string>()
   const clonedGroups = groups.map((g) => {
     const key = newGroupKey()
     keyMap.set(g.key, key)
-    return { ...g, id: undefined, key, vlan_ids: [...g.vlan_ids], ips: g.ips.map((ip) => ({ ...ip, id: undefined })), open_ports: g.open_ports.map((p) => ({ ...p, id: undefined })), subinterfaces: stripSubinterfaceIds(g.subinterfaces) ?? [] }
+    return {
+      ...g,
+      id: undefined,
+      key,
+      vlan_ids: [...g.vlan_ids],
+      ips: g.ips.map((ip) => ({ ...ip, id: undefined })),
+      open_ports: g.open_ports.map((p) => ({ ...p, id: undefined })),
+      subinterfaces: stripSubinterfaceIds(g.subinterfaces) ?? [],
+    }
   })
   const clonedRows = rows.map((row) => ({ ...row, group_key: row.group_key ? (keyMap.get(row.group_key) ?? '') : '' }))
   return { groups: clonedGroups, rows: clonedRows }

@@ -23,11 +23,17 @@ function addIp() {
 }
 
 function removeIp(index: number) {
-  emit('update:modelValue', rows.value.filter((_, j) => j !== index))
+  emit(
+    'update:modelValue',
+    rows.value.filter((_, j) => j !== index),
+  )
 }
 
 function updateIp(index: number, patch: Partial<InterfaceIpDraftRow>) {
-  emit('update:modelValue', rows.value.map((ip, j) => (j === index ? { ...ip, ...patch } : ip)))
+  emit(
+    'update:modelValue',
+    rows.value.map((ip, j) => (j === index ? { ...ip, ...patch } : ip)),
+  )
 }
 </script>
 

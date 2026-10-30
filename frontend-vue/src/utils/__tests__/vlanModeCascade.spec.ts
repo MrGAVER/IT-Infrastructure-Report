@@ -32,7 +32,11 @@ describe('buildEditedState', () => {
       row('в новой группе', { id: 'if-3', group_key: 'new-1' }),
       row('новая строка', { vlan_mode: 'access' }),
     ]
-    const groups = [group({ id: 'g1', vlan_mode: 'trunk' }), group({ id: 'g2', key: 'g2', vlan_mode: '', vlan_ids: [] }), group({ id: undefined, key: 'new-1', name: 'Новая', vlan_mode: 'access', vlan_ids: ['v10'] })]
+    const groups = [
+      group({ id: 'g1', vlan_mode: 'trunk' }),
+      group({ id: 'g2', key: 'g2', vlan_mode: '', vlan_ids: [] }),
+      group({ id: undefined, key: 'new-1', name: 'Новая', vlan_mode: 'access', vlan_ids: ['v10'] }),
+    ]
 
     expect(buildEditedState('dev-1', rows, groups)).toEqual({
       device_id: 'dev-1',
@@ -87,9 +91,24 @@ describe('vlansForMode', () => {
 
 describe('applyCascadeToDraft', () => {
   it('группа редактируемого устройства: режим и VLAN группы, затем значения в её портах черновика', () => {
-    const rows = [row('Gi0/1', { id: 'if-1', group_key: 'g1', vlan_ids: ['v10', 'v20'] }), row('Gi0/2', { id: 'if-3', group_key: 'g1', vlan_ids: ['v10', 'v20'] }), row('Gi0/9', { id: 'if-9', vlan_ids: ['v10', 'v20'] })]
+    const rows = [
+      row('Gi0/1', { id: 'if-1', group_key: 'g1', vlan_ids: ['v10', 'v20'] }),
+      row('Gi0/2', { id: 'if-3', group_key: 'g1', vlan_ids: ['v10', 'v20'] }),
+      row('Gi0/9', { id: 'if-9', vlan_ids: ['v10', 'v20'] }),
+    ]
     const plan = makePlan({
-      groups: [groupChange({ id: 'g1', deferred: true, vlans_after: [vlanRef(10)], dropped_vlans: [vlanRef(20)], ports: [{ id: 'if-1', name: 'Gi0/1' }, { id: 'if-3', name: 'Gi0/2' }] })],
+      groups: [
+        groupChange({
+          id: 'g1',
+          deferred: true,
+          vlans_after: [vlanRef(10)],
+          dropped_vlans: [vlanRef(20)],
+          ports: [
+            { id: 'if-1', name: 'Gi0/1' },
+            { id: 'if-3', name: 'Gi0/2' },
+          ],
+        }),
+      ],
       ports: [],
     })
 
@@ -116,7 +135,11 @@ describe('applyCascadeToDraft', () => {
 
   it('trunk: VLAN порта и группы остаются как есть, «все VLAN» не добавляются', () => {
     const rows = [row('Gi0/1', { id: 'if-1', group_key: 'g1', vlan_mode: 'access', vlan_ids: ['v10'] })]
-    const plan = makePlan({ target_mode: 'trunk', groups: [groupChange({ id: 'g1', deferred: true, vlans_after: [vlanRef(10)], ports: [{ id: 'if-1', name: 'Gi0/1' }] })], ports: [] })
+    const plan = makePlan({
+      target_mode: 'trunk',
+      groups: [groupChange({ id: 'g1', deferred: true, vlans_after: [vlanRef(10)], ports: [{ id: 'if-1', name: 'Gi0/1' }] })],
+      ports: [],
+    })
 
     const result = applyCascadeToDraft(rows, [group({ vlan_mode: 'access', vlan_ids: ['v10'] })], plan)
 
@@ -154,7 +177,10 @@ describe('applyCascadeToDraft', () => {
     const result = applyCascadeToDraft(rows, [draftGroup], plan)
 
     expect(result.groups[0]).toMatchObject({ key: 'new-1', vlan_mode: 'access', vlan_ids: ['v10'] })
-    expect(result.rows.map((r) => [r.vlan_mode, r.vlan_ids])).toEqual([['access', ['v10']], ['access', ['v10']]])
+    expect(result.rows.map((r) => [r.vlan_mode, r.vlan_ids])).toEqual([
+      ['access', ['v10']],
+      ['access', ['v10']],
+    ])
     expect(result.changedPorts).toBe(1) // считаются только сохранённые порты (с id)
   })
 
@@ -182,7 +208,10 @@ describe('isTrivialPlan, isFormOnlyPlan и modeLabel', () => {
   })
 
   it('«только форма» — тривиальный план, в котором на других устройствах ничего не пишется', () => {
-    const own = makePlan({ ports: [portChange({ deferred: true })], totals: { ...makePlan().totals, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0 } })
+    const own = makePlan({
+      ports: [portChange({ deferred: true })],
+      totals: { ...makePlan().totals, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0 },
+    })
     expect(isFormOnlyPlan(own)).toBe(true)
     expect(isFormOnlyPlan(makePlan())).toBe(false) // единственный порт на другом устройстве
     expect(isFormOnlyPlan(makePlan({ totals: { ...makePlan().totals, ports: 2, deferred_ports: 1, immediate_ports: 1 } }))).toBe(false)

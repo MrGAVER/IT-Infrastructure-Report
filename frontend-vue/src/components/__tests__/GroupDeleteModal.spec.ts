@@ -23,7 +23,12 @@ describe('GroupDeleteModal', () => {
   })
 
   it('перечисляет все управляемые параметры в порядке: режим и VLAN, IP, открытые порты, подинтерфейсы', () => {
-    const all = group({ vlan_mode: 'trunk', ips: [{ ip_address: '10.0.0.5', prefix_length: '', purpose: '' }], manage_open_ports: true, manage_subinterfaces: true })
+    const all = group({
+      vlan_mode: 'trunk',
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '', purpose: '' }],
+      manage_open_ports: true,
+      manage_subinterfaces: true,
+    })
     expect(mountModal(all).get('.delete-desc').text()).toContain('Группа задавала: режим порта и VLAN, IP-адрес, открытые порты, подинтерфейсы.')
 
     const some = group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '', purpose: '' }], manage_subinterfaces: true })

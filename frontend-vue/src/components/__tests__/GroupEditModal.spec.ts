@@ -19,7 +19,9 @@ function newGroup(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft
 type Props = InstanceType<typeof GroupEditModal>['$props']
 function mountModal(props: Partial<Props> = {}) {
   const rows: InterfaceDraftRow[] = [makeRow({ name: 'Gi0/1' }), makeRow({ name: 'Gi0/2' }), makeRow({ name: '' })]
-  return mount(GroupEditModal, { props: { group: newGroup(), isNew: true, members: new Set<number>(), rows, groups: [], vlanOptions: vlans, protocolPortCatalog: [], ...props } })
+  return mount(GroupEditModal, {
+    props: { group: newGroup(), isNew: true, members: new Set<number>(), rows, groups: [], vlanOptions: vlans, protocolPortCatalog: [], ...props },
+  })
 }
 type Wrapper = ReturnType<typeof mountModal>
 
@@ -45,7 +47,10 @@ describe('GroupEditModal', () => {
   })
 
   it('поля заполнены из группы, а состав — из переданных индексов портов', () => {
-    const wrapper = mountModal({ group: newGroup({ name: 'Серверные', ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }] }), members: new Set([0, 2]) })
+    const wrapper = mountModal({
+      group: newGroup({ name: 'Серверные', ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }] }),
+      members: new Set([0, 2]),
+    })
 
     expect((wrapper.get('.group-modal .field input').element as HTMLInputElement).value).toBe('Серверные')
     expect((wrapper.get('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
@@ -89,8 +94,16 @@ describe('GroupEditModal', () => {
   })
 
   it('порт другой группы можно забрать, но окно предупреждает: «перейдёт из группы»', () => {
-    const rows = [makeRow({ name: 'Gi0/1', group_key: 'g2' }), makeRow({ name: 'Gi0/2', group_key: 'g1' }), makeRow({ name: 'Gi0/3', group_key: 'gone' }), makeRow({ name: 'Gi0/4' })]
-    const groups = [{ ...emptyGroup('Эта же'), key: 'g1' }, { ...emptyGroup('Соседняя'), key: 'g2' }]
+    const rows = [
+      makeRow({ name: 'Gi0/1', group_key: 'g2' }),
+      makeRow({ name: 'Gi0/2', group_key: 'g1' }),
+      makeRow({ name: 'Gi0/3', group_key: 'gone' }),
+      makeRow({ name: 'Gi0/4' }),
+    ]
+    const groups = [
+      { ...emptyGroup('Эта же'), key: 'g1' },
+      { ...emptyGroup('Соседняя'), key: 'g2' },
+    ]
     const wrapper = mountModal({ rows, group: newGroup({ name: 'Эта же' }), groups, isNew: false })
 
     // g2 — другая группа, g1 — эта же (она есть в списке групп, но порт и так в ней), gone — группы нет в списке, у четвёртого порта группы нет
@@ -194,7 +207,9 @@ describe('GroupEditModal', () => {
     })
 
     it('можно задать несколько общих IP: второй адрес добавляется кнопкой и уходит в черновик вместе с первым', async () => {
-      const wrapper = mountModal({ group: newGroup({ name: 'Серверные', ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Управление' }] }) })
+      const wrapper = mountModal({
+        group: newGroup({ name: 'Серверные', ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Управление' }] }),
+      })
 
       await wrapper.get('.group-ips .btn-secondary').trigger('click')
       const addresses = wrapper.findAll('input[aria-label="Общий IP-адрес группы"]')
@@ -236,7 +251,11 @@ describe('GroupEditModal', () => {
     it('VLAN подинтерфейсов — VLAN группы: без режима и у access без VLAN пусто, у access выбранный, у trunk с «Все VLAN» — все VLAN устройства', async () => {
       const wrapper = mountModal()
       await wrapper.get('input[aria-label="Задать подинтерфейсы"]').setValue(true)
-      const options = () => wrapper.getComponent(InterfaceSubinterfacesEditor).props('vlanOptions').map((v: { id: string }) => v.id)
+      const options = () =>
+        wrapper
+          .getComponent(InterfaceSubinterfacesEditor)
+          .props('vlanOptions')
+          .map((v: { id: string }) => v.id)
       expect(options()).toEqual([])
 
       await mode(wrapper, 1).trigger('change')
@@ -272,7 +291,11 @@ describe('GroupEditModal', () => {
     expect((wrapper.get('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.7')
     expect((mode(wrapper, 1).element as HTMLInputElement).checked).toBe(true)
     await save(wrapper)
-    expect(saved(wrapper).group).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v20'], ips: [{ ip_address: '10.0.0.7', prefix_length: '24', purpose: 'mgmt' }] })
+    expect(saved(wrapper).group).toMatchObject({
+      vlan_mode: 'access',
+      vlan_ids: ['v20'],
+      ips: [{ ip_address: '10.0.0.7', prefix_length: '24', purpose: 'mgmt' }],
+    })
   })
 
   it('закрывается крестиком, «Отмена» и кликом по подложке, но не нажатием внутри карточки', async () => {

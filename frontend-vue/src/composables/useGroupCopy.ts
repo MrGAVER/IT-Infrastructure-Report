@@ -29,7 +29,9 @@ export function useGroupCopy(deps: GroupCopyDeps) {
   const copyPortOptions = computed(() => deps.rows().map((row, i) => ({ value: String(i), label: row.name || `#${i + 1}` })))
   const copyRow = computed(() => (copySource.value === '' ? undefined : deps.rows()[Number(copySource.value)]))
   const copyAvailable = computed(() => (copyRow.value ? copyableFields(copyRow.value) : none()))
-  const copyNothingAvailable = computed(() => !!copyRow.value && !copyAvailable.value.vlan && !copyAvailable.value.ip && !copyAvailable.value.openPorts && !copyAvailable.value.subinterfaces)
+  const copyNothingAvailable = computed(
+    () => !!copyRow.value && !copyAvailable.value.vlan && !copyAvailable.value.ip && !copyAvailable.value.openPorts && !copyAvailable.value.subinterfaces,
+  )
   const canCopy = computed(
     () =>
       (copyWhat.value.vlan && copyAvailable.value.vlan) ||

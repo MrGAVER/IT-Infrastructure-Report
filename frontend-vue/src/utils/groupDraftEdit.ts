@@ -11,7 +11,11 @@ export function cloneGroupForEdit(group: InterfaceGroupDraft): InterfaceGroupDra
     all_vlans: group.all_vlans === true,
     ips: group.ips.map((ip) => ({ ...ip })),
     open_ports: group.open_ports.map((p) => ({ ...p })),
-    subinterfaces: (group.subinterfaces ?? []).map((sub) => ({ ...sub, ips: sub.ips.map((ip) => ({ ...ip })), open_ports: sub.open_ports.map((p) => ({ ...p })) })),
+    subinterfaces: (group.subinterfaces ?? []).map((sub) => ({
+      ...sub,
+      ips: sub.ips.map((ip) => ({ ...ip })),
+      open_ports: sub.open_ports.map((p) => ({ ...p })),
+    })),
   }
 }
 
