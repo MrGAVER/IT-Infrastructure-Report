@@ -250,7 +250,7 @@ describe('InterfaceRow — раскрытая часть', () => {
   })
 
   it('порт из группы: то, что задаёт группа, заблокировано и подписано, остальное доступно', () => {
-    const group = { ...emptyGroup('Магистраль'), vlan_mode: 'trunk' as const, ip_address: '10.9.9.1', manage_open_ports: true }
+    const group = { ...emptyGroup('Магистраль'), vlan_mode: 'trunk' as const, ips: [{ ip_address: '10.9.9.1', prefix_length: '', purpose: '' }], manage_open_ports: true }
     const row = makeRow({ id: 'if-1', vlan_mode: 'trunk', group_key: group.key })
     const wrapper = mountRow({ row, rows: [row], groups: [group], expanded: true })
 

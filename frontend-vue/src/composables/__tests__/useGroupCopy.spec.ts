@@ -104,9 +104,7 @@ describe('useGroupCopy', () => {
     expect(draft.value).toMatchObject({
       vlan_mode: 'access',
       vlan_ids: ['v10'],
-      ip_address: '10.0.0.5',
-      prefix_length: '24',
-      ip_purpose: 'mgmt',
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }],
       manage_open_ports: true,
       open_ports: [{ protocol_catalog_id: 'c22', transport_protocol: 'TCP' }],
     })
@@ -120,7 +118,7 @@ describe('useGroupCopy', () => {
     copy.copyWhat.value = { vlan: false, ip: true, openPorts: false, subinterfaces: false }
     copy.copyFromPort()
 
-    expect(draft.value).toMatchObject({ ip_address: '10.0.0.5', vlan_mode: '', vlan_ids: [], manage_open_ports: false, open_ports: [] })
+    expect(draft.value).toMatchObject({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }], vlan_mode: '', vlan_ids: [], manage_open_ports: false, open_ports: [] })
   })
 
   it('после копирования выбор сбрасывается: порт не выбран, отметок нет', async () => {
@@ -135,15 +133,15 @@ describe('useGroupCopy', () => {
     expect(copy.canCopy.value).toBe(false)
   })
 
-  it('у порта несколько IP-адресов — в сообщении сказано, что скопирован первый', async () => {
+  it('у порта несколько IP-адресов — копируются все, предупреждения нет', async () => {
     const row = makeRow({ name: 'Gi0/2', ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }, { ip_address: '10.0.0.2', prefix_length: '24', purpose: '' }] })
     const { copy, draft } = setup([row])
     copy.copySource.value = '0'
     await nextTick()
     copy.copyFromPort()
 
-    expect(draft.value.ip_address).toBe('10.0.0.1')
-    expect(lastToast()?.message).toBe('Значения скопированы с порта «Gi0/2». У порта несколько IP-адресов — скопирован первый.')
+    expect(draft.value.ips.map((ip) => ip.ip_address)).toEqual(['10.0.0.1', '10.0.0.2'])
+    expect(lastToast()?.message).toBe('Значения скопированы с порта «Gi0/2».')
   })
 
   it('у безымянного порта в сообщении его номер', async () => {

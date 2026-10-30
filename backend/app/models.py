@@ -388,9 +388,9 @@ class InterfaceGroup(TimestampMixin, Base):
     режим порта, IP-адрес и открытые порты у десятков портов).
 
     Каждый параметр «управляется» группой только если задан: vlan_mode IS NOT NULL — группа
-    задаёт режим порта и набор VLAN (interface_group_vlans); ip_address IS NOT NULL — общий IP
-    (на первом этапе один адрес на все порты, без диапазонов) вместе с префиксом и назначением IP
-    (ip_purpose); manage_open_ports — группа задаёт
+    задаёт режим порта и набор VLAN (interface_group_vlans); есть хотя бы одна строка
+    interface_group_ips — группа задаёт ПОЛНЫЙ список общих IP-адресов портов (адрес, префикс и
+    назначение каждого; один адрес или несколько, без диапазонов); manage_open_ports — группа задаёт
     полный список открытых портов (interface_group_open_ports). Незаданные параметры порты
     группы продолжают хранить каждый свои.
 
@@ -410,13 +410,7 @@ class InterfaceGroup(TimestampMixin, Base):
     # «Все VLAN» группы (только trunk при заданном vlan_mode): как DeviceInterface.all_vlans, но для всех
     # портов группы — каждому порту записывается и сам признак, и все доступные его устройству VLAN.
     all_vlans: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
-    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
-    prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
     manage_open_ports: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # Назначение общего IP (IPAddress.purpose у каждого порта группы). Часть общего IP, как и
-    # prefix_length: хранится, только пока задан ip_address, и тогда безусловно записывается в IP
-    # каждого порта группы (пустое значение — очищает назначение).
-    ip_purpose: Mapped[Optional[str]] = mapped_column(String(255))
     # Группа задаёт полный список подинтерфейсов своих портов (interface_group_subinterfaces): каждому порту группы
     # записываются подинтерфейсы `<порт>.<номер VLAN>` с общими IP и открытыми портами, лишние подинтерфейсы порта
     # удаляются — как manage_open_ports для открытых портов. Без признака подинтерфейсы портов группа не трогает.
@@ -432,6 +426,21 @@ class InterfaceGroupVLAN(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
     vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id", ondelete="CASCADE"), index=True)
+
+
+class InterfaceGroupIP(TimestampMixin, Base):
+    """Общий IP-адрес группы портов: группа с хотя бы одним таким адресом записывает ВСЕ свои адреса в IP
+    каждого порта (IPAddress самого порта, с префиксом и назначением), лишние IP порта удаляются — как
+    manage_open_ports для открытых портов. Адрес в пределах группы уникален (проверяет
+    services/crud/interface_groups.py). Отдельная таблица с настоящим FK, а не полиморфный ip_addresses:
+    у группы нет owner_type/owner_id, и шаблон не должен попадать в общие списки IP реестра. Заменила прежние
+    колонки interface_groups.ip_address/prefix_length/ip_purpose (один адрес на группу)."""
+    __tablename__ = "interface_group_ips"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
+    ip_address: Mapped[str] = mapped_column(String(64))
+    prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
+    purpose: Mapped[Optional[str]] = mapped_column(String(255))
 
 
 class InterfaceGroupOpenPort(TimestampMixin, Base):

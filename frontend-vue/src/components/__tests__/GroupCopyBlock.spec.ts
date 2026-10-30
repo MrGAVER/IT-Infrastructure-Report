@@ -74,8 +74,8 @@ describe('GroupCopyBlock', () => {
     await wrapper.get('.copy-row .btn').trigger('click')
 
     const applied = wrapper.emitted('apply')![0][0] as InterfaceGroupDraft
-    expect(applied).toMatchObject({ key: 'g1', name: 'Группа', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'mgmt' })
-    expect(draft).toMatchObject({ vlan_mode: '', vlan_ids: [], ip_address: '' })
+    expect(applied).toMatchObject({ key: 'g1', name: 'Группа', vlan_mode: 'access', vlan_ids: ['v10'], ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }] })
+    expect(draft).toMatchObject({ vlan_mode: '', vlan_ids: [], ips: [] })
     expect(useToast().toasts.at(-1)).toMatchObject({ type: 'success' })
   })
 
@@ -98,7 +98,7 @@ describe('GroupCopyBlock', () => {
     await checks(wrapper)[0].get('input').setValue(false) // без режима порта и VLAN
     await wrapper.get('.copy-row .btn').trigger('click')
 
-    expect(wrapper.emitted('apply')![0][0]).toMatchObject({ ip_address: '10.0.0.5', vlan_mode: '', vlan_ids: [] })
+    expect(wrapper.emitted('apply')![0][0]).toMatchObject({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }], vlan_mode: '', vlan_ids: [] })
   })
 
   it('после копирования блок возвращается в исходное состояние: порт не выбран, параметры скрыты', async () => {

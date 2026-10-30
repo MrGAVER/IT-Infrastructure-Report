@@ -4,7 +4,7 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, DeviceSubinterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN)
+from ..models import (Connection, ConnectionType, DeviceInterface, DeviceSubinterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupIP, InterfaceGroupOpenPort, InterfaceGroupVLAN)
 from .port_config import PortConfigStatus, evaluate_port_config, config_differences
 from .port_config_db import load_port_configs
 from .port_vlans import carries_all_vlans, effective_group_vlan_ids
@@ -135,11 +135,19 @@ def enrich_interfaces(items: Sequence[DeviceInterface], session: Session) -> lis
         result.append(data)
     return result
 
+def _ip_sort_key(ip: InterfaceGroupIP) -> tuple[Any, ...]:
+    """Числовой порядок IPv4 (10.0.0.9 перед 10.0.0.10); нечитаемый адрес — после остальных, по тексту."""
+    try:
+        return (0, tuple(int(part) for part in ip.ip_address.split('.')), ip.id)
+    except ValueError:
+        return (1, (), ip.ip_address, ip.id)
+
 def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) -> list[dict[str, Any]]:
-    """Группы портов с вложенными VLAN (vlan_ids, по номеру VLAN) и открытыми портами группы
+    """Группы портов с вложенными VLAN (vlan_ids, по номеру VLAN), общими IP-адресами (ips — id, ip_address,
+    prefix_length, purpose; в числовом порядке адресов) и открытыми портами группы
     (open_ports — id, protocol_catalog_id, transport_protocol, description; подписи порта/протокола
-    клиент берёт из справочника «Протоколы и порты», как и для портов устройства). Два запроса на
-    все группы разом, а не по запросу на группу."""
+    клиент берёт из справочника «Протоколы и порты», как и для портов устройства). Запросы — по одному
+    на вид вложенных данных для всех групп разом, а не по запросу на группу."""
     if not groups:
         return []
     group_ids = [g.id for g in groups]
@@ -155,6 +163,9 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
         .where(InterfaceGroupOpenPort.group_id.in_(group_ids))
         .order_by(ProtocolPortCatalog.port, InterfaceGroupOpenPort.transport_protocol)
     ).all()
+    ips_by_group: dict[str, list[dict[str, Any]]] = {}
+    for ip in sorted(session.scalars(select(InterfaceGroupIP).where(InterfaceGroupIP.group_id.in_(group_ids))).all(), key=_ip_sort_key):
+        ips_by_group.setdefault(ip.group_id, []).append(serialize(ip))
     vlans_by_group: dict[str, list[str]] = {}
     for group_id, vlan_id in vlan_links:
         vlans_by_group.setdefault(group_id, []).append(vlan_id)
@@ -170,7 +181,7 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
     for port in ports:
         ports_by_group.setdefault(port.group_id, []).append(serialize(port))
     return [
-        {**serialize(g), 'vlan_ids': vlans_by_group.get(g.id, []), 'open_ports': ports_by_group.get(g.id, [])}
+        {**serialize(g), 'vlan_ids': vlans_by_group.get(g.id, []), 'ips': ips_by_group.get(g.id, []), 'open_ports': ports_by_group.get(g.id, [])}
         for g in groups
     ]
 

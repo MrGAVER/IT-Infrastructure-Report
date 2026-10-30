@@ -70,14 +70,14 @@ def test_group_values_are_written_into_every_member_port(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    groups = [{"key": "g1", "name": "Серверные", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ip_address": "10.0.0.5", "prefix_length": 24, "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]}]
+    groups = [{"key": "g1", "name": "Серверные", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ips": [{"ip_address": "10.0.0.5", "prefix_length": 24}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]}]
 
     r = _sync(client, dev["id"], [_port("Gi0/1", "g1"), _port("Gi0/2", "g1"), _port("Gi0/3")], groups)
 
     assert r.status_code == 200, r.text
     stored = _stored_interfaces(client, dev["id"])
     (group,) = r.json()["groups"]
-    assert group["name"] == "Серверные" and group["vlan_ids"] == [v10["id"]] and group["ip_address"] == "10.0.0.5"
+    assert group["name"] == "Серверные" and group["vlan_ids"] == [v10["id"]] and [i["ip_address"] for i in group["ips"]] == ["10.0.0.5"]
     assert [p["protocol_catalog_id"] for p in group["open_ports"]] == [ssh["id"]]
     for name in ("Gi0/1", "Gi0/2"):
         iface = stored[name]
@@ -124,7 +124,7 @@ def test_repeated_sync_updates_in_place_without_recreating_rows(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh, http = _catalog_entry(client, 22, "SSH"), _catalog_entry(client, 80, "HTTP")
-    group = {"key": "g1", "name": "Группа", "ip_address": "10.0.0.5", "prefix_length": 24, "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": http["id"]}]}
+    group = {"key": "g1", "name": "Группа", "ips": [{"ip_address": "10.0.0.5", "prefix_length": 24}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": http["id"]}]}
     _sync(client, dev["id"], [_port("Gi0/1", "g1")], [group])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
     ip_id = _ips(client, iface["id"])[0]["id"]
@@ -132,7 +132,7 @@ def test_repeated_sync_updates_in_place_without_recreating_rows(client):
     saved_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
 
     # Меняем только IP группы и убираем HTTP: строка IP и порт SSH обновляются на месте.
-    group2 = {**group, "key": saved_group["id"], "id": saved_group["id"], "ip_address": "10.0.0.6",
+    group2 = {**group, "key": saved_group["id"], "id": saved_group["id"], "ips": [{**saved_group["ips"][0], "ip_address": "10.0.0.6"}],
               "open_ports": [next(p for p in saved_group["open_ports"] if p["protocol_catalog_id"] == ssh["id"])]}
     r = _sync(client, dev["id"], [_as_loaded(client, iface, saved_group["id"])], [group2])
 
@@ -150,7 +150,7 @@ def test_group_membership_without_changes_is_idempotent(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    group = {"key": "g1", "name": "Группа", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ip_address": "10.0.0.5", "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}]}
+    group = {"key": "g1", "name": "Группа", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ips": [{"ip_address": "10.0.0.5"}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}]}
     _sync(client, dev["id"], [_port("Gi0/1", "g1")], [group])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
     saved_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
@@ -170,7 +170,7 @@ def test_removing_group_keeps_values_in_ports_and_cleans_group_rows(client, db_s
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    group = {"key": "g1", "name": "Временная", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ip_address": "10.0.0.5", "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}]}
+    group = {"key": "g1", "name": "Временная", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ips": [{"ip_address": "10.0.0.5"}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}]}
     _sync(client, dev["id"], [_port("Gi0/1", "g1")], [group])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
 
@@ -194,7 +194,7 @@ def test_client_can_erase_values_when_dropping_group(client):
     """«Стереть значения» при удалении группы — это явные пустые значения порта в том же PUT: бэкенд
     сам ничего не стирает, а сохраняет то, что прислал клиент."""
     dev = _device(client)
-    _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Г", "ip_address": "10.0.0.5"}])
+    _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Г", "ips": [{"ip_address": "10.0.0.5"}]}])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
     assert len(_ips(client, iface["id"])) == 1
 
@@ -207,7 +207,7 @@ def test_client_can_erase_values_when_dropping_group(client):
 def test_sync_without_groups_key_leaves_groups_and_membership_untouched(client):
     """Старый клиент API (не знает про группы) не должен ни удалять группы, ни отвязывать порты."""
     dev = _device(client)
-    _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Г", "ip_address": "10.0.0.5"}])
+    _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Г", "ips": [{"ip_address": "10.0.0.5"}]}])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
 
     r = _sync(client, dev["id"], [{"id": iface["id"], "name": "Gi0/1"}], None)
@@ -222,8 +222,8 @@ def test_sync_without_groups_key_leaves_groups_and_membership_untouched(client):
     [
         ({"key": "g", "name": "  "}, "наименование"),
         ({"key": "g", "name": "Г", "vlan_mode": "half-duplex"}, "vlan_mode"),
-        ({"key": "g", "name": "Г", "ip_address": "999.1.1.1"}, "IP-адрес группы"),
-        ({"key": "g", "name": "Г", "ip_address": "10.0.0.1", "prefix_length": 40}, "префикс"),
+        ({"key": "g", "name": "Г", "ips": [{"ip_address": "999.1.1.1"}]}, "IP-адрес"),
+        ({"key": "g", "name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 40}]}, "префикс"),
         ({"name": "Г"}, "key"),
     ],
 )
@@ -280,7 +280,7 @@ def test_device_without_interfaces_can_be_deleted_together_with_its_groups(clien
     from app.models import InterfaceGroup
 
     dev = _device(client)
-    _sync(client, dev["id"], [], [{"key": "g", "name": "Пустая группа", "ip_address": "10.0.0.5"}])
+    _sync(client, dev["id"], [], [{"key": "g", "name": "Пустая группа", "ips": [{"ip_address": "10.0.0.5"}]}])
 
     r = client.delete(f"{API}/resources/devices/{dev['id']}")
 
@@ -304,8 +304,8 @@ def test_group_vlan_definition_disappears_with_deleted_vlan(client):
 # --- Назначение общего IP-адреса в группе (поле «Назначение» рядом с «IP-адрес» и «Префикс») ------------
 
 
-def _ip_group(key: str = "g1", name: str = "Серверные", **extra) -> dict:
-    return {"key": key, "name": name, "ip_address": "10.0.0.5", "prefix_length": 24, "ip_purpose": "Доступ администраторов", **extra}
+def _ip_group(key: str = "g1", name: str = "Серверные", ip_purpose: str | None = "Доступ администраторов", **extra) -> dict:
+    return {"key": key, "name": name, "ips": [{"ip_address": "10.0.0.5", "prefix_length": 24, "purpose": ip_purpose}], **extra}
 
 
 def test_group_ip_purpose_is_written_into_ip_of_every_member_port(client):
@@ -315,7 +315,7 @@ def test_group_ip_purpose_is_written_into_ip_of_every_member_port(client):
 
     assert r.status_code == 200, r.text
     (group,) = r.json()["groups"]
-    assert (group["ip_address"], group["ip_purpose"]) == ("10.0.0.5", "Доступ администраторов")
+    assert [(i["ip_address"], i["purpose"]) for i in group["ips"]] == [("10.0.0.5", "Доступ администраторов")]
     stored = _stored_interfaces(client, dev["id"])
     for name in ("Gi0/1", "Gi0/2"):
         assert [(i["ip_address"], i["prefix_length"], i["purpose"]) for i in _ips(client, stored[name]["id"])] == [("10.0.0.5", 24, "Доступ администраторов")]
@@ -366,21 +366,21 @@ def test_group_ip_purpose_is_trimmed_and_blank_means_not_set(client):
     r = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [_ip_group(ip_purpose="  Управление  ")])
     assert r.status_code == 200, r.text
     (group,) = r.json()["groups"]
-    assert group["ip_purpose"] == "Управление"
+    assert group["ips"][0]["purpose"] == "Управление"
 
     # Повторное сохранение ссылается на уже существующую группу по её id.
     r = _sync(client, dev["id"], [_port("Gi0/1", group["id"])], [_ip_group(key=group["id"], id=group["id"], ip_purpose="   ")])
     assert r.status_code == 200, r.text
-    assert r.json()["groups"][0]["ip_purpose"] is None
+    assert r.json()["groups"][0]["ips"][0]["purpose"] is None
 
 
 def test_group_ip_purpose_is_not_stored_without_ip_address(client):
     dev = _device(client, serial="SW-IP-PURPOSE-NOIP")
 
-    r = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Без IP", "ip_purpose": "Управление"}])
+    r = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Без IP", "ips": [{"purpose": "Управление"}]}])  # назначение без адреса — плейсхолдер
 
     assert r.status_code == 200, r.text
-    assert r.json()["groups"][0]["ip_purpose"] is None
+    assert r.json()["groups"][0]["ips"] == []
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
     assert _ips(client, iface["id"]) == []
 

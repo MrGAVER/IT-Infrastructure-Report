@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from alembic import command
+from alembic.script import ScriptDirectory
 from alembic.config import Config
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -201,8 +202,10 @@ class TestMigrationOnADatabase:
         cfg, engine = database
         command.upgrade(cfg, REVISION)
         command.upgrade(cfg, "head")
+        command.upgrade(cfg, "head")  # повторный накат на голову — холостой ход, ревизия не применяется заново
+        head = ScriptDirectory.from_config(cfg).get_current_head()  # последующие ревизии цепочки не ломают тест
         with engine.connect() as connection:
-            assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == REVISION
+            assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == head
 
     def test_downgrade_brings_the_columns_back_empty_with_the_old_defaults(self, database):
         cfg, engine = database

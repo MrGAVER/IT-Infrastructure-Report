@@ -1301,7 +1301,7 @@ describe('DeviceInterfacesEditor.vue', () => {
           { ...emptyRow(), id: 'if-3', name: 'Gi0/3', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], group_key: 'g1' },
           { ...emptyRow(), id: 'if-4', name: 'Gi0/4', vlan_mode: 'trunk', vlan_ids: ['v20'] },
         ]
-        const groups = [{ id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'trunk' as const, vlan_ids: ['v10', 'v20'], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }]
+        const groups = [{ id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'trunk' as const, vlan_ids: ['v10', 'v20'], ips: [], manage_open_ports: false, open_ports: [] }]
         const plan = makePlan({
           edited_device_id: 'dev-1',
           groups: [
@@ -1396,7 +1396,7 @@ describe('DeviceInterfacesEditor.vue', () => {
           { ...emptyRow(), id: 'if-2', name: 'Gi0/2', vlan_mode: 'access', vlan_ids: ['v10'], group_key: 'g1' },
         ]
         const groupDraft = (): InterfaceGroupDraft[] => [
-          { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] },
+          { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ips: [], manage_open_ports: false, open_ports: [] },
         ]
         const groupPlan = () =>
           makePlan({
@@ -1581,7 +1581,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
   ]
 
   function group(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
-    return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [], ...patch }
+    return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [], ...patch }
   }
 
   function member(name: string, patch: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow {
@@ -1595,7 +1595,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
   beforeEach(() => useToast().toasts.splice(0))
 
   it('показывает панель групп и имя группы в строке её порта', () => {
-    const wrapper = mountEditor([member('Gi0/1'), { ...emptyRow(), name: 'Gi0/2' }], [group({ ip_address: '10.0.0.5' })])
+    const wrapper = mountEditor([member('Gi0/1'), { ...emptyRow(), name: 'Gi0/2' }], [group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '', purpose: '' }] })])
 
     expect(wrapper.find('.groups-panel').text()).toContain('Серверные')
     const summaries = wrapper.findAll('.expand-toggle').map((b) => b.text())
@@ -1608,7 +1608,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
       member('Gi0/1', { vlan_mode: 'access', vlan_ids: ['v10'], ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] }),
       { ...emptyRow(), name: 'Gi0/2', ips: [{ ip_address: '192.168.0.1', prefix_length: '24', purpose: '' }] },
     ]
-    const wrapper = mountEditor(rows, [group({ vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: '24' })])
+    const wrapper = mountEditor(rows, [group({ vlan_mode: 'access', vlan_ids: ['v10'], ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })])
     await expandRow(wrapper, 0)
     await expandRow(wrapper, 1)
 
@@ -1629,7 +1629,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
   it('у члена группы, задающей назначение IP, поле «Назначение» заблокировано вместе с адресом и префиксом; у порта вне группы — нет', async () => {
     const ip = (purpose: string) => [{ ip_address: '10.0.0.5', prefix_length: '24', purpose }]
     const rows = [member('Gi0/1', { ips: ip('Администрирование') }), { ...emptyRow(), name: 'Gi0/2', ips: ip('Своё') }]
-    const wrapper = mountEditor(rows, [group({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'Администрирование' })])
+    const wrapper = mountEditor(rows, [group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' }] })])
     await expandRow(wrapper, 0)
     await expandRow(wrapper, 1)
 
@@ -1642,7 +1642,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
 
   it('поле «Назначение» заблокировано, как только группа задаёт IP, — даже если назначение в самой группе пустое', async () => {
     const rows = [member('Gi0/1', { ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })]
-    const wrapper = mountEditor(rows, [group({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: '' })])
+    const wrapper = mountEditor(rows, [group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })])
     await expandRow(wrapper)
 
     const detail = wrapper.find('.iface-detail')
@@ -1661,7 +1661,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
   })
 
   it('параметры, которыми группа не управляет, в строке её порта остаются редактируемыми', async () => {
-    const wrapper = mountEditor([member('Gi0/1')], [group({ ip_address: '10.0.0.5', prefix_length: '24' })])
+    const wrapper = mountEditor([member('Gi0/1')], [group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })])
     await expandRow(wrapper)
 
     const detail = wrapper.find('.iface-detail')
@@ -1719,7 +1719,7 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
 
     const groups = (wrapper.emitted('update:groups') as InterfaceGroupDraft[][][])[0][0]
     const rows = (wrapper.emitted('update:modelValue') as InterfaceDraftRow[][][])[0][0]
-    expect(groups[0]).toMatchObject({ name: 'Новая', ip_address: '10.1.1.1' })
+    expect(groups[0]).toMatchObject({ name: 'Новая', ips: [expect.objectContaining({ ip_address: '10.1.1.1' })] })
     expect(rows[0]).toMatchObject({ group_key: groups[0].key })
     expect(rows[0].ips[0].ip_address).toBe('10.1.1.1')
   })
@@ -2048,7 +2048,7 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
 
   it('режим не сохранённого порта, заданный его группой, не меняется: предупреждение вместо правки (назначение при этом применяется)', async () => {
     stubServer({ is_management: true, is_data_transfer: false, vlan_mode: 'trunk' })
-    const group: InterfaceGroupDraft = { key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }
+    const group: InterfaceGroupDraft = { key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [] }
     const wrapper = mountLive([row('eth0', { key: 'k0', group_key: 'g1', vlan_mode: 'access', connection: connected })], { deviceId: null, groups: [group] })
     await expandRow(wrapper)
     await flushPromises()

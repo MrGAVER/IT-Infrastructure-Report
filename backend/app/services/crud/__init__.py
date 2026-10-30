@@ -160,8 +160,10 @@ from .interface_group_subinterfaces import (  # noqa: F401
     delete_group_subinterfaces,
     group_subinterfaces_by_group,
     normalize_group_subinterfaces,
+    normalize_ips,
     purge_subinterfaces_of_groups,
     sync_group_subinterfaces,
+    with_reused_ids,
 )
 from .device_vlans import (  # noqa: F401
     _normalize_device_vlan_item,
@@ -274,6 +276,7 @@ __all__ = [
     'list_resource',
     'model_for',
     'normalize_group_subinterfaces',
+    'normalize_ips',
     'purge_subinterfaces_of_groups',
     'purge_subinterfaces_of_interfaces',
     'subinterface_references',
@@ -309,5 +312,6 @@ __all__ = [
     'setting_values',
     'stack_settings',
     'vlan_sort_key',
+    'with_reused_ids',
     'write_link',
 ]

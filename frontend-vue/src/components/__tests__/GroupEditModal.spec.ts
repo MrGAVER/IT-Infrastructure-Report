@@ -45,7 +45,7 @@ describe('GroupEditModal', () => {
   })
 
   it('поля заполнены из группы, а состав — из переданных индексов портов', () => {
-    const wrapper = mountModal({ group: newGroup({ name: 'Серверные', ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'mgmt' }), members: new Set([0, 2]) })
+    const wrapper = mountModal({ group: newGroup({ name: 'Серверные', ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }] }), members: new Set([0, 2]) })
 
     expect((wrapper.get('.group-modal .field input').element as HTMLInputElement).value).toBe('Серверные')
     expect((wrapper.get('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
@@ -189,8 +189,33 @@ describe('GroupEditModal', () => {
       await save(wrapper)
 
       const { group } = saved(wrapper)
-      expect(group).toMatchObject({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'Администрирование' })
-      expect(typeof group.prefix_length).toBe('string')
+      expect(group.ips).toEqual([{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' }])
+      expect(typeof group.ips[0].prefix_length).toBe('string')
+    })
+
+    it('можно задать несколько общих IP: второй адрес добавляется кнопкой и уходит в черновик вместе с первым', async () => {
+      const wrapper = mountModal({ group: newGroup({ name: 'Серверные', ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Управление' }] }) })
+
+      await wrapper.get('.group-ips .btn-secondary').trigger('click')
+      const addresses = wrapper.findAll('input[aria-label="Общий IP-адрес группы"]')
+      expect(addresses).toHaveLength(2)
+      await addresses[1].setValue('10.0.1.5')
+      await wrapper.findAll('input[aria-label="Назначение общего IP-адреса группы"]')[1].setValue('Данные')
+      await save(wrapper)
+
+      expect(saved(wrapper).group.ips).toEqual([
+        { id: 'gip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Управление' },
+        { ip_address: '10.0.1.5', prefix_length: '', purpose: 'Данные' },
+      ])
+    })
+
+    it('правка в окне не задевает исходную группу, пока не нажато «Применить» (копия списка IP глубокая)', async () => {
+      const source = newGroup({ ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })
+      const wrapper = mountModal({ group: source })
+
+      await wrapper.get('input[aria-label="Общий IP-адрес группы"]').setValue('10.9.9.9')
+
+      expect(source.ips[0].ip_address).toBe('10.0.0.5')
     })
   })
 
@@ -247,7 +272,7 @@ describe('GroupEditModal', () => {
     expect((wrapper.get('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.7')
     expect((mode(wrapper, 1).element as HTMLInputElement).checked).toBe(true)
     await save(wrapper)
-    expect(saved(wrapper).group).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v20'], ip_address: '10.0.0.7', ip_purpose: 'mgmt' })
+    expect(saved(wrapper).group).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v20'], ips: [{ ip_address: '10.0.0.7', prefix_length: '24', purpose: 'mgmt' }] })
   })
 
   it('закрывается крестиком, «Отмена» и кликом по подложке, но не нажатием внутри карточки', async () => {

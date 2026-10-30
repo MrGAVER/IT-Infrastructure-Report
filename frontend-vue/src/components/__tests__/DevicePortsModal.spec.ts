@@ -70,7 +70,7 @@ describe('DevicePortsModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (url.includes('/devices/dev-1/interface-groups')) {
-          return jsonResponse({ items: [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: null, vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }] })
+          return jsonResponse({ items: [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: null, vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [] }] })
         }
         if (url.includes('/resources/interfaces') && method === 'GET') {
           return jsonResponse({ items: [{ ...existingInterfaceFixture, group_id: 'g-1' }], total: 1, offset: 0, limit: 1000 })

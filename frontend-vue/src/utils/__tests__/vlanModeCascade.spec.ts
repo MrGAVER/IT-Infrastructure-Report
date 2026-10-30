@@ -21,7 +21,7 @@ function row(name: string, patch: Partial<InterfaceDraftRow> = {}): InterfaceDra
 }
 
 function group(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
-  return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [], ...patch }
+  return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ips: [], manage_open_ports: false, open_ports: [], ...patch }
 }
 
 describe('buildEditedState', () => {

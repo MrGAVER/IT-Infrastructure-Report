@@ -54,8 +54,8 @@ describe('cloneGroupForEdit', () => {
   })
 
   it('остальные поля (ключ, id, имя, IP) переносятся как есть', () => {
-    const copy = cloneGroupForEdit(group({ id: 'srv-1', ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'mgmt', manage_open_ports: true }))
-    expect(copy).toMatchObject({ id: 'srv-1', key: 'g1', name: 'Серверные', ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'mgmt', manage_open_ports: true })
+    const copy = cloneGroupForEdit(group({ id: 'srv-1', ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }], manage_open_ports: true }))
+    expect(copy).toMatchObject({ id: 'srv-1', key: 'g1', name: 'Серверные', ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }], manage_open_ports: true })
   })
 })
 

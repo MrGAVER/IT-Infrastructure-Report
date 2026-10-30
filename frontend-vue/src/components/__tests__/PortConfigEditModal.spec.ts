@@ -451,7 +451,7 @@ describe('PortConfigEditModal.vue', () => {
 
   it('порт в группе, задающей режим и VLAN: набор VLAN не правится и не отправляется, роль менять можно', async () => {
     server.iface = { ...server.iface, group_id: 'g-1' }
-    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }]
+    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ips: [], manage_open_ports: false, open_ports: [] }]
     const wrapper = await openModal()
 
     expect(body().find('[data-hint="group-locked"]').text()).toContain('Магистрали')
@@ -467,7 +467,7 @@ describe('PortConfigEditModal.vue', () => {
 
   it('порт в группе: смена режима идёт каскадом без поля port, если ни роль, ни VLAN менять не нужно', async () => {
     server.iface = { ...server.iface, group_id: 'g-1' }
-    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }]
+    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ips: [], manage_open_ports: false, open_ports: [] }]
     server.plan = bigPlan()
     await openModal()
 
@@ -480,7 +480,7 @@ describe('PortConfigEditModal.vue', () => {
 
   it('«Открыть порты устройства» для порта в группе просит родителя открыть окно портов', async () => {
     server.iface = { ...server.iface, group_id: 'g-1' }
-    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }]
+    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [] }]
     const wrapper = await openModal()
 
     await body().find('[data-action="manage-group"]').trigger('click')

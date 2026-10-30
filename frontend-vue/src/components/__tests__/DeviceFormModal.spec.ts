@@ -415,7 +415,7 @@ describe('DeviceFormModal.vue', () => {
   describe('группы портов (правка формы устройства, п.4)', () => {
     const groupDto = {
       id: 'g-1', physical_device_id: 'dev-g', name: 'Серверные', vlan_mode: null, vlan_ids: [],
-      ip_address: '10.0.0.5', prefix_length: 24, manage_open_ports: false, open_ports: [],
+      ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null }], manage_open_ports: false, open_ports: [],
     }
     const ifaceDto = (id: string, name: string, groupId: string | null) => ({
       id, physical_device_id: 'dev-g', name, interface_type_id: null, mac_address: null, speed_id: null,
@@ -461,7 +461,7 @@ describe('DeviceFormModal.vue', () => {
 
       const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-g/interfaces'))
       const body = put?.body as { groups: Array<Record<string, unknown>>; interfaces: Array<{ name: string; group_key: string | null }> }
-      expect(body.groups).toEqual([expect.objectContaining({ id: 'g-1', key: 'g-1', name: 'Серверные', ip_address: '10.0.0.5', prefix_length: 24, vlan_mode: null })])
+      expect(body.groups).toEqual([expect.objectContaining({ id: 'g-1', key: 'g-1', name: 'Серверные', ips: [expect.objectContaining({ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24 })], vlan_mode: null })])
       expect(body.interfaces.map((i) => [i.name, i.group_key])).toEqual([['Gi0/1', 'g-1'], ['Gi0/2', null]])
     })
 
@@ -1794,7 +1794,7 @@ describe('DeviceFormModal.vue', () => {
     function stubScenarioFetch(calls: Call[], opts: { withGroup: boolean; deviceVlanIds?: string[]; groupVlanIds?: string[]; allVlans?: boolean }) {
       const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' }
       const allVlans = opts.allVlans ?? true
-      const group = { id: 'g-1', name: 'Транки', vlan_mode: 'trunk', all_vlans: allVlans, vlan_ids: opts.groupVlanIds ?? ['v-old'], ip_address: null, prefix_length: null, ip_purpose: null, manage_open_ports: false, open_ports: [] }
+      const group = { id: 'g-1', name: 'Транки', vlan_mode: 'trunk', all_vlans: allVlans, vlan_ids: opts.groupVlanIds ?? ['v-old'], ips: [], manage_open_ports: false, open_ports: [] }
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string, init?: RequestInit) => {
