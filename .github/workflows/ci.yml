@@ -71,9 +71,12 @@ jobs:
       - name: Тесты backend (unittest + pytest, включая интеграционные) с измерением покрытия
         # Сводка по файлам с непокрытыми строками — в Summary job-а. Порог (fail_under) задан в pyproject.toml:
         # покрытие не должно падать ниже достигнутого; поднимайте порог вместе с ростом покрытия.
+        # -n auto (pytest-xdist): тесты идут на SQLite in-memory/временных файлах и друг от друга не зависят, поэтому
+        # раскладываются по ядрам раннера; pytest-cov сам собирает покрытие со всех процессов. Job-ы на PostgreSQL ниже
+        # без -n: у них одна общая база, которую каждый тест очищает (TRUNCATE), — параллельные процессы мешали бы друг другу.
         run: |
           status=0
-          pytest -v --cov --cov-report=term:skip-covered || status=$?
+          pytest -n auto -v --cov --cov-report=term:skip-covered || status=$?
           { echo "### Покрытие тестами backend"; echo; coverage report --format=markdown --skip-covered --fail-under=0 || true; } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 

@@ -13,6 +13,8 @@ mock_sqlalchemy.py, чтобы не требовать установленны�
 from __future__ import annotations
 
 import os
+import shutil
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -31,6 +33,7 @@ os.environ.setdefault("INFRA_REGISTRY_ALLOWED_HOSTS", "testserver,localhost,127.
 
 import pytest
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -55,6 +58,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "sqlite_only: тест зависит от SQLite и пропускается при INFRA_REGISTRY_TEST_DATABASE_URL")
     config.addinivalue_line("markers", "slow: замер времени/нагрузочная проверка; по умолчанию выполняется, исключить можно ключом -m 'not slow'")
     config.addinivalue_line("markers", "postgres_only: тест требует PostgreSQL и выполняется только при INFRA_REGISTRY_TEST_DATABASE_URL")
+    config.addinivalue_line("markers", "real_password_hashing: тест проверяет боевое число итераций PBKDF2 — ускорение хеширования в тестах (см. _fast_password_hashing) отключается")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -119,6 +123,25 @@ def _truncate_all(engine) -> None:
         connection.exec_driver_sql(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE")
 
 
+_SQLITE_SCHEMA_TEMPLATE: tuple | None = None
+
+
+def _sqlite_schema_template() -> sqlite3.Connection:
+    """In-memory SQLite со схемой из моделей (create_all) — создаётся один раз на процесс и копируется в БД каждого
+    теста через sqlite3.Connection.backup(). Содержимое идентично тому, что дал бы create_all() в самом тесте: DDL, индексы
+    и триггеры, заданные в моделях, уже в шаблоне. Движок держим в модульной переменной, иначе соединение закрылось бы."""
+    global _SQLITE_SCHEMA_TEMPLATE
+    if _SQLITE_SCHEMA_TEMPLATE is None:
+        from app.db import configure_sqlite_connection
+        from app.models import Base
+
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True)
+        event.listen(engine, "connect", lambda dbapi_connection, _record: configure_sqlite_connection(dbapi_connection))
+        Base.metadata.create_all(engine)
+        _SQLITE_SCHEMA_TEMPLATE = (engine, engine.raw_connection().driver_connection)
+    return _SQLITE_SCHEMA_TEMPLATE[1]
+
+
 @pytest.fixture()
 def db_session(request):
     """Свежая БД на каждый тест: in-memory SQLite (по умолчанию) или очищенный PostgreSQL (см. выше).
@@ -138,14 +161,13 @@ def db_session(request):
             session.close()
         return
 
-    from app.models import Base
-
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
         future=True,
     )
+    schema_template = _sqlite_schema_template()
 
     @event.listens_for(engine, "connect")
     def _configure_sqlite(dbapi_connection, _record):
@@ -153,8 +175,9 @@ def db_session(request):
         from app.db import configure_sqlite_connection
 
         configure_sqlite_connection(dbapi_connection)
+        # Схема из моделей берётся копией готового шаблона, а не create_all() на каждый тест (~25 мс × тысячи тестов).
+        schema_template.backup(dbapi_connection)
 
-    Base.metadata.create_all(engine)
     SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     session = SessionFactory()
     try:
@@ -181,6 +204,67 @@ def sql_log(db_session):
         yield statements
     finally:
         event.remove(engine, "before_cursor_execute", _before_cursor_execute)
+
+
+@pytest.fixture(autouse=True)
+def _fast_password_hashing(request, monkeypatch):
+    """PBKDF2 на 600 000 итераций — ~0,3–0,4 с на каждое хеширование и проверку пароля; тесты авторизации делают их сотни.
+    Корректность алгоритма от числа итераций не зависит (формат хеша самоописывающийся), поэтому в тестах итераций мало.
+    Тесты, которым нужно именно боевое значение, помечаются @pytest.mark.real_password_hashing."""
+    if request.node.get_closest_marker("real_password_hashing"):
+        return
+    from app.services import auth as auth_module
+
+    monkeypatch.setattr(auth_module, "PBKDF2_ITERATIONS", 1_000)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reuse_alembic_upgrades_on_empty_sqlite(tmp_path_factory):
+    """`alembic upgrade <ревизия>` на пустой файловой SQLite занимает 1–2 с (десятки миграций), а тесты миграций строят такую
+    БД ~250 раз. Результат для пустой базы детерминирован, поэтому он запоминается один раз на процесс (ключ — ревизия и
+    расположение скриптов) и дальше копируется файлом (~1 мс). Кэш применяется только когда файл БД ещё пуст/не существует:
+    повторные upgrade поверх данных теста, downgrade и PostgreSQL идут как есть. Отключить: INFRA_REGISTRY_TEST_NO_UPGRADE_CACHE=1."""
+    if IS_POSTGRES or os.environ.get("INFRA_REGISTRY_TEST_NO_UPGRADE_CACHE"):
+        yield
+        return
+
+    import app.config as app_config
+    from alembic import command
+
+    original_upgrade = command.upgrade
+    cache_dir = tmp_path_factory.mktemp("alembic_upgrade_cache")
+    cached_files: dict[tuple, Path] = {}
+
+    def _empty_sqlite_file() -> Path | None:
+        url = make_url(app_config.DATABASE_URL)
+        if url.get_backend_name() != "sqlite" or not url.database or url.database == ":memory:":
+            return None
+        path = Path(url.database)
+        return path if not path.exists() or path.stat().st_size == 0 else None
+
+    def upgrade_with_cache(config, revision, sql=False, tag=None):
+        target = _empty_sqlite_file()
+        if sql or tag is not None or target is None or not isinstance(revision, str):
+            return original_upgrade(config, revision, sql=sql, tag=tag)
+        key = (revision, config.get_main_option("script_location"), config.get_main_option("version_locations"))
+        cached = cached_files.get(key)
+        if cached is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(cached, target)
+            return None
+        result = original_upgrade(config, revision, sql=sql, tag=tag)
+        leftovers = [target.with_name(target.name + suffix) for suffix in ("-wal", "-shm", "-journal")]
+        if target.exists() and not any(path.exists() for path in leftovers):
+            stored = cache_dir / f"{len(cached_files)}.db"
+            shutil.copyfile(target, stored)
+            cached_files[key] = stored
+        return result
+
+    command.upgrade = upgrade_with_cache
+    try:
+        yield
+    finally:
+        command.upgrade = original_upgrade
 
 
 @pytest.fixture(autouse=True)
