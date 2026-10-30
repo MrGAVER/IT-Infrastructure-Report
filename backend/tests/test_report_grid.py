@@ -73,7 +73,7 @@ class ValidateGridConfigTestCase(unittest.TestCase):
         sheet = self._sheet([
             _static_row([_cell(0, text="№"), _cell(1, text="Наименование"), _cell(2, text="Статус")]),
             _repeat_row(
-                [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="status")],
+                [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")],
                 {"root_entity": "information-systems"},
             ),
         ])
@@ -159,7 +159,7 @@ class ValidateGridConfigTestCase(unittest.TestCase):
     def test_rejects_filter_with_unknown_op(self):
         sheet = self._sheet([_repeat_row(
             [_cell(0, "index")],
-            {"root_entity": "information-systems", "filters": [{"path": "status", "op": "bogus", "value": "x"}]},
+            {"root_entity": "information-systems", "filters": [{"path": "description", "op": "bogus", "value": "x"}]},
         )])
         with self.assertRaises(ReportBuilderError):
             validate_grid_config(self.meta, {"sheets": [sheet]})
@@ -184,8 +184,8 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         self.session.add(self.dep_it)
         self.session.flush()
 
-        self.isys1 = InformationSystem(name="ИС Альфа", status="active")
-        self.isys2 = InformationSystem(name="ИС Бета", status="archived")
+        self.isys1 = InformationSystem(name="ИС Альфа", description="active")
+        self.isys2 = InformationSystem(name="ИС Бета", description="archived")
         self.session.add_all([self.isys1, self.isys2])
         self.session.flush()
         self.session.add(ISDepartment(information_system_id=self.isys1.id, department_id=self.dep_it.id))
@@ -211,7 +211,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
                              _cell(2, text="Статус", style={"bold": True})]),
                 _repeat_row(
                     [_cell(0, "index"), _cell(1, "field", path="name"),
-                     _cell(2, "field", path="status", **(extra_row_kwargs or {}))],
+                     _cell(2, "field", path="description", **(extra_row_kwargs or {}))],
                     {"root_entity": "information-systems", "sort_by": "name"},
                 ),
             ],
@@ -259,7 +259,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
             "columns": [{"width": 15}, {"width": 15}, {"width": 15}],
             "rows": [
                 _static_row([_cell(0, text="Заголовок отчёта", colspan=3, style={"align": "center"})]),
-                _repeat_row([_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="status")],
+                _repeat_row([_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")],
                             {"root_entity": "information-systems"}),
             ],
         }]}
@@ -343,7 +343,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         import openpyxl
         config = self._basic_config()
         config["sheets"][0]["rows"][1]["data_source"]["filters"] = [
-            {"path": "status", "op": "eq", "value": "active"}
+            {"path": "description", "op": "eq", "value": "active"}
         ]
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
@@ -480,7 +480,7 @@ class PreviewGridTestCase(unittest.TestCase):
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
         for i in range(5):
-            self.session.add(InformationSystem(name=f"ИС {i}", status="active"))
+            self.session.add(InformationSystem(name=f"ИС {i}", description="active"))
         self.session.commit()
 
     def tearDown(self):

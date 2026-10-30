@@ -72,7 +72,7 @@ class ReportEngineTestCase(unittest.TestCase):
         self.session.add_all([self.dep_finance, self.dep_it])
         self.session.flush()
 
-        self.isys = InformationSystem(name="ИС Тест", status="active")
+        self.isys = InformationSystem(name="ИС Тест", description="active")
         self.session.add(self.isys)
         self.session.flush()
         self.session.add_all([
@@ -134,9 +134,9 @@ class ReportEngineTestCase(unittest.TestCase):
         self.assertFalse([r for r in rows if r[0].id == self.empty_server.id])
 
     def test_filter_eq(self):
-        rows = list(iter_report_rows(self.ctx, "information-systems", filters=[{"path": "status", "op": "eq", "value": "active"}]))
+        rows = list(iter_report_rows(self.ctx, "information-systems", filters=[{"path": "description", "op": "eq", "value": "active"}]))
         self.assertEqual(len(rows), 1)
-        rows = list(iter_report_rows(self.ctx, "information-systems", filters=[{"path": "status", "op": "eq", "value": "archived"}]))
+        rows = list(iter_report_rows(self.ctx, "information-systems", filters=[{"path": "description", "op": "eq", "value": "archived"}]))
         self.assertEqual(len(rows), 0)
 
     def test_boolean_field_rendered_as_yes_no(self):
@@ -184,7 +184,7 @@ class ReportRenderTestCase(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
-        self.isys = InformationSystem(name="ИС А", status="active")
+        self.isys = InformationSystem(name="ИС А", description="active")
         self.session.add(self.isys)
         self.session.commit()
         self.docx_config = {"blocks": [
