@@ -43,7 +43,11 @@ export function usePreSaveReview(deps: PreSaveReviewDeps) {
       [...idsByDevice].map(async ([deviceId, ids]) => {
         // Порт соседа уже занят этим подключением — на сервере он отдаётся только по явному include.
         for (const port of await fetchAllFreeInterfaces(deviceId, [...ids])) {
-          if (ids.has(port.id)) peers[port.id] = { name: port.name, config: { is_management: port.is_management, is_data_transfer: port.is_data_transfer, vlan_mode: port.vlan_mode, all_vlans: port.all_vlans } }
+          if (ids.has(port.id))
+            peers[port.id] = {
+              name: port.name,
+              config: { is_management: port.is_management, is_data_transfer: port.is_data_transfer, vlan_mode: port.vlan_mode, all_vlans: port.all_vlans },
+            }
         }
       }),
     )

@@ -20,7 +20,10 @@ onMounted(async () => {
 // отправленный поиск: иначе после неё мог бы уйти лишний запрос со старой строкой.
 const SEARCH_DEBOUNCE_MS = 300
 const searchDebounced = debounce(() => void log.applyFilters(), SEARCH_DEBOUNCE_MS)
-watch(() => log.search, () => searchDebounced())
+watch(
+  () => log.search,
+  () => searchDebounced(),
+)
 watch(
   () => [log.actionFilter, log.entityTypeFilter],
   () => {
@@ -51,7 +54,12 @@ onBeforeUnmount(() => searchDebounced.cancel())
       </select>
       <div class="chip-group">
         <button :class="{ on: log.actionFilter === 'all' }" @click="log.actionFilter = 'all'">Все</button>
-        <button v-for="(label, key) in ACTION_LABELS" :key="key" :class="{ on: log.actionFilter === key }" @click="log.actionFilter = key as typeof log.actionFilter">
+        <button
+          v-for="(label, key) in ACTION_LABELS"
+          :key="key"
+          :class="{ on: log.actionFilter === key }"
+          @click="log.actionFilter = key as typeof log.actionFilter"
+        >
           {{ label }}
         </button>
       </div>
@@ -98,7 +106,10 @@ onBeforeUnmount(() => searchDebounced.cancel())
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ log.items.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.items.length }} из {{ log.total }}</span>
+        <span
+          >Показано {{ log.items.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.items.length }} из
+          {{ log.total }}</span
+        >
         <PageSizeSelect :model-value="log.pageSize" :options="log.pageSizeOptions" @update:model-value="log.setPageSize" />
         <PagerNav :page="log.page" :page-count="log.pageCount" @update:page="log.setPage" />
       </div>

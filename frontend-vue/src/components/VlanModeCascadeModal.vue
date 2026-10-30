@@ -18,7 +18,10 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>()
 
 const acknowledged = ref(false)
 // Новый план (например, после 409 и повторного предпросмотра) требует нового подтверждения.
-watch(() => props.plan.hash, () => (acknowledged.value = false))
+watch(
+  () => props.plan.hash,
+  () => (acknowledged.value = false),
+)
 
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => {
   if (!props.applying) emit('cancel')
@@ -69,10 +72,12 @@ const portsText = (count: number) => plural(count, 'порт', 'порта', 'п
       </div>
 
       <p class="cascade-desc">
-        Режим порта должен совпадать у обеих сторон подключения. Чтобы после смены режима порта {{ portLabel }} на {{ target }} не осталось
-        расхождений, режим {{ target }} будет установлен у всех связанных портов. Всего изменится: портов — <b>{{ plan.totals.ports }}</b>, устройств —
-        <b>{{ plan.totals.devices }}</b
-        ><template v-if="plan.totals.groups">, групп — <b>{{ plan.totals.groups }}</b></template>.
+        Режим порта должен совпадать у обеих сторон подключения. Чтобы после смены режима порта {{ portLabel }} на {{ target }} не осталось расхождений, режим
+        {{ target }} будет установлен у всех связанных портов. Всего изменится: портов — <b>{{ plan.totals.ports }}</b
+        >, устройств — <b>{{ plan.totals.devices }}</b
+        ><template v-if="plan.totals.groups"
+          >, групп — <b>{{ plan.totals.groups }}</b></template
+        >.
       </p>
 
       <ul v-if="plan.warnings.length" class="cascade-warnings" aria-label="Последствия">

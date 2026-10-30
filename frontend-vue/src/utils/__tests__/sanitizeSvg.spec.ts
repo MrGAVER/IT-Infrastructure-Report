@@ -105,7 +105,8 @@ describe('sanitizeSvg — белый список как на сервере (B-
   })
 
   it('валидный svg с viewBox, path, fill="none", stroke="currentColor" не изменяется', () => {
-    const markup = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 2 22 12 12 22 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>'
+    const markup =
+      '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 2 22 12 12 22 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>'
 
     expect(canon(sanitizeSvg(markup))).toBe(canon(markup))
   })

@@ -185,12 +185,7 @@ async function onStackSaved(stack: DeviceStack) {
         </summary>
         <div class="tree-panel">
           <p v-if="!catalogs.structuralUnitTree.length" class="empty-hint">Структурные единицы ещё не заведены в справочнике.</p>
-          <StructuralUnitTree
-            v-else
-            :nodes="catalogs.structuralUnitTree"
-            :selected="devices.structuralUnitIds"
-            @toggle="toggleUnit"
-          />
+          <StructuralUnitTree v-else :nodes="catalogs.structuralUnitTree" :selected="devices.structuralUnitIds" @toggle="toggleUnit" />
         </div>
       </details>
 
@@ -244,12 +239,7 @@ async function onStackSaved(stack: DeviceStack) {
               <template v-else>
                 <tr class="stack-summary-row">
                   <td colspan="9">
-                    <button
-                      type="button"
-                      class="stack-toggle"
-                      :aria-expanded="expandedStacks.has(row.stackId)"
-                      @click="toggleStack(row.stackId)"
-                    >
+                    <button type="button" class="stack-toggle" :aria-expanded="expandedStacks.has(row.stackId)" @click="toggleStack(row.stackId)">
                       <svg class="icon chev" :class="{ open: expandedStacks.has(row.stackId) }"><use href="/icons.svg#i-chevd" /></svg>
                       <svg class="icon stack-icon"><use href="/icons.svg#i-layers" /></svg>
                       <b>{{ row.stackName }}</b>
@@ -279,7 +269,12 @@ async function onStackSaved(stack: DeviceStack) {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ devices.pageItems.length ? (devices.page - 1) * devices.pageSize + 1 : 0 }}–{{ (devices.page - 1) * devices.pageSize + devices.pageItems.length }} из {{ devices.groupedFiltered.length }}</span>
+        <span
+          >Показано {{ devices.pageItems.length ? (devices.page - 1) * devices.pageSize + 1 : 0 }}–{{
+            (devices.page - 1) * devices.pageSize + devices.pageItems.length
+          }}
+          из {{ devices.groupedFiltered.length }}</span
+        >
         <PageSizeSelect :model-value="devices.pageSize" :options="devices.pageSizeOptions" @update:model-value="devices.setPageSize" />
         <div class="pager">
           <button :disabled="devices.page <= 1" @click="devices.setPage(devices.page - 1)">‹</button>

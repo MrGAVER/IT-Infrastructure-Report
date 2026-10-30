@@ -16,9 +16,7 @@ const removeFromDevices = ref(false)
     <div class="overlay" data-testid="stack-vlan-remove-dialog" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
       <div class="dialog card" role="dialog" aria-modal="true">
         <h3>Снять общую настройку VLAN {{ vlanLabel }}?</h3>
-        <p class="lead">
-          Стек «{{ stackName }}»: после снятия IP-адрес, префикс и «Управление» этого VLAN снова можно менять на каждом устройстве отдельно.
-        </p>
+        <p class="lead">Стек «{{ stackName }}»: после снятия IP-адрес, префикс и «Управление» этого VLAN снова можно менять на каждом устройстве отдельно.</p>
         <label class="option">
           <input v-model="removeFromDevices" type="checkbox" data-testid="stack-vlan-remove-from-devices" />
           <span>

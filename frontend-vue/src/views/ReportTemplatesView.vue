@@ -108,9 +108,8 @@ async function generate(t: ReportTemplate) {
 <template>
   <div class="templates-view">
     <p class="scope-note">
-      Список, создание, переименование, дублирование и история версий шаблонов — здесь.
-      Визуальную раскладку листов и полей открывайте кнопкой «Открыть в конструкторе» —
-      для xlsx-шаблонов это grid-редактор, для docx — блочный редактор.
+      Список, создание, переименование, дублирование и история версий шаблонов — здесь. Визуальную раскладку листов и полей открывайте кнопкой «Открыть в
+      конструкторе» — для xlsx-шаблонов это grid-редактор, для docx — блочный редактор.
     </p>
 
     <div class="filter-bar">
@@ -149,18 +148,14 @@ async function generate(t: ReportTemplate) {
           <tbody>
             <tr v-for="t in templates.filtered" :key="t.id">
               <td class="tname">{{ t.name }}</td>
-              <td><span class="format-badge" :class="t.format">{{ t.format === 'xlsx' ? 'Excel' : 'Word' }}</span></td>
+              <td>
+                <span class="format-badge" :class="t.format">{{ t.format === 'xlsx' ? 'Excel' : 'Word' }}</span>
+              </td>
               <td class="desc-cell">{{ t.description || '—' }}</td>
               <td>{{ formatServerDate(t.updated_at) }}</td>
               <td>
                 <div class="row-actions">
-                  <button
-                    v-if="auth.canWrite"
-                    type="button"
-                    aria-label="Открыть в конструкторе"
-                    title="Открыть в конструкторе"
-                    @click="openEditor(t)"
-                  >
+                  <button v-if="auth.canWrite" type="button" aria-label="Открыть в конструкторе" title="Открыть в конструкторе" @click="openEditor(t)">
                     <svg class="icon"><use href="/icons.svg#i-grid" /></svg>
                   </button>
                   <button type="button" aria-label="Сформировать" :disabled="busyId === t.id" @click="generate(t)">

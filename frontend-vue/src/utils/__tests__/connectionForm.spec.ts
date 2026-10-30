@@ -56,7 +56,13 @@ describe('connectionFormFromSource', () => {
 
   it('создание с подсказкой схемы: подставляет только порты и их устройства', () => {
     const form = connectionFormFromSource(null, { sourceInterfaceId: 'if-c', destinationInterfaceId: 'if-a' }, interfaces)
-    expect(form).toEqual({ ...emptyConnectionForm(), sourceDeviceId: 'dev-2', source_interface_id: 'if-c', destinationDeviceId: 'dev-1', destination_interface_id: 'if-a' })
+    expect(form).toEqual({
+      ...emptyConnectionForm(),
+      sourceDeviceId: 'dev-2',
+      source_interface_id: 'if-c',
+      destinationDeviceId: 'dev-1',
+      destination_interface_id: 'if-a',
+    })
   })
 
   it('без подключения и подсказки — пустая форма', () => {
@@ -72,7 +78,14 @@ describe('connectionFormFromSource', () => {
 })
 
 describe('connectionPayload', () => {
-  const filled = { ...emptyConnectionForm(), sourceDeviceId: 'dev-1', source_interface_id: 'if-a', destinationDeviceId: 'dev-2', destination_interface_id: 'if-b', connection_type_id: 'ct-1' }
+  const filled = {
+    ...emptyConnectionForm(),
+    sourceDeviceId: 'dev-1',
+    source_interface_id: 'if-a',
+    destinationDeviceId: 'dev-2',
+    destination_interface_id: 'if-b',
+    connection_type_id: 'ct-1',
+  }
 
   it('в запрос уходят порты, тип, активность и описание — без служебных полей устройств', () => {
     expect(connectionPayload({ ...filled, description: 'x' })).toEqual({
@@ -106,9 +119,15 @@ describe('validateConnectionForm', () => {
   })
 
   it('порядок проверок: сначала исходный порт, затем конечный, совпадение, тип', () => {
-    expect(validateConnectionForm({ source_interface_id: '', destination_interface_id: '', connection_type_id: '' })).toBe('Выберите исходное устройство и его порт.')
-    expect(validateConnectionForm({ source_interface_id: 'if-a', destination_interface_id: '', connection_type_id: '' })).toBe('Выберите конечное устройство и его порт.')
-    expect(validateConnectionForm({ source_interface_id: 'if-a', destination_interface_id: 'if-a', connection_type_id: '' })).toBe('Исходный и конечный порт не могут совпадать.')
+    expect(validateConnectionForm({ source_interface_id: '', destination_interface_id: '', connection_type_id: '' })).toBe(
+      'Выберите исходное устройство и его порт.',
+    )
+    expect(validateConnectionForm({ source_interface_id: 'if-a', destination_interface_id: '', connection_type_id: '' })).toBe(
+      'Выберите конечное устройство и его порт.',
+    )
+    expect(validateConnectionForm({ source_interface_id: 'if-a', destination_interface_id: 'if-a', connection_type_id: '' })).toBe(
+      'Исходный и конечный порт не могут совпадать.',
+    )
   })
 })
 

@@ -27,11 +27,19 @@ function setup(initial: InterfaceDraftRow[], overrides: { managedOpenPorts?: boo
 }
 
 const port = (id: string, name: string, openPorts: InterfaceDraftRow['open_ports'] = []) => makeRow({ id, name, open_ports: openPorts })
-const open = (id: string | undefined, catalogId: string): InterfaceDraftRow['open_ports'][number] => ({ id, protocol_catalog_id: catalogId, transport_protocol: 'tcp', description: '' })
+const open = (id: string | undefined, catalogId: string): InterfaceDraftRow['open_ports'][number] => ({
+  id,
+  protocol_catalog_id: catalogId,
+  transport_protocol: 'tcp',
+  description: '',
+})
 
 describe('useInterfaceRows', () => {
   beforeEach(() => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
     useToast().toasts.splice(0)
   })
 
@@ -73,7 +81,10 @@ describe('useInterfaceRows', () => {
     const { rows, updateRow, renamePort } = setup([port('a', 'A'), port('b', 'B')])
     updateRow(1, { description: 'uplink' })
     renamePort(0, 'Gi0/9')
-    expect(rows.value.map((r) => [r.name, r.description])).toEqual([['Gi0/9', ''], ['B', 'uplink']])
+    expect(rows.value.map((r) => [r.name, r.description])).toEqual([
+      ['Gi0/9', ''],
+      ['B', 'uplink'],
+    ])
     renamePort(5, 'нет такой строки')
     expect(rows.value).toHaveLength(2)
   })
@@ -90,7 +101,10 @@ describe('useInterfaceRows', () => {
   })
 
   it('copyPortsTo: у получателя уже есть порты — спрашивает подтверждение, отказ оставляет всё как есть', () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const { rows, copyPortsTo } = setup([port('a', 'A', [open('p1', 'c1')]), port('b', 'B', [open('p2', 'c2')])])
     copyPortsTo(0, 1)
     expect(confirm).toHaveBeenCalledTimes(1)

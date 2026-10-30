@@ -125,8 +125,9 @@ onMounted(load)
             <div class="item-head">
               <span class="badge" :class="item.outcome">{{ OUTCOME_LABELS[item.outcome] }}</span>
               <span class="pair">
-                <span class="mono">{{ item.source.name }}</span> ({{ item.source.device_name }}) ↔
-                <span class="mono">{{ item.destination.name }}</span> ({{ item.destination.device_name }})
+                <span class="mono">{{ item.source.name }}</span> ({{ item.source.device_name }}) ↔ <span class="mono">{{ item.destination.name }}</span> ({{
+                  item.destination.device_name
+                }})
               </span>
             </div>
             <div v-if="item.rule" class="rule-name">Правило: «{{ item.rule.name }}»</div>
@@ -156,9 +157,7 @@ onMounted(load)
         </ul>
 
         <div v-if="hiddenCount > 0" class="more">
-          <p class="hidden-note" data-hidden>
-            Показаны первые {{ items.length }} из {{ plan.summary.total_items }}; применяется весь план ({{ applicable }}).
-          </p>
+          <p class="hidden-note" data-hidden>Показаны первые {{ items.length }} из {{ plan.summary.total_items }}; применяется весь план ({{ applicable }}).</p>
           <button type="button" class="btn btn-secondary btn-sm" data-action="more" :disabled="loadingMore" @click="loadMore">
             {{ loadingMore ? 'Загрузка…' : `Показать ещё (${hiddenCount})` }}
           </button>

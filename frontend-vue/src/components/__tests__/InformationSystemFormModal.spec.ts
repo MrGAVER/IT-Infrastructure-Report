@@ -57,7 +57,17 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
         if (url.includes('/information-systems/is-2/details') && method === 'GET') {
           return jsonResponse({
             ...EMPTY_DETAILS,
-            sources: [{ id: 'src-1', source_type: 'manual', owner_id: null, ips: [{ id: 'ip-1', ip_address: '1.1.1.1' }], purpose: '', role: '', external_interaction: false }],
+            sources: [
+              {
+                id: 'src-1',
+                source_type: 'manual',
+                owner_id: null,
+                ips: [{ id: 'ip-1', ip_address: '1.1.1.1' }],
+                purpose: '',
+                role: '',
+                external_interaction: false,
+              },
+            ],
           })
         }
         if (method === 'PUT' && url.includes('/resources/information-systems/is-2') && !url.includes('/details')) {
@@ -120,7 +130,15 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     expect(body.departments).toEqual([{ id: undefined, department_id: 'dep-1' }])
     expect(body.protocols).toEqual([{ id: undefined, protocol_catalog_id: 'cat-https', description: null }])
     expect(body.sources).toEqual([
-      { id: undefined, source_type: 'manual', owner_id: null, ips: [{ id: undefined, ip_address: '192.168.1.1' }], purpose: null, role: null, external_interaction: false },
+      {
+        id: undefined,
+        source_type: 'manual',
+        owner_id: null,
+        ips: [{ id: undefined, ip_address: '192.168.1.1' }],
+        purpose: null,
+        role: null,
+        external_interaction: false,
+      },
     ])
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
@@ -224,7 +242,10 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     expect(cryptoField.find('.searchable-select input').attributes('disabled')).toBeUndefined()
 
     await cryptoField.find('.searchable-select input').trigger('focus')
-    await cryptoField.findAll('.ss-option').find((o) => o.text() === 'КриптоПро CSP')!.trigger('mousedown')
+    await cryptoField
+      .findAll('.ss-option')
+      .find((o) => o.text() === 'КриптоПро CSP')!
+      .trigger('mousedown')
 
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -267,9 +288,7 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
 
       await input.trigger('mouseenter')
       vi.advanceTimersByTime(1000)
-      expect(document.querySelector('.truncate-tooltip-popup')?.textContent).toBe(
-        'Автоматизированная информационная система очень длинного наименования',
-      )
+      expect(document.querySelector('.truncate-tooltip-popup')?.textContent).toBe('Автоматизированная информационная система очень длинного наименования')
     } finally {
       vi.useRealTimers()
     }
@@ -294,7 +313,10 @@ describe('фикс п.2: копирование информационной с�
   }
 
   it('аудит fix/usability-batch4 (находка №5): одновременная передача system и copyFrom — предупреждение в консоль, побеждает system (edit)', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_DETAILS)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(EMPTY_DETAILS)),
+    )
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const editedSystem: InformationSystem = { ...sourceSystem, id: 'is-edit', name: 'ИС Редактируемая' }
@@ -316,7 +338,17 @@ describe('фикс п.2: копирование информационной с�
           return jsonResponse({
             ...EMPTY_DETAILS,
             departments: [{ id: 'dep-link-src', department_id: 'dep-1' }],
-            sources: [{ id: 'src-src', source_type: 'manual', owner_id: null, ips: [{ id: 'ip-src', ip_address: '10.0.0.9' }], purpose: '', role: '', external_interaction: false }],
+            sources: [
+              {
+                id: 'src-src',
+                source_type: 'manual',
+                owner_id: null,
+                ips: [{ id: 'ip-src', ip_address: '10.0.0.9' }],
+                purpose: '',
+                role: '',
+                external_interaction: false,
+              },
+            ],
           })
         }
         if (method === 'POST' && url.endsWith('/resources/information-systems')) {
@@ -337,7 +369,10 @@ describe('фикс п.2: копирование информационной с�
     await flushPromises()
 
     const detailsSave = calls.find((c) => c.method === 'PUT' && c.url.includes('/information-systems/is-new/details'))
-    const body = detailsSave!.body as { departments: Array<{ id?: string; department_id: string }>; sources: Array<{ id?: string; ips: Array<{ id?: string; ip_address: string }> }> }
+    const body = detailsSave!.body as {
+      departments: Array<{ id?: string; department_id: string }>
+      sources: Array<{ id?: string; ips: Array<{ id?: string; ip_address: string }> }>
+    }
     expect(body.departments).toEqual([{ id: undefined, department_id: 'dep-1' }]) // подгружено у донора, id обнулён
     expect(body.sources[0].id).toBeUndefined()
     // Донорский id вложенного IP тоже обнулён (см. комментарий у stripIds() в компоненте) — иначе
@@ -351,9 +386,19 @@ describe('фикс п.2: копирование информационной с�
 
 describe('InformationSystemFormModal.vue — протоколы ИС как открытые порты ВМ', () => {
   const system: InformationSystem = {
-    id: 'is-ports', number: null, name: 'ИС с портами', type: 'is', description: null, purpose: null, localization: null,
-    support_organization_id: null, support_method_id: null, process_description: null, siem_enabled: false,
-    crypto_protection_enabled: false, crypto_protection_description_id: null, 
+    id: 'is-ports',
+    number: null,
+    name: 'ИС с портами',
+    type: 'is',
+    description: null,
+    purpose: null,
+    localization: null,
+    support_organization_id: null,
+    support_method_id: null,
+    process_description: null,
+    siem_enabled: false,
+    crypto_protection_enabled: false,
+    crypto_protection_description_id: null,
   }
 
   // created — ответ на POST новой ИС (копирование); без него создание не ожидается.

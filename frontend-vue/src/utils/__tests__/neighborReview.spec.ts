@@ -14,7 +14,8 @@ const remote = (patch: Partial<InterfaceConnectionDraft> = {}): InterfaceConnect
   peer_interface_name: 'Gi0/9',
   ...patch,
 })
-const selfLink = (peer: string): InterfaceConnectionDraft => remote({ peer_device_id: 'dev-1', peer_interface_id: peer, peer_device_name: undefined, peer_interface_name: undefined })
+const selfLink = (peer: string): InterfaceConnectionDraft =>
+  remote({ peer_device_id: 'dev-1', peer_interface_id: peer, peer_device_name: undefined, peer_interface_name: undefined })
 const noBaseline: ConnectionBaseline = new Map()
 
 describe('collectReviewEntries', () => {
@@ -31,7 +32,10 @@ describe('collectReviewEntries', () => {
     const initial = new Map([['a', portConfigOf(makeRow({ id: 'a' }))]])
     const entries = collectReviewEntries([row], initial, baseline, 'dev-1')
     expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ rowRef: 'a', peer: { ref: 'p1', isSelf: false, deviceId: 'dev-2', interfaceId: 'p1', nameHint: 'Gi0/9', deviceNameHint: 'sw-02' } })
+    expect(entries[0]).toMatchObject({
+      rowRef: 'a',
+      peer: { ref: 'p1', isSelf: false, deviceId: 'dev-2', interfaceId: 'p1', nameHint: 'Gi0/9', deviceNameHint: 'sw-02' },
+    })
   })
 
   it('новый порт и порт с заменённым подключением проверяются, строки без подключения или соседа — нет', () => {

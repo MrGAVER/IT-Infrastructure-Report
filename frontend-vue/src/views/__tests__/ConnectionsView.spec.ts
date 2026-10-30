@@ -36,7 +36,11 @@ function connection(id: string, overrides: Partial<Connection> = {}): Connection
     source_port_role: 'data',
     destination_port_role: 'data',
     port_config_status: 'ok',
-    source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
+    source_vlan_mode: 'trunk',
+    destination_vlan_mode: 'trunk',
+    source_vlans: [],
+    destination_vlans: [],
+    port_config_diff: [],
     ...overrides,
   }
 }
@@ -46,7 +50,11 @@ const connectionFixture = connection('conn-1')
 // Страница дашборда (/api/v1/connections?…) и общий кэш (/api/v1/resources/connections?…) — разные запросы.
 const PAGE_URL = /\/api\/v1\/connections\?/
 
-interface Call { url: string; method: string; body?: Record<string, unknown> }
+interface Call {
+  url: string
+  method: string
+  body?: Record<string, unknown>
+}
 let calls: Call[]
 const pageRequests = () => calls.filter((c) => c.method === 'GET' && PAGE_URL.test(c.url))
 const lastPageParams = () => new URL(pageRequests().at(-1)!.url, 'http://x').searchParams
@@ -175,14 +183,20 @@ describe('ConnectionsView.vue — визуальный режим (фикс п.3
     const wrapper = await mountView()
 
     expect(wrapper.findComponent(ConnectionCanvasModal).exists()).toBe(false)
-    await wrapper.findAll('button').find((b) => b.text().includes('Визуальный режим'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Визуальный режим'))!
+      .trigger('click')
 
     expect(wrapper.findComponent(ConnectionCanvasModal).exists()).toBe(true)
   })
 
   it('после закрытия схемы перечитывает страницу подключений (могли добавиться новые перетаскиванием)', async () => {
     const wrapper = await mountView()
-    await wrapper.findAll('button').find((b) => b.text().includes('Визуальный режим'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Визуальный режим'))!
+      .trigger('click')
     const before = pageRequests().length
 
     await wrapper.findComponent(ConnectionCanvasModal).vm.$emit('close')
@@ -358,8 +372,14 @@ describe('ConnectionsView.vue — поиск на сервере', () => {
 
 describe('ConnectionsView.vue — проверка конфигурации портов-соседей', () => {
   const mismatched = connection('conn-2', {
-    source_device_name: 'srv-02', source_interface_name: 'idrac', destination_device_name: 'sw-02', destination_interface_name: 'gi0/7',
-    source_port_role: 'management', destination_port_role: 'data', port_config_status: 'mismatch', port_config_diff: ['role'],
+    source_device_name: 'srv-02',
+    source_interface_name: 'idrac',
+    destination_device_name: 'sw-02',
+    destination_interface_name: 'gi0/7',
+    source_port_role: 'management',
+    destination_port_role: 'data',
+    port_config_status: 'mismatch',
+    port_config_diff: ['role'],
   })
   const approved = connection('conn-3', { ...mismatched, id: 'conn-3', source_device_name: 'srv-03', port_config_status: 'approved' })
 
@@ -374,7 +394,12 @@ describe('ConnectionsView.vue — проверка конфигурации по
   })
 
   it('в строке без расхождений показывает режим и VLAN порта', async () => {
-    const row = connection('conn-v', { source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [10, 11, 12, 20], destination_vlans: [10, 11, 12, 20] })
+    const row = connection('conn-v', {
+      source_vlan_mode: 'trunk',
+      destination_vlan_mode: 'trunk',
+      source_vlans: [10, 11, 12, 20],
+      destination_vlans: [10, 11, 12, 20],
+    })
     const wrapper = await mountView({ rows: [row] })
 
     expect(wrapper.find('.roles-cell').text()).toContain('trunk · VLAN 10–12, 20')
@@ -382,10 +407,16 @@ describe('ConnectionsView.vue — проверка конфигурации по
 
   it('расхождение режима и VLAN: обе стороны с портом, режимом и VLAN, различающиеся значения выделены, бейдж называет грани', async () => {
     const row = connection('conn-m', {
-      source_interface_name: 'eth0', destination_interface_name: 'gi0/1',
-      source_port_role: 'data', destination_port_role: 'data',
-      source_vlan_mode: 'trunk', destination_vlan_mode: 'access', source_vlans: [10, 20], destination_vlans: [10],
-      port_config_status: 'mismatch', port_config_diff: ['mode', 'vlans'],
+      source_interface_name: 'eth0',
+      destination_interface_name: 'gi0/1',
+      source_port_role: 'data',
+      destination_port_role: 'data',
+      source_vlan_mode: 'trunk',
+      destination_vlan_mode: 'access',
+      source_vlans: [10, 20],
+      destination_vlans: [10],
+      port_config_status: 'mismatch',
+      port_config_diff: ['mode', 'vlans'],
     })
     const wrapper = await mountView({ rows: [row] })
 
@@ -492,7 +523,10 @@ describe('ConnectionsView.vue — проверка конфигурации по
     })
 
     it('условия поиска и активности попадают в запрос одобрения', async () => {
-      vi.stubGlobal('confirm', vi.fn(() => true))
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true),
+      )
       const wrapper = await withMismatchFilter({ rows: [mismatched], total: 3 })
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
       await wrapper.find('.search-box input').setValue('ядро')
@@ -507,7 +541,10 @@ describe('ConnectionsView.vue — проверка конфигурации по
     })
 
     it('ничего не отправляет, если пользователь отказался в подтверждении', async () => {
-      vi.stubGlobal('confirm', vi.fn(() => false))
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => false),
+      )
       const wrapper = await withMismatchFilter({ rows: [mismatched], total: 12 })
 
       await wrapper.find('[data-action="approve-all"]').trigger('click')
@@ -572,18 +609,41 @@ describe('ConnectionsView.vue — согласование портов по п�
 
 describe('ConnectionsView.vue — правка роли, режима и VLAN порта', () => {
   const mismatched = connection('conn-2', {
-    source_device_name: 'srv-02', source_interface_id: 'if-1', source_interface_name: 'idrac',
-    destination_device_name: 'sw-02', destination_interface_id: 'if-2', destination_interface_name: 'gi0/7',
-    source_port_role: 'management', destination_port_role: 'data', port_config_status: 'mismatch', port_config_diff: ['role'],
+    source_device_name: 'srv-02',
+    source_interface_id: 'if-1',
+    source_interface_name: 'idrac',
+    destination_device_name: 'sw-02',
+    destination_interface_id: 'if-2',
+    destination_interface_name: 'gi0/7',
+    source_port_role: 'management',
+    destination_port_role: 'data',
+    port_config_status: 'mismatch',
+    port_config_diff: ['role'],
   })
 
   // Окно правки при открытии читает порт; здесь важно только что и какую сторону открыли.
   const portApi = (call: Call) => {
     if (call.method === 'GET' && call.url.endsWith('/resources/interfaces/if-1')) {
-      return jsonResponse({ id: 'if-1', name: 'idrac', physical_device_id: 'dev-1', is_management: true, is_data_transfer: false, vlan_mode: 'trunk', group_id: null })
+      return jsonResponse({
+        id: 'if-1',
+        name: 'idrac',
+        physical_device_id: 'dev-1',
+        is_management: true,
+        is_data_transfer: false,
+        vlan_mode: 'trunk',
+        group_id: null,
+      })
     }
     if (call.method === 'GET' && call.url.endsWith('/resources/interfaces/if-2')) {
-      return jsonResponse({ id: 'if-2', name: 'gi0/7', physical_device_id: 'dev-2', is_management: false, is_data_transfer: true, vlan_mode: 'trunk', group_id: null })
+      return jsonResponse({
+        id: 'if-2',
+        name: 'gi0/7',
+        physical_device_id: 'dev-2',
+        is_management: false,
+        is_data_transfer: true,
+        vlan_mode: 'trunk',
+        group_id: null,
+      })
     }
     return undefined
   }
@@ -635,7 +695,11 @@ describe('ConnectionsView.vue — правка роли, режима и VLAN п
     useCatalogsStore().items['interfaces'] = [{ id: 'if-1', name: 'idrac', physical_device_id: 'dev-1' }]
     const wrapper = await mountView({
       rows: [mismatched],
-      extra: (call) => portApi(call) ?? (call.url.includes('/resources/interfaces') && call.method === 'GET' ? jsonResponse({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'idrac' }], total: 1, offset: 0, limit: 1000 }) : undefined),
+      extra: (call) =>
+        portApi(call) ??
+        (call.url.includes('/resources/interfaces') && call.method === 'GET'
+          ? jsonResponse({ items: [{ id: 'if-1', physical_device_id: 'dev-1', name: 'idrac' }], total: 1, offset: 0, limit: 1000 })
+          : undefined),
     })
     await wrapper.find('[data-action="edit-port-source"]').trigger('click')
     await flushPromises()

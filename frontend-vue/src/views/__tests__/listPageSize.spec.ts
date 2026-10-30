@@ -22,7 +22,10 @@ const range = (n: number) => Array.from({ length: n }, (_, i) => i)
 beforeEach(() => {
   localStorage.clear()
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))),
+  )
   const catalogs = useCatalogsStore()
   catalogs.loaded = true
   catalogs.items['device-types'] = [{ id: 'dt-1', name: 'Коммутатор' }]
@@ -34,20 +37,43 @@ beforeEach(() => {
 
 const LISTS = [
   {
-    name: 'устройства', component: DevicesView, defaultSize: 6,
-    seed: () => { useDevicesStore().all = range(TOTAL).map((i) => ({ id: `d${i}`, device_type_id: 'dt-1', system_name: `dev-${i}`, serial_number: `SN-${i}`, stack_id: null, management_ips: '' })) as never },
+    name: 'устройства',
+    component: DevicesView,
+    defaultSize: 6,
+    seed: () => {
+      useDevicesStore().all = range(TOTAL).map((i) => ({
+        id: `d${i}`,
+        device_type_id: 'dt-1',
+        system_name: `dev-${i}`,
+        serial_number: `SN-${i}`,
+        stack_id: null,
+        management_ips: '',
+      })) as never
+    },
   },
   {
-    name: 'виртуальные машины', component: VMsView, defaultSize: 8,
-    seed: () => { useVMsStore().all = range(TOTAL).map((i) => ({ id: `v${i}`, name: `vm-${i}` })) as never },
+    name: 'виртуальные машины',
+    component: VMsView,
+    defaultSize: 8,
+    seed: () => {
+      useVMsStore().all = range(TOTAL).map((i) => ({ id: `v${i}`, name: `vm-${i}` })) as never
+    },
   },
   {
-    name: 'контейнеры', component: ContainersView, defaultSize: 8,
-    seed: () => { useContainersStore().all = range(TOTAL).map((i) => ({ id: `c${i}`, name: `ct-${i}`, virtual_machine_id: null, physical_device_id: null })) as never },
+    name: 'контейнеры',
+    component: ContainersView,
+    defaultSize: 8,
+    seed: () => {
+      useContainersStore().all = range(TOTAL).map((i) => ({ id: `c${i}`, name: `ct-${i}`, virtual_machine_id: null, physical_device_id: null })) as never
+    },
   },
   {
-    name: 'информационные системы', component: InformationSystemsView, defaultSize: 8,
-    seed: () => { useInformationSystemsStore().all = range(TOTAL).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never },
+    name: 'информационные системы',
+    component: InformationSystemsView,
+    defaultSize: 8,
+    seed: () => {
+      useInformationSystemsStore().all = range(TOTAL).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never
+    },
   },
 ]
 
@@ -67,7 +93,11 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
 
     expect(select(wrapper).exists()).toBe(true)
     expect((select(wrapper).element as HTMLSelectElement).value).toBe(String(defaultSize))
-    expect(select(wrapper).findAll('option').map((o) => Number(o.text()))).toEqual([1, 2, 4, 8].map((m) => defaultSize * m))
+    expect(
+      select(wrapper)
+        .findAll('option')
+        .map((o) => Number(o.text())),
+    ).toEqual([1, 2, 4, 8].map((m) => defaultSize * m))
     expect(dataRows(wrapper)).toHaveLength(defaultSize)
   })
 
@@ -87,7 +117,10 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
     const size = defaultSize * 2
     await select(wrapper).setValue(String(size))
 
-    await wrapper.findAll('.pager button').find((b) => b.text() === '2')!.trigger('click')
+    await wrapper
+      .findAll('.pager button')
+      .find((b) => b.text() === '2')!
+      .trigger('click')
 
     expect(wrapper.find('.table-foot').text()).toContain(`Показано ${size + 1}–${size * 2} из ${TOTAL}`)
   })

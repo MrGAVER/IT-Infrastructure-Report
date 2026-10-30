@@ -182,14 +182,20 @@ async function loadPeerPorts() {
     if (seq === loadSeq) peersLoading.value = false
   }
 }
-watch(() => [props.modelValue?.peer_device_id ?? '', selfSelected.value, [...props.freedPeerIds].sort().join(','), props.peersVersion], loadPeerPorts, { immediate: true })
+watch(() => [props.modelValue?.peer_device_id ?? '', selfSelected.value, [...props.freedPeerIds].sort().join(','), props.peersVersion], loadPeerPorts, {
+  immediate: true,
+})
 
 const peerInterfaces = computed(() => {
   const draft = props.modelValue
   if (!draft?.peer_device_id || selfSelected.value) return []
   return peerPorts.value.filter((p) => p.id === draft.peer_interface_id || ((!p.occupied || props.freedPeerIds.has(p.id)) && !props.takenPeerIds.has(p.id)))
 })
-const portOptions = computed(() => (selfSelected.value ? (props.selfPorts ?? []).map((c) => ({ value: c.value, label: c.label })) : peerInterfaces.value.map((p) => ({ value: p.id, label: p.name }))))
+const portOptions = computed(() =>
+  selfSelected.value
+    ? (props.selfPorts ?? []).map((c) => ({ value: c.value, label: c.label }))
+    : peerInterfaces.value.map((p) => ({ value: p.id, label: p.name })),
+)
 const typeOptions = computed(() => (catalogs.items['connection-types'] ?? []).map((t) => ({ value: t.id, label: t.name })))
 
 const noFreePortsHint = computed(() => {
@@ -207,7 +213,16 @@ const peerTarget = computed<PeerConfigTarget | null>(() => {
   if (!draft || !ref) return null
   if (selfSelected.value) {
     const candidate = props.selfPorts?.find((c) => c.value === ref)
-    return candidate ? { ref, label: `«${candidate.label}» (это устройство)`, config: candidate.config, interfaceId: candidate.interfaceId, rowKey: candidate.rowKey, isSelf: true } : null
+    return candidate
+      ? {
+          ref,
+          label: `«${candidate.label}» (это устройство)`,
+          config: candidate.config,
+          interfaceId: candidate.interfaceId,
+          rowKey: candidate.rowKey,
+          isSelf: true,
+        }
+      : null
   }
   const port = peerPorts.value.find((p) => p.id === draft.peer_interface_id)
   return port ? { ref, label: `«${port.name}» (${draft.peer_device_name ?? 'другое устройство'})`, config: port, interfaceId: port.id, isSelf: false } : null
@@ -233,7 +248,12 @@ function onPeerDeviceChange(deviceId: string) {
 function onPeerPortChange(value: string) {
   const candidate = selfSelected.value ? props.selfPorts?.find((c) => c.value === value) : undefined
   if (candidate?.rowKey) patch({ peer_interface_id: '', peer_row_key: candidate.rowKey, peer_interface_name: undefined })
-  else patch({ peer_interface_id: value, peer_row_key: undefined, peer_interface_name: selfSelected.value ? undefined : peerPorts.value.find((p) => p.id === value)?.name })
+  else
+    patch({
+      peer_interface_id: value,
+      peer_row_key: undefined,
+      peer_interface_name: selfSelected.value ? undefined : peerPorts.value.find((p) => p.id === value)?.name,
+    })
 }
 </script>
 
@@ -269,11 +289,22 @@ function onPeerPortChange(value: string) {
         </label>
         <label class="field connection-peer-port">
           <span>Порт *</span>
-          <SearchableSelect :model-value="peerRef(modelValue)" :options="portOptions" :disabled="!modelValue.peer_device_id" placeholder="— выберите —" @update:model-value="onPeerPortChange" />
+          <SearchableSelect
+            :model-value="peerRef(modelValue)"
+            :options="portOptions"
+            :disabled="!modelValue.peer_device_id"
+            placeholder="— выберите —"
+            @update:model-value="onPeerPortChange"
+          />
         </label>
         <label class="field connection-type">
           <span>Тип физической линии связи *</span>
-          <SearchableSelect :model-value="modelValue.connection_type_id" :options="typeOptions" placeholder="— выберите —" @update:model-value="(v) => patch({ connection_type_id: v })" />
+          <SearchableSelect
+            :model-value="modelValue.connection_type_id"
+            :options="typeOptions"
+            placeholder="— выберите —"
+            @update:model-value="(v) => patch({ connection_type_id: v })"
+          />
         </label>
         <label class="field connection-description">
           <span>Описание</span>
@@ -287,12 +318,27 @@ function onPeerPortChange(value: string) {
       <div v-if="peerTarget && configDiffs.length" class="connection-diffs" role="alert">
         <svg class="icon conflict-icon"><use href="/icons.svg#i-alert" /></svg>
         <div class="connection-diffs-body">
-          <span>Конфигурация порта расходится с портом соседа — {{ configDiffs.join('; ') }}. Сохранить можно: расхождение будет отмечено на экране «Подключения».</span>
+          <span
+            >Конфигурация порта расходится с портом соседа — {{ configDiffs.join('; ') }}. Сохранить можно: расхождение будет отмечено на экране
+            «Подключения».</span
+          >
           <div class="connection-diffs-actions">
-            <button type="button" class="btn btn-secondary" :disabled="applying" title="Этому порту — назначение, режим порта и «Все VLAN» соседа" @click="emit('apply-peer-config', peerTarget, configDiffKinds)">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="applying"
+              title="Этому порту — назначение, режим порта и «Все VLAN» соседа"
+              @click="emit('apply-peer-config', peerTarget, configDiffKinds)"
+            >
               Применить конфигурацию соседа
             </button>
-            <button type="button" class="btn btn-secondary" :disabled="applying" title="Соседу — назначение, режим порта и «Все VLAN» этого порта" @click="emit('apply-config-to-peer', peerTarget, configDiffKinds)">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="applying"
+              title="Соседу — назначение, режим порта и «Все VLAN» этого порта"
+              @click="emit('apply-config-to-peer', peerTarget, configDiffKinds)"
+            >
               Применить текущую конфигурацию
             </button>
           </div>

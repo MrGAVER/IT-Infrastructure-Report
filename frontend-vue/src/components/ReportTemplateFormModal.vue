@@ -79,31 +79,31 @@ async function submit() {
       </div>
 
       <p v-if="!isEdit" class="hint">
-        Создастся заготовка с минимальным содержимым (одна ячейка/блок с названием) — раскладку
-        листов и полей можно донастроить в конструкторе сразу после создания.
+        Создастся заготовка с минимальным содержимым (одна ячейка/блок с названием) — раскладку листов и полей можно донастроить в конструкторе сразу после
+        создания.
       </p>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field field-wide">
-          <span>Название *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="255" />
-        </label>
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field field-wide">
+            <span>Название *</span>
+            <input v-model.trim="form.name" type="text" required maxlength="255" />
+          </label>
 
-        <label class="field field-wide">
-          <span>Описание</span>
-          <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
-        </label>
+          <label class="field field-wide">
+            <span>Описание</span>
+            <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
+          </label>
 
-        <label class="field">
-          <span>Формат файла</span>
-          <select v-model="form.format" :disabled="isEdit">
-            <option value="xlsx">Excel (.xlsx)</option>
-            <option value="docx">Word (.docx)</option>
-          </select>
-          <small v-if="isEdit" class="hint-small">Формат нельзя изменить у существующего шаблона.</small>
-        </label>
-      </form>
+          <label class="field">
+            <span>Формат файла</span>
+            <select v-model="form.format" :disabled="isEdit">
+              <option value="xlsx">Excel (.xlsx)</option>
+              <option value="docx">Word (.docx)</option>
+            </select>
+            <small v-if="isEdit" class="hint-small">Формат нельзя изменить у существующего шаблона.</small>
+          </label>
+        </form>
       </fieldset>
 
       <div class="modal-foot">

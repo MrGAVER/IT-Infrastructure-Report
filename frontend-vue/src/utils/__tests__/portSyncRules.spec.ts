@@ -21,7 +21,15 @@ import type { PortSyncRule } from '../../api/types'
 
 function rule(overrides: Partial<PortSyncRule> = {}): PortSyncRule {
   return {
-    id: 'r1', code: null, builtin: false, modified: false, name: 'Правило', description: '', enabled: true, priority: 10, action: 'auto',
+    id: 'r1',
+    code: null,
+    builtin: false,
+    modified: false,
+    name: 'Правило',
+    description: '',
+    enabled: true,
+    priority: 10,
+    action: 'auto',
     target: { role: 'any', mode: 'any', vlans: 'any' },
     source: { role: 'any', mode: 'any', vlans: 'any' },
     relation: { role: 'any', mode: 'any', vlans: 'any' },
@@ -62,9 +70,9 @@ describe('portSyncRules utils — описание правила словами
   })
 
   it('describeRule: ручное и игнорируемое правило, правило без условий', () => {
-    expect(describeRule(rule({ action: 'manual', relation: { role: 'differs', mode: 'any', vlans: 'any' }, apply: { role: true, mode: false, vlans: 'keep' } }))).toBe(
-      'Если роли различаются — расхождение требует решения человека (порту можно применить: роль соседа).',
-    )
+    expect(
+      describeRule(rule({ action: 'manual', relation: { role: 'differs', mode: 'any', vlans: 'any' }, apply: { role: true, mode: false, vlans: 'keep' } })),
+    ).toBe('Если роли различаются — расхождение требует решения человека (порту можно применить: роль соседа).')
     expect(describeRule(rule({ action: 'ignore', target: { role: 'management', mode: 'any', vlans: 'any' } }))).toBe(
       'Если порт: роль «Управление активами» — пару не согласовывать.',
     )
@@ -141,7 +149,15 @@ describe('portSyncRules utils — порядок', () => {
 })
 
 describe('portSyncRules utils — план согласования', () => {
-  const port = (name: string, device: string) => ({ interface_id: name, name, device_id: device, device_name: device, role: 'data' as const, mode: 'trunk' as const, vlans: [] })
+  const port = (name: string, device: string) => ({
+    interface_id: name,
+    name,
+    device_id: device,
+    device_name: device,
+    role: 'data' as const,
+    mode: 'trunk' as const,
+    vlans: [],
+  })
   const item = { target: 'source' as const, source: port('Gi0/1', 'sw-1'), destination: port('Gi0/2', 'sw-2') }
 
   it('targetPort: порт, которому применяются изменения; без направления — null', () => {
@@ -184,7 +200,6 @@ describe('portSyncRules utils — план согласования', () => {
   })
 })
 
-
 describe('portSyncRules utils — политика «объединить»', () => {
   const union = rule({
     target: { role: 'any', mode: 'trunk', vlans: 'set' },
@@ -209,17 +224,42 @@ describe('portSyncRules utils — политика «объединить»', ()
   })
 
   it('plannedTargets: оба порта из targets, у каждого свои изменения и причина запрета', () => {
-    const view = (name: string) => ({ interface_id: `if-${name}`, name, device_id: null, device_name: `dev-${name}`, role: 'data' as const, mode: 'trunk' as const, vlans: [] })
+    const view = (name: string) => ({
+      interface_id: `if-${name}`,
+      name,
+      device_id: null,
+      device_name: `dev-${name}`,
+      role: 'data' as const,
+      mode: 'trunk' as const,
+      vlans: [],
+    })
     const changes = { role: null, mode: null, vlans: { from: [10], to: [10, 20], skipped: [] } }
     const targets = plannedTargets({
-      target: 'both', changes: null, source: view('a'), destination: view('b'),
-      targets: [{ target: 'source', changes, blocked: null }, { target: 'destination', changes, blocked: 'Порт входит в группу' }],
+      target: 'both',
+      changes: null,
+      source: view('a'),
+      destination: view('b'),
+      targets: [
+        { target: 'source', changes, blocked: null },
+        { target: 'destination', changes, blocked: 'Порт входит в группу' },
+      ],
     })
-    expect(targets.map((t) => [t.port.name, t.blocked])).toEqual([['a', null], ['b', 'Порт входит в группу']])
+    expect(targets.map((t) => [t.port.name, t.blocked])).toEqual([
+      ['a', null],
+      ['b', 'Порт входит в группу'],
+    ])
   })
 
   it('plannedTargets: ответ старого формата (без targets) даёт единственный порт, без направления — пусто', () => {
-    const view = (name: string) => ({ interface_id: `if-${name}`, name, device_id: null, device_name: 'd', role: 'data' as const, mode: 'trunk' as const, vlans: [] })
+    const view = (name: string) => ({
+      interface_id: `if-${name}`,
+      name,
+      device_id: null,
+      device_name: 'd',
+      role: 'data' as const,
+      mode: 'trunk' as const,
+      vlans: [],
+    })
     const changes = { role: null, mode: null, vlans: { from: [], to: [10], skipped: [] } }
     expect(plannedTargets({ target: 'destination', changes, source: view('a'), destination: view('b') }).map((t) => t.port.name)).toEqual(['b'])
     expect(plannedTargets({ target: null, changes: null, source: view('a'), destination: view('b') })).toEqual([])
@@ -240,7 +280,6 @@ describe('portSyncRules utils — политика «объединить»', ()
     expect(summaryLine(base)).toBe('проверено подключений: 4 · будет согласовано: 4') // старый ответ без partial
   })
 })
-
 
 describe('portSyncRules utils — политика «все VLAN»', () => {
   const allVlans = rule({

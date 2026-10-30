@@ -13,7 +13,10 @@ function jsonResponse(body: unknown, status = 200) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })),
+  )
 })
 
 function device(overrides: Partial<Device>): Device {
@@ -64,7 +67,10 @@ describe('DevicesView.vue', () => {
     const wrapper = mount(DevicesView)
     await flushPromises()
 
-    await wrapper.findAll('.filter-bar button').find((b) => b.text() === 'Стек')!.trigger('click')
+    await wrapper
+      .findAll('.filter-bar button')
+      .find((b) => b.text() === 'Стек')!
+      .trigger('click')
 
     expect(wrapper.find('.modal-head h2').text()).toBe('Добавить стек устройств')
   })
@@ -128,7 +134,10 @@ describe('DevicesView.vue', () => {
       }),
     )
 
-    await wrapper.findAll('.filter-bar button').find((b) => b.text() === 'Стек')!.trigger('click')
+    await wrapper
+      .findAll('.filter-bar button')
+      .find((b) => b.text() === 'Стек')!
+      .trigger('click')
     await wrapper.find('.modal input[type="text"]').setValue('Новый стек')
     await wrapper.find('.modal form').trigger('submit')
     await flushPromises()

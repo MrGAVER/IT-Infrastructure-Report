@@ -27,7 +27,9 @@ export function useDeviceFormFields(form: DeviceForm) {
   // Пункт 2: поиск вводом текста в "Операционная система" и "Встроенная ОС" — тот же SearchableSelect,
   // что у Здания/Помещения/Стойки выше. Подпись — catalogs.label() ("name version"), порядок — уже
   // отсортированный catalogs.items (см. sortCatalogItems в stores/catalogs.ts).
-  const operatingSystemOptions = computed(() => (catalogs.items['operating-systems'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('operating-systems', os.id) })))
+  const operatingSystemOptions = computed(() =>
+    (catalogs.items['operating-systems'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('operating-systems', os.id) })),
+  )
   const embeddedOsOptions = computed(() => (catalogs.items['embedded-os'] ?? []).map((os) => ({ value: os.id, label: catalogs.label('embedded-os', os.id) })))
   const buildingOptions = computed(() => (catalogs.items['buildings'] ?? []).map((b) => ({ value: b.id, label: b.name })))
   const roomOptions = computed(() => filteredRooms.value.map((r) => ({ value: r.id, label: r.name })))

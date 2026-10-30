@@ -3,7 +3,15 @@ import { mount } from '@vue/test-utils'
 import AllVlansChoiceModal from '../AllVlansChoiceModal.vue'
 import type { VLANDefinition } from '../../api/types'
 
-const vlan = (id: string, number: number): VLANDefinition => ({ id, vlan_id: number, name: `VLAN ${number}`, description: '', domain_id: null, domain_name: '', devices: [] })
+const vlan = (id: string, number: number): VLANDefinition => ({
+  id,
+  vlan_id: number,
+  name: `VLAN ${number}`,
+  description: '',
+  domain_id: null,
+  domain_name: '',
+  devices: [],
+})
 const options = [vlan('a10', 10), vlan('a20', 20), vlan('a30', 30)]
 
 function mountModal(props: Partial<InstanceType<typeof AllVlansChoiceModal>['$props']> = {}) {
@@ -20,7 +28,7 @@ function mountModal(props: Partial<InstanceType<typeof AllVlansChoiceModal>['$pr
     attachTo: document.body,
   })
 }
-const emitted = <T,>(wrapper: ReturnType<typeof mountModal>, name: string) => wrapper.emitted(name)!.at(-1)![0] as T
+const emitted = <T>(wrapper: ReturnType<typeof mountModal>, name: string) => wrapper.emitted(name)!.at(-1)![0] as T
 
 describe('AllVlansChoiceModal', () => {
   it('по умолчанию выбрано значение источника: «Применить» отдаёт его', async () => {

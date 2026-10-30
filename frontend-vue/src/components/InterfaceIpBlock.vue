@@ -19,11 +19,17 @@ function addIp() {
 }
 
 function removeIp(index: number) {
-  emit('update:ips', props.ips.filter((_, j) => j !== index))
+  emit(
+    'update:ips',
+    props.ips.filter((_, j) => j !== index),
+  )
 }
 
 function updateIp(index: number, patch: Partial<InterfaceIpDraftRow>) {
-  emit('update:ips', props.ips.map((ip, j) => (j === index ? { ...ip, ...patch } : ip)))
+  emit(
+    'update:ips',
+    props.ips.map((ip, j) => (j === index ? { ...ip, ...patch } : ip)),
+  )
 }
 </script>
 
@@ -39,7 +45,13 @@ function updateIp(index: number, patch: Partial<InterfaceIpDraftRow>) {
     </div>
     <div v-if="!ips.length" class="empty">IP-адреса не добавлены</div>
     <div v-for="(ip, j) in ips" :key="ip.id ?? j" class="ip-row">
-      <input type="text" placeholder="IP-адрес" :value="ip.ip_address" :disabled="managed" @input="updateIp(j, { ip_address: ($event.target as HTMLInputElement).value })" />
+      <input
+        type="text"
+        placeholder="IP-адрес"
+        :value="ip.ip_address"
+        :disabled="managed"
+        @input="updateIp(j, { ip_address: ($event.target as HTMLInputElement).value })"
+      />
       <input
         type="number"
         min="0"
@@ -49,7 +61,13 @@ function updateIp(index: number, patch: Partial<InterfaceIpDraftRow>) {
         :disabled="managed"
         @input="updateIp(j, { prefix_length: ($event.target as HTMLInputElement).value })"
       />
-      <input type="text" placeholder="Назначение" :value="ip.purpose" :disabled="managed" @input="updateIp(j, { purpose: ($event.target as HTMLInputElement).value })" />
+      <input
+        type="text"
+        placeholder="Назначение"
+        :value="ip.purpose"
+        :disabled="managed"
+        @input="updateIp(j, { purpose: ($event.target as HTMLInputElement).value })"
+      />
       <button v-if="!managed" type="button" class="icon-btn danger" aria-label="Удалить IP интерфейса" @click="removeIp(j)">
         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
       </button>

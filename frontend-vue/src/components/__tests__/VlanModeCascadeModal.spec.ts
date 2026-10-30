@@ -9,7 +9,15 @@ function bigPlan(patch: Partial<VlanModeCascadePlan> = {}): VlanModeCascadePlan 
   return makePlan({
     edited_device_id: 'dev-1',
     groups: [
-      groupChange({ id: 'g9', name: 'Магистраль', device_id: 'dev-2', device_name: 'sw-02', vlans_before: [vlanRef(10, 'Серверы'), vlanRef(20, 'Гости')], vlans_after: [vlanRef(10, 'Серверы')], dropped_vlans: [vlanRef(20, 'Гости')] }),
+      groupChange({
+        id: 'g9',
+        name: 'Магистраль',
+        device_id: 'dev-2',
+        device_name: 'sw-02',
+        vlans_before: [vlanRef(10, 'Серверы'), vlanRef(20, 'Гости')],
+        vlans_after: [vlanRef(10, 'Серверы')],
+        dropped_vlans: [vlanRef(20, 'Гости')],
+      }),
       groupChange({ id: 'g1', name: 'vmnic', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, ports: [{ id: 'if-5', name: 'vmnic5' }] }),
     ],
     ports: [portChange({ id: 'if-7', name: 'vmnic7', device_id: 'dev-1', device_name: 'esxi-01', deferred: true })],

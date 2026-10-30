@@ -11,7 +11,10 @@ function jsonResponse(body: unknown, status = 200) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })),
+  )
 })
 
 function seedStacks(stacks: DeviceStack[]) {
@@ -76,7 +79,10 @@ describe('DeviceStacksView.vue', () => {
 
   it('удаляет стек после подтверждения', async () => {
     seedStacks([{ id: 'stack-1', name: 'Стек ядра', description: null }])
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -97,7 +103,10 @@ describe('DeviceStacksView.vue', () => {
 
   it('отмена подтверждения не отправляет запрос на удаление', async () => {
     seedStacks([{ id: 'stack-1', name: 'Стек ядра', description: null }])
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
       'fetch',

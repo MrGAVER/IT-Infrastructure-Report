@@ -10,7 +10,11 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
 }
 
-interface Call { url: string; method: string; body?: Record<string, unknown> }
+interface Call {
+  url: string
+  method: string
+  body?: Record<string, unknown>
+}
 
 /** Роутер fetch: .../preview берёт ответы из очереди previews, применение — из apply. */
 function stubApi(previews: Array<VlanModeCascadePlan | Response>, apply: () => Response = () => jsonResponse({}, 500)) {
@@ -30,8 +34,10 @@ function stubApi(previews: Array<VlanModeCascadePlan | Response>, apply: () => R
   return calls
 }
 
-const applied = (plan: VlanModeCascadePlan, ports = 1) => jsonResponse({ plan, applied: { ports, groups: 0, devices: 1 }, interfaces: [{ id: 'if-2', name: 'Gi0/2', vlan_mode: plan.target_mode }] })
-const complexPlan = (patch: Partial<VlanModeCascadePlan> = {}) => makePlan({ groups: [groupChange()], totals: { ...makePlan().totals, ports: 2, groups: 1 }, ...patch })
+const applied = (plan: VlanModeCascadePlan, ports = 1) =>
+  jsonResponse({ plan, applied: { ports, groups: 0, devices: 1 }, interfaces: [{ id: 'if-2', name: 'Gi0/2', vlan_mode: plan.target_mode }] })
+const complexPlan = (patch: Partial<VlanModeCascadePlan> = {}) =>
+  makePlan({ groups: [groupChange()], totals: { ...makePlan().totals, ports: 2, groups: 1 }, ...patch })
 
 let host: CascadeHost & { finished: number; deferredCalls: VlanModeCascadePlan[] }
 let edited: EditedDeviceState | null
@@ -191,7 +197,10 @@ describe('useVlanModeCascade', () => {
   })
 
   it('план только с портом самой формы, применённый через commit, сообщает только о форме (на сервер ничего не записано)', async () => {
-    const own = makePlan({ ports: [portChange({ deferred: true })], totals: { ...makePlan().totals, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0 } })
+    const own = makePlan({
+      ports: [portChange({ deferred: true })],
+      totals: { ...makePlan().totals, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0 },
+    })
     stubApi([own], () => applied(own, 0))
     const cascade = mountHost(1)
 
@@ -240,7 +249,9 @@ describe('useVlanModeCascade', () => {
 
     it('устаревший план (409): повторный предпросмотр снова несёт port; если режим уже целевой — unchanged', async () => {
       const plan = complexPlan()
-      const calls = stubApi([plan, makePlan({ empty: true, ports: [], devices: [] })], () => jsonResponse({ detail: 'Данные изменились после предпросмотра' }, 409))
+      const calls = stubApi([plan, makePlan({ empty: true, ports: [], devices: [] })], () =>
+        jsonResponse({ detail: 'Данные изменились после предпросмотра' }, 409),
+      )
       const cascade = mountHost()
       portRequest = { role: 'management' }
       await cascade.start('if-2', 'access', 'x')

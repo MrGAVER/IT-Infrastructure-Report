@@ -26,7 +26,11 @@ export type ConnectionForm = ReturnType<typeof emptyConnectionForm>
  * Значения формы: из редактируемого подключения; для нового — из подсказки схемы (только порты и их устройства); иначе пустые.
  * Устройство порта берётся из каталога интерфейсов (в подключении хранятся только порты). Редактирование важнее подсказки.
  */
-export function connectionFormFromSource(connection: Connection | null, prefill: ConnectionPrefill | null | undefined, interfaces: readonly DeviceInterface[]): ConnectionForm {
+export function connectionFormFromSource(
+  connection: Connection | null,
+  prefill: ConnectionPrefill | null | undefined,
+  interfaces: readonly DeviceInterface[],
+): ConnectionForm {
   const next = emptyConnectionForm()
   const deviceOf = (interfaceId: string) => interfaces.find((i) => i.id === interfaceId)?.physical_device_id ?? ''
   if (connection) {
@@ -75,7 +79,12 @@ export function connectionDeviceLabel(d: Pick<Device, 'system_name' | 'serial_nu
  * Порты устройства, из которых можно выбирать: исключены занятые активным подключением (сервер всё равно ответил бы 409). Порт,
  * выбранный сейчас (currentlySelectedId), остаётся — иначе при правке нельзя было бы поменять, например, тип линии, не трогая порты.
  */
-export function freeInterfacesForDevice(all: readonly DeviceInterface[], occupied: ReadonlySet<string>, deviceId: string, currentlySelectedId: string): DeviceInterface[] {
+export function freeInterfacesForDevice(
+  all: readonly DeviceInterface[],
+  occupied: ReadonlySet<string>,
+  deviceId: string,
+  currentlySelectedId: string,
+): DeviceInterface[] {
   if (!deviceId) return []
   return all.filter((i) => i.physical_device_id === deviceId && (i.id === currentlySelectedId || !occupied.has(i.id)))
 }

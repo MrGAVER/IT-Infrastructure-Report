@@ -24,7 +24,11 @@ app.directive('write-only', vWriteOnly)
 // настройки (до первой отрисовки маршрута, см. router/index.ts) или пользователь выйдет из учётной записи,
 // watch применит актуальную. Отдельной копии схемы в localStorage нет — осознанно (см. запись о переносе настроек в CHANGELOG.md).
 const theme = useThemeStore(pinia)
-watch(() => theme.schemeId, () => theme.applyToDocument(), { immediate: true })
+watch(
+  () => theme.schemeId,
+  () => theme.applyToDocument(),
+  { immediate: true },
+)
 
 // Токен истёк/отозван где-то ещё (logout на другой вкладке, смена пароля администратором,
 // TTL сессии) — client.ts не импортирует стор напрямую (см. комментарий там про циклы

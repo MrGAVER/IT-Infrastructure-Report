@@ -81,7 +81,8 @@ async function submit() {
   // VLAN устройства известны (portVlanOptions): по ним проверяется, что VLAN подинтерфейсов портов и групп — из VLAN порта/группы.
   const deviceVlanIds = new Set(portVlanOptions.value.map((v) => v.id))
   const interfaceError =
-    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog, deviceVlanIds) ?? validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog, deviceVlanIds)
+    validateInterfaceDraftRows(interfaces.value, catalogs.protocolPortCatalog, deviceVlanIds) ??
+    validateInterfaceGroups(interfaceGroups.value, catalogs.protocolPortCatalog, deviceVlanIds)
   if (interfaceError) {
     errorMessage.value = interfaceError
     return

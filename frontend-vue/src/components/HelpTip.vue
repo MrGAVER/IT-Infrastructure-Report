@@ -30,15 +30,7 @@ onBeforeUnmount(() => {
 
 <template>
   <span ref="rootEl" class="help-tip">
-    <button
-      type="button"
-      class="help-tip-btn"
-      aria-label="Справка"
-      :aria-expanded="open"
-      @click="open = !open"
-    >
-      ?
-    </button>
+    <button type="button" class="help-tip-btn" aria-label="Справка" :aria-expanded="open" @click="open = !open">?</button>
     <div v-if="open" class="help-tip-panel" role="tooltip">{{ text }}</div>
   </span>
 </template>

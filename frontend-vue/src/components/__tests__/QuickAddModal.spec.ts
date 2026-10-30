@@ -266,7 +266,9 @@ describe('QuickAddModal.vue', () => {
 
     expect(body().find('.modal').classes()).toContain('modal-wide')
     expect(body().find('form').classes()).toContain('form-grid-single')
-    const labels = body().findAll('form > label.field').map((l) => l.find('span').text())
+    const labels = body()
+      .findAll('form > label.field')
+      .map((l) => l.find('span').text())
     expect(labels).toEqual(['Помещение *', 'Наименование *', 'Высота, U'])
     // Ни одно поле не растянуто на две колонки — раскладку задаёт единственная колонка самой формы.
     expect(body().findAll('form > label.field-wide')).toHaveLength(0)

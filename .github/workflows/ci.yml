@@ -37,8 +37,12 @@ jobs:
         run: npm ci
         working-directory: frontend-vue
 
-      - name: ESLint frontend-vue (npm run lint; форматтер Prettier в CI не входит — код ещё не отформатирован)
+      - name: ESLint frontend-vue (npm run lint)
         run: npm run lint
+        working-directory: frontend-vue
+
+      - name: Prettier frontend-vue (npm run format:check — код отформатирован целиком, новые отклонения от стиля блокируют слияние)
+        run: npm run format:check
         working-directory: frontend-vue
 
       - name: ruff (реальные ошибки — pyflakes F + синтаксис E9 — и сложность функций C901 ≤ 12, см. pyproject.toml)

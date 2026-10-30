@@ -39,7 +39,10 @@ describe('GroupVlanPickerModal', () => {
     await rowsOf(wrapper)[1].get('input').setValue(false)
     await wrapper.get('.vlan-check-all input').setValue(true)
 
-    expect(wrapper.emitted('toggle')).toEqual([['v10', true], ['v20', false]])
+    expect(wrapper.emitted('toggle')).toEqual([
+      ['v10', true],
+      ['v20', false],
+    ])
     expect(wrapper.emitted('toggle-all')).toEqual([[true]])
 
     await wrapper.setProps({ allVlans: true })

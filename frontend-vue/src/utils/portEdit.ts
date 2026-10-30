@@ -63,11 +63,7 @@ export interface NeighborConfig {
 
 /** Чем черновик будет отличаться от соседа — те же грани и порядок, что у сверки на сервере
  * (services/port_config.config_differences): роль, режим, VLAN. Пусто — порты согласованы. */
-export function differencesFromNeighbor(
-  draft: PortDraft,
-  draftVlanNumbers: readonly number[],
-  neighbor: NeighborConfig,
-): PortConfigFacet[] {
+export function differencesFromNeighbor(draft: PortDraft, draftVlanNumbers: readonly number[], neighbor: NeighborConfig): PortConfigFacet[] {
   const facets: PortConfigFacet[] = []
   if (neighbor.role !== null && draft.role !== neighbor.role) facets.push('role')
   if (neighbor.mode !== null && draft.mode !== neighbor.mode) facets.push('mode')

@@ -48,12 +48,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
   <div ref="rootEl" class="export-panel">
     <span class="export-label">Экспорт:</span>
     <div class="split-btn">
-      <button
-        class="btn btn-secondary split-btn-main"
-        type="button"
-        :disabled="props.exporting !== null"
-        @click="emit('export', primaryFormat)"
-      >
+      <button class="btn btn-secondary split-btn-main" type="button" :disabled="props.exporting !== null" @click="emit('export', primaryFormat)">
         <svg class="icon"><use href="/icons.svg#i-file" /></svg>
         {{ props.exporting === primaryFormat ? 'Экспорт…' : `Экспорт ${primaryLabel}` }}
       </button>
@@ -67,13 +62,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
         <svg class="icon"><use href="/icons.svg#i-chevd" /></svg>
       </button>
       <div v-if="open" class="split-btn-menu">
-        <button
-          v-for="f in otherFormats"
-          :key="f.value"
-          class="split-btn-menu-item"
-          type="button"
-          @click="chooseFormat(f.value)"
-        >
+        <button v-for="f in otherFormats" :key="f.value" class="split-btn-menu-item" type="button" @click="chooseFormat(f.value)">
           {{ props.exporting === f.value ? 'Экспорт…' : f.label }}
         </button>
       </div>

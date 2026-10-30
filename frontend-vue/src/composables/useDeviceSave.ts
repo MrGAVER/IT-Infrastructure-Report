@@ -142,7 +142,12 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
           await persistDeviceVlans(saved.id, draft.deviceVlans.value)
           // Атомарный PUT (не через generic createResource/deleteResource) — см.
           // api/deviceInterfaces.ts:persistDeviceInterfaces.
-          const { items: savedInterfaces } = await persistDeviceInterfaces(saved.id, draft.interfaces.value, draft.interfaceGroups.value, draft.initialConnections.value)
+          const { items: savedInterfaces } = await persistDeviceInterfaces(
+            saved.id,
+            draft.interfaces.value,
+            draft.interfaceGroups.value,
+            draft.initialConnections.value,
+          )
           // Фикс п.3.1: без этого catalogs.items['interfaces'] не узнаёт о только что
           // сохранённых портах устройства (persistDeviceInterfaces — чистый API-вызов, сам кэш
           // каталогов не трогает по дизайну, см. её комментарий), и поле "Порт" в форме
@@ -154,7 +159,10 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
           // Пункт 3: сторы VLAN и доменов читаются другими экранами (VLANsView, DevicesView) без
           // повторной загрузки — без этого включение в домен и новые VLAN устройства были видны там
           // только после перезагрузки страницы. reload() сам не бросает (ошибка пишется в store.error).
-          await Promise.all([vlansStore.reload(), draft.pendingDomainMemberships.value.size || draft.pendingSourceDomainIds.value.size ? vlanDomainsStore.reload() : Promise.resolve()])
+          await Promise.all([
+            vlansStore.reload(),
+            draft.pendingDomainMemberships.value.size || draft.pendingSourceDomainIds.value.size ? vlanDomainsStore.reload() : Promise.resolve(),
+          ])
           // Пункт 5: interfaceConflicts считается по черновику interfaces — то есть ровно по тому, что
           // только что сохранено.
           // Подключения портов созданы/изменены этим же сохранением: стор подключений устарел, а у новых портов

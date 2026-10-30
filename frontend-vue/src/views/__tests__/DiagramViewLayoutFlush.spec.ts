@@ -20,7 +20,20 @@ const diagram: SavedDiagramDetail = {
   created_at: null,
   updated_at: null,
   nodes: [
-    { id: 'dev-1', type: 'device', label: 'sw-01', serial_number: 'SN-1', system_name: 'sw-01', category_id: null, manufacturer: null, model: null, ip_addresses: [], icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', manufacturer_label: '', model_label: '' }, x: 0, y: 0 },
+    {
+      id: 'dev-1',
+      type: 'device',
+      label: 'sw-01',
+      serial_number: 'SN-1',
+      system_name: 'sw-01',
+      category_id: null,
+      manufacturer: null,
+      model: null,
+      ip_addresses: [],
+      icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', manufacturer_label: '', model_label: '' },
+      x: 0,
+      y: 0,
+    },
   ],
   edges: [],
   viewport: { zoom: 1, pan_x: 0, pan_y: 0 },
@@ -73,9 +86,7 @@ describe('B-09: DiagramView — уход с экрана сохраняет ра
 
     wrapper.unmount()
     await vi.advanceTimersByTimeAsync(0)
-    expect(putCalls()).toEqual([
-      { method: 'PUT', url: '/api/v1/diagrams/d1/layout', body: { node_positions: { 'dev-1': { x: 50, y: 60 } } } },
-    ])
+    expect(putCalls()).toEqual([{ method: 'PUT', url: '/api/v1/diagrams/d1/layout', body: { node_positions: { 'dev-1': { x: 50, y: 60 } } } }])
 
     await vi.advanceTimersByTimeAsync(2000)
     expect(putCalls()).toHaveLength(1)

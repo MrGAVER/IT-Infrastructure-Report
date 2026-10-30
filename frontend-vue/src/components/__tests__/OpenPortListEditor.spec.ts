@@ -229,7 +229,10 @@ describe('OpenPortListEditor.vue — sorted-unique (форма ВМ)', () => {
 
 describe('OpenPortListEditor.vue — сворачивание длинного списка по порогу', () => {
   const manyCatalog: ProtocolPortCatalogEntry[] = Array.from({ length: 30 }, (_, i) => ({
-    id: `cat-${i + 1}`, port: 1000 + i, protocol_type: `PROTO${i + 1}`, description: null,
+    id: `cat-${i + 1}`,
+    port: 1000 + i,
+    protocol_type: `PROTO${i + 1}`,
+    description: null,
   }))
   const makeRows = (n: number): OpenPortDraftRow[] =>
     Array.from({ length: n }, (_, i) => ({ id: `op-${i}`, protocol_catalog_id: `cat-${i + 1}`, transport_protocol: 'TCP', description: '' }))

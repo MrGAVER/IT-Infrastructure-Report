@@ -29,7 +29,9 @@ export function useBulkEdit(deps: BulkEditDeps, ui: RowUiState) {
   // Список VLAN во всплывающем окне, а не в ячейке: при большом числе VLAN инлайновый список «растягивал» всю строку панели
   // (а с ней — всю таблицу). Сама ячейка показывает только краткую сводку.
   const bulkVlanPickerOpen = ref(false)
-  const bulkVlanSummary = computed(() => (bulkAllVlans.value ? 'Все VLAN' : bulkVlanIds.value.size ? `Выбрано VLAN: ${bulkVlanIds.value.size}` : '— выбрать VLAN —'))
+  const bulkVlanSummary = computed(() =>
+    bulkAllVlans.value ? 'Все VLAN' : bulkVlanIds.value.size ? `Выбрано VLAN: ${bulkVlanIds.value.size}` : '— выбрать VLAN —',
+  )
 
   function toggleBulkVlan(vlanDefId: string, checked: boolean) {
     if (checked) bulkVlanIds.value.add(vlanDefId)
@@ -53,7 +55,15 @@ export function useBulkEdit(deps: BulkEditDeps, ui: RowUiState) {
       applyBulkEditToRows(
         deps.rows(),
         ui.selectedIndices.value,
-        { typeId: bulkTypeId.value, speedId: bulkSpeedId.value, management: bulkManagement.value, dataTransfer: bulkDataTransfer.value, vlanMode: bulkVlanMode.value, vlanIds: bulkVlanIds.value, allVlans: bulkAllVlans.value },
+        {
+          typeId: bulkTypeId.value,
+          speedId: bulkSpeedId.value,
+          management: bulkManagement.value,
+          dataTransfer: bulkDataTransfer.value,
+          vlanMode: bulkVlanMode.value,
+          vlanIds: bulkVlanIds.value,
+          allVlans: bulkAllVlans.value,
+        },
         deps.vlanOptions(),
         (row) => deps.rowManaged(row).vlan,
       ),

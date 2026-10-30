@@ -7,14 +7,28 @@ import type { PortSyncRule } from '../../api/types'
 
 function rule(overrides: Partial<PortSyncRule> = {}): PortSyncRule {
   return {
-    id: 'r-1', code: 'empty_trunk_takes_neighbor_vlans', builtin: true, modified: false, name: 'Пустой trunk получает VLAN соседа',
-    description: 'Описание', enabled: true, priority: 10, action: 'auto',
-    target: { role: 'any', mode: 'trunk', vlans: 'none' }, source: { role: 'any', mode: 'trunk', vlans: 'set' },
-    relation: { role: 'any', mode: 'any', vlans: 'any' }, apply: { role: false, mode: true, vlans: 'copy' }, ...overrides,
+    id: 'r-1',
+    code: 'empty_trunk_takes_neighbor_vlans',
+    builtin: true,
+    modified: false,
+    name: 'Пустой trunk получает VLAN соседа',
+    description: 'Описание',
+    enabled: true,
+    priority: 10,
+    action: 'auto',
+    target: { role: 'any', mode: 'trunk', vlans: 'none' },
+    source: { role: 'any', mode: 'trunk', vlans: 'set' },
+    relation: { role: 'any', mode: 'any', vlans: 'any' },
+    apply: { role: false, mode: true, vlans: 'copy' },
+    ...overrides,
   }
 }
 
-interface Call { url: string; method: string; body: any }
+interface Call {
+  url: string
+  method: string
+  body: any
+}
 let calls: Call[]
 
 function stubApi(respond: (call: Call) => Response | undefined = () => undefined) {
@@ -79,7 +93,9 @@ describe('PortSyncRuleFormModal.vue — создание', () => {
     expect(calls[0].method).toBe('POST')
     expect(calls[0].url).toMatch(/\/port-sync\/rules$/)
     expect(calls[0].body).toMatchObject({
-      name: 'Мой пустой trunk', action: 'auto', enabled: true,
+      name: 'Мой пустой trunk',
+      action: 'auto',
+      enabled: true,
       target: { role: 'any', mode: 'trunk', vlans: 'none' },
       source: { role: 'any', mode: 'trunk', vlans: 'set' },
       relation: { role: 'any', mode: 'any', vlans: 'any' },

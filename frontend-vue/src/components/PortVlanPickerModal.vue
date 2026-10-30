@@ -60,14 +60,21 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
         <input v-model="search" type="text" placeholder="Поиск по номеру, имени, домену…" aria-label="Поиск VLAN" />
       </div>
       <div class="picker-summary">Выбрано VLAN: {{ selectedCount }} из {{ options.length }}</div>
-      <p v-if="allVlans && !readonly" class="picker-note">Включён признак «Все VLAN»: порт несёт и VLAN, добавленные устройству позже. Снятие любого VLAN уберёт признак.</p>
+      <p v-if="allVlans && !readonly" class="picker-note">
+        Включён признак «Все VLAN»: порт несёт и VLAN, добавленные устройству позже. Снятие любого VLAN уберёт признак.
+      </p>
       <div class="vlan-checks vlan-picker-list">
         <label class="vlan-check vlan-check-all">
           <input type="checkbox" :checked="allVlans" :disabled="readonly" @change="emit('toggle-all', ($event.target as HTMLInputElement).checked)" />
           <b>Все VLAN</b>
         </label>
         <label v-for="v in filtered" :key="v.id" class="vlan-check">
-          <input type="checkbox" :checked="selected.has(v.id)" :disabled="readonly" @change="emit('toggle-vlan', v.id, ($event.target as HTMLInputElement).checked)" />
+          <input
+            type="checkbox"
+            :checked="selected.has(v.id)"
+            :disabled="readonly"
+            @change="emit('toggle-vlan', v.id, ($event.target as HTMLInputElement).checked)"
+          />
           {{ vlanLabel(v) }}
         </label>
         <span v-if="!filtered.length" class="picker-empty">Ничего не найдено</span>

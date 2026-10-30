@@ -39,7 +39,16 @@ function gridConfig(): GridConfig {
 }
 
 function templateFixture(overrides: Partial<ReportTemplate> = {}): ReportTemplate {
-  return { id: 't-1', name: 'Реестр устройств', description: 'описание', format: 'xlsx', config: gridConfig() as unknown as Record<string, unknown>, created_at: null, updated_at: null, ...overrides }
+  return {
+    id: 't-1',
+    name: 'Реестр устройств',
+    description: 'описание',
+    format: 'xlsx',
+    config: gridConfig() as unknown as Record<string, unknown>,
+    created_at: null,
+    updated_at: null,
+    ...overrides,
+  }
 }
 
 function stubFetch(template: ReportTemplate = templateFixture()) {
@@ -51,7 +60,10 @@ function stubFetch(template: ReportTemplate = templateFixture()) {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
   pushMock.mockClear()
 })
 
@@ -85,7 +97,10 @@ describe('ReportGridEditorView.vue — загрузка', () => {
   })
 
   it('ошибка загрузки показывается вместо сетки', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Шаблон не найден' }, 404)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Шаблон не найден' }, 404)),
+    )
     const wrapper = mount(ReportGridEditorView)
     await flushPromises()
 
@@ -137,7 +152,16 @@ describe('ReportGridEditorView.vue — колонки и строки', () => {
   })
 
   it('нельзя удалить единственную оставшуюся колонку', async () => {
-    vi.stubGlobal('fetch', stubFetch(templateFixture({ config: { sheets: [{ title: 'Лист 1', columns: [{ width: 20 }], rows: [{ height: 20, repeat: false, data_source: null, cells: [] }] }] } as unknown as Record<string, unknown> })))
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        templateFixture({
+          config: {
+            sheets: [{ title: 'Лист 1', columns: [{ width: 20 }], rows: [{ height: 20, repeat: false, data_source: null, cells: [] }] }],
+          } as unknown as Record<string, unknown>,
+        }),
+      ),
+    )
     const wrapper = mount(ReportGridEditorView)
     await flushPromises()
 
@@ -156,7 +180,11 @@ describe('ReportGridEditorView.vue — колонки и строки', () => {
   })
 
   it('нельзя удалить единственную оставшуюся строку', async () => {
-    const single = templateFixture({ config: { sheets: [{ title: 'Лист 1', columns: [{ width: 20 }], rows: [{ height: 20, repeat: false, data_source: null, cells: [] }] }] } as unknown as Record<string, unknown> })
+    const single = templateFixture({
+      config: {
+        sheets: [{ title: 'Лист 1', columns: [{ width: 20 }], rows: [{ height: 20, repeat: false, data_source: null, cells: [] }] }],
+      } as unknown as Record<string, unknown>,
+    })
     vi.stubGlobal('fetch', stubFetch(single))
     const wrapper = mount(ReportGridEditorView)
     await flushPromises()
@@ -275,7 +303,13 @@ describe('ReportGridEditorView.vue — предпросмотр', () => {
         if (url.includes('/report-builder/preview')) {
           calls.push({ url, body: init?.body ? JSON.parse(init.body as string) : undefined })
           return jsonResponse({
-            sections: [{ title: 'Лист 1', n_cols: 1, rows: [{ height: 20, cells: [{ col: 0, colspan: 1, rowspan: 1, value: 'Заголовок', is_datetime: false, style: {} }] }] }],
+            sections: [
+              {
+                title: 'Лист 1',
+                n_cols: 1,
+                rows: [{ height: 20, cells: [{ col: 0, colspan: 1, rowspan: 1, value: 'Заголовок', is_datetime: false, style: {} }] }],
+              },
+            ],
           })
         }
         return stubFetch()(url)
@@ -366,7 +400,10 @@ describe('ReportGridEditorView.vue — сохранение', () => {
     const wrapper = mount(ReportGridEditorView)
     await flushPromises()
 
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'В шаблоне не задано ни одного листа' }, 422)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'В шаблоне не задано ни одного листа' }, 422)),
+    )
     await wrapper.find('.top-bar button.btn-primary').trigger('click')
     await flushPromises()
 

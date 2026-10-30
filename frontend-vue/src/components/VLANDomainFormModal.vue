@@ -113,7 +113,9 @@ async function submit() {
   const sourceChanged = isEdit.value && form.source_device_id !== (props.domain!.source_device_id ?? '') && form.source_device_id !== ''
   if (sourceChanged) {
     const newSourceLabel = deviceLabel(devicesStore.all.find((d) => d.id === form.source_device_id)!)
-    if (!confirm(`При смене устройства-источника на «${newSourceLabel}» все VLAN на устройствах домена будут перезаписаны на VLAN этого устройства. Продолжить?`)) {
+    if (
+      !confirm(`При смене устройства-источника на «${newSourceLabel}» все VLAN на устройствах домена будут перезаписаны на VLAN этого устройства. Продолжить?`)
+    ) {
       return
     }
   }
@@ -158,60 +160,60 @@ async function submit() {
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field field-wide">
-          <span>Наименование *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="255" />
-        </label>
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field field-wide">
+            <span>Наименование *</span>
+            <input v-model.trim="form.name" type="text" required maxlength="255" />
+          </label>
 
-        <label class="field">
-          <span>Устройство-источник</span>
-          <select v-model="form.source_device_id">
-            <option value="">— не задано (без синхронизации) —</option>
-            <option v-for="d in devicesStore.all" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-          </select>
-          <span v-if="isEdit" class="hint">Смена устройства-источника перезапишет VLAN на устройствах домена.</span>
-        </label>
+          <label class="field">
+            <span>Устройство-источник</span>
+            <select v-model="form.source_device_id">
+              <option value="">— не задано (без синхронизации) —</option>
+              <option v-for="d in devicesStore.all" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+            </select>
+            <span v-if="isEdit" class="hint">Смена устройства-источника перезапишет VLAN на устройствах домена.</span>
+          </label>
 
-        <label class="field checkbox-field">
-          <input v-model="form.auto_sync" type="checkbox" />
-          <span>Автосинхронизация</span>
-        </label>
+          <label class="field checkbox-field">
+            <input v-model="form.auto_sync" type="checkbox" />
+            <span>Автосинхронизация</span>
+          </label>
 
-        <label class="field field-wide">
-          <span>Описание</span>
-          <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
-        </label>
+          <label class="field field-wide">
+            <span>Описание</span>
+            <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
+          </label>
 
-        <div v-if="isEdit" class="nested-editor field-wide">
-          <div class="nested-head">
-            <b>Устройства домена</b>
-            <span class="hint">Все устройства домена получают набор VLAN устройства-источника при синхронизации.</span>
+          <div v-if="isEdit" class="nested-editor field-wide">
+            <div class="nested-head">
+              <b>Устройства домена</b>
+              <span class="hint">Все устройства домена получают набор VLAN устройства-источника при синхронизации.</span>
+            </div>
+
+            <p v-if="loadingMembers" class="loading-hint">Загрузка состава домена…</p>
+            <template v-else>
+              <div v-if="!members.length" class="empty">Устройства не добавлены</div>
+              <div v-for="m in members" :key="m.id" class="member-row">
+                <span>{{ memberDeviceLabel(m.physical_device_id) }}</span>
+                <button type="button" class="icon-btn danger" :disabled="memberBusyId === m.id" aria-label="Убрать из домена" @click="removeMember(m)">
+                  <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                </button>
+              </div>
+              <div class="add-member-row">
+                <select v-model="addMemberDeviceId">
+                  <option value="">— выберите устройство —</option>
+                  <option v-for="d in availableToAdd" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+                </select>
+                <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId" @click="addMember">
+                  <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+                  Добавить
+                </button>
+              </div>
+            </template>
           </div>
-
-          <p v-if="loadingMembers" class="loading-hint">Загрузка состава домена…</p>
-          <template v-else>
-            <div v-if="!members.length" class="empty">Устройства не добавлены</div>
-            <div v-for="m in members" :key="m.id" class="member-row">
-              <span>{{ memberDeviceLabel(m.physical_device_id) }}</span>
-              <button type="button" class="icon-btn danger" :disabled="memberBusyId === m.id" aria-label="Убрать из домена" @click="removeMember(m)">
-                <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-              </button>
-            </div>
-            <div class="add-member-row">
-              <select v-model="addMemberDeviceId">
-                <option value="">— выберите устройство —</option>
-                <option v-for="d in availableToAdd" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-              </select>
-              <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId" @click="addMember">
-                <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-                Добавить
-              </button>
-            </div>
-          </template>
-        </div>
-        <p v-else class="loading-hint field-wide">Состав домена можно настроить после первого сохранения.</p>
-      </form>
+          <p v-else class="loading-hint field-wide">Состав домена можно настроить после первого сохранения.</p>
+        </form>
       </fieldset>
 
       <div class="modal-foot">

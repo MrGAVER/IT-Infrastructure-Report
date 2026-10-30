@@ -174,12 +174,7 @@ describe('SearchableSelect.vue (п.4)', () => {
 
     const groupLabels = wrapper.findAll('.ss-group-label').map((g) => g.text())
     expect(groupLabels).toEqual(['Dell', 'HP']) // "голый" тип без group не создаёт заголовок
-    expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual([
-      'Сервер (тип, без модели)',
-      'PowerEdge R740',
-      'PowerEdge R750',
-      'ProLiant DL380',
-    ])
+    expect(wrapper.findAll('.ss-option').map((o) => o.text())).toEqual(['Сервер (тип, без модели)', 'PowerEdge R740', 'PowerEdge R750', 'ProLiant DL380'])
   })
 
   it('клавиатурная навигация проходит по единому плоскому индексу через границы групп', async () => {
@@ -280,7 +275,15 @@ describe('SearchableSelect.vue — режим floating (панель вне пр
   function mockFieldRect(rect: typeof fieldRect) {
     fieldRect = rect
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
-      () => ({ ...fieldRect, right: fieldRect.left + fieldRect.width, height: fieldRect.bottom - fieldRect.top, x: fieldRect.left, y: fieldRect.top, toJSON: () => ({}) }) as DOMRect,
+      () =>
+        ({
+          ...fieldRect,
+          right: fieldRect.left + fieldRect.width,
+          height: fieldRect.bottom - fieldRect.top,
+          x: fieldRect.left,
+          y: fieldRect.top,
+          toJSON: () => ({}),
+        }) as DOMRect,
     )
   }
   function mountFloating(modelValue = '') {
@@ -333,7 +336,9 @@ describe('SearchableSelect.vue — режим floating (панель вне пр
     const wrapper = mountFloating()
     await wrapper.find('input').trigger('focus')
 
-    panel()!.querySelectorAll('.ss-option')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    panel()!
+      .querySelectorAll('.ss-option')[1]
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
     await wrapper.vm.$nextTick()
 
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['spb'])

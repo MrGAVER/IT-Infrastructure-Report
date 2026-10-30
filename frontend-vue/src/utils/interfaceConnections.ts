@@ -69,7 +69,14 @@ export function attachConnectionDrafts(rows: InterfaceDraftRow[], connections: r
     if (!c) return { ...row, connection: null }
     return {
       ...row,
-      connection: { peer_device_id: c.peer_device_id, peer_device_name: c.peer_device_name, peer_interface_id: c.peer_interface_id, peer_interface_name: c.peer_interface_name, connection_type_id: c.connection_type_id, description: c.description ?? '' },
+      connection: {
+        peer_device_id: c.peer_device_id,
+        peer_device_name: c.peer_device_name,
+        peer_interface_id: c.peer_interface_id,
+        peer_interface_name: c.peer_interface_name,
+        connection_type_id: c.connection_type_id,
+        description: c.description ?? '',
+      },
     }
   })
 }
@@ -109,7 +116,11 @@ export type ConnectionPayload = { connection_type_id: string; description: strin
  * @example
  * connectionPayload({ id: 'if-1', connection: null, ... }, baseline) // null, если раньше было подключение
  */
-export function connectionPayload(row: Pick<InterfaceDraftRow, 'id' | 'connection'>, baseline: ConnectionBaseline, rows: readonly Pick<InterfaceDraftRow, 'key'>[] = []): ConnectionPayload | null | undefined {
+export function connectionPayload(
+  row: Pick<InterfaceDraftRow, 'id' | 'connection'>,
+  baseline: ConnectionBaseline,
+  rows: readonly Pick<InterfaceDraftRow, 'key'>[] = [],
+): ConnectionPayload | null | undefined {
   if (!isConnectionChanged(row, baseline)) return undefined
   const current = row.connection
   if (!current) return null
@@ -160,7 +171,8 @@ export function validateConnectionDrafts(rows: readonly InterfaceDraftRow[], bas
     const ref = peerRef(draft)
     if (changed) {
       if (!ref) return `Для порта «${label}» выберите устройство и порт, к которому он подключён, либо нажмите «Отключить».`
-      if (draft.peer_row_key && !byRef.has(ref)) return `Порт, выбранный соседом для порта «${label}», удалён из списка портов — выберите другой порт либо нажмите «Отключить».`
+      if (draft.peer_row_key && !byRef.has(ref))
+        return `Порт, выбранный соседом для порта «${label}», удалён из списка портов — выберите другой порт либо нажмите «Отключить».`
       if (!draft.connection_type_id) return `Для подключения порта «${label}» выберите тип физической линии связи.`
       if (connectionPointsTo(draft, row)) return `Порт «${label}» нельзя подключить к самому себе.`
       // Сосед из этой же формы не должен быть подключён в другое место: порт участвует только в одном подключении.

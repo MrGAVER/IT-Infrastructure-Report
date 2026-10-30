@@ -19,11 +19,7 @@ describe('coverageForRows', () => {
   })
 
   it('несколько объединений с разных строк складываются в одно покрытие', () => {
-    const rows = [
-      row([{ col: 0, rowspan: 3, kind: 'static', text: 'a' }]),
-      row([{ col: 2, rowspan: 2, kind: 'static', text: 'b' }]),
-      row([]),
-    ]
+    const rows = [row([{ col: 0, rowspan: 3, kind: 'static', text: 'a' }]), row([{ col: 2, rowspan: 2, kind: 'static', text: 'b' }]), row([])]
     expect(coverageForRows(rows, 2)).toEqual(new Set([0, 2]))
   })
 
@@ -58,7 +54,12 @@ describe('visibleCellsForRow', () => {
   })
 
   it('colspan в той же строке пропускает поглощённые колонки', () => {
-    const rows = [row([{ col: 0, colspan: 2, kind: 'static', text: 'wide' }, { col: 2, kind: 'static', text: 'c' }])]
+    const rows = [
+      row([
+        { col: 0, colspan: 2, kind: 'static', text: 'wide' },
+        { col: 2, kind: 'static', text: 'c' },
+      ]),
+    ]
     const result = visibleCellsForRow(rows, 0, 3)
     expect(result.map((r) => r.col)).toEqual([0, 2]) // колонка 1 поглощена colspan=2
   })

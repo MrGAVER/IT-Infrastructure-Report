@@ -5,7 +5,17 @@
 // событиями; что с ними делать, решают композиблы редактора (DeviceInterfacesEditor.vue). Корень — фрагмент из двух <tr>, поэтому
 // стили строки живут здесь, а не в родителе: scope-атрибут родителя на её элементы не переходит.
 import { computed } from 'vue'
-import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, InterfaceIpDraftRow, OpenPortDraftRow, PortConflictInfo, ProtocolPortCatalogEntry, VLANDefinition, VlanMode } from '../api/types'
+import type {
+  CatalogItem,
+  InterfaceDraftRow,
+  InterfaceGroupDraft,
+  InterfaceIpDraftRow,
+  OpenPortDraftRow,
+  PortConflictInfo,
+  ProtocolPortCatalogEntry,
+  VLANDefinition,
+  VlanMode,
+} from '../api/types'
 import { useGroupLocks } from '../composables/useGroupLocks'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { isAllVlansSelected } from '../utils/allVlans'
@@ -103,12 +113,25 @@ const update = (patch: Partial<InterfaceDraftRow>) => emit('update', patch)
       <button type="button" class="icon-btn order-btn" :disabled="index === 0" title="Выше" aria-label="Переместить интерфейс выше" @click="emit('move', -1)">
         <svg class="icon"><use href="/icons.svg#i-chevu" /></svg>
       </button>
-      <button type="button" class="icon-btn order-btn" :disabled="index === rows.length - 1" title="Ниже" aria-label="Переместить интерфейс ниже" @click="emit('move', 1)">
+      <button
+        type="button"
+        class="icon-btn order-btn"
+        :disabled="index === rows.length - 1"
+        title="Ниже"
+        aria-label="Переместить интерфейс ниже"
+        @click="emit('move', 1)"
+      >
         <svg class="icon"><use href="/icons.svg#i-chevd" /></svg>
       </button>
     </td>
     <td>
-      <input type="text" class="cell-input" v-truncate-tooltip="row.name" :value="row.name" @input="emit('rename', ($event.target as HTMLInputElement).value)" />
+      <input
+        type="text"
+        class="cell-input"
+        v-truncate-tooltip="row.name"
+        :value="row.name"
+        @input="emit('rename', ($event.target as HTMLInputElement).value)"
+      />
     </td>
     <td>
       <select class="cell-input" :value="row.interface_type_id" @change="update({ interface_type_id: ($event.target as HTMLSelectElement).value })">
@@ -117,7 +140,13 @@ const update = (patch: Partial<InterfaceDraftRow>) => emit('update', patch)
       </select>
     </td>
     <td>
-      <input type="text" class="cell-input" v-truncate-tooltip="row.mac_address" :value="row.mac_address" @input="update({ mac_address: ($event.target as HTMLInputElement).value })" />
+      <input
+        type="text"
+        class="cell-input"
+        v-truncate-tooltip="row.mac_address"
+        :value="row.mac_address"
+        @input="update({ mac_address: ($event.target as HTMLInputElement).value })"
+      />
     </td>
     <td>
       <select class="cell-input" :value="row.speed_id" @change="update({ speed_id: ($event.target as HTMLSelectElement).value })">
@@ -143,11 +172,37 @@ const update = (patch: Partial<InterfaceDraftRow>) => emit('update', patch)
     </td>
     <td>
       <button type="button" class="expand-toggle" @click="emit('toggle-expand')">
-        <svg v-if="duplicatePorts.length" class="icon conflict-icon ports-dup-icon" :aria-label="duplicatePortsText(duplicatePorts)" :title="duplicatePortsText(duplicatePorts)"><use href="/icons.svg#i-alert" /></svg>
-        <svg v-if="conflict?.vlanModeDiffer" class="icon conflict-icon" aria-label="Расхождение режима порта с подключённым портом" :title="conflictSummary(conflict, 'vlan_mode')"><use href="/icons.svg#i-alert" /></svg>
-        <svg v-if="conflict?.allVlansDiffer" class="icon conflict-icon" aria-label="Расхождение «Все VLAN» с подключённым портом" :title="conflictSummary(conflict, 'all_vlans')"><use href="/icons.svg#i-alert" /></svg>
+        <svg
+          v-if="duplicatePorts.length"
+          class="icon conflict-icon ports-dup-icon"
+          :aria-label="duplicatePortsText(duplicatePorts)"
+          :title="duplicatePortsText(duplicatePorts)"
+        >
+          <use href="/icons.svg#i-alert" />
+        </svg>
+        <svg
+          v-if="conflict?.vlanModeDiffer"
+          class="icon conflict-icon"
+          aria-label="Расхождение режима порта с подключённым портом"
+          :title="conflictSummary(conflict, 'vlan_mode')"
+        >
+          <use href="/icons.svg#i-alert" />
+        </svg>
+        <svg
+          v-if="conflict?.allVlansDiffer"
+          class="icon conflict-icon"
+          aria-label="Расхождение «Все VLAN» с подключённым портом"
+          :title="conflictSummary(conflict, 'all_vlans')"
+        >
+          <use href="/icons.svg#i-alert" />
+        </svg>
         <svg v-if="staleText" class="icon conflict-icon stale-sub-icon" :aria-label="staleText" :title="staleText"><use href="/icons.svg#i-alert" /></svg>
-        <span v-truncate-tooltip>{{ vlanCellSummary(row, vlanOptions) }} · {{ row.ips.length }} IP<template v-if="row.subinterfaces?.length"> · {{ row.subinterfaces.length }} подинт.</template><template v-if="row.connection"> · {{ connectionSummary(row, rows, deviceId) }}</template><template v-if="group"> · Группа «{{ group.name }}»</template></span>
+        <span v-truncate-tooltip
+          >{{ vlanCellSummary(row, vlanOptions) }} · {{ row.ips.length }} IP<template v-if="row.subinterfaces?.length">
+            · {{ row.subinterfaces.length }} подинт.</template
+          ><template v-if="row.connection"> · {{ connectionSummary(row, rows, deviceId) }}</template
+          ><template v-if="group"> · Группа «{{ group.name }}»</template></span
+        >
         <svg class="icon chev" :class="{ open: expanded }"><use href="/icons.svg#i-chevd" /></svg>
       </button>
     </td>
@@ -180,7 +235,12 @@ const update = (patch: Partial<InterfaceDraftRow>) => emit('update', patch)
           @open-conflict="(kind) => emit('open-conflict', kind)"
         />
 
-        <InterfaceIpBlock :ips="row.ips" :managed="managed.ip" :lock-note="lockNote(managed.ip, 'IP-адрес и его назначение')" @update:ips="(ips: InterfaceIpDraftRow[]) => update({ ips })" />
+        <InterfaceIpBlock
+          :ips="row.ips"
+          :managed="managed.ip"
+          :lock-note="lockNote(managed.ip, 'IP-адрес и его назначение')"
+          @update:ips="(ips: InterfaceIpDraftRow[]) => update({ ips })"
+        />
 
         <!-- Подинтерфейсы порта (как у маршрутизаторов и межсетевых экранов: порт + подинтерфейс на
              номере VLAN с отдельным IP и параметрами). VLAN подинтерфейса — один из VLAN, выбранных на

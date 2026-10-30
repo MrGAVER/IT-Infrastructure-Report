@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { conflictSummary, conflictTitle, connectionSummary, duplicatePortsText, staleSubinterfaceText, trunkVlanSummary, trunkVlanTitle, vlanCellSummary } from '../interfaceRowView'
+import {
+  conflictSummary,
+  conflictTitle,
+  connectionSummary,
+  duplicatePortsText,
+  staleSubinterfaceText,
+  trunkVlanSummary,
+  trunkVlanTitle,
+  vlanCellSummary,
+} from '../interfaceRowView'
 import { makeConflict, makeRow, makeVlan } from './interfaceRowFixture'
 
 const vlans = [makeVlan('v10', 10, 'Гостевой', 'Филиал'), makeVlan('v20', 20, 'Серверы')]
@@ -78,7 +87,14 @@ describe('duplicatePortsText', () => {
 })
 
 describe('connectionSummary', () => {
-  const peer = { peer_device_id: 'dev-2', peer_interface_id: 'if-9', connection_type_id: '', description: '', peer_device_name: 'sw-02', peer_interface_name: 'Gi0/9' }
+  const peer = {
+    peer_device_id: 'dev-2',
+    peer_interface_id: 'if-9',
+    connection_type_id: '',
+    description: '',
+    peer_device_name: 'sw-02',
+    peer_interface_name: 'Gi0/9',
+  }
 
   it('без подключения — пустая строка', () => {
     expect(connectionSummary(makeRow(), [], 'dev-1')).toBe('')

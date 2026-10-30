@@ -125,9 +125,15 @@ async function removeRack(r: Rack) {
           </div>
           <span class="count-badge">{{ roomsOf(b.id).length }} помещ.</span>
           <div class="row-actions">
-            <button v-if="auth.canWrite" type="button" aria-label="Добавить помещение" @click="openCreateRoom(b.id)"><svg class="icon"><use href="/icons.svg#i-plus" /></svg></button>
-            <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditBuilding(b)"><svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg></button>
-            <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeBuilding(b)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
+            <button v-if="auth.canWrite" type="button" aria-label="Добавить помещение" @click="openCreateRoom(b.id)">
+              <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+            </button>
+            <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditBuilding(b)">
+              <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
+            </button>
+            <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeBuilding(b)">
+              <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+            </button>
           </div>
         </div>
 
@@ -141,9 +147,15 @@ async function removeRack(r: Rack) {
               <span class="row-name">{{ r.name }}</span>
               <span class="count-badge">{{ racksOf(r.id).length }} стоек</span>
               <div class="row-actions">
-                <button v-if="auth.canWrite" type="button" aria-label="Добавить стойку" @click="openCreateRack(r.id)"><svg class="icon"><use href="/icons.svg#i-plus" /></svg></button>
-                <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditRoom(r)"><svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg></button>
-                <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeRoom(r)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
+                <button v-if="auth.canWrite" type="button" aria-label="Добавить стойку" @click="openCreateRack(r.id)">
+                  <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+                </button>
+                <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditRoom(r)">
+                  <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
+                </button>
+                <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeRoom(r)">
+                  <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                </button>
               </div>
             </div>
 
@@ -153,8 +165,12 @@ async function removeRack(r: Rack) {
                 <span class="row-name">{{ rack.name }}</span>
                 <span v-if="rack.height_u" class="mono rack-height">{{ rack.height_u }}U</span>
                 <div class="row-actions">
-                  <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditRack(rack)"><svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg></button>
-                  <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeRack(rack)"><svg class="icon"><use href="/icons.svg#i-trash" /></svg></button>
+                  <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEditRack(rack)">
+                    <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
+                  </button>
+                  <button v-if="auth.canWrite" type="button" aria-label="Удалить" @click="removeRack(rack)">
+                    <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -163,9 +179,26 @@ async function removeRack(r: Rack) {
       </div>
     </div>
 
-    <BuildingFormModal v-if="buildingModal.open" :building="buildingModal.item" @close="buildingModal.open = false" @saved="afterSave(buildingModal.item ? 'Здание обновлено' : 'Здание добавлено')" />
-    <RoomFormModal v-if="roomModal.open" :room="roomModal.item" :building-id="roomModal.buildingId" @close="roomModal.open = false" @saved="afterSave(roomModal.item ? 'Помещение обновлено' : 'Помещение добавлено')" />
-    <RackFormModal v-if="rackModal.open" :rack="rackModal.item" :room-id="rackModal.roomId" @close="rackModal.open = false" @saved="afterSave(rackModal.item ? 'Стойка обновлена' : 'Стойка добавлена')" />
+    <BuildingFormModal
+      v-if="buildingModal.open"
+      :building="buildingModal.item"
+      @close="buildingModal.open = false"
+      @saved="afterSave(buildingModal.item ? 'Здание обновлено' : 'Здание добавлено')"
+    />
+    <RoomFormModal
+      v-if="roomModal.open"
+      :room="roomModal.item"
+      :building-id="roomModal.buildingId"
+      @close="roomModal.open = false"
+      @saved="afterSave(roomModal.item ? 'Помещение обновлено' : 'Помещение добавлено')"
+    />
+    <RackFormModal
+      v-if="rackModal.open"
+      :rack="rackModal.item"
+      :room-id="rackModal.roomId"
+      @close="rackModal.open = false"
+      @saved="afterSave(rackModal.item ? 'Стойка обновлена' : 'Стойка добавлена')"
+    />
   </div>
 </template>
 

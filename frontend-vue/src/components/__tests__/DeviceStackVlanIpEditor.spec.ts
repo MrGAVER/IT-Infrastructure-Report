@@ -41,7 +41,15 @@ function state(items: StackVlanRow[], available: StackVlanOption[] = [], memberC
   return { stack_name: 'Кластер МЭ', member_count: memberCount, items, available }
 }
 
-const OPTION_20: StackVlanOption = { vlan_id: 'v-20', vlan_number: 20, vlan_name: 'users', ip_address: '10.0.20.1', prefix_length: 24, is_management: true, assigned_count: 1 }
+const OPTION_20: StackVlanOption = {
+  vlan_id: 'v-20',
+  vlan_number: 20,
+  vlan_name: 'users',
+  ip_address: '10.0.20.1',
+  prefix_length: 24,
+  is_management: true,
+  assigned_count: 1,
+}
 
 interface Call {
   url: string
@@ -188,7 +196,9 @@ describe('DeviceStackVlanIpEditor.vue', () => {
   })
 
   it('показывает ошибку сервера в строке (например, устройство вне домена VLAN) и не теряет введённое', async () => {
-    mockApi(state([DIVERGED]), (call) => (call.method === 'PUT' ? jsonResponse({ detail: 'VLAN 10 «mgmt» принадлежит домену, в который не входят устройства стека: fw-2' }, 422) : undefined))
+    mockApi(state([DIVERGED]), (call) =>
+      call.method === 'PUT' ? jsonResponse({ detail: 'VLAN 10 «mgmt» принадлежит домену, в который не входят устройства стека: fw-2' }, 422) : undefined,
+    )
     const wrapper = mountEditor()
     await flushPromises()
 
@@ -293,7 +303,11 @@ describe('DeviceStackVlanIpEditor.vue', () => {
     })
 
     it('отказ сервера (VLAN используется на портах) показывается в диалоге, настройка остаётся', async () => {
-      mockApi(state([sharedRow()]), (call) => (call.method === 'DELETE' ? jsonResponse({ detail: 'VLAN 10 «mgmt» нельзя убрать с устройств стека: он используется на портах (fw-1 (2))' }, 409) : undefined))
+      mockApi(state([sharedRow()]), (call) =>
+        call.method === 'DELETE'
+          ? jsonResponse({ detail: 'VLAN 10 «mgmt» нельзя убрать с устройств стека: он используется на портах (fw-1 (2))' }, 409)
+          : undefined,
+      )
       const wrapper = mountEditor()
       await flushPromises()
       await wrapper.get('[data-testid="stack-vlan-remove"]').trigger('click')

@@ -102,7 +102,12 @@ export function useAllVlansSettle(deps: AllVlansSettleDeps) {
     const peerRow = deps.rows().find((r) => r.id === conflict.otherInterfaceId)
     if (peerRow) return { kind: 'row', ref: rowRef(peerRow), label: `«${conflict.otherInterfaceName}» (это устройство)` }
     const label = `«${conflict.otherInterfaceName}» (${conflict.otherDeviceName})`
-    return { kind: 'port', interfaceId: conflict.otherInterfaceId, label, ...(fresh ? {} : { known: { vlan_mode: conflict.other.vlan_mode, all_vlans: conflict.other.all_vlans } }) }
+    return {
+      kind: 'port',
+      interfaceId: conflict.otherInterfaceId,
+      label,
+      ...(fresh ? {} : { known: { vlan_mode: conflict.other.vlan_mode, all_vlans: conflict.other.all_vlans } }),
+    }
   }
 
   /** Режим и «Все VLAN» порта без запроса к серверу — когда они известны сразу (строка формы, порт-источник с известным состоянием). */

@@ -8,20 +8,31 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 const viewerUser = {
-  id: 'u2', username: 'viewer1', role: 'viewer', is_active: true,
-  last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00',
+  id: 'u2',
+  username: 'viewer1',
+  role: 'viewer',
+  is_active: true,
+  last_login_at: null,
+  locked: false,
+  created_at: '2026-01-01T00:00:00',
 }
 
 beforeEach(() => {
   setActivePinia(createPinia())
   localStorage.clear()
   sessionStorage.clear()
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
 })
 
 describe('AuthSettingsPanel.vue', () => {
   it('пока аутентификация выключена, показывает список пользователей и форму создания', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([])))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse([])),
+    )
     const wrapper = mount(AuthSettingsPanel)
     await flushPromises()
 
@@ -30,7 +41,10 @@ describe('AuthSettingsPanel.vue', () => {
   })
 
   it('не даёт включить аутентификацию, если ни одного активного администратора ещё нет', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([viewerUser])))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse([viewerUser])),
+    )
     const wrapper = mount(AuthSettingsPanel)
     await flushPromises()
 
@@ -109,7 +123,10 @@ describe('AuthSettingsPanel.vue', () => {
   })
 
   it('не показывает поле токена, если список пользователей загрузился', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([viewerUser])))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse([viewerUser])),
+    )
     const wrapper = mount(AuthSettingsPanel)
     await flushPromises()
     expect(wrapper.find('.setup-token-row').exists()).toBe(false)

@@ -7,10 +7,28 @@ import { usePreSaveReview } from '../usePreSaveReview'
 import { useToast } from '../useToast'
 
 const fetchAllFreeInterfaces = vi.hoisted(() => vi.fn())
-vi.mock('../../api/deviceConnectivity', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api/deviceConnectivity')>()), fetchAllFreeInterfaces }))
+vi.mock('../../api/deviceConnectivity', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/deviceConnectivity')>()),
+  fetchAllFreeInterfaces,
+}))
 
-const link = { peer_device_id: 'dev-2', peer_interface_id: 'p1', connection_type_id: '', description: '', peer_device_name: 'sw-02', peer_interface_name: 'Gi0/9' }
-const freePort = (patch: Record<string, unknown> = {}) => ({ id: 'p1', name: 'Gi0/9', is_management: false, is_data_transfer: false, vlan_mode: 'access', all_vlans: false, ...patch })
+const link = {
+  peer_device_id: 'dev-2',
+  peer_interface_id: 'p1',
+  connection_type_id: '',
+  description: '',
+  peer_device_name: 'sw-02',
+  peer_interface_name: 'Gi0/9',
+}
+const freePort = (patch: Record<string, unknown> = {}) => ({
+  id: 'p1',
+  name: 'Gi0/9',
+  is_management: false,
+  is_data_transfer: false,
+  vlan_mode: 'access',
+  all_vlans: false,
+  ...patch,
+})
 
 function setup(rows: InterfaceDraftRow[], overrides: { editConnections?: boolean } = {}) {
   const current = ref(rows)

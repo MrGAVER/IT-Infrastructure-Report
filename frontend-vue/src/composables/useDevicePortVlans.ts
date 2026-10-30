@@ -24,11 +24,7 @@ export function useDevicePortVlans(draft: DeviceDraft, deps: DevicePortVlansDeps
   // одновременно добавить VLAN устройству и в этом же сохранении назначить его порту). См.
   // api/portVlans.ts.
   const portVlanOptions = computed(() =>
-    computePortVlanOptions(
-      vlansStore.allDefinitions,
-      draft.deviceTypeVlanIds.value,
-      new Set(draft.deviceVlans.value.map((r) => r.vlan_id).filter(Boolean)),
-    ),
+    computePortVlanOptions(vlansStore.allDefinitions, draft.deviceTypeVlanIds.value, new Set(draft.deviceVlans.value.map((r) => r.vlan_id).filter(Boolean))),
   )
 
   // Если VLAN устройства перестал быть опцией порта (пользователь снял его в блоке "VLAN

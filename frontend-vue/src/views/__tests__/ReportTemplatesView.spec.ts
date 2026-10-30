@@ -20,13 +20,19 @@ const templatesFixture: ReportTemplate[] = [
 beforeEach(() => {
   setActivePinia(createPinia())
   document.body.innerHTML = ''
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
   pushMock.mockClear()
 })
 
 describe('ReportTemplatesView.vue', () => {
   it('грузит и показывает список шаблонов с форматом и описанием', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(templatesFixture)),
+    )
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
 
@@ -37,14 +43,20 @@ describe('ReportTemplatesView.vue', () => {
   })
 
   it('пустой список — строка-заглушка вместо таблицы данных', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([])))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse([])),
+    )
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
     expect(wrapper.text()).toContain('Шаблоны не найдены')
   })
 
   it('"Новый шаблон" открывает форму создания (не редактирования)', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(templatesFixture)),
+    )
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
 
@@ -53,7 +65,10 @@ describe('ReportTemplatesView.vue', () => {
   })
 
   it('"Переименовать" открывает форму с уже загруженным шаблоном', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(templatesFixture)),
+    )
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
 
@@ -147,7 +162,10 @@ describe('ReportTemplatesView.vue', () => {
   })
 
   it('отказ от подтверждения удаления — DELETE не отправляется', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse(templatesFixture))
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(ReportTemplatesView)
@@ -160,7 +178,10 @@ describe('ReportTemplatesView.vue', () => {
   })
 
   it('поиск фильтрует список по названию/описанию через store.search', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(templatesFixture)),
+    )
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
 
@@ -174,7 +195,10 @@ describe('ReportTemplatesView.vue', () => {
   })
 
   it('"Открыть в конструкторе" для xlsx-шаблона переходит в редактор по id', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(templatesFixture)),
+    )
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
 
@@ -183,7 +207,10 @@ describe('ReportTemplatesView.vue', () => {
   })
 
   it('"Открыть в конструкторе" для docx-шаблона переходит в docx-редактор по id', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(templatesFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(templatesFixture)),
+    )
     const wrapper = mount(ReportTemplatesView)
     await flushPromises()
 

@@ -43,7 +43,8 @@ const interfacesEditor = ref<InstanceType<typeof DeviceInterfacesEditor> | null>
 const vlanEditor = ref<InstanceType<typeof DeviceVlanListEditor> | null>(null)
 
 const domains = useDeviceDomains(draft)
-const { availableVlans, singleDeviceDomainId, joinableDomains, memberDomains, onVlanCreated, onVlanDomainCreated, onJoinDomainRequested, onCancelJoinDomain } = domains
+const { availableVlans, singleDeviceDomainId, joinableDomains, memberDomains, onVlanCreated, onVlanDomainCreated, onJoinDomainRequested, onCancelJoinDomain } =
+  domains
 const { deviceStackId, lockedStackVlans, onStackVlanState, onStackVlanApplied, onStackVlanRemoved } = useDeviceStackVlans(draft, () => props.device)
 // Порядок вызова важен: подписки (watch) создаются в этом порядке — VLAN портов, затем загрузка источника (она же следит за
 // типом устройства); каскад полей формы создаёт DeviceMainFields при монтировании, то есть последним.
@@ -77,53 +78,53 @@ const { saving, submit } = useDeviceSave(draft, {
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <DeviceMainFields :model-value="form" />
+        <form class="form-grid" @submit.prevent="submit">
+          <DeviceMainFields :model-value="form" />
 
-        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
-        <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
-        <DeviceInterfacesEditor
-          v-if="!loadingNested"
-          ref="interfacesEditor"
-          v-model="interfaces"
-          v-model:groups="interfaceGroups"
-          :type-options="catalogs.items['interface-types'] ?? []"
-          :speed-options="catalogs.items['interface-speeds'] ?? []"
-          :vlan-options="portVlanOptions"
-          :vlan-catalog="vlansStore.allDefinitions"
-          :conflicts="interfaceConflicts"
-          :protocol-port-catalog="catalogs.protocolPortCatalog"
-          :device-id="props.device?.id ?? null"
-          :device-label="form.system_name || form.serial_number"
-          edit-connections
-          :connection-baseline="initialConnections"
-          @neighbors-changed="reloadNeighborConfigs"
-        />
-        <DeviceVlanListEditor
-          v-if="!loadingNested"
-          ref="vlanEditor"
-          v-model="deviceVlans"
-          :collapse-after="formPreferences.collapseRows"
-          :vlan-options="availableVlans"
-          :all-vlan-definitions="vlansStore.allDefinitions"
-          :device-domain-id="singleDeviceDomainId"
-          :joinable-domains="joinableDomains"
-          :member-domains="memberDomains"
-          :locked-vlans="lockedStackVlans"
-          @cancel-join-domain="onCancelJoinDomain"
-          @vlan-created="onVlanCreated"
-          @vlan-domain-created="onVlanDomainCreated"
-          @join-domain="onJoinDomainRequested"
-        />
-        <DeviceStackVlanIpEditor
-          v-if="deviceStackId && !loadingNested"
-          :stack-id="deviceStackId"
-          :reload-token="0"
-          @update:state="onStackVlanState"
-          @applied="onStackVlanApplied"
-          @removed="onStackVlanRemoved"
-        />
-      </form>
+          <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
+          <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
+          <DeviceInterfacesEditor
+            v-if="!loadingNested"
+            ref="interfacesEditor"
+            v-model="interfaces"
+            v-model:groups="interfaceGroups"
+            :type-options="catalogs.items['interface-types'] ?? []"
+            :speed-options="catalogs.items['interface-speeds'] ?? []"
+            :vlan-options="portVlanOptions"
+            :vlan-catalog="vlansStore.allDefinitions"
+            :conflicts="interfaceConflicts"
+            :protocol-port-catalog="catalogs.protocolPortCatalog"
+            :device-id="props.device?.id ?? null"
+            :device-label="form.system_name || form.serial_number"
+            edit-connections
+            :connection-baseline="initialConnections"
+            @neighbors-changed="reloadNeighborConfigs"
+          />
+          <DeviceVlanListEditor
+            v-if="!loadingNested"
+            ref="vlanEditor"
+            v-model="deviceVlans"
+            :collapse-after="formPreferences.collapseRows"
+            :vlan-options="availableVlans"
+            :all-vlan-definitions="vlansStore.allDefinitions"
+            :device-domain-id="singleDeviceDomainId"
+            :joinable-domains="joinableDomains"
+            :member-domains="memberDomains"
+            :locked-vlans="lockedStackVlans"
+            @cancel-join-domain="onCancelJoinDomain"
+            @vlan-created="onVlanCreated"
+            @vlan-domain-created="onVlanDomainCreated"
+            @join-domain="onJoinDomainRequested"
+          />
+          <DeviceStackVlanIpEditor
+            v-if="deviceStackId && !loadingNested"
+            :stack-id="deviceStackId"
+            :reload-token="0"
+            @update:state="onStackVlanState"
+            @applied="onStackVlanApplied"
+            @removed="onStackVlanRemoved"
+          />
+        </form>
       </fieldset>
 
       <div class="modal-foot">

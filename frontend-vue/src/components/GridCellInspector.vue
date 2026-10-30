@@ -59,7 +59,12 @@ const staticTextHint = 'Текст (можно использовать {{report
       <h3>Строка</h3>
       <label class="field">
         <span>Высота</span>
-        <input type="number" min="10" :value="row.height" @input="$emit('update-row', { height: Math.max(10, Number(($event.target as HTMLInputElement).value) || 20) })" />
+        <input
+          type="number"
+          min="10"
+          :value="row.height"
+          @input="$emit('update-row', { height: Math.max(10, Number(($event.target as HTMLInputElement).value) || 20) })"
+        />
       </label>
 
       <label class="checkbox-field">
@@ -143,11 +148,21 @@ const staticTextHint = 'Текст (можно использовать {{report
       <template v-if="cell.kind === 'field'">
         <label class="field">
           <span>Путь поля</span>
-          <input type="text" :value="cell.path ?? ''" placeholder="например, name или building.name" @input="$emit('update-cell', { path: ($event.target as HTMLInputElement).value })" />
+          <input
+            type="text"
+            :value="cell.path ?? ''"
+            placeholder="например, name или building.name"
+            @input="$emit('update-cell', { path: ($event.target as HTMLInputElement).value })"
+          />
         </label>
         <label v-if="fieldPaths.length" class="field">
           <span>Вставить поле</span>
-          <select @change="insertPath(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).selectedIndex = 0">
+          <select
+            @change="
+              insertPath(($event.target as HTMLSelectElement).value)
+              ;($event.target as HTMLSelectElement).selectedIndex = 0
+            "
+          >
             <option value="">— выбрать из списка —</option>
             <option v-for="p in fieldPaths" :key="p.path" :value="p.path">{{ p.label }}</option>
           </select>
@@ -168,15 +183,57 @@ const staticTextHint = 'Текст (можно использовать {{report
       <div class="style-block">
         <b>Стиль</b>
         <div class="style-checks">
-          <label><input type="checkbox" :checked="!!cell.style?.bold" @change="$emit('update-cell', { style: { ...cell.style, bold: ($event.target as HTMLInputElement).checked || undefined } })" /> Жирный</label>
-          <label><input type="checkbox" :checked="!!cell.style?.italic" @change="$emit('update-cell', { style: { ...cell.style, italic: ($event.target as HTMLInputElement).checked || undefined } })" /> Курсив</label>
-          <label><input type="checkbox" :checked="!!cell.style?.underline" @change="$emit('update-cell', { style: { ...cell.style, underline: ($event.target as HTMLInputElement).checked || undefined } })" /> Подчёркнутый</label>
-          <label><input type="checkbox" :checked="cell.style?.wrap !== false" @change="$emit('update-cell', { style: { ...cell.style, wrap: ($event.target as HTMLInputElement).checked ? undefined : false } })" /> Перенос текста</label>
-          <label><input type="checkbox" :checked="!!cell.style?.border" @change="$emit('update-cell', { style: { ...cell.style, border: ($event.target as HTMLInputElement).checked || undefined } })" /> Рамка</label>
+          <label
+            ><input
+              type="checkbox"
+              :checked="!!cell.style?.bold"
+              @change="$emit('update-cell', { style: { ...cell.style, bold: ($event.target as HTMLInputElement).checked || undefined } })"
+            />
+            Жирный</label
+          >
+          <label
+            ><input
+              type="checkbox"
+              :checked="!!cell.style?.italic"
+              @change="$emit('update-cell', { style: { ...cell.style, italic: ($event.target as HTMLInputElement).checked || undefined } })"
+            />
+            Курсив</label
+          >
+          <label
+            ><input
+              type="checkbox"
+              :checked="!!cell.style?.underline"
+              @change="$emit('update-cell', { style: { ...cell.style, underline: ($event.target as HTMLInputElement).checked || undefined } })"
+            />
+            Подчёркнутый</label
+          >
+          <label
+            ><input
+              type="checkbox"
+              :checked="cell.style?.wrap !== false"
+              @change="$emit('update-cell', { style: { ...cell.style, wrap: ($event.target as HTMLInputElement).checked ? undefined : false } })"
+            />
+            Перенос текста</label
+          >
+          <label
+            ><input
+              type="checkbox"
+              :checked="!!cell.style?.border"
+              @change="$emit('update-cell', { style: { ...cell.style, border: ($event.target as HTMLInputElement).checked || undefined } })"
+            />
+            Рамка</label
+          >
         </div>
         <label class="field">
           <span>Выравнивание по горизонтали</span>
-          <select :value="cell.style?.align ?? ''" @change="$emit('update-cell', { style: { ...cell.style, align: (($event.target as HTMLSelectElement).value || undefined) as 'left' | 'center' | 'right' | undefined } })">
+          <select
+            :value="cell.style?.align ?? ''"
+            @change="
+              $emit('update-cell', {
+                style: { ...cell.style, align: (($event.target as HTMLSelectElement).value || undefined) as 'left' | 'center' | 'right' | undefined },
+              })
+            "
+          >
             <option value="">По умолчанию</option>
             <option value="left">Слева</option>
             <option value="center">По центру</option>
@@ -185,11 +242,21 @@ const staticTextHint = 'Текст (можно использовать {{report
         </label>
         <label class="field">
           <span>Цвет фона (#RRGGBB)</span>
-          <input type="text" :value="cell.style?.bg ?? ''" placeholder="#EEF2FF" @input="$emit('update-cell', { style: { ...cell.style, bg: ($event.target as HTMLInputElement).value || undefined } })" />
+          <input
+            type="text"
+            :value="cell.style?.bg ?? ''"
+            placeholder="#EEF2FF"
+            @input="$emit('update-cell', { style: { ...cell.style, bg: ($event.target as HTMLInputElement).value || undefined } })"
+          />
         </label>
         <label class="field">
           <span>Формат числа/даты</span>
-          <input type="text" :value="cell.style?.number_format ?? ''" placeholder="0.00 или DD.MM.YYYY" @input="$emit('update-cell', { style: { ...cell.style, number_format: ($event.target as HTMLInputElement).value || undefined } })" />
+          <input
+            type="text"
+            :value="cell.style?.number_format ?? ''"
+            placeholder="0.00 или DD.MM.YYYY"
+            @input="$emit('update-cell', { style: { ...cell.style, number_format: ($event.target as HTMLInputElement).value || undefined } })"
+          />
         </label>
       </div>
 

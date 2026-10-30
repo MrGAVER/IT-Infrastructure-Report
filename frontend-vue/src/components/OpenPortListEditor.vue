@@ -76,7 +76,12 @@ const { duplicateIndexes, duplicateMessage, sortedForAdd } = useUniquePortRows(
 )
 
 // Сворачивание — общая логика с блоком «VLAN устройства» (composables/useCollapsibleRows.ts).
-const { exceedsLimit, collapsed: belowLimitCollapsed, toggle, expandForAdd } = useCollapsibleRows(
+const {
+  exceedsLimit,
+  collapsed: belowLimitCollapsed,
+  toggle,
+  expandForAdd,
+} = useCollapsibleRows(
   () => props.modelValue.length,
   () => props.collapseAfter,
 )
@@ -148,7 +153,9 @@ function onQuickAdded(index: number, record: CatalogItem) {
 
     <!-- Свёрнуто: вместо строк — сводка с номерами портов. -->
     <div v-else-if="collapsed" class="collapsed-summary" data-testid="ports-collapsed">
-      <span>Открытых портов: <b>{{ modelValue.length }}</b></span>
+      <span
+        >Открытых портов: <b>{{ modelValue.length }}</b></span
+      >
       <span v-if="collapsedSummary" class="summary-numbers" :title="collapsedSummary">{{ collapsedSummary }}</span>
       <span class="hint">Список свёрнут (порог — {{ collapseAfter }} строк, меняется в «Настройках»).</span>
     </div>

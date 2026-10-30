@@ -66,20 +66,20 @@ async function submit() {
         {{ errorMessage }}
       </div>
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field">
-          <span>Наименование *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="255" autofocus />
-        </label>
-        <label class="field">
-          <span>Высота, U</span>
-          <!-- Без .trim: на type="number" Vue и так приводит значение к числу при вводе
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field">
+            <span>Наименование *</span>
+            <input v-model.trim="form.name" type="text" required maxlength="255" autofocus />
+          </label>
+          <label class="field">
+            <span>Высота, U</span>
+            <!-- Без .trim: на type="number" Vue и так приводит значение к числу при вводе
                (см. подробный комментарий в VLANFormModal.vue) — .trim здесь ничего не давал,
                кроме риска того же TypeError'а, если бы форма когда-нибудь начала звать
                .trim() на form.height_u, как раньше было с form.vlan_id в VLANFormModal.vue. -->
-          <input v-model="form.height_u" type="number" min="1" max="60" />
-        </label>
-      </form>
+            <input v-model="form.height_u" type="number" min="1" max="60" />
+          </label>
+        </form>
       </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
@@ -92,13 +92,72 @@ async function submit() {
 </template>
 
 <style scoped>
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
-.modal { width: 100%; max-width: 380px; padding: 20px 22px 18px; }
-.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.modal-head h2 { font-family: var(--font-display); font-size: 16px; margin: 0; }
-.form-error { display: flex; align-items: center; gap: 8px; background: var(--status-crit-soft, rgba(229, 72, 77, 0.12)); color: var(--status-crit); border-radius: var(--r-m); padding: 9px 12px; font-size: 12.5px; margin-bottom: 14px; }
-.form-grid { display: flex; flex-direction: column; gap: 12px; }
-.field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--ink-muted); }
-.field input { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-s); padding: 8px 9px; font-size: 13px; color: var(--ink); font-family: inherit; width: 100%; }
-.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+}
+.modal {
+  width: 100%;
+  max-width: 380px;
+  padding: 20px 22px 18px;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.modal-head h2 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  margin: 0;
+}
+.form-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
+  color: var(--status-crit);
+  border-radius: var(--r-m);
+  padding: 9px 12px;
+  font-size: 12.5px;
+  margin-bottom: 14px;
+}
+.form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+.field input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 8px 9px;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
+  width: 100%;
+}
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
 </style>

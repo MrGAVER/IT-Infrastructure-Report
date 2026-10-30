@@ -29,15 +29,9 @@ export function vlanLabel(v: VLANDefinition): string {
  * @example
  * mergeDomainVlansIntoDraft([], definitions, 'dom-1') // [{ vlan_id: 'v-10', ip_address: '', ... }, ...]
  */
-export function mergeDomainVlansIntoDraft(
-  rows: DeviceVlanDraftRow[],
-  definitions: VLANDefinition[],
-  domainId: string,
-): DeviceVlanDraftRow[] {
+export function mergeDomainVlansIntoDraft(rows: DeviceVlanDraftRow[], definitions: VLANDefinition[], domainId: string): DeviceVlanDraftRow[] {
   const present = new Set(rows.map((r) => r.vlan_id).filter(Boolean))
-  const toAdd = definitions
-    .filter((d) => d.domain_id === domainId && !present.has(d.id))
-    .sort((a, b) => a.vlan_id - b.vlan_id)
+  const toAdd = definitions.filter((d) => d.domain_id === domainId && !present.has(d.id)).sort((a, b) => a.vlan_id - b.vlan_id)
   if (!toAdd.length) return rows
   return [
     ...rows,
@@ -59,11 +53,7 @@ export function mergeDomainVlansIntoDraft(
  * уже после «Включить». Сохранённые строки (с id) не трогаются — они не могут принадлежать домену,
  * членства в котором ещё нет. Возвращает ТОТ ЖЕ массив, если убирать нечего.
  */
-export function removeDomainVlansFromDraft(
-  rows: DeviceVlanDraftRow[],
-  definitions: VLANDefinition[],
-  domainId: string,
-): DeviceVlanDraftRow[] {
+export function removeDomainVlansFromDraft(rows: DeviceVlanDraftRow[], definitions: VLANDefinition[], domainId: string): DeviceVlanDraftRow[] {
   const domainVlanIds = new Set(definitions.filter((d) => d.domain_id === domainId).map((d) => d.id))
   const kept = rows.filter((r) => r.id || !domainVlanIds.has(r.vlan_id))
   return kept.length === rows.length ? rows : kept
@@ -84,10 +74,7 @@ export function removeDomainVlansFromDraft(
  * filterVlansForDeviceDomains(definitions, new Set(['dom-1'])) // только VLAN домена dom-1
  * filterVlansForDeviceDomains(definitions, new Set())          // только VLAN без домена
  */
-export function filterVlansForDeviceDomains(
-  definitions: VLANDefinition[],
-  deviceDomainIds: ReadonlySet<string>,
-): VLANDefinition[] {
+export function filterVlansForDeviceDomains(definitions: VLANDefinition[], deviceDomainIds: ReadonlySet<string>): VLANDefinition[] {
   if (!deviceDomainIds.size) return definitions.filter((d) => !d.domain_id)
   return definitions.filter((d) => !!d.domain_id && deviceDomainIds.has(d.domain_id))
 }

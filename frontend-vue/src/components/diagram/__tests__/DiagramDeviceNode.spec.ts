@@ -54,7 +54,16 @@ describe('DiagramDeviceNode.vue', () => {
   it('для shape=switch рисует засечки портов по числу port_ticks и бейдж overflow', () => {
     const switchDevice: DeviceNodeData = {
       ...baseDevice,
-      icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', port_ticks: 5, port_overflow: 12, manufacturer_label: 'Cisco', model_label: 'C2960' },
+      icon: {
+        mode: 'generated',
+        shape: 'switch',
+        color: '#4f7cff',
+        glyph: 'M1 4h3v4H1z',
+        port_ticks: 5,
+        port_overflow: 12,
+        manufacturer_label: 'Cisco',
+        model_label: 'C2960',
+      },
     }
     const wrapper = mountNode(switchDevice)
     expect(wrapper.findAll('.port-tick')).toHaveLength(5)

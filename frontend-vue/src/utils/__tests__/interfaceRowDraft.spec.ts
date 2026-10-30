@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { applyTemplate, clearReferencesTo, DEFAULT_NAME_TEMPLATE, emptyInterfaceRow, generateNewRows, portNamePatch, replaceWithGenerated, resolveStartNumber } from '../interfaceRowDraft'
+import {
+  applyTemplate,
+  clearReferencesTo,
+  DEFAULT_NAME_TEMPLATE,
+  emptyInterfaceRow,
+  generateNewRows,
+  portNamePatch,
+  replaceWithGenerated,
+  resolveStartNumber,
+} from '../interfaceRowDraft'
 import { makeRow, makeVlan } from './interfaceRowFixture'
 
 describe('emptyInterfaceRow', () => {
@@ -72,7 +81,9 @@ describe('replaceWithGenerated', () => {
   const empty = () => emptyInterfaceRow(false)
 
   it('существующие строки по индексу сохраняют id, IP и VLAN, меняется только имя', () => {
-    const existing = [makeRow({ id: 'if-1', name: 'old', vlan_ids: ['v10'], interface_type_id: 't-1', ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] })]
+    const existing = [
+      makeRow({ id: 'if-1', name: 'old', vlan_ids: ['v10'], interface_type_id: 't-1', ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] }),
+    ]
     const rows = replaceWithGenerated(existing, settings, [], empty)
     expect(rows).toHaveLength(3)
     expect(rows[0]).toMatchObject({ id: 'if-1', name: 'eth1', vlan_ids: ['v10'], interface_type_id: 't-1' })
@@ -83,7 +94,10 @@ describe('replaceWithGenerated', () => {
   it('пустые тип и скорость не затирают значения существующих строк, заданные — перезаписывают', () => {
     const existing = [makeRow({ interface_type_id: 't-1', speed_id: 's-1' })]
     expect(replaceWithGenerated(existing, settings, [], empty)[0]).toMatchObject({ interface_type_id: 't-1', speed_id: 's-1' })
-    expect(replaceWithGenerated(existing, { ...settings, typeId: 't-2', speedId: 's-2' }, [], empty)[0]).toMatchObject({ interface_type_id: 't-2', speed_id: 's-2' })
+    expect(replaceWithGenerated(existing, { ...settings, typeId: 't-2', speedId: 's-2' }, [], empty)[0]).toMatchObject({
+      interface_type_id: 't-2',
+      speed_id: 's-2',
+    })
   })
 
   it('количество меньше числа строк — лишние отбрасываются; 0 — список пуст; пустой шаблон — eth{n}', () => {

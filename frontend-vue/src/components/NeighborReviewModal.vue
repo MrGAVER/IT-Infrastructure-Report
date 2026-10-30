@@ -32,22 +32,37 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('f
       </div>
       <template v-if="items.length">
         <p class="conflict-modal-desc">
-          Назначение («Управление» / «Передача данных»), режим порта (Trunk / Access) или «Все VLAN» отличается от настроек порта на другом конце подключения. Можно
-          привести их к одному виду сейчас (для «Все VLAN» значение выбираете вы) или сохранить как есть — расхождение будет отмечено на экране «Подключения».
+          Назначение («Управление» / «Передача данных»), режим порта (Trunk / Access) или «Все VLAN» отличается от настроек порта на другом конце подключения.
+          Можно привести их к одному виду сейчас (для «Все VLAN» значение выбираете вы) или сохранить как есть — расхождение будет отмечено на экране
+          «Подключения».
         </p>
         <ul class="review-list">
           <li v-for="item in items" :key="item.key" class="review-item">
             <div class="review-item-title">Порт «{{ item.row.name.trim() || 'без имени' }}» ↔ {{ item.peer.label }}</div>
             <div class="review-item-diffs">{{ item.texts.join('; ') }}</div>
             <div class="review-item-actions">
-              <button type="button" class="btn btn-secondary" :disabled="busy" title="Этому порту — назначение, режим порта и «Все VLAN» соседа" @click="emit('apply-neighbor', item)">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                :disabled="busy"
+                title="Этому порту — назначение, режим порта и «Все VLAN» соседа"
+                @click="emit('apply-neighbor', item)"
+              >
                 Применить конфигурацию соседа
               </button>
-              <button type="button" class="btn btn-secondary" :disabled="busy" title="Соседу — назначение, режим порта и «Все VLAN» этого порта" @click="emit('apply-current', item)">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                :disabled="busy"
+                title="Соседу — назначение, режим порта и «Все VLAN» этого порта"
+                @click="emit('apply-current', item)"
+              >
                 Применить текущую конфигурацию
               </button>
             </div>
-            <small v-if="!item.peer.isSelf" class="review-item-note">Сосед — порт другого устройства: его настройки изменятся сразу, не дожидаясь сохранения формы.</small>
+            <small v-if="!item.peer.isSelf" class="review-item-note"
+              >Сосед — порт другого устройства: его настройки изменятся сразу, не дожидаясь сохранения формы.</small
+            >
           </li>
         </ul>
       </template>

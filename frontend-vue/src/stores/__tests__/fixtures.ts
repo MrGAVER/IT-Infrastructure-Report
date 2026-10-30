@@ -129,12 +129,22 @@ export const vmsFixture: import('../../api/types').VMsResponse = {
   total: 2,
   items: [
     {
-      id: 'vm-1', name: 'VM-DB-01', operating_system_id: null, physical_device_id: 'dev-1',
-      hypervisor_os_id: null, purpose: 'База данных', description: null,
+      id: 'vm-1',
+      name: 'VM-DB-01',
+      operating_system_id: null,
+      physical_device_id: 'dev-1',
+      hypervisor_os_id: null,
+      purpose: 'База данных',
+      description: null,
     },
     {
-      id: 'vm-2', name: 'VM-APP-02', operating_system_id: null, physical_device_id: null,
-      hypervisor_os_id: null, purpose: 'Приложение', description: null,
+      id: 'vm-2',
+      name: 'VM-APP-02',
+      operating_system_id: null,
+      physical_device_id: null,
+      hypervisor_os_id: null,
+      purpose: 'Приложение',
+      description: null,
     },
   ],
 }
@@ -155,7 +165,11 @@ function connection(overrides: Partial<import('../../api/types').Connection>): i
     source_port_role: 'data',
     destination_port_role: 'data',
     port_config_status: 'ok',
-    source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
+    source_vlan_mode: 'trunk',
+    destination_vlan_mode: 'trunk',
+    source_vlans: [],
+    destination_vlans: [],
+    port_config_diff: [],
     ...overrides,
   }
 }
@@ -164,9 +178,14 @@ export const connectionsFixture: import('../../api/client').PagedResponse<import
   items: [
     connection({ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-2', is_active: true }),
     connection({
-      id: 'c-2', source_interface_id: 'if-3', destination_interface_id: 'if-4',
-      source_port_role: 'management', destination_port_role: 'data', // неактивное — в сверке не участвует (status ok)
-      is_active: false, source_device_name: 'Коммутатор', destination_device_name: 'Файрвол',
+      id: 'c-2',
+      source_interface_id: 'if-3',
+      destination_interface_id: 'if-4',
+      source_port_role: 'management',
+      destination_port_role: 'data', // неактивное — в сверке не участвует (status ok)
+      is_active: false,
+      source_device_name: 'Коммутатор',
+      destination_device_name: 'Файрвол',
     }),
   ],
   total: 2,
@@ -226,7 +245,12 @@ export const vlanDashboardFixture: import('../../api/types').VLANDashboardRespon
       vlan_id: 10,
       definitions: [
         {
-          id: 'vlan-1', vlan_id: 10, name: 'Данные', description: '', domain_id: null, domain_name: 'Локальный VLAN',
+          id: 'vlan-1',
+          vlan_id: 10,
+          name: 'Данные',
+          description: '',
+          domain_id: null,
+          domain_name: 'Локальный VLAN',
           devices: [{ device_id: 'dev-1', device_name: 'sw-core-01', ip_address: '10.10.10.1', is_management: true }],
         },
       ],
@@ -240,4 +264,3 @@ export const vlanDashboardFixture: import('../../api/types').VLANDashboardRespon
     },
   ],
 }
-

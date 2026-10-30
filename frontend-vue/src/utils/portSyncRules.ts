@@ -129,8 +129,7 @@ export function describeRule(rule: Describable): string {
   const when = condition.length ? `Если ${condition.join('; ')}` : 'Для любой пары портов подключения'
   const { fromNeighbor, own } = applyParts(rule)
   // «из соседа»: роль, режим, набор VLAN берутся у соседнего порта; «Все VLAN» определяет устройство самого порта.
-  const applied = (neighborSuffix: string) =>
-    [...(fromNeighbor.length ? [`${fromNeighbor.join(', ')} ${neighborSuffix}`] : []), ...own].join(', ')
+  const applied = (neighborSuffix: string) => [...(fromNeighbor.length ? [`${fromNeighbor.join(', ')} ${neighborSuffix}`] : []), ...own].join(', ')
   if (rule.action === 'ignore') return `${when} — пару не согласовывать.`
   if (rule.action === 'auto' && rule.apply.vlans === 'union') return `${when} — оба порта получают объединение наборов VLAN (ни один VLAN не снимается).`
   if (rule.action === 'manual') {
@@ -262,12 +261,19 @@ export function optionLine(option: PortSyncOption, item: Pick<PortSyncPlanItem, 
 
 /** Сводка плана одной строкой — только ненулевые счётчики. */
 export function summaryLine(summary: {
-  connections: number; applicable: number; auto?: number; blocked: number; manual: number; ignored: number; none: number; skipped: number; partial?: number
+  connections: number
+  applicable: number
+  auto?: number
+  blocked: number
+  manual: number
+  ignored: number
+  none: number
+  skipped: number
+  partial?: number
 }): string {
   // applicable считает порты: у правила «объединить» одно подключение даёт два порта — тогда показываем оба числа.
-  const planned = summary.auto !== undefined && summary.auto !== summary.applicable
-    ? `${summary.auto} (портов: ${summary.applicable})`
-    : String(summary.applicable)
+  const planned =
+    summary.auto !== undefined && summary.auto !== summary.applicable ? `${summary.auto} (портов: ${summary.applicable})` : String(summary.applicable)
   const parts = [`проверено подключений: ${summary.connections}`, `будет согласовано: ${planned}`]
   // Часть согласованных подключений останется в «Расхождениях» (VLAN нет у устройства, порт в группе) — предупреждаем до подтверждения.
   if (summary.partial) parts.push(`расхождение останется у: ${summary.partial}`)

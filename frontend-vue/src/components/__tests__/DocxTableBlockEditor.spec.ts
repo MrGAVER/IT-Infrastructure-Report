@@ -19,7 +19,10 @@ function block(overrides: Partial<DocxTableBlock> = {}): DocxTableBlock {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
 })
 
 describe('DocxTableBlockEditor.vue — сущность', () => {
@@ -31,7 +34,12 @@ describe('DocxTableBlockEditor.vue — сущность', () => {
   })
 
   it('смена сущности при наличии содержимого запрашивает подтверждение и сбрасывает пути/фильтры/сортировку', async () => {
-    const b = block({ root_entity: 'devices', columns: [{ header: 'Имя', source: 'field', path: 'system_name' }], filters: [{ path: 'system_name', op: 'eq', value: 'x' }], sort_by: 'system_name' })
+    const b = block({
+      root_entity: 'devices',
+      columns: [{ header: 'Имя', source: 'field', path: 'system_name' }],
+      filters: [{ path: 'system_name', op: 'eq', value: 'x' }],
+      sort_by: 'system_name',
+    })
     const wrapper = mount(DocxTableBlockEditor, { props: { block: b, entities } })
 
     await wrapper.find('.row select').setValue('interfaces')
@@ -47,7 +55,10 @@ describe('DocxTableBlockEditor.vue — сущность', () => {
   })
 
   it('отказ от подтверждения не эмитит update', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const b = block({ root_entity: 'devices', sort_by: 'system_name' })
     const wrapper = mount(DocxTableBlockEditor, { props: { block: b, entities } })
 
@@ -99,7 +110,13 @@ describe('DocxTableBlockEditor.vue — колонки', () => {
   })
 
   it('перемещение колонки меняет порядок, границы блокируют кнопки', async () => {
-    const twoCols = block({ root_entity: 'devices', columns: [{ header: 'A', source: 'static', value: '' }, { header: 'B', source: 'static', value: '' }] })
+    const twoCols = block({
+      root_entity: 'devices',
+      columns: [
+        { header: 'A', source: 'static', value: '' },
+        { header: 'B', source: 'static', value: '' },
+      ],
+    })
     const wrapper = mount(DocxTableBlockEditor, { props: { block: twoCols, entities } })
 
     const firstRowButtons = wrapper.findAll('.column-row')[0].findAll('.column-actions button')

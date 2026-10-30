@@ -11,7 +11,9 @@ const vms: VirtualMachine[] = [
   { id: 'vm-1', name: 'app-vm-1', physical_device_id: 'dev-1' } as VirtualMachine,
   { id: 'vm-2', name: 'app-vm-2', physical_device_id: 'dev-2' } as VirtualMachine,
 ]
-const containers: Container[] = [{ id: 'ct-1', name: 'nginx-container', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null }]
+const containers: Container[] = [
+  { id: 'ct-1', name: 'nginx-container', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null },
+]
 
 function emptyRow(): ISSourceDraftRow {
   return { source_type: 'manual', owner_id: '', vmHostHint: '', ips: [], purpose: '', role: '', external_interaction: false }
@@ -178,7 +180,16 @@ describe('ISSourcesListEditor.vue', () => {
   })
 
   it('удаляет одно поле IP из списка, не трогая остальные', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'manual', ips: [{ id: 'ip1', ip_address: '10.0.0.1' }, { id: 'ip2', ip_address: '10.0.0.2' }] }]
+    const rows: ISSourceDraftRow[] = [
+      {
+        ...emptyRow(),
+        source_type: 'manual',
+        ips: [
+          { id: 'ip1', ip_address: '10.0.0.1' },
+          { id: 'ip2', ip_address: '10.0.0.2' },
+        ],
+      },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
     await wrapper.findAll('.manual-ip-row .icon-btn.danger')[0].trigger('click')
@@ -188,7 +199,10 @@ describe('ISSourcesListEditor.vue', () => {
   })
 
   it('удаляет строку по клику на кнопку удаления', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), id: 's1' }, { ...emptyRow(), id: 's2', purpose: 'второй' }]
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), id: 's1' },
+      { ...emptyRow(), id: 's2', purpose: 'второй' },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
     await wrapper.findAll('.row-actions .icon-btn.danger')[0].trigger('click')
@@ -206,7 +220,10 @@ describe('ISSourcesListEditor.vue', () => {
   }
 
   it('ВМ, уже выбранная в другой строке, не предлагается в списке ВМ новой строки', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' },
+      { ...emptyRow(), source_type: 'vm' },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
     expect(await optionLabelsOfRow(wrapper, 1, '.col-vm')).toEqual(['app-vm-2'])
@@ -229,7 +246,10 @@ describe('ISSourcesListEditor.vue', () => {
 
   it('контейнер, уже выбранный в другой строке, не предлагается в списке контейнеров новой строки', async () => {
     const twoContainers: Container[] = [...containers, { ...containers[0], id: 'ct-2', name: 'redis-container' }]
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'container', owner_id: 'ct-1' }, { ...emptyRow(), source_type: 'container' }]
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'container', owner_id: 'ct-1' },
+      { ...emptyRow(), source_type: 'container' },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, containerOptions: twoContainers, modelValue: rows } })
 
     expect(await optionLabelsOfRow(wrapper, 1, '.col-container')).toEqual(['redis-container'])
@@ -238,14 +258,20 @@ describe('ISSourcesListEditor.vue', () => {
   })
 
   it('занятость учитывается только среди строк того же типа: сервер с таким же id не скрывает ВМ', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'device', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'device', owner_id: 'vm-1' },
+      { ...emptyRow(), source_type: 'vm' },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
     expect(await optionLabelsOfRow(wrapper, 1, '.col-vm')).toEqual(['app-vm-1', 'app-vm-2'])
   })
 
   it('после удаления строки её ВМ снова доступна для выбора', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' },
+      { ...emptyRow(), source_type: 'vm' },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
     expect(await optionLabelsOfRow(wrapper, 1, '.col-vm')).toEqual(['app-vm-2'])
 
@@ -286,14 +312,20 @@ describe('ISSourcesListEditor.vue', () => {
   })
 
   it('если все контейнеры уже добавлены, список контейнеров новой строки объясняет, почему он пуст', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'container', owner_id: 'ct-1' }, { ...emptyRow(), source_type: 'container' }]
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'container', owner_id: 'ct-1' },
+      { ...emptyRow(), source_type: 'container' },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
     expect(await emptyTextOfRow(wrapper, 1, '.col-container')).toBe('Все контейнеры уже добавлены в эту ИС')
   })
 
   it('«Ничего не найдено» остаётся для запроса без совпадений, пока свободные ВМ есть', async () => {
-    const rows: ISSourceDraftRow[] = [{ ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' }, { ...emptyRow(), source_type: 'vm' }]
+    const rows: ISSourceDraftRow[] = [
+      { ...emptyRow(), source_type: 'vm', owner_id: 'vm-1' },
+      { ...emptyRow(), source_type: 'vm' },
+    ]
     const wrapper = mount(ISSourcesListEditor, { props: { ...baseProps, modelValue: rows } })
 
     expect(await emptyTextOfRow(wrapper, 1, '.col-vm', 'нет такой')).toBe('Ничего не найдено')

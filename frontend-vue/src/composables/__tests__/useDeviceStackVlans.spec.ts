@@ -4,9 +4,18 @@ import type { Device, DeviceStackVlans, DeviceVlanDraftRow } from '../../api/typ
 import { deviceOf, makeDraft, setVlanDefinitions, setupStores, vlanDef } from './deviceFormTestkit'
 import { useDeviceStackVlans } from '../useDeviceStackVlans'
 
-const row = (vlan_id: string, patch: Partial<DeviceVlanDraftRow> = {}): DeviceVlanDraftRow => ({ vlan_id, ip_address: '', prefix_length: '', is_management: false, description: '', ...patch })
+const row = (vlan_id: string, patch: Partial<DeviceVlanDraftRow> = {}): DeviceVlanDraftRow => ({
+  vlan_id,
+  ip_address: '',
+  prefix_length: '',
+  is_management: false,
+  description: '',
+  ...patch,
+})
 
-function state(items: Array<{ vlan_id: string; ip_address?: string | null; prefix_length?: number | null; is_management?: boolean; members?: unknown[] }>): DeviceStackVlans {
+function state(
+  items: Array<{ vlan_id: string; ip_address?: string | null; prefix_length?: number | null; is_management?: boolean; members?: unknown[] }>,
+): DeviceStackVlans {
   return {
     stack_name: 'Стек-1',
     member_count: 2,
@@ -59,7 +68,12 @@ describe('onStackVlanApplied', () => {
     const { draft, stack } = setup(deviceOf({ id: 'dev-1', stack_id: 'st-1' }))
     draft.deviceVlans.value = [row('v30', { description: 'моя правка' }), row('v10', { ip_address: '1.1.1.1', prefix_length: '8' })]
 
-    await stack.onStackVlanApplied(state([{ vlan_id: 'v10', ip_address: '10.0.0.5', prefix_length: 24, is_management: true }, { vlan_id: 'v20', ip_address: '10.0.1.5', prefix_length: 24 }]))
+    await stack.onStackVlanApplied(
+      state([
+        { vlan_id: 'v10', ip_address: '10.0.0.5', prefix_length: 24, is_management: true },
+        { vlan_id: 'v20', ip_address: '10.0.1.5', prefix_length: 24 },
+      ]),
+    )
 
     expect(draft.deviceVlans.value.map((r) => r.vlan_id)).toEqual(['v10', 'v20', 'v30'])
     expect(draft.deviceVlans.value[0]).toMatchObject({ ip_address: '10.0.0.5', prefix_length: '24', is_management: true })

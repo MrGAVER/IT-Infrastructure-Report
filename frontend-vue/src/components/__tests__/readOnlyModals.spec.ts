@@ -30,7 +30,10 @@ type Role = 'viewer' | 'admin' | 'auth-off'
 function setRole(role: Role) {
   const auth = useAuthStore()
   auth.enabled = role !== 'auth-off'
-  auth.user = role === 'auth-off' ? null : ({ id: 'u1', username: role, role, is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' } as AuthUser)
+  auth.user =
+    role === 'auth-off'
+      ? null
+      : ({ id: 'u1', username: role, role, is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' } as AuthUser)
 }
 
 const MODALS: Array<{ name: string; component: object; props: Record<string, unknown> }> = [
@@ -53,7 +56,8 @@ const MODALS: Array<{ name: string; component: object; props: Record<string, unk
 
 let wrapper: VueWrapper | null = null
 let fetchMock: ReturnType<typeof vi.fn>
-const writeCalls = () => fetchMock.mock.calls.filter(([, init]) => ['POST', 'PUT', 'DELETE', 'PATCH'].includes((init as RequestInit | undefined)?.method ?? 'GET'))
+const writeCalls = () =>
+  fetchMock.mock.calls.filter(([, init]) => ['POST', 'PUT', 'DELETE', 'PATCH'].includes((init as RequestInit | undefined)?.method ?? 'GET'))
 
 async function mountModal(m: (typeof MODALS)[number]) {
   // Teleport (CatalogRecordFormModal) выносит разметку в body — поэтому монтируем в документ и ищем по нему.
@@ -88,7 +92,10 @@ beforeEach(() => {
   document.body.innerHTML = ''
   fetchMock = vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 })))
   vi.stubGlobal('fetch', fetchMock)
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
   const catalogs = useCatalogsStore()
   catalogs.items['device-types'] = []
   catalogs.loaded = true

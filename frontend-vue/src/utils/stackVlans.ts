@@ -81,7 +81,13 @@ export function mergeSharedSettingsIntoDraft(rows: DeviceVlanDraftRow[], items: 
       continue
     }
     const own = item.members.find((m) => m.physical_device_id === deviceId)
-    next.push({ vlan_id: item.vlan_id, ip_address: item.ip_address ?? '', prefix_length: prefix, is_management: item.is_management, description: own?.description ?? '' })
+    next.push({
+      vlan_id: item.vlan_id,
+      ip_address: item.ip_address ?? '',
+      prefix_length: prefix,
+      is_management: item.is_management,
+      description: own?.description ?? '',
+    })
   }
   return next
 }

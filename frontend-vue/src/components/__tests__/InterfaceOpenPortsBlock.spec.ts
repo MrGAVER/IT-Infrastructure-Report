@@ -22,7 +22,11 @@ describe('InterfaceOpenPortsBlock', () => {
     const wrapper = mountBlock()
 
     const options = wrapper.findAll('.copy-target-select option').map((o) => [o.attributes('value'), o.text()])
-    expect(options).toEqual([['', 'Скопировать на порт…'], ['1', 'Gi0/2'], ['2', '#3']])
+    expect(options).toEqual([
+      ['', 'Скопировать на порт…'],
+      ['1', 'Gi0/2'],
+      ['2', '#3'],
+    ])
   })
 
   it('выбор получателя уходит событием, выбранный показывается в списке', async () => {

@@ -299,102 +299,106 @@ async function submit() {
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field field-wide">
-          <span>Наименование *</span>
-          <input v-model.trim="form.name" v-truncate-tooltip="form.name" type="text" required maxlength="500" />
-        </label>
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field field-wide">
+            <span>Наименование *</span>
+            <input v-model.trim="form.name" v-truncate-tooltip="form.name" type="text" required maxlength="500" />
+          </label>
 
-        <label class="field field-wide">
-          <span>Общее описание</span>
-          <textarea v-model.trim="form.description" v-truncate-tooltip="form.description" rows="2" maxlength="4000"></textarea>
-        </label>
+          <label class="field field-wide">
+            <span>Общее описание</span>
+            <textarea v-model.trim="form.description" v-truncate-tooltip="form.description" rows="2" maxlength="4000"></textarea>
+          </label>
 
-        <label class="field field-wide">
-          <span>Назначение использования</span>
-          <textarea v-model.trim="form.purpose" v-truncate-tooltip="form.purpose" rows="2" maxlength="4000"></textarea>
-        </label>
+          <label class="field field-wide">
+            <span>Назначение использования</span>
+            <textarea v-model.trim="form.purpose" v-truncate-tooltip="form.purpose" rows="2" maxlength="4000"></textarea>
+          </label>
 
-        <label class="field field-wide">
-          <span>Локализация</span>
-          <textarea v-model.trim="form.localization" v-truncate-tooltip="form.localization" rows="2" maxlength="4000"></textarea>
-        </label>
+          <label class="field field-wide">
+            <span>Локализация</span>
+            <textarea v-model.trim="form.localization" v-truncate-tooltip="form.localization" rows="2" maxlength="4000"></textarea>
+          </label>
 
-        <label class="field">
-          <span>Организация технической поддержки</span>
-          <div class="lookup-row">
-            <SearchableSelect
-              :model-value="form.support_organization_id"
-              :options="supportOrganizationOptions"
-              placeholder="— не указана —"
-              @update:model-value="onSupportOrganizationChange"
+          <label class="field">
+            <span>Организация технической поддержки</span>
+            <div class="lookup-row">
+              <SearchableSelect
+                :model-value="form.support_organization_id"
+                :options="supportOrganizationOptions"
+                placeholder="— не указана —"
+                @update:model-value="onSupportOrganizationChange"
+              />
+              <QuickAddButton
+                resource="support-organizations"
+                title="Организация технической поддержки"
+                @created="(r) => (form.support_organization_id = r.id)"
+              />
+            </div>
+          </label>
+
+          <label class="field">
+            <span>Способ оказания техподдержки</span>
+            <div class="lookup-row">
+              <SearchableSelect v-model="form.support_method_id" :options="supportMethodOptions" placeholder="— не указан —" />
+              <QuickAddButton resource="support-methods" title="Способ оказания техподдержки" @created="(r) => (form.support_method_id = r.id)" />
+            </div>
+          </label>
+
+          <label class="field field-wide">
+            <span>Описание процесса функционирования</span>
+            <textarea v-model.trim="form.process_description" v-truncate-tooltip="form.process_description" rows="2" maxlength="4000"></textarea>
+          </label>
+
+          <label class="field checkbox-field">
+            <input v-model="form.siem_enabled" type="checkbox" />
+            <span>Отправляет события в SIEM</span>
+          </label>
+
+          <label class="field checkbox-field">
+            <input v-model="form.crypto_protection_enabled" type="checkbox" />
+            <span>Применяются сертифицированные СКЗИ</span>
+          </label>
+
+          <label class="field field-wide">
+            <span>Средство криптографической защиты</span>
+            <div class="lookup-row">
+              <SearchableSelect
+                v-model="form.crypto_protection_description_id"
+                :options="cryptoProtectionOptions"
+                placeholder="— не указано —"
+                :disabled="!form.crypto_protection_enabled"
+              />
+              <QuickAddButton
+                resource="crypto-protection-means"
+                title="Средство криптографической защиты"
+                @created="(r) => (form.crypto_protection_description_id = r.id)"
+              />
+            </div>
+          </label>
+
+          <p v-if="loadingNested" class="loading-hint field-wide">Загрузка связанных данных…</p>
+          <template v-else>
+            <CatalogPickerListEditor
+              v-model="departments"
+              title="Работники, группы работников или подразделения, использующие ИС"
+              placeholder="— выберите подразделение —"
+              add-label="Подразделение"
+              quick-add-resource="departments"
+              :catalog-entries="catalogs.items['departments'] ?? []"
             />
-            <QuickAddButton resource="support-organizations" title="Организация технической поддержки" @created="(r) => (form.support_organization_id = r.id)" />
-          </div>
-        </label>
-
-        <label class="field">
-          <span>Способ оказания техподдержки</span>
-          <div class="lookup-row">
-            <SearchableSelect v-model="form.support_method_id" :options="supportMethodOptions" placeholder="— не указан —" />
-            <QuickAddButton resource="support-methods" title="Способ оказания техподдержки" @created="(r) => (form.support_method_id = r.id)" />
-          </div>
-        </label>
-
-        <label class="field field-wide">
-          <span>Описание процесса функционирования</span>
-          <textarea v-model.trim="form.process_description" v-truncate-tooltip="form.process_description" rows="2" maxlength="4000"></textarea>
-        </label>
-
-        <label class="field checkbox-field">
-          <input v-model="form.siem_enabled" type="checkbox" />
-          <span>Отправляет события в SIEM</span>
-        </label>
-
-        <label class="field checkbox-field">
-          <input v-model="form.crypto_protection_enabled" type="checkbox" />
-          <span>Применяются сертифицированные СКЗИ</span>
-        </label>
-
-        <label class="field field-wide">
-          <span>Средство криптографической защиты</span>
-          <div class="lookup-row">
-            <SearchableSelect
-              v-model="form.crypto_protection_description_id"
-              :options="cryptoProtectionOptions"
-              placeholder="— не указано —"
-              :disabled="!form.crypto_protection_enabled"
+            <ISProtocolsListEditor v-model="protocols" :catalog-entries="catalogs.protocolPortCatalog" />
+            <ISSourcesListEditor v-model="sources" :device-options="deviceOptions" :vm-options="vmsStore.all" :container-options="containersStore.all" />
+            <CatalogPickerListEditor
+              v-model="placementAssets"
+              title="Оборудование, ПО, интерфейс, на которых размещается ИС"
+              placeholder="— выберите —"
+              add-label="Оборудование / ПО / интерфейс"
+              quick-add-resource="placement-assets"
+              :catalog-entries="catalogs.items['placement-assets'] ?? []"
             />
-            <QuickAddButton
-              resource="crypto-protection-means"
-              title="Средство криптографической защиты"
-              @created="(r) => (form.crypto_protection_description_id = r.id)"
-            />
-          </div>
-        </label>
-
-        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка связанных данных…</p>
-        <template v-else>
-          <CatalogPickerListEditor
-            v-model="departments"
-            title="Работники, группы работников или подразделения, использующие ИС"
-            placeholder="— выберите подразделение —"
-            add-label="Подразделение"
-            quick-add-resource="departments"
-            :catalog-entries="catalogs.items['departments'] ?? []"
-          />
-          <ISProtocolsListEditor v-model="protocols" :catalog-entries="catalogs.protocolPortCatalog" />
-          <ISSourcesListEditor v-model="sources" :device-options="deviceOptions" :vm-options="vmsStore.all" :container-options="containersStore.all" />
-          <CatalogPickerListEditor
-            v-model="placementAssets"
-            title="Оборудование, ПО, интерфейс, на которых размещается ИС"
-            placeholder="— выберите —"
-            add-label="Оборудование / ПО / интерфейс"
-            quick-add-resource="placement-assets"
-            :catalog-entries="catalogs.items['placement-assets'] ?? []"
-          />
-        </template>
-      </form>
+          </template>
+        </form>
       </fieldset>
 
       <div class="modal-foot">

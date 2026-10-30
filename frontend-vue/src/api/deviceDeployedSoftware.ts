@@ -18,6 +18,8 @@ import type { DeployedSoftware, SoftwareAssetDraftRow } from './types'
  * const saved = await syncDeviceDeployedSoftware('dev-123', [{ id: 'sw-1', software_asset_id: 'asset-ad', version: '2022' }])
  */
 export async function syncDeviceDeployedSoftware(deviceId: string, rows: readonly SoftwareAssetDraftRow[]): Promise<DeployedSoftware[]> {
-  const { items } = await api.put<{ items: DeployedSoftware[] }>(`/devices/${deviceId}/deployed-software`, { deployed_software: toDeployedSoftwarePayload(rows) })
+  const { items } = await api.put<{ items: DeployedSoftware[] }>(`/devices/${deviceId}/deployed-software`, {
+    deployed_software: toDeployedSoftwarePayload(rows),
+  })
   return items
 }

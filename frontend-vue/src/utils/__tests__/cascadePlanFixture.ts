@@ -23,7 +23,14 @@ export function portChange(patch: Partial<CascadePortChange> = {}): CascadePortC
 }
 
 export function groupChange(patch: Partial<CascadeGroupChange> = {}): CascadeGroupChange {
-  return { ...portChange({ id: 'g9', name: 'Магистраль' }), ports: [{ id: 'if-2', name: 'Gi0/2' }, { id: 'if-4', name: 'Gi0/4' }], ...patch }
+  return {
+    ...portChange({ id: 'g9', name: 'Магистраль' }),
+    ports: [
+      { id: 'if-2', name: 'Gi0/2' },
+      { id: 'if-4', name: 'Gi0/4' },
+    ],
+    ...patch,
+  }
 }
 
 /** По умолчанию — тривиальный план: один порт соседа на другом устройстве, без групп и снимаемых VLAN. */

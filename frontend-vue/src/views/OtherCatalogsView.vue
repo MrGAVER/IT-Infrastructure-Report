@@ -149,8 +149,7 @@ async function onDeleted() {
       <div>
         <h1>Другие справочники</h1>
         <p class="hint">
-          Значения, которые раньше можно было только быстро добавить через «+» в других формах — здесь их можно посмотреть списком,
-          отредактировать или удалить.
+          Значения, которые раньше можно было только быстро добавить через «+» в других формах — здесь их можно посмотреть списком, отредактировать или удалить.
         </p>
       </div>
     </header>
@@ -158,14 +157,7 @@ async function onDeleted() {
     <div v-if="loading" class="empty-state">Загрузка…</div>
     <div v-else class="layout">
       <nav class="catalog-list" aria-label="Список справочников">
-        <button
-          v-for="key in OTHER_CATALOGS"
-          :key="key"
-          type="button"
-          class="catalog-item"
-          :class="{ active: key === selected }"
-          @click="selected = key"
-        >
+        <button v-for="key in OTHER_CATALOGS" :key="key" type="button" class="catalog-item" :class="{ active: key === selected }" @click="selected = key">
           <span v-truncate-tooltip>{{ QUICK_ADD_LABELS[key] ?? key }}</span>
           <span class="count">{{ recordCount(key) }}</span>
         </button>
@@ -220,14 +212,7 @@ async function onDeleted() {
       </section>
     </div>
 
-    <CatalogRecordFormModal
-      v-if="modalOpen"
-      :resource="selected"
-      :item="editingItem"
-      @close="closeModal"
-      @saved="onSaved"
-      @deleted="onDeleted"
-    />
+    <CatalogRecordFormModal v-if="modalOpen" :resource="selected" :item="editingItem" @close="closeModal" @saved="onSaved" @deleted="onDeleted" />
   </div>
 </template>
 

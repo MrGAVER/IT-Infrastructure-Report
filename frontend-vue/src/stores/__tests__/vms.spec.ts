@@ -5,7 +5,10 @@ import { vmsFixture } from './fixtures'
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(vmsFixture))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(vmsFixture))),
+  )
 })
 
 describe('useVMsStore', () => {

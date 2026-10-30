@@ -105,7 +105,10 @@ describe('VLANFormModal.vue', () => {
     )
     const wrapper = mount(VLANFormModal, { props: { definition: null } })
 
-    const options = wrapper.find('.lookup-row select').findAll('option').map((o) => o.text())
+    const options = wrapper
+      .find('.lookup-row select')
+      .findAll('option')
+      .map((o) => o.text())
     expect(options).toEqual(['— локальный (без домена) —', 'Филиал-1'])
 
     await wrapper.find('.lookup-row button').trigger('click')

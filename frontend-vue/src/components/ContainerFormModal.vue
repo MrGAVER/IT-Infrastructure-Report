@@ -130,52 +130,52 @@ async function submit() {
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field field-wide">
-          <span>Наименование *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="255" />
-        </label>
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field field-wide">
+            <span>Наименование *</span>
+            <input v-model.trim="form.name" type="text" required maxlength="255" />
+          </label>
 
-        <label class="field">
-          <span>Размещение</span>
-          <select :value="form.hostType" @change="onHostTypeChange(($event.target as HTMLSelectElement).value)">
-            <option value="none">— не указано —</option>
-            <option value="vm">Виртуальная машина</option>
-            <option value="device">Физическое устройство</option>
-          </select>
-        </label>
+          <label class="field">
+            <span>Размещение</span>
+            <select :value="form.hostType" @change="onHostTypeChange(($event.target as HTMLSelectElement).value)">
+              <option value="none">— не указано —</option>
+              <option value="vm">Виртуальная машина</option>
+              <option value="device">Физическое устройство</option>
+            </select>
+          </label>
 
-        <label class="field">
-          <span>Виртуальная машина</span>
-          <select v-model="form.virtual_machine_id" :disabled="form.hostType !== 'vm'">
-            <option value="">— выберите ВМ —</option>
-            <option v-for="vm in vmsStore.all" :key="vm.id" :value="vm.id">{{ vm.name }}</option>
-          </select>
-        </label>
+          <label class="field">
+            <span>Виртуальная машина</span>
+            <select v-model="form.virtual_machine_id" :disabled="form.hostType !== 'vm'">
+              <option value="">— выберите ВМ —</option>
+              <option v-for="vm in vmsStore.all" :key="vm.id" :value="vm.id">{{ vm.name }}</option>
+            </select>
+          </label>
 
-        <label class="field">
-          <span>Физическое устройство</span>
-          <select v-model="form.physical_device_id" :disabled="form.hostType !== 'device'">
-            <option value="">— выберите устройство —</option>
-            <option v-for="d in hostDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
-          </select>
-        </label>
+          <label class="field">
+            <span>Физическое устройство</span>
+            <select v-model="form.physical_device_id" :disabled="form.hostType !== 'device'">
+              <option value="">— выберите устройство —</option>
+              <option v-for="d in hostDevices" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
+            </select>
+          </label>
 
-        <label class="field">
-          <span>Runtime</span>
-          <input v-model.trim="form.runtime" type="text" placeholder="Docker, containerd…" maxlength="100" />
-        </label>
+          <label class="field">
+            <span>Runtime</span>
+            <input v-model.trim="form.runtime" type="text" placeholder="Docker, containerd…" maxlength="100" />
+          </label>
 
-        <label class="field">
-          <span>Версия runtime</span>
-          <input v-model.trim="form.runtime_version" type="text" maxlength="100" />
-        </label>
+          <label class="field">
+            <span>Версия runtime</span>
+            <input v-model.trim="form.runtime_version" type="text" maxlength="100" />
+          </label>
 
-        <label class="field field-wide">
-          <span>Целевое назначение</span>
-          <textarea v-model.trim="form.purpose" rows="2" maxlength="2000"></textarea>
-        </label>
-      </form>
+          <label class="field field-wide">
+            <span>Целевое назначение</span>
+            <textarea v-model.trim="form.purpose" rows="2" maxlength="2000"></textarea>
+          </label>
+        </form>
       </fieldset>
 
       <div class="modal-foot">

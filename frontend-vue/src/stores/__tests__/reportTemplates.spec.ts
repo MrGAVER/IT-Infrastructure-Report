@@ -41,7 +41,10 @@ describe('useReportTemplatesStore', () => {
   })
 
   it('фильтрует по названию и описанию, пустой поиск возвращает все', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fixtureItems))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(fixtureItems))),
+    )
     const store = useReportTemplatesStore()
     await store.ensureLoaded()
 
@@ -59,7 +62,10 @@ describe('useReportTemplatesStore', () => {
   })
 
   it('при ошибке сети выставляет error и не считается loaded', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('Internal Server Error', { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Internal Server Error', { status: 500 })),
+    )
     const store = useReportTemplatesStore()
     await store.ensureLoaded()
 
