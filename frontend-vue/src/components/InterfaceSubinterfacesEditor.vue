@@ -56,6 +56,12 @@ const emit = defineEmits<{ 'update:modelValue': [rows: SubinterfaceDraftRow[]] }
 
 const isGroup = computed(() => props.mode === 'group')
 const ownerWord = computed(() => (isGroup.value ? 'группы' : 'порта'))
+// Строка вынесена из шаблона: «<порт>.<VLAN>» внутри {{ }} Vue разбирает верно, а Prettier и другие HTML-парсеры принимают за теги.
+const hint = computed(() =>
+  isGroup.value
+    ? 'Логические интерфейсы портов группы на VLAN группы — каждый порт получает свой «<порт>.<VLAN>» с общими IP-адресами и открытыми портами.'
+    : 'Логические интерфейсы порта на одном из его VLAN — со своим IP-адресом, открытыми портами и ролью.',
+)
 
 const sortedVlans = computed(() => [...props.vlanOptions].sort((a, b) => a.vlan_id - b.vlan_id))
 const vlanById = computed(() => new Map(props.vlanOptions.map((v) => [v.id, v])))
@@ -217,7 +223,7 @@ const addTitle = computed(() => {
       <div class="sub-title">
         <b>Подинтерфейсы</b>
         <span class="hint">
-          {{ isGroup ? 'Логические интерфейсы портов группы на VLAN группы — каждый порт получает свой «<порт>.<VLAN>» с общими IP-адресами и открытыми портами.' : 'Логические интерфейсы порта на одном из его VLAN — со своим IP-адресом, открытыми портами и ролью.' }}
+          {{ hint }}
         </span>
       </div>
       <button v-if="!readonly" type="button" class="btn btn-secondary" :disabled="!vlanOptions.length || !hasFreeVlan" :title="addTitle" @click="addRow">
