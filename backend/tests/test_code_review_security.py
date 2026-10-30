@@ -386,9 +386,11 @@ class TestLoginHardening:
         for _ in range(3):
             assert client.post("/api/v1/auth/login", json={"username": "admin", "password": "wrong-pass1"}).status_code == 401
 
+    @pytest.mark.real_password_hashing
     def test_pbkdf2_uses_at_least_the_current_owasp_iteration_count(self):
         assert int(auth_module.hash_password("Passw0rd!").split("$")[1]) >= 600_000
 
+    @pytest.mark.real_password_hashing
     def test_legacy_hashes_are_rehashed_on_login(self, client, db_session):
         _create_admin(client)
         user = db_session.scalar(select(User).where(User.username == "admin"))
