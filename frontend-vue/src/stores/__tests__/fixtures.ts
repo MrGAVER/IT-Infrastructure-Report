@@ -52,7 +52,6 @@ function device(overrides: Partial<Device>): Device {
     room_id: null,
     rack_id: null,
     rack_position: null,
-    status: null,
     description: null,
     diagram_icon_id: null,
     oac_certificate_number: null,
@@ -116,7 +115,6 @@ function informationSystem(overrides: Partial<import('../../api/types').Informat
     siem_enabled: false,
     crypto_protection_enabled: false,
     crypto_protection_description_id: null,
-    status: 'active',
     ...overrides,
   }
 }
@@ -132,11 +130,11 @@ export const vmsFixture: import('../../api/types').VMsResponse = {
   items: [
     {
       id: 'vm-1', name: 'VM-DB-01', operating_system_id: null, physical_device_id: 'dev-1',
-      hypervisor_os_id: null, purpose: 'База данных', status: 'active', description: null,
+      hypervisor_os_id: null, purpose: 'База данных', description: null,
     },
     {
       id: 'vm-2', name: 'VM-APP-02', operating_system_id: null, physical_device_id: null,
-      hypervisor_os_id: null, purpose: 'Приложение', status: 'active', description: null,
+      hypervisor_os_id: null, purpose: 'Приложение', description: null,
     },
   ],
 }

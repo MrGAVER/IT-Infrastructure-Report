@@ -47,7 +47,6 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
       siem_enabled: false,
       crypto_protection_enabled: false,
       crypto_protection_description_id: null,
-      status: 'active',
     }
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     vi.stubGlobal(
@@ -292,7 +291,6 @@ describe('фикс п.2: копирование информационной с�
     siem_enabled: false,
     crypto_protection_enabled: false,
     crypto_protection_description_id: null,
-    status: 'active',
   }
 
   it('аудит fix/usability-batch4 (находка №5): одновременная передача system и copyFrom — предупреждение в консоль, побеждает system (edit)', async () => {
@@ -355,7 +353,7 @@ describe('InformationSystemFormModal.vue — протоколы ИС как от
   const system: InformationSystem = {
     id: 'is-ports', number: null, name: 'ИС с портами', type: 'is', description: null, purpose: null, localization: null,
     support_organization_id: null, support_method_id: null, process_description: null, siem_enabled: false,
-    crypto_protection_enabled: false, crypto_protection_description_id: null, status: 'active',
+    crypto_protection_enabled: false, crypto_protection_description_id: null, 
   }
 
   // created — ответ на POST новой ИС (копирование); без него создание не ожидается.

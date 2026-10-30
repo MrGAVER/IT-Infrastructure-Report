@@ -31,7 +31,6 @@ function device(overrides: Partial<Device>): Device {
     room_id: null,
     rack_id: null,
     rack_position: null,
-    status: null,
     description: null,
     diagram_icon_id: null,
     oac_certificate_number: null,

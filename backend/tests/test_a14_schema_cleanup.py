@@ -25,7 +25,8 @@ from alembic import command
 
 import app.config as app_config
 from test_migrations_match_models import _alembic_config
-from test_migrations_postgres import ScratchDatabase, _insert
+from migration_support import insert_row as _insert
+from test_migrations_postgres import ScratchDatabase
 
 BEFORE = "c5d2e8a4b713"  # индексы внешних ключей (до A-14 ч.2)
 NOT_NULL = "d7a3f1c8b254"  # A-14 ч.2

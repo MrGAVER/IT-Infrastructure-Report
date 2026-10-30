@@ -28,7 +28,7 @@ _HIDDEN_FIELDS = {"created_at", "updated_at"}
 _RU_FIELD_LABELS: dict[str, str] = {
     "id": "ID", "name": "Наименование", "description": "Описание", "short_name": "Краткое наименование",
     "number": "№", "type": "Тип", "purpose": "Назначение", "localization": "Локализация",
-    "system_name": "Системное имя", "serial_number": "Серийный номер", "status": "Состояние",
+    "system_name": "Системное имя", "serial_number": "Серийный номер",
     "siem_enabled": "SIEM", "crypto_protection_enabled": "СКЗИ", "process_description": "Процесс функционирования",
     "ip_address": "IP-адрес", "prefix_length": "Префикс (CIDR)", "is_management": "Управление",
     "is_data_transfer": "Передача данных", "mac_address": "MAC-адрес", "protocol": "Протокол",

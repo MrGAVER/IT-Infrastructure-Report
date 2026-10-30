@@ -194,7 +194,6 @@ export interface Device {
   room_id: string | null
   rack_id: string | null
   rack_position: string | null
-  status: string | null
   description: string | null
   diagram_icon_id: string | null
   // Необязательный блок "Сертификат ОАЦ" — см. models.PhysicalDevice в backend/app/models.py.
@@ -240,7 +239,6 @@ export interface VirtualMachine {
   physical_device_id: string | null
   hypervisor_os_id: string | null
   purpose: string | null
-  status: string
   description: string | null
   created_at?: string
   updated_at?: string
@@ -1236,7 +1234,6 @@ export interface InformationSystem {
   siem_enabled: boolean
   crypto_protection_enabled: boolean
   crypto_protection_description_id: string | null
-  status: string
   /** IP-адреса ИС — как в столбце «IP-адреса» отчёта: ручные источники и связанные ВМ (у ВМ с префиксом).
    * Есть в ответе списка и /resources (обогащение, см. services/serialization.py), в ответах на создание/правку — нет. */
   ip_addresses?: string[]

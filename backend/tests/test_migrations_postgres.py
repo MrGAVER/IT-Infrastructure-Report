@@ -16,9 +16,10 @@ INFRA_REGISTRY_TEST_DATABASE_URL (маркер postgres_only), каждый — 
 """
 from __future__ import annotations
 
+import json
 import os
+import sys
 import uuid
-from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -28,8 +29,10 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy.engine import make_url
 
-import app.config as app_config
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import app.config as app_config  # noqa: E402
 from app.models import Base
+from migration_support import insert_row  # noqa: E402
 
 pytestmark = pytest.mark.postgres_only
 
@@ -65,6 +68,14 @@ class ScratchDatabase:
         finally:
             app_config.DATABASE_URL = original
 
+    def downgrade(self, revision: str) -> None:
+        original = app_config.DATABASE_URL
+        app_config.DATABASE_URL = self.url
+        try:
+            command.downgrade(_config(), revision)
+        finally:
+            app_config.DATABASE_URL = original
+
     def close(self) -> None:
         self.engine.dispose()
         with self._admin_engine.connect() as connection:
@@ -94,44 +105,6 @@ def migrated():
 
 def _down_revision(revision: str) -> str:
     return ScriptDirectory.from_config(_config()).get_revision(revision).down_revision
-
-
-# ----- вставка строк в схему любой ревизии: недостающие NOT NULL-значения и родительские строки создаются сами -----------
-
-def _dummy(column_type, name: str):
-    if isinstance(column_type, sa.Boolean):
-        return False
-    if isinstance(column_type, sa.DateTime):
-        return datetime.now()
-    if isinstance(column_type, sa.Date):
-        return date.today()
-    if isinstance(column_type, (sa.Integer, sa.Float, sa.Numeric)):
-        return 0
-    return f"{name}-{uuid.uuid4().hex[:8]}"
-
-
-def _insert(connection, table: str, **values) -> str | None:
-    """INSERT одной строки; id и обязательные колонки без значения по умолчанию заполняются заглушками, а обязательные
-    внешние ключи — новой родительской строкой. Возвращает id вставленной строки."""
-    inspector = sa.inspect(connection)
-    foreign = {fk["constrained_columns"][0]: fk["referred_table"] for fk in inspector.get_foreign_keys(table) if len(fk["constrained_columns"]) == 1}
-    row = dict(values)
-    for column in inspector.get_columns(table):
-        name = column["name"]
-        if name in row:
-            continue
-        if name == "id":
-            row[name] = str(uuid.uuid4())
-        elif column["nullable"] or column.get("default") is not None or column.get("autoincrement") is True:
-            continue
-        elif name in foreign:
-            row[name] = _insert(connection, foreign[name])
-        else:
-            row[name] = _dummy(column["type"], name)
-    names = ", ".join(f'"{key}"' for key in row)
-    marks = ", ".join(f":{key}" for key in row)
-    connection.execute(sa.text(f'INSERT INTO "{table}" ({names}) VALUES ({marks})'), row)
-    return row.get("id")
 
 
 # ----- структура схемы -----------------------------------------------------------------------------------------------
@@ -205,11 +178,11 @@ class TestSchemaMatchesWhatTheAppNeeds:
 
     def test_vlan_number_is_unique_within_a_domain_not_globally(self, migrated):
         with migrated.engine.begin() as connection:
-            first, second = _insert(connection, "vlan_domains"), _insert(connection, "vlan_domains")
-            _insert(connection, "vlans", vlan_id=10, domain_id=first)
-            _insert(connection, "vlans", vlan_id=10, domain_id=second)  # тот же номер в другом домене — можно
+            first, second = insert_row(connection, "vlan_domains"), insert_row(connection, "vlan_domains")
+            insert_row(connection, "vlans", vlan_id=10, domain_id=first)
+            insert_row(connection, "vlans", vlan_id=10, domain_id=second)  # тот же номер в другом домене — можно
         with pytest.raises(sa.exc.IntegrityError), migrated.engine.begin() as connection:
-            _insert(connection, "vlans", vlan_id=10, domain_id=first)  # повтор в том же домене — нельзя
+            insert_row(connection, "vlans", vlan_id=10, domain_id=first)  # повтор в том же домене — нельзя
 
 
 # ----- ветки миграций, работающие с данными ---------------------------------------------------------------------------
@@ -220,10 +193,10 @@ class TestMigrationsThatMoveData:
         revision = "e8c2f1a9b430"
         scratch.upgrade(_down_revision(revision))
         with scratch.engine.begin() as connection:
-            device = _insert(connection, "physical_devices", management_port=1, management_ip="10.0.0.5")
-            near = _insert(connection, "device_interfaces", physical_device_id=device, name="Gi0/1", interface_type="SFP+", speed="10G")
-            far = _insert(connection, "device_interfaces", physical_device_id=_insert(connection, "physical_devices"), name="Gi0/2")
-            link = _insert(connection, "connections", source_interface_id=near, destination_interface_id=far, connection_type="Ethernet", cable_type="Оптическое волокно")
+            device = insert_row(connection, "physical_devices", management_port=1, management_ip="10.0.0.5")
+            near = insert_row(connection, "device_interfaces", physical_device_id=device, name="Gi0/1", interface_type="SFP+", speed="10G")
+            far = insert_row(connection, "device_interfaces", physical_device_id=insert_row(connection, "physical_devices"), name="Gi0/2")
+            link = insert_row(connection, "connections", source_interface_id=near, destination_interface_id=far, connection_type="Ethernet", cable_type="Оптическое волокно")
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
             interface = connection.execute(sa.text("SELECT is_management, interface_type_id FROM device_interfaces WHERE id = :i"), {"i": near}).one()
@@ -238,9 +211,9 @@ class TestMigrationsThatMoveData:
         revision = "e7a2c9f4d813"
         scratch.upgrade(_down_revision(revision))
         with scratch.engine.begin() as connection:
-            known = _insert(connection, "virtual_machines", administration_ip="10.1.1.5")
-            _insert(connection, "vm_ips", virtual_machine_id=known, ip_address="10.1.1.5", is_management=False)  # адрес уже есть, но не помечен
-            fresh = _insert(connection, "virtual_machines", administration_ip="10.1.1.6")  # адреса в vm_ips нет
+            known = insert_row(connection, "virtual_machines", administration_ip="10.1.1.5")
+            insert_row(connection, "vm_ips", virtual_machine_id=known, ip_address="10.1.1.5", is_management=False)  # адрес уже есть, но не помечен
+            fresh = insert_row(connection, "virtual_machines", administration_ip="10.1.1.6")  # адреса в vm_ips нет
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
             rows = connection.execute(sa.text("SELECT virtual_machine_id, ip_address, is_management FROM vm_ips ORDER BY ip_address")).all()
@@ -251,25 +224,52 @@ class TestMigrationsThatMoveData:
         revision = "d8e35a1c7f60"
         scratch.upgrade(_down_revision(revision))
         with scratch.engine.begin() as connection:
-            source = _insert(connection, "information_system_sources", ip_address="10.9.9.1, 10.9.9.2,  ")
+            source = insert_row(connection, "information_system_sources", ip_address="10.9.9.1, 10.9.9.2,  ")
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
             rows = connection.execute(sa.text("SELECT owner_id, ip_address, is_management FROM ip_addresses WHERE owner_type = 'information_system_source' ORDER BY ip_address")).all()
         assert [(r.owner_id, r.ip_address, r.is_management) for r in rows] == [(source, "10.9.9.1", False), (source, "10.9.9.2", False)]
+
+    def test_status_columns_are_dropped_and_templates_lose_references_to_them(self, scratch):
+        """b3f7a2c91d54: колонки status удалены (ALTER TABLE … DROP COLUMN), данные строк целы, сохранённые шаблоны переписаны, откат возвращает колонки."""
+        revision = "b3f7a2c91d54"
+        scratch.upgrade(_down_revision(revision))
+        config = {"sheets": [{"rows": [{"repeat": True, "data_source": {"root_entity": "information-systems", "filters": [{"path": "status", "op": "eq", "value": "active"}], "sort_by": "name"},
+                                         "cells": [{"col": 0, "kind": "field", "path": "name"}, {"col": 1, "kind": "field", "path": "status"}]}]}]}
+        with scratch.engine.begin() as connection:
+            device = insert_row(connection, "physical_devices", serial_number="SN-9", status="retired")
+            system = insert_row(connection, "information_systems", name="ИС-9", status="planned")
+            vm = insert_row(connection, "virtual_machines", name="vm-9", status="stopped")
+            template = insert_row(connection, "report_templates", name="С фильтром", format="xlsx", config=json.dumps(config, ensure_ascii=False))
+            version = insert_row(connection, "report_template_versions", report_template_id=template, version_number=1, name="С фильтром", format="xlsx", config=json.dumps(config, ensure_ascii=False))
+        scratch.upgrade(revision)
+        inspector = sa.inspect(scratch.engine)
+        assert not any("status" in {c["name"] for c in inspector.get_columns(table)} for table in ("physical_devices", "information_systems", "virtual_machines"))
+        with scratch.engine.connect() as connection:
+            assert connection.execute(sa.text("SELECT serial_number FROM physical_devices WHERE id = :i"), {"i": device}).scalar_one() == "SN-9"
+            assert connection.execute(sa.text("SELECT name FROM information_systems WHERE id = :i"), {"i": system}).scalar_one() == "ИС-9"
+            assert connection.execute(sa.text("SELECT name FROM virtual_machines WHERE id = :i"), {"i": vm}).scalar_one() == "vm-9"
+            for table, row_id in (("report_templates", template), ("report_template_versions", version)):
+                stored = json.loads(connection.execute(sa.text(f"SELECT config FROM {table} WHERE id = :i"), {"i": row_id}).scalar_one())
+                row = stored["sheets"][0]["rows"][0]
+                assert row["data_source"]["filters"] == [] and row["cells"][1] == {"col": 1, "kind": "static", "text": ""} and "status" not in json.dumps(stored)
+        scratch.downgrade(_down_revision(revision))
+        inspector = sa.inspect(scratch.engine)
+        assert all("status" in {c["name"] for c in inspector.get_columns(table)} for table in ("physical_devices", "information_systems", "virtual_machines"))
 
     def test_separate_is_relations_become_unified_sources(self, scratch):
         """8c5d1f7a2b40: связи ИС с устройствами, ВМ, контейнерами и адресами → единая таблица источников, external_interaction — boolean."""
         revision = "8c5d1f7a2b40"
         scratch.upgrade(_down_revision(revision))
         with scratch.engine.begin() as connection:
-            system = _insert(connection, "information_systems")
-            device = _insert(connection, "physical_devices")
-            vm = _insert(connection, "virtual_machines")
-            container = _insert(connection, "containers")
-            _insert(connection, "information_system_devices", information_system_id=system, physical_device_id=device, role="основной")
-            _insert(connection, "information_system_vms", information_system_id=system, virtual_machine_id=vm, role="приложение")
-            _insert(connection, "information_system_containers", information_system_id=system, container_id=container, role="сервис")
-            _insert(connection, "information_system_ips", information_system_id=system, ip_address="203.0.113.7", purpose="внешний", external_interaction=True)
+            system = insert_row(connection, "information_systems")
+            device = insert_row(connection, "physical_devices")
+            vm = insert_row(connection, "virtual_machines")
+            container = insert_row(connection, "containers")
+            insert_row(connection, "information_system_devices", information_system_id=system, physical_device_id=device, role="основной")
+            insert_row(connection, "information_system_vms", information_system_id=system, virtual_machine_id=vm, role="приложение")
+            insert_row(connection, "information_system_containers", information_system_id=system, container_id=container, role="сервис")
+            insert_row(connection, "information_system_ips", information_system_id=system, ip_address="203.0.113.7", purpose="внешний", external_interaction=True)
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
             rows = connection.execute(sa.text("SELECT source_type, role, external_interaction, ip_address FROM information_system_sources ORDER BY source_type, role")).all()

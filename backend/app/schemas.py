@@ -35,7 +35,6 @@ class PhysicalDeviceCreate(BaseModel):
     room_id: Optional[str] = None
     rack_id: Optional[str] = None
     rack_position: Optional[str] = None
-    status: Optional[str] = None
     description: Optional[str] = None
     # Необязательный блок "Сертификат ОАЦ" (см. models.PhysicalDevice) — валидируются здесь, а
     # не оставляются сырым dict, чтобы некорректный формат даты приходил клиенту понятным 422
@@ -63,7 +62,6 @@ class PhysicalDeviceUpdate(BaseModel):
     room_id: Optional[str] = None
     rack_id: Optional[str] = None
     rack_position: Optional[str] = None
-    status: Optional[str] = None
     description: Optional[str] = None
     oac_certificate_number: Optional[str] = Field(default=None, max_length=255)
     oac_certificate_registry_date: Optional[date] = None
@@ -83,7 +81,6 @@ class InformationSystemCreate(BaseModel):
     siem_enabled: bool = False
     crypto_protection_enabled: bool = False
     crypto_protection_description_id: Optional[str] = None
-    status: str = "active"
 
 
 class InformationSystemUpdate(BaseModel):
@@ -100,7 +97,6 @@ class InformationSystemUpdate(BaseModel):
     siem_enabled: Optional[bool] = None
     crypto_protection_enabled: Optional[bool] = None
     crypto_protection_description_id: Optional[str] = None
-    status: Optional[str] = None
 
 
 class VLANCreate(BaseModel):

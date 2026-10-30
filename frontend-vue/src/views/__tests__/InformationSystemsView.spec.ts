@@ -28,7 +28,6 @@ function system(overrides: Partial<InformationSystem>): InformationSystem {
     siem_enabled: false,
     crypto_protection_enabled: false,
     crypto_protection_description_id: null,
-    status: 'active',
     ...overrides,
   }
 }

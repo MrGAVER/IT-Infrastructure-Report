@@ -190,7 +190,6 @@ class PhysicalDevice(TimestampMixin, Base):
     room_id: Mapped[Optional[str]] = mapped_column(ForeignKey("rooms.id"), index=True)
     rack_id: Mapped[Optional[str]] = mapped_column(ForeignKey("racks.id"), index=True)
     rack_position: Mapped[Optional[str]] = mapped_column(String(50))
-    status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
     # Ручное переопределение автогенерируемой иконки для ЭТОГО конкретного устройства (раздел 4.3
     # ТЗ диаграммы топологии сети). Приоритет выше, чем DeviceModel.diagram_icon_id.
@@ -267,7 +266,6 @@ class InformationSystem(TimestampMixin, Base):
     siem_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     crypto_protection_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     crypto_protection_description_id: Mapped[Optional[str]] = mapped_column(ForeignKey("crypto_protection_means.id"), index=True)
-    status: Mapped[str] = mapped_column(String(50), default="active")
 
 class ISDepartment(TimestampMixin, Base):
     __tablename__ = "information_system_departments"
@@ -627,7 +625,6 @@ class VirtualMachine(TimestampMixin, Base):
     physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
     hypervisor_os_id: Mapped[Optional[str]] = mapped_column(ForeignKey("operating_systems.id"), index=True)
     purpose: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(50), default="active")
     description: Mapped[Optional[str]] = mapped_column(Text)
 
 class Container(TimestampMixin, Base):
