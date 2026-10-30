@@ -72,9 +72,17 @@ def _insert_device(conn) -> str:
     return dev_id
 
 
+def _status_insert(conn, table: str) -> tuple[str, str]:
+    """Колонку status удалила миграция b3f7a2c91d54: на head её нет, на более ранних ревизиях (TARGET_REVISION, откат) она обязательна."""
+    if any(row[1] == "status" for row in conn.execute(f"PRAGMA table_info({table})")):
+        return ", status", ", 'active'"
+    return "", ""
+
+
 def _insert_vm(conn) -> str:
     vm_id = _uid()
-    conn.execute("INSERT INTO virtual_machines (id, name, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)", (vm_id, f"VM-{vm_id[:8]}", _now(), _now()))
+    status_column, status_value = _status_insert(conn, "virtual_machines")
+    conn.execute(f"INSERT INTO virtual_machines (id, name{status_column}, created_at, updated_at) VALUES (?, ?{status_value}, ?, ?)", (vm_id, f"VM-{vm_id[:8]}", _now(), _now()))
     conn.commit()
     return vm_id
 
@@ -88,9 +96,10 @@ def _insert_container(conn) -> str:
 
 def _insert_is(conn) -> str:
     is_id = _uid()
+    status_column, status_value = _status_insert(conn, "information_systems")
     conn.execute(
-        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, updated_at) "
-        "VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
+        f"INSERT INTO information_systems (id, name, type{status_column}, siem_enabled, crypto_protection_enabled, created_at, updated_at) "
+        f"VALUES (?, ?, 'ИС'{status_value}, 0, 0, ?, ?)",
         (is_id, f"ИС {is_id[:8]}", _now(), _now()),
     )
     conn.commit()
