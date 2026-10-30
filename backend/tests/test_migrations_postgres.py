@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -256,6 +257,36 @@ class TestMigrationsThatMoveData:
         scratch.downgrade(_down_revision(revision))
         inspector = sa.inspect(scratch.engine)
         assert all("status" in {c["name"] for c in inspector.get_columns(table)} for table in ("physical_devices", "information_systems", "virtual_machines"))
+
+    def test_group_single_ip_moves_into_the_new_table_and_downgrade_keeps_the_first_address(self, scratch):
+        """d5a8c3e7b196: единственный IP группы портов (ip_address/prefix_length/ip_purpose) → строка interface_group_ips,
+        колонки сняты (ALTER TABLE … DROP COLUMN); адреса каскадно удаляются вместе с группой (настоящий FK); откат
+        возвращает колонки и первый адрес группы, остальные в старой схеме негде хранить."""
+        revision = "d5a8c3e7b196"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            device = insert_row(connection, "physical_devices")
+            with_ip = insert_row(connection, "interface_groups", physical_device_id=device, name="С IP", ip_address="10.0.0.5", prefix_length=24, ip_purpose="Управление")
+            without_ip = insert_row(connection, "interface_groups", physical_device_id=device, name="Без IP")
+        scratch.upgrade(revision)
+        assert not {"ip_address", "prefix_length", "ip_purpose"} & {c["name"] for c in sa.inspect(scratch.engine).get_columns("interface_groups")}
+        with scratch.engine.connect() as connection:
+            rows = connection.execute(sa.text("SELECT group_id, ip_address, prefix_length, purpose FROM interface_group_ips")).all()
+        assert [tuple(r) for r in rows] == [(with_ip, "10.0.0.5", 24, "Управление")]  # у группы без IP строк нет
+
+        with scratch.engine.begin() as connection:  # второй адрес (позже первого) и каскад
+            insert_row(connection, "interface_group_ips", group_id=with_ip, ip_address="10.0.1.5", prefix_length=24, created_at=datetime(2099, 1, 1), updated_at=datetime(2099, 1, 1))
+            extra = insert_row(connection, "interface_groups", physical_device_id=device, name="Удаляемая")
+            insert_row(connection, "interface_group_ips", group_id=extra, ip_address="10.0.2.5")
+            connection.execute(sa.text("DELETE FROM interface_groups WHERE id = :i"), {"i": extra})
+        with scratch.engine.connect() as connection:
+            assert connection.execute(sa.text("SELECT COUNT(*) FROM interface_group_ips")).scalar_one() == 2
+
+        scratch.downgrade(_down_revision(revision))
+        assert not sa.inspect(scratch.engine).has_table("interface_group_ips")
+        with scratch.engine.connect() as connection:
+            restored = {r.id: (r.ip_address, r.prefix_length, r.ip_purpose) for r in connection.execute(sa.text("SELECT id, ip_address, prefix_length, ip_purpose FROM interface_groups"))}
+        assert restored[with_ip] == ("10.0.0.5", 24, "Управление") and restored[without_ip] == (None, None, None)
 
     def test_separate_is_relations_become_unified_sources(self, scratch):
         """8c5d1f7a2b40: связи ИС с устройствами, ВМ, контейнерами и адресами → единая таблица источников, external_interaction — boolean."""

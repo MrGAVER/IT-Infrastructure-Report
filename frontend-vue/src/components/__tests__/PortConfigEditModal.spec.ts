@@ -474,8 +474,7 @@ describe('PortConfigEditModal.vue', () => {
         name: 'Магистрали',
         vlan_mode: 'trunk',
         vlan_ids: ['v10', 'v20'],
-        ip_address: null,
-        prefix_length: null,
+        ips: [],
         manage_open_ports: false,
         open_ports: [],
       },
@@ -502,8 +501,7 @@ describe('PortConfigEditModal.vue', () => {
         name: 'Магистрали',
         vlan_mode: 'trunk',
         vlan_ids: ['v10', 'v20'],
-        ip_address: null,
-        prefix_length: null,
+        ips: [],
         manage_open_ports: false,
         open_ports: [],
       },
@@ -521,17 +519,7 @@ describe('PortConfigEditModal.vue', () => {
   it('«Открыть порты устройства» для порта в группе просит родителя открыть окно портов', async () => {
     server.iface = { ...server.iface, group_id: 'g-1' }
     server.groups = [
-      {
-        id: 'g-1',
-        physical_device_id: 'dev-1',
-        name: 'Магистрали',
-        vlan_mode: 'trunk',
-        vlan_ids: [],
-        ip_address: null,
-        prefix_length: null,
-        manage_open_ports: false,
-        open_ports: [],
-      },
+      { id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [] },
     ]
     const wrapper = await openModal()
 

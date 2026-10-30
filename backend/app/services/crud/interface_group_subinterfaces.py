@@ -30,7 +30,7 @@ def _vlan_number(vlan_id: str, session: Session) -> str:
     return str(number) if number is not None else vlan_id
 
 
-def _normalize_ips(raw: Any, label: str) -> list[dict[str, Any]]:
+def normalize_ips(raw: Any, label: str) -> list[dict[str, Any]]:
     if not isinstance(raw, list): raise HTTPException(422, f'{label}: поле ips должно быть массивом')
     result: list[dict[str, Any]] = []
     for ip in raw:
@@ -86,7 +86,7 @@ def normalize_group_subinterfaces(raw: Any, *, group_name: str, vlan_mode: str |
             'id': item.get('id'), 'vlan_id': vlan_id,
             'is_management': bool(item.get('is_management')), 'is_data_transfer': bool(item.get('is_data_transfer')),
             'description': item.get('description') or None,
-            'ips': _normalize_ips(item.get('ips') or [], item_label),
+            'ips': normalize_ips(item.get('ips') or [], item_label),
             'open_ports': _normalize_open_ports(item.get('open_ports') or [], item_label, session),
         })
     return result
@@ -170,7 +170,7 @@ def group_subinterfaces_by_group(group_ids: Sequence[str], session: Session) -> 
     return result
 
 
-def _with_reused_ids(existing: list[tuple[str, Any]], wanted: list[dict[str, Any]], key: Callable[[dict[str, Any]], Any]) -> list[dict[str, Any]]:
+def with_reused_ids(existing: list[tuple[str, Any]], wanted: list[dict[str, Any]], key: Callable[[dict[str, Any]], Any]) -> list[dict[str, Any]]:
     """Строки `wanted` с id уже стоящих у подинтерфейса записей: сначала запись с тем же смыслом (key), затем лишние
     записи по порядку — сервер обновит их на месте, а не пересоздаст (id и дата создания сохраняются). Остаток existing
     без пары попадёт под удаление в sync_owner_*; строка без свободной записи создастся новой."""
@@ -201,12 +201,12 @@ def apply_group_subinterfaces(iface: DeviceInterface, templates: list[dict[str, 
         session.flush()
         kept.add(sub.id)
         current_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id == sub.id).order_by(IPAddress.created_at, IPAddress.id)).all()
-        ips = _with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current_ips], template['ips'], lambda d: (d['ip_address'], d['prefix_length']))
+        ips = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current_ips], template['ips'], lambda d: (d['ip_address'], d['prefix_length']))
         # is_management IP наследуется от подинтерфейса, как у IP подинтерфейса, заданного вручную.
         sync_owner_ip_addresses(OwnerType.DEVICE_SUBINTERFACE, sub.id, [{**ip, 'is_management': sub.is_management} for ip in ips], session,
                                 array_error='Поле ips подинтерфейса должно быть массивом', foreign_id_error='IP не принадлежит выбранному подинтерфейсу')
         current_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_SUBINTERFACE, OpenPort.owner_id == sub.id).order_by(OpenPort.created_at, OpenPort.id)).all()
-        ports = _with_reused_ids([(p.id, (p.protocol_catalog_id, p.transport_protocol)) for p in current_ports], template['open_ports'], lambda d: (d['protocol_catalog_id'], d['transport_protocol']))
+        ports = with_reused_ids([(p.id, (p.protocol_catalog_id, p.transport_protocol)) for p in current_ports], template['open_ports'], lambda d: (d['protocol_catalog_id'], d['transport_protocol']))
         sync_owner_open_ports(OwnerType.DEVICE_SUBINTERFACE, sub.id, ports, session, owner_label=f'Подинтерфейс «{sub.name}»',
                               array_error='Поле open_ports подинтерфейса должно быть массивом', foreign_id_error='Открытый порт не принадлежит выбранному подинтерфейсу')
     delete_subinterfaces([sub.id for sub in existing if sub.id not in kept], session)

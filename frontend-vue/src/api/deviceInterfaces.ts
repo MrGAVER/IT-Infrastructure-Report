@@ -119,9 +119,12 @@ function toGroupDraft(g: InterfaceGroup): InterfaceGroupDraft {
     vlan_mode: g.vlan_mode ?? '',
     vlan_ids: [...g.vlan_ids],
     all_vlans: g.all_vlans ?? false,
-    ip_address: g.ip_address ?? '',
-    prefix_length: g.prefix_length == null ? '' : String(g.prefix_length),
-    ip_purpose: g.ip_purpose ?? '',
+    ips: (g.ips ?? []).map((ip) => ({
+      id: ip.id,
+      ip_address: ip.ip_address,
+      prefix_length: ip.prefix_length == null ? '' : String(ip.prefix_length),
+      purpose: ip.purpose ?? '',
+    })),
     manage_open_ports: g.manage_open_ports,
     open_ports: g.open_ports.map((p) => ({
       id: p.id,
@@ -229,10 +232,15 @@ export async function persistDeviceInterfaces(
             // «Все VLAN» только в trunk; с признаком сервер хранит лишь его (vlan_ids игнорируется).
             all_vlans: g.vlan_mode === 'trunk' && g.all_vlans === true,
             vlan_ids: g.vlan_mode ? g.vlan_ids : [],
-            ip_address: g.ip_address.trim() || null,
-            prefix_length: g.ip_address.trim() && g.prefix_length !== '' ? Number(g.prefix_length) : null,
-            // Назначение — часть общего IP: без адреса не уходит (как и префикс).
-            ip_purpose: g.ip_address.trim() && g.ip_purpose.trim() ? g.ip_purpose.trim() : null,
+            // Общие IP группы — полный список; строка без адреса (плейсхолдер формы) не уходит.
+            ips: g.ips
+              .filter((ip) => ip.ip_address.trim())
+              .map((ip) => ({
+                id: ip.id,
+                ip_address: ip.ip_address.trim(),
+                prefix_length: ip.prefix_length !== '' ? Number(ip.prefix_length) : null,
+                purpose: ip.purpose.trim() || null,
+              })),
             manage_open_ports: g.manage_open_ports,
             open_ports: g.manage_open_ports
               ? g.open_ports

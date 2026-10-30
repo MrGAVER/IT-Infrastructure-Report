@@ -40,7 +40,7 @@ function group(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
 describe('managedFields', () => {
   it('группа управляет только заданными параметрами', () => {
     expect(managedFields(group())).toEqual({ vlan: false, ip: false, openPorts: false, subinterfaces: false })
-    expect(managedFields(group({ vlan_mode: 'trunk', ip_address: ' 10.0.0.5 ', manage_open_ports: true }))).toEqual({
+    expect(managedFields(group({ vlan_mode: 'trunk', ips: [{ ip_address: ' 10.0.0.5 ', prefix_length: '', purpose: '' }], manage_open_ports: true }))).toEqual({
       vlan: true,
       ip: true,
       openPorts: true,
@@ -56,8 +56,7 @@ describe('applyGroupToRow', () => {
     const g = group({
       vlan_mode: 'access',
       vlan_ids: ['v10'],
-      ip_address: '10.0.0.5',
-      prefix_length: '24',
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }],
       manage_open_ports: true,
       open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }],
     })
@@ -84,9 +83,7 @@ describe('applyGroupToRow', () => {
       open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'старое' }],
     })
     const g = group({
-      ip_address: '10.0.0.5',
-      prefix_length: '24',
-      ip_purpose: 'Администрирование',
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' }],
       manage_open_ports: true,
       open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'новое' }],
     })
@@ -119,8 +116,8 @@ describe('applyGroupToRow', () => {
 
 describe('applyGroupsToRows / setGroupMembers / memberIndices', () => {
   it('применяет группу только к её портам; порт переходит между группами, исключённый остаётся без группы', () => {
-    const g1 = group({ key: 'g1', ip_address: '10.0.0.1' })
-    const g2 = group({ key: 'g2', name: 'Вторая', ip_address: '10.0.0.2' })
+    const g1 = group({ key: 'g1', ips: [{ ip_address: '10.0.0.1', prefix_length: '', purpose: '' }] })
+    const g2 = group({ key: 'g2', name: 'Вторая', ips: [{ ip_address: '10.0.0.2', prefix_length: '', purpose: '' }] })
     let rows = [row('a', { group_key: 'g1' }), row('b'), row('c', { group_key: 'g2' })]
 
     rows = setGroupMembers(rows, 'g1', new Set([0, 2]))
@@ -150,12 +147,12 @@ describe('eraseGroupValues', () => {
       open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }],
     })
 
-    const onlyIp = eraseGroupValues(full, group({ ip_address: '1.1.1.1' }))
+    const onlyIp = eraseGroupValues(full, group({ ips: [{ ip_address: '1.1.1.1', prefix_length: '', purpose: '' }] }))
     expect(onlyIp.ips).toEqual([])
     expect(onlyIp.vlan_ids).toEqual(['v1'])
     expect(onlyIp.open_ports).toHaveLength(1)
 
-    const all = eraseGroupValues(full, group({ vlan_mode: 'trunk', ip_address: '1.1.1.1', manage_open_ports: true }))
+    const all = eraseGroupValues(full, group({ vlan_mode: 'trunk', ips: [{ ip_address: '1.1.1.1', prefix_length: '', purpose: '' }], manage_open_ports: true }))
     expect(all).toMatchObject({ vlan_mode: 'access', vlan_ids: [], ips: [], open_ports: [] })
   })
 })
@@ -168,8 +165,7 @@ describe('describeGroup', () => {
     const g = group({
       vlan_mode: 'access',
       vlan_ids: ['10'],
-      ip_address: '10.0.0.5',
-      prefix_length: '24',
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }],
       manage_open_ports: true,
       open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }],
     })
@@ -183,15 +179,34 @@ describe('describeGroup', () => {
 
 describe('validateInterfaceGroups', () => {
   it('принимает корректные группы', () => {
-    expect(validateInterfaceGroups([group({ ip_address: '10.0.0.5', prefix_length: '24' })])).toBeNull()
+    expect(validateInterfaceGroups([group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })])).toBeNull()
   })
 
   it.each([
     [{ name: '  ' }, 'наименование'],
     [{ vlan_mode: 'access', vlan_ids: ['a', 'b'] } as Partial<InterfaceGroupDraft>, 'access'],
-    [{ ip_address: '999.1.1.1' }, 'IP-адрес'],
-    [{ ip_address: '10.0.0.1', prefix_length: '40' }, 'префикс'],
-  ])('отклоняет некорректную группу %j', (patch, fragment) => {
+    [{ ips: [{ ip_address: '999.1.1.1', prefix_length: '', purpose: '' }] }, 'IP-адрес'],
+    [{ ips: [{ ip_address: '10.0.0.1', prefix_length: '40', purpose: '' }] }, 'префикс'],
+    [
+      {
+        ips: [
+          { ip_address: '10.0.0.1', prefix_length: '24', purpose: '' },
+          { ip_address: '10.0.0.2', prefix_length: '', purpose: '' },
+          { ip_address: '10.0.0.3x', prefix_length: '', purpose: '' },
+        ],
+      },
+      '10.0.0.3x',
+    ],
+    [
+      {
+        ips: [
+          { ip_address: '10.0.0.1', prefix_length: '24', purpose: '' },
+          { ip_address: ' 10.0.0.1 ', prefix_length: '16', purpose: '' },
+        ],
+      },
+      'несколько раз',
+    ],
+  ] as [Partial<InterfaceGroupDraft>, string][])('отклоняет некорректную группу %j', (patch, fragment) => {
     const error = validateInterfaceGroups([group(patch)])
     expect(error?.toLowerCase()).toContain(fragment.toLowerCase())
   })
@@ -273,28 +288,37 @@ describe('copyableFields / copyValuesFromRow — копирование знач
     ).toEqual({ vlan: false, ip: false, openPorts: false, subinterfaces: false })
   })
 
-  it('копирует режим, VLAN, первый IP и открытые порты в черновик группы без id строк порта', () => {
+  it('копирует режим, VLAN, IP и открытые порты в черновик группы без id строк порта', () => {
     const result = copyValuesFromRow(group(), full(), all)
 
-    expect(result).toMatchObject({ vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: true })
+    expect(result).toMatchObject({
+      vlan_mode: 'trunk',
+      vlan_ids: ['v10', 'v20'],
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Управление' }],
+      manage_open_ports: true,
+    })
     expect(result.open_ports).toEqual([{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }])
     expect('id' in result.open_ports[0]).toBe(false)
   })
 
   it('копирует только отмеченное, остальные параметры группы не трогает', () => {
-    const base = group({ vlan_mode: 'access', vlan_ids: ['v99'], ip_address: '1.1.1.1', prefix_length: '8' })
+    const base = group({ vlan_mode: 'access', vlan_ids: ['v99'], ips: [{ ip_address: '1.1.1.1', prefix_length: '8', purpose: '' }] })
 
     const onlyIp = copyValuesFromRow(base, full(), { vlan: false, ip: true, openPorts: false, subinterfaces: false })
 
-    expect(onlyIp).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v99'], ip_address: '10.0.0.5', prefix_length: '24', manage_open_ports: false })
+    expect(onlyIp).toMatchObject({
+      vlan_mode: 'access',
+      vlan_ids: ['v99'],
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Управление' }],
+      manage_open_ports: false,
+    })
   })
 
   it('отмеченное, но отсутствующее на порту, не копируется — пустое значение не стирает параметры группы', () => {
     const base = group({
       vlan_mode: 'access',
       vlan_ids: ['v99'],
-      ip_address: '1.1.1.1',
-      prefix_length: '8',
+      ips: [{ ip_address: '1.1.1.1', prefix_length: '8', purpose: '' }],
       manage_open_ports: true,
       open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }],
     })
@@ -312,7 +336,7 @@ describe('copyableFields / copyValuesFromRow — копирование знач
     expect(trunk.vlan_ids).toEqual(['v10'])
   })
 
-  it('у порта с несколькими IP берётся первый непустой', () => {
+  it('у порта с несколькими IP копируются все непустые, пустые строки пропускаются', () => {
     const source = row('a', {
       ips: [
         { ip_address: '', prefix_length: '', purpose: '' },
@@ -320,7 +344,10 @@ describe('copyableFields / copyValuesFromRow — копирование знач
         { ip_address: '10.0.0.8', prefix_length: '26', purpose: '' },
       ],
     })
-    expect(copyValuesFromRow(group(), source, all)).toMatchObject({ ip_address: '10.0.0.7', prefix_length: '25' })
+    expect(copyValuesFromRow(group(), source, all).ips).toEqual([
+      { ip_address: '10.0.0.7', prefix_length: '25', purpose: '' },
+      { ip_address: '10.0.0.8', prefix_length: '26', purpose: '' },
+    ])
   })
 })
 
@@ -328,7 +355,7 @@ describe('назначение общего IP-адреса группы', () =>
   const ipRow = (purpose = '') => row('Gi0/1', { ips: [{ id: 'ip-1', ip_address: '1.1.1.1', prefix_length: '8', purpose }] })
 
   it('applyGroupToRow записывает назначение группы в IP порта, перекрывая назначение порта', () => {
-    const g = group({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: ' Администрирование ' })
+    const g = group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: ' Администрирование ' }] })
 
     const result = applyGroupToRow(ipRow('Своё'), g)
 
@@ -336,7 +363,7 @@ describe('назначение общего IP-адреса группы', () =>
   })
 
   it('applyGroupToRow: пустое назначение группы очищает назначение IP порта — как адрес и префикс, оно управляется безусловно', () => {
-    const g = group({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: '' })
+    const g = group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] })
 
     expect(applyGroupToRow(ipRow('Своё'), g).ips[0]).toMatchObject({ ip_address: '10.0.0.5', purpose: '' })
     expect(applyGroupToRow(row('Gi0/2'), g).ips[0].purpose).toBe('')
@@ -345,28 +372,29 @@ describe('назначение общего IP-адреса группы', () =>
   it('applyGroupToRow: группа без IP не трогает IP порта и его назначение', () => {
     const own = ipRow('Своё')
 
-    expect(applyGroupToRow(own, group({ ip_address: '', ip_purpose: 'Администрирование' }))).toEqual(own)
+    expect(applyGroupToRow(own, group({ ips: [{ ip_address: '', prefix_length: '', purpose: 'Администрирование' }] }))).toEqual(own)
   })
 
   it('copyValuesFromRow копирует назначение вместе с адресом и префиксом (у порта с пустым назначением — пустое)', () => {
     const ips = [{ ip_address: ' 10.0.0.7 ', prefix_length: '25', purpose: ' Резерв ' }]
-    const withPurpose = copyValuesFromRow(group({ ip_purpose: 'Старое' }), row('a', { ips }), { vlan: false, ip: true, openPorts: false, subinterfaces: false })
-    expect(withPurpose).toMatchObject({ ip_address: '10.0.0.7', prefix_length: '25', ip_purpose: 'Резерв' })
+    const old = group({ ips: [{ ip_address: '1.1.1.1', prefix_length: '', purpose: 'Старое' }] })
+    const withPurpose = copyValuesFromRow(old, row('a', { ips }), { vlan: false, ip: true, openPorts: false, subinterfaces: false })
+    expect(withPurpose.ips).toEqual([{ ip_address: '10.0.0.7', prefix_length: '25', purpose: 'Резерв' }])
 
-    const without = copyValuesFromRow(group({ ip_purpose: 'Старое' }), row('b', { ips: [{ ip_address: '10.0.0.8', prefix_length: '24', purpose: '' }] }), {
+    const without = copyValuesFromRow(old, row('b', { ips: [{ ip_address: '10.0.0.8', prefix_length: '24', purpose: '' }] }), {
       vlan: false,
       ip: true,
       openPorts: false,
       subinterfaces: false,
     })
-    expect(without.ip_purpose).toBe('')
+    expect(without.ips[0].purpose).toBe('')
   })
 
   it('copyValuesFromRow: без отметки «IP-адрес» назначение группы не трогается', () => {
-    const base = group({ ip_address: '1.1.1.1', ip_purpose: 'Старое' })
+    const base = group({ ips: [{ ip_address: '1.1.1.1', prefix_length: '', purpose: 'Старое' }] })
     const source = row('a', { ips: [{ ip_address: '10.0.0.7', prefix_length: '25', purpose: 'Новое' }], vlan_ids: ['v1'], vlan_mode: 'trunk' })
 
-    expect(copyValuesFromRow(base, source, { vlan: true, ip: false, openPorts: false, subinterfaces: false }).ip_purpose).toBe('Старое')
+    expect(copyValuesFromRow(base, source, { vlan: true, ip: false, openPorts: false, subinterfaces: false }).ips).toEqual(base.ips)
   })
 
   it('describeGroup показывает назначение рядом с IP', () => {
@@ -376,14 +404,14 @@ describe('назначение общего IP-адреса группы', () =>
         (id) => id,
         (id) => id,
       )
-    expect(label(group({ ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'Администрирование' }))).toBe('IP 10.0.0.5/24 (Администрирование)')
-    expect(label(group({ ip_address: '10.0.0.5', prefix_length: '24' }))).toBe('IP 10.0.0.5/24')
+    expect(label(group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' }] }))).toBe('IP 10.0.0.5/24 (Администрирование)')
+    expect(label(group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }] }))).toBe('IP 10.0.0.5/24')
   })
 
   it('emptyGroup и cloneGroupsForCopy: назначение пустое по умолчанию и сохраняется при копировании устройства', () => {
-    expect(emptyGroup().ip_purpose).toBe('')
-    const { groups } = cloneGroupsForCopy([group({ ip_address: '10.0.0.5', ip_purpose: 'Администрирование' })], [])
-    expect(groups[0].ip_purpose).toBe('Администрирование')
+    expect(emptyGroup().ips).toEqual([])
+    const { groups } = cloneGroupsForCopy([group({ ips: [{ ip_address: '10.0.0.5', prefix_length: '', purpose: 'Администрирование' }] })], [])
+    expect(groups[0].ips[0].purpose).toBe('Администрирование')
   })
 })
 
@@ -704,5 +732,108 @@ describe('подинтерфейсы группы портов', () => {
       )
       expect(validateInterfaceGroups([managing([tpl({ vlan_id: 'v99' })], { vlan_ids: [], all_vlans: true })])).toBeNull()
     })
+  })
+})
+
+describe('несколько общих IP-адресов группы', () => {
+  const ip = (ip_address: string, prefix_length = '24', purpose = '') => ({ ip_address, prefix_length, purpose })
+  const two = [ip('10.0.0.5', '24', 'Управление'), ip('10.0.1.5', '24', 'Данные')]
+
+  it('managedFields: группа управляет IP, пока есть хотя бы один адрес; строки-плейсхолдеры без адреса не в счёт', () => {
+    expect(managedFields(group({ ips: two })).ip).toBe(true)
+    expect(managedFields(group({ ips: [ip('', '24', 'Назначение')] })).ip).toBe(false)
+    expect(managedFields(group({ ips: [ip('  '), ip(' 10.0.0.5 ')] })).ip).toBe(true)
+  })
+
+  it('applyGroupToRow записывает в порт ВСЕ IP группы, а собственные IP порта заменяются', () => {
+    const own = row('Gi0/1', { ips: [{ id: 'own-1', ...ip('192.168.1.9', '24', 'Своё') }] })
+
+    const result = applyGroupToRow(own, group({ ips: two }))
+
+    expect(result.ips.map(({ ip_address, purpose }) => [ip_address, purpose])).toEqual([
+      ['10.0.0.5', 'Управление'],
+      ['10.0.1.5', 'Данные'],
+    ])
+  })
+
+  it('applyGroupToRow не пересоздаёт записи: совпавший адрес и префикс сохраняют id, лишняя запись порта переиспользуется, остаток удаляется', () => {
+    const port = row('Gi0/1', {
+      ips: [
+        { id: 'a', ...ip('10.0.1.5') },
+        { id: 'b', ...ip('192.168.1.9') },
+        { id: 'c', ...ip('172.16.0.1') },
+      ],
+    })
+
+    const result = applyGroupToRow(port, group({ ips: two }))
+
+    expect(result.ips.map((x) => [x.id, x.ip_address])).toEqual([
+      ['b', '10.0.0.5'],
+      ['a', '10.0.1.5'],
+    ]) // 10.0.1.5 — по смыслу, 10.0.0.5 — под лишнюю запись; 'c' удалена
+  })
+
+  it('applyGroupToRow: группа без адресов IP порта не трогает (в том числе при заполненном назначении плейсхолдера)', () => {
+    const own = row('Gi0/1', { ips: [{ id: 'own-1', ...ip('192.168.1.9') }] })
+
+    expect(applyGroupToRow(own, group({ ips: [ip('', '', 'Назначение')] }))).toEqual(own)
+  })
+
+  it('eraseGroupValues стирает все IP порта, пока группа ими управляла', () => {
+    const port = row('Gi0/1', {
+      ips: [
+        { id: 'a', ...ip('10.0.0.5') },
+        { id: 'b', ...ip('10.0.1.5') },
+      ],
+    })
+
+    expect(eraseGroupValues(port, group({ ips: two })).ips).toEqual([])
+  })
+
+  it('copyValuesFromRow копирует все непустые IP порта без id; повторы адреса схлопываются, пустые строки пропускаются', () => {
+    const source = row('a', {
+      ips: [
+        { id: 'x', ...ip(' 10.0.0.7 ', '25', ' Резерв ') },
+        { id: 'y', ...ip('') },
+        { id: 'z', ...ip('10.0.1.7', '24') },
+        { id: 'w', ...ip('10.0.0.7', '16') },
+      ],
+    })
+
+    const result = copyValuesFromRow(group({ ips: [ip('1.1.1.1', '8')] }), source, { vlan: false, ip: true, openPorts: false, subinterfaces: false })
+
+    expect(result.ips).toEqual([ip('10.0.0.7', '25', 'Резерв'), ip('10.0.1.7', '24')])
+  })
+
+  it('describeGroup перечисляет все IP группы с префиксом и назначением', () => {
+    const label = (g: InterfaceGroupDraft) =>
+      describeGroup(
+        g,
+        (id) => id,
+        (id) => id,
+      )
+
+    expect(label(group({ ips: [...two, ip('10.0.2.5', '')] }))).toBe('IP 10.0.0.5/24 (Управление), 10.0.1.5/24 (Данные), 10.0.2.5')
+    expect(label(group({ ips: [ip('')] }))).toBe('Параметры не заданы')
+  })
+
+  it('validateInterfaceGroups: адрес, повторяющийся в группе (с другим префиксом тоже), отклоняется; одинаковые адреса в разных группах допустимы', () => {
+    const dup = group({ ips: [ip('10.0.0.5', '24'), ip(' 10.0.0.5 ', '16')] })
+
+    expect(validateInterfaceGroups([dup])).toBe('В группе «Серверные» IP-адрес «10.0.0.5» указан несколько раз.')
+    expect(validateInterfaceGroups([group({ key: 'a', name: 'А', ips: two }), group({ key: 'b', name: 'Б', ips: two })])).toBeNull()
+  })
+
+  it('validateInterfaceGroups: ошибка указывает на конкретный адрес, а не на первый в списке', () => {
+    expect(validateInterfaceGroups([group({ ips: [ip('10.0.0.5'), ip('10.0.0.6', '33')] })])).toContain('«10.0.0.6»')
+  })
+
+  it('cloneGroupsForCopy копирует общие IP без id, не разделяя строки с исходной группой', () => {
+    const source = group({ ips: [{ id: 'gip-1', ...ip('10.0.0.5', '24', 'Управление') }] })
+
+    const { groups } = cloneGroupsForCopy([source], [])
+
+    expect(groups[0].ips).toEqual([{ id: undefined, ...ip('10.0.0.5', '24', 'Управление') }])
+    expect(groups[0].ips[0]).not.toBe(source.ips[0])
   })
 })

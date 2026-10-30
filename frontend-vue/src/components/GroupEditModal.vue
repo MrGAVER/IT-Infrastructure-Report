@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Окно создания/правки группы портов (InterfaceGroupsPanel.vue): наименование, состав группы и общие параметры — режим порта
-// и VLAN, общий IP-адрес (с префиксом и назначением), открытые порты и подинтерфейсы (правка формы устройства, п.4).
+// и VLAN, общие IP-адреса (с префиксом и назначением), открытые порты и подинтерфейсы (правка формы устройства, п.4).
 //
 // Окно работает с собственной копией группы и ничего не применяет: «Создать группу»/«Применить» отдаёт родителю событие
 // save с черновиком и составом, закрытие — событие close. Окно создаётся заново при каждом открытии, поэтому состояние
@@ -19,6 +19,7 @@ import {
 } from '../utils/groupDraftEdit'
 import { vlanLabel } from '../utils/vlan'
 import GroupCopyBlock from './GroupCopyBlock.vue'
+import GroupIpListEditor from './GroupIpListEditor.vue'
 import GroupVlanPickerModal from './GroupVlanPickerModal.vue'
 import InterfaceSubinterfacesEditor from './InterfaceSubinterfacesEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
@@ -161,34 +162,13 @@ function setDraftSubinterfaces(rows: SubinterfaceDraftRow[]) {
 
           <div class="param">
             <div class="param-head">
-              <b>Общий IP-адрес</b
+              <b>Общие IP-адреса</b
               ><span class="hint"
-                >один адрес, префикс и назначение на все порты группы; заменят IP-адреса этих портов (пустое назначение очистит назначение у портов)</span
+                >один или несколько адресов (префикс и назначение у каждого) на все порты группы; заменят IP-адреса этих портов (пустое назначение очистит
+                назначение у портов)</span
               >
             </div>
-            <div class="ip-row">
-              <input v-model="draft.ip_address" type="text" placeholder="IP-адрес (пусто — не задавать)" aria-label="Общий IP-адрес группы" />
-              <!-- Не v-model: на type="number" он записал бы в черновик число, а prefix_length везде в форме —
-                   строка (как у IP порта), и валидатор префикса вызывает у значения строковые методы. -->
-              <input
-                :value="draft.prefix_length"
-                type="number"
-                min="0"
-                max="32"
-                placeholder="Префикс"
-                aria-label="Префикс общего IP-адреса"
-                @input="draft = { ...draft, prefix_length: ($event.target as HTMLInputElement).value }"
-              />
-              <input
-                v-model="draft.ip_purpose"
-                type="text"
-                maxlength="255"
-                placeholder="Назначение"
-                aria-label="Назначение общего IP-адреса группы"
-                :disabled="!draft.ip_address.trim()"
-                :title="draft.ip_address.trim() ? undefined : 'Сначала укажите общий IP-адрес'"
-              />
-            </div>
+            <GroupIpListEditor v-model="draft.ips" />
           </div>
 
           <div class="param ports-param">
@@ -363,17 +343,5 @@ function setDraftSubinterfaces(rows: SubinterfaceDraftRow[]) {
 }
 .vlan-picker-btn {
   white-space: nowrap;
-}
-
-.ip-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr);
-  gap: 8px;
-}
-
-@media (max-width: 520px) {
-  .ip-row {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

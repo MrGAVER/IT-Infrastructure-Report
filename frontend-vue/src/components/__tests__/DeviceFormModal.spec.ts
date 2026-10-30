@@ -487,8 +487,7 @@ describe('DeviceFormModal.vue', () => {
       name: 'Серверные',
       vlan_mode: null,
       vlan_ids: [],
-      ip_address: '10.0.0.5',
-      prefix_length: 24,
+      ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: null }],
       manage_open_ports: false,
       open_ports: [],
     }
@@ -566,7 +565,13 @@ describe('DeviceFormModal.vue', () => {
       const put = calls.find((c) => c.method === 'PUT' && c.url.includes('/devices/dev-g/interfaces'))
       const body = put?.body as { groups: Array<Record<string, unknown>>; interfaces: Array<{ name: string; group_key: string | null }> }
       expect(body.groups).toEqual([
-        expect.objectContaining({ id: 'g-1', key: 'g-1', name: 'Серверные', ip_address: '10.0.0.5', prefix_length: 24, vlan_mode: null }),
+        expect.objectContaining({
+          id: 'g-1',
+          key: 'g-1',
+          name: 'Серверные',
+          ips: [expect.objectContaining({ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24 })],
+          vlan_mode: null,
+        }),
       ])
       expect(body.interfaces.map((i) => [i.name, i.group_key])).toEqual([
         ['Gi0/1', 'g-1'],
@@ -2128,9 +2133,7 @@ describe('DeviceFormModal.vue', () => {
         vlan_mode: 'trunk',
         all_vlans: allVlans,
         vlan_ids: opts.groupVlanIds ?? ['v-old'],
-        ip_address: null,
-        prefix_length: null,
-        ip_purpose: null,
+        ips: [],
         manage_open_ports: false,
         open_ports: [],
       }

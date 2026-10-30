@@ -116,37 +116,53 @@ class TestAllVlans:
         assert result["all_vlans"] is False and result["vlan_ids"] == ["v10"]
 
 
-class TestIpAddress:
-    def test_invalid_address_and_prefix_are_rejected(self, db_session):
-        assert "IP-адрес группы портов" in _rejected(db_session, {"name": "Г", "ip_address": "999.1.1.1"})
-        assert "Префикс IP-адреса группы портов" in _rejected(db_session, {"name": "Г", "ip_address": "10.0.0.1", "prefix_length": 33})
-        assert "Префикс IP-адреса группы портов" in _rejected(db_session, {"name": "Г", "ip_address": "10.0.0.1", "prefix_length": "abc"})
+class TestIps:
+    """Общие IP группы — список ips (адрес, префикс, назначение); проверки — services/crud/interface_groups.py:_group_ips."""
 
-    def test_invalid_prefix_is_rejected_even_without_address(self, db_session):
-        assert "Префикс IP-адреса группы портов" in _rejected(db_session, {"name": "Г", "prefix_length": 99})
+    @staticmethod
+    def _ips(db_session, *ips, **extra):
+        return _normalize(db_session, {"name": "Г", "ips": list(ips), **extra})["ips"]
 
-    @pytest.mark.parametrize(("ip", "prefix", "expected"), [
-        ("10.0.0.1", "24", 24), ("10.0.0.1", 0, 0), ("10.0.0.1", "", None), ("10.0.0.1", None, None),
-        (None, 24, None), ("", 24, None), ("   ", "24", None),
-    ])
-    def test_prefix_is_stored_only_together_with_an_address(self, db_session, ip, prefix, expected):
-        assert _normalize(db_session, {"name": "Г", "ip_address": ip, "prefix_length": prefix})["prefix_length"] == expected
+    def test_invalid_address_and_prefix_are_rejected_with_group_name_in_message(self, db_session):
+        assert "Группа портов «Г»: IP-адрес" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "999.1.1.1"}]})
+        assert "Группа портов «Г»: префикс IP-адреса" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 33}]})
+        assert "Группа портов «Г»: префикс IP-адреса" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": "abc"}]})
 
-    def test_address_is_stripped_and_empty_becomes_none(self, db_session):
-        assert _normalize(db_session, {"name": "Г", "ip_address": " 10.0.0.1 "})["ip_address"] == "10.0.0.1"
-        assert _normalize(db_session, {"name": "Г", "ip_address": "  "})["ip_address"] is None
+    def test_every_row_is_checked_not_only_the_first(self, db_session):
+        assert "IP-адрес" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1"}, {"ip_address": "bad"}]})
 
-    def test_purpose_is_part_of_the_ip_and_not_stored_without_it(self, db_session):
-        assert _normalize(db_session, {"name": "Г", "ip_address": "10.0.0.1", "ip_purpose": "  шлюз "})["ip_purpose"] == "шлюз"
-        assert _normalize(db_session, {"name": "Г", "ip_purpose": "шлюз"})["ip_purpose"] is None
-        assert _normalize(db_session, {"name": "Г", "ip_address": "10.0.0.1", "ip_purpose": "  "})["ip_purpose"] is None
+    def test_ips_must_be_a_list_of_objects(self, db_session):
+        assert "поле ips должно быть массивом" in _rejected(db_session, {"name": "Г", "ips": "10.0.0.1"})
+        assert "каждый IP-адрес должен быть объектом" in _rejected(db_session, {"name": "Г", "ips": ["10.0.0.1"]})
+
+    @pytest.mark.parametrize(("prefix", "expected"), [("24", 24), (0, 0), ("", None), (None, None), (32, 32)])
+    def test_prefix_is_normalized_to_int_or_none(self, db_session, prefix, expected):
+        assert self._ips(db_session, {"ip_address": "10.0.0.1", "prefix_length": prefix})[0]["prefix_length"] == expected
+
+    def test_address_is_stripped_and_placeholder_rows_are_dropped(self, db_session):
+        assert [ip["ip_address"] for ip in self._ips(db_session, {"ip_address": " 10.0.0.1 "}, {"ip_address": "  "}, {"prefix_length": 24, "purpose": "x"})] == ["10.0.0.1"]
+
+    def test_group_without_addresses_has_an_empty_list(self, db_session):
+        assert self._ips(db_session, {"ip_address": "", "prefix_length": 99}) == []  # префикс без адреса — плейсхолдер, не проверяется
+        assert _normalize(db_session, {"name": "Г"})["ips"] == []
+
+    def test_several_addresses_keep_payload_order_and_row_ids(self, db_session):
+        ips = self._ips(db_session, {"id": "r2", "ip_address": "10.0.0.9"}, {"ip_address": "10.0.0.1"})
+        assert [(ip["id"], ip["ip_address"]) for ip in ips] == [("r2", "10.0.0.9"), (None, "10.0.0.1")]
+
+    def test_repeated_address_is_rejected_even_with_different_prefix(self, db_session):
+        assert _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": " 10.0.0.1 ", "prefix_length": 16}]}) == "Группа портов «Г»: IP-адреса не должны повторяться"
+
+    def test_purpose_is_stripped_and_blank_becomes_none(self, db_session):
+        ips = self._ips(db_session, {"ip_address": "10.0.0.1", "purpose": "  шлюз "}, {"ip_address": "10.0.0.2", "purpose": "  "}, {"ip_address": "10.0.0.3"})
+        assert [ip["purpose"] for ip in ips] == ["шлюз", None, None]
 
     def test_purpose_is_limited_to_255_characters(self, db_session):
-        assert len(_normalize(db_session, {"name": "Г", "ip_address": "10.0.0.1", "ip_purpose": "н" * 255})["ip_purpose"]) == 255
-        assert _rejected(db_session, {"name": "Г", "ip_address": "10.0.0.1", "ip_purpose": "н" * 256}) == "Назначение IP-адреса группы портов не должно превышать 255 символов"
+        assert len(self._ips(db_session, {"ip_address": "10.0.0.1", "purpose": "н" * 255})[0]["purpose"]) == 255
+        assert _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "purpose": "н" * 256}]}) == "Группа портов «Г»: назначение IP-адреса не должно превышать 255 символов"
 
     def test_overlong_purpose_is_ignored_without_an_address(self, db_session):
-        assert _normalize(db_session, {"name": "Г", "ip_purpose": "н" * 300})["ip_purpose"] is None
+        assert self._ips(db_session, {"purpose": "н" * 300}) == []
 
 
 class TestOpenPorts:
@@ -226,20 +242,19 @@ class TestResultShape:
     def test_full_item_is_normalized_to_column_values(self, client, db_session):
         http = _catalog_entry(client, 80)
         result = _normalize(db_session, {
-            "name": " Магистраль ", "vlan_mode": "trunk", "vlan_ids": ["v20", "v10", "v20"], "ip_address": "10.1.1.1", "prefix_length": "24",
-            "ip_purpose": "управление", "manage_open_ports": 1, "open_ports": [{"protocol_catalog_id": http["id"]}], "manage_subinterfaces": 0,
+            "name": " Магистраль ", "vlan_mode": "trunk", "vlan_ids": ["v20", "v10", "v20"], "ips": [{"ip_address": "10.1.1.1", "prefix_length": "24", "purpose": "управление"}], "manage_open_ports": 1, "open_ports": [{"protocol_catalog_id": http["id"]}], "manage_subinterfaces": 0,
         })
         assert result == {
-            "name": "Магистраль", "vlan_mode": "trunk", "all_vlans": False, "vlan_ids": ["v20", "v10"], "ip_address": "10.1.1.1", "prefix_length": 24,
-            "ip_purpose": "управление", "manage_open_ports": True,
+            "name": "Магистраль", "vlan_mode": "trunk", "all_vlans": False, "vlan_ids": ["v20", "v10"],
+            "ips": [{"id": None, "ip_address": "10.1.1.1", "prefix_length": 24, "purpose": "управление"}], "manage_open_ports": True,
             "open_ports": [{"id": None, "protocol_catalog_id": http["id"], "transport_protocol": "TCP", "description": None}],
             "manage_subinterfaces": False, "subinterfaces": [],
         }
 
     def test_minimal_item_leaves_every_parameter_unmanaged(self, db_session):
         assert _normalize(db_session, {"name": "Г"}) == {
-            "name": "Г", "vlan_mode": None, "all_vlans": False, "vlan_ids": [], "ip_address": None, "prefix_length": None,
-            "ip_purpose": None, "manage_open_ports": False, "open_ports": [], "manage_subinterfaces": False, "subinterfaces": [],
+            "name": "Г", "vlan_mode": None, "all_vlans": False, "vlan_ids": [], "ips": [],
+            "manage_open_ports": False, "open_ports": [], "manage_subinterfaces": False, "subinterfaces": [],
         }
 
 
@@ -253,11 +268,11 @@ class TestCheckOrder:
         ({"name": "Г", "vlan_ids": ["v10"], "all_vlans": "yes"}, "all_vlans группы портов должно быть true или false"),
         ({"name": "Г", "vlan_ids": ["чужой"], "all_vlans": True}, "«Все VLAN»"),
         ({"name": "Г", "vlan_ids": ["чужой"]}, "только вместе с режимом порта"),
-        ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["чужой", "v10"], "ip_address": "bad"}, "не разрешены для типа данного устройства"),
-        ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v20"], "ip_address": "bad"}, "не более одного VLAN"),
-        ({"name": "Г", "ip_address": "bad", "prefix_length": 99, "open_ports": "x"}, "IP-адрес группы портов"),
-        ({"name": "Г", "ip_address": "10.0.0.1", "prefix_length": 99, "open_ports": "x"}, "Префикс IP-адреса группы портов"),
-        ({"name": "Г", "ip_address": "10.0.0.1", "ip_purpose": "н" * 256, "open_ports": "x"}, "Назначение IP-адреса группы портов"),
+        ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["чужой", "v10"], "ips": [{"ip_address": "bad"}]}, "не разрешены для типа данного устройства"),
+        ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v20"], "ips": [{"ip_address": "bad"}]}, "не более одного VLAN"),
+        ({"name": "Г", "ips": [{"ip_address": "bad", "prefix_length": 99}], "open_ports": "x"}, "IP-адрес"),
+        ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 99}], "open_ports": "x"}, "префикс IP-адреса"),
+        ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "purpose": "н" * 256}], "open_ports": "x"}, "назначение IP-адреса"),
         ({"name": "Г", "open_ports": "x", "manage_subinterfaces": True, "subinterfaces": "y"}, "open_ports группы портов должно быть массивом"),
     ])
     def test_first_violated_rule_wins(self, db_session, item, fragment):

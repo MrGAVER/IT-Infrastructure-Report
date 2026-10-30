@@ -590,9 +590,9 @@ export interface InterfaceDraftRow {
 
 /** Черновик группы портов устройства (backend models.InterfaceGroup): параметры, заданные один
  * раз и применяемые ко всем портам группы. Параметр «управляется» группой только если задан:
- * vlan_mode !== '' — режим порта и VLAN; ip_address !== '' — общий IP (один адрес на все порты);
- * ip_purpose !== '' (при заданном IP) — назначение этого IP; manage_open_ports — полный список
- * открытых портов. Незаданные параметры порты хранят свои. */
+ * vlan_mode !== '' — режим порта и VLAN; ips с непустым адресом — общие IP (один или несколько
+ * адресов, у каждого префикс и назначение; на все порты группы записывается ПОЛНЫЙ список); manage_open_ports —
+ * полный список открытых портов. Незаданные параметры порты хранят свои. */
 export interface InterfaceGroupDraft {
   id?: string
   /** Сохранённая группа: её id. Новая: временный ключ (utils/interfaceGroups.ts:newGroupKey) —
@@ -604,10 +604,9 @@ export interface InterfaceGroupDraft {
   /** «Все VLAN» группы (только trunk) — тот же признак, что у порта (InterfaceDraftRow.all_vlans): сервер хранит
    * только его, а порты группы получают такой же признак. Не задано = false. */
   all_vlans?: boolean
-  ip_address: string
-  prefix_length: string
-  /** Назначение общего IP («Назначение» рядом с «IP-адрес» и «Префикс»); хранится, только пока задан ip_address. */
-  ip_purpose: string
+  /** Общие IP-адреса группы: адрес, префикс и назначение каждого (как «IP-адреса интерфейса» порта). Строка без адреса
+   * — пустой плейсхолдер формы: не хранится и не задаёт управление IP. Не повторяются в пределах группы. */
+  ips: InterfaceIpDraftRow[]
   manage_open_ports: boolean
   open_ports: OpenPortDraftRow[]
   /** Группа задаёт полный список подинтерфейсов своих портов (как manage_open_ports — открытых портов): каждому порту
@@ -627,9 +626,7 @@ export interface InterfaceGroup {
   vlan_ids: string[]
   /** «Все VLAN» группы: при признаке vlan_ids — все VLAN устройства (вычисляются сервером, связей у группы нет). */
   all_vlans?: boolean
-  ip_address: string | null
-  prefix_length: number | null
-  ip_purpose: string | null
+  ips: { id: string; ip_address: string; prefix_length: number | null; purpose: string | null }[]
   manage_open_ports: boolean
   open_ports: { id: string; protocol_catalog_id: string; transport_protocol: string; description: string | null }[]
   manage_subinterfaces?: boolean

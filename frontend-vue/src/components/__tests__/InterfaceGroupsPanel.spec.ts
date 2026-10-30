@@ -38,9 +38,7 @@ function savedGroup(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDra
     name: 'Серверные',
     vlan_mode: '',
     vlan_ids: [],
-    ip_address: '10.0.0.5',
-    prefix_length: '24',
-    ip_purpose: '',
+    ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }],
     manage_open_ports: false,
     open_ports: [],
     ...patch,
@@ -88,7 +86,12 @@ describe('InterfaceGroupsPanel.vue', () => {
 
     const { rows, groups } = lastChange(wrapper)
     expect(groups).toHaveLength(1)
-    expect(groups[0]).toMatchObject({ name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: '24' })
+    expect(groups[0]).toMatchObject({
+      name: 'Серверные',
+      vlan_mode: 'access',
+      vlan_ids: ['v10'],
+      ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: '' }],
+    })
     const key = groups[0].key
     expect(rows.map((r) => r.group_key ?? '')).toEqual([key, key, ''])
     expect(rows[0]).toMatchObject({ vlan_mode: 'access', vlan_ids: ['v10'] })
@@ -126,7 +129,7 @@ describe('InterfaceGroupsPanel.vue', () => {
       await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
 
       const { rows: result, groups } = lastChange(wrapper)
-      expect(groups[0]).toMatchObject({ ip_address: '10.0.0.5', ip_purpose: 'Администрирование' })
+      expect(groups[0]).toMatchObject({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' }] })
       expect(result[0].ips[0]).toMatchObject({ ip_address: '10.0.0.5', purpose: 'Администрирование' })
       expect(result[1].ips[0]).toMatchObject({ ip_address: '10.0.0.5', purpose: 'Администрирование' })
       expect(result[2].ips).toEqual([])
@@ -161,7 +164,7 @@ describe('InterfaceGroupsPanel.vue', () => {
     })
 
     it('правка назначения у сохранённой группы обновляет IP во всех её портах', async () => {
-      const group = savedGroup({ ip_purpose: 'Старое' })
+      const group = savedGroup({ ips: [{ id: 'gip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Старое' }] })
       const rows = [row('Gi0/1', { group_key: 'g1', ips: [{ id: 'ip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Старое' }] })]
       const wrapper = mountPanel({ rows, groups: [group] })
 
@@ -171,12 +174,15 @@ describe('InterfaceGroupsPanel.vue', () => {
       await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
 
       const change = lastChange(wrapper)
-      expect(change.groups[0].ip_purpose).toBe('Новое')
+      expect(change.groups[0].ips[0].purpose).toBe('Новое')
       expect(change.rows[0].ips[0]).toMatchObject({ id: 'ip-1', purpose: 'Новое' })
     })
 
     it('в списке групп назначение указано рядом с IP', () => {
-      const wrapper = mountPanel({ rows: [row('Gi0/1', { group_key: 'g1' })], groups: [savedGroup({ ip_purpose: 'Администрирование' })] })
+      const wrapper = mountPanel({
+        rows: [row('Gi0/1', { group_key: 'g1' })],
+        groups: [savedGroup({ ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' }] })],
+      })
 
       expect(wrapper.find('.group-summary').text()).toBe('IP 10.0.0.5/24 (Администрирование)')
     })
@@ -255,7 +261,7 @@ describe('InterfaceGroupsPanel.vue', () => {
   })
 
   it('правка группы обновляет значения во всех её портах и переносит порты из другой группы с предупреждением', async () => {
-    const other = savedGroup({ id: 'g2', key: 'g2', name: 'Чужая', ip_address: '' })
+    const other = savedGroup({ id: 'g2', key: 'g2', name: 'Чужая', ips: [] })
     const rows = [row('Gi0/1', { group_key: 'g1' }), row('Gi0/2', { group_key: 'g2' })]
     const wrapper = mountPanel({ rows, groups: [savedGroup(), other] })
 
@@ -268,7 +274,7 @@ describe('InterfaceGroupsPanel.vue', () => {
     const change = lastChange(wrapper)
     expect(change.rows.map((r) => r.group_key)).toEqual(['g1', 'g1'])
     expect(change.rows.map((r) => r.ips[0].ip_address)).toEqual(['10.0.0.9', '10.0.0.9'])
-    expect(change.groups.find((g) => g.key === 'g1')?.ip_address).toBe('10.0.0.9')
+    expect(change.groups.find((g) => g.key === 'g1')?.ips[0].ip_address).toBe('10.0.0.9')
   })
 
   describe('«Все VLAN» и выбор VLAN в Trunk-режиме группы — как на порту', () => {
@@ -737,7 +743,7 @@ describe('InterfaceGroupsPanel.vue', () => {
       })
     })
 
-    it('у порта несколько IP — в уведомлении сказано, что скопирован первый', async () => {
+    it('у порта несколько IP — в окне группы появляются все, уведомление без оговорок', async () => {
       const many = row('Gi0/1', {
         ips: [
           { ip_address: '10.0.0.5', prefix_length: '24', purpose: '' },
@@ -749,8 +755,9 @@ describe('InterfaceGroupsPanel.vue', () => {
       await openCreateAndPickSource(wrapper)
       await wrapper.find('.copy-row .btn').trigger('click')
 
-      expect(useToast().toasts[0].message).toContain('скопирован первый')
-      expect((wrapper.find('input[aria-label="Общий IP-адрес группы"]').element as HTMLInputElement).value).toBe('10.0.0.5')
+      expect(useToast().toasts[0].message).toBe('Значения скопированы с порта «Gi0/1».')
+      const addresses = wrapper.findAll('input[aria-label="Общий IP-адрес группы"]').map((input) => (input.element as HTMLInputElement).value)
+      expect(addresses).toEqual(['10.0.0.5', '10.0.0.6'])
     })
 
     it('скопированные значения записываются в порты группы только при сохранении группы', async () => {
@@ -764,7 +771,13 @@ describe('InterfaceGroupsPanel.vue', () => {
       await wrapper.find('.group-modal-actions .btn-primary').trigger('click')
 
       const { rows, groups } = lastChange(wrapper)
-      expect(groups[0]).toMatchObject({ name: 'Копия Gi0/1', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: '10.0.0.5', manage_open_ports: true })
+      expect(groups[0]).toMatchObject({
+        name: 'Копия Gi0/1',
+        vlan_mode: 'trunk',
+        vlan_ids: ['v10', 'v20'],
+        ips: [expect.objectContaining({ ip_address: '10.0.0.5' })],
+        manage_open_ports: true,
+      })
       for (const i of [1, 2]) {
         expect(rows[i]).toMatchObject({ group_key: groups[0].key, vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'] })
         expect(rows[i].ips[0].ip_address).toBe('10.0.0.5')
@@ -866,8 +879,7 @@ describe('InterfaceGroupsPanel.vue', () => {
       open_ports: [],
       ...patch,
     })
-    const trunkGroup = (patch: Partial<InterfaceGroupDraft> = {}) =>
-      savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v10'], ip_address: '', prefix_length: '', ...patch })
+    const trunkGroup = (patch: Partial<InterfaceGroupDraft> = {}) => savedGroup({ vlan_mode: 'trunk', vlan_ids: ['v10'], ips: [], ...patch })
 
     it('редактор подинтерфейсов появляется только после галочки «Задать подинтерфейсы»', async () => {
       const wrapper = mountPanel({ rows: [row('Gi0/1', { group_key: 'g1' })], groups: [trunkGroup()] })
@@ -963,7 +975,7 @@ describe('InterfaceGroupsPanel.vue', () => {
   describe('связка с окнами', () => {
     it('окно удаления получает число портов группы и перечень того, чем она управляла', async () => {
       const rows = [row('Gi0/1', { group_key: 'g1' }), row('Gi0/2'), row('Gi0/3', { group_key: 'g1' })]
-      const wrapper = mountPanel({ rows, groups: [savedGroup({ ip_address: '10.0.0.5' })] })
+      const wrapper = mountPanel({ rows, groups: [savedGroup({ ips: [{ ip_address: '10.0.0.5', prefix_length: '', purpose: '' }] })] })
 
       await wrapper.find('button[aria-label="Удалить группу"]').trigger('click')
 

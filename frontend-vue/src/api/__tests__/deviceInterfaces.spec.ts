@@ -538,9 +538,7 @@ describe('группы портов', () => {
       name: ' Серверные ',
       vlan_mode: 'access',
       vlan_ids: ['v10'],
-      ip_address: ' 10.0.0.5 ',
-      prefix_length: '24',
-      ip_purpose: ' Администрирование ',
+      ips: [{ ip_address: ' 10.0.0.5 ', prefix_length: '24', purpose: ' Администрирование ' }],
       manage_open_ports: true,
       open_ports: [
         { protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' },
@@ -560,24 +558,14 @@ describe('группы портов', () => {
             name: 'Серверные',
             vlan_mode: 'trunk',
             vlan_ids: ['v10', 'v20'],
-            ip_address: '10.0.0.5',
-            prefix_length: 24,
-            ip_purpose: 'Администрирование',
+            ips: [
+              { id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: 'Администрирование' },
+              { id: 'gip-2', ip_address: '10.0.1.5', prefix_length: null, purpose: null },
+            ],
             manage_open_ports: true,
             open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: null }],
           },
-          {
-            id: 'g-2',
-            physical_device_id: 'dev-1',
-            name: 'Пустая',
-            vlan_mode: null,
-            vlan_ids: [],
-            ip_address: null,
-            prefix_length: null,
-            ip_purpose: null,
-            manage_open_ports: false,
-            open_ports: [],
-          },
+          { id: 'g-2', physical_device_id: 'dev-1', name: 'Пустая', vlan_mode: null, vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [] },
         ],
       }),
     )
@@ -593,15 +581,16 @@ describe('группы портов', () => {
       vlan_mode: 'trunk',
       vlan_ids: ['v10', 'v20'],
       all_vlans: false,
-      ip_address: '10.0.0.5',
-      prefix_length: '24',
-      ip_purpose: 'Администрирование',
+      ips: [
+        { id: 'gip-1', ip_address: '10.0.0.5', prefix_length: '24', purpose: 'Администрирование' },
+        { id: 'gip-2', ip_address: '10.0.1.5', prefix_length: '', purpose: '' },
+      ],
       manage_open_ports: true,
       open_ports: [{ id: 'op-1', protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: '' }],
       manage_subinterfaces: false,
       subinterfaces: [],
     })
-    expect(groups[1]).toMatchObject({ vlan_mode: '', ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false })
+    expect(groups[1]).toMatchObject({ vlan_mode: '', ips: [], manage_open_ports: false })
   })
 
   it('loadDeviceInterfaceGroups: признак «Все VLAN» группы читается с сервера (у группы без признака — false)', async () => {
@@ -617,24 +606,11 @@ describe('группы портов', () => {
               vlan_mode: 'trunk',
               all_vlans: true,
               vlan_ids: ['v10', 'v20'],
-              ip_address: null,
-              prefix_length: null,
-              ip_purpose: null,
+              ips: [],
               manage_open_ports: false,
               open_ports: [],
             },
-            {
-              id: 'g-2',
-              physical_device_id: 'dev-1',
-              name: 'Старый ответ',
-              vlan_mode: 'trunk',
-              vlan_ids: ['v10'],
-              ip_address: null,
-              prefix_length: null,
-              ip_purpose: null,
-              manage_open_ports: false,
-              open_ports: [],
-            },
+            { id: 'g-2', physical_device_id: 'dev-1', name: 'Старый ответ', vlan_mode: 'trunk', vlan_ids: ['v10'], manage_open_ports: false, open_ports: [] },
           ],
         }),
       ),
@@ -734,9 +710,7 @@ describe('группы портов', () => {
           vlan_mode: 'access',
           all_vlans: false,
           vlan_ids: ['v10'],
-          ip_address: '10.0.0.5',
-          prefix_length: 24,
-          ip_purpose: 'Администрирование',
+          ips: [{ ip_address: '10.0.0.5', prefix_length: 24, purpose: 'Администрирование' }],
           manage_open_ports: true,
           open_ports: [{ protocol_catalog_id: 'ssh', transport_protocol: 'TCP', description: 'админ' }],
           manage_subinterfaces: false,
@@ -759,9 +733,7 @@ describe('группы портов', () => {
               name: 'Серверные',
               vlan_mode: 'trunk',
               vlan_ids: ['v10'],
-              ip_address: null,
-              prefix_length: null,
-              ip_purpose: null,
+              ips: [],
               manage_open_ports: false,
               open_ports: [],
               manage_subinterfaces: true,
@@ -851,30 +823,37 @@ describe('группы портов', () => {
     await persistDeviceInterfaces(
       'dev-1',
       [],
-      [groupDraft({ vlan_mode: '', vlan_ids: ['v10'], ip_address: '', prefix_length: '24', manage_open_ports: false })],
+      [groupDraft({ vlan_mode: '', vlan_ids: ['v10'], ips: [{ ip_address: '', prefix_length: '24', purpose: '' }], manage_open_ports: false })],
     )
 
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
-    expect(body.groups[0]).toMatchObject({
-      vlan_mode: null,
-      vlan_ids: [],
-      ip_address: null,
-      prefix_length: null,
-      ip_purpose: null,
-      manage_open_ports: false,
-      open_ports: [],
-    })
+    expect(body.groups[0]).toMatchObject({ vlan_mode: null, vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [] })
   })
 
-  it('persist отправляет назначение общего IP обрезанным, а без IP-адреса группы — не отправляет', async () => {
+  it('persist отправляет общие IP полным списком: адрес и назначение обрезаны, id сохранён; строки без адреса не уходят', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ items: [], groups: [] }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await persistDeviceInterfaces('dev-1', [], [groupDraft(), groupDraft({ key: 'new-2', name: 'Без IP', ip_address: '', ip_purpose: 'Администрирование' })])
+    const several = groupDraft({
+      ips: [
+        { id: 'gip-1', ip_address: ' 10.0.0.5 ', prefix_length: '24', purpose: ' Администрирование ' },
+        { ip_address: '10.0.1.5', prefix_length: '', purpose: '  ' },
+        { ip_address: '  ', prefix_length: '8', purpose: 'пусто' },
+      ],
+    })
+    await persistDeviceInterfaces(
+      'dev-1',
+      [],
+      [several, groupDraft({ key: 'new-2', name: 'Без IP', ips: [{ ip_address: '', prefix_length: '', purpose: 'Администрирование' }] })],
+    )
 
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
-    expect(body.groups[0].ip_purpose).toBe('Администрирование')
-    expect(body.groups[1].ip_purpose).toBeNull()
+    expect(body.groups[0].ips).toEqual([
+      { id: 'gip-1', ip_address: '10.0.0.5', prefix_length: 24, purpose: 'Администрирование' },
+      { ip_address: '10.0.1.5', prefix_length: null, purpose: null },
+    ])
+    expect(body.groups[1].ips).toEqual([])
+    expect(body.groups[0]).not.toHaveProperty('ip_address')
   })
 
   it('persist без groups (вызывающий код групп не знает) не шлёт ни groups, ни group_key — сервер группы не трогает', async () => {

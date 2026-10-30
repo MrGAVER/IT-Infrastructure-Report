@@ -9,6 +9,7 @@ export function cloneGroupForEdit(group: InterfaceGroupDraft): InterfaceGroupDra
     ...group,
     vlan_ids: [...group.vlan_ids],
     all_vlans: group.all_vlans === true,
+    ips: group.ips.map((ip) => ({ ...ip })),
     open_ports: group.open_ports.map((p) => ({ ...p })),
     subinterfaces: (group.subinterfaces ?? []).map((sub) => ({
       ...sub,

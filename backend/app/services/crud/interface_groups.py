@@ -13,12 +13,12 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
-from ...models import DeviceInterface, IPAddress, OpenPort, PhysicalDevice, InterfaceVLAN, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupVLAN
+from ...models import DeviceInterface, IPAddress, OpenPort, PhysicalDevice, InterfaceVLAN, InterfaceGroup, InterfaceGroupIP, InterfaceGroupOpenPort, InterfaceGroupVLAN
 from ...constants import OwnerType
 from ..serialization import enrich_interface_groups
-from ..validation import validate_ipv4_field, validate_prefix_length_field, validate_unique_open_port_numbers
-from .interface_group_subinterfaces import apply_group_subinterfaces, group_subinterfaces_by_group, normalize_group_subinterfaces, purge_subinterfaces_of_groups, sync_group_subinterfaces
-from .owned_rows import _IP_PURPOSE_MAX_LENGTH, _validate_open_port_catalog
+from ..validation import validate_unique_open_port_numbers
+from .interface_group_subinterfaces import apply_group_subinterfaces, group_subinterfaces_by_group, normalize_group_subinterfaces, normalize_ips, purge_subinterfaces_of_groups, sync_group_subinterfaces, with_reused_ids
+from .owned_rows import _validate_open_port_catalog, sync_owner_ip_addresses
 
 
 _VLAN_MODES = frozenset({"access", "trunk"})
@@ -44,6 +44,7 @@ class _GroupState:
     obj: InterfaceGroup
     vlan_ids: list[str]
     open_ports: list[dict[str, Any]]
+    ips: list[dict[str, Any]] = field(default_factory=list)
     subinterfaces: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -53,14 +54,6 @@ class _GroupVlans:
     mode: str | None
     all_vlans: bool
     vlan_ids: list[str]
-
-
-@dataclass(frozen=True)
-class _GroupIp:
-    """Общий IP группы: префикс и назначение хранятся только вместе с адресом."""
-    address: str | None
-    prefix_length: int | None
-    purpose: str | None
 
 
 def _group_name(item: dict[str, Any]) -> str:
@@ -99,17 +92,19 @@ def _group_vlans(item: dict[str, Any], allowed_vlans: set[str]) -> _GroupVlans:
     return _GroupVlans(mode, all_vlans, unique_vlan_ids)
 
 
-def _group_ip(item: dict[str, Any]) -> _GroupIp:
-    address = str(item.get('ip_address') or '').strip() or None
-    prefix = item.get('prefix_length')
-    validate_ipv4_field(address, 'IP-адрес группы портов')
-    validate_prefix_length_field(prefix, 'Префикс IP-адреса группы портов')
-    prefix_length = int(prefix) if address and prefix not in (None, '') else None
-    # Назначение — часть общего IP: без адреса не хранится (как и префикс). Колонка IPAddress.purpose — 255 символов.
-    purpose = (str(item.get('ip_purpose') or '').strip() or None) if address else None
-    if purpose is not None and len(purpose) > _IP_PURPOSE_MAX_LENGTH:
-        raise HTTPException(422, f'Назначение IP-адреса группы портов не должно превышать {_IP_PURPOSE_MAX_LENGTH} символов')
-    return _GroupIp(address, prefix_length, purpose)
+def _group_ips(item: dict[str, Any], group_name: str) -> list[dict[str, Any]]:
+    """Общие IP-адреса группы: адрес, префикс и назначение каждого. Строка-плейсхолдер без адреса пропускается (как у
+    IP порта), назначение обрезается по краям, пустое — NULL. Адрес в группе не повторяется: иначе порт получил бы
+    два одинаковых IP. Группа без единого адреса IP портов не трогает."""
+    label = f'Группа портов «{group_name}»'
+    raw = item.get('ips') or []
+    if isinstance(raw, list):
+        raw = [{**ip, 'purpose': str(ip.get('purpose') or '').strip() or None} if isinstance(ip, dict) else ip for ip in raw]
+    ips = normalize_ips(raw, label)
+    addresses = [ip['ip_address'] for ip in ips]
+    if len(set(addresses)) != len(addresses):
+        raise HTTPException(422, f'{label}: IP-адреса не должны повторяться')
+    return ips
 
 
 def _group_open_ports(item: dict[str, Any], group_name: str, session: Session) -> tuple[bool, list[dict[str, Any]]]:
@@ -142,17 +137,17 @@ def _group_subinterfaces(item: dict[str, Any], group_name: str, vlans: _GroupVla
 
 def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) -> dict[str, Any]:
     """Валидирует один элемент payload['groups'] и приводит к значениям колонок. Заданность
-    параметра (vlan_mode / ip_address / manage_open_ports) определяет, управляет ли им группа —
+    параметра (vlan_mode / непустой список ips / manage_open_ports) определяет, управляет ли им группа —
     см. models.InterfaceGroup. Проверки те же, что для отдельного порта (_sync_single_interface).
-    Шаги: имя → режим и VLAN → общий IP → открытые порты → подинтерфейсы."""
+    Шаги: имя → режим и VLAN → общие IP → открытые порты → подинтерфейсы."""
     if not isinstance(item, dict):
         raise HTTPException(422, 'Каждая группа портов должна быть объектом')
     name = _group_name(item)
     vlans = _group_vlans(item, allowed_vlans)
-    ip = _group_ip(item)
+    ips = _group_ips(item, name)
     manage_open_ports, open_ports = _group_open_ports(item, name, session)
     manage_subinterfaces, subinterfaces = _group_subinterfaces(item, name, vlans, allowed_vlans, session)
-    return {'name': name, 'vlan_mode': vlans.mode, 'all_vlans': vlans.all_vlans, 'vlan_ids': vlans.vlan_ids, 'ip_address': ip.address, 'prefix_length': ip.prefix_length, 'ip_purpose': ip.purpose, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports, 'manage_subinterfaces': manage_subinterfaces, 'subinterfaces': subinterfaces}
+    return {'name': name, 'vlan_mode': vlans.mode, 'all_vlans': vlans.all_vlans, 'vlan_ids': vlans.vlan_ids, 'ips': ips, 'manage_open_ports': manage_open_ports, 'open_ports': open_ports, 'manage_subinterfaces': manage_subinterfaces, 'subinterfaces': subinterfaces}
 
 
 def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vlans: set[str], session: Session) -> dict[str, _GroupState]:
@@ -177,14 +172,14 @@ def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vl
             if not obj: raise HTTPException(422, 'Группа портов не принадлежит выбранному физическому устройству')
         else:
             obj = InterfaceGroup(physical_device_id=device_id); session.add(obj)
-        obj.name = norm['name']; obj.vlan_mode = norm['vlan_mode']; obj.all_vlans = norm['all_vlans']; obj.ip_address = norm['ip_address']
-        obj.prefix_length = norm['prefix_length']; obj.ip_purpose = norm['ip_purpose']; obj.manage_open_ports = norm['manage_open_ports']
+        obj.name = norm['name']; obj.vlan_mode = norm['vlan_mode']; obj.all_vlans = norm['all_vlans']; obj.manage_open_ports = norm['manage_open_ports']
         obj.manage_subinterfaces = norm['manage_subinterfaces']
         session.flush()
         _sync_group_vlans(obj, norm['vlan_ids'], session)
+        _sync_group_ips(obj, norm['ips'], session)
         _sync_group_open_ports(obj, norm['open_ports'], session)
         sync_group_subinterfaces(obj.id, norm['subinterfaces'], session)
-        states[key] = _GroupState(obj, norm['vlan_ids'], norm['open_ports'], norm['subinterfaces'])
+        states[key] = _GroupState(obj, norm['vlan_ids'], norm['open_ports'], norm['ips'], norm['subinterfaces'])
     return states
 
 
@@ -196,6 +191,24 @@ def _sync_group_vlans(group: InterfaceGroup, vlan_ids: list[str], session: Sessi
     have = {row.vlan_id for row in current}
     for vlan_id in vlan_ids:
         if vlan_id not in have: session.add(InterfaceGroupVLAN(group_id=group.id, vlan_id=vlan_id))
+
+
+def _sync_group_ips(group: InterfaceGroup, ips: list[dict[str, Any]], session: Session) -> None:
+    """Приводит строки общих IP группы к нормализованному списку (diff по id): новые создаются, существующие обновляются
+    на месте, отсутствующие удаляются. Чужой id или id, указанный дважды, — 422."""
+    old_map = {row.id: row for row in session.scalars(select(InterfaceGroupIP).where(InterfaceGroupIP.group_id == group.id)).all()}
+    seen: set[str] = set()
+    for data in ips:
+        row_id = data.get('id')
+        if row_id:
+            row = old_map.get(row_id)
+            if not row or row_id in seen: raise HTTPException(422, 'IP-адрес не принадлежит выбранной группе портов')
+            seen.add(row_id)
+        else:
+            row = InterfaceGroupIP(group_id=group.id); session.add(row)
+        row.ip_address = data['ip_address']; row.prefix_length = data['prefix_length']; row.purpose = data['purpose']
+    for row_id, row in old_map.items():
+        if row_id not in seen: session.delete(row)
 
 
 def _sync_group_open_ports(group: InterfaceGroup, open_ports: list[dict[str, Any]], session: Session) -> None:
@@ -224,7 +237,7 @@ def _resolve_interface_group(item: dict[str, Any], states: dict[str, _GroupState
 
 def _apply_group_to_interface(iface: DeviceInterface, state: _GroupState, session: Session) -> None:
     """Записывает в порт значения тех параметров, которыми управляет его группа (заданы в группе):
-    режим порта + VLAN, единственный общий IP (адрес, префикс и назначение), полный список
+    режим порта + VLAN, полный список общих IP (адрес, префикс и назначение каждого), полный список
     открытых портов, полный список подинтерфейсов. Повторный вызов с теми
     же значениями ничего не меняет (строки порта обновляются на месте, лишние удаляются, id не
     пересоздаются). Незаданные группой параметры порта не трогаются."""
@@ -243,20 +256,24 @@ def _apply_group_to_interface(iface: DeviceInterface, state: _GroupState, sessio
             else: session.delete(link)
         for vlan_id in ([] if group.all_vlans else state.vlan_ids):
             if vlan_id not in kept: session.add(InterfaceVLAN(interface_id=iface.id, vlan_id=vlan_id, mode=group.vlan_mode))
-    if group.ip_address:
-        ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.created_at, IPAddress.id)).all()
-        ip_obj = ips[0] if ips else IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=iface.id)
-        if not ips: session.add(ip_obj)
-        ip_obj.ip_address = group.ip_address; ip_obj.prefix_length = group.prefix_length; ip_obj.is_management = bool(iface.is_management)
-        # Назначение — часть общего IP, как адрес и префикс: группа записывает его безусловно
-        # (пустое значение очищает назначение, которое стояло у порта).
-        ip_obj.purpose = group.ip_purpose
-        for extra in ips[1:]: session.delete(extra)
+    if state.ips:
+        _apply_group_ips(iface, state.ips, session)
     if group.manage_open_ports:
         _apply_group_open_ports(iface, state.open_ports, session)
     # Подинтерфейсы — последними: их VLAN входят в VLAN группы, которые порту записаны выше.
     if group.manage_subinterfaces:
         apply_group_subinterfaces(iface, state.subinterfaces, session)
+
+
+def _apply_group_ips(iface: DeviceInterface, group_ips: list[dict[str, Any]], session: Session) -> None:
+    """Приводит IP порта в точное соответствие списку группы, не пересоздавая записи: строка с тем же (адрес, префикс)
+    остаётся как есть, лишние строки порта переиспользуются под ещё не размещённые адреса группы (id и дата создания
+    сохраняются), остаток удаляется. Назначение — часть общего IP: группа записывает его безусловно (пустое очищает
+    назначение порта). is_management наследуется от порта, как у IP, заданных вручную."""
+    current = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.created_at, IPAddress.id)).all()
+    wanted = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current], group_ips, lambda d: (d['ip_address'], d['prefix_length']))
+    sync_owner_ip_addresses(OwnerType.DEVICE_INTERFACE, iface.id, [{**ip, 'is_management': bool(iface.is_management)} for ip in wanted], session,
+                            array_error='Поле ips порта должно быть массивом', foreign_id_error='IP не принадлежит выбранному порту')
 
 
 def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, Any]], session: Session) -> None:
@@ -288,7 +305,7 @@ def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, 
 
 
 def _delete_stale_groups(device_id: str, kept_group_ids: set[str], session: Session) -> None:
-    """Удаляет группы устройства, которых нет в payload['groups'], вместе с их VLAN и открытыми
+    """Удаляет группы устройства, которых нет в payload['groups'], вместе с их VLAN, общими IP и открытыми
     портами. Порты уже отвязаны (group_id выставлен по payload выше). Сам бэкенд значения портов при
     этом не стирает: PUT передаёт полное состояние порта, и в БД остаётся ровно то, что прислал
     клиент — форма шлёт значения, ранее записанные из группы («оставить»), либо пустые («стереть»,
@@ -298,6 +315,7 @@ def _delete_stale_groups(device_id: str, kept_group_ids: set[str], session: Sess
     for group in stale:
         session.execute(update(DeviceInterface).where(DeviceInterface.group_id == group.id).values(group_id=None))
         session.execute(delete(InterfaceGroupVLAN).where(InterfaceGroupVLAN.group_id == group.id))
+        session.execute(delete(InterfaceGroupIP).where(InterfaceGroupIP.group_id == group.id))
         session.execute(delete(InterfaceGroupOpenPort).where(InterfaceGroupOpenPort.group_id == group.id))
         session.delete(group)
     session.flush()

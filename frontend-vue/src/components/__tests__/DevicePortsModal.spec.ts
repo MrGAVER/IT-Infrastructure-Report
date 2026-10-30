@@ -72,17 +72,7 @@ describe('DevicePortsModal.vue', () => {
         if (url.includes('/devices/dev-1/interface-groups')) {
           return jsonResponse({
             items: [
-              {
-                id: 'g-1',
-                physical_device_id: 'dev-1',
-                name: 'Серверные',
-                vlan_mode: null,
-                vlan_ids: [],
-                ip_address: null,
-                prefix_length: null,
-                manage_open_ports: false,
-                open_ports: [],
-              },
+              { id: 'g-1', physical_device_id: 'dev-1', name: 'Серверные', vlan_mode: null, vlan_ids: [], ips: [], manage_open_ports: false, open_ports: [] },
             ],
           })
         }

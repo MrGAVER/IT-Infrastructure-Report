@@ -83,13 +83,14 @@ ALLOWED_DELETIONS = {
     ("app/services/crud/interfaces.py", "_remove_stale_interfaces", "IPAddress"),
     ("app/services/crud/interfaces.py", "_remove_stale_interfaces", "OpenPort"),
     ("app/services/crud/interfaces.py", "_remove_stale_interfaces", "obj"),
-    # группы портов (InterfaceGroup, её VLAN и открытые порты): дочерние записи одного устройства, не
+    # группы портов (InterfaceGroup, её VLAN, общие IP и открытые порты): дочерние записи одного устройства, не
     # входят в MODEL_MAP; входящие ссылки — только device_interfaces.group_id (ON DELETE SET NULL,
-    # порты отвязываются, но не удаляются) и собственные VLAN/открытые порты группы (CASCADE).
+    # порты отвязываются, но не удаляются) и собственные VLAN/IP/открытые порты группы (CASCADE).
     # Удаляются не защищённые модели (PhysicalDevice/VM/контейнер/интерфейс не затрагиваются);
     # link/extra/row в _apply_group_to_interface — VLAN-связи, IP и открытые порты ПОРТА, которые
     # группа приводит к своим значениям (то же, что уже делает _sync_single_interface для порта)
     ("app/services/crud/interface_groups.py", "_sync_group_vlans", "row"),
+    ("app/services/crud/interface_groups.py", "_sync_group_ips", "row"),
     ("app/services/crud/interface_groups.py", "_sync_group_open_ports", "row"),
     ("app/services/crud/interface_groups.py", "_apply_group_to_interface", "link"),
     ("app/services/crud/interface_groups.py", "_apply_group_to_interface", "extra"),
@@ -116,6 +117,7 @@ ALLOWED_DELETIONS = {
     ("app/services/crud/subinterfaces.py", "delete_subinterfaces", "DeviceSubinterface"),
     ("app/services/crud/subinterfaces.py", "delete_subinterfaces", "model"),
     ("app/services/crud/interface_groups.py", "_delete_stale_groups", "InterfaceGroupVLAN"),
+    ("app/services/crud/interface_groups.py", "_delete_stale_groups", "InterfaceGroupIP"),
     ("app/services/crud/interface_groups.py", "_delete_stale_groups", "InterfaceGroupOpenPort"),
     ("app/services/crud/interface_groups.py", "_delete_stale_groups", "group"),
     # VLAN устройства (PhysicalDeviceVLAN) — дочерняя запись без входящих ссылок (ни FK, ни
