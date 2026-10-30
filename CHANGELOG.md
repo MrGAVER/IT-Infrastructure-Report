@@ -4727,3 +4727,32 @@ frontend: клиент `deviceInterfaces`, `reconcileVlanIds`, редактор 
   (4) `npm audit fix`: dompurify 3.4.17 (critical, runtime), vite 8.3.5, vitest/@vitest/ui 5.0.5, undici 8.12.3 (было 6 уязвимостей: 1 critical,
   2 high, 3 moderate). Тесты: `auditAccessGuard.spec.ts`, `diagramExport.spec.ts`, дополнены `Sidebar`, `ReportsView`, `PortSyncPlanModal`,
   `AccountPanel`, `writeAccess`; на прежних исходниках 10 из них красные. CI: после `npm ci` выполняется `npm run lint`.
+- **Удалено поле `status` у физических устройств, информационных систем и виртуальных машин (решение владельца: в интерфейсе его
+  нет, нигде не редактировалось).** Убрано из моделей (`PhysicalDevice`, `InformationSystem`, `VirtualMachine`), схем Pydantic (4 поля),
+  подписи «Состояние» в метаданных конструктора отчётов (`report_meta`) и из типов/тестовых данных фронтенда (`api/types.ts`, 6 спеков и
+  фикстуры; кода интерфейса это не касалось — поле там не использовалось). Миграция `b3f7a2c91d54` (после `e9b4c2a7d136`):
+  (1) **переписывает сохранённые шаблоны конструктора** (`report_templates.config` и `report_template_versions.config`): конструктор строит
+  список полей из колонок моделей, а резолвер пути берёт `getattr(obj, name, None)`, поэтому без переписывания фильтр `status = active`
+  молча отсёк бы **все** строки отчёта. Путь считается ссылкой на `status`, если его последний сегмент равен `status` (в том числе
+  `physical_device.status`, `vms[].status`): элементы `filters` по нему удаляются; `sort_by` становится `null`; колонки таблицы Word
+  удаляются (единственная колонка заменяется пустой статической); ячейки сетки Excel становятся пустыми статическими с прежними
+  `col`/`colspan`/`style`; не-JSON и конфиги без `status` остаются байт в байт; (2) удаляет три колонки обычным `ALTER TABLE … DROP COLUMN`
+  (на SQLite — штатно с 3.35, на более старой версии миграция останавливается с понятным `RuntimeError`); индексов и триггеров на `status`
+  нет, триггеры `trg_is_source_guard_*` целы, `PRAGMA foreign_key_check` пуст; (3) `downgrade()` возвращает колонки (у устройств
+  nullable, у ИС и ВМ `NOT NULL DEFAULT 'active'`); значения и удалённые из шаблонов фильтры не восстанавливаются.
+  **Что изменится в отчётах:** удалённые фильтры «`status` = …» возвращают в отчёты записи, которые раньше отсекались (если у записи
+  состояние было не `active`); сортировка по состоянию сбрасывается; колонки и ячейки «Состояние» становятся пустыми. После обновления
+  стоит открыть пользовательские шаблоны, где было состояние, и убрать пустые колонки вручную. Встроенных шаблонов со `status` нет
+  (проверено на свежей SQLite и PostgreSQL). Тесты: `tests/test_migrations_drop_entity_status.py` (33, SQLite; в их числе сквозные: шаблоны
+  со `status` проходят настоящую миграцию, и по ним строятся настоящие xlsx и docx — без переписывания отчёт Excel пуст, тест это
+  подтверждает), +1 в `tests/test_migrations_postgres.py`; общий помощник `tests/migration_support.py`. Мутационная проверка (переписывание
+  шаблонов отключено) ловится двумя тестами. Попутно исправлены 42 теста main, создававшие `status` в данных: `test_report_builder.py`
+  и `test_report_grid.py` (34, вместо `status` — `description` с теми же значениями) и сырые INSERT в
+  `test_migrations_information_system_source_delete_guard_triggers.py` (8, вставка учитывает наличие колонки), а также два импорта
+  помощника вставки в тестах пакета A. Проверка итогового дерева (коммит `0835776`): pytest в трёх режимах — SQLite 3219 passed /
+  38 skipped, PostgreSQL со схемой из моделей 3215 / 42, PostgreSQL со схемой из миграций 3215 / 42 (ни одного падения, 3257 из 3257
+  собранных), покрытие 95 % (порог 92 %); `ruff check backend` чист; `pip-audit` — уязвимостей нет; пересборка lock-файлов uv — пустой
+  diff; `alembic upgrade head` с нуля, `downgrade -1` и повторный `upgrade` на SQLite и PostgreSQL, единственная голова; живой запуск на
+  PostgreSQL (`tests/tools/pg_app_smoke.py`); frontend: vitest 3055, `vue-tsc -b`, `npm run lint`, `vite build`, `npm audit --omit=dev`
+  — 0 замечаний. **Не проверено:** `docker compose up` и сборка образа (нет Docker); открытие xlsx/docx в настоящих Excel и Word (файлы
+  проверены повторным чтением openpyxl/python-docx); ветки старых миграций на PostgreSQL с реальными данными.
