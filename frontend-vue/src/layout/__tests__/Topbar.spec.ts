@@ -63,7 +63,10 @@ describe('Topbar.vue', () => {
     const auth = useAuthStore()
     auth.enabled = true
     auth.user = { id: 'u1', username: 'Андрей', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' }
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({}))),
+    )
     const wrapper = mount(Topbar, { props: { title: 'Дашборд', crumb: 'Главная' } })
 
     await wrapper.find('.user-chip-trigger').trigger('click')

@@ -178,7 +178,10 @@ async function confirmRemove(fromDevices: boolean) {
     rows.value = rows.value.filter((r) => r.vlanId !== row.vlanId)
     takeState(res)
     removing.value = null
-    notify(fromDevices ? `VLAN ${row.label} снят со стека и убран у его устройств` : `Общая настройка VLAN ${row.label} снята, значения на устройствах сохранены`, 'success')
+    notify(
+      fromDevices ? `VLAN ${row.label} снят со стека и убран у его устройств` : `Общая настройка VLAN ${row.label} снята, значения на устройствах сохранены`,
+      'success',
+    )
     emit('update:state', res)
     emit('removed', { vlanId: row.vlanId, fromDevices, state: res })
   } catch (err) {
@@ -200,8 +203,8 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
     <div class="nested-head">
       <b>Общие настройки VLAN стека{{ stackName ? ` «${stackName}»` : '' }}</b>
       <span class="hint">
-        IP-адрес (IPv4), префикс и «Управление» задаются один раз и записываются каждому устройству стека — например, общий адрес кластера.
-        Пока настройка задана, у устройств эти значения по отдельности не меняются. Недостающие назначения VLAN создаются.
+        IP-адрес (IPv4), префикс и «Управление» задаются один раз и записываются каждому устройству стека — например, общий адрес кластера. Пока настройка
+        задана, у устройств эти значения по отдельности не меняются. Недостающие назначения VLAN создаются.
       </span>
     </div>
 
@@ -253,12 +256,15 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
           </button>
         </div>
         <div class="status-line">
-          <span class="status" :class="`status-${stackVlanStatus(row.server).kind}`" data-testid="stack-vlan-status">{{ stackVlanStatus(row.server).text }}</span>
+          <span class="status" :class="`status-${stackVlanStatus(row.server).kind}`" data-testid="stack-vlan-status">{{
+            stackVlanStatus(row.server).text
+          }}</span>
           <details v-if="row.server && !row.server.is_uniform" class="by-device">
             <summary>По устройствам</summary>
             <ul>
               <li v-for="m in row.server.members" :key="m.physical_device_id">
-                <b>{{ m.device_name }}</b>: {{ memberValue(m) }}
+                <b>{{ m.device_name }}</b
+                >: {{ memberValue(m) }}
               </li>
             </ul>
           </details>
@@ -271,7 +277,11 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
           v-model="pickedVlanId"
           :options="pickOptions"
           placeholder="— VLAN для общей настройки —"
-          :empty-text="available.length ? 'Все VLAN устройств стека уже добавлены' : 'На устройства стека пока не добавлено ни одного VLAN — добавьте его в блоке «VLAN устройства»'"
+          :empty-text="
+            available.length
+              ? 'Все VLAN устройств стека уже добавлены'
+              : 'На устройства стека пока не добавлено ни одного VLAN — добавьте его в блоке «VLAN устройства»'
+          "
         />
         <button type="button" class="btn btn-secondary" :disabled="!pickedVlanId" data-testid="stack-vlan-add" @click="addRow">
           <svg class="icon"><use href="/icons.svg#i-plus" /></svg>

@@ -20,7 +20,17 @@ function item(patch: Partial<StaleSubinterface> = {}): StaleSubinterface {
 }
 
 function groupItem(patch: Partial<StaleGroupSubinterface> = {}): StaleGroupSubinterface {
-  return { subinterface_id: 'gs-1', group_id: 'g-1', group_name: 'Серверные', device_id: 'd-1', device_name: 'RTR-1', vlan_id: 'v-30', vlan_number: 30, vlan_name: 'Резерв', ...patch }
+  return {
+    subinterface_id: 'gs-1',
+    group_id: 'g-1',
+    group_name: 'Серверные',
+    device_id: 'd-1',
+    device_name: 'RTR-1',
+    vlan_id: 'v-30',
+    vlan_number: 30,
+    vlan_name: 'Резерв',
+    ...patch,
+  }
 }
 
 function stubReport(subinterfaces: StaleSubinterface[], group_subinterfaces: StaleGroupSubinterface[] = []) {
@@ -50,7 +60,15 @@ describe('StaleSubinterfacesPanel.vue', () => {
 
   it('показывает число подинтерфейсов и строки «порт · подинтерфейс · VLAN», сгруппированные по устройствам', async () => {
     stubReport([
-      item({ subinterface_id: 'a', device_id: 'd-1', device_name: 'A-FW', port_name: 'eth0', subinterface_name: 'eth0.10', vlan_number: 10, vlan_name: 'Серверы' }),
+      item({
+        subinterface_id: 'a',
+        device_id: 'd-1',
+        device_name: 'A-FW',
+        port_name: 'eth0',
+        subinterface_name: 'eth0.10',
+        vlan_number: 10,
+        vlan_name: 'Серверы',
+      }),
       item({ subinterface_id: 'b', device_id: 'd-2', device_name: 'B-RTR' }),
       item({ subinterface_id: 'c', device_id: 'd-2', device_name: 'B-RTR', port_name: 'Gi0/1', subinterface_name: 'Gi0/1.20', vlan_number: 20, vlan_name: '' }),
     ])
@@ -79,7 +97,13 @@ describe('StaleSubinterfacesPanel.vue', () => {
   })
 
   it('шаблоны подинтерфейсов групп показываются в своём устройстве и входят в число; если нет обычных строк — панель всё равно видна', async () => {
-    stubReport([item({ device_id: 'd-2', device_name: 'B-RTR' })], [groupItem({ device_id: 'd-1', device_name: 'A-FW', group_name: 'Серверные' }), groupItem({ subinterface_id: 'gs-2', device_id: 'd-2', device_name: 'B-RTR', group_name: 'Гости', vlan_number: 50, vlan_name: '' })])
+    stubReport(
+      [item({ device_id: 'd-2', device_name: 'B-RTR' })],
+      [
+        groupItem({ device_id: 'd-1', device_name: 'A-FW', group_name: 'Серверные' }),
+        groupItem({ subinterface_id: 'gs-2', device_id: 'd-2', device_name: 'B-RTR', group_name: 'Гости', vlan_number: 50, vlan_name: '' }),
+      ],
+    )
     const wrapper = await mountPanel()
 
     expect(wrapper.find('.stale-head b').text()).toBe('Подинтерфейсы на недоступном VLAN: 3')
@@ -121,7 +145,10 @@ describe('StaleSubinterfacesPanel.vue', () => {
   })
 
   it('сбой диагностики не прячется: причина и «Повторить»', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'База недоступна' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'База недоступна' }), { status: 500 })),
+    )
     const wrapper = await mountPanel()
 
     expect(wrapper.find('[role="alert"]').text()).toContain('Не удалось проверить подинтерфейсы')

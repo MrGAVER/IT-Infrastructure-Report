@@ -14,7 +14,11 @@ function stubSignedInAdmin() {
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/auth/status')) return json({ enabled: true, session_ttl_hours: 12 })
-      if (url.endsWith('/auth/me')) return json({ enabled: true, user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' } })
+      if (url.endsWith('/auth/me'))
+        return json({
+          enabled: true,
+          user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
+        })
       return preferencesFetch(url, init)
     }),
   )

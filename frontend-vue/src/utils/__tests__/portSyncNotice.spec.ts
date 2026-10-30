@@ -4,14 +4,32 @@ import { describePortSyncNotice, findPortSyncNotice, PORT_SYNC_NOTICE_MAX_CONNEC
 afterEach(() => vi.unstubAllGlobals())
 
 const summary = (patch: Record<string, number> = {}) => ({
-  connections: 0, applicable: 0, shown: 0, total_items: 0, auto: 0, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0, ...patch,
+  connections: 0,
+  applicable: 0,
+  shown: 0,
+  total_items: 0,
+  auto: 0,
+  blocked: 0,
+  manual: 0,
+  ignored: 0,
+  none: 0,
+  skipped: 0,
+  ...patch,
 })
 
 function link(connectionId: string) {
   return {
-    interface_id: `if-${connectionId}`, connection_id: connectionId, connection_type_id: 'ct', description: null,
-    peer_interface_id: 'p', peer_interface_name: 'Gi0/2', peer_device_id: 'd2', peer_device_name: 'sw-02',
-    peer_is_management: false, peer_is_data_transfer: true, peer_vlan_mode: 'trunk',
+    interface_id: `if-${connectionId}`,
+    connection_id: connectionId,
+    connection_type_id: 'ct',
+    description: null,
+    peer_interface_id: 'p',
+    peer_interface_name: 'Gi0/2',
+    peer_device_id: 'd2',
+    peer_device_name: 'sw-02',
+    peer_is_management: false,
+    peer_is_data_transfer: true,
+    peer_vlan_mode: 'trunk',
   }
 }
 

@@ -156,8 +156,7 @@ function previewCellText(value: unknown): string {
 
     <template v-else-if="template && template.format !== 'docx'">
       <p class="scope-note">
-        Шаблон «{{ template.name }}» — в формате Excel (.xlsx). У него другой редактор — вернитесь
-        к списку и откройте «Конструктор» ещё раз.
+        Шаблон «{{ template.name }}» — в формате Excel (.xlsx). У него другой редактор — вернитесь к списку и откройте «Конструктор» ещё раз.
       </p>
       <button type="button" class="btn btn-secondary" @click="backToList">← К списку шаблонов</button>
     </template>

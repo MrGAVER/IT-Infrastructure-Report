@@ -73,7 +73,10 @@ export interface FreeInterfacesQuery {
 }
 
 /** Одна страница свободных портов устройства. */
-export function fetchFreeInterfacesPage(deviceId: string, { q, include = [], offset = 0, limit = FREE_INTERFACES_PAGE_SIZE }: FreeInterfacesQuery = {}): Promise<FreeInterfacesPage> {
+export function fetchFreeInterfacesPage(
+  deviceId: string,
+  { q, include = [], offset = 0, limit = FREE_INTERFACES_PAGE_SIZE }: FreeInterfacesQuery = {},
+): Promise<FreeInterfacesPage> {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
   if (q?.trim()) params.set('q', q.trim())
   for (const id of include) params.append('include', id)
@@ -121,7 +124,13 @@ export interface DeviceOptionsQuery {
  * @example
  * const page = await fetchDeviceOptionsPage({ q: 'sw', include: [currentPeerDeviceId], exclude: [thisDeviceId] })
  */
-export function fetchDeviceOptionsPage({ q, include = [], exclude = [], offset = 0, limit = DEVICE_OPTIONS_PAGE_SIZE }: DeviceOptionsQuery = {}): Promise<DeviceOptionsPage> {
+export function fetchDeviceOptionsPage({
+  q,
+  include = [],
+  exclude = [],
+  offset = 0,
+  limit = DEVICE_OPTIONS_PAGE_SIZE,
+}: DeviceOptionsQuery = {}): Promise<DeviceOptionsPage> {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
   if (q?.trim()) params.set('q', q.trim())
   for (const id of include) params.append('include', id)

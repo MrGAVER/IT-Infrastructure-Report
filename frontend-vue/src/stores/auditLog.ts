@@ -51,7 +51,10 @@ export const useAuditLogStore = defineStore('auditLog', {
     pageSizeOptions: (): number[] => pageSizeOptionsFor(DEFAULT_PAGE_SIZE),
     pageCount: (state): number => Math.max(1, Math.ceil(state.total / state.pageSize)),
     /** Число записей журнала с данным действием — по всему журналу. */
-    countByAction: (state) => (action: string): number => state.summary.by_action[action] ?? 0,
+    countByAction:
+      (state) =>
+      (action: string): number =>
+        state.summary.by_action[action] ?? 0,
   },
   actions: {
     /** Загружает текущую страницу с текущими условиями. Устаревший ответ (пришёл после более

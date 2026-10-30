@@ -9,7 +9,13 @@ import type { AuthUser } from '../../api/types'
 import type { PortSyncPlan, PortSyncPlanItem, PortSyncSummary } from '../../api/types'
 
 const port = (name: string, device: string, vlans: number[] = []) => ({
-  interface_id: `if-${name}`, name, device_id: `dev-${device}`, device_name: device, role: 'data' as const, mode: 'trunk' as const, vlans,
+  interface_id: `if-${name}`,
+  name,
+  device_id: `dev-${device}`,
+  device_name: device,
+  role: 'data' as const,
+  mode: 'trunk' as const,
+  vlans,
 })
 
 function item(overrides: Partial<PortSyncPlanItem> = {}): PortSyncPlanItem {
@@ -34,19 +40,34 @@ function plan(items: PortSyncPlanItem[], summary: Partial<PortSyncSummary> = {},
     items,
     plan_hash: hash,
     summary: {
-      connections: items.length, applicable: auto, shown: items.length, total_items: items.length,
-      auto, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0, ...summary,
+      connections: items.length,
+      applicable: auto,
+      shown: items.length,
+      total_items: items.length,
+      auto,
+      blocked: 0,
+      manual: 0,
+      ignored: 0,
+      none: 0,
+      skipped: 0,
+      ...summary,
     },
   }
 }
 
-interface Call { url: string; method: string; body: any }
+interface Call {
+  url: string
+  method: string
+  body: any
+}
 let calls: Call[]
 let responses: Array<() => Response>
 
 function stub(...queue: Array<PortSyncPlan | { status: number; detail: string }>) {
   calls = []
-  responses = queue.map((r) => () => ('detail' in r ? new Response(JSON.stringify({ detail: r.detail }), { status: r.status }) : new Response(JSON.stringify(r))))
+  responses = queue.map(
+    (r) => () => ('detail' in r ? new Response(JSON.stringify({ detail: r.detail }), { status: r.status }) : new Response(JSON.stringify(r))),
+  )
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -101,7 +122,10 @@ describe('PortSyncPlanModal.vue', () => {
         [
           item({ connection_id: 'c-1', outcome: 'blocked', reason: 'Порт входит в группу «Серверные», которая задаёт режим и VLAN — измените группу' }),
           item({
-            connection_id: 'c-2', outcome: 'manual', target: null, changes: null,
+            connection_id: 'c-2',
+            outcome: 'manual',
+            target: null,
+            changes: null,
             rule: { id: 'r-2', code: 'role_match', name: 'Роль порта совпадает с ролью соседа', action: 'manual' },
             options: [{ target: 'source', changes: { role: 'management', mode: null, vlans: null } }],
           }),
@@ -166,7 +190,8 @@ describe('PortSyncPlanModal.vue', () => {
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined })
-        if (url.endsWith('/port-sync/apply')) return new Response(JSON.stringify({ detail: 'Данные изменились после предпросмотра — повторите операцию' }), { status: 409 })
+        if (url.endsWith('/port-sync/apply'))
+          return new Response(JSON.stringify({ detail: 'Данные изменились после предпросмотра — повторите операцию' }), { status: 409 })
         return new Response(JSON.stringify(plan([item()], {}, 'new')))
       }),
     )
@@ -194,7 +219,10 @@ describe('PortSyncPlanModal.vue', () => {
     stub(plan([item()]))
     const wrapper = mountModal()
     await flushPromises()
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })),
+    )
 
     await wrapper.find('[data-field="confirm"]').setValue(true)
     await wrapper.find('[data-action="apply"]').trigger('click')
@@ -242,7 +270,8 @@ describe('PortSyncPlanModal.vue', () => {
   })
 
   describe('постраничный показ плана', () => {
-    const items = (from: number, count: number) => Array.from({ length: count }, (_, i) => item({ connection_id: `c-${from + i}`, source: port(`Gi0/${from + i}`, 'sw-1') }))
+    const items = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) => item({ connection_id: `c-${from + i}`, source: port(`Gi0/${from + i}`, 'sw-1') }))
     // Первая страница: 2 из 5 элементов; summary — по всему плану.
     const firstPage = () => plan(items(1, 2), { total_items: 5, applicable: 5, connections: 5 }, 'hash-all')
 
@@ -347,18 +376,24 @@ describe('PortSyncPlanModal.vue', () => {
 
   it('правило «объединить»: изменения показываются для обоих портов, сводка называет и подключения, и порты', async () => {
     const changes = (from: number[], to: number[]) => ({ role: null, mode: null, vlans: { from, to, skipped: [] } })
-    stub(plan(
-      [item({
-        target: 'both', changes: null,
-        rule: { id: 'r-2', code: 'trunk_vlans_union', name: 'Trunk: наборы VLAN на концах линии объединяются', action: 'auto' },
-        source: port('Gi0/1', 'sw-1', [10, 20]), destination: port('Gi0/2', 'sw-2', [20, 30]),
-        targets: [
-          { target: 'source', changes: changes([10, 20], [10, 20, 30]), blocked: null },
-          { target: 'destination', changes: changes([20, 30], [10, 20, 30]), blocked: null },
+    stub(
+      plan(
+        [
+          item({
+            target: 'both',
+            changes: null,
+            rule: { id: 'r-2', code: 'trunk_vlans_union', name: 'Trunk: наборы VLAN на концах линии объединяются', action: 'auto' },
+            source: port('Gi0/1', 'sw-1', [10, 20]),
+            destination: port('Gi0/2', 'sw-2', [20, 30]),
+            targets: [
+              { target: 'source', changes: changes([10, 20], [10, 20, 30]), blocked: null },
+              { target: 'destination', changes: changes([20, 30], [10, 20, 30]), blocked: null },
+            ],
+          }),
         ],
-      })],
-      { applicable: 2 },
-    ))
+        { applicable: 2 },
+      ),
+    )
     const wrapper = mountModal()
     await flushPromises()
 
@@ -374,16 +409,21 @@ describe('PortSyncPlanModal.vue', () => {
 
   it('порту пары, которому изменение запрещено, показывается причина, а второй порт остаётся в плане', async () => {
     const changes = { role: null, mode: null, vlans: { from: [10], to: [10, 20], skipped: [] } }
-    stub(plan(
-      [item({
-        target: 'both', changes: null,
-        targets: [
-          { target: 'source', changes, blocked: 'Порт входит в группу «Магистрали», которая задаёт режим и VLAN, — измените группу' },
-          { target: 'destination', changes, blocked: null },
+    stub(
+      plan(
+        [
+          item({
+            target: 'both',
+            changes: null,
+            targets: [
+              { target: 'source', changes, blocked: 'Порт входит в группу «Магистрали», которая задаёт режим и VLAN, — измените группу' },
+              { target: 'destination', changes, blocked: null },
+            ],
+          }),
         ],
-      })],
-      { applicable: 1 },
-    ))
+        { applicable: 1 },
+      ),
+    )
     const wrapper = mountModal()
     await flushPromises()
 
@@ -396,14 +436,23 @@ describe('PortSyncPlanModal.vue', () => {
 
   it('заблокированное подключение с двумя портами: у обоих показаны причина и несостоявшиеся изменения', async () => {
     const changes = { role: null, mode: null, vlans: { from: [10], to: [10, 20], skipped: [20] } }
-    stub(plan(
-      [item({
-        outcome: 'blocked', target: 'both', changes: null,
-        reason: 'Порт «Gi0/1» (sw-1): нет VLAN; Порт «Gi0/2» (sw-2): нет VLAN',
-        targets: [{ target: 'source', changes, blocked: 'нет VLAN' }, { target: 'destination', changes, blocked: 'нет VLAN' }],
-      })],
-      { applicable: 0, auto: 0, blocked: 1 },
-    ))
+    stub(
+      plan(
+        [
+          item({
+            outcome: 'blocked',
+            target: 'both',
+            changes: null,
+            reason: 'Порт «Gi0/1» (sw-1): нет VLAN; Порт «Gi0/2» (sw-2): нет VLAN',
+            targets: [
+              { target: 'source', changes, blocked: 'нет VLAN' },
+              { target: 'destination', changes, blocked: 'нет VLAN' },
+            ],
+          }),
+        ],
+        { applicable: 0, auto: 0, blocked: 1 },
+      ),
+    )
     const wrapper = mountModal()
     await flushPromises()
 
@@ -414,13 +463,12 @@ describe('PortSyncPlanModal.vue', () => {
   })
 
   it('подключение, у которого расхождение останется после применения, помечено в плане, а счётчик — в сводке', async () => {
-    stub(plan(
-      [
-        item({ connection_id: 'c-1', partial: true, warnings: ['Не назначены VLAN, которых нет у устройства порта: 30'] }),
-        item({ connection_id: 'c-2' }),
-      ],
-      { partial: 1 },
-    ))
+    stub(
+      plan(
+        [item({ connection_id: 'c-1', partial: true, warnings: ['Не назначены VLAN, которых нет у устройства порта: 30'] }), item({ connection_id: 'c-2' })],
+        { partial: 1 },
+      ),
+    )
     const wrapper = mountModal()
     await flushPromises()
 

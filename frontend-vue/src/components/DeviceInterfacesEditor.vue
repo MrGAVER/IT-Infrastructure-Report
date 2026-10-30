@@ -169,7 +169,9 @@ const { vlanPickerIndex, vlanPickerRow, toggleVlan, setVlanMode, setAccessVlan, 
   updateRow,
 })
 
-const staleSubinterfaceCount = computed(() => props.modelValue.reduce((sum, row) => sum + staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).length, 0))
+const staleSubinterfaceCount = computed(() =>
+  props.modelValue.reduce((sum, row) => sum + staleSubinterfaces(row.subinterfaces, allowedVlanIds.value).length, 0),
+)
 
 // Массовый перенос (InterfaceStaleBar.vue): все подинтерфейсы на недоступных VLAN — на один выбранный VLAN устройства одним действием
 // (вместо правки каждого). Там, где на порту этот VLAN уже занят, подинтерфейс остаётся на месте — о таких говорит предупреждение.
@@ -187,7 +189,10 @@ watch(
   () => props.modelValue,
   (rows) => {
     if (!props.editConnections || rows.every((r) => r.id || r.key)) return
-    emit('update:modelValue', rows.map((r) => (r.id || r.key ? r : { ...r, key: newRowKey() })))
+    emit(
+      'update:modelValue',
+      rows.map((r) => (r.id || r.key ? r : { ...r, key: newRowKey() })),
+    )
   },
   { immediate: true },
 )
@@ -313,84 +318,84 @@ defineExpose({ reviewNeighborMismatches, revealStaleSubinterfaces })
            десятке портов. -->
       <div class="iface-table-wrap">
         <table class="iface-table">
-        <thead>
-          <tr>
-            <th class="col-select">
-              <input
-                type="checkbox"
-                :checked="selectedIndices.size === modelValue.length"
-                aria-label="Выбрать все интерфейсы"
-                @change="toggleSelectAll(($event.target as HTMLInputElement).checked)"
-              />
-            </th>
-            <th class="col-index">#</th>
-            <th class="col-order">Порядок</th>
-            <th>Имя</th>
-            <th>Тип</th>
-            <th>MAC</th>
-            <th>Скорость</th>
-            <th class="col-check">Упр.</th>
-            <th class="col-check">Данные</th>
-            <th>VLAN / IP</th>
-            <th class="col-actions"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <InterfaceBulkBar
-            v-model:type-id="bulkTypeId"
-            v-model:speed-id="bulkSpeedId"
-            v-model:management="bulkManagement"
-            v-model:data-transfer="bulkDataTransfer"
-            v-model:vlan-mode="bulkVlanMode"
-            :type-options="typeOptions"
-            :speed-options="speedOptions"
-            :has-vlans="vlanOptions.length > 0"
-            :vlan-summary="bulkVlanSummary"
-            @open-vlan-picker="bulkVlanPickerOpen = true"
-            @apply="applyBulkEdit"
-          />
-          <InterfaceRow
-            v-for="(row, i) in modelValue"
-            :key="row.id ?? row.key ?? i"
-            :row="row"
-            :index="i"
-            :rows="modelValue"
-            :groups="groups"
-            :selected="selectedIndices.has(i)"
-            :expanded="expandedIndices.has(i)"
-            :copy-target="copyTargetIndex[i] ?? ''"
-            :type-options="typeOptions"
-            :speed-options="speedOptions"
-            :vlan-options="vlanOptions"
-            :vlan-catalog="knownVlans"
-            :allowed-vlan-ids="allowedVlanIds"
-            :protocol-port-catalog="protocolPortCatalog"
-            :collapse-after="formPreferences.collapseRows"
-            :conflict="rowConflict(row)"
-            :edit-connections="editConnections"
-            :device-id="deviceId"
-            :device-label="deviceLabel"
-            :freed-peer-ids="freedPeerIds"
-            :applying-peer-config="applyingPeerConfig"
-            :peers-version="peersVersion"
-            @select="(checked) => toggleSelect(i, checked)"
-            @toggle-expand="toggleExpand(i)"
-            @move="(delta) => moveRowBy(i, delta)"
-            @remove="removeRow(i)"
-            @rename="(name) => renamePort(i, name)"
-            @update="(patch) => updateRow(i, patch)"
-            @open-conflict="(kind) => openConflict(i, kind)"
-            @set-vlan-mode="(mode) => setVlanMode(i, mode)"
-            @set-access-vlan="(vlanId) => setAccessVlan(i, vlanId)"
-            @toggle-all-vlans="(checked) => toggleAllVlans(i, checked)"
-            @open-vlan-picker="vlanPickerIndex = i"
-            @set-copy-target="(value) => setCopyTarget(i, value)"
-            @apply-copy="applyCopyPorts(i)"
-            @apply-peer-config="(peer, kinds) => applyPeerConfigToPort(i, peer, kinds)"
-            @apply-config-to-peer="(peer, kinds) => applyPortConfigToPeer(i, peer, kinds)"
-          />
-        </tbody>
-      </table>
+          <thead>
+            <tr>
+              <th class="col-select">
+                <input
+                  type="checkbox"
+                  :checked="selectedIndices.size === modelValue.length"
+                  aria-label="Выбрать все интерфейсы"
+                  @change="toggleSelectAll(($event.target as HTMLInputElement).checked)"
+                />
+              </th>
+              <th class="col-index">#</th>
+              <th class="col-order">Порядок</th>
+              <th>Имя</th>
+              <th>Тип</th>
+              <th>MAC</th>
+              <th>Скорость</th>
+              <th class="col-check">Упр.</th>
+              <th class="col-check">Данные</th>
+              <th>VLAN / IP</th>
+              <th class="col-actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <InterfaceBulkBar
+              v-model:type-id="bulkTypeId"
+              v-model:speed-id="bulkSpeedId"
+              v-model:management="bulkManagement"
+              v-model:data-transfer="bulkDataTransfer"
+              v-model:vlan-mode="bulkVlanMode"
+              :type-options="typeOptions"
+              :speed-options="speedOptions"
+              :has-vlans="vlanOptions.length > 0"
+              :vlan-summary="bulkVlanSummary"
+              @open-vlan-picker="bulkVlanPickerOpen = true"
+              @apply="applyBulkEdit"
+            />
+            <InterfaceRow
+              v-for="(row, i) in modelValue"
+              :key="row.id ?? row.key ?? i"
+              :row="row"
+              :index="i"
+              :rows="modelValue"
+              :groups="groups"
+              :selected="selectedIndices.has(i)"
+              :expanded="expandedIndices.has(i)"
+              :copy-target="copyTargetIndex[i] ?? ''"
+              :type-options="typeOptions"
+              :speed-options="speedOptions"
+              :vlan-options="vlanOptions"
+              :vlan-catalog="knownVlans"
+              :allowed-vlan-ids="allowedVlanIds"
+              :protocol-port-catalog="protocolPortCatalog"
+              :collapse-after="formPreferences.collapseRows"
+              :conflict="rowConflict(row)"
+              :edit-connections="editConnections"
+              :device-id="deviceId"
+              :device-label="deviceLabel"
+              :freed-peer-ids="freedPeerIds"
+              :applying-peer-config="applyingPeerConfig"
+              :peers-version="peersVersion"
+              @select="(checked) => toggleSelect(i, checked)"
+              @toggle-expand="toggleExpand(i)"
+              @move="(delta) => moveRowBy(i, delta)"
+              @remove="removeRow(i)"
+              @rename="(name) => renamePort(i, name)"
+              @update="(patch) => updateRow(i, patch)"
+              @open-conflict="(kind) => openConflict(i, kind)"
+              @set-vlan-mode="(mode) => setVlanMode(i, mode)"
+              @set-access-vlan="(vlanId) => setAccessVlan(i, vlanId)"
+              @toggle-all-vlans="(checked) => toggleAllVlans(i, checked)"
+              @open-vlan-picker="vlanPickerIndex = i"
+              @set-copy-target="(value) => setCopyTarget(i, value)"
+              @apply-copy="applyCopyPorts(i)"
+              @apply-peer-config="(peer, kinds) => applyPeerConfigToPort(i, peer, kinds)"
+              @apply-config-to-peer="(peer, kinds) => applyPortConfigToPeer(i, peer, kinds)"
+            />
+          </tbody>
+        </table>
       </div>
     </div>
 

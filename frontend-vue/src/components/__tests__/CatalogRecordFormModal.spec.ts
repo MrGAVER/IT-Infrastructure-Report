@@ -108,7 +108,10 @@ describe('CatalogRecordFormModal.vue', () => {
   it('ошибка сохранения показывается в форме, а не проглатывается', async () => {
     const catalogs = useCatalogsStore()
     catalogs.items['device-categories'] = [{ id: 'cat-1', name: 'Сетевая инфраструктура' }]
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Запись с таким именем уже существует' }, 409)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Запись с таким именем уже существует' }, 409)),
+    )
     mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: { id: 'dt-1', name: 'Сервер', category_id: 'cat-1' } } })
     await body().find('input[type="text"]').setValue('Сервер')
     await body().find('form').trigger('submit')
@@ -118,7 +121,10 @@ describe('CatalogRecordFormModal.vue', () => {
   })
 
   it('удаление: подтверждение confirm(), DELETE на ресурс/id, emit deleted', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
@@ -139,7 +145,10 @@ describe('CatalogRecordFormModal.vue', () => {
   })
 
   it('отказ от подтверждения удаления не отправляет запрос', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: { id: 'dt-1', name: 'Сервер' } } })
@@ -153,8 +162,14 @@ describe('CatalogRecordFormModal.vue', () => {
   })
 
   it('ошибка удаления (например, запись используется в других записях) показывается в форме', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Запись используется в 3 моделях устройств' }, 409)))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Запись используется в 3 моделях устройств' }, 409)),
+    )
     const wrapper = mount(CatalogRecordFormModal, { props: { resource: 'device-types', item: { id: 'dt-1', name: 'Сервер' } } })
     const deleteButton = body()
       .findAll('button')
@@ -223,7 +238,10 @@ describe('CatalogRecordFormModal.vue', () => {
       // вхождение, хотя реально рендерится только один видимый заголовок поля.
       // Заголовок поля рендерит только сам DeviceIconPicker — внешний <span> схемы для этого
       // типа поля намеренно подавлен (см. CatalogRecordFormModal.vue), иначе подпись дублировалась.
-      const matches = body().text().match(/Иконка на диаграмме/g) ?? []
+      const matches =
+        body()
+          .text()
+          .match(/Иконка на диаграмме/g) ?? []
       expect(matches).toHaveLength(1)
     })
 
@@ -231,7 +249,10 @@ describe('CatalogRecordFormModal.vue', () => {
       const catalogs = useCatalogsStore()
       catalogs.items['diagram-icons'] = [{ id: 'icon-1', name: 'Cisco 2960', svg_markup: '<svg/>' }]
       mount(CatalogRecordFormModal, {
-        props: { resource: 'device-models', item: { id: 'model-1', device_type_id: 'dt-1', manufacturer_id: 'mf-1', model: 'Catalyst', diagram_icon_id: 'icon-1' } },
+        props: {
+          resource: 'device-models',
+          item: { id: 'model-1', device_type_id: 'dt-1', manufacturer_id: 'mf-1', model: 'Catalyst', diagram_icon_id: 'icon-1' },
+        },
       })
       const select = body().find('.icon-select')
       expect((select.element as HTMLSelectElement).value).toBe('icon-1')

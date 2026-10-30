@@ -96,33 +96,33 @@ async function submit() {
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field">
-          <span>VLAN ID *</span>
-          <input v-model="form.vlan_id" type="number" min="1" max="4094" required />
-        </label>
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field">
+            <span>VLAN ID *</span>
+            <input v-model="form.vlan_id" type="number" min="1" max="4094" required />
+          </label>
 
-        <label class="field">
-          <span>Имя *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="255" />
-        </label>
+          <label class="field">
+            <span>Имя *</span>
+            <input v-model.trim="form.name" type="text" required maxlength="255" />
+          </label>
 
-        <label class="field">
-          <span>Домен VLAN</span>
-          <div class="lookup-row">
-            <select v-model="form.domain_id">
-              <option value="">— локальный (без домена) —</option>
-              <option v-for="d in catalogs.items['vlan-domains'] ?? []" :key="d.id" :value="d.id">{{ d.name }}</option>
-            </select>
-            <QuickAddButton resource="vlan-domains" title="Домен VLAN" @created="(r: CatalogItem) => (form.domain_id = r.id)" />
-          </div>
-        </label>
+          <label class="field">
+            <span>Домен VLAN</span>
+            <div class="lookup-row">
+              <select v-model="form.domain_id">
+                <option value="">— локальный (без домена) —</option>
+                <option v-for="d in catalogs.items['vlan-domains'] ?? []" :key="d.id" :value="d.id">{{ d.name }}</option>
+              </select>
+              <QuickAddButton resource="vlan-domains" title="Домен VLAN" @created="(r: CatalogItem) => (form.domain_id = r.id)" />
+            </div>
+          </label>
 
-        <label class="field field-wide">
-          <span>Описание</span>
-          <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
-        </label>
-      </form>
+          <label class="field field-wide">
+            <span>Описание</span>
+            <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
+          </label>
+        </form>
       </fieldset>
 
       <div class="modal-foot">

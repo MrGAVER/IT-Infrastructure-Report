@@ -4,7 +4,14 @@
 // (InterfaceSubinterfacesEditor.vue) использовали одни правила. Правила проверки зеркальны серверным
 // (backend/app/services/crud/subinterfaces.py): имя и VLAN обязательны, имя уникально на устройстве и
 // не совпадает с именем порта, на одном порту VLAN используется один раз; VLAN подинтерфейса — один из VLAN порта (клиентское правило).
-import type { DeviceSubinterface, InterfaceDraftRow, InterfaceGroupSubinterface, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
+import type {
+  DeviceSubinterface,
+  InterfaceDraftRow,
+  InterfaceGroupSubinterface,
+  ProtocolPortCatalogEntry,
+  SubinterfaceDraftRow,
+  VLANDefinition,
+} from '../api/types'
 import { isValidIPv4, isValidPrefixLength } from './ipValidation'
 import { duplicatePortNumbers } from './openPorts'
 import { vlanLabel } from './vlan'
@@ -36,7 +43,12 @@ export function isAutoSubinterfaceName(name: string, parentName: string, vlanNum
  * (у подинтерфейса на недоступном VLAN его берут из справочника): без него автоимя не распознать, остаётся только пустое.
  * Одно правило и для смены VLAN в строке подинтерфейса (InterfaceSubinterfacesEditor), и для массового переноса недоступных
  * (moveStaleSubinterfaces ниже). */
-export function reassignSubinterfaceVlan(sub: SubinterfaceDraftRow, parentName: string, previous: VLANDefinition | undefined, next: VLANDefinition): SubinterfaceDraftRow {
+export function reassignSubinterfaceVlan(
+  sub: SubinterfaceDraftRow,
+  parentName: string,
+  previous: VLANDefinition | undefined,
+  next: VLANDefinition,
+): SubinterfaceDraftRow {
   const wasAutoName = !sub.name.trim() || (previous != null && isAutoSubinterfaceName(sub.name, parentName, previous.vlan_id))
   return { ...sub, vlan_id: next.id, ...(wasAutoName ? { name: suggestSubinterfaceName(parentName, next.vlan_id) } : {}) }
 }
@@ -91,7 +103,10 @@ export function moveStaleSubinterfaces(
 
 /** Текст и вид уведомления по итогу массового переноса: успех — «Перенесено …», если часть осталась на месте — предупреждение с
  * перечнем оставшихся и причиной. null — переносить было нечего (ни перенесённых, ни пропущенных). */
-export function moveStaleMessage(result: Pick<MoveStaleResult, 'moved' | 'skipped'>, target: VLANDefinition): { text: string; type: 'success' | 'warning' } | null {
+export function moveStaleMessage(
+  result: Pick<MoveStaleResult, 'moved' | 'skipped'>,
+  target: VLANDefinition,
+): { text: string; type: 'success' | 'warning' } | null {
   const { moved, skipped } = result
   if (!moved.length && !skipped.length) return null
   const done = moved.length ? `Перенесено подинтерфейсов: ${moved.length} — на VLAN ${vlanLabel(target)}.` : ''
@@ -138,18 +153,12 @@ export function staleSubinterfaces(subs: readonly SubinterfaceDraftRow[] | undef
 
 /** Id VLAN порта: с «Все VLAN» (trunk) — все VLAN, допустимые устройству (`allowedVlanIds`), иначе выбранные на порту.
  * Подинтерфейс порта создаётся только на одном из них. */
-export function portVlanIdSet(
-  row: Pick<InterfaceDraftRow, 'vlan_ids' | 'all_vlans' | 'vlan_mode'>,
-  allowedVlanIds?: ReadonlySet<string>,
-): Set<string> {
+export function portVlanIdSet(row: Pick<InterfaceDraftRow, 'vlan_ids' | 'all_vlans' | 'vlan_mode'>, allowedVlanIds?: ReadonlySet<string>): Set<string> {
   return row.all_vlans === true && row.vlan_mode === 'trunk' && allowedVlanIds ? new Set(allowedVlanIds) : new Set(row.vlan_ids)
 }
 
 /** VLAN порта как список определений (по порядку `vlans`): из них выбирается VLAN подинтерфейса порта. */
-export function portVlanOptions(
-  row: Pick<InterfaceDraftRow, 'vlan_ids' | 'all_vlans' | 'vlan_mode'>,
-  vlans: readonly VLANDefinition[],
-): VLANDefinition[] {
+export function portVlanOptions(row: Pick<InterfaceDraftRow, 'vlan_ids' | 'all_vlans' | 'vlan_mode'>, vlans: readonly VLANDefinition[]): VLANDefinition[] {
   const ids = portVlanIdSet(row, new Set(vlans.map((v) => v.id)))
   return vlans.filter((v) => ids.has(v.id))
 }
@@ -223,8 +232,18 @@ export function toSubinterfaceDraftRow(sub: DeviceSubinterface): SubinterfaceDra
     is_management: sub.is_management,
     is_data_transfer: sub.is_data_transfer,
     description: sub.description ?? '',
-    ips: sub.ips.map((ip) => ({ id: ip.id, ip_address: ip.ip_address, prefix_length: ip.prefix_length == null ? '' : String(ip.prefix_length), purpose: ip.purpose ?? '' })),
-    open_ports: sub.open_ports.map((p) => ({ id: p.id, protocol_catalog_id: p.protocol_catalog_id, transport_protocol: p.transport_protocol, description: p.description ?? '' })),
+    ips: sub.ips.map((ip) => ({
+      id: ip.id,
+      ip_address: ip.ip_address,
+      prefix_length: ip.prefix_length == null ? '' : String(ip.prefix_length),
+      purpose: ip.purpose ?? '',
+    })),
+    open_ports: sub.open_ports.map((p) => ({
+      id: p.id,
+      protocol_catalog_id: p.protocol_catalog_id,
+      transport_protocol: p.transport_protocol,
+      description: p.description ?? '',
+    })),
   }
 }
 

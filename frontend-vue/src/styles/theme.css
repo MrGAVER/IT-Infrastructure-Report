@@ -9,7 +9,7 @@
  * (тот файл используется для отрисовки образцов цвета в пикере схем).
  */
 :root {
-  --surface: #16212E;
+  --surface: #16212e;
   /* Алиас для var(--surface-1) — переменная с этим именем используется в HelpTip.vue,
      DeviceInterfacesEditor.vue и ряде мест с фолбэком (var(--surface-1, ...)), но нигде не была
      объявлена. Без объявления background: var(--surface-1) — невалидное значение, браузер либо
@@ -19,17 +19,17 @@
      Ссылка на var(--surface), а не отдельное значение, — чтобы не разъезжались, если --surface
      когда-нибудь изменится. */
   --surface-1: var(--surface);
-  --surface-2: #1E2C3B;
-  --border: #2A3B4D;
-  --ink: #E7EDF3;
-  --ink-muted: #8FA0B3;
+  --surface-2: #1e2c3b;
+  --border: #2a3b4d;
+  --ink: #e7edf3;
+  --ink-muted: #8fa0b3;
 
-  --status-ok: #33C9A7;
-  --status-ok-soft: #13342D;
-  --status-warn: #E8A33D;
-  --status-warn-soft: #3A2E17;
-  --status-crit: #E5484D;
-  --status-crit-soft: #3A1B1D;
+  --status-ok: #33c9a7;
+  --status-ok-soft: #13342d;
+  --status-warn: #e8a33d;
+  --status-warn-soft: #3a2e17;
+  --status-crit: #e5484d;
+  --status-crit-soft: #3a1b1d;
 
   --r-s: 6px;
   --r-m: 10px;
@@ -43,21 +43,21 @@
 /* Бирюза — схема по умолчанию */
 :root,
 [data-scheme='teal'] {
-  --bg: #0E1620;
-  --brand: #33C9A7;
-  --brand-soft: #13342D;
+  --bg: #0e1620;
+  --brand: #33c9a7;
+  --brand-soft: #13342d;
 }
 
 /* Индиго */
 [data-scheme='indigo'] {
   --bg: #101527;
-  --brand: #6C7BFF;
-  --brand-soft: #1E2142;
+  --brand: #6c7bff;
+  --brand-soft: #1e2142;
 }
 
 /* Медь */
 [data-scheme='copper'] {
-  --bg: #1A1410;
-  --brand: #D97B3F;
-  --brand-soft: #3A2416;
+  --bg: #1a1410;
+  --brand: #d97b3f;
+  --brand-soft: #3a2416;
 }

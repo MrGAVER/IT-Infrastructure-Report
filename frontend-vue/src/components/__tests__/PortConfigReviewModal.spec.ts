@@ -37,7 +37,11 @@ function connection(overrides: Partial<Connection> = {}): Connection {
   }
 }
 
-interface Call { url: string; method: string; body?: Record<string, unknown> }
+interface Call {
+  url: string
+  method: string
+  body?: Record<string, unknown>
+}
 let calls: Call[]
 
 function stubApi(handler: (call: Call) => Response | undefined = () => undefined) {
@@ -47,7 +51,9 @@ function stubApi(handler: (call: Call) => Response | undefined = () => undefined
     vi.fn(async (url: string, init?: RequestInit) => {
       const call: Call = { url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(init.body as string) : undefined }
       calls.push(call)
-      return handler(call) ?? jsonResponse({ items: [], total: 0, offset: 0, limit: 1000, summary: { total: 0, active: 0, inactive: 0, mismatch: 0, approved: 0 } })
+      return (
+        handler(call) ?? jsonResponse({ items: [], total: 0, offset: 0, limit: 1000, summary: { total: 0, active: 0, inactive: 0, mismatch: 0, approved: 0 } })
+      )
     }),
   )
 }
@@ -147,7 +153,9 @@ describe('PortConfigReviewModal.vue', () => {
 
   it('«Порту источника задать роль как у назначения» меняет порт источника', async () => {
     stubApi((call) =>
-      call.method === 'PUT' ? jsonResponse({ id: 'if-srv', name: 'idrac', physical_device_id: 'dev-srv', is_management: false, is_data_transfer: true }) : undefined,
+      call.method === 'PUT'
+        ? jsonResponse({ id: 'if-srv', name: 'idrac', physical_device_id: 'dev-srv', is_management: false, is_data_transfer: true })
+        : undefined,
     )
     const wrapper = mountModal(connection())
 
@@ -181,9 +189,12 @@ describe('PortConfigReviewModal.vue', () => {
   it('расхождение режима и VLAN: подсвечивает различающиеся значения и предлагает настроить порты, а не выравнивать роль', () => {
     const wrapper = mountModal(
       connection({
-        source_port_role: 'data', destination_port_role: 'data',
-        source_vlan_mode: 'trunk', destination_vlan_mode: 'access',
-        source_vlans: [10, 11, 12, 20], destination_vlans: [10],
+        source_port_role: 'data',
+        destination_port_role: 'data',
+        source_vlan_mode: 'trunk',
+        destination_vlan_mode: 'access',
+        source_vlans: [10, 11, 12, 20],
+        destination_vlans: [10],
         port_config_diff: ['mode', 'vlans'],
       }),
     )
@@ -247,7 +258,15 @@ describe('PortConfigReviewModal.vue', () => {
     const CASCADE_URL = '/vlan-mode-cascade'
     const modeMismatch = () => connection({ source_vlan_mode: 'trunk', destination_vlan_mode: 'access', port_config_diff: ['mode'], source_port_role: 'data' })
 
-    function cascadeApi(plan: VlanModeCascadePlan, apply: () => Response = () => jsonResponse({ plan, applied: { ports: 1, groups: 0, devices: 1 }, interfaces: [{ id: 'if-sw', name: 'Gi0/5', physical_device_id: 'dev-sw', vlan_mode: plan.target_mode }] })) {
+    function cascadeApi(
+      plan: VlanModeCascadePlan,
+      apply: () => Response = () =>
+        jsonResponse({
+          plan,
+          applied: { ports: 1, groups: 0, devices: 1 },
+          interfaces: [{ id: 'if-sw', name: 'Gi0/5', physical_device_id: 'dev-sw', vlan_mode: plan.target_mode }],
+        }),
+    ) {
       stubApi((call) => {
         if (!call.url.includes(CASCADE_URL)) return undefined
         return call.url.endsWith('/preview') ? jsonResponse(plan) : apply()
@@ -258,15 +277,35 @@ describe('PortConfigReviewModal.vue', () => {
       makePlan({
         target_mode: 'trunk',
         start_interface_id: 'if-sw',
-        groups: [groupChange({ id: 'g9', name: 'Магистраль', device_id: 'dev-sw', device_name: 'sw-01', from_mode: 'access', to_mode: 'trunk', ports: [{ id: 'if-sw', name: 'Gi0/5' }, { id: 'if-sw2', name: 'Gi0/6' }] })],
+        groups: [
+          groupChange({
+            id: 'g9',
+            name: 'Магистраль',
+            device_id: 'dev-sw',
+            device_name: 'sw-01',
+            from_mode: 'access',
+            to_mode: 'trunk',
+            ports: [
+              { id: 'if-sw', name: 'Gi0/5' },
+              { id: 'if-sw2', name: 'Gi0/6' },
+            ],
+          }),
+        ],
         ports: [portChange({ id: 'if-x', name: 'Gi0/1', device_id: 'dev-x', device_name: 'sw-02', from_mode: 'access', to_mode: 'trunk' })],
-        devices: [{ id: 'dev-sw', name: 'sw-01', deferred: false, port_count: 2, group_count: 1 }, { id: 'dev-x', name: 'sw-02', deferred: false, port_count: 1, group_count: 0 }],
+        devices: [
+          { id: 'dev-sw', name: 'sw-01', deferred: false, port_count: 2, group_count: 1 },
+          { id: 'dev-x', name: 'sw-02', deferred: false, port_count: 1, group_count: 0 },
+        ],
         totals: { ports: 3, devices: 2, groups: 1, deferred_ports: 0, immediate_ports: 3, immediate_devices: 2, dropped_vlans: 0 },
         hash: 'hash-dash',
       })
 
     it('простой случай: предпросмотр без формы (edited: null), затем сразу применение; таблица перечитывается, окно закрывается', async () => {
-      const plan = makePlan({ target_mode: 'trunk', start_interface_id: 'if-sw', ports: [portChange({ id: 'if-sw', name: 'Gi0/5', device_name: 'sw-01', from_mode: 'access', to_mode: 'trunk' })] })
+      const plan = makePlan({
+        target_mode: 'trunk',
+        start_interface_id: 'if-sw',
+        ports: [portChange({ id: 'if-sw', name: 'Gi0/5', device_name: 'sw-01', from_mode: 'access', to_mode: 'trunk' })],
+      })
       cascadeApi(plan)
       const catalogs = useCatalogsStore()
       catalogs.items['interfaces'] = [{ id: 'if-sw', name: 'Gi0/5', physical_device_id: 'dev-sw', vlan_mode: 'access' }]
@@ -373,7 +412,12 @@ const syncPreviewCalls = () => calls.filter((c) => c.method === 'POST' && c.url.
 
 function planFor(item: Record<string, unknown> | null, summary: Record<string, unknown> = {}) {
   const base = {
-    connection_id: 'c-1', outcome: 'auto', reason: null, target: 'source', warnings: [], options: [],
+    connection_id: 'c-1',
+    outcome: 'auto',
+    reason: null,
+    target: 'source',
+    warnings: [],
+    options: [],
     rule: { id: 'r-1', code: 'empty_trunk_takes_neighbor_vlans', name: 'Пустой trunk получает VLAN соседа', action: 'auto' },
     source: { interface_id: 'if-srv', name: 'idrac', device_id: 'dev-1', device_name: 'srv-01', role: 'management', mode: 'trunk', vlans: [] },
     destination: { interface_id: 'if-sw', name: 'Gi0/5', device_id: 'dev-2', device_name: 'sw-01', role: 'data', mode: 'trunk', vlans: [10, 20] },
@@ -418,7 +462,12 @@ describe('PortConfigReviewModal.vue — рекомендация по прави
   })
 
   it('заблокированное правило показывает причину и не предлагает применить', async () => {
-    stubWithPlan(planFor({ outcome: 'blocked', reason: 'Порт входит в группу «Серверные», которая задаёт режим и VLAN — измените группу' }, { applicable: 0, blocked: 1, auto: 0 }))
+    stubWithPlan(
+      planFor(
+        { outcome: 'blocked', reason: 'Порт входит в группу «Серверные», которая задаёт режим и VLAN — измените группу' },
+        { applicable: 0, blocked: 1, auto: 0 },
+      ),
+    )
     const wrapper = mountModal(connection())
     await flushPromises()
 
@@ -428,11 +477,16 @@ describe('PortConfigReviewModal.vue — рекомендация по прави
 
   it('ручное правило: решает человек, варианты перечислены, применить автоматически нельзя', async () => {
     stubWithPlan(
-      planFor({
-        outcome: 'manual', target: null, changes: null,
-        rule: { id: 'r-2', code: 'role_match', name: 'Роль порта совпадает с ролью соседа', action: 'manual' },
-        options: [{ target: 'source', changes: { role: 'data', mode: null, vlans: null } }],
-      }, { applicable: 0, manual: 1, auto: 0 }),
+      planFor(
+        {
+          outcome: 'manual',
+          target: null,
+          changes: null,
+          rule: { id: 'r-2', code: 'role_match', name: 'Роль порта совпадает с ролью соседа', action: 'manual' },
+          options: [{ target: 'source', changes: { role: 'data', mode: null, vlans: null } }],
+        },
+        { applicable: 0, manual: 1, auto: 0 },
+      ),
     )
     const wrapper = mountModal(connection())
     await flushPromises()
@@ -454,7 +508,8 @@ describe('PortConfigReviewModal.vue — рекомендация по прави
 
   it('правило «объединить»: рекомендация перечисляет изменения каждого из двух портов', async () => {
     const both = {
-      target: 'both', changes: null,
+      target: 'both',
+      changes: null,
       rule: { id: 'r-3', code: 'trunk_vlans_union', name: 'Trunk: наборы VLAN на концах линии объединяются', action: 'auto' },
       source: { interface_id: 'if-srv', name: 'idrac', device_id: 'dev-1', device_name: 'srv-01', role: 'data', mode: 'trunk', vlans: [10, 20] },
       destination: { interface_id: 'if-sw', name: 'Gi0/5', device_id: 'dev-2', device_name: 'sw-01', role: 'data', mode: 'trunk', vlans: [10, 30] },
@@ -477,7 +532,8 @@ describe('PortConfigReviewModal.vue — рекомендация по прави
 
   it('правило «объединить»: порт, которому изменение не применится, показан с причиной, а второй порт применим', async () => {
     const half = {
-      target: 'both', changes: null,
+      target: 'both',
+      changes: null,
       rule: { id: 'r-3', code: 'trunk_vlans_union', name: 'Trunk: наборы VLAN на концах линии объединяются', action: 'auto' },
       source: { interface_id: 'if-srv', name: 'idrac', device_id: 'dev-1', device_name: 'srv-01', role: 'data', mode: 'trunk', vlans: [10, 20] },
       destination: { interface_id: 'if-sw', name: 'Gi0/5', device_id: 'dev-2', device_name: 'sw-01', role: 'data', mode: 'trunk', vlans: [10, 30] },

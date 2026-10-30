@@ -22,7 +22,14 @@ const connection = { interface_id: 'if-1', peer_device_name: 'sw-02' } as Device
 function nested(patch: Partial<DeviceNestedData> = {}): DeviceNestedData {
   return {
     softwareAssets: [{ id: 'ds-1', software_asset_id: 'sa-1', version: '' }],
-    interfaces: [makeRow({ id: 'if-1', name: 'Gi0/1', is_management: true, connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' } })],
+    interfaces: [
+      makeRow({
+        id: 'if-1',
+        name: 'Gi0/1',
+        is_management: true,
+        connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' },
+      }),
+    ],
     interfaceGroups: [],
     vlanRows: [
       { id: 'dv-30', vlan_id: 'v30', ip_address: '', prefix_length: '', is_management: false, description: '' },

@@ -14,10 +14,23 @@ const SELECT = { typeModel: 0, os: 1, embeddedOs: 2, building: 3, room: 4, rack:
 beforeEach(() => {
   setActivePinia(createPinia())
   useCatalogsStore().items = {
-    buildings: [{ id: 'b1', name: 'Корпус 1' }, { id: 'b2', name: 'Корпус 2' }],
-    rooms: [{ id: 'r1', name: 'Серверная', building_id: 'b1' }, { id: 'r2', name: 'Склад', building_id: 'b1' }, { id: 'r3', name: 'ЦОД', building_id: 'b2' }],
-    racks: [{ id: 'k1', name: 'Стойка 1', room_id: 'r1' }, { id: 'k2', name: 'Стойка 2', room_id: 'r3' }],
-    'device-types': [{ id: 't-sw', name: 'Коммутатор' }, { id: 't-srv', name: 'Сервер' }],
+    buildings: [
+      { id: 'b1', name: 'Корпус 1' },
+      { id: 'b2', name: 'Корпус 2' },
+    ],
+    rooms: [
+      { id: 'r1', name: 'Серверная', building_id: 'b1' },
+      { id: 'r2', name: 'Склад', building_id: 'b1' },
+      { id: 'r3', name: 'ЦОД', building_id: 'b2' },
+    ],
+    racks: [
+      { id: 'k1', name: 'Стойка 1', room_id: 'r1' },
+      { id: 'k2', name: 'Стойка 2', room_id: 'r3' },
+    ],
+    'device-types': [
+      { id: 't-sw', name: 'Коммутатор' },
+      { id: 't-srv', name: 'Сервер' },
+    ],
     manufacturers: [{ id: 'm-cisco', name: 'Cisco' }],
     'device-models': [{ id: 'mod-1', model: 'WS-C2960', name: '', manufacturer_id: 'm-cisco', device_type_id: 't-sw' }],
     'operating-systems': [{ id: 'os-1', name: 'Windows Server', version: '2022' }],
@@ -28,7 +41,10 @@ beforeEach(() => {
 function mountFields(patch: Partial<ReturnType<typeof emptyDeviceForm>> = {}) {
   const form = reactive({ ...emptyDeviceForm(), ...patch })
   // Фрагмент должен встать прямо в контейнер-сетку родителя, поэтому монтируем его внутрь обычного div
-  const wrapper = mount({ render: () => h('div', { class: 'host' }, [h(DeviceMainFields, { modelValue: form })]) }, { global: { stubs: { QuickAddButton: true, DeviceIconPicker: true } } })
+  const wrapper = mount(
+    { render: () => h('div', { class: 'host' }, [h(DeviceMainFields, { modelValue: form })]) },
+    { global: { stubs: { QuickAddButton: true, DeviceIconPicker: true } } },
+  )
   return { form, wrapper }
 }
 type Wrapper = ReturnType<typeof mountFields>['wrapper']
@@ -37,18 +53,27 @@ const selects = (wrapper: Wrapper) => wrapper.findAll('.searchable-select')
 // Список опций SearchableSelect рисуется только у открытого поля — открываем фокусом
 async function optionTexts(wrapper: Wrapper, which: number) {
   await selects(wrapper)[which].find('input').trigger('focus')
-  const texts = selects(wrapper)[which].findAll('.ss-option').map((o) => o.text())
+  const texts = selects(wrapper)
+    [which].findAll('.ss-option')
+    .map((o) => o.text())
   await selects(wrapper)[which].find('input').trigger('blur')
   return texts
 }
 async function choose(wrapper: Wrapper, which: number, label: string) {
   const select = selects(wrapper)[which]
   await select.find('input').trigger('focus')
-  await select.findAll('.ss-option').find((o) => o.text() === label)!.trigger('mousedown')
+  await select
+    .findAll('.ss-option')
+    .find((o) => o.text() === label)!
+    .trigger('mousedown')
   await nextTick()
 }
 const quickAdd = (wrapper: Wrapper, resource: string) => wrapper.findAllComponents(QuickAddButton).find((b) => b.props('resource') === resource)!
-const inputOf = (wrapper: Wrapper, label: string) => wrapper.findAll('label').find((l) => l.find('span').text().startsWith(label))!.find('input, textarea')
+const inputOf = (wrapper: Wrapper, label: string) =>
+  wrapper
+    .findAll('label')
+    .find((l) => l.find('span').text().startsWith(label))!
+    .find('input, textarea')
 
 describe('DeviceMainFields: разметка', () => {
   it('поля идут в порядке формы и встают прямо в контейнер родителя — без обёртки', () => {
@@ -83,7 +108,15 @@ describe('DeviceMainFields: разметка', () => {
   })
 
   it('поля показывают значения формы', () => {
-    const { wrapper } = mountFields({ serial_number: 'SN-1', system_name: 'sw-01', rack_position: '12U', description: 'ядро', siem_enabled: true, oac_certificate_number: 'ОАЦ-1', oac_certificate_registry_date: '2026-01-31' })
+    const { wrapper } = mountFields({
+      serial_number: 'SN-1',
+      system_name: 'sw-01',
+      rack_position: '12U',
+      description: 'ядро',
+      siem_enabled: true,
+      oac_certificate_number: 'ОАЦ-1',
+      oac_certificate_registry_date: '2026-01-31',
+    })
     expect((inputOf(wrapper, 'Серийный номер').element as HTMLInputElement).value).toBe('SN-1')
     expect((inputOf(wrapper, 'Системное имя').element as HTMLInputElement).value).toBe('sw-01')
     expect((inputOf(wrapper, 'Позиция в стойке').element as HTMLInputElement).value).toBe('12U')
@@ -199,7 +232,10 @@ describe('DeviceMainFields: быстрое добавление («+»)', () => 
 
   it('созданное помещение выбирает и своё здание; созданная стойка — своё помещение и здание', async () => {
     const { form, wrapper } = mountFields()
-    useCatalogsStore().items['rooms'] = [...(useCatalogsStore().items['rooms'] as unknown as Record<string, unknown>[]), { id: 'r9', name: 'Новое', building_id: 'b2' }] as unknown as CatalogItem[]
+    useCatalogsStore().items['rooms'] = [
+      ...(useCatalogsStore().items['rooms'] as unknown as Record<string, unknown>[]),
+      { id: 'r9', name: 'Новое', building_id: 'b2' },
+    ] as unknown as CatalogItem[]
     quickAdd(wrapper, 'rooms').vm.$emit('created', { id: 'r9', building_id: 'b2' })
     await nextTick()
     expect(form).toMatchObject({ building_id: 'b2', room_id: 'r9' })
@@ -236,4 +272,3 @@ describe('DeviceMainFields: иконка диаграммы', () => {
     expect(form.diagram_icon_id).toBe('')
   })
 })
-

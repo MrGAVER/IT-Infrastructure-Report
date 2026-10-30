@@ -20,7 +20,10 @@ describe('exportDiagram', () => {
   })
 
   it('ошибка сервера превращается в исключение с текстом ответа', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('нет такой диаграммы', { status: 404 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('нет такой диаграммы', { status: 404 })),
+    )
 
     await expect(exportDiagram('d-x', 'svg')).rejects.toThrow('нет такой диаграммы')
   })

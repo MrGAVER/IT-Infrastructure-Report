@@ -1,8 +1,23 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { DEVICE_OPTIONS_PAGE_SIZE, FREE_INTERFACES_PAGE_SIZE, fetchAllFreeInterfaces, fetchDeviceInterfaceConnections, fetchDeviceOptionsPage, fetchFreeInterfacesPage } from '../deviceConnectivity'
+import {
+  DEVICE_OPTIONS_PAGE_SIZE,
+  FREE_INTERFACES_PAGE_SIZE,
+  fetchAllFreeInterfaces,
+  fetchDeviceInterfaceConnections,
+  fetchDeviceOptionsPage,
+  fetchFreeInterfacesPage,
+} from '../deviceConnectivity'
 import type { FreeInterface } from '../deviceConnectivity'
 
-const port = (n: number): FreeInterface => ({ id: `p-${n}`, name: `Gi0/${n}`, is_management: false, is_data_transfer: true, vlan_mode: 'access', all_vlans: false, occupied: false })
+const port = (n: number): FreeInterface => ({
+  id: `p-${n}`,
+  name: `Gi0/${n}`,
+  is_management: false,
+  is_data_transfer: true,
+  vlan_mode: 'access',
+  all_vlans: false,
+  occupied: false,
+})
 
 /** Фейковый сервер: отдаёт срез из `ports` по offset/limit из запроса, как backend. */
 function stubServer(ports: FreeInterface[]) {
@@ -82,7 +97,10 @@ describe('fetchAllFreeInterfaces', () => {
   })
 
   it('ошибка сервера прокидывается вызывающему (редактор покажет её, а не пустой список)', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Устройство не найдено' }), { status: 404 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Устройство не найдено' }), { status: 404 })),
+    )
 
     await expect(fetchAllFreeInterfaces('dev-x')).rejects.toThrow('Устройство не найдено')
   })
@@ -90,7 +108,19 @@ describe('fetchAllFreeInterfaces', () => {
 
 describe('fetchDeviceInterfaceConnections', () => {
   it('запрашивает подключения устройства и возвращает список items', async () => {
-    const item = { interface_id: 'if-1', connection_id: 'c-1', connection_type_id: 'ct-1', description: null, peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_is_management: false, peer_is_data_transfer: true, peer_vlan_mode: 'access' }
+    const item = {
+      interface_id: 'if-1',
+      connection_id: 'c-1',
+      connection_type_id: 'ct-1',
+      description: null,
+      peer_interface_id: 'b-1',
+      peer_interface_name: 'Gi0/1',
+      peer_device_id: 'dev-b',
+      peer_device_name: 'sw-b',
+      peer_is_management: false,
+      peer_is_data_transfer: true,
+      peer_vlan_mode: 'access',
+    }
     const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify({ items: [item] })))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -129,10 +159,16 @@ describe('fetchDeviceOptionsPage', () => {
 
   it('возвращает страницу как есть; ошибка сервера прокидывается вызывающему', async () => {
     const page = { items: [{ id: 'd-1', label: 'sw-1', system_name: 'sw-1', serial_number: 'S1' }], total: 7, offset: 0, limit: 50 }
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(page))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(page))),
+    )
     expect(await fetchDeviceOptionsPage()).toEqual(page)
 
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'База недоступна' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'База недоступна' }), { status: 500 })),
+    )
     await expect(fetchDeviceOptionsPage()).rejects.toThrow('База недоступна')
   })
 })

@@ -17,7 +17,9 @@ const actions = (w: ReturnType<typeof mountPanel>) => w.findAll('[data-resolutio
 
 describe('ConnectionResolutionPanel', () => {
   it('сообщение называет различающиеся грани и описывает обе стороны', () => {
-    const text = mountPanel(view(['role', 'mode', 'vlans'])).find('.warning-text').text()
+    const text = mountPanel(view(['role', 'mode', 'vlans']))
+      .find('.warning-text')
+      .text()
     expect(text).toContain('Конфигурации портов различаются (роль, режим, VLAN)')
     expect(text).toContain('«Gi0/1» — Управление активами · trunk · VLAN 10, 20')
     expect(text).toContain('«eth0» — Передача данных · access · VLAN 10')
@@ -57,15 +59,25 @@ describe('ConnectionResolutionPanel', () => {
   })
 
   it('все грани сразу: роль, режим, подсказки и обе постоянные кнопки — в порядке интерфейса', () => {
-    expect(actions(mountPanel(view(['role', 'mode', 'vlans'])))).toEqual(['keep-source', 'keep-destination', 'mode-keep-source', 'mode-keep-destination', 'approve', 'back'])
+    expect(actions(mountPanel(view(['role', 'mode', 'vlans'])))).toEqual([
+      'keep-source',
+      'keep-destination',
+      'mode-keep-source',
+      'mode-keep-destination',
+      'approve',
+      'back',
+    ])
   })
 
-  it.each(['keep-source', 'keep-destination', 'mode-keep-source', 'mode-keep-destination', 'approve'] as const)('кнопка «%s» отправляет решение', async (resolution) => {
-    const wrapper = mountPanel(view(['role', 'mode']))
-    await wrapper.find(`[data-resolution="${resolution}"]`).trigger('click')
-    expect(wrapper.emitted('resolve')).toEqual([[resolution]])
-    expect(wrapper.emitted('back')).toBeUndefined()
-  })
+  it.each(['keep-source', 'keep-destination', 'mode-keep-source', 'mode-keep-destination', 'approve'] as const)(
+    'кнопка «%s» отправляет решение',
+    async (resolution) => {
+      const wrapper = mountPanel(view(['role', 'mode']))
+      await wrapper.find(`[data-resolution="${resolution}"]`).trigger('click')
+      expect(wrapper.emitted('resolve')).toEqual([[resolution]])
+      expect(wrapper.emitted('back')).toBeUndefined()
+    },
+  )
 
   it('«Вернуться к правке» отправляет back, а не решение', async () => {
     const wrapper = mountPanel(view(['role']))

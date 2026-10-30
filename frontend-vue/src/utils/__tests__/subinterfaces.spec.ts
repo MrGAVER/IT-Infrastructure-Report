@@ -168,8 +168,12 @@ describe('validateSubinterfaceRows', () => {
   })
 
   it('проверяет IP-адрес и префикс', () => {
-    expect(validateSubinterfaceRows([port('Gi0/0', [sub({ ips: [{ ip_address: '10.0.10.999', prefix_length: '24', purpose: '' }] })])])).toMatch(/Некорректный IP-адрес/)
-    expect(validateSubinterfaceRows([port('Gi0/0', [sub({ ips: [{ ip_address: '10.0.10.1', prefix_length: '33', purpose: '' }] })])])).toMatch(/Некорректный префикс/)
+    expect(validateSubinterfaceRows([port('Gi0/0', [sub({ ips: [{ ip_address: '10.0.10.999', prefix_length: '24', purpose: '' }] })])])).toMatch(
+      /Некорректный IP-адрес/,
+    )
+    expect(validateSubinterfaceRows([port('Gi0/0', [sub({ ips: [{ ip_address: '10.0.10.1', prefix_length: '33', purpose: '' }] })])])).toMatch(
+      /Некорректный префикс/,
+    )
   })
 
   it('номера открытых портов подинтерфейса не повторяются', () => {
@@ -217,7 +221,11 @@ describe('VLAN подинтерфейса — один из VLAN порта', ()
   })
 
   it('subinterfacesOffPortVlans: подинтерфейсы на VLAN, которого нет на порту или у устройства', () => {
-    const row = port('Gi0/0', [sub({ vlan_id: 'v-10' }), sub({ name: 'Gi0/0.20', vlan_id: 'v-20' }), sub({ name: 'Gi0/0.30', vlan_id: 'v-30' })], ['v-10', 'v-30'])
+    const row = port(
+      'Gi0/0',
+      [sub({ vlan_id: 'v-10' }), sub({ name: 'Gi0/0.20', vlan_id: 'v-20' }), sub({ name: 'Gi0/0.30', vlan_id: 'v-30' })],
+      ['v-10', 'v-30'],
+    )
 
     expect(subinterfacesOffPortVlans(row, allowedAll).map((s) => s.vlan_id)).toEqual(['v-20', 'v-30']) // v-20 не на порту, v-30 снят с устройства
     expect(subinterfacesOffPortVlans(row).map((s) => s.vlan_id)).toEqual(['v-20']) // без VLAN устройства — только «не на порту»
@@ -238,7 +246,16 @@ describe('VLAN подинтерфейса — один из VLAN порта', ()
 })
 
 describe('подинтерфейсы группы портов', () => {
-  const groupSub = { id: 'gs-1', group_id: 'g-1', vlan_id: 'v-10', is_management: true, is_data_transfer: false, description: null, ips: [{ id: 'gip-1', ip_address: '10.0.10.1', prefix_length: 24, purpose: null }], open_ports: [] }
+  const groupSub = {
+    id: 'gs-1',
+    group_id: 'g-1',
+    vlan_id: 'v-10',
+    is_management: true,
+    is_data_transfer: false,
+    description: null,
+    ips: [{ id: 'gip-1', ip_address: '10.0.10.1', prefix_length: 24, purpose: null }],
+    open_ports: [],
+  }
 
   it('toGroupSubinterfaceDraftRow: шаблон без имени, значения как у обычной строки', () => {
     expect(toGroupSubinterfaceDraftRow(groupSub)).toMatchObject({ id: 'gs-1', key: 'gs-1', name: '', vlan_id: 'v-10', is_management: true, description: '' })
@@ -246,12 +263,30 @@ describe('подинтерфейсы группы портов', () => {
   })
 
   it('groupSubinterfacesPayload: без имени, пустые плейсхолдеры IP и открытых портов не уходят', () => {
-    const rows = [sub({ id: 'gs-1', name: 'не уходит', ips: [{ ip_address: '10.0.10.1', prefix_length: '24', purpose: '' }, { ip_address: '', prefix_length: '', purpose: '' }], open_ports: [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }] })]
+    const rows = [
+      sub({
+        id: 'gs-1',
+        name: 'не уходит',
+        ips: [
+          { ip_address: '10.0.10.1', prefix_length: '24', purpose: '' },
+          { ip_address: '', prefix_length: '', purpose: '' },
+        ],
+        open_ports: [{ protocol_catalog_id: '', transport_protocol: 'TCP', description: '' }],
+      }),
+    ]
 
     const [payload] = groupSubinterfacesPayload(rows)
 
     expect(payload).not.toHaveProperty('name')
-    expect(payload).toEqual({ id: 'gs-1', vlan_id: 'v-10', is_management: false, is_data_transfer: false, description: null, ips: [{ id: undefined, ip_address: '10.0.10.1', prefix_length: 24, purpose: null }], open_ports: [] })
+    expect(payload).toEqual({
+      id: 'gs-1',
+      vlan_id: 'v-10',
+      is_management: false,
+      is_data_transfer: false,
+      description: null,
+      ips: [{ id: undefined, ip_address: '10.0.10.1', prefix_length: 24, purpose: null }],
+      open_ports: [],
+    })
   })
 })
 
@@ -331,7 +366,8 @@ describe('moveStaleSubinterfaces', () => {
   const vlan40: VLANDefinition = { id: 'v-40', vlan_id: 40, name: 'Архив', description: '', domain_id: null, domain_name: '', devices: [] }
   const allowed = new Set(['v-10', 'v-20'])
   const known = [vlan10, vlan20, vlan30, vlan40]
-  const staleOn = (vlan: VLANDefinition, parent: string, patch: Partial<SubinterfaceDraftRow> = {}) => sub({ name: `${parent}.${vlan.vlan_id}`, vlan_id: vlan.id, ...patch })
+  const staleOn = (vlan: VLANDefinition, parent: string, patch: Partial<SubinterfaceDraftRow> = {}) =>
+    sub({ name: `${parent}.${vlan.vlan_id}`, vlan_id: vlan.id, ...patch })
 
   it('переносит подинтерфейсы всех портов с недоступных VLAN на выбранный, пересчитывая автоимена; остальное не трогает', () => {
     const rows = [
@@ -341,7 +377,10 @@ describe('moveStaleSubinterfaces', () => {
     ]
     const result = moveStaleSubinterfaces(rows, vlan10, allowed, known)
 
-    expect(result.rows[0].subinterfaces!.map((s) => [s.name, s.vlan_id])).toEqual([['Gi0/0.10', 'v-10'], ['Gi0/0.20', 'v-20']])
+    expect(result.rows[0].subinterfaces!.map((s) => [s.name, s.vlan_id])).toEqual([
+      ['Gi0/0.10', 'v-10'],
+      ['Gi0/0.20', 'v-20'],
+    ])
     expect(result.rows[1].subinterfaces![0]).toMatchObject({ name: 'wan-uplink', vlan_id: 'v-10' })
     expect(result.rows[2]).toBe(rows[2]) // порт без подинтерфейсов — тот же объект
     expect(result.moved).toEqual(['Gi0/0.10', 'wan-uplink'])
@@ -397,7 +436,10 @@ describe('moveStaleSubinterfaces', () => {
 
 describe('moveStaleMessage', () => {
   it('успех, частичный успех (предупреждение с перечнем), только пропуски и «нечего переносить»', () => {
-    expect(moveStaleMessage({ moved: ['a', 'b'], skipped: [] }, vlan10)).toEqual({ text: 'Перенесено подинтерфейсов: 2 — на VLAN 10 — Серверы.', type: 'success' })
+    expect(moveStaleMessage({ moved: ['a', 'b'], skipped: [] }, vlan10)).toEqual({
+      text: 'Перенесено подинтерфейсов: 2 — на VLAN 10 — Серверы.',
+      type: 'success',
+    })
 
     const partial = moveStaleMessage({ moved: ['a'], skipped: ['Gi0/0.30'] }, vlan10)!
     expect(partial.type).toBe('warning')

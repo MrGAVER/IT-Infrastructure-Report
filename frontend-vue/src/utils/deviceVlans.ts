@@ -83,6 +83,9 @@ export function duplicateVlansMessage(rows: readonly VlanRow[], definitions: rea
     const def = byId.get(id)
     labels.set(id, { label: def ? String(def.vlan_id) : id, number: def ? def.vlan_id : Number.POSITIVE_INFINITY })
   }
-  const text = [...labels.values()].sort((a, b) => a.number - b.number).map((l) => l.label).join(', ')
+  const text = [...labels.values()]
+    .sort((a, b) => a.number - b.number)
+    .map((l) => l.label)
+    .join(', ')
   return `VLAN ${text} указан несколько раз — каждый VLAN можно добавить устройству только один раз.`
 }

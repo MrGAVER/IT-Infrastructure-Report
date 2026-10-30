@@ -42,7 +42,8 @@ export function validateDeviceDraft(draft: DeviceDraftToValidate): DeviceDraftIs
   if (duplicateVlans) return { message: duplicateVlans, expandVlanEditor: true }
   for (const row of draft.deviceVlans) {
     if (!isValidIPv4(row.ip_address)) return { message: `Некорректный IP-адрес «${row.ip_address}» в блоке "VLAN устройства".`, expandVlanEditor: true }
-    if (!isValidPrefixLength(row.prefix_length)) return { message: `Некорректный префикс «${row.prefix_length}» в блоке "VLAN устройства" — допустимо 0-32.`, expandVlanEditor: true }
+    if (!isValidPrefixLength(row.prefix_length))
+      return { message: `Некорректный префикс «${row.prefix_length}» в блоке "VLAN устройства" — допустимо 0-32.`, expandVlanEditor: true }
   }
   return null
 }

@@ -29,7 +29,9 @@ export function getReportTemplate(id: string) {
 function seedConfig(format: 'xlsx' | 'docx', name: string): Record<string, unknown> {
   const title = name.trim() || 'Новый шаблон'
   if (format === 'docx') return { blocks: [{ type: 'heading', text: title }] }
-  return { sheets: [{ title: title.slice(0, 31), columns: [{ width: 30 }], rows: [{ height: 20, repeat: false, cells: [{ col: 0, kind: 'static', text: title }] }] }] }
+  return {
+    sheets: [{ title: title.slice(0, 31), columns: [{ width: 30 }], rows: [{ height: 20, repeat: false, cells: [{ col: 0, kind: 'static', text: title }] }] }],
+  }
 }
 
 export function createReportTemplate(payload: { name: string; description: string | null; format: 'xlsx' | 'docx' }) {
@@ -53,7 +55,10 @@ export function duplicateReportTemplate(id: string) {
 /** Сохраняет ПОЛНЫЙ шаблон, включая отредактированное содержимое (config) — в отличие от
  * renameReportTemplate() выше, которая намеренно НЕ трогает config. Используется грид-редактором
  * (ReportGridEditorView.vue): id === null создаёт новый шаблон (POST), иначе — PUT по id. */
-export function saveReportTemplate(id: string | null, payload: { name: string; description: string | null; format: 'xlsx' | 'docx'; config: Record<string, unknown> }) {
+export function saveReportTemplate(
+  id: string | null,
+  payload: { name: string; description: string | null; format: 'xlsx' | 'docx'; config: Record<string, unknown> },
+) {
   return id ? api.put<ReportTemplate>(`/report-templates/${id}`, payload) : api.post<ReportTemplate>('/report-templates', payload)
 }
 

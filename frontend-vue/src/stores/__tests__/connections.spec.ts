@@ -5,7 +5,10 @@ import { connectionsFixture } from './fixtures'
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(connectionsFixture))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(connectionsFixture))),
+  )
 })
 
 // Общий кэш подключений (карта занятых портов, схема, формы). Постраничная таблица дашборда —
@@ -39,7 +42,10 @@ describe('useConnectionsStore (общий кэш)', () => {
   })
 
   it('ошибка загрузки попадает в error, а не в исключение', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })),
+    )
     const store = useConnectionsStore()
     await store.reload()
     expect(store.error).toBe('Сервер недоступен')

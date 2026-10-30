@@ -5,7 +5,10 @@ import InterfaceGeneratorPanel from '../InterfaceGeneratorPanel.vue'
 import QuickAddButton from '../QuickAddButton.vue'
 import { TEMPLATE_HELP_TEXT } from '../../utils/interfaceRowDraft'
 
-const typeOptions = [{ id: 't-eth', name: 'Ethernet' }, { id: 't-sfp', name: 'SFP+' }]
+const typeOptions = [
+  { id: 't-eth', name: 'Ethernet' },
+  { id: 't-sfp', name: 'SFP+' },
+]
 const speedOptions = [{ id: 's-1g', name: '1 Гбит/с' }]
 
 function mountPanel(props: Record<string, unknown> = {}) {
@@ -51,7 +54,15 @@ describe('InterfaceGeneratorPanel', () => {
   it('тип и скорость выбираются из справочников; «не выбрано» — пустое значение', () => {
     const wrapper = mountPanel()
 
-    expect(field(wrapper, 'Тип по умолчанию').findAll('option').map((o) => [o.attributes('value'), o.text()])).toEqual([['', '— не выбрано —'], ['t-eth', 'Ethernet'], ['t-sfp', 'SFP+']])
+    expect(
+      field(wrapper, 'Тип по умолчанию')
+        .findAll('option')
+        .map((o) => [o.attributes('value'), o.text()]),
+    ).toEqual([
+      ['', '— не выбрано —'],
+      ['t-eth', 'Ethernet'],
+      ['t-sfp', 'SFP+'],
+    ])
     expect(field(wrapper, 'Скорость по умолчанию').findAll('option')).toHaveLength(2)
   })
 

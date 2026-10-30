@@ -94,11 +94,7 @@ function hostLabel(c: Container): string {
       <StatCard :value="containers.all.length" label="Всего контейнеров" />
       <StatCard :value="containers.all.filter((c) => c.virtual_machine_id).length" label="На ВМ" />
       <StatCard :value="containers.all.filter((c) => c.physical_device_id).length" label="Напрямую на устройстве" />
-      <StatCard
-        :value="containers.all.filter((c) => !c.virtual_machine_id && !c.physical_device_id).length"
-        label="Без указанного размещения"
-        tone="warn"
-      />
+      <StatCard :value="containers.all.filter((c) => !c.virtual_machine_id && !c.physical_device_id).length" label="Без указанного размещения" tone="warn" />
     </div>
 
     <div class="filter-bar">
@@ -161,7 +157,12 @@ function hostLabel(c: Container): string {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ containers.pageItems.length ? (containers.page - 1) * containers.pageSize + 1 : 0 }}–{{ (containers.page - 1) * containers.pageSize + containers.pageItems.length }} из {{ containers.filtered.length }}</span>
+        <span
+          >Показано {{ containers.pageItems.length ? (containers.page - 1) * containers.pageSize + 1 : 0 }}–{{
+            (containers.page - 1) * containers.pageSize + containers.pageItems.length
+          }}
+          из {{ containers.filtered.length }}</span
+        >
         <PageSizeSelect :model-value="containers.pageSize" :options="containers.pageSizeOptions" @update:model-value="containers.setPageSize" />
         <div class="pager">
           <button :disabled="containers.page <= 1" @click="containers.setPage(containers.page - 1)">‹</button>

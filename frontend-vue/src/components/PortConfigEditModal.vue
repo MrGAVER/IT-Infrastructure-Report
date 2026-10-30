@@ -69,7 +69,13 @@ const own = computed(() => {
 const neighbor = computed(() => {
   const c = props.connection
   return props.side === 'source'
-    ? { name: c.destination_interface_name, deviceLabel: c.destination_device_name, role: c.destination_port_role, mode: c.destination_vlan_mode, vlans: c.destination_vlans }
+    ? {
+        name: c.destination_interface_name,
+        deviceLabel: c.destination_device_name,
+        role: c.destination_port_role,
+        mode: c.destination_vlan_mode,
+        vlans: c.destination_vlans,
+      }
     : { name: c.source_interface_name, deviceLabel: c.source_device_name, role: c.source_port_role, mode: c.source_vlan_mode, vlans: c.source_vlans }
 })
 
@@ -304,8 +310,8 @@ const vlanLabel = (o: VLANDefinition) => `VLAN ${o.vlan_id}${o.name ? ` · ${o.n
 
         <template v-else>
           <p class="neighbor" data-neighbor>
-            Соседний порт: «{{ neighbor.name }}» ({{ neighbor.deviceLabel }}) —
-            {{ neighbor.role ? PORT_ROLE_LABELS[neighbor.role] : 'роль не задана' }}, режим {{ neighbor.mode ?? '—' }}, VLAN {{ formatVlans(neighbor.vlans) }}
+            Соседний порт: «{{ neighbor.name }}» ({{ neighbor.deviceLabel }}) — {{ neighbor.role ? PORT_ROLE_LABELS[neighbor.role] : 'роль не задана' }}, режим
+            {{ neighbor.mode ?? '—' }}, VLAN {{ formatVlans(neighbor.vlans) }}
             <button type="button" class="link-btn" data-action="copy-neighbor" :disabled="saving" @click="copyFromNeighbor">Задать как у соседа</button>
           </p>
 
@@ -333,16 +339,16 @@ const vlanLabel = (o: VLANDefinition) => `VLAN ${o.vlan_id}${o.name ? ` · ${o.n
               </button>
             </div>
             <p v-if="modeChanged" class="hint" data-hint="cascade">
-              Режим меняется каскадом: если порт входит в группу, задающую режим, или связан с портами, у которых режим другой, он сменится и у них.
-              Перед применением покажем все последствия; роль и VLAN сохранятся в той же операции — всё или ничего.
+              Режим меняется каскадом: если порт входит в группу, задающую режим, или связан с портами, у которых режим другой, он сменится и у них. Перед
+              применением покажем все последствия; роль и VLAN сохранятся в той же операции — всё или ничего.
             </p>
           </div>
 
           <div class="field">
             <span>VLAN порта</span>
             <p v-if="vlansLocked" class="hint locked" data-hint="group-locked">
-              Режим и VLAN этого порта задаёт группа «{{ group?.name }}» — набор VLAN здесь не меняется.
-              Режим сменить можно (он поменяется у всей группы), VLAN группы правятся в окне портов устройства.
+              Режим и VLAN этого порта задаёт группа «{{ group?.name }}» — набор VLAN здесь не меняется. Режим сменить можно (он поменяется у всей группы), VLAN
+              группы правятся в окне портов устройства.
               <button type="button" class="link-btn" data-action="manage-group" @click="manageGroup">Открыть порты устройства</button>
             </p>
             <p v-else-if="!vlanOptions.length" class="hint" data-hint="no-vlans">
@@ -350,9 +356,13 @@ const vlanLabel = (o: VLANDefinition) => `VLAN ${o.vlan_id}${o.name ? ` · ${o.n
             </p>
             <template v-else>
               <div class="vlan-tools">
-                <button type="button" class="link-btn" data-action="select-all" :disabled="saving || draft.mode === 'access'" @click="selectAllVlans">Все VLAN</button>
+                <button type="button" class="link-btn" data-action="select-all" :disabled="saving || draft.mode === 'access'" @click="selectAllVlans">
+                  Все VLAN
+                </button>
                 <button type="button" class="link-btn" data-action="clear" :disabled="saving || !draft.vlanIds.length" @click="clearVlans">Снять все</button>
-                <span class="count" data-count>Выбрано: {{ draft.vlanIds.length }} из {{ vlanOptions.length }}<template v-if="draft.allVlans"> · признак «Все VLAN»</template></span>
+                <span class="count" data-count
+                  >Выбрано: {{ draft.vlanIds.length }} из {{ vlanOptions.length }}<template v-if="draft.allVlans"> · признак «Все VLAN»</template></span
+                >
               </div>
               <!-- key по режиму: при смене checkbox ↔ radio список пересоздаётся. Иначе у живых input с общим name
                    браузер сбрасывает «выбранность» у остальных радиокнопок, и на экране не отмечено ничего, хотя

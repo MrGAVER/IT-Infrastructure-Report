@@ -57,7 +57,9 @@ describe('GridCellInspector.vue — режим строки', () => {
   it('смена сущности сбрасывает expand', async () => {
     const wrapper = mount(GridCellInspector, { props: { mode: 'row', row: repeatingRow(), cell: cell(), entities } })
     await wrapper.findAll('select')[0].setValue('devices')
-    expect(wrapper.emitted('update-row')?.[0][0]).toEqual({ data_source: { root_entity: 'devices', expand: '', include_empty_expand: true, filters: [], sort_by: '' } })
+    expect(wrapper.emitted('update-row')?.[0][0]).toEqual({
+      data_source: { root_entity: 'devices', expand: '', include_empty_expand: true, filters: [], sort_by: '' },
+    })
   })
 
   it('добавляет и удаляет фильтр источника данных', async () => {

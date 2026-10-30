@@ -15,7 +15,14 @@
 //    outcome = 'unchanged' записывать их придётся вызывающему — каскад ничего не применял.
 import { ref } from 'vue'
 import { ApiError } from '../api/client'
-import { applyVlanModeCascade, previewVlanModeCascade, type CascadePortRequest, type EditedDeviceState, type VlanMode, type VlanModeCascadePlan } from '../api/vlanModeCascade'
+import {
+  applyVlanModeCascade,
+  previewVlanModeCascade,
+  type CascadePortRequest,
+  type EditedDeviceState,
+  type VlanMode,
+  type VlanModeCascadePlan,
+} from '../api/vlanModeCascade'
 import type { CatalogItem } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { isTrivialPlan, modeLabel } from '../utils/vlanModeCascade'

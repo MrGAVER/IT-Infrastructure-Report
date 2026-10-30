@@ -45,9 +45,7 @@ const allPortsBusy = computed(() => deviceId.value !== '' && props.portOptions.l
           <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
         </button>
       </div>
-      <small v-if="hasNoPortsAtAll" class="hint-small">
-        У устройства пока нет ни одного порта. Добавьте через «Управлять портами устройства».
-      </small>
+      <small v-if="hasNoPortsAtAll" class="hint-small"> У устройства пока нет ни одного порта. Добавьте через «Управлять портами устройства». </small>
       <small v-else-if="allPortsBusy" class="hint-small">
         Нет свободных портов — все заняты активными подключениями. Можно добавить новый через «Управлять портами устройства».
       </small>

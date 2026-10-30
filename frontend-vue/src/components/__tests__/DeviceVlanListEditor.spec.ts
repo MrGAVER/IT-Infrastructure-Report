@@ -39,7 +39,9 @@ describe('DeviceVlanListEditor.vue', () => {
   })
 
   it('показывает домен в подписи опции VLAN', async () => {
-    const wrapper = mount(DeviceVlanListEditor, { props: { modelValue: [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }], vlanOptions } })
+    const wrapper = mount(DeviceVlanListEditor, {
+      props: { modelValue: [{ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' }], vlanOptions },
+    })
     // Поле VLAN — SearchableSelect (поиск вводом текста), список опций открывается фокусом на поле.
     await wrapper.find('.col-vlan .searchable-select input').trigger('focus')
     expect(wrapper.find('.col-vlan .ss-panel').text()).toContain('20 — Управление [Ядро сети]')
@@ -72,7 +74,10 @@ describe('DeviceVlanListEditor.vue', () => {
     expect((inputs[0].element as HTMLInputElement).value).toBe('5 — Общий')
 
     await inputs[1].trigger('focus')
-    const secondRowOptions = wrapper.findAll('.col-vlan .searchable-select')[1].findAll('.ss-option').map((o) => o.text())
+    const secondRowOptions = wrapper
+      .findAll('.col-vlan .searchable-select')[1]
+      .findAll('.ss-option')
+      .map((o) => o.text())
     expect(secondRowOptions).toEqual(['20 — Управление [Ядро сети]'])
   })
 
@@ -281,7 +286,14 @@ describe('DeviceVlanListEditor.vue', () => {
   })
   describe('правило «как у открытых портов»: отсев добавленных, сортировка при добавлении, повторы', () => {
     const blank = (): DeviceVlanDraftRow => ({ vlan_id: '', ip_address: '', prefix_length: '', is_management: false, description: '' })
-    const filled = (vlan_id: string, id?: string): DeviceVlanDraftRow => ({ ...(id ? { id } : {}), vlan_id, ip_address: '', prefix_length: '', is_management: false, description: '' })
+    const filled = (vlan_id: string, id?: string): DeviceVlanDraftRow => ({
+      ...(id ? { id } : {}),
+      vlan_id,
+      ip_address: '',
+      prefix_length: '',
+      is_management: false,
+      description: '',
+    })
     const options: VLANDefinition[] = [
       { id: 'v-30', vlan_id: 30, name: 'Гости', description: '', domain_id: null, domain_name: '', devices: [] },
       { id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] },
@@ -345,7 +357,13 @@ describe('DeviceVlanListEditor.vue', () => {
     const makeRows = (n: number): DeviceVlanDraftRow[] =>
       Array.from({ length: n }, (_, i) => ({ id: `dv-${i}`, vlan_id: `v-${i + 1}`, ip_address: '', prefix_length: '', is_management: false, description: '' }))
     const manyOptions: VLANDefinition[] = Array.from({ length: 30 }, (_, i) => ({
-      id: `v-${i + 1}`, vlan_id: i + 1, name: `Сеть ${i + 1}`, description: '', domain_id: null, domain_name: '', devices: [],
+      id: `v-${i + 1}`,
+      vlan_id: i + 1,
+      name: `Сеть ${i + 1}`,
+      description: '',
+      domain_id: null,
+      domain_name: '',
+      devices: [],
     }))
     const toggle = (w: ReturnType<typeof mount>) => w.find('[data-testid="vlan-collapse-toggle"]')
 
@@ -372,8 +390,14 @@ describe('DeviceVlanListEditor.vue', () => {
     })
 
     it('порог берётся из collapseAfter: при 3 свёрнуто уже 4 строки, при 50 — 30 строк развёрнуты', () => {
-      expect(mount(DeviceVlanListEditor, { props: { modelValue: makeRows(4), vlanOptions: manyOptions, collapseAfter: 3 } }).find('[data-testid="vlan-collapsed"]').exists()).toBe(true)
-      expect(mount(DeviceVlanListEditor, { props: { modelValue: makeRows(30), vlanOptions: manyOptions, collapseAfter: 50 } }).findAll('.nested-row')).toHaveLength(30)
+      expect(
+        mount(DeviceVlanListEditor, { props: { modelValue: makeRows(4), vlanOptions: manyOptions, collapseAfter: 3 } })
+          .find('[data-testid="vlan-collapsed"]')
+          .exists(),
+      ).toBe(true)
+      expect(
+        mount(DeviceVlanListEditor, { props: { modelValue: makeRows(30), vlanOptions: manyOptions, collapseAfter: 50 } }).findAll('.nested-row'),
+      ).toHaveLength(30)
     })
 
     it('кнопка разворачивает и снова сворачивает блок', async () => {

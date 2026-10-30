@@ -14,11 +14,11 @@ export const TEMPLATE_HELP_TEXT =
   'Примеры:\n' +
   'eth{n} → eth1, eth2, eth3…\n' +
   'GigabitEthernet0/{n0} → GigabitEthernet0/01, GigabitEthernet0/02…\n\n' +
-  'Номер отсчитывается от 1 в пределах одного нажатия (при "Заменить все порты" выключено — от '
-  + 'количества уже существующих интерфейсов), если поле "Начать нумерацию с" пустое.\n\n' +
-  'Нумерация с определённого до определённого номера: заполните "Начать нумерацию с" явным '
-  + 'числом — например, "Количество: 20" и "Начать с: 5" сгенерируют порты с номерами 5-24 '
-  + '(GigabitEthernet0/5 … GigabitEthernet0/24 для шаблона GigabitEthernet0/{n}).'
+  'Номер отсчитывается от 1 в пределах одного нажатия (при "Заменить все порты" выключено — от ' +
+  'количества уже существующих интерфейсов), если поле "Начать нумерацию с" пустое.\n\n' +
+  'Нумерация с определённого до определённого номера: заполните "Начать нумерацию с" явным ' +
+  'числом — например, "Количество: 20" и "Начать с: 5" сгенерируют порты с номерами 5-24 ' +
+  '(GigabitEthernet0/5 … GigabitEthernet0/24 для шаблона GigabitEthernet0/{n}).'
 
 /** Пустая строка нового порта. `withKey` — у строки есть ключ, чтобы подключение другого порта могло сослаться на неё, пока у неё нет id. */
 export function emptyInterfaceRow(withKey: boolean): InterfaceDraftRow {
@@ -82,7 +82,12 @@ export interface GeneratorSettings {
  * нажатие с другим количеством не должно рвать связь с уже сохранёнными портами), а имя берётся из шаблона. Тип и скорость,
  * оставленные «— не выбрано —», не затирают значения существующих строк — пустое поле трактуется как «не менять».
  */
-export function replaceWithGenerated(existing: readonly InterfaceDraftRow[], settings: GeneratorSettings, knownVlans: readonly VLANDefinition[], makeEmptyRow: () => InterfaceDraftRow): InterfaceDraftRow[] {
+export function replaceWithGenerated(
+  existing: readonly InterfaceDraftRow[],
+  settings: GeneratorSettings,
+  knownVlans: readonly VLANDefinition[],
+  makeEmptyRow: () => InterfaceDraftRow,
+): InterfaceDraftRow[] {
   const { count, startNumber, nameTemplate, typeId, speedId } = settings
   return Array.from({ length: count }, (_, i) => {
     const row = existing[i] ?? makeEmptyRow()

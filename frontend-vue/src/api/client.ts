@@ -198,10 +198,8 @@ export async function request<T>(path: string, init: RequestInit = {}, options: 
 
 export const api = {
   get: <T>(path: string, options?: RequestOptions) => request<T>(path, {}, options),
-  post: <T>(path: string, body: unknown, options?: RequestOptions) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body) }, options),
-  put: <T>(path: string, body: unknown, options?: RequestOptions) =>
-    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, options),
+  post: <T>(path: string, body: unknown, options?: RequestOptions) => request<T>(path, { method: 'POST', body: JSON.stringify(body) }, options),
+  put: <T>(path: string, body: unknown, options?: RequestOptions) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, options),
   delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { method: 'DELETE' }, options),
 }
 
@@ -220,9 +218,7 @@ export interface PagedResponse<T> {
 }
 
 export function listResource<T>(resource: string, params?: Record<string, string | number>, options?: RequestOptions) {
-  const qs = params
-    ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
-    : ''
+  const qs = params ? '?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString() : ''
   return api.get<PagedResponse<T>>(`/resources/${resource}${qs}`, options)
 }
 
@@ -247,11 +243,7 @@ const MAX_PAGES = 50
  *   const res = await listAllResource<Connection>('connections')
  *   const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id })
  */
-export async function listAllResource<T>(
-  resource: string,
-  params: Record<string, string | number> = {},
-  options?: RequestOptions,
-): Promise<PagedResponse<T>> {
+export async function listAllResource<T>(resource: string, params: Record<string, string | number> = {}, options?: RequestOptions): Promise<PagedResponse<T>> {
   const first = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: 0 }, options)
   const items = [...first.items]
   for (let page = 1; items.length < first.total && page < MAX_PAGES; page++) {

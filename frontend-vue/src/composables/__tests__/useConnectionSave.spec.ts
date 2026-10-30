@@ -10,8 +10,16 @@ import type { ConnectionPortConfig } from '../useConnectionPortConfig'
 import { useConnectionSave } from '../useConnectionSave'
 import { connection, device, iface, setupConnectionStores } from './connectionFormTestkit'
 
-vi.mock('../../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api/client')>()), createResource: vi.fn(), updateResource: vi.fn() }))
-vi.mock('../../api/portConfig', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api/portConfig')>()), setPortRole: vi.fn(), approvePortConfig: vi.fn() }))
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
+  createResource: vi.fn(),
+  updateResource: vi.fn(),
+}))
+vi.mock('../../api/portConfig', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/portConfig')>()),
+  setPortRole: vi.fn(),
+  approvePortConfig: vi.fn(),
+}))
 
 // Каскад смены режима — отдельный композабл со своим спеком: здесь подменяем его и проверяем только стыковку.
 const cascadeFake = vi.hoisted(() => ({
@@ -53,11 +61,21 @@ function fakePortConfig(initial: ConfigView | null = null) {
 }
 
 function setup(options: { connection?: Connection | null; readOnly?: boolean; view?: ConfigView | null; filled?: boolean } = {}) {
-  const stores = setupConnectionStores({ devices: [device('dev-1', 'alpha'), device('dev-2', 'beta')], interfaces: [iface('if-a', 'dev-1'), iface('if-b', 'dev-2')] })
+  const stores = setupConnectionStores({
+    devices: [device('dev-1', 'alpha'), device('dev-2', 'beta')],
+    interfaces: [iface('if-a', 'dev-1'), iface('if-b', 'dev-2')],
+  })
   const conn = options.connection ?? null
   const draft = useConnectionDraft({ connection: () => conn, prefill: () => null })
   if (options.filled !== false) {
-    Object.assign(draft.form, { sourceDeviceId: 'dev-1', source_interface_id: 'if-a', destinationDeviceId: 'dev-2', destination_interface_id: 'if-b', connection_type_id: 'ct-1', description: '' })
+    Object.assign(draft.form, {
+      sourceDeviceId: 'dev-1',
+      source_interface_id: 'if-a',
+      destinationDeviceId: 'dev-2',
+      destination_interface_id: 'if-b',
+      connection_type_id: 'ct-1',
+      description: '',
+    })
   }
   const port = fakePortConfig(options.view ?? null)
   const onSaved = vi.fn()
@@ -102,7 +120,13 @@ describe('useConnectionSave — submit', () => {
     const { save, port, onSaved, draft } = setup()
     await save.submit()
     expect(port.spies.settle).toHaveBeenCalledTimes(1)
-    expect(createResource).toHaveBeenCalledWith('connections', { source_interface_id: 'if-a', destination_interface_id: 'if-b', connection_type_id: 'ct-1', is_active: true, description: null })
+    expect(createResource).toHaveBeenCalledWith('connections', {
+      source_interface_id: 'if-a',
+      destination_interface_id: 'if-b',
+      connection_type_id: 'ct-1',
+      is_active: true,
+      description: null,
+    })
     expect(updateResource).not.toHaveBeenCalled()
     expect(approvePortConfig).not.toHaveBeenCalled()
     expect(onSaved).toHaveBeenCalledWith(created)

@@ -21,7 +21,9 @@ describe('useGroupLocks', () => {
   it('подсказка называет поле и группу; список групп читается заново при каждом вызове', () => {
     let groups = [group]
     const { groupLockNote } = useGroupLocks(() => groups)
-    expect(groupLockNote(makeRow({ group_key: 'g1' }), 'Режим порта')).toBe('Режим порта задан группой «Магистраль» — измените в группе или выведите порт из группы.')
+    expect(groupLockNote(makeRow({ group_key: 'g1' }), 'Режим порта')).toBe(
+      'Режим порта задан группой «Магистраль» — измените в группе или выведите порт из группы.',
+    )
     groups = []
     expect(groupLockNote(makeRow({ group_key: 'g1' }), 'Режим порта')).toContain('группой «»')
   })

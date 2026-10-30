@@ -82,7 +82,10 @@ describe('ReportTemplateFormModal.vue — переименование', () => {
   })
 
   it('при ошибке сервера показывает сообщение и не эмитит saved', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ detail: 'Шаблон с таким названием уже существует' }, 409)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ detail: 'Шаблон с таким названием уже существует' }, 409)),
+    )
     const wrapper = mount(ReportTemplateFormModal, { props: { template: templateFixture } })
 
     await wrapper.find('.modal-foot button.btn-primary').trigger('click')

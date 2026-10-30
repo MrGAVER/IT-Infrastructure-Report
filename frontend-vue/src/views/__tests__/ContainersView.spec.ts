@@ -13,7 +13,10 @@ function jsonResponse(body: unknown, status = 200) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })),
+  )
 })
 
 function seedStores(containers: Container[]) {
@@ -68,7 +71,10 @@ describe('ContainersView.vue', () => {
 
   it('удаляет контейнер после подтверждения', async () => {
     seedStores([{ id: 'ct-1', name: 'nginx', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null }])
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
       'fetch',

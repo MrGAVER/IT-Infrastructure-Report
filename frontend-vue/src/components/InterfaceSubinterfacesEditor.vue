@@ -56,6 +56,12 @@ const emit = defineEmits<{ 'update:modelValue': [rows: SubinterfaceDraftRow[]] }
 
 const isGroup = computed(() => props.mode === 'group')
 const ownerWord = computed(() => (isGroup.value ? 'группы' : 'порта'))
+// Строка вынесена из шаблона: «<порт>.<VLAN>» внутри {{ }} Vue разбирает верно, а Prettier и другие HTML-парсеры принимают за теги.
+const hint = computed(() =>
+  isGroup.value
+    ? 'Логические интерфейсы портов группы на VLAN группы — каждый порт получает свой «<порт>.<VLAN>» с общими IP-адресами и открытыми портами.'
+    : 'Логические интерфейсы порта на одном из его VLAN — со своим IP-адресом, открытыми портами и ролью.',
+)
 
 const sortedVlans = computed(() => [...props.vlanOptions].sort((a, b) => a.vlan_id - b.vlan_id))
 const vlanById = computed(() => new Map(props.vlanOptions.map((v) => [v.id, v])))
@@ -217,7 +223,7 @@ const addTitle = computed(() => {
       <div class="sub-title">
         <b>Подинтерфейсы</b>
         <span class="hint">
-          {{ isGroup ? 'Логические интерфейсы портов группы на VLAN группы — каждый порт получает свой «<порт>.<VLAN>» с общими IP-адресами и открытыми портами.' : 'Логические интерфейсы порта на одном из его VLAN — со своим IP-адресом, открытыми портами и ролью.' }}
+          {{ hint }}
         </span>
       </div>
       <button v-if="!readonly" type="button" class="btn btn-secondary" :disabled="!vlanOptions.length || !hasFreeVlan" :title="addTitle" @click="addRow">
@@ -274,13 +280,31 @@ const addTitle = computed(() => {
                 />
               </td>
               <td class="col-check">
-                <input type="checkbox" :checked="sub.is_management" :disabled="readonly" aria-label="Подинтерфейс: управление" @change="updateRow(i, { is_management: ($event.target as HTMLInputElement).checked })" />
+                <input
+                  type="checkbox"
+                  :checked="sub.is_management"
+                  :disabled="readonly"
+                  aria-label="Подинтерфейс: управление"
+                  @change="updateRow(i, { is_management: ($event.target as HTMLInputElement).checked })"
+                />
               </td>
               <td class="col-check">
-                <input type="checkbox" :checked="sub.is_data_transfer" :disabled="readonly" aria-label="Подинтерфейс: передача данных" @change="updateRow(i, { is_data_transfer: ($event.target as HTMLInputElement).checked })" />
+                <input
+                  type="checkbox"
+                  :checked="sub.is_data_transfer"
+                  :disabled="readonly"
+                  aria-label="Подинтерфейс: передача данных"
+                  @change="updateRow(i, { is_data_transfer: ($event.target as HTMLInputElement).checked })"
+                />
               </td>
               <td>
-                <button type="button" class="expand-toggle" :aria-expanded="expanded.has(sub.key)" aria-label="Показать IP-адреса и открытые порты подинтерфейса" @click="toggleExpand(sub.key)">
+                <button
+                  type="button"
+                  class="expand-toggle"
+                  :aria-expanded="expanded.has(sub.key)"
+                  aria-label="Показать IP-адреса и открытые порты подинтерфейса"
+                  @click="toggleExpand(sub.key)"
+                >
                   <span v-if="ipSummary(sub)" v-truncate-tooltip class="ip-summary">{{ ipSummary(sub) }}</span>
                   <span v-else class="ip-none">нет IP</span>
                   <span v-if="sub.open_ports.length" class="ports-count">· портов: {{ sub.open_ports.length }}</span>
@@ -302,8 +326,9 @@ const addTitle = computed(() => {
                     Перенесите подинтерфейс на другой VLAN или удалите его — иначе сохранить не получится.
                   </span>
                   <span v-else>
-                    VLAN этого подинтерфейса<template v-if="staleVlanLabel(sub)"> ({{ staleVlanLabel(sub) }})</template> {{ isGroup ? 'не входит в VLAN группы' : 'не выбран на этом порту' }}.
-                    Перенесите подинтерфейс на другой VLAN или удалите его — иначе сохранить не получится.
+                    VLAN этого подинтерфейса<template v-if="staleVlanLabel(sub)"> ({{ staleVlanLabel(sub) }})</template>
+                    {{ isGroup ? 'не входит в VLAN группы' : 'не выбран на этом порту' }}. Перенесите подинтерфейс на другой VLAN или удалите его — иначе
+                    сохранить не получится.
                   </span>
                   <select
                     v-if="!readonly"
@@ -325,7 +350,14 @@ const addTitle = computed(() => {
                 <div class="sub-detail">
                   <label class="sub-field">
                     <span>Описание</span>
-                    <input type="text" :value="sub.description" :disabled="readonly" placeholder="Необязательно" aria-label="Описание подинтерфейса" @input="updateRow(i, { description: ($event.target as HTMLInputElement).value })" />
+                    <input
+                      type="text"
+                      :value="sub.description"
+                      :disabled="readonly"
+                      placeholder="Необязательно"
+                      aria-label="Описание подинтерфейса"
+                      @input="updateRow(i, { description: ($event.target as HTMLInputElement).value })"
+                    />
                   </label>
 
                   <div class="sub-ips">
@@ -338,9 +370,32 @@ const addTitle = computed(() => {
                     </div>
                     <div v-if="!sub.ips.length" class="empty">IP-адреса не добавлены</div>
                     <div v-for="(ip, j) in sub.ips" :key="ip.id ?? j" class="ip-row">
-                      <input type="text" placeholder="IP-адрес" aria-label="IP-адрес подинтерфейса" :value="ip.ip_address" :disabled="readonly" @input="updateIp(i, j, { ip_address: ($event.target as HTMLInputElement).value })" />
-                      <input type="number" min="0" max="32" placeholder="Префикс" aria-label="Префикс" :value="ip.prefix_length" :disabled="readonly" @input="updateIp(i, j, { prefix_length: ($event.target as HTMLInputElement).value })" />
-                      <input type="text" placeholder="Назначение" aria-label="Назначение IP-адреса" :value="ip.purpose" :disabled="readonly" @input="updateIp(i, j, { purpose: ($event.target as HTMLInputElement).value })" />
+                      <input
+                        type="text"
+                        placeholder="IP-адрес"
+                        aria-label="IP-адрес подинтерфейса"
+                        :value="ip.ip_address"
+                        :disabled="readonly"
+                        @input="updateIp(i, j, { ip_address: ($event.target as HTMLInputElement).value })"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="32"
+                        placeholder="Префикс"
+                        aria-label="Префикс"
+                        :value="ip.prefix_length"
+                        :disabled="readonly"
+                        @input="updateIp(i, j, { prefix_length: ($event.target as HTMLInputElement).value })"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Назначение"
+                        aria-label="Назначение IP-адреса"
+                        :value="ip.purpose"
+                        :disabled="readonly"
+                        @input="updateIp(i, j, { purpose: ($event.target as HTMLInputElement).value })"
+                      />
                       <button v-if="!readonly" type="button" class="icon-btn danger" aria-label="Удалить IP подинтерфейса" @click="removeIp(i, j)">
                         <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
                       </button>

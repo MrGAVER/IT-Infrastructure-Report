@@ -92,140 +92,139 @@ async function submit() {
 
       <form @submit.prevent="submit">
         <fieldset class="readonly-fieldset" :disabled="readOnly">
-        <label class="field">
-          <span>Название *</span>
-          <input v-model="form.name" type="text" maxlength="200" data-field="name" />
-        </label>
-        <label class="field">
-          <span>Описание</span>
-          <textarea v-model="form.description" rows="2" data-field="description"></textarea>
-        </label>
-
-        <div class="row">
           <label class="field">
-            <span>Действие</span>
-            <select v-model="form.action" data-field="action">
-              <option v-for="o in ACTION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
+            <span>Название *</span>
+            <input v-model="form.name" type="text" maxlength="200" data-field="name" />
           </label>
-          <label class="field checkbox-field">
-            <input v-model="form.enabled" type="checkbox" data-field="enabled" />
-            <span>Правило включено</span>
+          <label class="field">
+            <span>Описание</span>
+            <textarea v-model="form.description" rows="2" data-field="description"></textarea>
           </label>
-        </div>
-        <p class="hint" data-hint="action">{{ actionHint }}</p>
 
-        <fieldset class="block" data-block="target">
-          <legend>Порт, которому применяются изменения</legend>
-          <div class="triple">
+          <div class="row">
             <label class="field">
-              <span>Роль</span>
-              <select v-model="form.target.role" data-field="target-role">
-                <option v-for="o in ROLE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+              <span>Действие</span>
+              <select v-model="form.action" data-field="action">
+                <option v-for="o in ACTION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
               </select>
-            </label>
-            <label class="field">
-              <span>Режим</span>
-              <select v-model="form.target.mode" data-field="target-mode">
-                <option v-for="o in MODE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>VLAN</span>
-              <select v-model="form.target.vlans" data-field="target-vlans">
-                <option v-for="o in VLAN_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-          </div>
-        </fieldset>
-
-        <fieldset class="block" data-block="source">
-          <legend>Соседний порт (откуда берутся значения)</legend>
-          <div class="triple">
-            <label class="field">
-              <span>Роль</span>
-              <select v-model="form.source.role" data-field="source-role">
-                <option v-for="o in ROLE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Режим</span>
-              <select v-model="form.source.mode" data-field="source-mode">
-                <option v-for="o in MODE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>VLAN</span>
-              <select v-model="form.source.vlans" data-field="source-vlans">
-                <option v-for="o in VLAN_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-          </div>
-        </fieldset>
-
-        <fieldset class="block" data-block="relation">
-          <legend>Отношение значений двух портов</legend>
-          <div class="triple">
-            <label class="field">
-              <span>Роли</span>
-              <select v-model="form.relation.role" data-field="relation-role">
-                <option v-for="o in RELATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Режимы</span>
-              <select v-model="form.relation.mode" data-field="relation-mode">
-                <option v-for="o in RELATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Наборы VLAN</span>
-              <select v-model="form.relation.vlans" data-field="relation-vlans">
-                <option v-for="o in RELATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
-            </label>
-          </div>
-        </fieldset>
-
-        <fieldset class="block" data-block="apply">
-          <legend>Что порт берёт у соседа</legend>
-          <div class="apply-row">
-            <label class="field checkbox-field">
-              <input v-model="form.apply.role" type="checkbox" data-field="apply-role" :disabled="isUnion" />
-              <span>Роль</span>
             </label>
             <label class="field checkbox-field">
-              <input v-model="form.apply.mode" type="checkbox" data-field="apply-mode" :disabled="isUnion" />
-              <span>Режим</span>
-            </label>
-            <label class="field">
-              <span>VLAN</span>
-              <select v-model="form.apply.vlans" data-field="apply-vlans">
-                <option v-for="o in VLAN_POLICY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
+              <input v-model="form.enabled" type="checkbox" data-field="enabled" />
+              <span>Правило включено</span>
             </label>
           </div>
-        </fieldset>
+          <p class="hint" data-hint="action">{{ actionHint }}</p>
 
-        <p v-if="isUnion" class="hint" data-hint="union">
-          «Объединить» меняет оба порта сразу: каждый получает объединение наборов VLAN обоих портов, ни один VLAN не снимается, направление выбирать
-          не нужно. Роль и режим с этой политикой не сочетаются — их порт берёт у соседа.
-        </p>
-        <p v-if="isAllVlans" class="hint" data-hint="all">
-          «Все VLAN» назначает порту все VLAN его устройства (как галочка «Все VLAN» в форме устройства), а не номера VLAN соседа; уже назначенные
-          VLAN не снимаются. Если у устройств разные наборы VLAN, наборы на концах линии могут остаться разными — об этом предупредит план. В режиме
-          access «Все VLAN» невозможны.
-        </p>
-        <p v-if="symmetricHint" class="hint warn" data-hint="symmetric">
-          Условия на оба порта одинаковы: правило подходит каждому из них, и автоматически его применить нельзя — направление придётся выбирать вручную.
-          Различите условия (например, у одного порта «VLAN не назначены совсем», у другого — «назначены»).
-        </p>
+          <fieldset class="block" data-block="target">
+            <legend>Порт, которому применяются изменения</legend>
+            <div class="triple">
+              <label class="field">
+                <span>Роль</span>
+                <select v-model="form.target.role" data-field="target-role">
+                  <option v-for="o in ROLE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Режим</span>
+                <select v-model="form.target.mode" data-field="target-mode">
+                  <option v-for="o in MODE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>VLAN</span>
+                <select v-model="form.target.vlans" data-field="target-vlans">
+                  <option v-for="o in VLAN_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
 
-        <div class="sentence" data-sentence>
-          <span class="sentence-title">Как читается правило</span>
-          {{ sentence }}
-        </div>
+          <fieldset class="block" data-block="source">
+            <legend>Соседний порт (откуда берутся значения)</legend>
+            <div class="triple">
+              <label class="field">
+                <span>Роль</span>
+                <select v-model="form.source.role" data-field="source-role">
+                  <option v-for="o in ROLE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Режим</span>
+                <select v-model="form.source.mode" data-field="source-mode">
+                  <option v-for="o in MODE_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>VLAN</span>
+                <select v-model="form.source.vlans" data-field="source-vlans">
+                  <option v-for="o in VLAN_CONDITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
 
+          <fieldset class="block" data-block="relation">
+            <legend>Отношение значений двух портов</legend>
+            <div class="triple">
+              <label class="field">
+                <span>Роли</span>
+                <select v-model="form.relation.role" data-field="relation-role">
+                  <option v-for="o in RELATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Режимы</span>
+                <select v-model="form.relation.mode" data-field="relation-mode">
+                  <option v-for="o in RELATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Наборы VLAN</span>
+                <select v-model="form.relation.vlans" data-field="relation-vlans">
+                  <option v-for="o in RELATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="block" data-block="apply">
+            <legend>Что порт берёт у соседа</legend>
+            <div class="apply-row">
+              <label class="field checkbox-field">
+                <input v-model="form.apply.role" type="checkbox" data-field="apply-role" :disabled="isUnion" />
+                <span>Роль</span>
+              </label>
+              <label class="field checkbox-field">
+                <input v-model="form.apply.mode" type="checkbox" data-field="apply-mode" :disabled="isUnion" />
+                <span>Режим</span>
+              </label>
+              <label class="field">
+                <span>VLAN</span>
+                <select v-model="form.apply.vlans" data-field="apply-vlans">
+                  <option v-for="o in VLAN_POLICY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <p v-if="isUnion" class="hint" data-hint="union">
+            «Объединить» меняет оба порта сразу: каждый получает объединение наборов VLAN обоих портов, ни один VLAN не снимается, направление выбирать не
+            нужно. Роль и режим с этой политикой не сочетаются — их порт берёт у соседа.
+          </p>
+          <p v-if="isAllVlans" class="hint" data-hint="all">
+            «Все VLAN» назначает порту все VLAN его устройства (как галочка «Все VLAN» в форме устройства), а не номера VLAN соседа; уже назначенные VLAN не
+            снимаются. Если у устройств разные наборы VLAN, наборы на концах линии могут остаться разными — об этом предупредит план. В режиме access «Все VLAN»
+            невозможны.
+          </p>
+          <p v-if="symmetricHint" class="hint warn" data-hint="symmetric">
+            Условия на оба порта одинаковы: правило подходит каждому из них, и автоматически его применить нельзя — направление придётся выбирать вручную.
+            Различите условия (например, у одного порта «VLAN не назначены совсем», у другого — «назначены»).
+          </p>
+
+          <div class="sentence" data-sentence>
+            <span class="sentence-title">Как читается правило</span>
+            {{ sentence }}
+          </div>
         </fieldset>
 
         <div class="modal-foot">

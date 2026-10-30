@@ -46,7 +46,10 @@ describe('useAllVlansSettle', () => {
   })
 
   it('порты формы расходятся по «Все VLAN»: спрашивает значение и записывает выбранное в черновик', async () => {
-    const { rows, updateRow, allVlansPrompt, answerAllVlansPrompt, settleAllVlans } = setup([trunk({ id: 'a', name: 'Gi0/1', all_vlans: true, vlan_ids: ['v10', 'v20'] }), trunk({ id: 'b', name: 'Gi0/2', vlan_ids: ['v10'] })])
+    const { rows, updateRow, allVlansPrompt, answerAllVlansPrompt, settleAllVlans } = setup([
+      trunk({ id: 'a', name: 'Gi0/1', all_vlans: true, vlan_ids: ['v10', 'v20'] }),
+      trunk({ id: 'b', name: 'Gi0/2', vlan_ids: ['v10'] }),
+    ])
     const done = settleAllVlans(rowSide('a', '«Gi0/1»'), rowSide('b', '«Gi0/2»'))
     await vi.waitFor(() => expect(allVlansPrompt.value).not.toBeNull())
     expect(allVlansPrompt.value).toMatchObject({ portLabel: '«Gi0/2»', sourceLabel: 'порта «Gi0/1»', sourceValue: { allVlans: true } })
@@ -114,7 +117,14 @@ describe('useAllVlansSettle', () => {
 
   it('известное состояние порта-источника экономит запросы: одинаковый признак или access — сверка завершается без обращения к серверу', async () => {
     const { settleAllVlans, peerSide, allVlansPrompt } = setup([trunk({ id: 'a', all_vlans: true }), makeRow({ id: 'b', vlan_mode: 'access' })])
-    const known = (vlan_mode: 'access' | 'trunk', all_vlans: boolean) => peerSide({ ref: 'p1', label: 'sw-02', isSelf: false, interfaceId: 'p1', config: { is_management: false, is_data_transfer: false, vlan_mode, all_vlans } })!
+    const known = (vlan_mode: 'access' | 'trunk', all_vlans: boolean) =>
+      peerSide({
+        ref: 'p1',
+        label: 'sw-02',
+        isSelf: false,
+        interfaceId: 'p1',
+        config: { is_management: false, is_data_transfer: false, vlan_mode, all_vlans },
+      })!
     expect(known('trunk', true)).toMatchObject({ kind: 'port', known: { all_vlans: true } })
     await settleAllVlans(known('trunk', true), rowSide('a', 'A')) // у обоих «Все VLAN»
     await settleAllVlans(known('access', false), rowSide('a', 'A')) // источник в access
@@ -127,7 +137,13 @@ describe('useAllVlansSettle', () => {
     loadPortVlanContext.mockResolvedValue({ mode: 'trunk', allVlans: false, vlanIds: ['v10'], options: vlans })
     useVLANsStore().$patch({ groups: [{ vlan_id: 10, definitions: [vlans[0]] }] }) // номера VLAN порта соседа берутся из справочника
     const { settleAllVlans, peerSide, allVlansPrompt, answerAllVlansPrompt } = setup([trunk({ id: 'a', all_vlans: true })])
-    const source = peerSide({ ref: 'p1', label: 'sw-02', isSelf: false, interfaceId: 'p1', config: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: false } })!
+    const source = peerSide({
+      ref: 'p1',
+      label: 'sw-02',
+      isSelf: false,
+      interfaceId: 'p1',
+      config: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: false },
+    })!
     const done = settleAllVlans(source, rowSide('a', 'A'))
     await vi.waitFor(() => expect(allVlansPrompt.value).not.toBeNull())
     expect(loadPortVlanContext).toHaveBeenCalledWith('p1', [vlans[0]])
@@ -145,7 +161,11 @@ describe('useAllVlansSettle: стороны сверки', () => {
   it('ownSide и peerSide: строка формы — по ссылке; сосед без id порта — null', () => {
     const { ownSide, peerSide } = setup([makeRow({ id: 'a', name: '  ' })])
     expect(ownSide(makeRow({ id: 'a', name: '  ' }))).toEqual({ kind: 'row', ref: 'a', label: '«без имени»' })
-    expect(peerSide({ ref: 'row:k', label: 'L', isSelf: true, config: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' } })).toEqual({ kind: 'row', ref: 'row:k', label: 'L' })
+    expect(peerSide({ ref: 'row:k', label: 'L', isSelf: true, config: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' } })).toEqual({
+      kind: 'row',
+      ref: 'row:k',
+      label: 'L',
+    })
     expect(peerSide({ ref: 'row:k', label: 'L', isSelf: false, config: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' } })).toBeNull()
   })
 
@@ -153,7 +173,12 @@ describe('useAllVlansSettle: стороны сверки', () => {
     const { conflictPeerSide } = setup([makeRow({ id: 'if-9' })])
     expect(conflictPeerSide(makeConflict({ otherInterfaceId: 'if-9' }))).toMatchObject({ kind: 'row', ref: 'if-9', label: '«Gi0/9» (это устройство)' })
     const remote = makeConflict({ otherInterfaceId: 'if-77', other: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: true } })
-    expect(conflictPeerSide(remote)).toMatchObject({ kind: 'port', interfaceId: 'if-77', label: '«Gi0/9» (sw-02)', known: { vlan_mode: 'trunk', all_vlans: true } })
+    expect(conflictPeerSide(remote)).toMatchObject({
+      kind: 'port',
+      interfaceId: 'if-77',
+      label: '«Gi0/9» (sw-02)',
+      known: { vlan_mode: 'trunk', all_vlans: true },
+    })
     expect('known' in conflictPeerSide(remote, true)).toBe(false)
   })
 })

@@ -139,15 +139,12 @@ async function removeUser(id: string, username: string) {
   <section class="card section">
     <h2>Аутентификация</h2>
     <p class="hint">
-      По умолчанию выключена — однопользовательский локальный режим, реестр открыт без входа
-      (как и до появления этой настройки). Включите, если с приложением работает несколько
-      человек и нужно разграничить, кто может только смотреть, а кто — вносить изменения.
+      По умолчанию выключена — однопользовательский локальный режим, реестр открыт без входа (как и до появления этой настройки). Включите, если с приложением
+      работает несколько человек и нужно разграничить, кто может только смотреть, а кто — вносить изменения.
     </p>
 
     <div class="auth-status">
-      <span class="status" :class="auth.enabled ? 'on' : 'off'">
-        <span class="status-dot"></span>{{ auth.enabled ? 'Включена' : 'Выключена' }}
-      </span>
+      <span class="status" :class="auth.enabled ? 'on' : 'off'"> <span class="status-dot"></span>{{ auth.enabled ? 'Включена' : 'Выключена' }} </span>
       <button v-if="canManage" type="button" class="btn btn-secondary" :disabled="toggling" @click="toggleAuth">
         {{ auth.enabled ? 'Выключить' : 'Включить' }}
       </button>
@@ -160,8 +157,7 @@ async function removeUser(id: string, username: string) {
       <form v-if="setupTokenNeeded" class="setup-token-row" @submit.prevent="applySetupToken">
         <p class="hint">
           Настройка доступа с этого компьютера требует токен установки — значение переменной
-          <code>INFRA_REGISTRY_SETUP_TOKEN</code> на сервере. Либо откройте приложение на самом сервере
-          (localhost) — там токен не нужен.
+          <code>INFRA_REGISTRY_SETUP_TOKEN</code> на сервере. Либо откройте приложение на самом сервере (localhost) — там токен не нужен.
         </p>
         <input v-model="setupTokenInput" type="password" placeholder="Токен установки" autocomplete="off" aria-label="Токен установки" />
         <button type="submit" class="btn btn-secondary">Применить</button>
@@ -169,7 +165,12 @@ async function removeUser(id: string, username: string) {
       <h3>Пользователи</h3>
       <table v-if="auth.users.length" class="users-table">
         <thead>
-          <tr><th>Имя</th><th>Роль</th><th>Статус</th><th></th></tr>
+          <tr>
+            <th>Имя</th>
+            <th>Роль</th>
+            <th>Статус</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
           <tr v-for="u in auth.users" :key="u.id">
@@ -211,8 +212,7 @@ async function removeUser(id: string, username: string) {
       </p>
     </template>
     <p v-else class="hint">
-      Вы вошли как «{{ auth.user?.username }}» (роль: только просмотр). Управление пользователями
-      и переключателем доступно администраторам.
+      Вы вошли как «{{ auth.user?.username }}» (роль: только просмотр). Управление пользователями и переключателем доступно администраторам.
     </p>
   </section>
 </template>
@@ -228,8 +228,12 @@ async function removeUser(id: string, username: string) {
   align-items: center;
   gap: 12px;
 }
-.status.on { color: var(--status-ok, #33c9a7); }
-.status.off { color: var(--ink-muted); }
+.status.on {
+  color: var(--status-ok, #33c9a7);
+}
+.status.off {
+  color: var(--ink-muted);
+}
 .form-error {
   display: flex;
   align-items: center;
@@ -268,7 +272,10 @@ async function removeUser(id: string, username: string) {
   font-family: inherit;
   font-size: 12px;
 }
-.btn-sm { padding: 5px 9px; font-size: 11.5px; }
+.btn-sm {
+  padding: 5px 9px;
+  font-size: 11.5px;
+}
 .locked-badge {
   margin-left: 8px;
   font-size: 10.5px;
@@ -284,7 +291,10 @@ async function removeUser(id: string, username: string) {
   flex-wrap: wrap;
   margin-top: 14px;
 }
-.setup-token-row .hint { flex-basis: 100%; margin: 0; }
+.setup-token-row .hint {
+  flex-basis: 100%;
+  margin: 0;
+}
 .setup-token-row input {
   flex: 1;
   min-width: 160px;

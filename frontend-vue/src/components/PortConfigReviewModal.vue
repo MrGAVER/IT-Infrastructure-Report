@@ -114,9 +114,12 @@ function revoke() {
 
 function managePorts(side: 'source' | 'destination') {
   const c = current.value
-  emit('manage-ports', side === 'source'
-    ? { interfaceId: c.source_interface_id, deviceLabel: c.source_device_name }
-    : { interfaceId: c.destination_interface_id, deviceLabel: c.destination_device_name })
+  emit(
+    'manage-ports',
+    side === 'source'
+      ? { interfaceId: c.source_interface_id, deviceLabel: c.source_device_name }
+      : { interfaceId: c.destination_interface_id, deviceLabel: c.destination_device_name },
+  )
 }
 
 /** keepSource=true — порт назначения получает роль порта-источника, и наоборот. */
@@ -187,7 +190,9 @@ function alignMode(keepSource: boolean) {
           <div class="cfg" :class="{ diff: differs('mode') }" data-mode-side="source">Режим: {{ modeLabel(current.source_vlan_mode) }}</div>
           <div class="cfg" :class="{ diff: differs('vlans') }" data-vlans-side="source">VLAN: {{ formatVlans(current.source_vlans) }}</div>
         </div>
-        <div class="link-icon"><svg class="icon"><use href="/icons.svg#i-network" /></svg></div>
+        <div class="link-icon">
+          <svg class="icon"><use href="/icons.svg#i-network" /></svg>
+        </div>
         <div class="side">
           <div class="side-title">Назначение</div>
           <div class="devname">{{ current.destination_device_name }}</div>
@@ -212,7 +217,9 @@ function alignMode(keepSource: boolean) {
             <ul v-if="!t.blocked" class="recommendation-lines">
               <li v-for="line in changeLines(t.changes)" :key="line">{{ line }}</li>
             </ul>
-            <p v-else class="recommendation-note bad" data-recommendation-target-blocked>Порт «{{ t.port.name }}» ({{ t.port.device_name }}) не изменится: {{ t.blocked }}</p>
+            <p v-else class="recommendation-note bad" data-recommendation-target-blocked>
+              Порт «{{ t.port.name }}» ({{ t.port.device_name }}) не изменится: {{ t.blocked }}
+            </p>
           </template>
           <p v-for="warning in recommendation.warnings" :key="warning" class="recommendation-note" data-recommendation-warning>⚠ {{ warning }}</p>
           <button type="button" class="btn btn-secondary" data-action="plan" :disabled="busy" @click="planOpen = true">Согласовать по правилу…</button>
@@ -230,12 +237,8 @@ function alignMode(keepSource: boolean) {
       </div>
 
       <div class="actions">
-        <button v-if="isMismatch" type="button" class="btn btn-primary" data-action="approve" :disabled="busy" @click="approve">
-          Одобрить расхождение
-        </button>
-        <button v-if="isApproved" type="button" class="btn btn-secondary" data-action="revoke" :disabled="busy" @click="revoke">
-          Отозвать одобрение
-        </button>
+        <button v-if="isMismatch" type="button" class="btn btn-primary" data-action="approve" :disabled="busy" @click="approve">Одобрить расхождение</button>
+        <button v-if="isApproved" type="button" class="btn btn-secondary" data-action="revoke" :disabled="busy" @click="revoke">Отозвать одобрение</button>
         <template v-if="isMismatch || isApproved">
           <template v-if="differs('role')">
             <button type="button" class="btn btn-secondary" data-action="keep-source" :disabled="busy" @click="align(true)">
@@ -247,10 +250,14 @@ function alignMode(keepSource: boolean) {
           </template>
           <template v-if="differs('mode')">
             <button type="button" class="btn btn-secondary" data-action="mode-to-destination" :disabled="busy" @click="alignMode(true)">
-              Порту «{{ current.destination_interface_name }}» задать режим как у «{{ current.source_interface_name }}» ({{ modeLabel(current.source_vlan_mode) }})
+              Порту «{{ current.destination_interface_name }}» задать режим как у «{{ current.source_interface_name }}» ({{
+                modeLabel(current.source_vlan_mode)
+              }})
             </button>
             <button type="button" class="btn btn-secondary" data-action="mode-to-source" :disabled="busy" @click="alignMode(false)">
-              Порту «{{ current.source_interface_name }}» задать режим как у «{{ current.destination_interface_name }}» ({{ modeLabel(current.destination_vlan_mode) }})
+              Порту «{{ current.source_interface_name }}» задать режим как у «{{ current.destination_interface_name }}» ({{
+                modeLabel(current.destination_vlan_mode)
+              }})
             </button>
           </template>
           <button type="button" class="btn btn-secondary" data-action="edit-source" :disabled="busy" @click="emit('edit-port', 'source')">
@@ -271,8 +278,8 @@ function alignMode(keepSource: boolean) {
       </div>
 
       <p v-if="differs('mode')" class="hint">
-        Режим порта может задаваться группой портов, и он должен совпасть у связанных портов — при необходимости режим сменится у всей группы и у связанных
-        с ней портов. Перед применением покажем список всех последствий.
+        Режим порта может задаваться группой портов, и он должен совпасть у связанных портов — при необходимости режим сменится у всей группы и у связанных с
+        ней портов. Перед применением покажем список всех последствий.
       </p>
 
       <div class="modal-foot">

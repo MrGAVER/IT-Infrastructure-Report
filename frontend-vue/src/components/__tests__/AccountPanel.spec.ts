@@ -23,7 +23,10 @@ beforeEach(() => {
 
 describe('AccountPanel.vue', () => {
   it('загружает и показывает список активных сессий, помечая текущую', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(sessionsFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(sessionsFixture)),
+    )
     const wrapper = mount(AccountPanel)
     await flushPromises()
 
@@ -33,19 +36,29 @@ describe('AccountPanel.vue', () => {
   })
 
   it('время сессии без смещения пояса считается UTC и показывается в поясе браузера', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(sessionsFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(sessionsFixture)),
+    )
     const wrapper = mount(AccountPanel)
     await flushPromises()
 
     // sessionsFixture[0].created_at = '2026-01-01T10:00:00' (naive UTC на сервере)
     const expected = new Date(Date.UTC(2026, 0, 1, 10, 0, 0)).toLocaleString('ru-RU', {
-      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     })
     expect(wrapper.findAll('tbody tr')[0].findAll('td')[0].text()).toBe(expected)
   })
 
   it('не показывает кнопку "Завершить" у текущей сессии', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(sessionsFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(sessionsFixture)),
+    )
     const wrapper = mount(AccountPanel)
     await flushPromises()
 
@@ -72,7 +85,10 @@ describe('AccountPanel.vue', () => {
   })
 
   it('не отправляет форму смены пароля, если новый пароль и подтверждение расходятся', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([])))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse([])),
+    )
     const wrapper = mount(AccountPanel)
     await flushPromises()
 
@@ -90,7 +106,15 @@ describe('AccountPanel.vue', () => {
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         if (url.includes('/auth/me/password') && init?.method === 'PUT') {
-          return jsonResponse({ id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' })
+          return jsonResponse({
+            id: 'u1',
+            username: 'admin',
+            role: 'admin',
+            is_active: true,
+            last_login_at: null,
+            locked: false,
+            created_at: '2026-01-01T00:00:00',
+          })
         }
         return jsonResponse([])
       }),

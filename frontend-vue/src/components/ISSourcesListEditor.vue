@@ -154,7 +154,10 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
   <div class="nested-editor">
     <div class="nested-head">
       <b>Размещение, IP-адреса и источники данных ИС</b>
-      <span class="hint">В одной строке можно выбрать источник из базы или ввести IP вручную. Для сервера/ВМ/контейнера IP подставляются автоматически при генерации отчёта.</span>
+      <span class="hint"
+        >В одной строке можно выбрать источник из базы или ввести IP вручную. Для сервера/ВМ/контейнера IP подставляются автоматически при генерации
+        отчёта.</span
+      >
     </div>
 
     <div v-if="!modelValue.length" class="empty">Не добавлено</div>
@@ -206,7 +209,11 @@ function updateIp(rowIndex: number, ipIndex: number, ipAddress: string) {
              брейкпоинты ниже (900px/560px), и чекбокс с кнопкой всегда рядом в одной ячейке. -->
         <div class="row-actions">
           <label class="external-check">
-            <input type="checkbox" :checked="row.external_interaction" @change="updateRow(i, { external_interaction: ($event.target as HTMLInputElement).checked })" />
+            <input
+              type="checkbox"
+              :checked="row.external_interaction"
+              @change="updateRow(i, { external_interaction: ($event.target as HTMLInputElement).checked })"
+            />
             <span>Внешнее</span>
           </label>
           <button type="button" class="icon-btn danger" aria-label="Удалить источник" @click="removeRow(i)">

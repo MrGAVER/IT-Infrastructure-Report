@@ -57,7 +57,10 @@ describe('StructuralUnitFormModal.vue', () => {
     const wrapper = mount(StructuralUnitFormModal, {
       props: { unit: { id: 'su-1', name: 'Головной офис', parent_id: null, description: null }, defaultParentId: null },
     })
-    const options = wrapper.find('.lookup-row select').findAll('option').map((o) => o.element.value)
+    const options = wrapper
+      .find('.lookup-row select')
+      .findAll('option')
+      .map((o) => o.element.value)
     expect(options).not.toContain('su-1')
     expect(options).toContain('su-2')
   })

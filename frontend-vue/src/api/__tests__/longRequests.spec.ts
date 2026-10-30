@@ -18,9 +18,15 @@ const LONG_OPERATIONS: Array<[string, () => Promise<unknown>]> = [
 beforeEach(() => {
   localStorage.clear()
   vi.useFakeTimers()
-  vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason ?? new DOMException('aborted', 'AbortError')), { once: true })
-  })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason ?? new DOMException('aborted', 'AbortError')), { once: true })
+        }),
+    ),
+  )
 })
 
 afterEach(() => {
@@ -33,7 +39,10 @@ describe('B-11: долгие операции ждут дольше таймау
   })
 
   it.each(LONG_OPERATIONS)('%s: через 30 с запрос ещё ждёт, а по истечении долгого таймаута — «Сервер не отвечает»', async (_name, run) => {
-    const result = run().then(() => 'resolved', (e: unknown) => e)
+    const result = run().then(
+      () => 'resolved',
+      (e: unknown) => e,
+    )
     let settled = false
     void result.then(() => (settled = true))
 

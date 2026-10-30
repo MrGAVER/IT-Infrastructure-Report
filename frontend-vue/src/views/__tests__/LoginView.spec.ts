@@ -33,10 +33,15 @@ describe('LoginView.vue', () => {
   })
 
   it('при успешном входе перенаправляет на дашборд по умолчанию', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
-      token: 'tok-1',
-      user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
-    })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          token: 'tok-1',
+          user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
+        }),
+      ),
+    )
     const wrapper = mount(LoginView)
 
     await wrapper.find('input[type="text"]').setValue('admin')
@@ -50,10 +55,15 @@ describe('LoginView.vue', () => {
 
   it('уважает ?redirect= из query-параметра', async () => {
     routeQuery = { redirect: '/devices' }
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
-      token: 'tok-1',
-      user: { id: 'u1', username: 'admin', role: 'viewer', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
-    })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          token: 'tok-1',
+          user: { id: 'u1', username: 'admin', role: 'viewer', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
+        }),
+      ),
+    )
     const wrapper = mount(LoginView)
 
     await wrapper.find('input[type="text"]').setValue('admin')
@@ -71,10 +81,15 @@ describe('LoginView.vue', () => {
     ['слишком длинная строка', '/' + 'a'.repeat(600)],
   ])('небезопасный ?redirect= (%s) заменяется на дашборд', async (_title, redirect) => {
     routeQuery = { redirect }
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
-      token: 'tok-1',
-      user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
-    })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          token: 'tok-1',
+          user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
+        }),
+      ),
+    )
     const wrapper = mount(LoginView)
 
     await wrapper.find('input[type="text"]').setValue('admin')
@@ -88,10 +103,15 @@ describe('LoginView.vue', () => {
 
   it('адрес возврата с query-параметрами сохраняется целиком', async () => {
     routeQuery = { redirect: '/devices?x=1' }
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
-      token: 'tok-1',
-      user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
-    })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          token: 'tok-1',
+          user: { id: 'u1', username: 'admin', role: 'admin', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' },
+        }),
+      ),
+    )
     const wrapper = mount(LoginView)
 
     await wrapper.find('input[type="text"]').setValue('admin')
@@ -103,7 +123,10 @@ describe('LoginView.vue', () => {
   })
 
   it('при неверном пароле показывает сообщение об ошибке и не редиректит', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Неверное имя пользователя или пароль.' }, 401)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Неверное имя пользователя или пароль.' }, 401)),
+    )
     const wrapper = mount(LoginView)
 
     await wrapper.find('input[type="text"]').setValue('admin')
@@ -118,10 +141,10 @@ describe('LoginView.vue', () => {
 
 describe('LoginView.vue — коды ошибок входа (B-12)', () => {
   const tooManyAttempts = (retryAfter?: string) =>
-    new Response(
-      JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа. Повторите через 7 с.' } }),
-      { status: 429, headers: retryAfter ? { 'Retry-After': retryAfter } : {} },
-    )
+    new Response(JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа. Повторите через 7 с.' } }), {
+      status: 429,
+      headers: retryAfter ? { 'Retry-After': retryAfter } : {},
+    })
 
   async function submitCredentials(wrapper: ReturnType<typeof mount>) {
     await wrapper.find('input[type="text"]').setValue('admin')
@@ -136,7 +159,10 @@ describe('LoginView.vue — коды ошибок входа (B-12)', () => {
 
   it('429 с Retry-After: 7 → кнопка отключена, виден текст про 7 с; обратный отсчёт идёт и по окончании разблокирует форму', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-    vi.stubGlobal('fetch', vi.fn(async () => tooManyAttempts('7')))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => tooManyAttempts('7')),
+    )
     const wrapper = mount(LoginView)
 
     await submitCredentials(wrapper)
@@ -173,7 +199,10 @@ describe('LoginView.vue — коды ошибок входа (B-12)', () => {
   })
 
   it('429 без Retry-After: показано сообщение сервера, отсчёта и блокировки нет', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => tooManyAttempts()))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => tooManyAttempts()),
+    )
     const wrapper = mount(LoginView)
 
     await submitCredentials(wrapper)
@@ -185,7 +214,10 @@ describe('LoginView.vue — коды ошибок входа (B-12)', () => {
 
   it('уход с экрана во время отсчёта снимает таймер', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-    vi.stubGlobal('fetch', vi.fn(async () => tooManyAttempts('30')))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => tooManyAttempts('30')),
+    )
     const wrapper = mount(LoginView)
     await submitCredentials(wrapper)
     expect(vi.getTimerCount()).toBe(1)
@@ -196,10 +228,15 @@ describe('LoginView.vue — коды ошибок входа (B-12)', () => {
   })
 
   it('403 CLIENT_NOT_ALLOWED: сообщение сервера и пояснение, что повтор не поможет; кнопка не блокируется', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ detail: { code: 'CLIENT_NOT_ALLOWED', message: 'Доступ с этого адреса запрещён настройками приложения.' } }),
-      { status: 403 },
-    )))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: { code: 'CLIENT_NOT_ALLOWED', message: 'Доступ с этого адреса запрещён настройками приложения.' } }), {
+            status: 403,
+          }),
+      ),
+    )
     const wrapper = mount(LoginView)
 
     await submitCredentials(wrapper)
@@ -210,7 +247,10 @@ describe('LoginView.vue — коды ошибок входа (B-12)', () => {
   })
 
   it('обычная ошибка входа (401) без пояснения про адрес и без отсчёта', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Неверное имя пользователя или пароль.' }, 401)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Неверное имя пользователя или пароль.' }, 401)),
+    )
     const wrapper = mount(LoginView)
 
     await submitCredentials(wrapper)
@@ -220,4 +260,3 @@ describe('LoginView.vue — коды ошибок входа (B-12)', () => {
     expect(wrapper.find('[data-testid="login-throttle"]').exists()).toBe(false)
   })
 })
-

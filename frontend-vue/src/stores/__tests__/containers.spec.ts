@@ -4,7 +4,16 @@ import { useContainersStore } from '../containers'
 import type { Container } from '../../api/types'
 
 function container(overrides: Partial<Container>): Container {
-  return { id: 'ct-x', name: 'container', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null, ...overrides }
+  return {
+    id: 'ct-x',
+    name: 'container',
+    virtual_machine_id: null,
+    physical_device_id: null,
+    runtime: null,
+    runtime_version: null,
+    purpose: null,
+    ...overrides,
+  }
 }
 
 const fixtureItems: Container[] = [
@@ -40,7 +49,10 @@ describe('useContainersStore', () => {
   })
 
   it('фильтрует по названию, runtime и назначению', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: fixtureItems, total: 2, offset: 0, limit: 1000 }))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ items: fixtureItems, total: 2, offset: 0, limit: 1000 }))),
+    )
     const store = useContainersStore()
     await store.ensureLoaded()
 
@@ -59,7 +71,10 @@ describe('useContainersStore', () => {
 
   it('пагинирует по 8 записей на страницу', async () => {
     const many = Array.from({ length: 10 }, (_, i) => container({ id: `ct-${i}`, name: `container-${i}` }))
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: many, total: 10, offset: 0, limit: 1000 }))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ items: many, total: 10, offset: 0, limit: 1000 }))),
+    )
     const store = useContainersStore()
     await store.ensureLoaded()
 

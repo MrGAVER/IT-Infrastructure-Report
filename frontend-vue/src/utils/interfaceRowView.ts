@@ -55,7 +55,9 @@ export function trunkVlanTitle(row: InterfaceDraftRow, vlanOptions: readonly VLA
  * подинтерфейс нужно перенести на другой VLAN порта или удалить — иначе форма не сохранится. Пустая строка — предупреждать не о чем. */
 export function staleSubinterfaceText(row: InterfaceDraftRow, allowedVlanIds: ReadonlySet<string>): string {
   const names = subinterfacesOffPortVlans(row, allowedVlanIds).map((sub) => `«${sub.name.trim() || 'без имени'}»`)
-  return names.length ? `Подинтерфейсы на VLAN, не выбранном на порту или не назначенном устройству: ${names.join(', ')} — выберите другой VLAN или удалите их` : ''
+  return names.length
+    ? `Подинтерфейсы на VLAN, не выбранном на порту или не назначенном устройству: ${names.join(', ')} — выберите другой VLAN или удалите их`
+    : ''
 }
 
 /** Подсказка у индикатора повторяющихся номеров открытых портов (utils/openPorts.ts:duplicatePortNumbers). */

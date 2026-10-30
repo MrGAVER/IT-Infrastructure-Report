@@ -13,10 +13,7 @@ export interface CoverageRow<TCell extends { col: number; colspan?: number; rows
   cells: TCell[]
 }
 
-export function coverageForRows<TCell extends { col: number; colspan?: number; rowspan?: number }>(
-  rows: CoverageRow<TCell>[],
-  rowIndex: number,
-): Set<number> {
+export function coverageForRows<TCell extends { col: number; colspan?: number; rowspan?: number }>(rows: CoverageRow<TCell>[], rowIndex: number): Set<number> {
   const covered = new Set<number>()
   for (let r = 0; r < rowIndex; r++) {
     for (const cell of rows[r].cells) {

@@ -46,7 +46,11 @@ function connection(overrides: Partial<Connection> = {}): Connection {
   }
 }
 
-interface Call { url: string; method: string; body?: Record<string, unknown> }
+interface Call {
+  url: string
+  method: string
+  body?: Record<string, unknown>
+}
 interface Server {
   iface: Record<string, unknown>
   linkedVlanIds: string[]
@@ -91,7 +95,9 @@ function stubApi() {
       if (method === 'GET' && p === '/resources/devices/dev-1') return jsonResponse({ id: 'dev-1', device_type_id: 'dt-1', name: 'sw-01' })
       // VLAN порта — запросом устройства (а не общим списком связей реестра): он знает и про признак «Все VLAN».
       if (method === 'GET' && p === '/devices/dev-1/interface-vlans') {
-        return jsonResponse({ items: [{ interface_id: 'if-1', all_vlans: server.allVlans, vlan_ids: server.allVlans ? ['v10', 'v20', 'v30'] : server.linkedVlanIds }] })
+        return jsonResponse({
+          items: [{ interface_id: 'if-1', all_vlans: server.allVlans, vlan_ids: server.allVlans ? ['v10', 'v20', 'v30'] : server.linkedVlanIds }],
+        })
       }
       if (method === 'GET' && p === '/resources/device-type-vlans') {
         const items = ['v10', 'v20', 'v30'].map((vlan_id) => ({ id: `t-${vlan_id}`, device_type_id: 'dt-1', vlan_id }))
@@ -102,7 +108,11 @@ function stubApi() {
       if (method === 'POST' && p === '/interfaces/if-1/vlan-mode-cascade/preview') return server.previewResponse()
       if (method === 'POST' && p === '/interfaces/if-1/vlan-mode-cascade') {
         if (server.applyResponse) return server.applyResponse()
-        return jsonResponse({ plan: server.plan, applied: { ports: server.plan.totals.ports, groups: server.plan.totals.groups, devices: server.plan.totals.devices }, interfaces: [] })
+        return jsonResponse({
+          plan: server.plan,
+          applied: { ports: server.plan.totals.ports, groups: server.plan.totals.groups, devices: server.plan.totals.devices },
+          interfaces: [],
+        })
       }
       return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000, summary: { total: 0, active: 0, inactive: 0, mismatch: 0, approved: 0 } })
     }),
@@ -129,7 +139,11 @@ async function openModal(conn: Connection = connection(), side: 'source' | 'dest
 }
 
 const checkbox = (id: string) => body().find<HTMLInputElement>(`[data-vlan="${id}"]`)
-const checkedVlans = () => body().findAll<HTMLInputElement>('[data-vlan]').filter((i) => i.element.checked).map((i) => i.attributes('data-vlan'))
+const checkedVlans = () =>
+  body()
+    .findAll<HTMLInputElement>('[data-vlan]')
+    .filter((i) => i.element.checked)
+    .map((i) => i.attributes('data-vlan'))
 const saveButton = () => body().find<HTMLButtonElement>('[data-action="save"]')
 
 beforeEach(() => {
@@ -411,7 +425,9 @@ describe('PortConfigEditModal.vue', () => {
     let applyAttempts = 0
     server.applyResponse = () => {
       applyAttempts += 1
-      return applyAttempts === 1 ? jsonResponse({ detail: 'Данные изменились после предпросмотра' }, 409) : jsonResponse({ plan: server.plan, applied: { ports: 3, groups: 1, devices: 1 }, interfaces: [] })
+      return applyAttempts === 1
+        ? jsonResponse({ detail: 'Данные изменились после предпросмотра' }, 409)
+        : jsonResponse({ plan: server.plan, applied: { ports: 3, groups: 1, devices: 1 }, interfaces: [] })
     }
     const wrapper = await openModal()
 
@@ -451,7 +467,19 @@ describe('PortConfigEditModal.vue', () => {
 
   it('порт в группе, задающей режим и VLAN: набор VLAN не правится и не отправляется, роль менять можно', async () => {
     server.iface = { ...server.iface, group_id: 'g-1' }
-    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }]
+    server.groups = [
+      {
+        id: 'g-1',
+        physical_device_id: 'dev-1',
+        name: 'Магистрали',
+        vlan_mode: 'trunk',
+        vlan_ids: ['v10', 'v20'],
+        ip_address: null,
+        prefix_length: null,
+        manage_open_ports: false,
+        open_ports: [],
+      },
+    ]
     const wrapper = await openModal()
 
     expect(body().find('[data-hint="group-locked"]').text()).toContain('Магистрали')
@@ -467,7 +495,19 @@ describe('PortConfigEditModal.vue', () => {
 
   it('порт в группе: смена режима идёт каскадом без поля port, если ни роль, ни VLAN менять не нужно', async () => {
     server.iface = { ...server.iface, group_id: 'g-1' }
-    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }]
+    server.groups = [
+      {
+        id: 'g-1',
+        physical_device_id: 'dev-1',
+        name: 'Магистрали',
+        vlan_mode: 'trunk',
+        vlan_ids: ['v10', 'v20'],
+        ip_address: null,
+        prefix_length: null,
+        manage_open_ports: false,
+        open_ports: [],
+      },
+    ]
     server.plan = bigPlan()
     await openModal()
 
@@ -480,7 +520,19 @@ describe('PortConfigEditModal.vue', () => {
 
   it('«Открыть порты устройства» для порта в группе просит родителя открыть окно портов', async () => {
     server.iface = { ...server.iface, group_id: 'g-1' }
-    server.groups = [{ id: 'g-1', physical_device_id: 'dev-1', name: 'Магистрали', vlan_mode: 'trunk', vlan_ids: [], ip_address: null, prefix_length: null, manage_open_ports: false, open_ports: [] }]
+    server.groups = [
+      {
+        id: 'g-1',
+        physical_device_id: 'dev-1',
+        name: 'Магистрали',
+        vlan_mode: 'trunk',
+        vlan_ids: [],
+        ip_address: null,
+        prefix_length: null,
+        manage_open_ports: false,
+        open_ports: [],
+      },
+    ]
     const wrapper = await openModal()
 
     await body().find('[data-action="manage-group"]').trigger('click')
@@ -519,7 +571,10 @@ describe('PortConfigEditModal.vue', () => {
   })
 
   it('ошибка загрузки порта показывается в окне, сохранить нельзя', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Порт не найден' }, 404)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Порт не найден' }, 404)),
+    )
 
     await openModal()
 

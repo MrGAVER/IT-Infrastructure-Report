@@ -28,7 +28,10 @@ function seedStores() {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+  )
 })
 
 describe('ContainerFormModal.vue', () => {
@@ -76,7 +79,10 @@ describe('ContainerFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (method === 'POST' && url.endsWith('/resources/containers')) {
-          return jsonResponse({ id: 'ct-new', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: null, runtime_version: null, purpose: null }, 201)
+          return jsonResponse(
+            { id: 'ct-new', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: null, runtime_version: null, purpose: null },
+            201,
+          )
         }
         return jsonResponse(EMPTY_PAGE)
       }),
@@ -92,7 +98,15 @@ describe('ContainerFormModal.vue', () => {
 
   it('при переключении с "устройство" на "ВМ" сбрасывает выбранное устройство', async () => {
     seedStores()
-    const container: Container = { id: 'ct-1', name: 'old', virtual_machine_id: null, physical_device_id: 'dev-1', runtime: null, runtime_version: null, purpose: null }
+    const container: Container = {
+      id: 'ct-1',
+      name: 'old',
+      virtual_machine_id: null,
+      physical_device_id: 'dev-1',
+      runtime: null,
+      runtime_version: null,
+      purpose: null,
+    }
     const wrapper = mount(ContainerFormModal, { props: { container } })
 
     await wrapper.find('select').setValue('vm')
@@ -104,8 +118,24 @@ describe('ContainerFormModal.vue', () => {
   it('аудит fix/usability-batch4 (находка №5): одновременная передача container и copyFrom — предупреждение в консоль, побеждает container (edit)', () => {
     seedStores()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const source: Container = { id: 'ct-src', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: 'docker', runtime_version: '24.0', purpose: 'reverse proxy' }
-    const edited: Container = { id: 'ct-edit', name: 'nginx-edited', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null }
+    const source: Container = {
+      id: 'ct-src',
+      name: 'nginx-proxy',
+      virtual_machine_id: 'vm-1',
+      physical_device_id: null,
+      runtime: 'docker',
+      runtime_version: '24.0',
+      purpose: 'reverse proxy',
+    }
+    const edited: Container = {
+      id: 'ct-edit',
+      name: 'nginx-edited',
+      virtual_machine_id: null,
+      physical_device_id: null,
+      runtime: null,
+      runtime_version: null,
+      purpose: null,
+    }
 
     const wrapper = mount(ContainerFormModal, { props: { container: edited, copyFrom: source } })
 
@@ -119,7 +149,15 @@ describe('ContainerFormModal.vue', () => {
   // копия сохраняется с тем же именем, что и донор, если пользователь сам не изменит.
   it('копирование: форма открывается в режиме создания с полями донора, включая размещение', async () => {
     seedStores()
-    const source: Container = { id: 'ct-src', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: 'docker', runtime_version: '24.0', purpose: 'reverse proxy' }
+    const source: Container = {
+      id: 'ct-src',
+      name: 'nginx-proxy',
+      virtual_machine_id: 'vm-1',
+      physical_device_id: null,
+      runtime: 'docker',
+      runtime_version: '24.0',
+      purpose: 'reverse proxy',
+    }
     const wrapper = mount(ContainerFormModal, { props: { container: null, copyFrom: source } })
 
     expect(wrapper.find('input[type="text"]').element).toHaveProperty('value', 'nginx-proxy')
@@ -133,7 +171,18 @@ describe('ContainerFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method })
         if (method === 'POST' && url.endsWith('/resources/containers')) {
-          return jsonResponse({ id: 'ct-new', name: 'nginx-proxy', virtual_machine_id: 'vm-1', physical_device_id: null, runtime: 'docker', runtime_version: '24.0', purpose: 'reverse proxy' }, 201)
+          return jsonResponse(
+            {
+              id: 'ct-new',
+              name: 'nginx-proxy',
+              virtual_machine_id: 'vm-1',
+              physical_device_id: null,
+              runtime: 'docker',
+              runtime_version: '24.0',
+              purpose: 'reverse proxy',
+            },
+            201,
+          )
         }
         return jsonResponse(EMPTY_PAGE)
       }),

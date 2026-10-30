@@ -2,9 +2,27 @@ import DOMPurify from 'dompurify'
 
 /** Теги, которые разрешает сервер (регистр — как в SVG: linearGradient, clipPath и т.д.). */
 const ALLOWED_TAGS = [
-  'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
-  'defs', 'linearGradient', 'radialGradient', 'stop', 'clipPath', 'mask', 'symbol', 'use',
-  'text', 'tspan', 'title', 'desc',
+  'svg',
+  'g',
+  'path',
+  'rect',
+  'circle',
+  'ellipse',
+  'line',
+  'polyline',
+  'polygon',
+  'defs',
+  'linearGradient',
+  'radialGradient',
+  'stop',
+  'clipPath',
+  'mask',
+  'symbol',
+  'use',
+  'text',
+  'tspan',
+  'title',
+  'desc',
 ]
 
 /** url(...) в значении атрибута: захватывает адрес, чтобы проверить, что он указывает на #id (как _CSS_URL на сервере). */

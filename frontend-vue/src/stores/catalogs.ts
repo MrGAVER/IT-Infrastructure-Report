@@ -73,9 +73,7 @@ type CatalogKey = (typeof CATALOGS)[number]
  *   производителя; здесь достаточно не оставлять модели внутри группы в порядке ответа бэкенда. */
 function sortCatalogItems<T extends CatalogItem>(key: CatalogKey, items: T[]): T[] {
   if (key === 'operating-systems' || key === 'embedded-os') {
-    return [...items].sort(
-      (a, b) => RU_COLLATOR.compare(a.name, b.name) || RU_COLLATOR.compare(String(a.version ?? ''), String(b.version ?? '')),
-    )
+    return [...items].sort((a, b) => RU_COLLATOR.compare(a.name, b.name) || RU_COLLATOR.compare(String(a.version ?? ''), String(b.version ?? '')))
   }
   if (key === 'device-models') {
     return [...items].sort((a, b) => RU_COLLATOR.compare(String(a.model ?? ''), String(b.model ?? '')))
@@ -109,7 +107,10 @@ export const useCatalogsStore = defineStore('catalogs', {
     /** Человекочитаемое имя ресурса (DISPLAY_NAMES на бэкенде) — для entity_type в
      * журнале аудита. Не хардкодим словарь во фронтенде — грузим с /api/v1/resources,
      * чтобы не расходиться с бэкендом при добавлении новых ресурсов. */
-    resourceLabel: (state) => (key: string): string => state.resourceNames[key] ?? key,
+    resourceLabel:
+      (state) =>
+      (key: string): string =>
+        state.resourceNames[key] ?? key,
     /** Быстрый лукап id → запись для конкретного каталога.
      *
      * Кеш индекса намеренно ключуется по САМОМУ МАССИВУ (WeakMap), а не по имени каталога, как
@@ -233,7 +234,10 @@ export const useCatalogsStore = defineStore('catalogs', {
     replaceInterface(item: CatalogItem) {
       const current = this.items['interfaces']
       if (!current || !current.some((i) => i.id === item.id)) return
-      this.items['interfaces'] = sortCatalogItems('interfaces', current.map((i) => (i.id === item.id ? item : i)))
+      this.items['interfaces'] = sortCatalogItems(
+        'interfaces',
+        current.map((i) => (i.id === item.id ? item : i)),
+      )
     },
     /** Точечно добавляет только что созданную запись каталога (QuickAddModal.vue) в уже
      * загруженный список, сохраняя сортировку — та же причина не звать полный reload(), что и в

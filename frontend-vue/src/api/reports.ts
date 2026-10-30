@@ -25,10 +25,14 @@ export function generateInventoryReport(informationSystemId: string | null, stru
  * оборудованием выбранных структурных единиц, как у регламентированного отчёта
  * (см. services/structural_appendix.py). */
 export function generateStructuralAppendixReport(isName: string, structuralUnitIds: string[]) {
-  return api.post<ReportResult>('/reports/structural-appendix', {
-    is_name: isName,
-    structural_unit_ids: structuralUnitIds.length ? structuralUnitIds : null,
-  }, LONG_OPTIONS)
+  return api.post<ReportResult>(
+    '/reports/structural-appendix',
+    {
+      is_name: isName,
+      structural_unit_ids: structuralUnitIds.length ? structuralUnitIds : null,
+    },
+    LONG_OPTIONS,
+  )
 }
 
 /** POST /api/v1/reports/audit-log — выгрузка журнала аудита за период. */

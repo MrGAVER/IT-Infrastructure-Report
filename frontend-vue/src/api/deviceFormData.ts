@@ -4,7 +4,16 @@ import { listAllResource } from './client'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups } from './deviceInterfaces'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from './deviceConnectivity'
 import { loadDeviceTypeVlanIds } from './portVlans'
-import type { DeployedSoftware, Device, DeviceVLAN, DeviceVlanDraftRow, InterfaceDraftRow, InterfaceGroupDraft, SoftwareAssetDraftRow, VLANDomainDeviceLink } from './types'
+import type {
+  DeployedSoftware,
+  Device,
+  DeviceVLAN,
+  DeviceVlanDraftRow,
+  InterfaceDraftRow,
+  InterfaceGroupDraft,
+  SoftwareAssetDraftRow,
+  VLANDomainDeviceLink,
+} from './types'
 import { stripIds } from '../utils/copyEntity'
 import { copyInterfaceRows, toDeviceVlanDraftRow, toSoftwareDraftRow } from '../utils/deviceForm'
 import { cloneGroupsForCopy } from '../utils/interfaceGroups'

@@ -36,7 +36,17 @@ const connection: DeviceInterfaceConnection = {
   peer_all_vlans: false,
 }
 
-const group: InterfaceGroupDraft = { id: 'g-1', key: 'gk-1', name: 'Uplinks', vlan_mode: 'trunk', vlan_ids: ['v10'], all_vlans: false, ips: [], open_ports: [], subinterfaces: [] } as unknown as InterfaceGroupDraft
+const group: InterfaceGroupDraft = {
+  id: 'g-1',
+  key: 'gk-1',
+  name: 'Uplinks',
+  vlan_mode: 'trunk',
+  vlan_ids: ['v10'],
+  all_vlans: false,
+  ips: [],
+  open_ports: [],
+  subinterfaces: [],
+} as unknown as InterfaceGroupDraft
 
 function portRow(): InterfaceDraftRow {
   return makeRow({ id: 'if-1', name: 'Gi0/1', group_key: 'gk-1', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }] })
@@ -46,8 +56,15 @@ beforeEach(() => {
   vi.clearAllMocks()
   listAllResource.mockImplementation(async (resource: string) => {
     if (resource === 'deployed-software') return { items: [{ id: 'ds-1', software_asset_id: 'sa-1', version: null }] }
-    if (resource === 'device-vlans') return { items: [{ id: 'dv-1', vlan_id: 'v10', ip_address: '10.9.0.1', prefix_length: 24, is_management: true, description: null }] }
-    if (resource === 'vlan-domain-devices') return { items: [{ id: 'l-1', domain_id: 'dom-1' }, { id: 'l-2', domain_id: 'dom-2' }] }
+    if (resource === 'device-vlans')
+      return { items: [{ id: 'dv-1', vlan_id: 'v10', ip_address: '10.9.0.1', prefix_length: 24, is_management: true, description: null }] }
+    if (resource === 'vlan-domain-devices')
+      return {
+        items: [
+          { id: 'l-1', domain_id: 'dom-1' },
+          { id: 'l-2', domain_id: 'dom-2' },
+        ],
+      }
     throw new Error(`неожиданный ресурс ${resource}`)
   })
   loadDeviceInterfaceDraftRows.mockResolvedValue([portRow()])

@@ -264,13 +264,7 @@ function onEnter() {
         @keydown.enter.prevent="onEnter"
         @keydown.esc="closeDropdown"
       />
-      <button
-        v-if="modelValue && !disabled"
-        type="button"
-        class="ss-clear"
-        aria-label="Очистить выбор"
-        @mousedown.prevent="clearSelection"
-      >
+      <button v-if="modelValue && !disabled" type="button" class="ss-clear" aria-label="Очистить выбор" @mousedown.prevent="clearSelection">
         <svg class="icon"><use href="/icons.svg#i-x" /></svg>
       </button>
       <svg class="icon ss-chev" :class="{ open }"><use href="/icons.svg#i-chevd" /></svg>

@@ -72,7 +72,10 @@ beforeEach(() => {
   // generate() теперь спрашивает подтверждение, если в таблице уже есть данные (п.3.3) —
   // jsdom не реализует window.confirm, поэтому по умолчанию мокаем "пользователь согласился";
   // тесты на отмену явно переопределяют это на vi.fn(() => false).
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
 })
 
 describe('DeviceInterfacesEditor.vue', () => {
@@ -123,7 +126,22 @@ describe('DeviceInterfacesEditor.vue', () => {
   })
 
   it('в режиме "Заменить все порты" генерация сохраняет id и IP уже существующего интерфейса по индексу', async () => {
-    const existing: InterfaceDraftRow[] = [{ id: 'if-1', name: 'old-name', interface_type_id: '', mac_address: '', speed_id: '', is_management: true, is_data_transfer: false, description: '', vlan_ids: ['vlan-1'], vlan_mode: 'trunk', ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }], open_ports: [] }]
+    const existing: InterfaceDraftRow[] = [
+      {
+        id: 'if-1',
+        name: 'old-name',
+        interface_type_id: '',
+        mac_address: '',
+        speed_id: '',
+        is_management: true,
+        is_data_transfer: false,
+        description: '',
+        vlan_ids: ['vlan-1'],
+        vlan_mode: 'trunk',
+        ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }],
+        open_ports: [],
+      },
+    ]
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
 
     await wrapper.find('.replace-all-check input').setValue(true)
@@ -161,7 +179,10 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('в режиме "Дополнить" (без галочки) явный номер переопределяет продолжение от текущего количества строк', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth1' }, { ...emptyRow(), name: 'eth2' }]
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth1' },
+        { ...emptyRow(), name: 'eth2' },
+      ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       // Без "Начать с" новые строки продолжили бы с eth3 — с явным значением начинают с eth10.
       await wrapper.find('.generator input[type="number"]').setValue('2') // Количество
@@ -213,7 +234,10 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('аудит fix/usability-batch4 (находка №1): с галочкой и "Количество" = 0 на непустом списке — отдельное предупреждение про удаление без замены', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }, { ...emptyRow(), name: 'eth1' }]
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0' },
+        { ...emptyRow(), name: 'eth1' },
+      ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await wrapper.find('.replace-all-check input').setValue(true)
       await wrapper.find('.generator input[type="number"]').setValue('0')
@@ -237,7 +261,10 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('отмена подтверждения — данные не перезаписываются, событие не эмитится, галочка остаётся включённой', async () => {
-      vi.stubGlobal('confirm', vi.fn(() => false))
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => false),
+      )
       const existing: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'GigabitEthernet0/1', mac_address: 'aa:bb:cc:dd:ee:ff' }]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: existing, typeOptions, speedOptions, vlanOptions } })
       await wrapper.find('.replace-all-check input').setValue(true)
@@ -491,7 +518,9 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     describe('«Все VLAN» — сохраняемый признак порта (all_vlans), а не вывод из числа выбранных VLAN', () => {
       const mountTrunk = (patch: Partial<InterfaceDraftRow> = {}) =>
-        mount(DeviceInterfacesEditor, { props: { modelValue: [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', ...patch }], typeOptions, speedOptions, vlanOptions: vOptions } })
+        mount(DeviceInterfacesEditor, {
+          props: { modelValue: [{ ...emptyRow(), name: 'eth1', vlan_mode: 'trunk', ...patch }], typeOptions, speedOptions, vlanOptions: vOptions },
+        })
       const lastRow = (wrapper: ReturnType<typeof mountTrunk>) => {
         const emitted = wrapper.emitted('update:modelValue')!
         return (emitted[emitted.length - 1][0] as InterfaceDraftRow[])[0]
@@ -544,9 +573,17 @@ describe('DeviceInterfacesEditor.vue', () => {
 
   describe('п.1.4 (батч4): открытые порты интерфейса и копирование на другой интерфейс', () => {
     it('блок "Открытые порты" рендерится внутри развёрнутой строки интерфейса', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }]
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
+      ]
       const wrapper = mount(DeviceInterfacesEditor, {
-        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, protocolPortCatalog: [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }] },
+        props: {
+          modelValue: rows,
+          typeOptions,
+          speedOptions,
+          vlanOptions,
+          protocolPortCatalog: [{ id: 'cat-ssh', port: 22, protocol_type: 'SSH', description: null }],
+        },
       })
       await expandRow(wrapper)
       expect(wrapper.find('.ports-block').exists()).toBe(true)
@@ -621,7 +658,10 @@ describe('DeviceInterfacesEditor.vue', () => {
         await expandRow(wrapper)
 
         await wrapper.findAll('.ports-block .col-catalog .searchable-select input')[1].trigger('focus')
-        await wrapper.findAll('.ports-block .col-catalog .ss-option').find((o) => o.text() === '22 / SSH')!.trigger('mousedown')
+        await wrapper
+          .findAll('.ports-block .col-catalog .ss-option')
+          .find((o) => o.text() === '22 / SSH')!
+          .trigger('mousedown')
 
         const emitted = wrapper.emitted('update:modelValue')!
         const result = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
@@ -642,7 +682,10 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('добавление порта на одном интерфейсе не затрагивает open_ports другого', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0' }, { ...emptyRow(), name: 'eth1' }]
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0' },
+        { ...emptyRow(), name: 'eth1' },
+      ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await expandRow(wrapper, 0)
       await wrapper.find('.ports-block button.add-btn').trigger('click')
@@ -653,7 +696,9 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('с единственным интерфейсом кнопку "Копировать на порт…" показывать не для чего — блок выбора получателя не рендерится', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }]
+      const rows: InterfaceDraftRow[] = [
+        { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
+      ]
       const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions } })
       await expandRow(wrapper)
       expect(wrapper.find('.copy-ports-row').exists()).toBe(false)
@@ -697,7 +742,10 @@ describe('DeviceInterfacesEditor.vue', () => {
     })
 
     it('если у получателя уже есть порты — требует подтверждения и не заменяет их при отказе', async () => {
-      vi.stubGlobal('confirm', vi.fn(() => false))
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => false),
+      )
       const rows: InterfaceDraftRow[] = [
         { ...emptyRow(), name: 'eth0', open_ports: [{ id: 'op-1', protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
         { ...emptyRow(), name: 'eth1', open_ports: [{ id: 'op-2', protocol_catalog_id: 'cat-https', transport_protocol: 'TCP', description: '' }] },
@@ -1094,7 +1142,9 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('пункт 1: строка с расхождением флагов подсвечена, показывает кликабельную иконку в ячейках Упр./Данные', () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } },
+      })
 
       const cells = wrapper.findAll('tr:not(.bulk-edit-row) td.col-check')
       expect(cells[0].classes()).toContain('has-conflict')
@@ -1123,7 +1173,9 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('пункт 2: расхождение режима порта показывает иконку и на свёрнутой строке, и рядом с "Режим порта" в развёрнутой детали — но не подсвечивает ячейки флагов', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': vlanModeConflict } } })
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': vlanModeConflict } },
+      })
 
       expect(wrapper.find('tr:not(.bulk-edit-row) td.col-check').classes()).not.toContain('has-conflict')
       expect(wrapper.find('.expand-toggle .conflict-icon').exists()).toBe(true)
@@ -1134,7 +1186,9 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('клик по иконке расхождения флагов открывает окно сравнения с текущими и соседними значениями', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', is_management: false, is_data_transfer: true }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } },
+      })
 
       await wrapper.find('.conflict-icon-btn').trigger('click')
 
@@ -1149,7 +1203,9 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('"Применить конфигурацию соседа" переносит значения соседа в черновик строки локально, без запроса к API', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', is_management: false, is_data_transfer: true }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } },
+      })
       const fetchMock = vi.fn()
       vi.stubGlobal('fetch', fetchMock)
 
@@ -1167,7 +1223,9 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('"Применить текущую конфигурацию" отправляет PUT на интерфейс соседа и закрывает окно', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', is_management: false, is_data_transfer: true }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } },
+      })
       const calls: Array<{ url: string; method: string; body?: unknown }> = []
       vi.stubGlobal(
         'fetch',
@@ -1216,7 +1274,16 @@ describe('DeviceInterfacesEditor.vue', () => {
       function mountConflict(extra: Record<string, unknown> = {}, rows?: InterfaceDraftRow[], groups: InterfaceGroupDraft[] = []) {
         const draftRows: InterfaceDraftRow[] = rows ?? [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1', vlan_mode: 'access' }]
         return mount(DeviceInterfacesEditor, {
-          props: { modelValue: draftRows, groups, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': vlanModeConflict }, deviceId: 'dev-1', ...extra },
+          props: {
+            modelValue: draftRows,
+            groups,
+            typeOptions,
+            speedOptions,
+            vlanOptions,
+            conflicts: { 'if-1': vlanModeConflict },
+            deviceId: 'dev-1',
+            ...extra,
+          },
         })
       }
 
@@ -1254,9 +1321,20 @@ describe('DeviceInterfacesEditor.vue', () => {
         // предпросмотр получает целевой режим и СОСТОЯНИЕ ФОРМЫ (режимы портов и групп в черновике), а не только id устройства
         expect(calls[0].method).toBe('POST')
         expect(calls[0].url).toContain('/interfaces/if-3/vlan-mode-cascade/preview')
-        expect(calls[0].body).toEqual({ mode: 'access', edited: { device_id: 'dev-1', ports: { 'if-1': { name: 'Gi0/1', mode: 'access', group: null, vlan_ids: [] } }, groups: {} } })
+        expect(calls[0].body).toEqual({
+          mode: 'access',
+          edited: { device_id: 'dev-1', ports: { 'if-1': { name: 'Gi0/1', mode: 'access', group: null, vlan_ids: [] } }, groups: {} },
+        })
         // применение — тот же снимок формы + hash показанного плана
-        expect(calls[1]).toMatchObject({ method: 'POST', body: { mode: 'access', edited: { device_id: 'dev-1', ports: { 'if-1': { name: 'Gi0/1', mode: 'access', group: null, vlan_ids: [] } }, groups: {} }, plan_hash: 'hash-1', confirm: true } })
+        expect(calls[1]).toMatchObject({
+          method: 'POST',
+          body: {
+            mode: 'access',
+            edited: { device_id: 'dev-1', ports: { 'if-1': { name: 'Gi0/1', mode: 'access', group: null, vlan_ids: [] } }, groups: {} },
+            plan_hash: 'hash-1',
+            confirm: true,
+          },
+        })
         expect(wrapper.find('.cascade-modal').exists()).toBe(false)
         expect(wrapper.find('.conflict-modal').exists()).toBe(false)
         expect((catalogs.items['interfaces'][0] as unknown as { vlan_mode: string }).vlan_mode).toBe('access') // кэш соседа обновлён — значок расхождения исчезнет
@@ -1284,7 +1362,10 @@ describe('DeviceInterfacesEditor.vue', () => {
       })
 
       it('снимаемые VLAN (даже при одном порте) тоже требуют окна подтверждения', async () => {
-        const plan = makePlan({ ports: [portChange({ vlans_before: [vlanRef(10), vlanRef(20)], vlans_after: [vlanRef(10)], dropped_vlans: [vlanRef(20)] })], totals: { ...makePlan().totals, dropped_vlans: 1 } })
+        const plan = makePlan({
+          ports: [portChange({ vlans_before: [vlanRef(10), vlanRef(20)], vlans_after: [vlanRef(10)], dropped_vlans: [vlanRef(20)] })],
+          totals: { ...makePlan().totals, dropped_vlans: 1 },
+        })
         stubCascadeApi({ preview: () => jsonResponse(plan) })
         const wrapper = mountConflict()
 
@@ -1301,11 +1382,33 @@ describe('DeviceInterfacesEditor.vue', () => {
           { ...emptyRow(), id: 'if-3', name: 'Gi0/3', vlan_mode: 'trunk', vlan_ids: ['v10', 'v20'], group_key: 'g1' },
           { ...emptyRow(), id: 'if-4', name: 'Gi0/4', vlan_mode: 'trunk', vlan_ids: ['v20'] },
         ]
-        const groups = [{ id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'trunk' as const, vlan_ids: ['v10', 'v20'], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }]
+        const groups = [
+          {
+            id: 'g1',
+            key: 'g1',
+            name: 'Серверные',
+            vlan_mode: 'trunk' as const,
+            vlan_ids: ['v10', 'v20'],
+            ip_address: '',
+            prefix_length: '',
+            ip_purpose: '',
+            manage_open_ports: false,
+            open_ports: [],
+          },
+        ]
         const plan = makePlan({
           edited_device_id: 'dev-1',
           groups: [
-            groupChange({ id: 'g1', name: 'Серверные', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, vlans_after: [vlanRef(10)], dropped_vlans: [vlanRef(20)], ports: [{ id: 'if-3', name: 'Gi0/3' }] }),
+            groupChange({
+              id: 'g1',
+              name: 'Серверные',
+              device_id: 'dev-1',
+              device_name: 'esxi-01',
+              deferred: true,
+              vlans_after: [vlanRef(10)],
+              dropped_vlans: [vlanRef(20)],
+              ports: [{ id: 'if-3', name: 'Gi0/3' }],
+            }),
             groupChange(),
           ],
           ports: [portChange({ id: 'if-4', name: 'Gi0/4', device_id: 'dev-1', device_name: 'esxi-01', deferred: true })],
@@ -1396,7 +1499,18 @@ describe('DeviceInterfacesEditor.vue', () => {
           { ...emptyRow(), id: 'if-2', name: 'Gi0/2', vlan_mode: 'access', vlan_ids: ['v10'], group_key: 'g1' },
         ]
         const groupDraft = (): InterfaceGroupDraft[] => [
-          { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] },
+          {
+            id: 'g1',
+            key: 'g1',
+            name: 'Серверные',
+            vlan_mode: 'access',
+            vlan_ids: ['v10'],
+            ip_address: '',
+            prefix_length: '',
+            ip_purpose: '',
+            manage_open_ports: false,
+            open_ports: [],
+          },
         ]
         const groupPlan = () =>
           makePlan({
@@ -1405,8 +1519,19 @@ describe('DeviceInterfacesEditor.vue', () => {
             edited_device_id: 'dev-1',
             groups: [
               groupChange({
-                id: 'g1', name: 'Серверные', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, from_mode: 'access', to_mode: 'trunk',
-                vlans_before: [vlanRef(10)], vlans_after: [vlanRef(10)], ports: [{ id: 'if-1', name: 'Gi0/1' }, { id: 'if-2', name: 'Gi0/2' }],
+                id: 'g1',
+                name: 'Серверные',
+                device_id: 'dev-1',
+                device_name: 'esxi-01',
+                deferred: true,
+                from_mode: 'access',
+                to_mode: 'trunk',
+                vlans_before: [vlanRef(10)],
+                vlans_after: [vlanRef(10)],
+                ports: [
+                  { id: 'if-1', name: 'Gi0/1' },
+                  { id: 'if-2', name: 'Gi0/2' },
+                ],
               }),
             ],
             ports: [portChange({ id: 'if-9', name: 'Gi0/9', device_id: 'dev-9', device_name: 'sw-09', from_mode: 'access', to_mode: 'trunk' })],
@@ -1441,7 +1566,10 @@ describe('DeviceInterfacesEditor.vue', () => {
         })
 
         it('подтверждение: группа и все её порты получают режим соседа в черновике, остальные порты пишет сервер', async () => {
-          const calls = stubCascadeApi({ preview: () => jsonResponse(groupPlan()), apply: () => jsonResponse(cascadeResult(groupPlan(), { ports: 1, groups: 0, devices: 1 })) })
+          const calls = stubCascadeApi({
+            preview: () => jsonResponse(groupPlan()),
+            apply: () => jsonResponse(cascadeResult(groupPlan(), { ports: 1, groups: 0, devices: 1 })),
+          })
           const wrapper = mountConflict({}, groupRows(), groupDraft())
           await clickApplyNeighbor(wrapper)
 
@@ -1476,7 +1604,9 @@ describe('DeviceInterfacesEditor.vue', () => {
       })
 
       it('взять режим соседа: режим уже совпадает (пустой план) — сообщение, окно закрывается, черновик не меняется', async () => {
-        stubCascadeApi({ preview: () => jsonResponse(makePlan({ empty: true, groups: [], ports: [], devices: [], totals: { ...makePlan().totals, ports: 0 } })) })
+        stubCascadeApi({
+          preview: () => jsonResponse(makePlan({ empty: true, groups: [], ports: [], devices: [], totals: { ...makePlan().totals, ports: 0 } })),
+        })
         const wrapper = mountConflict()
 
         await clickApplyNeighbor(wrapper)
@@ -1512,7 +1642,11 @@ describe('DeviceInterfacesEditor.vue', () => {
 
       it('409 при применении (данные изменились): запрашивается новый план, окно показывает его и просит подтвердить заново', async () => {
         const first = makePlan({ groups: [groupChange()], totals: { ...makePlan().totals, ports: 2, groups: 1 }, hash: 'old' })
-        const second = makePlan({ groups: [groupChange(), groupChange({ id: 'g10', name: 'Резерв' })], totals: { ...makePlan().totals, ports: 4, groups: 2 }, hash: 'new' })
+        const second = makePlan({
+          groups: [groupChange(), groupChange({ id: 'g10', name: 'Резерв' })],
+          totals: { ...makePlan().totals, ports: 4, groups: 2 },
+          hash: 'new',
+        })
         let previews = 0
         const calls = stubCascadeApi({
           preview: () => jsonResponse(previews++ === 0 ? first : second),
@@ -1534,7 +1668,9 @@ describe('DeviceInterfacesEditor.vue', () => {
       })
 
       it('режим уже совпадает (пустой план): сообщение, без применения, окно закрывается', async () => {
-        const calls = stubCascadeApi({ preview: () => jsonResponse(makePlan({ empty: true, groups: [], ports: [], devices: [], totals: { ...makePlan().totals, ports: 0 } })) })
+        const calls = stubCascadeApi({
+          preview: () => jsonResponse(makePlan({ empty: true, groups: [], ports: [], devices: [], totals: { ...makePlan().totals, ports: 0 } })),
+        })
         const wrapper = mountConflict()
 
         await clickApplyCurrent(wrapper)
@@ -1558,8 +1694,13 @@ describe('DeviceInterfacesEditor.vue', () => {
 
     it('ошибка запроса при "Применить текущую конфигурацию" не закрывает окно молча — сообщается через notify', async () => {
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), id: 'if-1', name: 'Gi0/1' }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } } })
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Интерфейс не найден' }, 404)))
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, conflicts: { 'if-1': flagsConflict } },
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse({ detail: 'Интерфейс не найден' }, 404)),
+      )
 
       await wrapper.find('.conflict-icon-btn').trigger('click')
       await wrapper.find('.conflict-modal-actions .btn-primary').trigger('click')
@@ -1581,7 +1722,19 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
   ]
 
   function group(patch: Partial<InterfaceGroupDraft> = {}): InterfaceGroupDraft {
-    return { id: 'g1', key: 'g1', name: 'Серверные', vlan_mode: '', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [], ...patch }
+    return {
+      id: 'g1',
+      key: 'g1',
+      name: 'Серверные',
+      vlan_mode: '',
+      vlan_ids: [],
+      ip_address: '',
+      prefix_length: '',
+      ip_purpose: '',
+      manage_open_ports: false,
+      open_ports: [],
+      ...patch,
+    }
   }
 
   function member(name: string, patch: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow {
@@ -1670,8 +1823,13 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
   })
 
   it('открытые порты порта, заданные группой, доступны только для чтения', async () => {
-    const rows = [member('Gi0/1', { open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }), { ...emptyRow(), name: 'Gi0/2' }]
-    const wrapper = mountEditor(rows, [group({ manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] })])
+    const rows = [
+      member('Gi0/1', { open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }),
+      { ...emptyRow(), name: 'Gi0/2' },
+    ]
+    const wrapper = mountEditor(rows, [
+      group({ manage_open_ports: true, open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }),
+    ])
     await expandRow(wrapper, 0)
 
     const block = wrapper.find('.ports-block')
@@ -1705,7 +1863,11 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
     await wrapper.find('.copy-ports-row .btn').trigger('click')
 
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(useToast().toasts.map((t) => t.message).join(' ')).toContain('задан группой «Серверные»')
+    expect(
+      useToast()
+        .toasts.map((t) => t.message)
+        .join(' '),
+    ).toContain('задан группой «Серверные»')
   })
 
   it('создание группы в панели отдаёт наружу и порты, и группы (v-model и v-model:groups)', async () => {
@@ -1726,7 +1888,14 @@ describe('DeviceInterfacesEditor.vue — группы портов', () => {
 })
 
 describe('DeviceInterfacesEditor.vue — блок «Подключение» порта', () => {
-  const connected = { peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+  const connected = {
+    peer_device_id: 'dev-b',
+    peer_device_name: 'sw-b',
+    peer_interface_id: 'b-1',
+    peer_interface_name: 'Gi0/1',
+    connection_type_id: 'ct-1',
+    description: '',
+  }
 
   // Свободные порты соседа приходят с сервера (api/deviceConnectivity.ts): здесь — порты sw-b без занятых.
   function stubPeerPorts(ports: Array<{ id: string; name: string; occupied?: boolean }>) {
@@ -1734,7 +1903,9 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
       'fetch',
       vi.fn(async (url: string) => {
         const include = new Set(new URLSearchParams(url.split('?')[1] ?? '').getAll('include'))
-        const items = ports.filter((p) => !p.occupied || include.has(p.id)).map((p) => ({ is_management: false, is_data_transfer: false, vlan_mode: 'access', occupied: false, ...p }))
+        const items = ports
+          .filter((p) => !p.occupied || include.has(p.id))
+          .map((p) => ({ is_management: false, is_data_transfer: false, vlan_mode: 'access', occupied: false, ...p }))
         return new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 200 }))
       }),
     )
@@ -1742,7 +1913,9 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
 
   function mountWith(rows: InterfaceDraftRow[], editConnections?: boolean) {
     stubPeerPorts([{ id: 'b-1', name: 'Gi0/1' }])
-    return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: 'dev-1', ...(editConnections === undefined ? {} : { editConnections }) } })
+    return mount(DeviceInterfacesEditor, {
+      props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: 'dev-1', ...(editConnections === undefined ? {} : { editConnections }) },
+    })
   }
 
   it('по умолчанию (окно «Управлять портами») блока «Подключение» нет — подключения там не сохраняются', async () => {
@@ -1799,15 +1972,34 @@ describe('DeviceInterfacesEditor.vue — блок «Подключение» п�
 })
 
 describe('DeviceInterfacesEditor.vue — подключения между портами этого устройства и обмен соседями', () => {
-  const toRow = (key: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: '__self__', peer_interface_id: '', peer_row_key: key, connection_type_id: 'ct-1', description: '', ...extra })
-  const toPort = (id: string, extra: Record<string, unknown> = {}) => ({ peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: id, connection_type_id: 'ct-1', description: '', ...extra })
+  const toRow = (key: string, extra: Record<string, unknown> = {}) => ({
+    peer_device_id: '__self__',
+    peer_interface_id: '',
+    peer_row_key: key,
+    connection_type_id: 'ct-1',
+    description: '',
+    ...extra,
+  })
+  const toPort = (id: string, extra: Record<string, unknown> = {}) => ({
+    peer_device_id: 'dev-b',
+    peer_device_name: 'sw-b',
+    peer_interface_id: id,
+    connection_type_id: 'ct-1',
+    description: '',
+    ...extra,
+  })
   const row = (name: string, extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({ ...emptyRow(), name, ...extra })
 
   function mountWith(rows: InterfaceDraftRow[], extra: Record<string, unknown> = {}) {
     useCatalogsStore().items['interfaces'] = [] as never
     // Редактор подключения просит порты соседа у сервера; здесь это не предмет проверки — отвечаем пустой страницей.
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 200 }))))
-    return mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: null, editConnections: true, ...extra } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 200 }))),
+    )
+    return mount(DeviceInterfacesEditor, {
+      props: { modelValue: rows, typeOptions, speedOptions, vlanOptions, deviceId: null, editConnections: true, ...extra },
+    })
   }
   const lastRows = (wrapper: ReturnType<typeof mount>) => wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]
   async function expandAll(wrapper: ReturnType<typeof mount>, count: number) {
@@ -1818,13 +2010,19 @@ describe('DeviceInterfacesEditor.vue — подключения между по�
   it('«+ Интерфейс» с редактированием подключений даёт строке уникальный ключ; без — ключа нет', async () => {
     const withKeys = mountWith([row('eth0', { key: 'k0' })])
     // Кнопка добавления — по тексту: в панели несколько кнопок.
-    await withKeys.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click')
+    await withKeys
+      .findAll('button')
+      .find((b) => b.text().includes('Интерфейс'))!
+      .trigger('click')
     const added = lastRows(withKeys).at(-1)!
     expect(added.key).toBeTruthy()
     expect(added.key).not.toBe('k0')
 
     const plain = mountWith([], { editConnections: false })
-    await plain.findAll('button').find((b) => b.text().includes('Интерфейс'))!.trigger('click')
+    await plain
+      .findAll('button')
+      .find((b) => b.text().includes('Интерфейс'))!
+      .trigger('click')
     expect(lastRows(plain)[0]).not.toHaveProperty('key')
   })
 
@@ -1873,7 +2071,11 @@ describe('DeviceInterfacesEditor.vue — подключения между по�
   })
 
   it('удаление строки снимает ссылки на неё в подключениях других портов: сосед сбрасывается, остальное остаётся', async () => {
-    const rows = [row('eth0', { key: 'k0', connection: toRow('k1', { description: 'кабель' }) }), row('eth1', { key: 'k1' }), row('eth2', { key: 'k2', connection: toPort('b-1') })]
+    const rows = [
+      row('eth0', { key: 'k0', connection: toRow('k1', { description: 'кабель' }) }),
+      row('eth1', { key: 'k1' }),
+      row('eth2', { key: 'k2', connection: toPort('b-1') }),
+    ]
     const wrapper = mountWith(rows)
 
     await wrapper.findAll('button[aria-label="Удалить интерфейс"]')[1].trigger('click')
@@ -1922,11 +2124,21 @@ describe('DeviceInterfacesEditor.vue — подключения между по�
 })
 
 describe('DeviceInterfacesEditor.vue — расхождение с соседом при редактировании подключения: применить конфигурацию соседа или текущую', () => {
-  const connected = { peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+  const connected = {
+    peer_device_id: 'dev-b',
+    peer_device_name: 'sw-b',
+    peer_interface_id: 'b-1',
+    peer_interface_name: 'Gi0/1',
+    connection_type_id: 'ct-1',
+    description: '',
+  }
   const toRow = (key: string) => ({ peer_device_id: '__self__', peer_interface_id: '', peer_row_key: key, connection_type_id: 'ct-1', description: '' })
   const row = (name: string, extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({ ...emptyRow(), name, ...extra })
   const lastRows = (wrapper: ReturnType<typeof mount>) => wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]
-  const toastText = () => useToast().toasts.map((t) => t.message).join(' | ')
+  const toastText = () =>
+    useToast()
+      .toasts.map((t) => t.message)
+      .join(' | ')
 
   interface Call {
     url: string
@@ -2012,7 +2224,9 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
   })
 
   it('соседу на другом устройстве режим уходит каскадом от порта соседа: предпросмотр с режимом ЭТОГО порта, назначение — отдельным PUT', async () => {
-    const calls = stubServer({ is_management: true, is_data_transfer: true, vlan_mode: 'access' }, () => jsonResponse(makePlan({ target_mode: 'trunk', start_interface_id: 'b-1' })))
+    const calls = stubServer({ is_management: true, is_data_transfer: true, vlan_mode: 'access' }, () =>
+      jsonResponse(makePlan({ target_mode: 'trunk', start_interface_id: 'b-1' })),
+    )
     const wrapper = mountLive([row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, vlan_mode: 'trunk', connection: connected })])
     await expandRow(wrapper)
     await flushPromises()
@@ -2048,7 +2262,17 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
 
   it('режим не сохранённого порта, заданный его группой, не меняется: предупреждение вместо правки (назначение при этом применяется)', async () => {
     stubServer({ is_management: true, is_data_transfer: false, vlan_mode: 'trunk' })
-    const group: InterfaceGroupDraft = { key: 'g1', name: 'Серверные', vlan_mode: 'access', vlan_ids: [], ip_address: '', prefix_length: '', ip_purpose: '', manage_open_ports: false, open_ports: [] }
+    const group: InterfaceGroupDraft = {
+      key: 'g1',
+      name: 'Серверные',
+      vlan_mode: 'access',
+      vlan_ids: [],
+      ip_address: '',
+      prefix_length: '',
+      ip_purpose: '',
+      manage_open_ports: false,
+      open_ports: [],
+    }
     const wrapper = mountLive([row('eth0', { key: 'k0', group_key: 'g1', vlan_mode: 'access', connection: connected })], { deviceId: null, groups: [group] })
     await expandRow(wrapper)
     await flushPromises()
@@ -2066,7 +2290,12 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
       'fetch',
       vi.fn(async (_url: string, init?: RequestInit) => {
         if ((init?.method ?? 'GET') === 'PUT') return jsonResponse({ detail: 'Нет прав на изменение порта' }, 403)
-        return jsonResponse({ items: [{ id: 'b-1', name: 'Gi0/1', occupied: false, is_management: true, is_data_transfer: false, vlan_mode: 'access' }], total: 1, offset: 0, limit: 200 })
+        return jsonResponse({
+          items: [{ id: 'b-1', name: 'Gi0/1', occupied: false, is_management: true, is_data_transfer: false, vlan_mode: 'access' }],
+          total: 1,
+          offset: 0,
+          limit: 200,
+        })
       }),
     )
     const wrapper = mountLive([row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, connection: connected })])
@@ -2091,10 +2320,16 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
       return button
     }
     // Порт if-1 «Управление» нет, «Передача данных» есть; сосед b-1 — наоборот по «Управлению».
-    const savedRow = (extra: Partial<InterfaceDraftRow> = {}) => row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, vlan_mode: 'access', connection: connected, ...extra })
+    const savedRow = (extra: Partial<InterfaceDraftRow> = {}) =>
+      row('eth0', { id: 'if-1', is_management: false, is_data_transfer: true, vlan_mode: 'access', connection: connected, ...extra })
     const NEIGHBOR = { is_management: true, is_data_transfer: true, vlan_mode: 'access' as const }
-    type ReviewVm = { reviewNeighborMismatches: (initial?: ReadonlyMap<string, { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk' }>) => Promise<boolean> }
-    const review = (wrapper: ReturnType<typeof mount>, initial?: Parameters<ReviewVm['reviewNeighborMismatches']>[0]) => (wrapper.vm as unknown as ReviewVm).reviewNeighborMismatches(initial)
+    type ReviewVm = {
+      reviewNeighborMismatches: (
+        initial?: ReadonlyMap<string, { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk' }>,
+      ) => Promise<boolean>
+    }
+    const review = (wrapper: ReturnType<typeof mount>, initial?: Parameters<ReviewVm['reviewNeighborMismatches']>[0]) =>
+      (wrapper.vm as unknown as ReviewVm).reviewNeighborMismatches(initial)
 
     it('нет редактирования подключений (окно «Управлять портами») — сразу true, к серверу не обращается', async () => {
       const calls = stubServer({ ...NEIGHBOR })
@@ -2166,7 +2401,10 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
       await dialogButton(wrapper, 'Применить текущую конфигурацию').trigger('click')
       await flushPromises()
 
-      expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/interfaces/b-1'))?.body).toEqual({ is_management: false, is_data_transfer: true })
+      expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/resources/interfaces/b-1'))?.body).toEqual({
+        is_management: false,
+        is_data_transfer: true,
+      })
       expect(wrapper.findAll('.review-item')).toHaveLength(0)
       expect(dialog(wrapper).text()).toContain('Расхождений не осталось')
       await dialogButton(wrapper, 'Сохранить').trigger('click')
@@ -2209,7 +2447,10 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
     })
 
     it('не удалось прочитать порты соседа — сохранение не блокируется (true), ошибка в уведомлении, диалога нет', async () => {
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Сервер недоступен' }, 500)))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse({ detail: 'Сервер недоступен' }, 500)),
+      )
       const wrapper = mountLive([row('eth0', { key: 'k0', connection: connected })], { deviceId: null })
       expect(await review(wrapper)).toBe(true)
       expect(dialog(wrapper).exists()).toBe(false)
@@ -2250,7 +2491,10 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
   })
 
   it('имя порта передаётся редактору подинтерфейсов: выбор VLAN подставляет «<порт>.<VLAN>»', async () => {
-    const wrapper = mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [{ key: 'k1', name: '', vlan_id: '', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }] })
+    const wrapper = mountWithPort({
+      vlan_ids: ['v-10'],
+      subinterfaces: [{ key: 'k1', name: '', vlan_id: '', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [] }],
+    })
     await expandRow(wrapper)
 
     // SearchableSelect редактора подинтерфейсов: в карточке порта есть ещё и select VLAN access-порта.
@@ -2276,11 +2520,24 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     expect(mountWithPort({ subinterfaces: [] }).find('.expand-toggle').text()).not.toContain('подинт.')
   })
 
-  const subRow = (patch: Record<string, unknown>) => ({ key: 'k', name: '', vlan_id: 'v-10', is_management: false, is_data_transfer: false, description: '', ips: [], open_ports: [], ...patch })
+  const subRow = (patch: Record<string, unknown>) => ({
+    key: 'k',
+    name: '',
+    vlan_id: 'v-10',
+    is_management: false,
+    is_data_transfer: false,
+    description: '',
+    ips: [],
+    open_ports: [],
+    ...patch,
+  })
 
   describe('подинтерфейс на VLAN, которого нет на порту или у устройства', () => {
     it('свёрнутая строка порта показывает значок со списком таких подинтерфейсов', () => {
-      const wrapper = mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-gone' })] })
+      const wrapper = mountWithPort({
+        vlan_ids: ['v-10'],
+        subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-gone' })],
+      })
 
       const icon = wrapper.find('.expand-toggle .stale-sub-icon')
       expect(icon.exists()).toBe(true)
@@ -2295,7 +2552,11 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     })
 
     it('значка нет, если все VLAN подинтерфейсов выбраны на порту, и у порта без подинтерфейсов', () => {
-      expect(mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [subRow({ name: 'Gi0/0.10' })] }).find('.stale-sub-icon').exists()).toBe(false)
+      expect(
+        mountWithPort({ vlan_ids: ['v-10'], subinterfaces: [subRow({ name: 'Gi0/0.10' })] })
+          .find('.stale-sub-icon')
+          .exists(),
+      ).toBe(false)
       expect(mountWithPort().find('.stale-sub-icon').exists()).toBe(false)
     })
 
@@ -2314,7 +2575,8 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     function mountPorts(rows: InterfaceDraftRow[], groups: InterfaceGroupDraft[] = []) {
       return mount(DeviceInterfacesEditor, { props: { modelValue: rows, groups, typeOptions, speedOptions, vlanOptions: twoVlans } })
     }
-    const options = (wrapper: ReturnType<typeof mountPorts>) => (wrapper.findComponent(InterfaceSubinterfacesEditor).findComponent(SearchableSelect).props('options') as { value: string }[]).map((o) => o.value)
+    const options = (wrapper: ReturnType<typeof mountPorts>) =>
+      (wrapper.findComponent(InterfaceSubinterfacesEditor).findComponent(SearchableSelect).props('options') as { value: string }[]).map((o) => o.value)
 
     it('в списке только VLAN, выбранные на этом порту (не все VLAN устройства)', async () => {
       const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', vlan_ids: ['v-20'], subinterfaces: [subRow({ vlan_id: '' })] }])
@@ -2324,7 +2586,9 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     })
 
     it('у порта с «Все VLAN» (trunk) в списке все VLAN устройства', async () => {
-      const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', vlan_mode: 'trunk', all_vlans: true, vlan_ids: ['v-10', 'v-20'], subinterfaces: [subRow({ vlan_id: '' })] }])
+      const wrapper = mountPorts([
+        { ...emptyRow(), name: 'Gi0/0', vlan_mode: 'trunk', all_vlans: true, vlan_ids: ['v-10', 'v-20'], subinterfaces: [subRow({ vlan_id: '' })] },
+      ])
       await expandRow(wrapper)
 
       expect(options(wrapper)).toEqual(['v-10', 'v-20'])
@@ -2340,7 +2604,10 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
 
     it('порт в группе, которая задаёт подинтерфейсы, показывает их только для просмотра с пояснением', async () => {
       const group: InterfaceGroupDraft = { ...emptyGroup('Серверные'), key: 'g1', vlan_mode: 'trunk', vlan_ids: ['v-10'], manage_subinterfaces: true }
-      const wrapper = mountPorts([{ ...emptyRow(), name: 'Gi0/0', group_key: 'g1', vlan_ids: ['v-10'], subinterfaces: [subRow({ name: 'Gi0/0.10' })] }], [group])
+      const wrapper = mountPorts(
+        [{ ...emptyRow(), name: 'Gi0/0', group_key: 'g1', vlan_ids: ['v-10'], subinterfaces: [subRow({ name: 'Gi0/0.10' })] }],
+        [group],
+      )
       await expandRow(wrapper)
 
       expect(wrapper.find('.sub-block').text()).toContain('Список подинтерфейсов задан группой «Серверные»')
@@ -2372,18 +2639,31 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     const bulkSelect = (wrapper: ReturnType<typeof mountBulk>) => wrapper.find('select[aria-label="Перенести все такие подинтерфейсы на VLAN"]')
     const staleRows = (): InterfaceDraftRow[] => [
       { ...emptyRow(), name: 'Gi0/0', vlan_ids: ['v-10', 'v-20'], subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.30', vlan_id: 'v-30' })] },
-      { ...emptyRow(), name: 'Gi0/1', vlan_ids: ['v-10', 'v-20'], subinterfaces: [subRow({ key: 'b', name: 'Gi0/1.30', vlan_id: 'v-30' }), subRow({ key: 'c', name: 'Gi0/1.10', vlan_id: 'v-10' })] },
+      {
+        ...emptyRow(),
+        name: 'Gi0/1',
+        vlan_ids: ['v-10', 'v-20'],
+        subinterfaces: [subRow({ key: 'b', name: 'Gi0/1.30', vlan_id: 'v-30' }), subRow({ key: 'c', name: 'Gi0/1.10', vlan_id: 'v-10' })],
+      },
     ]
 
     it('панели нет, пока все подинтерфейсы на доступных VLAN', () => {
-      expect(mountBulk([{ ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ name: 'Gi0/0.10' })] }]).find('.stale-bulk').exists()).toBe(false)
+      expect(
+        mountBulk([{ ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ name: 'Gi0/0.10' })] }])
+          .find('.stale-bulk')
+          .exists(),
+      ).toBe(false)
     })
 
     it('панель показывает число таких подинтерфейсов; список VLAN упорядочен по номеру, «Перенести» выключена, пока VLAN не выбран', () => {
       const wrapper = mountBulk(staleRows())
 
       expect(wrapper.find('.stale-bulk').text()).toContain('Подинтерфейсов на VLAN, не назначенном устройству: 2')
-      expect(bulkSelect(wrapper).findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'v-10', 'v-20'])
+      expect(
+        bulkSelect(wrapper)
+          .findAll('option')
+          .map((o) => o.attributes('value')),
+      ).toEqual(['', 'v-10', 'v-20'])
       expect(wrapper.find('.stale-bulk button').attributes('disabled')).toBeDefined()
     })
 
@@ -2396,7 +2676,10 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
       const emitted = wrapper.emitted('update:modelValue')!
       const rows = emitted[emitted.length - 1][0] as InterfaceDraftRow[]
       expect(rows[0].subinterfaces![0]).toMatchObject({ key: 'a', vlan_id: 'v-10', name: 'Gi0/0.10' })
-      expect(rows[1].subinterfaces!.map((s) => [s.name, s.vlan_id])).toEqual([['Gi0/1.30', 'v-30'], ['Gi0/1.10', 'v-10']]) // v-10 на Gi0/1 уже занят
+      expect(rows[1].subinterfaces!.map((s) => [s.name, s.vlan_id])).toEqual([
+        ['Gi0/1.30', 'v-30'],
+        ['Gi0/1.10', 'v-10'],
+      ]) // v-10 на Gi0/1 уже занят
       const [toast] = useToast().toasts
       expect(toast.type).toBe('warning')
       expect(toast.message).toContain('Перенесено подинтерфейсов: 1 — на VLAN 10 — Серверы.')
@@ -2429,7 +2712,13 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     })
 
     it('если ничего перенести нельзя — строки не меняются (нет update:modelValue), только предупреждение', async () => {
-      const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10', vlan_id: 'v-10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-30' })] }]
+      const rows: InterfaceDraftRow[] = [
+        {
+          ...emptyRow(),
+          name: 'Gi0/0',
+          subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10', vlan_id: 'v-10' }), subRow({ key: 'b', name: 'Gi0/0.30', vlan_id: 'v-30' })],
+        },
+      ]
       const wrapper = mountBulk(rows)
 
       await bulkSelect(wrapper).setValue('v-10')
@@ -2479,7 +2768,9 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     }
 
     it('автоимена подинтерфейсов пересчитываются под новое имя порта, вручную заданные остаются', async () => {
-      const wrapper = mountWithPort({ subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10', description: 'Серверы' }), subRow({ key: 'b', name: 'wan-uplink', vlan_id: 'v-gone' })] })
+      const wrapper = mountWithPort({
+        subinterfaces: [subRow({ key: 'a', name: 'Gi0/0.10', description: 'Серверы' }), subRow({ key: 'b', name: 'wan-uplink', vlan_id: 'v-gone' })],
+      })
 
       await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('Gi0/1')
 
@@ -2499,7 +2790,9 @@ describe('DeviceInterfacesEditor.vue: подинтерфейсы порта', ()
     it('автоимя подинтерфейса на недоступном VLAN тоже следует за портом, если VLAN есть в справочнике', async () => {
       const reserve: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
       const rows: InterfaceDraftRow[] = [{ ...emptyRow(), name: 'Gi0/0', subinterfaces: [subRow({ name: 'Gi0/0.30', vlan_id: 'v-30' })] }]
-      const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vlansForSubs, vlanCatalog: [reserve] } })
+      const wrapper = mount(DeviceInterfacesEditor, {
+        props: { modelValue: rows, typeOptions, speedOptions, vlanOptions: vlansForSubs, vlanCatalog: [reserve] },
+      })
 
       await wrapper.find('.iface-table tbody tr.iface-row input.cell-input').setValue('Gi0/1')
 
@@ -2520,7 +2813,14 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
   const v10: VLANDefinition = { id: 'a10', vlan_id: 10, name: 'Серверы', description: '', domain_id: null, domain_name: '', devices: [] }
   const v20: VLANDefinition = { id: 'a20', vlan_id: 20, name: 'Камеры', description: '', domain_id: null, domain_name: '', devices: [] }
   const ownVlans = [v10, v20]
-  const connected = { peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: 'b-1', peer_interface_name: 'Gi0/1', connection_type_id: 'ct-1', description: '' }
+  const connected = {
+    peer_device_id: 'dev-b',
+    peer_device_name: 'sw-b',
+    peer_interface_id: 'b-1',
+    peer_interface_name: 'Gi0/1',
+    connection_type_id: 'ct-1',
+    description: '',
+  }
   const trunkRow = (extra: Partial<InterfaceDraftRow> = {}): InterfaceDraftRow => ({
     ...emptyRow(),
     id: 'if-1',
@@ -2531,7 +2831,10 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
     connection: connected,
     ...extra,
   })
-  const toastText = () => useToast().toasts.map((t) => t.message).join(' | ')
+  const toastText = () =>
+    useToast()
+      .toasts.map((t) => t.message)
+      .join(' | ')
   const lastRows = (wrapper: ReturnType<typeof mount>) => wrapper.emitted('update:modelValue')!.at(-1)![0] as InterfaceDraftRow[]
 
   interface Call {
@@ -2556,15 +2859,33 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
           return jsonResponse({ id: 'b-1', name: 'Gi0/1', vlan_mode: 'trunk', all_vlans: neighbor.all_vlans })
         }
         if (/\/devices\/dev-b\/free-interfaces/.test(url)) {
-          return jsonResponse({ items: [{ id: 'b-1', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: neighbor.all_vlans, occupied: false }], total: 1, offset: 0, limit: 200 })
+          return jsonResponse({
+            items: [
+              { id: 'b-1', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: neighbor.all_vlans, occupied: false },
+            ],
+            total: 1,
+            offset: 0,
+            limit: 200,
+          })
         }
-        if (url.endsWith('/resources/interfaces/b-1')) return jsonResponse({ id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', vlan_mode: 'trunk', all_vlans: neighbor.all_vlans })
+        if (url.endsWith('/resources/interfaces/b-1'))
+          return jsonResponse({ id: 'b-1', physical_device_id: 'dev-b', name: 'Gi0/1', vlan_mode: 'trunk', all_vlans: neighbor.all_vlans })
         if (url.endsWith('/resources/devices/dev-b')) return jsonResponse({ id: 'dev-b', device_type_id: 'dt-b' })
-        if (url.endsWith('/devices/dev-b/interface-vlans')) return jsonResponse({ items: [{ interface_id: 'b-1', all_vlans: neighbor.all_vlans, vlan_ids: neighbor.vlan_ids ?? [] }] })
-        if (url.includes('/resources/device-type-vlans')) return jsonResponse({ items: [{ vlan_id: 'b10' }, { vlan_id: 'b20' }, { vlan_id: 'b30' }], total: 3, offset: 0, limit: 1000 })
+        if (url.endsWith('/devices/dev-b/interface-vlans'))
+          return jsonResponse({ items: [{ interface_id: 'b-1', all_vlans: neighbor.all_vlans, vlan_ids: neighbor.vlan_ids ?? [] }] })
+        if (url.includes('/resources/device-type-vlans'))
+          return jsonResponse({ items: [{ vlan_id: 'b10' }, { vlan_id: 'b20' }, { vlan_id: 'b30' }], total: 3, offset: 0, limit: 1000 })
         if (url.includes('/resources/device-vlans')) return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
         if (url.endsWith('/vlan-dashboard')) {
-          const def = (id: string, number: number) => ({ id, vlan_id: number, name: `VLAN ${number}`, description: '', domain_id: null, domain_name: '', devices: [] })
+          const def = (id: string, number: number) => ({
+            id,
+            vlan_id: number,
+            name: `VLAN ${number}`,
+            description: '',
+            domain_id: null,
+            domain_name: '',
+            devices: [],
+          })
           return jsonResponse({ items: [10, 20, 30].map((n) => ({ vlan_id: n, definitions: [def(`b${n}`, n)] })) })
         }
         return jsonResponse({ items: [], total: 0, offset: 0, limit: 200 })
@@ -2689,7 +3010,11 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
     choiceButton('choice-apply').click()
     await flushPromises()
 
-    expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/interfaces/b-1/port-config'))?.body).toEqual({ all_vlans: false, vlan_ids: ['b10', 'b20'], mode: 'trunk' })
+    expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/interfaces/b-1/port-config'))?.body).toEqual({
+      all_vlans: false,
+      vlan_ids: ['b10', 'b20'],
+      mode: 'trunk',
+    })
     wrapper.unmount()
   })
 
@@ -2735,19 +3060,17 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
   })
 
   it('смена режима на trunk вместе с «Все VLAN»: порт формы получает «Все VLAN» по умолчанию — окно предлагает набор соседа по номерам VLAN', async () => {
-    const calls = stubServer(
-      { all_vlans: false, vlan_ids: ['b10'] },
-      () =>
-        jsonResponse(
-          makePlan({
-            target_mode: 'trunk',
-            start_interface_id: 'if-1',
-            edited_device_id: 'dev-1',
-            ports: [portChange({ id: 'if-1', name: 'eth0', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, from_mode: 'access', to_mode: 'trunk' })],
-            devices: [{ id: 'dev-1', name: 'esxi-01', deferred: true, port_count: 1, group_count: 0 }],
-            totals: { ports: 1, devices: 1, groups: 0, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0, dropped_vlans: 0 },
-          }),
-        ),
+    const calls = stubServer({ all_vlans: false, vlan_ids: ['b10'] }, () =>
+      jsonResponse(
+        makePlan({
+          target_mode: 'trunk',
+          start_interface_id: 'if-1',
+          edited_device_id: 'dev-1',
+          ports: [portChange({ id: 'if-1', name: 'eth0', device_id: 'dev-1', device_name: 'esxi-01', deferred: true, from_mode: 'access', to_mode: 'trunk' })],
+          devices: [{ id: 'dev-1', name: 'esxi-01', deferred: true, port_count: 1, group_count: 0 }],
+          totals: { ports: 1, devices: 1, groups: 0, deferred_ports: 1, immediate_ports: 0, immediate_devices: 0, dropped_vlans: 0 },
+        }),
+      ),
     )
     const wrapper = mountLive([trunkRow({ vlan_mode: 'access', vlan_ids: ['a20'] })])
     await expandRow(wrapper)
@@ -2812,9 +3135,15 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
   it('проверка перед сохранением: расхождение «Все VLAN» попадает в диалог и устраняется тем же выбором значения', async () => {
     stubServer({ all_vlans: true })
     const wrapper = mountLive([trunkRow()], { connectionBaseline: new Map([['if-1', connected]]) })
-    type ReviewVm = { reviewNeighborMismatches: (initial?: ReadonlyMap<string, { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk'; all_vlans?: boolean }>) => Promise<boolean> }
+    type ReviewVm = {
+      reviewNeighborMismatches: (
+        initial?: ReadonlyMap<string, { is_management: boolean; is_data_transfer: boolean; vlan_mode: 'access' | 'trunk'; all_vlans?: boolean }>,
+      ) => Promise<boolean>
+    }
     // порт менялся в этой форме: раньше «Все VLAN» у него было выключено так же, но режим был access
-    const result = (wrapper.vm as unknown as ReviewVm).reviewNeighborMismatches(new Map([['if-1', { is_management: false, is_data_transfer: false, vlan_mode: 'access' }]]))
+    const result = (wrapper.vm as unknown as ReviewVm).reviewNeighborMismatches(
+      new Map([['if-1', { is_management: false, is_data_transfer: false, vlan_mode: 'access' }]]),
+    )
     await flushPromises()
 
     expect(wrapper.find('.review-modal').text()).toContain('«Все VLAN»: нет / у соседа да')
@@ -2826,7 +3155,10 @@ describe('DeviceInterfacesEditor.vue — «Все VLAN»: сверка с сос
 
     expect(lastRows(wrapper)[0]).toMatchObject({ all_vlans: true })
     expect(wrapper.find('.review-modal').text()).toContain('Расхождений не осталось')
-    await wrapper.findAll('.review-modal button').find((b) => b.text() === 'Сохранить')!.trigger('click')
+    await wrapper
+      .findAll('.review-modal button')
+      .find((b) => b.text() === 'Сохранить')!
+      .trigger('click')
     expect(await result).toBe(true)
     wrapper.unmount()
   })
@@ -2841,8 +3173,14 @@ describe('DeviceInterfacesEditor.vue: порядок интерфейсов (с�
   it('у каждой строки есть столбец со стрелками; у первой «выше» и у последней «ниже» недоступны', () => {
     const wrapper = mount(DeviceInterfacesEditor, { props: { modelValue: named('Gi0/1', 'Gi0/2', 'Gi0/3'), typeOptions, speedOptions, vlanOptions } })
 
-    const buttons = wrapper.findAll('.iface-table tbody tr.iface-row').map((tr) => tr.findAll('.order-btn').map((b) => (b.element as HTMLButtonElement).disabled))
-    expect(buttons).toEqual([[true, false], [false, false], [false, true]])
+    const buttons = wrapper
+      .findAll('.iface-table tbody tr.iface-row')
+      .map((tr) => tr.findAll('.order-btn').map((b) => (b.element as HTMLButtonElement).disabled))
+    expect(buttons).toEqual([
+      [true, false],
+      [false, false],
+      [false, true],
+    ])
   })
 
   it('«ниже» меняет порт местами со следующим и отдаёт новый порядок', async () => {

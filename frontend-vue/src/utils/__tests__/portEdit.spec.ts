@@ -13,7 +13,15 @@ import {
 } from '../portEdit'
 import type { VLANDefinition } from '../../api/types'
 
-const vlan = (id: string, number: number, name = ''): VLANDefinition => ({ id, vlan_id: number, name, description: '', domain_id: null, domain_name: '', devices: [] })
+const vlan = (id: string, number: number, name = ''): VLANDefinition => ({
+  id,
+  vlan_id: number,
+  name,
+  description: '',
+  domain_id: null,
+  domain_name: '',
+  devices: [],
+})
 const OPTIONS = [vlan('a', 10), vlan('b', 20), vlan('c', 30), vlan('c2', 30, 'дубль в другом домене')]
 const draft = (overrides: Partial<PortDraft> = {}): PortDraft => ({ role: 'data', mode: 'trunk', vlanIds: [], allVlans: false, ...overrides })
 
@@ -75,22 +83,34 @@ describe('portEdit — тело запроса и проверка', () => {
   })
 
   it('роль без VLAN: в теле только роль и проверочный режим', () => {
-    expect(buildPortConfigPatch(initial, draft({ role: 'management', vlanIds: ['a'] }), { modeChanged: false, vlansLocked: false })).toEqual({ role: 'management', mode: 'trunk' })
+    expect(buildPortConfigPatch(initial, draft({ role: 'management', vlanIds: ['a'] }), { modeChanged: false, vlansLocked: false })).toEqual({
+      role: 'management',
+      mode: 'trunk',
+    })
   })
 
   it('VLAN: уходит полный набор без повторов', () => {
-    expect(buildPortConfigPatch(initial, draft({ vlanIds: ['a', 'b', 'b'] }), { modeChanged: false, vlansLocked: false })).toEqual({ vlan_ids: ['a', 'b'], mode: 'trunk' })
+    expect(buildPortConfigPatch(initial, draft({ vlanIds: ['a', 'b', 'b'] }), { modeChanged: false, vlansLocked: false })).toEqual({
+      vlan_ids: ['a', 'b'],
+      mode: 'trunk',
+    })
     expect(buildPortConfigPatch(initial, draft({ vlanIds: [] }), { modeChanged: false, vlansLocked: false })).toEqual({ vlan_ids: [], mode: 'trunk' }) // снять все
   })
 
   it('после смены режима набор отправляется заново, даже если он тот же: каскад мог его урезать', () => {
     const after = draft({ mode: 'access', vlanIds: ['a'] })
-    expect(buildPortConfigPatch(draft({ mode: 'trunk', vlanIds: ['a'] }), after, { modeChanged: true, vlansLocked: false })).toEqual({ vlan_ids: ['a'], mode: 'access' })
+    expect(buildPortConfigPatch(draft({ mode: 'trunk', vlanIds: ['a'] }), after, { modeChanged: true, vlansLocked: false })).toEqual({
+      vlan_ids: ['a'],
+      mode: 'access',
+    })
   })
 
   it('порт в группе: набор VLAN не отправляется никогда, роль — отправляется', () => {
     expect(buildPortConfigPatch(initial, draft({ vlanIds: ['b'] }), { modeChanged: false, vlansLocked: true })).toBeNull()
-    expect(buildPortConfigPatch(initial, draft({ role: 'none', vlanIds: ['b'] }), { modeChanged: true, vlansLocked: true })).toEqual({ role: 'none', mode: 'trunk' })
+    expect(buildPortConfigPatch(initial, draft({ role: 'none', vlanIds: ['b'] }), { modeChanged: true, vlansLocked: true })).toEqual({
+      role: 'none',
+      mode: 'trunk',
+    })
   })
 
   it('«Все VLAN»: признак уходит без набора, а его снятие — набором вместе с all_vlans: false', () => {
@@ -99,13 +119,24 @@ describe('portEdit — тело запроса и проверка', () => {
     // признак уже стоял и не менялся — отправлять нечего (набор зеркалит VLAN устройства, а не правка пользователя)
     expect(buildPortConfigPatch(flagged, cloneDraft(flagged), { modeChanged: false, vlansLocked: false })).toBeNull()
     // тот же полный набор вручную: признак снимается, набор уходит явно — без all_vlans: false сервер оставил бы признак
-    expect(buildPortConfigPatch(flagged, draft({ vlanIds: ['a', 'b'], allVlans: false }), { modeChanged: false, vlansLocked: false })).toEqual({ vlan_ids: ['a', 'b'], all_vlans: false, mode: 'trunk' })
-    expect(buildPortConfigPatch(flagged, draft({ vlanIds: [], allVlans: false }), { modeChanged: false, vlansLocked: false })).toEqual({ vlan_ids: [], all_vlans: false, mode: 'trunk' })
+    expect(buildPortConfigPatch(flagged, draft({ vlanIds: ['a', 'b'], allVlans: false }), { modeChanged: false, vlansLocked: false })).toEqual({
+      vlan_ids: ['a', 'b'],
+      all_vlans: false,
+      mode: 'trunk',
+    })
+    expect(buildPortConfigPatch(flagged, draft({ vlanIds: [], allVlans: false }), { modeChanged: false, vlansLocked: false })).toEqual({
+      vlan_ids: [],
+      all_vlans: false,
+      mode: 'trunk',
+    })
   })
 
   it('«Все VLAN» после смены режима отправляется заново, у порта в группе — не отправляется вовсе', () => {
     const flagged = draft({ vlanIds: ['a', 'b'], allVlans: true })
-    expect(buildPortConfigPatch(draft({ mode: 'access', vlanIds: ['a'] }), flagged, { modeChanged: true, vlansLocked: false })).toEqual({ all_vlans: true, mode: 'trunk' })
+    expect(buildPortConfigPatch(draft({ mode: 'access', vlanIds: ['a'] }), flagged, { modeChanged: true, vlansLocked: false })).toEqual({
+      all_vlans: true,
+      mode: 'trunk',
+    })
     expect(buildPortConfigPatch(initial, flagged, { modeChanged: false, vlansLocked: true })).toBeNull()
   })
 

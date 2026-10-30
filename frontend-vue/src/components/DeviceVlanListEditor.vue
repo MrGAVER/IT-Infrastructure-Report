@@ -16,14 +16,7 @@ import { computed, ref } from 'vue'
 import { vlanLabel } from '../utils/vlan'
 import { DEFAULT_COLLAPSE_ROWS } from '../utils/collapseLimit'
 import { useCollapsibleRows } from '../composables/useCollapsibleRows'
-import {
-  duplicateVlanRowIndexes,
-  duplicateVlansMessage,
-  sortDeviceVlanRows,
-  sortVlanDefinitions,
-  usedVlanIds,
-  vlanOptionsForRow,
-} from '../utils/deviceVlans'
+import { duplicateVlanRowIndexes, duplicateVlansMessage, sortDeviceVlanRows, sortVlanDefinitions, usedVlanIds, vlanOptionsForRow } from '../utils/deviceVlans'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
@@ -196,7 +189,9 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
     <div class="nested-head">
       <div class="nested-title">
         <b>VLAN устройства</b>
-        <span class="hint">VLAN может быть локальным для устройства или принадлежать общему домену. Один VLAN ID может иметь разные названия на разных устройствах.</span>
+        <span class="hint"
+          >VLAN может быть локальным для устройства или принадлежать общему домену. Один VLAN ID может иметь разные названия на разных устройствах.</span
+        >
       </div>
       <!-- Кнопка видна только когда строк больше порога: иначе сворачивать нечего. -->
       <button
@@ -225,7 +220,9 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
           :title="`Отменить включение в домен «${d.name}»`"
           data-testid="cancel-join-domain"
           @click="emit('cancel-join-domain', d.id)"
-        >×</button>
+        >
+          ×
+        </button>
       </span>
     </div>
 
@@ -237,7 +234,9 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
 
     <!-- Свёрнуто: вместо строк — сводка с номерами VLAN. -->
     <div v-else-if="collapsed" class="collapsed-summary" data-testid="vlan-collapsed">
-      <span>Назначено VLAN: <b>{{ modelValue.length }}</b></span>
+      <span
+        >Назначено VLAN: <b>{{ modelValue.length }}</b></span
+      >
       <span v-if="collapsedSummary" class="summary-numbers" :title="collapsedSummary">{{ collapsedSummary }}</span>
       <span class="hint">Список свёрнут (порог — {{ collapseAfter }} строк, меняется в «Настройках»).</span>
     </div>
@@ -269,7 +268,14 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
             @nested-created="onNestedCreated"
           />
         </div>
-        <input class="col-ip" type="text" placeholder="IP VLAN" :value="row.ip_address" :disabled="!!lockReason(row)" @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })" />
+        <input
+          class="col-ip"
+          type="text"
+          placeholder="IP VLAN"
+          :value="row.ip_address"
+          :disabled="!!lockReason(row)"
+          @input="updateField(i, { ip_address: ($event.target as HTMLInputElement).value })"
+        />
         <input
           class="col-prefix"
           type="number"
@@ -281,7 +287,12 @@ function onNestedCreated(_fieldName: string, fkResource: string, record: Catalog
           @input="updateField(i, { prefix_length: ($event.target as HTMLInputElement).value })"
         />
         <label class="col-mgmt">
-          <input type="checkbox" :checked="row.is_management" :disabled="!!lockReason(row)" @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })" />
+          <input
+            type="checkbox"
+            :checked="row.is_management"
+            :disabled="!!lockReason(row)"
+            @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })"
+          />
           Управление
         </label>
         <button type="button" class="icon-btn danger" aria-label="Удалить VLAN" :disabled="!!lockReason(row)" @click="removeRow(i)">

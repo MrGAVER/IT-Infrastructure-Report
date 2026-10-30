@@ -45,14 +45,16 @@ function roomLabel(id: string | null) {
       <span v-if="device.description" class="devmodel">{{ device.description }}</span>
     </td>
     <td class="mono">{{ device.serial_number }}</td>
-    <td>{{ [catalogs.label('manufacturers', device.manufacturer_id, ''), catalogs.label('device-models', device.model_id, '')].filter(Boolean).join(' · ') || '—' }}</td>
+    <td>
+      {{
+        [catalogs.label('manufacturers', device.manufacturer_id, ''), catalogs.label('device-models', device.model_id, '')].filter(Boolean).join(' · ') || '—'
+      }}
+    </td>
     <td>{{ device.embedded_os_name || catalogs.label('operating-systems', device.operating_system_id) }}</td>
     <td class="mono">{{ device.management_ips || '—' }}</td>
     <td>{{ [buildingLabel(device.building_id), roomLabel(device.room_id)].filter(Boolean).join(' · ') }}</td>
     <td>
-      <span class="status" :class="device.siem_enabled ? 'on' : 'off'">
-        <span class="status-dot"></span>{{ siemLabel(device.siem_enabled) }}
-      </span>
+      <span class="status" :class="device.siem_enabled ? 'on' : 'off'"> <span class="status-dot"></span>{{ siemLabel(device.siem_enabled) }} </span>
     </td>
     <td>
       <div class="row-actions">

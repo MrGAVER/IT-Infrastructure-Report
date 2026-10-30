@@ -14,7 +14,10 @@ beforeEach(() => {
   // SettingsView теперь рендерит AuthSettingsPanel, который на mount дергает
   // GET /auth/users (аутентификация выключена по умолчанию — см. auth.ts:canManage) —
   // без стаба это настоящий fetch() с относительным URL, падающий в jsdom.
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([]))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify([]))),
+  )
 })
 
 describe('SettingsView.vue', () => {

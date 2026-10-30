@@ -16,10 +16,7 @@ import type { NodeProps } from '@vue-flow/core'
  * const props = makeNodeProps({ id: 'group:1', type: 'group', label: 'X (5)', device_count: 5, x: 0, y: 0 })
  * mount(DiagramGroupNode, { props, global: { stubs: { Handle: true } } })
  */
-export function makeNodeProps<Data extends { id: string; type: string }>(
-  data: Data,
-  overrides: Partial<NodeProps<Data>> = {},
-): NodeProps<Data> {
+export function makeNodeProps<Data extends { id: string; type: string }>(data: Data, overrides: Partial<NodeProps<Data>> = {}): NodeProps<Data> {
   return {
     id: data.id,
     type: data.type,

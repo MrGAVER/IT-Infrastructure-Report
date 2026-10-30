@@ -35,7 +35,16 @@ function setRowMode(row: InterfaceDraftRow, mode: VlanMode, serverKeep: string[]
 }
 
 function setGroupMode(group: InterfaceGroupDraft, plan: CascadeGroupChange, mode: VlanMode): InterfaceGroupDraft {
-  return { ...group, vlan_mode: mode, vlan_ids: vlansForMode(group.vlan_ids, mode, plan.vlans_after.map((v) => v.id)), all_vlans: mode === 'access' ? false : group.all_vlans === true }
+  return {
+    ...group,
+    vlan_mode: mode,
+    vlan_ids: vlansForMode(
+      group.vlan_ids,
+      mode,
+      plan.vlans_after.map((v) => v.id),
+    ),
+    all_vlans: mode === 'access' ? false : group.all_vlans === true,
+  }
 }
 
 /** Применяет к черновику формы изменения плана, помеченные deferred. Группа в плане задана ключом (у
@@ -68,7 +77,15 @@ export function applyCascadeToDraft(
     const rowIndex = nextRows.findIndex((r) => r.id === change.id)
     if (rowIndex < 0) continue
     touched.add(change.id)
-    nextRows = nextRows.map((r, i) => (i === rowIndex ? setRowMode(r, mode, change.vlans_after.map((v) => v.id)) : r))
+    nextRows = nextRows.map((r, i) =>
+      i === rowIndex
+        ? setRowMode(
+            r,
+            mode,
+            change.vlans_after.map((v) => v.id),
+          )
+        : r,
+    )
   }
   return { rows: nextRows, groups: nextGroups, changedPorts: touched.size }
 }

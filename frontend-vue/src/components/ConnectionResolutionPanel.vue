@@ -18,9 +18,9 @@ const hasVlanDiff = computed(() => viewDiffers(props.mismatch, 'vlans'))
 <template>
   <div class="resolution" role="alertdialog" aria-label="Расхождение конфигурации портов">
     <p class="warning-text">
-      ⚠ Конфигурации портов различаются ({{ facetsLabel(mismatch.diff) }}):
-      «{{ mismatch.source.name }}» — {{ sideLabel(mismatch.source) }},
-      «{{ mismatch.destination.name }}» — {{ sideLabel(mismatch.destination) }}. Что сделать перед сохранением?
+      ⚠ Конфигурации портов различаются ({{ facetsLabel(mismatch.diff) }}): «{{ mismatch.source.name }}» — {{ sideLabel(mismatch.source) }}, «{{
+        mismatch.destination.name
+      }}» — {{ sideLabel(mismatch.destination) }}. Что сделать перед сохранением?
     </p>
     <div class="resolution-actions">
       <template v-if="rolesDiffer">
@@ -39,8 +39,8 @@ const hasVlanDiff = computed(() => viewDiffers(props.mismatch, 'vlans'))
           Порту «{{ mismatch.source.name }}» задать режим как у «{{ mismatch.destination.name }}» ({{ modeLabel(mismatch.destination.mode) }})
         </button>
         <p class="resolution-hint" data-hint="mode-cascade">
-          Режим порта может задаваться группой и должен совпасть у связанных портов: при необходимости он сменится у всей группы и у связанных с ней
-          портов — перед применением покажем список последствий.
+          Режим порта может задаваться группой и должен совпасть у связанных портов: при необходимости он сменится у всей группы и у связанных с ней портов —
+          перед применением покажем список последствий.
         </p>
       </template>
       <p v-if="hasVlanDiff" class="resolution-hint" data-hint="port-setup">

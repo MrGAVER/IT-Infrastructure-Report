@@ -15,8 +15,21 @@ const form = defineModel<DeviceForm>({ required: true })
 
 // Подписки каскада здание → помещение → стойка создаются при монтировании — уже после подписок родителя (загрузка источника),
 // поэтому начальное заполнение формы каскады не запускает.
-const { operatingSystemOptions, embeddedOsOptions, buildingOptions, roomOptions, rackOptions, roomQuickAddValues, rackQuickAddValues, rackQuickAddScope, typeModelOptions, typeModelSelection, onModelCreated, onRoomCreated, onRackCreated } =
-  useDeviceFormFields(form.value)
+const {
+  operatingSystemOptions,
+  embeddedOsOptions,
+  buildingOptions,
+  roomOptions,
+  rackOptions,
+  roomQuickAddValues,
+  rackQuickAddValues,
+  rackQuickAddScope,
+  typeModelOptions,
+  typeModelSelection,
+  onModelCreated,
+  onRoomCreated,
+  onRackCreated,
+} = useDeviceFormFields(form.value)
 </script>
 
 <template>
@@ -104,12 +117,7 @@ const { operatingSystemOptions, embeddedOsOptions, buildingOptions, roomOptions,
     <div class="oac-cert-grid">
       <label class="field">
         <span>Регистрационный номер сертификата соответствия (экспертного заключения)</span>
-        <input
-          v-model.trim="form.oac_certificate_number"
-          v-truncate-tooltip="form.oac_certificate_number"
-          type="text"
-          maxlength="255"
-        />
+        <input v-model.trim="form.oac_certificate_number" v-truncate-tooltip="form.oac_certificate_number" type="text" maxlength="255" />
       </label>
       <label class="field">
         <span>Дата внесения в реестр</span>

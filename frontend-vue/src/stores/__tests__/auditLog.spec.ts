@@ -173,7 +173,10 @@ describe('useAuditLogStore — серверная страница', () => {
     const store = useAuditLogStore()
     await store.load()
 
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })),
+    )
     await store.load()
 
     expect(store.error).toBe('Сервер недоступен')

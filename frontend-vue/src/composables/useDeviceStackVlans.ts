@@ -25,7 +25,8 @@ export function useDeviceStackVlans(draft: DeviceDraft, device: () => Device | n
   // «VLAN устройства», иначе сохранение формы отправило бы устаревшие значения (сервер такую правку отклонит, 409).
   async function onStackVlanApplied(state: DeviceStackVlans) {
     const current = device()
-    if (current) draft.deviceVlans.value = sortDeviceVlanRows(mergeSharedSettingsIntoDraft(draft.deviceVlans.value, state.items, current.id), vlansStore.allDefinitions)
+    if (current)
+      draft.deviceVlans.value = sortDeviceVlanRows(mergeSharedSettingsIntoDraft(draft.deviceVlans.value, state.items, current.id), vlansStore.allDefinitions)
     await devicesStore.reload()
   }
 

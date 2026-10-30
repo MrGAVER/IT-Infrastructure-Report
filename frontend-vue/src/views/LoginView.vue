@@ -72,7 +72,9 @@ async function submit() {
   <div class="login-screen">
     <form class="card login-card" @submit.prevent="submit">
       <div class="login-head">
-        <span class="login-badge"><svg class="icon"><use href="/icons.svg#i-lock" /></svg></span>
+        <span class="login-badge"
+          ><svg class="icon"><use href="/icons.svg#i-lock" /></svg
+        ></span>
         <h1>РИС</h1>
         <p>Реестр ИТ-инфраструктуры — вход в систему</p>
       </div>

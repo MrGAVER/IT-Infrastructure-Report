@@ -65,9 +65,7 @@ async function revoke(id: string) {
 <template>
   <section class="card section">
     <h2>Моя учётная запись</h2>
-    <p class="hint">
-      Вы вошли как «{{ auth.user?.username }}» ({{ auth.isAdmin ? 'администратор' : 'только просмотр' }}).
-    </p>
+    <p class="hint">Вы вошли как «{{ auth.user?.username }}» ({{ auth.isAdmin ? 'администратор' : 'только просмотр' }}).</p>
 
     <h3>Сменить пароль</h3>
     <form class="pwd-form" @submit.prevent="changePassword">
@@ -95,7 +93,13 @@ async function revoke(id: string) {
     <h3>Мои активные сессии</h3>
     <table v-if="auth.sessions.length" class="sessions-table">
       <thead>
-        <tr><th>Начало</th><th>Истекает</th><th>Устройство</th><th>IP</th><th></th></tr>
+        <tr>
+          <th>Начало</th>
+          <th>Истекает</th>
+          <th>Устройство</th>
+          <th>IP</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         <tr v-for="s in auth.sessions" :key="s.id">
@@ -105,15 +109,7 @@ async function revoke(id: string) {
           <td>{{ s.ip_address ?? '—' }}</td>
           <td>
             <span v-if="s.current" class="current-badge">эта сессия</span>
-            <button
-              v-else
-              type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="revokingId === s.id"
-              @click="revoke(s.id)"
-            >
-              Завершить
-            </button>
+            <button v-else type="button" class="btn btn-secondary btn-sm" :disabled="revokingId === s.id" @click="revoke(s.id)">Завершить</button>
           </td>
         </tr>
       </tbody>
@@ -201,5 +197,8 @@ async function revoke(id: string) {
   border-radius: var(--r-s);
   padding: 2px 7px;
 }
-.btn-sm { padding: 5px 9px; font-size: 11.5px; }
+.btn-sm {
+  padding: 5px 9px;
+  font-size: 11.5px;
+}
 </style>

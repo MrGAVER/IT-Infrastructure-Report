@@ -134,9 +134,7 @@ describe('useDevicesStore', () => {
   it('стек занимает один слот пагинации независимо от числа участников', async () => {
     const store = useDevicesStore()
     await store.ensureLoaded()
-    store.all = store.all.map((d) =>
-      d.id === 'dev-1' || d.id === 'dev-2' ? { ...d, stack_id: 'stack-1', stack_name: 'Стек ядра', stack_position: 1 } : d,
-    )
+    store.all = store.all.map((d) => (d.id === 'dev-1' || d.id === 'dev-2' ? { ...d, stack_id: 'stack-1', stack_name: 'Стек ядра', stack_position: 1 } : d))
     // 3 "сырых" устройства, но 2 строки (1 стек + 1 одиночное устройство) — по-прежнему 1 страница.
     expect(store.groupedFiltered).toHaveLength(2)
     expect(store.pageCount).toBe(1)

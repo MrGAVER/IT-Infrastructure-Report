@@ -280,7 +280,9 @@ describe('редактирование', () => {
     draft.snapshot.deviceVlanKey = 'v10'
     await save.submit()
     await settle()
-    toasts().find((t) => t.message === 'Много подключений')!.action!.run()
+    toasts()
+      .find((t) => t.message === 'Много подключений')!
+      .action!.run()
     expect(usePortSyncPlanRequest().request.value?.scope).toEqual({})
   })
 
@@ -292,7 +294,10 @@ describe('редактирование', () => {
     await settle()
     expect(deps.onSaved).toHaveBeenCalledTimes(1)
     expect(draft.errorMessage.value).toBeNull()
-    expect(toasts().map((t) => [t.type, t.message])).toContainEqual(['warning', 'Устройство сохранено, но проверить, нужно ли согласование портов, не удалось: сервер занят'])
+    expect(toasts().map((t) => [t.type, t.message])).toContainEqual([
+      'warning',
+      'Устройство сохранено, но проверить, нужно ли согласование портов, не удалось: сервер занят',
+    ])
   })
 
   it('у нового устройства согласование портов не проверяется', async () => {
@@ -488,7 +493,9 @@ describe('подключения портов и уведомление о ра�
     connections.loaded = true
     const reload = vi.spyOn(connections, 'reload').mockResolvedValue(undefined)
     const { draft, save } = setup(deviceOf({ id: 'dev-1' }))
-    draft.interfaces.value = [makeRow({ id: 'if-1', name: 'Gi0/1', connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' } })]
+    draft.interfaces.value = [
+      makeRow({ id: 'if-1', name: 'Gi0/1', connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' } }),
+    ]
     draft.initialConnections.value = new Map([['if-1', null]])
     await save.submit()
     expect(fetchDeviceInterfaceConnections).toHaveBeenCalledWith('dev-1')
@@ -500,7 +507,9 @@ describe('подключения портов и уведомление о ра�
     connections.loaded = false
     const reload = vi.spyOn(connections, 'reload').mockResolvedValue(undefined)
     const { draft, save } = setup(deviceOf({ id: 'dev-1' }))
-    draft.interfaces.value = [makeRow({ id: 'if-1', name: 'Gi0/1', connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' } })]
+    draft.interfaces.value = [
+      makeRow({ id: 'if-1', name: 'Gi0/1', connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' } }),
+    ]
     draft.initialConnections.value = new Map([['if-1', null]])
     await save.submit()
     expect(reload).not.toHaveBeenCalled()
@@ -521,10 +530,19 @@ describe('подключения портов и уведомление о ра�
   })
 
   it('новый порт с подключением: расхождение считается по сохранённым портам (с id от сервера), а не по черновику без id', async () => {
-    persistDeviceInterfaces.mockResolvedValue({ items: [{ id: 'if-saved', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: false }], groups: [] })
+    persistDeviceInterfaces.mockResolvedValue({
+      items: [{ id: 'if-saved', name: 'Gi0/1', is_management: false, is_data_transfer: false, vlan_mode: 'trunk', all_vlans: false }],
+      groups: [],
+    })
     fetchDeviceInterfaceConnections.mockResolvedValue([neighbor({ interface_id: 'if-saved' })])
     const { draft, save } = setup(deviceOf({ id: 'dev-1' }))
-    draft.interfaces.value = [makeRow({ name: 'Gi0/1', vlan_mode: 'trunk', connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' } })]
+    draft.interfaces.value = [
+      makeRow({
+        name: 'Gi0/1',
+        vlan_mode: 'trunk',
+        connection: { peer_device_id: 'dev-2', peer_interface_id: 'p-1', connection_type_id: 'ct-1', description: '' },
+      }),
+    ]
     await save.submit()
 
     const warning = toasts().find((t) => t.type === 'warning')

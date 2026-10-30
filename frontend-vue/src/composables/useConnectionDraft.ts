@@ -9,7 +9,14 @@ import type { Connection, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsStore } from '../stores/connections'
 import { useDevicesStore } from '../stores/devices'
-import { connectionDeviceLabel, connectionFormFromSource, countDeviceInterfaces, emptyConnectionForm, freeInterfacesForDevice, type ConnectionPrefill } from '../utils/connectionForm'
+import {
+  connectionDeviceLabel,
+  connectionFormFromSource,
+  countDeviceInterfaces,
+  emptyConnectionForm,
+  freeInterfacesForDevice,
+  type ConnectionPrefill,
+} from '../utils/connectionForm'
 import { sortOptionsByLabel } from '../utils/selectOptions'
 
 export interface ConnectionDraftSource {
@@ -37,8 +44,12 @@ export function useConnectionDraft(source: ConnectionDraftSource) {
   const selectedSourceInterface = computed(() => allInterfaces.value.find((i) => i.id === form.source_interface_id) ?? null)
   const selectedDestinationInterface = computed(() => allInterfaces.value.find((i) => i.id === form.destination_interface_id) ?? null)
 
-  const sourceInterfaces = computed(() => freeInterfacesForDevice(allInterfaces.value, connectionsStore.occupiedInterfaceIds, form.sourceDeviceId, form.source_interface_id))
-  const destinationInterfaces = computed(() => freeInterfacesForDevice(allInterfaces.value, connectionsStore.occupiedInterfaceIds, form.destinationDeviceId, form.destination_interface_id))
+  const sourceInterfaces = computed(() =>
+    freeInterfacesForDevice(allInterfaces.value, connectionsStore.occupiedInterfaceIds, form.sourceDeviceId, form.source_interface_id),
+  )
+  const destinationInterfaces = computed(() =>
+    freeInterfacesForDevice(allInterfaces.value, connectionsStore.occupiedInterfaceIds, form.destinationDeviceId, form.destination_interface_id),
+  )
 
   // Поиск вводом текста в «Устройство»/«Порт». deviceOptions сортируется здесь же (в devicesStore.all порядок — как пришло с
   // бэкенда, серверной сортировки нет); порты приходят уже отсортированными natural sort'ом (stores/catalogs.ts), .filter() порядок
@@ -48,7 +59,9 @@ export function useConnectionDraft(source: ConnectionDraftSource) {
   const destinationPortOptions = computed(() => destinationInterfaces.value.map((i) => ({ value: i.id, label: i.name })))
   const connectionTypeOptions = computed(() => (catalogs.items['connection-types'] ?? []).map((t) => ({ value: t.id, label: t.name })))
   const sourceHasNoInterfacesAtAll = computed(() => form.sourceDeviceId !== '' && countDeviceInterfaces(allInterfaces.value, form.sourceDeviceId) === 0)
-  const destinationHasNoInterfacesAtAll = computed(() => form.destinationDeviceId !== '' && countDeviceInterfaces(allInterfaces.value, form.destinationDeviceId) === 0)
+  const destinationHasNoInterfacesAtAll = computed(
+    () => form.destinationDeviceId !== '' && countDeviceInterfaces(allInterfaces.value, form.destinationDeviceId) === 0,
+  )
 
   watch(
     () => source.connection(),

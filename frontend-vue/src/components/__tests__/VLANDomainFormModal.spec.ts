@@ -22,7 +22,10 @@ function seedDevices() {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+  )
 })
 
 describe('VLANDomainFormModal.vue', () => {
@@ -202,7 +205,10 @@ describe('VLANDomainFormModal.vue', () => {
   it('пункт 1: отказ от подтверждения отменяет сохранение целиком — устройство-источник не меняется', async () => {
     seedDevices()
     const domain: VLANDomain = { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: 'dev-1', auto_sync: false }
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
       'fetch',
@@ -227,7 +233,10 @@ describe('VLANDomainFormModal.vue', () => {
     const domain: VLANDomain = { id: 'dom-1', name: 'Ядро сети', description: null, source_device_id: null, auto_sync: false }
     const confirmSpy = vi.fn((_message?: string) => true)
     vi.stubGlobal('confirm', confirmSpy)
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+    )
 
     const wrapper = mount(VLANDomainFormModal, { props: { domain } })
     await flushPromises()

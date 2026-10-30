@@ -35,8 +35,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
         </button>
       </div>
       <p class="conflict-modal-desc">
-        Порт «{{ row.name }}» соединён с портом «{{ conflict?.otherInterfaceName }}» устройства
-        «{{ conflict?.otherDeviceName }}», но их настройки разошлись.
+        Порт «{{ row.name }}» соединён с портом «{{ conflict?.otherInterfaceName }}» устройства «{{ conflict?.otherDeviceName }}», но их настройки разошлись.
       </p>
       <table class="conflict-compare">
         <thead>
@@ -78,8 +77,9 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
         <button type="button" class="btn btn-primary" :disabled="applying" @click="emit('apply-current')">Применить текущую конфигурацию</button>
       </div>
       <p v-if="kind === 'vlan_mode'" class="conflict-modal-hint">
-        Если порт (свой или соседа) входит в группу или связан с другими портами, режим сменится у всей группы и у связанных портов, чтобы расхождения не появились
-        в другом месте. Перед применением будет показан список всех последствий. Если после смены режима у портов разойдётся «Все VLAN», предложим выбрать значение.
+        Если порт (свой или соседа) входит в группу или связан с другими портами, режим сменится у всей группы и у связанных портов, чтобы расхождения не
+        появились в другом месте. Перед применением будет показан список всех последствий. Если после смены режима у портов разойдётся «Все VLAN», предложим
+        выбрать значение.
       </p>
       <p v-if="kind === 'all_vlans'" class="conflict-modal-hint">
         «Все VLAN» у устройств — разные наборы номеров, поэтому значение для порта выбираете вы: как у порта-источника или другое.

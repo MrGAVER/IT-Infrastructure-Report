@@ -34,7 +34,12 @@ const replaceAll = defineModel<boolean>('replaceAll', { required: true })
     </label>
     <label>
       <span>Начать нумерацию с</span>
-      <input type="number" v-model="startAt" placeholder="авто" title="Например, 'Количество: 20' и 'Начать с: 5' сгенерируют порты с номерами 5-24. Пусто — прежнее поведение: 1 при замене, продолжение от количества уже добавленных портов при дополнении." />
+      <input
+        type="number"
+        v-model="startAt"
+        placeholder="авто"
+        title="Например, 'Количество: 20' и 'Начать с: 5' сгенерируют порты с номерами 5-24. Пусто — прежнее поведение: 1 при замене, продолжение от количества уже добавленных портов при дополнении."
+      />
     </label>
     <label>
       <span>Шаблон имени <HelpTip :text="TEMPLATE_HELP_TEXT" /></span>
@@ -68,7 +73,10 @@ const replaceAll = defineModel<boolean>('replaceAll', { required: true })
       <button type="button" class="btn btn-secondary" @click="emit('generate')">Сгенерировать</button>
     </div>
   </div>
-  <span class="hint generator-hint">Без галочки «Заменить все порты» новые интерфейсы добавляются к уже существующим, не изменяя их. С галочкой — все существующие интерфейсы заменяются шаблонными значениями (после подтверждения).</span>
+  <span class="hint generator-hint"
+    >Без галочки «Заменить все порты» новые интерфейсы добавляются к уже существующим, не изменяя их. С галочкой — все существующие интерфейсы заменяются
+    шаблонными значениями (после подтверждения).</span
+  >
 </template>
 
 <style scoped src="../styles/interfaceEditorShared.css"></style>

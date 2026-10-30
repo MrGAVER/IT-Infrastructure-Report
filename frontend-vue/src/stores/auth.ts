@@ -4,14 +4,7 @@
 // каждый запрос вручную — здесь только пользователь, статус тумблера и управление учётками.
 import { defineStore } from 'pinia'
 import { ApiError, api, getStoredToken, setStoredToken } from '../api/client'
-import type {
-  AuthMeResponse,
-  AuthSessionInfo,
-  AuthStatus,
-  AuthUser,
-  LoginResponse,
-  UserRole,
-} from '../api/types'
+import type { AuthMeResponse, AuthSessionInfo, AuthStatus, AuthUser, LoginResponse, UserRole } from '../api/types'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -156,10 +149,7 @@ export const useAuthStore = defineStore('auth', {
       this.users.push(user)
       return user
     },
-    async updateUser(
-      id: string,
-      payload: Partial<{ username: string; password: string; role: UserRole; is_active: boolean }>,
-    ): Promise<AuthUser> {
+    async updateUser(id: string, payload: Partial<{ username: string; password: string; role: UserRole; is_active: boolean }>): Promise<AuthUser> {
       const updated = await api.put<AuthUser>(`/auth/users/${id}`, payload)
       const idx = this.users.findIndex((u) => u.id === id)
       if (idx !== -1) this.users[idx] = updated

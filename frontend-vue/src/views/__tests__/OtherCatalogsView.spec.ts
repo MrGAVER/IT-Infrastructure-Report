@@ -74,7 +74,10 @@ describe('OtherCatalogsView.vue', () => {
     const wrapper = mount(OtherCatalogsView)
     await flushPromises()
 
-    await wrapper.findAll('.catalog-item').find((i) => i.text().includes('Производитель'))!.trigger('click')
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Производитель'))!
+      .trigger('click')
     expect(wrapper.find('.catalog-item.active').text()).toContain('Производитель')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.find('tbody').text()).toContain('Dell')
@@ -128,7 +131,10 @@ describe('OtherCatalogsView.vue', () => {
     const wrapper = mount(OtherCatalogsView)
     await flushPromises()
 
-    await wrapper.findAll('.catalog-item').find((i) => i.text().includes('Протокол / порт'))!.trigger('click')
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Протокол / порт'))!
+      .trigger('click')
     expect(wrapper.find('tbody').text()).toContain('443')
     expect(wrapper.find('tbody').text()).toContain('HTTPS')
     expect(catalogs.protocolPortCatalog).toHaveLength(1) // не мутировали стор при рендере
@@ -141,7 +147,10 @@ describe('OtherCatalogsView.vue', () => {
     const wrapper = mount(OtherCatalogsView)
     await flushPromises()
 
-    await wrapper.findAll('.catalog-item').find((i) => i.text().includes('Операционная система'))!.trigger('click')
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Операционная система'))!
+      .trigger('click')
     expect(wrapper.find('tbody').text()).toContain('Серверные ОС')
     expect(wrapper.find('tbody').text()).not.toContain('cat-1')
   })
@@ -215,7 +224,6 @@ describe('OtherCatalogsView.vue', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
-
 
 describe('OtherCatalogsView.vue — пагинация', () => {
   function stubPrefs() {
@@ -296,7 +304,10 @@ describe('OtherCatalogsView.vue — пагинация', () => {
     await flushPromises()
     await wrapper.find('.pager button[aria-label="Страница 3"]').trigger('click')
 
-    await wrapper.findAll('.catalog-item').find((i) => i.text().includes('Производитель'))!.trigger('click')
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Производитель'))!
+      .trigger('click')
 
     expect(range(wrapper)).toBe('Показано 1–10 из 15')
     expect(wrapper.findAll('tbody tr')[0].text()).toContain('Производитель 1')
@@ -311,7 +322,10 @@ describe('OtherCatalogsView.vue — пагинация', () => {
     expect(range(wrapper)).toBe('Показано 1–2 из 2')
     expect(wrapper.findAll('.pager button[aria-label^="Страница"]')).toHaveLength(1)
 
-    await wrapper.findAll('.catalog-item').find((i) => i.text().includes('Встроенная ОС'))!.trigger('click')
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Встроенная ОС'))!
+      .trigger('click')
     expect(wrapper.find('.paged-foot').exists()).toBe(false)
   })
 })

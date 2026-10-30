@@ -14,7 +14,13 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 const entitiesFixture: ReportEntityMeta[] = [
-  { key: 'devices', label: 'Физические устройства', fields: [{ name: 'system_name', label: 'Системное имя', type: 'String', is_foreign_key: false }], to_one: [], to_many: [] },
+  {
+    key: 'devices',
+    label: 'Физические устройства',
+    fields: [{ name: 'system_name', label: 'Системное имя', type: 'String', is_foreign_key: false }],
+    to_one: [],
+    to_many: [],
+  },
 ]
 
 function docxConfig(): DocxConfig {
@@ -27,7 +33,16 @@ function docxConfig(): DocxConfig {
 }
 
 function templateFixture(overrides: Partial<ReportTemplate> = {}): ReportTemplate {
-  return { id: 't-1', name: 'Акт передачи', description: 'описание', format: 'docx', config: docxConfig() as unknown as Record<string, unknown>, created_at: null, updated_at: null, ...overrides }
+  return {
+    id: 't-1',
+    name: 'Акт передачи',
+    description: 'описание',
+    format: 'docx',
+    config: docxConfig() as unknown as Record<string, unknown>,
+    created_at: null,
+    updated_at: null,
+    ...overrides,
+  }
 }
 
 function stubFetch(template: ReportTemplate = templateFixture()) {
@@ -39,7 +54,10 @@ function stubFetch(template: ReportTemplate = templateFixture()) {
 }
 
 beforeEach(() => {
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
   pushMock.mockClear()
 })
 
@@ -72,7 +90,10 @@ describe('ReportDocxEditorView.vue — загрузка', () => {
   })
 
   it('ошибка загрузки показывается вместо редактора', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Шаблон не найден' }, 404)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Шаблон не найден' }, 404)),
+    )
     const wrapper = mount(ReportDocxEditorView)
     await flushPromises()
 
@@ -146,7 +167,14 @@ describe('ReportDocxEditorView.vue — блоки', () => {
   })
 
   it('блок "Таблица" рендерит DocxTableBlockEditor и пробрасывает обновления', async () => {
-    vi.stubGlobal('fetch', stubFetch(templateFixture({ config: { blocks: [{ type: 'table', title: '', root_entity: '', filters: [], columns: [] }] } as unknown as Record<string, unknown> })))
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        templateFixture({
+          config: { blocks: [{ type: 'table', title: '', root_entity: '', filters: [], columns: [] }] } as unknown as Record<string, unknown>,
+        }),
+      ),
+    )
     const wrapper = mount(ReportDocxEditorView)
     await flushPromises()
 
@@ -194,7 +222,10 @@ describe('ReportDocxEditorView.vue — сохранение', () => {
     const wrapper = mount(ReportDocxEditorView)
     await flushPromises()
 
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'В шаблоне не задано ни одного блока' }, 422)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'В шаблоне не задано ни одного блока' }, 422)),
+    )
     await wrapper.find('.top-bar button.btn-primary').trigger('click')
     await flushPromises()
 

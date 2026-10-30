@@ -56,7 +56,9 @@ describe('createReportTemplate', () => {
     const body = JSON.parse(init!.body as string)
     expect(body).toMatchObject({ name: 'Новый отчёт', description: 'описание', format: 'xlsx' })
     expect(body.config).toEqual({
-      sheets: [{ title: 'Новый отчёт', columns: [{ width: 30 }], rows: [{ height: 20, repeat: false, cells: [{ col: 0, kind: 'static', text: 'Новый отчёт' }] }] }],
+      sheets: [
+        { title: 'Новый отчёт', columns: [{ width: 30 }], rows: [{ height: 20, repeat: false, cells: [{ col: 0, kind: 'static', text: 'Новый отчёт' }] }] },
+      ],
     })
   })
 
@@ -116,7 +118,9 @@ describe('прочие операции жизненного цикла', () => 
   })
 
   it('listReportTemplateVersions — GET .../versions', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse([{ id: 'v-1', version_number: 1, name: 'x', description: null, format: 'xlsx', created_at: null }]))
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      jsonResponse([{ id: 'v-1', version_number: 1, name: 'x', description: null, format: 'xlsx', created_at: null }]),
+    )
     vi.stubGlobal('fetch', fetchMock)
     const versions = await listReportTemplateVersions('t-1')
     expect(versions).toHaveLength(1)

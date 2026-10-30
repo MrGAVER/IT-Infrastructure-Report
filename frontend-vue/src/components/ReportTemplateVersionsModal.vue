@@ -62,14 +62,14 @@ async function restore(v: ReportTemplateVersion) {
       </div>
 
       <p v-if="loading" class="loading-hint">Загрузка истории версий…</p>
-      <p v-else-if="!versions.length" class="empty">
-        Версий пока нет — они появляются при каждом сохранении изменений в существующем шаблоне.
-      </p>
+      <p v-else-if="!versions.length" class="empty">Версий пока нет — они появляются при каждом сохранении изменений в существующем шаблоне.</p>
       <ul v-else class="version-list">
         <li v-for="v in versions" :key="v.id" class="version-row">
           <div class="version-info">
             <b>№{{ v.version_number }} — {{ v.name }}</b>
-            <span class="version-meta">{{ formatServerDateTime(v.created_at) }}<template v-if="v.description"> · {{ v.description }}</template></span>
+            <span class="version-meta"
+              >{{ formatServerDateTime(v.created_at) }}<template v-if="v.description"> · {{ v.description }}</template></span
+            >
           </div>
           <button v-if="auth.canWrite" type="button" class="btn btn-secondary" :disabled="restoringId === v.id" @click="restore(v)">
             {{ restoringId === v.id ? 'Восстановление…' : 'Восстановить' }}

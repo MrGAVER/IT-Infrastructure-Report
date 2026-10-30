@@ -33,7 +33,13 @@ describe('useConnectionDraft — начальное состояние', () => {
   it('редактирование: форма из подключения, устройства — по каталогу портов', () => {
     const { draft } = makeDraft({ connection: connection({ description: 'линк' }) })
     expect(draft.isEdit.value).toBe(true)
-    expect(draft.form).toMatchObject({ sourceDeviceId: 'dev-1', source_interface_id: 'if-a', destinationDeviceId: 'dev-2', destination_interface_id: 'if-b', description: 'линк' })
+    expect(draft.form).toMatchObject({
+      sourceDeviceId: 'dev-1',
+      source_interface_id: 'if-a',
+      destinationDeviceId: 'dev-2',
+      destination_interface_id: 'if-b',
+      description: 'линк',
+    })
   })
 
   it('подсказка схемы подставляет оба порта при создании', () => {
@@ -79,7 +85,10 @@ describe('useConnectionDraft — выбор портов', () => {
     setupConnectionStores({
       devices,
       interfaces,
-      connections: [connection({ id: 'c-x', source_interface_id: 'if-b', destination_interface_id: 'if-a2' }), connection({ id: 'c-y', source_interface_id: 'if-c', destination_interface_id: 'if-a', is_active: false })],
+      connections: [
+        connection({ id: 'c-x', source_interface_id: 'if-b', destination_interface_id: 'if-a2' }),
+        connection({ id: 'c-y', source_interface_id: 'if-c', destination_interface_id: 'if-a', is_active: false }),
+      ],
     })
     const { draft } = makeDraft()
     draft.form.destinationDeviceId = 'dev-2'
@@ -146,7 +155,10 @@ describe('useConnectionDraft — подсказки «нет портов»', ()
     setupConnectionStores({
       devices,
       interfaces,
-      connections: [connection({ id: 'c-x', source_interface_id: 'if-b', destination_interface_id: 'if-a' }), connection({ id: 'c-y', source_interface_id: 'if-c', destination_interface_id: 'if-a2' })],
+      connections: [
+        connection({ id: 'c-x', source_interface_id: 'if-b', destination_interface_id: 'if-a' }),
+        connection({ id: 'c-y', source_interface_id: 'if-c', destination_interface_id: 'if-a2' }),
+      ],
     })
     const { draft } = makeDraft()
     draft.form.destinationDeviceId = 'dev-2'

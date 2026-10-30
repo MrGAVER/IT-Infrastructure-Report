@@ -112,7 +112,9 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
 
   it('VLAN, не выбранный на порту, не пропадает молча: пометка и предупреждение', () => {
     // VLAN 99 есть у устройства, но с порта убран: в списке порта его нет
-    const wrapper = mountEditor([{ ...emptySubinterface('Gi0/0'), name: 'Gi0/0.99', vlan_id: 'v-gone' }], { deviceVlanIds: new Set(['v-gone', 'v-10', 'v-20']) })
+    const wrapper = mountEditor([{ ...emptySubinterface('Gi0/0'), name: 'Gi0/0.99', vlan_id: 'v-gone' }], {
+      deviceVlanIds: new Set(['v-gone', 'v-10', 'v-20']),
+    })
 
     expect(vlanSelects(wrapper)[0].classes()).toContain('is-stale')
     expect(wrapper.find('[role="alert"]').text()).toContain('не выбран на этом порту')
@@ -142,7 +144,9 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
     })
 
     it('без адресов в свёрнутом столбце написано «нет IP»; число открытых портов видно и в свёрнутом виде', () => {
-      const wrapper = mountEditor([{ ...emptySubinterface('Gi0/0', vlans[1]), open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] }])
+      const wrapper = mountEditor([
+        { ...emptySubinterface('Gi0/0', vlans[1]), open_ports: [{ protocol_catalog_id: 'cat-ssh', transport_protocol: 'TCP', description: '' }] },
+      ])
 
       expect(wrapper.find('.expand-toggle').text()).toContain('нет IP')
       expect(wrapper.find('.expand-toggle').text()).toContain('портов: 1')
@@ -201,7 +205,12 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
 
   describe('перенос подинтерфейса с недоступного VLAN прямо из предупреждения', () => {
     const reserve: VLANDefinition = { id: 'v-30', vlan_id: 30, name: 'Резерв', description: '', domain_id: null, domain_name: '', devices: [] }
-    const staleSub = (patch: Partial<SubinterfaceDraftRow> = {}): SubinterfaceDraftRow => ({ ...emptySubinterface('Gi0/0'), name: 'Gi0/0.30', vlan_id: 'v-30', ...patch })
+    const staleSub = (patch: Partial<SubinterfaceDraftRow> = {}): SubinterfaceDraftRow => ({
+      ...emptySubinterface('Gi0/0'),
+      name: 'Gi0/0.30',
+      vlan_id: 'v-30',
+      ...patch,
+    })
     const moveSelect = (wrapper: ReturnType<typeof mountEditor>) => wrapper.find('select[aria-label="Перенести подинтерфейс на VLAN"]')
 
     it('предупреждение называет прежний VLAN по справочнику, а список переноса содержит только свободные VLAN устройства', () => {
@@ -209,7 +218,9 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
       const wrapper = mountEditor([staleSub(), taken], { vlanCatalog: [reserve] })
 
       expect(wrapper.find('.sub-warn').text()).toContain('(30 — Резерв)')
-      const options = moveSelect(wrapper).findAll('option').map((o) => o.attributes('value'))
+      const options = moveSelect(wrapper)
+        .findAll('option')
+        .map((o) => o.attributes('value'))
       expect(options).toEqual(['', 'v-20']) // v-10 занят соседом, v-30 устройству недоступен
     })
 

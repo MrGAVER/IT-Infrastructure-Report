@@ -8,7 +8,15 @@
 import { computed, ref } from 'vue'
 import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
-import { cloneGroupForEdit, countSelectedVlans, groupSubinterfaceVlans, setGroupAccessVlan, setGroupAllVlans, setGroupVlanMode, toggleGroupVlan } from '../utils/groupDraftEdit'
+import {
+  cloneGroupForEdit,
+  countSelectedVlans,
+  groupSubinterfaceVlans,
+  setGroupAccessVlan,
+  setGroupAllVlans,
+  setGroupVlanMode,
+  toggleGroupVlan,
+} from '../utils/groupDraftEdit'
 import { vlanLabel } from '../utils/vlan'
 import GroupCopyBlock from './GroupCopyBlock.vue'
 import GroupVlanPickerModal from './GroupVlanPickerModal.vue'
@@ -124,8 +132,12 @@ function setDraftSubinterfaces(rows: SubinterfaceDraftRow[]) {
             <div class="param-head"><b>Режим порта</b></div>
             <div class="mode-row">
               <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === ''" @change="setMode('')" /> Не задавать</label>
-              <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'access'" @change="setMode('access')" /> Access</label>
-              <label class="radio-inline"><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'trunk'" @change="setMode('trunk')" /> Trunk</label>
+              <label class="radio-inline"
+                ><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'access'" @change="setMode('access')" /> Access</label
+              >
+              <label class="radio-inline"
+                ><input type="radio" name="group-mode" :checked="draft.vlan_mode === 'trunk'" @change="setMode('trunk')" /> Trunk</label
+              >
             </div>
             <SearchableSelect
               v-if="draft.vlan_mode === 'access'"
@@ -148,7 +160,12 @@ function setDraftSubinterfaces(rows: SubinterfaceDraftRow[]) {
           </div>
 
           <div class="param">
-            <div class="param-head"><b>Общий IP-адрес</b><span class="hint">один адрес, префикс и назначение на все порты группы; заменят IP-адреса этих портов (пустое назначение очистит назначение у портов)</span></div>
+            <div class="param-head">
+              <b>Общий IP-адрес</b
+              ><span class="hint"
+                >один адрес, префикс и назначение на все порты группы; заменят IP-адреса этих портов (пустое назначение очистит назначение у портов)</span
+              >
+            </div>
             <div class="ip-row">
               <input v-model="draft.ip_address" type="text" placeholder="IP-адрес (пусто — не задавать)" aria-label="Общий IP-адрес группы" />
               <!-- Не v-model: на type="number" он записал бы в черновик число, а prefix_length везде в форме —

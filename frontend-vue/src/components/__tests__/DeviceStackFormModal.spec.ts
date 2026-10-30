@@ -37,7 +37,10 @@ function detailResponse(overrides?: Partial<DeviceStackDetail>): DeviceStackDeta
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+  )
 })
 
 describe('DeviceStackFormModal.vue', () => {
@@ -162,7 +165,16 @@ describe('DeviceStackFormModal.vue', () => {
           return jsonResponse(
             detailResponse({
               members: added
-                ? [{ id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never]
+                ? [
+                    {
+                      id: 'dev-1',
+                      system_name: 'core-sw-01',
+                      serial_number: 'SN-1',
+                      device_type_id: 'dt-1',
+                      stack_member_id: 'sm-1',
+                      stack_position: 1,
+                    } as never,
+                  ]
                 : [],
             }),
           )
@@ -227,7 +239,16 @@ describe('DeviceStackFormModal.vue', () => {
             detailResponse({
               members: removed
                 ? []
-                : [{ id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never],
+                : [
+                    {
+                      id: 'dev-1',
+                      system_name: 'core-sw-01',
+                      serial_number: 'SN-1',
+                      device_type_id: 'dt-1',
+                      stack_member_id: 'sm-1',
+                      stack_position: 1,
+                    } as never,
+                  ],
             }),
           )
         }
@@ -373,7 +394,9 @@ describe('DeviceStackFormModal.vue', () => {
         if (url.includes('/device-stacks/stack-1/detail')) {
           return jsonResponse(
             detailResponse({
-              members: [{ id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never],
+              members: [
+                { id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never,
+              ],
             }),
           )
         }
@@ -393,13 +416,29 @@ describe('DeviceStackFormModal.vue', () => {
 
   describe('подтверждение добавления в стек при заданных общих настройках VLAN', () => {
     const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
-    const member = { id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never
+    const member = {
+      id: 'dev-1',
+      system_name: 'core-sw-01',
+      serial_number: 'SN-1',
+      device_type_id: 'dt-1',
+      stack_member_id: 'sm-1',
+      stack_position: 1,
+    } as never
     const PREVIEW = {
       stack_name: 'Стек ядра',
       device_name: 'core-sw-02',
       already_member: false,
       unchanged_count: 0,
-      changes: [{ vlan_id: 'v-10', vlan_number: 10, vlan_name: 'mgmt', action: 'add', before: null, after: { ip_address: '10.0.10.1', prefix_length: 24, is_management: true } }],
+      changes: [
+        {
+          vlan_id: 'v-10',
+          vlan_number: 10,
+          vlan_name: 'mgmt',
+          action: 'add',
+          before: null,
+          after: { ip_address: '10.0.10.1', prefix_length: 24, is_management: true },
+        },
+      ],
     }
 
     function stubApi(calls: Array<{ url: string; method: string }>, preview: unknown | Response) {
@@ -503,7 +542,14 @@ describe('DeviceStackFormModal.vue', () => {
 
   describe('общие IP-адреса VLAN стека', () => {
     const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
-    const member = { id: 'dev-1', system_name: 'core-sw-01', serial_number: 'SN-1', device_type_id: 'dt-1', stack_member_id: 'sm-1', stack_position: 1 } as never
+    const member = {
+      id: 'dev-1',
+      system_name: 'core-sw-01',
+      serial_number: 'SN-1',
+      device_type_id: 'dt-1',
+      stack_member_id: 'sm-1',
+      stack_position: 1,
+    } as never
 
     function stubStackApi(calls: string[]) {
       vi.stubGlobal(

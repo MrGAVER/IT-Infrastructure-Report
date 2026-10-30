@@ -32,7 +32,10 @@ describe('VLANDomainsPanel.vue', () => {
   it('показывает подсказку, если доменов нет', async () => {
     const domains = useVLANDomainsStore()
     domains.loaded = true
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+    )
 
     const wrapper = mount(VLANDomainsPanel)
     await flushPromises()
@@ -58,7 +61,10 @@ describe('VLANDomainsPanel.vue', () => {
 
   it('кнопка "Синхронизировать" показывается только при заданном устройстве-источнике', async () => {
     seedStores()
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+    )
 
     const wrapper = mount(VLANDomainsPanel)
     await flushPromises()
@@ -86,7 +92,11 @@ describe('VLANDomainsPanel.vue', () => {
 
     const wrapper = mount(VLANDomainsPanel)
     await flushPromises()
-    await wrapper.findAll('.domain-row')[0].findAll('button').find((b) => b.text() === 'Синхронизировать')!.trigger('click')
+    await wrapper
+      .findAll('.domain-row')[0]
+      .findAll('button')
+      .find((b) => b.text() === 'Синхронизировать')!
+      .trigger('click')
     await flushPromises()
 
     expect(calls.some((c) => c.method === 'POST' && c.url.includes('/vlan-domains/dom-1/sync'))).toBe(true)
@@ -94,7 +104,10 @@ describe('VLANDomainsPanel.vue', () => {
 
   it('удаляет домен после подтверждения', async () => {
     seedStores()
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
     const calls: Array<{ url: string; method: string }> = []
     vi.stubGlobal(
       'fetch',

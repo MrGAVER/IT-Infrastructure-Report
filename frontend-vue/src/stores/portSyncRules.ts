@@ -3,14 +3,7 @@
 // «Правила согласования портов» и операции над ним. После каждой операции берётся ответ сервера, а
 // не локальная догадка: сервер переписывает порядок и признак «изменено» у стандартных правил.
 import { defineStore } from 'pinia'
-import {
-  createPortSyncRule,
-  deletePortSyncRule,
-  fetchPortSyncRules,
-  reorderPortSyncRules,
-  resetPortSyncRule,
-  updatePortSyncRule,
-} from '../api/portSync'
+import { createPortSyncRule, deletePortSyncRule, fetchPortSyncRules, reorderPortSyncRules, resetPortSyncRule, updatePortSyncRule } from '../api/portSync'
 import type { PortSyncRule, PortSyncRuleInput } from '../api/types'
 import { movedOrder } from '../utils/portSyncRules'
 
@@ -27,7 +20,10 @@ export const usePortSyncRulesStore = defineStore('portSyncRules', {
   }),
   getters: {
     enabledCount: (state): number => state.rules.filter((r) => r.enabled).length,
-    byId: (state) => (id: string): PortSyncRule | undefined => state.rules.find((r) => r.id === id),
+    byId:
+      (state) =>
+      (id: string): PortSyncRule | undefined =>
+        state.rules.find((r) => r.id === id),
   },
   actions: {
     async load(): Promise<void> {

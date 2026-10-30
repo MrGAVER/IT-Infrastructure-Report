@@ -93,7 +93,14 @@ export function deviceVlanKey(rows: readonly DeviceVlanDraftRow[]): string {
  * Копия — новое устройство без подключений (connection: null).
  */
 export function copyInterfaceRows(rows: readonly InterfaceDraftRow[]): InterfaceDraftRow[] {
-  return rows.map((r) => ({ ...r, id: undefined, ips: stripIds(r.ips), open_ports: stripIds(r.open_ports), subinterfaces: stripSubinterfaceIds(r.subinterfaces), connection: null }))
+  return rows.map((r) => ({
+    ...r,
+    id: undefined,
+    ips: stripIds(r.ips),
+    open_ports: stripIds(r.open_ports),
+    subinterfaces: stripSubinterfaceIds(r.subinterfaces),
+    connection: null,
+  }))
 }
 
 export interface ModelGroup {
@@ -170,7 +177,11 @@ export function typeModelValue(form: Pick<DeviceForm, 'model_id' | 'device_type_
  * vModelSelect у Vue берёт value ПЕРВОЙ выбранной option — если ни одна не выбрана, массив выбранных пуст и selectedVal[0]
  * оказывается undefined.
  */
-export function typeModelPatch(value: string | undefined, models: readonly DeviceModel[], currentTypeId: string): Pick<DeviceForm, 'model_id' | 'device_type_id' | 'manufacturer_id'> {
+export function typeModelPatch(
+  value: string | undefined,
+  models: readonly DeviceModel[],
+  currentTypeId: string,
+): Pick<DeviceForm, 'model_id' | 'device_type_id' | 'manufacturer_id'> {
   const [kind, id] = (value ?? '').split(':')
   if (kind === 'model') {
     const model = models.find((m) => m.id === id)
