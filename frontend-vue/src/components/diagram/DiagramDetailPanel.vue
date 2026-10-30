@@ -28,11 +28,21 @@ function groupKeyFromNodeId(id: string): string {
     </div>
 
     <template v-if="node && node.type === 'device'">
-      <div class="row"><span class="k">Метка</span><span class="v">{{ node.label }}</span></div>
-      <div class="row"><span class="k">Серийный номер</span><span class="v mono">{{ node.serial_number || '—' }}</span></div>
-      <div class="row"><span class="k">Системное имя</span><span class="v mono">{{ node.system_name || '—' }}</span></div>
-      <div class="row" v-if="node.manufacturer"><span class="k">Производитель</span><span class="v">{{ node.manufacturer }}</span></div>
-      <div class="row" v-if="node.model"><span class="k">Модель</span><span class="v">{{ node.model }}</span></div>
+      <div class="row">
+        <span class="k">Метка</span><span class="v">{{ node.label }}</span>
+      </div>
+      <div class="row">
+        <span class="k">Серийный номер</span><span class="v mono">{{ node.serial_number || '—' }}</span>
+      </div>
+      <div class="row">
+        <span class="k">Системное имя</span><span class="v mono">{{ node.system_name || '—' }}</span>
+      </div>
+      <div class="row" v-if="node.manufacturer">
+        <span class="k">Производитель</span><span class="v">{{ node.manufacturer }}</span>
+      </div>
+      <div class="row" v-if="node.model">
+        <span class="k">Модель</span><span class="v">{{ node.model }}</span>
+      </div>
       <div class="ip-section">
         <span class="k">IP-адреса</span>
         <p v-if="!node.ip_addresses.length" class="empty">Нет IP-адресов.</p>
@@ -47,26 +57,38 @@ function groupKeyFromNodeId(id: string): string {
     </template>
 
     <template v-else-if="node && node.type === 'group'">
-      <div class="row"><span class="k">Название</span><span class="v">{{ node.label }}</span></div>
-      <div class="row"><span class="k">Устройств в группе</span><span class="v">{{ node.device_count }}</span></div>
+      <div class="row">
+        <span class="k">Название</span><span class="v">{{ node.label }}</span>
+      </div>
+      <div class="row">
+        <span class="k">Устройств в группе</span><span class="v">{{ node.device_count }}</span>
+      </div>
       <button v-if="auth.canWrite" class="btn btn-secondary expand-btn" type="button" @click="emit('expand-group', groupKeyFromNodeId(node.id))">
         Развернуть группу
       </button>
     </template>
 
     <template v-else-if="edge">
-      <div class="row"><span class="k">Тип подключения</span><span class="v">{{ edge.connection_type || '—' }}</span></div>
+      <div class="row">
+        <span class="k">Тип подключения</span><span class="v">{{ edge.connection_type || '—' }}</span>
+      </div>
       <div class="row">
         <span class="k">Статус</span>
         <span class="status" :class="edge.is_active ? 'on' : 'off'"><span class="status-dot"></span>{{ edge.is_active ? 'активно' : 'неактивно' }}</span>
       </div>
-      <div class="row"><span class="k">Порт источника</span><span class="v mono">{{ edge.source_interface?.name ?? '—' }}</span></div>
-      <div class="row"><span class="k">Порт назначения</span><span class="v mono">{{ edge.target_interface?.name ?? '—' }}</span></div>
+      <div class="row">
+        <span class="k">Порт источника</span><span class="v mono">{{ edge.source_interface?.name ?? '—' }}</span>
+      </div>
+      <div class="row">
+        <span class="k">Порт назначения</span><span class="v mono">{{ edge.target_interface?.name ?? '—' }}</span>
+      </div>
       <div class="ip-section">
         <span class="k">VLAN на подключении</span>
         <p v-if="!edge.vlans.length" class="empty">VLAN не заданы.</p>
         <ul v-else class="ip-list">
-          <li v-for="v in edge.vlans" :key="v.id"><span class="mono">VLAN {{ v.vlan_id }}</span> {{ v.name }}</li>
+          <li v-for="v in edge.vlans" :key="v.id">
+            <span class="mono">VLAN {{ v.vlan_id }}</span> {{ v.name }}
+          </li>
         </ul>
       </div>
     </template>

@@ -16,7 +16,10 @@ function mountBlock(rows: InterfaceDraftRow[], draft: InterfaceGroupDraft = { ..
 async function choosePort(wrapper: ReturnType<typeof mountBlock>, label: string) {
   const select = wrapper.get('.copy-row .searchable-select')
   await select.get('input').trigger('focus')
-  await select.findAll('.ss-option').find((o) => o.text() === label)!.trigger('mousedown')
+  await select
+    .findAll('.ss-option')
+    .find((o) => o.text() === label)!
+    .trigger('mousedown')
 }
 
 const checks = (wrapper: ReturnType<typeof mountBlock>) => wrapper.findAll('.copy-what .check-inline')
@@ -53,10 +56,20 @@ describe('GroupCopyBlock', () => {
     const state = () => checks(wrapper).map((c) => [c.classes('disabled'), c.get('input').attributes('disabled') !== undefined])
 
     await choosePort(wrapper, 'Gi0/1')
-    expect(state()).toEqual([[true, true], [false, false], [true, true], [true, true]])
+    expect(state()).toEqual([
+      [true, true],
+      [false, false],
+      [true, true],
+      [true, true],
+    ])
 
     await choosePort(wrapper, 'Gi0/2')
-    expect(state()).toEqual([[false, false], [true, true], [true, true], [true, true]])
+    expect(state()).toEqual([
+      [false, false],
+      [true, true],
+      [true, true],
+      [true, true],
+    ])
   })
 
   it('у порта без значений — подсказка, копирование недоступно', async () => {
@@ -69,12 +82,23 @@ describe('GroupCopyBlock', () => {
 
   it('«Скопировать» отдаёт новый черновик событием apply и не мутирует исходный', async () => {
     const draft: InterfaceGroupDraft = { ...emptyGroup('Группа'), key: 'g1' }
-    const wrapper = mountBlock([makeRow({ name: 'Gi0/1', vlan_mode: 'access', vlan_ids: ['v10'], ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }] })], draft)
+    const wrapper = mountBlock(
+      [makeRow({ name: 'Gi0/1', vlan_mode: 'access', vlan_ids: ['v10'], ips: [{ ip_address: '10.0.0.5', prefix_length: '24', purpose: 'mgmt' }] })],
+      draft,
+    )
     await choosePort(wrapper, 'Gi0/1')
     await wrapper.get('.copy-row .btn').trigger('click')
 
     const applied = wrapper.emitted('apply')![0][0] as InterfaceGroupDraft
-    expect(applied).toMatchObject({ key: 'g1', name: 'Группа', vlan_mode: 'access', vlan_ids: ['v10'], ip_address: '10.0.0.5', prefix_length: '24', ip_purpose: 'mgmt' })
+    expect(applied).toMatchObject({
+      key: 'g1',
+      name: 'Группа',
+      vlan_mode: 'access',
+      vlan_ids: ['v10'],
+      ip_address: '10.0.0.5',
+      prefix_length: '24',
+      ip_purpose: 'mgmt',
+    })
     expect(draft).toMatchObject({ vlan_mode: '', vlan_ids: [], ip_address: '' })
     expect(useToast().toasts.at(-1)).toMatchObject({ type: 'success' })
   })

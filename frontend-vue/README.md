@@ -339,7 +339,7 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
   поля), но с 2.58.1 доступен в полноценной форме на экране «Другие
   справочники» (`CatalogRecordFormModal.vue`) — там же, где теперь и весь
   остальной CRUD для `departments`, см. корневой README.
-  *Важные детали реализации:* `QuickAddModal.vue` телепортируется в
+  _Важные детали реализации:_ `QuickAddModal.vue` телепортируется в
   `document.body` (`<Teleport to="body">`) — без этого, открытая из кнопки
   внутри формы устройства/ВМ/ИС, она оказалась бы вложенным `<form>`
   внутри `<form>` вызывающего компонента, что HTML не допускает.
@@ -411,7 +411,7 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
   сохранённое) содержимое на сервер и показывает первые записи каждого
   листа (xlsx, `GridPreviewTable.vue` — те же colspan/rowspan, что в
   редакторе, через ту же обобщённую `utils/gridCoverage.ts:
-  visibleCellsForRow`, вынесенную из `ReportGridEditorView.vue` именно для
+visibleCellsForRow`, вынесенную из `ReportGridEditorView.vue` именно для
   переиспользования здесь) или каждого блока-таблицы (docx, в
   предпросмотре участвуют только блоки-таблицы — заголовок/абзац/разрыв
   страницы в предпросмотре нет смысла показывать). Ошибка структурной валидации по
@@ -420,6 +420,7 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
   этом визуальный конструктор произвольных отчётов можно считать
   полностью перенесённым на Vue: жизненный цикл шаблона, оба редактора
   содержимого, предпросмотр в обоих.
+
 - На экране устройств: физические интерфейсы (порты), открытые порты,
   программные активы, VLAN устройства (`DeviceVlanListEditor.vue` —
   назначение/снятие, доступные VLAN ограничены членством устройства в
@@ -430,7 +431,7 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
   типа устройства (`/resources/device-type-vlans`) ∪ то, что уже назначено
   устройству в блоке «VLAN устройства» (включая ещё не сохранённые правки
   того же сохранения формы) — вычисляется в `api/portVlans.ts:
-  computePortVlanOptions`, используется и `DeviceFormModal.vue` (динамически),
+computePortVlanOptions`, используется и `DeviceFormModal.vue` (динамически),
   и `DevicePortsModal.vue` (статически по уже сохранённым данным). Если VLAN
   устройства снят уже после первой загрузки формы, он автоматически убирается
   и из `vlan_ids` уже заведённых портов (`watch(portVlanOptions, ...)`

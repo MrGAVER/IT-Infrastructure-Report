@@ -12,7 +12,16 @@ import { useToast } from '../composables/useToast'
 import { normalizeGroupSubinterfaces } from '../utils/groupDraftEdit'
 import { vlanLabel } from '../utils/vlan'
 import { sortOpenPortRows } from '../utils/openPorts'
-import { applyGroupsToRows, describeGroup, emptyGroup, eraseGroupValues, managedFields, memberIndices, setGroupMembers, validateInterfaceGroups } from '../utils/interfaceGroups'
+import {
+  applyGroupsToRows,
+  describeGroup,
+  emptyGroup,
+  eraseGroupValues,
+  managedFields,
+  memberIndices,
+  setGroupMembers,
+  validateInterfaceGroups,
+} from '../utils/interfaceGroups'
 import GroupDeleteModal from './GroupDeleteModal.vue'
 import GroupEditModal from './GroupEditModal.vue'
 
@@ -163,7 +172,13 @@ function summary(group: InterfaceGroupDraft): string {
     @save="saveGroup"
   />
 
-  <GroupDeleteModal v-if="deleting" :group="deleting" :members-count="memberIndices(rows, deleting.key).length" @close="deleting = null" @confirm="confirmDeleting" />
+  <GroupDeleteModal
+    v-if="deleting"
+    :group="deleting"
+    :members-count="memberIndices(rows, deleting.key).length"
+    @close="deleting = null"
+    @confirm="confirmDeleting"
+  />
 </template>
 
 <style scoped src="../styles/groupPanelShared.css"></style>

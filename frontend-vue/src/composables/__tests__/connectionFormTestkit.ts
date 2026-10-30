@@ -41,7 +41,12 @@ export function previewSide(interfaceId: string, patch: Partial<PortConfigPrevie
   return { interface_id: interfaceId, role: 'data', mode: 'access', vlans: [], ...patch }
 }
 
-export function preview(source: PortConfigPreviewSide, destination: PortConfigPreviewSide, status: PortConfigStatus = 'ok', diff: PortConfigFacet[] = []): PortConfigPreview {
+export function preview(
+  source: PortConfigPreviewSide,
+  destination: PortConfigPreviewSide,
+  status: PortConfigStatus = 'ok',
+  diff: PortConfigFacet[] = [],
+): PortConfigPreview {
   return { status, diff, source, destination }
 }
 

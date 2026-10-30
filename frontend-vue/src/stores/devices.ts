@@ -16,9 +16,7 @@ const LIST_ID = 'devices'
 
 /** Пункт 2 правки "инвентаризация физических устройств": строка таблицы — либо одиночное
  * устройство, либо СВЁРНУТАЯ группа участников одного стека (см. groupedFiltered ниже). */
-export type DeviceRow =
-  | { kind: 'device'; device: Device }
-  | { kind: 'stack'; stackId: string; stackName: string; members: Device[] }
+export type DeviceRow = { kind: 'device'; device: Device } | { kind: 'stack'; stackId: string; stackName: string; members: Device[] }
 
 export const useDevicesStore = defineStore('devices', {
   state: () => ({
@@ -44,9 +42,7 @@ export const useDevicesStore = defineStore('devices', {
       if (state.search.trim()) {
         const q = state.search.trim().toLowerCase()
         rows = rows.filter((d) =>
-          [d.system_name, d.serial_number, d.management_ips, d.description]
-            .filter(Boolean)
-            .some((v) => String(v).toLowerCase().includes(q)),
+          [d.system_name, d.serial_number, d.management_ips, d.description].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)),
         )
       }
       if (state.buildingId) {

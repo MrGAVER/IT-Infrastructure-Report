@@ -24,7 +24,17 @@ function row(overrides: Partial<StackVlanRow> = {}): StackVlanRow {
     is_uniform: true,
     assigned_count: 3,
     member_count: 3,
-    members: [{ physical_device_id: 'dev-1', device_name: 'fw-1', assigned: true, ip_address: '10.0.10.1', prefix_length: 24, is_management: true, description: 'кластер' }],
+    members: [
+      {
+        physical_device_id: 'dev-1',
+        device_name: 'fw-1',
+        assigned: true,
+        ip_address: '10.0.10.1',
+        prefix_length: 24,
+        is_management: true,
+        description: 'кластер',
+      },
+    ],
     ...overrides,
   }
 }
@@ -112,7 +122,12 @@ describe('lockedVlanReasons', () => {
 
 describe('mergeSharedSettingsIntoDraft', () => {
   const draft = (overrides: Partial<DeviceVlanDraftRow> = {}): DeviceVlanDraftRow => ({
-    vlan_id: 'v-10', ip_address: '1.1.1.1', prefix_length: '8', is_management: false, description: 'своё', ...overrides,
+    vlan_id: 'v-10',
+    ip_address: '1.1.1.1',
+    prefix_length: '8',
+    is_management: false,
+    description: 'своё',
+    ...overrides,
   })
 
   it('подменяет IP, префикс и «Управление» у существующей строки, не трогая описание и остальные строки', () => {
@@ -125,7 +140,11 @@ describe('mergeSharedSettingsIntoDraft', () => {
   it('добавляет недостающую строку с описанием назначения этого устройства', () => {
     const merged = mergeSharedSettingsIntoDraft([], [row()], 'dev-1')
     expect(merged).toEqual([{ vlan_id: 'v-10', ip_address: '10.0.10.1', prefix_length: '24', is_management: true, description: 'кластер' }])
-    expect(mergeSharedSettingsIntoDraft([], [row({ ip_address: null, prefix_length: null })], 'other-dev')[0]).toMatchObject({ ip_address: '', prefix_length: '', description: '' })
+    expect(mergeSharedSettingsIntoDraft([], [row({ ip_address: null, prefix_length: null })], 'other-dev')[0]).toMatchObject({
+      ip_address: '',
+      prefix_length: '',
+      description: '',
+    })
   })
 
   it('не мутирует входной черновик', () => {

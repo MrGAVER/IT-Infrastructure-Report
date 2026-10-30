@@ -2,13 +2,27 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import InterfaceBulkBar from '../InterfaceBulkBar.vue'
 
-const types = [{ id: 't-eth', name: 'Ethernet' }, { id: 't-sfp', name: 'SFP+' }]
+const types = [
+  { id: 't-eth', name: 'Ethernet' },
+  { id: 't-sfp', name: 'SFP+' },
+]
 const speeds = [{ id: 's-1g', name: '1 Гбит/с' }]
 
 function mountBar(props: Record<string, unknown> = {}) {
   // строка таблицы монтируется внутрь <table>: иначе браузерный разбор DOM отбросит <tr>
   return mount(InterfaceBulkBar, {
-    props: { typeId: '', speedId: '', management: '', dataTransfer: '', vlanMode: '', typeOptions: types, speedOptions: speeds, hasVlans: true, vlanSummary: '— выбрать VLAN —', ...props },
+    props: {
+      typeId: '',
+      speedId: '',
+      management: '',
+      dataTransfer: '',
+      vlanMode: '',
+      typeOptions: types,
+      speedOptions: speeds,
+      hasVlans: true,
+      vlanSummary: '— выбрать VLAN —',
+      ...props,
+    },
     attachTo: (() => {
       const table = document.createElement('table')
       const tbody = document.createElement('tbody')
@@ -24,9 +38,21 @@ describe('InterfaceBulkBar', () => {
   it('поля панели — «не менять» по умолчанию; тип и скорость берут варианты из справочников', () => {
     const wrapper = mountBar()
 
-    expect(select(wrapper, 'Тип интерфейса').findAll('option').map((o) => o.text())).toEqual(['— не менять —', 'Ethernet', 'SFP+'])
-    expect(select(wrapper, 'Скорость').findAll('option').map((o) => o.text())).toEqual(['— не менять —', '1 Гбит/с'])
-    expect(select(wrapper, 'Управление').findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'true', 'false'])
+    expect(
+      select(wrapper, 'Тип интерфейса')
+        .findAll('option')
+        .map((o) => o.text()),
+    ).toEqual(['— не менять —', 'Ethernet', 'SFP+'])
+    expect(
+      select(wrapper, 'Скорость')
+        .findAll('option')
+        .map((o) => o.text()),
+    ).toEqual(['— не менять —', '1 Гбит/с'])
+    expect(
+      select(wrapper, 'Управление')
+        .findAll('option')
+        .map((o) => o.attributes('value')),
+    ).toEqual(['', 'true', 'false'])
     wrapper.unmount()
   })
 

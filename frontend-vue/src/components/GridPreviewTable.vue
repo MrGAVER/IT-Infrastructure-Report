@@ -25,9 +25,7 @@ function cellText(value: unknown): string {
   <div class="preview-section">
     <div class="preview-head">
       <b>{{ section.title || '(без названия)' }}</b>
-      <span v-if="section.total_records !== undefined && section.rows" class="preview-note">
-        показано записей: {{ section.total_records }}
-      </span>
+      <span v-if="section.total_records !== undefined && section.rows" class="preview-note"> показано записей: {{ section.total_records }} </span>
     </div>
     <p v-if="section.error" class="preview-error">{{ section.error }}</p>
     <div v-else class="preview-table-wrap">

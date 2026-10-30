@@ -57,7 +57,17 @@ describe('loadAssignedDeviceVlanIds', () => {
   it('возвращает набор vlan_id, уже назначенных устройству в /resources/device-vlans', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse({ items: [{ id: 'dv-1', vlan_id: 'v-guest' }, { id: 'dv-2', vlan_id: 'v-mgmt' }], total: 2, offset: 0, limit: 1000 })),
+      vi.fn(async () =>
+        jsonResponse({
+          items: [
+            { id: 'dv-1', vlan_id: 'v-guest' },
+            { id: 'dv-2', vlan_id: 'v-mgmt' },
+          ],
+          total: 2,
+          offset: 0,
+          limit: 1000,
+        }),
+      ),
     )
     expect(await loadAssignedDeviceVlanIds('dev-1')).toEqual(new Set(['v-guest', 'v-mgmt']))
   })

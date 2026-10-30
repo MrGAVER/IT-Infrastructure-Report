@@ -5,13 +5,28 @@ import type { PortSyncRule } from '../../api/types'
 
 function rule(id: string, priority: number, overrides: Partial<PortSyncRule> = {}): PortSyncRule {
   return {
-    id, code: null, builtin: false, modified: false, name: `Правило ${id}`, description: '', enabled: true, priority, action: 'auto',
-    target: { role: 'any', mode: 'any', vlans: 'any' }, source: { role: 'any', mode: 'any', vlans: 'any' },
-    relation: { role: 'any', mode: 'any', vlans: 'any' }, apply: { role: true, mode: false, vlans: 'keep' }, ...overrides,
+    id,
+    code: null,
+    builtin: false,
+    modified: false,
+    name: `Правило ${id}`,
+    description: '',
+    enabled: true,
+    priority,
+    action: 'auto',
+    target: { role: 'any', mode: 'any', vlans: 'any' },
+    source: { role: 'any', mode: 'any', vlans: 'any' },
+    relation: { role: 'any', mode: 'any', vlans: 'any' },
+    apply: { role: true, mode: false, vlans: 'keep' },
+    ...overrides,
   }
 }
 
-interface Call { url: string; method: string; body: unknown }
+interface Call {
+  url: string
+  method: string
+  body: unknown
+}
 let calls: Call[]
 
 /** Эмулятор сервера правил: хранит список, отвечает как backend/app/api/port_sync.py. */
@@ -69,7 +84,10 @@ describe('usePortSyncRulesStore', () => {
   })
 
   it('ошибка загрузки попадает в error', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })),
+    )
     const store = usePortSyncRulesStore()
 
     await store.load()
@@ -153,7 +171,11 @@ describe('usePortSyncRulesStore', () => {
     await store.move('c', -1)
 
     expect(calls.at(-1)).toMatchObject({ method: 'POST', body: { ids: ['a', 'c', 'b'] } })
-    expect(store.rules.map((r) => [r.id, r.priority])).toEqual([['a', 10], ['c', 20], ['b', 30]])
+    expect(store.rules.map((r) => [r.id, r.priority])).toEqual([
+      ['a', 10],
+      ['c', 20],
+      ['b', 30],
+    ])
   })
 
   it('move() на краю списка ничего не отправляет', async () => {

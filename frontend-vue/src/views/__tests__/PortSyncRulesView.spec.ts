@@ -7,15 +7,31 @@ import type { PortSyncRule } from '../../api/types'
 
 function rule(id: string, priority: number, overrides: Partial<PortSyncRule> = {}): PortSyncRule {
   return {
-    id, code: null, builtin: false, modified: false, name: `Правило ${id}`, description: '', enabled: true, priority, action: 'auto',
-    target: { role: 'any', mode: 'any', vlans: 'any' }, source: { role: 'any', mode: 'any', vlans: 'any' },
-    relation: { role: 'any', mode: 'any', vlans: 'any' }, apply: { role: true, mode: false, vlans: 'keep' }, ...overrides,
+    id,
+    code: null,
+    builtin: false,
+    modified: false,
+    name: `Правило ${id}`,
+    description: '',
+    enabled: true,
+    priority,
+    action: 'auto',
+    target: { role: 'any', mode: 'any', vlans: 'any' },
+    source: { role: 'any', mode: 'any', vlans: 'any' },
+    relation: { role: 'any', mode: 'any', vlans: 'any' },
+    apply: { role: true, mode: false, vlans: 'keep' },
+    ...overrides,
   }
 }
 
-const standard = (id: string, priority: number, overrides: Partial<PortSyncRule> = {}) => rule(id, priority, { builtin: true, code: `code-${id}`, ...overrides })
+const standard = (id: string, priority: number, overrides: Partial<PortSyncRule> = {}) =>
+  rule(id, priority, { builtin: true, code: `code-${id}`, ...overrides })
 
-interface Call { url: string; method: string; body: any }
+interface Call {
+  url: string
+  method: string
+  body: any
+}
 let calls: Call[]
 let serverRules: PortSyncRule[]
 
@@ -38,7 +54,11 @@ function stubServer(initial: PortSyncRule[], opts: { failLoad?: boolean; failDel
         return json(created, 201)
       }
       if (url.endsWith('/port-sync/preview')) {
-        return json({ items: [], summary: { connections: 0, applicable: 0, shown: 0, total_items: 0, auto: 0, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0 }, plan_hash: 'h' })
+        return json({
+          items: [],
+          summary: { connections: 0, applicable: 0, shown: 0, total_items: 0, auto: 0, blocked: 0, manual: 0, ignored: 0, none: 0, skipped: 0 },
+          plan_hash: 'h',
+        })
       }
       if (url.endsWith('/rules/reorder')) {
         serverRules = (body.ids as string[]).map((id, i) => ({ ...serverRules.find((r) => r.id === id)!, priority: (i + 1) * 10 }))
@@ -76,7 +96,10 @@ const toasts = () => useToast().toasts
 beforeEach(() => {
   setActivePinia(createPinia())
   toasts().splice(0)
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
 })
 
 describe('PortSyncRulesView.vue', () => {
@@ -199,7 +222,10 @@ describe('PortSyncRulesView.vue', () => {
 
   it('отказ в подтверждении сброса ничего не отправляет', async () => {
     stubServer([standard('a', 10, { modified: true })])
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const wrapper = await mountView()
     const before = calls.length
 

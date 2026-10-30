@@ -1,16 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import {
-  duplicateVlanRowIndexes,
-  duplicateVlansMessage,
-  sortDeviceVlanRows,
-  sortVlanDefinitions,
-  usedVlanIds,
-  vlanOptionsForRow,
-} from '../deviceVlans'
+import { duplicateVlanRowIndexes, duplicateVlansMessage, sortDeviceVlanRows, sortVlanDefinitions, usedVlanIds, vlanOptionsForRow } from '../deviceVlans'
 import type { VLANDefinition } from '../../api/types'
 
 const def = (id: string, vlanId: number, name: string, domainName = ''): VLANDefinition => ({
-  id, vlan_id: vlanId, name, description: '', domain_id: domainName ? `dom-${domainName}` : null, domain_name: domainName, devices: [],
+  id,
+  vlan_id: vlanId,
+  name,
+  description: '',
+  domain_id: domainName ? `dom-${domainName}` : null,
+  domain_name: domainName,
+  devices: [],
 })
 const definitions = [def('v-30', 30, 'Гости'), def('v-10', 10, 'Мониторинг'), def('v-20', 20, 'Управление'), def('v-20b', 20, 'Управление', 'Филиал')]
 const row = (vlan_id: string, extra: Record<string, unknown> = {}) => ({ vlan_id, ip_address: '', ...extra })

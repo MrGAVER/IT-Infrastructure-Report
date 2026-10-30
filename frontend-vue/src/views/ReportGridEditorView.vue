@@ -46,7 +46,12 @@ function newSheet(n: number): GridSheet {
     title: `Лист ${n}`,
     columns: Array.from({ length: cols }, () => ({ width: 20 })),
     rows: [
-      { height: 24, repeat: false, data_source: null, cells: [{ col: 0, colspan: cols, kind: 'static', text: 'Новый лист', style: { bold: true, align: 'center', bg: '#EEF2FF' } }] },
+      {
+        height: 24,
+        repeat: false,
+        data_source: null,
+        cells: [{ col: 0, colspan: cols, kind: 'static', text: 'Новый лист', style: { bold: true, align: 'center', bg: '#EEF2FF' } }],
+      },
       newRow(true),
     ],
   }
@@ -405,8 +410,7 @@ function closePreview() {
 
     <template v-else-if="template && template.format !== 'xlsx'">
       <p class="scope-note">
-        Шаблон «{{ template.name }}» — в формате Word (.docx). У него другой редактор — вернитесь
-        к списку и откройте «Конструктор» ещё раз.
+        Шаблон «{{ template.name }}» — в формате Word (.docx). У него другой редактор — вернитесь к списку и откройте «Конструктор» ещё раз.
       </p>
       <button type="button" class="btn btn-secondary" @click="backToList">← К списку шаблонов</button>
     </template>
@@ -433,14 +437,7 @@ function closePreview() {
       </div>
 
       <div class="sheet-tabs">
-        <button
-          v-for="(sheet, si) in sheets"
-          :key="si"
-          type="button"
-          class="sheet-tab"
-          :class="{ active: si === activeSheet }"
-          @click="switchSheet(si)"
-        >
+        <button v-for="(sheet, si) in sheets" :key="si" type="button" class="sheet-tab" :class="{ active: si === activeSheet }" @click="switchSheet(si)">
           {{ sheet.title || `Лист ${si + 1}` }}
         </button>
         <button type="button" class="sheet-tab add" @click="addSheet">+ лист</button>

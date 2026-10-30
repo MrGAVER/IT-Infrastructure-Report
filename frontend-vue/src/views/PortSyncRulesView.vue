@@ -58,7 +58,8 @@ const toggle = (rule: PortSyncRule) => run(rule, () => store.toggle(rule.id))
 const move = (rule: PortSyncRule, delta: -1 | 1) => run(rule, () => store.move(rule.id, delta))
 
 function reset(rule: PortSyncRule) {
-  if (!confirm(`Вернуть стандартное правило «${rule.name}» к исходному виду? Ваши изменения в нём (условия, действие, порядок, «включено») будут потеряны.`)) return
+  if (!confirm(`Вернуть стандартное правило «${rule.name}» к исходному виду? Ваши изменения в нём (условия, действие, порядок, «включено») будут потеряны.`))
+    return
   return run(rule, async () => {
     await store.reset(rule.id)
     notify('Правило возвращено к исходному виду', 'success')
@@ -89,9 +90,8 @@ function showPlan(scope: PortSyncScope, title?: string) {
     </div>
 
     <p class="intro">
-      Правила решают, как согласовать данные порта (роль, режим, VLAN) с портом на другом конце подключения. Проверка идёт сверху
-      вниз, решает первое подходящее правило. Автоматические правила ничего не меняют сами: сначала показывается план, и только
-      после подтверждения изменения записываются.
+      Правила решают, как согласовать данные порта (роль, режим, VLAN) с портом на другом конце подключения. Проверка идёт сверху вниз, решает первое подходящее
+      правило. Автоматические правила ничего не меняют сами: сначала показывается план, и только после подтверждения изменения записываются.
     </p>
 
     <div class="toolbar">
@@ -99,9 +99,7 @@ function showPlan(scope: PortSyncScope, title?: string) {
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Новое правило
       </button>
-      <button class="btn btn-secondary" data-action="plan-all" @click="showPlan({}, 'Согласование портов по правилам')">
-        Согласовать по правилам…
-      </button>
+      <button class="btn btn-secondary" data-action="plan-all" @click="showPlan({}, 'Согласование портов по правилам')">Согласовать по правилам…</button>
       <div class="spacer"></div>
       <button class="btn btn-secondary" :disabled="store.loading" @click="store.load()">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
@@ -135,12 +133,61 @@ function showPlan(scope: PortSyncScope, title?: string) {
               <span>{{ rule.enabled ? 'Вкл' : 'Выкл' }}</span>
             </label>
             <div class="buttons">
-              <button v-if="auth.canWrite" type="button" class="icon-btn" aria-label="Выше" title="Проверять раньше" data-action="up" :disabled="busyId === rule.id || index === 0" @click="move(rule, -1)">↑</button>
-              <button v-if="auth.canWrite" type="button" class="icon-btn" aria-label="Ниже" title="Проверять позже" data-action="down" :disabled="busyId === rule.id || index === store.rules.length - 1" @click="move(rule, 1)">↓</button>
-              <button type="button" class="btn btn-secondary btn-sm" data-action="preview" @click="showPlan({ rule_id: rule.id }, `Что сделает правило «${rule.name}»`)">Что сделает</button>
-              <button type="button" class="btn btn-secondary btn-sm" data-action="edit" @click="openEdit(rule)">{{ auth.canWrite ? 'Изменить' : 'Просмотр' }}</button>
-              <button v-if="auth.canWrite && rule.builtin && rule.modified" type="button" class="btn btn-secondary btn-sm" data-action="reset" :disabled="busyId === rule.id" @click="reset(rule)">Сбросить</button>
-              <button v-if="auth.canWrite && !rule.builtin" type="button" class="btn btn-secondary btn-sm danger" data-action="delete" :disabled="busyId === rule.id" @click="remove(rule)">Удалить</button>
+              <button
+                v-if="auth.canWrite"
+                type="button"
+                class="icon-btn"
+                aria-label="Выше"
+                title="Проверять раньше"
+                data-action="up"
+                :disabled="busyId === rule.id || index === 0"
+                @click="move(rule, -1)"
+              >
+                ↑
+              </button>
+              <button
+                v-if="auth.canWrite"
+                type="button"
+                class="icon-btn"
+                aria-label="Ниже"
+                title="Проверять позже"
+                data-action="down"
+                :disabled="busyId === rule.id || index === store.rules.length - 1"
+                @click="move(rule, 1)"
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-action="preview"
+                @click="showPlan({ rule_id: rule.id }, `Что сделает правило «${rule.name}»`)"
+              >
+                Что сделает
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" data-action="edit" @click="openEdit(rule)">
+                {{ auth.canWrite ? 'Изменить' : 'Просмотр' }}
+              </button>
+              <button
+                v-if="auth.canWrite && rule.builtin && rule.modified"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-action="reset"
+                :disabled="busyId === rule.id"
+                @click="reset(rule)"
+              >
+                Сбросить
+              </button>
+              <button
+                v-if="auth.canWrite && !rule.builtin"
+                type="button"
+                class="btn btn-secondary btn-sm danger"
+                data-action="delete"
+                :disabled="busyId === rule.id"
+                @click="remove(rule)"
+              >
+                Удалить
+              </button>
             </div>
           </div>
         </li>

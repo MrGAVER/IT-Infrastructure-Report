@@ -26,7 +26,9 @@ const range = (n: number) => Array.from({ length: n }, (_, i) => i)
 
 const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: () => PagedStore }> = [
   {
-    name: 'устройства', listId: 'devices', defaultSize: 6,
+    name: 'устройства',
+    listId: 'devices',
+    defaultSize: 6,
     make: () => {
       const s = useDevicesStore()
       s.all = range(200).map((i) => ({ id: `d${i}`, system_name: `dev-${i}`, serial_number: `SN-${i}`, stack_id: null })) as never
@@ -34,7 +36,9 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
     },
   },
   {
-    name: 'виртуальные машины', listId: 'vms', defaultSize: 8,
+    name: 'виртуальные машины',
+    listId: 'vms',
+    defaultSize: 8,
     make: () => {
       const s = useVMsStore()
       s.all = range(200).map((i) => ({ id: `v${i}`, name: `vm-${i}` })) as never
@@ -42,7 +46,9 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
     },
   },
   {
-    name: 'контейнеры', listId: 'containers', defaultSize: 8,
+    name: 'контейнеры',
+    listId: 'containers',
+    defaultSize: 8,
     make: () => {
       const s = useContainersStore()
       s.all = range(200).map((i) => ({ id: `c${i}`, name: `ct-${i}` })) as never
@@ -50,7 +56,9 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
     },
   },
   {
-    name: 'информационные системы', listId: 'informationSystems', defaultSize: 8,
+    name: 'информационные системы',
+    listId: 'informationSystems',
+    defaultSize: 8,
     make: () => {
       const s = useInformationSystemsStore()
       s.all = range(200).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never

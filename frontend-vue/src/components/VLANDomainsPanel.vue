@@ -115,13 +115,7 @@ async function syncDomain(d: VLANDomain) {
       </div>
       <div class="domain-actions">
         <button type="button" class="btn btn-secondary" @click="openEdit(d)">{{ auth.canWrite ? 'Изменить' : 'Просмотр' }}</button>
-        <button
-          v-if="auth.canWrite && d.source_device_id"
-          type="button"
-          class="btn btn-secondary"
-          :disabled="syncingId === d.id"
-          @click="syncDomain(d)"
-        >
+        <button v-if="auth.canWrite && d.source_device_id" type="button" class="btn btn-secondary" :disabled="syncingId === d.id" @click="syncDomain(d)">
           {{ syncingId === d.id ? 'Синхронизация…' : 'Синхронизировать' }}
         </button>
         <button v-if="auth.canWrite" type="button" class="icon-btn danger" :disabled="deletingId === d.id" aria-label="Удалить домен" @click="removeDomain(d)">

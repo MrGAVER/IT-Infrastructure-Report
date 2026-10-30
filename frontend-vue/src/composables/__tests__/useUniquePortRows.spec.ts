@@ -14,7 +14,10 @@ const row = (protocol_catalog_id: string) => ({ protocol_catalog_id })
 describe('useUniquePortRows', () => {
   it('подсвечивает строки с повторяющимся номером и даёт одно сообщение; реагирует на изменение строк', () => {
     const rows = ref([row('c-http'), row('c-ssh')])
-    const { duplicateIndexes, duplicateMessage } = useUniquePortRows(() => rows.value, () => catalog)
+    const { duplicateIndexes, duplicateMessage } = useUniquePortRows(
+      () => rows.value,
+      () => catalog,
+    )
     expect(duplicateIndexes.value.size).toBe(0)
     expect(duplicateMessage.value).toBe('')
 
@@ -26,14 +29,21 @@ describe('useUniquePortRows', () => {
 
   it('sortedForAdd упорядочивает по номеру порта, пустые строки — после заполненных; исходный массив не меняется', () => {
     const rows = [row('c-https'), row(''), row('c-ssh')]
-    const { sortedForAdd } = useUniquePortRows(() => rows, () => catalog)
+    const { sortedForAdd } = useUniquePortRows(
+      () => rows,
+      () => catalog,
+    )
     expect(sortedForAdd().map((r) => r.protocol_catalog_id)).toEqual(['c-ssh', 'c-https', ''])
     expect(rows.map((r) => r.protocol_catalog_id)).toEqual(['c-https', '', 'c-ssh'])
   })
 
   it('при выключенном правиле: порядок как ввёл пользователь, повторы не подсвечиваются', () => {
     const rows = [row('c-https'), row('c-http'), row('c-http-alt'), row('c-ssh')]
-    const { duplicateIndexes, duplicateMessage, sortedForAdd } = useUniquePortRows(() => rows, () => catalog, () => false)
+    const { duplicateIndexes, duplicateMessage, sortedForAdd } = useUniquePortRows(
+      () => rows,
+      () => catalog,
+      () => false,
+    )
     expect(sortedForAdd()).toBe(rows)
     expect(duplicateIndexes.value.size).toBe(0)
     expect(duplicateMessage.value).toBe('')

@@ -107,19 +107,31 @@ describe('deviceFormPayload', () => {
 
 describe('строки черновиков', () => {
   it('toSoftwareDraftRow: пустая версия — пустая строка', () => {
-    expect(toSoftwareDraftRow({ id: 'd1', software_asset_id: 'sa-1', version: null } as DeployedSoftware)).toEqual({ id: 'd1', software_asset_id: 'sa-1', version: '' })
+    expect(toSoftwareDraftRow({ id: 'd1', software_asset_id: 'sa-1', version: null } as DeployedSoftware)).toEqual({
+      id: 'd1',
+      software_asset_id: 'sa-1',
+      version: '',
+    })
     expect(toSoftwareDraftRow({ id: 'd1', software_asset_id: 'sa-1', version: '2.4' } as DeployedSoftware).version).toBe('2.4')
   })
 
   it('toDeviceVlanDraftRow: IP и описание — строки, префикс — строка (0 не теряется), null → пусто', () => {
     const full = { id: 'v1', vlan_id: 'vl-1', ip_address: '10.0.0.1', prefix_length: 0, is_management: true, description: 'mgmt' } as DeviceVLAN
-    expect(toDeviceVlanDraftRow(full)).toEqual({ id: 'v1', vlan_id: 'vl-1', ip_address: '10.0.0.1', prefix_length: '0', is_management: true, description: 'mgmt' })
+    expect(toDeviceVlanDraftRow(full)).toEqual({
+      id: 'v1',
+      vlan_id: 'vl-1',
+      ip_address: '10.0.0.1',
+      prefix_length: '0',
+      is_management: true,
+      description: 'mgmt',
+    })
     const empty = { id: 'v2', vlan_id: 'vl-2', ip_address: null, prefix_length: null, is_management: false, description: null } as DeviceVLAN
     expect(toDeviceVlanDraftRow(empty)).toMatchObject({ ip_address: '', prefix_length: '', description: '' })
   })
 
   it('deviceVlanKey не зависит от порядка строк и не считает пустые', () => {
-    const rows = (...ids: string[]): DeviceVlanDraftRow[] => ids.map((vlan_id) => ({ vlan_id, ip_address: '', prefix_length: '', is_management: false, description: '' }))
+    const rows = (...ids: string[]): DeviceVlanDraftRow[] =>
+      ids.map((vlan_id) => ({ vlan_id, ip_address: '', prefix_length: '', is_management: false, description: '' }))
     expect(deviceVlanKey(rows('b', 'a', ''))).toBe('a|b')
     expect(deviceVlanKey(rows('a', 'b'))).toBe(deviceVlanKey(rows('b', 'a')))
     expect(deviceVlanKey([])).toBe('')
@@ -133,8 +145,27 @@ describe('copyInterfaceRows', () => {
       name: 'Gi0/1',
       ips: [{ id: 'ip-1', ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }],
       open_ports: [{ id: 'op-1', protocol_catalog_id: 'c22', transport_protocol: 'TCP', description: '' }],
-      subinterfaces: [{ id: 's-1', key: 's1', name: 'Gi0/1.10', vlan_id: 'v10', is_management: false, is_data_transfer: false, description: '', ips: [{ id: 'sip-1', ip_address: '10.1.0.1', prefix_length: '24', purpose: '' }], open_ports: [] }],
-      connection: { peer_device_id: 'dev-2', peer_interface_id: 'p1', connection_type_id: '', description: '', peer_device_name: 'sw-02', peer_interface_name: 'Gi0/9' },
+      subinterfaces: [
+        {
+          id: 's-1',
+          key: 's1',
+          name: 'Gi0/1.10',
+          vlan_id: 'v10',
+          is_management: false,
+          is_data_transfer: false,
+          description: '',
+          ips: [{ id: 'sip-1', ip_address: '10.1.0.1', prefix_length: '24', purpose: '' }],
+          open_ports: [],
+        },
+      ],
+      connection: {
+        peer_device_id: 'dev-2',
+        peer_interface_id: 'p1',
+        connection_type_id: '',
+        description: '',
+        peer_device_name: 'sw-02',
+        peer_interface_name: 'Gi0/9',
+      },
     })
     const [copy] = copyInterfaceRows([donor])
 

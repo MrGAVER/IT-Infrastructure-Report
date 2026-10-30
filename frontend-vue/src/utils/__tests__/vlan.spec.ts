@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { filterVlansByQuery, filterVlansForDeviceDomains, groupVlanRemovalMessage, mergeDomainVlansIntoDraft, reconcileVlanIds, removeDomainVlansFromDraft, vlanLabel } from '../vlan'
+import {
+  filterVlansByQuery,
+  filterVlansForDeviceDomains,
+  groupVlanRemovalMessage,
+  mergeDomainVlansIntoDraft,
+  reconcileVlanIds,
+  removeDomainVlansFromDraft,
+  vlanLabel,
+} from '../vlan'
 import type { DeviceVlanDraftRow, VLANDefinition } from '../../api/types'
 
 function vlan(overrides: Partial<VLANDefinition> = {}): VLANDefinition {
@@ -43,7 +51,10 @@ describe('mergeDomainVlansIntoDraft', () => {
   })
 
   it('у домена нет VLAN или все уже добавлены — возвращает тот же массив (без мутации входа)', () => {
-    const existing: DeviceVlanDraftRow[] = [{ vlan_id: 'v-10', ip_address: '', prefix_length: '', is_management: false, description: '' }, { vlan_id: 'v-30', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+    const existing: DeviceVlanDraftRow[] = [
+      { vlan_id: 'v-10', ip_address: '', prefix_length: '', is_management: false, description: '' },
+      { vlan_id: 'v-30', ip_address: '', prefix_length: '', is_management: false, description: '' },
+    ]
     expect(mergeDomainVlansIntoDraft(existing, definitions, 'dom-1')).toBe(existing)
     expect(mergeDomainVlansIntoDraft(existing, definitions, 'dom-без-vlan')).toBe(existing)
     expect(existing).toHaveLength(2)
@@ -58,7 +69,12 @@ describe('removeDomainVlansFromDraft', () => {
     vlan({ id: 'v-1', vlan_id: 1, name: 'default', domain_id: null }),
   ]
   const draft = (vlanId: string, extra: Partial<DeviceVlanDraftRow> = {}): DeviceVlanDraftRow => ({
-    vlan_id: vlanId, ip_address: '', prefix_length: '', is_management: false, description: '', ...extra,
+    vlan_id: vlanId,
+    ip_address: '',
+    prefix_length: '',
+    is_management: false,
+    description: '',
+    ...extra,
   })
 
   it('убирает несохранённые строки VLAN отменяемого домена (в том числе введённые вручную), остальные не трогает', () => {

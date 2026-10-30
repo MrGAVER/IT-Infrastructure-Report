@@ -3,8 +3,13 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '../auth'
 
 const adminUser = {
-  id: 'u1', username: 'admin', role: 'admin' as const, is_active: true,
-  last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00',
+  id: 'u1',
+  username: 'admin',
+  role: 'admin' as const,
+  is_active: true,
+  last_login_at: null,
+  locked: false,
+  created_at: '2026-01-01T00:00:00',
 }
 
 function stubFetch(handlers: Record<string, (url: string, init?: RequestInit) => Response | Promise<Response>>) {
@@ -104,7 +109,10 @@ describe('useAuthStore', () => {
     stubFetch({
       '/auth/login': () =>
         ++attempt === 1
-          ? new Response(JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа.' } }), { status: 429, headers: { 'Retry-After': '9' } })
+          ? new Response(JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа.' } }), {
+              status: 429,
+              headers: { 'Retry-After': '9' },
+            })
           : new Response(JSON.stringify({ token: 'tok-1', user: adminUser })),
     })
     const auth = useAuthStore()
@@ -194,9 +202,12 @@ describe('useAuthStore', () => {
 
   it('fetchMySessions(): заполняет sessions из ответа сервера', async () => {
     stubFetch({
-      '/auth/sessions': () => new Response(JSON.stringify([
-        { id: 's1', created_at: '2026-01-01T00:00:00', expires_at: '2026-01-01T12:00:00', user_agent: null, ip_address: '127.0.0.1', current: true },
-      ])),
+      '/auth/sessions': () =>
+        new Response(
+          JSON.stringify([
+            { id: 's1', created_at: '2026-01-01T00:00:00', expires_at: '2026-01-01T12:00:00', user_agent: null, ip_address: '127.0.0.1', current: true },
+          ]),
+        ),
     })
     const auth = useAuthStore()
 

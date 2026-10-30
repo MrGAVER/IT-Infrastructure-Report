@@ -10,7 +10,11 @@ export function toggleVlanPatch(row: Pick<InterfaceDraftRow, 'vlan_ids'>, vlanDe
 }
 
 /** п.1.4.3.2: режим порта — access (ровно один VLAN) или trunk (несколько, в т.ч. «все»). */
-export function vlanModePatch(row: Pick<InterfaceDraftRow, 'vlan_ids'>, mode: 'access' | 'trunk', vlanOptions: readonly VLANDefinition[]): Partial<InterfaceDraftRow> {
+export function vlanModePatch(
+  row: Pick<InterfaceDraftRow, 'vlan_ids'>,
+  mode: 'access' | 'trunk',
+  vlanOptions: readonly VLANDefinition[],
+): Partial<InterfaceDraftRow> {
   if (mode === 'access') {
     // При переключении в access оставляем только первый уже отмеченный VLAN — несколько было бы некорректным сочетанием
     // (см. validateInterfaceDraftRows).

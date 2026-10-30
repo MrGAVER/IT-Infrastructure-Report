@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import {
-  readLocalSettings,
-  readLocalUserPreferences,
-  removeLocalSettings,
-  writeLocalUserPreferences,
-} from '../localSettings'
+import { readLocalSettings, readLocalUserPreferences, removeLocalSettings, writeLocalUserPreferences } from '../localSettings'
 
 beforeEach(() => {
   vi.restoreAllMocks()

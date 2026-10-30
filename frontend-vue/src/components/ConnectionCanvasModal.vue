@@ -74,9 +74,7 @@ const positions = reactive<Record<string, { x: number; y: number }>>({})
 const addDeviceId = ref('')
 
 const availableDeviceOptions = computed(() =>
-  sortOptionsByLabel(
-    devicesStore.all.filter((d) => !canvasDeviceIds.value.includes(d.id)).map((d) => ({ value: d.id, label: deviceLabel(d) })),
-  ),
+  sortOptionsByLabel(devicesStore.all.filter((d) => !canvasDeviceIds.value.includes(d.id)).map((d) => ({ value: d.id, label: deviceLabel(d) }))),
 )
 
 function nextGridPosition(): { x: number; y: number } {
@@ -299,9 +297,7 @@ const dragLinePath = computed(() => {
       </div>
 
       <div ref="canvasEl" class="canvas-area">
-        <p v-if="!canvasDeviceIds.length" class="canvas-empty">
-          Добавьте на схему хотя бы два устройства, чтобы соединить их порты курсором мыши.
-        </p>
+        <p v-if="!canvasDeviceIds.length" class="canvas-empty">Добавьте на схему хотя бы два устройства, чтобы соединить их порты курсором мыши.</p>
         <template v-else>
           <div
             v-for="deviceId in canvasDeviceIds"
@@ -310,7 +306,9 @@ const dragLinePath = computed(() => {
             :style="{ left: positions[deviceId].x + 'px', top: positions[deviceId].y + 'px', width: NODE_WIDTH + 'px' }"
           >
             <div class="node-header" @mousedown="onNodeHeaderMouseDown(deviceId, $event)">
-              <span class="node-title" :title="deviceById(deviceId) ? deviceLabel(deviceById(deviceId)!) : ''">{{ deviceById(deviceId) ? deviceLabel(deviceById(deviceId)!) : '—' }}</span>
+              <span class="node-title" :title="deviceById(deviceId) ? deviceLabel(deviceById(deviceId)!) : ''">{{
+                deviceById(deviceId) ? deviceLabel(deviceById(deviceId)!) : '—'
+              }}</span>
               <button type="button" class="node-remove" aria-label="Убрать устройство со схемы" @click="removeDevice(deviceId)">
                 <svg class="icon"><use href="/icons.svg#i-x" /></svg>
               </button>

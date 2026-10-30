@@ -59,46 +59,132 @@ const emptyPage = { items: [], total: 0, offset: 0, limit: 1000 }
 
 const device = (): Device =>
   ({
-    id: 'dev-1', device_type_id: 'dt-1', manufacturer_id: null, model_id: null, serial_number: 'SN-1', system_name: 'srv-01',
-    operating_system_id: null, embedded_os_id: null, siem_enabled: false, building_id: null, room_id: null, rack_id: null,
-    rack_position: null, status: null, description: null, diagram_icon_id: null, oac_certificate_number: null,
-    oac_certificate_registry_date: null, stack_id: null, stack_name: null, stack_position: null, management_interface: '',
-    management_ips: '', interface_count: 0, embedded_os_name: '', embedded_os_version: '', vlan_summary: '',
+    id: 'dev-1',
+    device_type_id: 'dt-1',
+    manufacturer_id: null,
+    model_id: null,
+    serial_number: 'SN-1',
+    system_name: 'srv-01',
+    operating_system_id: null,
+    embedded_os_id: null,
+    siem_enabled: false,
+    building_id: null,
+    room_id: null,
+    rack_id: null,
+    rack_position: null,
+    status: null,
+    description: null,
+    diagram_icon_id: null,
+    oac_certificate_number: null,
+    oac_certificate_registry_date: null,
+    stack_id: null,
+    stack_name: null,
+    stack_position: null,
+    management_interface: '',
+    management_ips: '',
+    interface_count: 0,
+    embedded_os_name: '',
+    embedded_os_version: '',
+    vlan_summary: '',
   }) as Device
 
 const vm = (): VirtualMachine =>
-  ({ id: 'vm-1', name: 'VM-01', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, status: 'active', description: null }) as VirtualMachine
+  ({
+    id: 'vm-1',
+    name: 'VM-01',
+    operating_system_id: null,
+    physical_device_id: null,
+    hypervisor_os_id: null,
+    purpose: null,
+    status: 'active',
+    description: null,
+  }) as VirtualMachine
 
-const container = (): Container => ({ id: 'c-1', name: 'nginx', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null })
+const container = (): Container => ({
+  id: 'c-1',
+  name: 'nginx',
+  virtual_machine_id: null,
+  physical_device_id: null,
+  runtime: null,
+  runtime_version: null,
+  purpose: null,
+})
 
 const connection = (): Connection =>
   ({
-    id: 'conn-1', source_interface_id: 'if-1', source_device_name: 'srv-01', source_interface_name: 'eth0',
-    destination_interface_id: 'if-2', destination_device_name: 'sw-01', destination_interface_name: 'gi0/1',
-    connection_type_id: 'ct-1', connection_type_name: 'Витая пара', is_active: true, description: '',
-    source_port_role: 'data', destination_port_role: 'data', port_config_status: 'ok',
-    source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
+    id: 'conn-1',
+    source_interface_id: 'if-1',
+    source_device_name: 'srv-01',
+    source_interface_name: 'eth0',
+    destination_interface_id: 'if-2',
+    destination_device_name: 'sw-01',
+    destination_interface_name: 'gi0/1',
+    connection_type_id: 'ct-1',
+    connection_type_name: 'Витая пара',
+    is_active: true,
+    description: '',
+    source_port_role: 'data',
+    destination_port_role: 'data',
+    port_config_status: 'ok',
+    source_vlan_mode: 'trunk',
+    destination_vlan_mode: 'trunk',
+    source_vlans: [],
+    destination_vlans: [],
+    port_config_diff: [],
   }) as Connection
 
 const stack = (): DeviceStack => ({ id: 'st-1', name: 'Стек-1', members: [] }) as unknown as DeviceStack
 
 const system = (): InformationSystem =>
   ({
-    id: 'is-1', number: null, name: 'ИС-1', type: 'ИС', description: null, purpose: null, localization: null,
-    support_organization_id: null, support_method_id: null, process_description: null, siem_enabled: false,
-    crypto_protection_enabled: false, crypto_protection_description_id: null, status: 'active',
+    id: 'is-1',
+    number: null,
+    name: 'ИС-1',
+    type: 'ИС',
+    description: null,
+    purpose: null,
+    localization: null,
+    support_organization_id: null,
+    support_method_id: null,
+    process_description: null,
+    siem_enabled: false,
+    crypto_protection_enabled: false,
+    crypto_protection_description_id: null,
+    status: 'active',
   }) as InformationSystem
 
 const syncRule = (id: string, overrides: Partial<PortSyncRule> = {}): PortSyncRule =>
   ({
-    id, code: null, builtin: false, modified: false, name: `Правило ${id}`, description: '', enabled: true, priority: 10, action: 'auto',
-    target: { role: 'any', mode: 'any', vlans: 'any' }, source: { role: 'any', mode: 'any', vlans: 'any' },
-    relation: { role: 'any', mode: 'any', vlans: 'any' }, apply: { role: true, mode: false, vlans: 'keep' }, ...overrides,
+    id,
+    code: null,
+    builtin: false,
+    modified: false,
+    name: `Правило ${id}`,
+    description: '',
+    enabled: true,
+    priority: 10,
+    action: 'auto',
+    target: { role: 'any', mode: 'any', vlans: 'any' },
+    source: { role: 'any', mode: 'any', vlans: 'any' },
+    relation: { role: 'any', mode: 'any', vlans: 'any' },
+    apply: { role: true, mode: false, vlans: 'keep' },
+    ...overrides,
   }) as PortSyncRule
 
-const template = (): ReportTemplate => ({ id: 't-1', name: 'Реестр устройств', description: null, format: 'xlsx', config: {}, created_at: null, updated_at: null }) as ReportTemplate
+const template = (): ReportTemplate =>
+  ({ id: 't-1', name: 'Реестр устройств', description: null, format: 'xlsx', config: {}, created_at: null, updated_at: null }) as ReportTemplate
 
-const diagramSummary = { id: 'd1', name: 'Диаграмма 1', description: null, scope_filter: {}, group_by: 'building', collapse_threshold: 20, last_export_format: null, created_at: null, updated_at: null }
+const diagramSummary = {
+  id: 'd1',
+  name: 'Диаграмма 1',
+  description: null,
+  scope_filter: {},
+  group_by: 'building',
+  collapse_threshold: 20,
+  last_export_format: null,
+  created_at: null,
+  updated_at: null,
+}
 
 // ---------- описание экранов ----------
 
@@ -234,7 +320,10 @@ const SCREENS: Screen[] = [
       useDevicesStore().loaded = true
       useVMsStore().loaded = true
       useContainersStore().loaded = true
-      vi.stubGlobal('fetch', vi.fn(async (url: string) => (url.endsWith('/information-systems') ? json([system()]) : json(emptyPage))))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => (url.endsWith('/information-systems') ? json([system()]) : json(emptyPage))),
+      )
       const wrapper = mount(InformationSystemsView)
       await flushPromises()
       return wrapper
@@ -246,7 +335,9 @@ const SCREENS: Screen[] = [
     name: 'VLANsView (VLAN)',
     async mount() {
       const vlans = useVLANsStore()
-      vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] }] as never
+      vlans.groups = [
+        { vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] },
+      ] as never
       vlans.loaded = true
       const devices = useDevicesStore()
       devices.all = [device()]
@@ -274,7 +365,13 @@ const SCREENS: Screen[] = [
       await wrapper.findAll('.expand-btn')[1].trigger('click')
       return wrapper
     },
-    write: ['text:Добавить здание', '[aria-label="Добавить помещение"]', '[aria-label="Добавить стойку"]', '[aria-label="Редактировать"]', '[aria-label="Удалить"]'],
+    write: [
+      'text:Добавить здание',
+      '[aria-label="Добавить помещение"]',
+      '[aria-label="Добавить стойку"]',
+      '[aria-label="Редактировать"]',
+      '[aria-label="Удалить"]',
+    ],
     read: ['[aria-label="Просмотр"]'],
   },
   {
@@ -308,7 +405,10 @@ const SCREENS: Screen[] = [
     name: 'PortSyncRulesView (правила согласования портов)',
     async mount() {
       const rules = [syncRule('a'), syncRule('b', { builtin: true, code: 'std', modified: true, priority: 20 })]
-      vi.stubGlobal('fetch', vi.fn(async () => json({ items: rules, total: rules.length })))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => json({ items: rules, total: rules.length })),
+      )
       const wrapper = mount(PortSyncRulesView)
       await flushPromises()
       return wrapper
@@ -320,17 +420,29 @@ const SCREENS: Screen[] = [
   {
     name: 'ReportTemplatesView (шаблоны отчётов)',
     async mount() {
-      vi.stubGlobal('fetch', vi.fn(async () => json([template()])))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => json([template()])),
+      )
       return mountWithRouter(ReportTemplatesView, '/report-templates')
     },
-    write: ['text:Новый шаблон', '[aria-label="Открыть в конструкторе"]', '[aria-label="Дублировать"]', '[aria-label="Переименовать"]', '[aria-label="Удалить"]'],
+    write: [
+      'text:Новый шаблон',
+      '[aria-label="Открыть в конструкторе"]',
+      '[aria-label="Дублировать"]',
+      '[aria-label="Переименовать"]',
+      '[aria-label="Удалить"]',
+    ],
     // формирование отчёта и история версий доступны viewer'у (POST /report-templates/{id}/generate разрешён сервером)
     read: ['[aria-label="Сформировать"]', '[aria-label="История версий"]', '[aria-label="Просмотр"]'],
   },
   {
     name: 'DiagramListView (список диаграмм)',
     async mount() {
-      vi.stubGlobal('fetch', vi.fn(async () => json([diagramSummary])))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => json([diagramSummary])),
+      )
       return mountWithRouter(DiagramListView, '/diagrams')
     },
     write: ['text:Новая диаграмма', 'text:Дублировать', '[aria-label="Удалить"]'],
@@ -353,8 +465,14 @@ beforeEach(() => {
   setActivePinia(createPinia())
   localStorage.clear()
   document.body.innerHTML = ''
-  vi.stubGlobal('fetch', vi.fn(async () => json(emptyPage)))
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => json(emptyPage)),
+  )
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -387,7 +505,11 @@ describe.each(SCREENS)('B-04: $name', (screen) => {
 })
 
 describe('B-04: DiagramView — раскладку нельзя двигать без права записи', () => {
-  it.each<[Role, string]>([['viewer', 'false'], ['admin', 'true'], ['auth-off', 'true']])('%s: nodes-draggable=%s', async (role, expected) => {
+  it.each<[Role, string]>([
+    ['viewer', 'false'],
+    ['admin', 'true'],
+    ['auth-off', 'true'],
+  ])('%s: nodes-draggable=%s', async (role, expected) => {
     setRole(role)
     const screen = SCREENS.find((s) => s.name.startsWith('DiagramView'))!
     const wrapper = await screen.mount()
@@ -405,7 +527,10 @@ describe('B-04: VLANDomainsPanel (домены VLAN)', () => {
     const devices = useDevicesStore()
     devices.all = [device()]
     devices.loaded = true
-    vi.stubGlobal('fetch', vi.fn(async () => json(emptyPage)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => json(emptyPage)),
+    )
     return mount(VLANDomainsPanel)
   }
 

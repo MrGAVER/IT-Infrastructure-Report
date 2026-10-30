@@ -158,7 +158,10 @@ function hostLabel(id: string | null) {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ vms.pageItems.length ? (vms.page - 1) * vms.pageSize + 1 : 0 }}–{{ (vms.page - 1) * vms.pageSize + vms.pageItems.length }} из {{ vms.filtered.length }}</span>
+        <span
+          >Показано {{ vms.pageItems.length ? (vms.page - 1) * vms.pageSize + 1 : 0 }}–{{ (vms.page - 1) * vms.pageSize + vms.pageItems.length }} из
+          {{ vms.filtered.length }}</span
+        >
         <PageSizeSelect :model-value="vms.pageSize" :options="vms.pageSizeOptions" @update:model-value="vms.setPageSize" />
         <div class="pager">
           <button :disabled="vms.page <= 1" @click="vms.setPage(vms.page - 1)">‹</button>

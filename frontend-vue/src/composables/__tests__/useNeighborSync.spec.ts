@@ -91,7 +91,10 @@ describe('useNeighborSync: окно расхождения', () => {
   })
 
   it('«Применить текущую конфигурацию» по назначению: PUT порта соседа, уведомление, перечитывание соседей', async () => {
-    const { activeConflict, peersVersion, emitNeighborsChanged, openConflict, applyCurrentConfigToNeighbor } = setup([makeRow({ id: 'a', is_management: false, is_data_transfer: true })], { a: flagsConflict })
+    const { activeConflict, peersVersion, emitNeighborsChanged, openConflict, applyCurrentConfigToNeighbor } = setup(
+      [makeRow({ id: 'a', is_management: false, is_data_transfer: true })],
+      { a: flagsConflict },
+    )
     openConflict(0, 'flags')
     await applyCurrentConfigToNeighbor()
     expect(updateResource).toHaveBeenCalledWith('interfaces', 'if-9', { is_management: false, is_data_transfer: true })

@@ -33,7 +33,9 @@ export function useDeviceDomains(draft: DeviceDraft) {
   // (DeviceVlanListEditor.vue) — прямой путь стать участником УЖЕ СУЩЕСТВУЮЩЕГО домена, в отличие
   // от косвенного onVlanDomainCreated ниже (который срабатывает только как побочный эффект
   // заведения нового VLAN). Тот же pendingDomainMemberships и та же проверка "ещё не состоит".
-  const joinableDomains = computed(() => vlanDomainsStore.all.filter((d) => !draft.memberDomainIds.value.has(d.id) && !draft.pendingDomainMemberships.value.has(d.id)))
+  const joinableDomains = computed(() =>
+    vlanDomainsStore.all.filter((d) => !draft.memberDomainIds.value.has(d.id) && !draft.pendingDomainMemberships.value.has(d.id)),
+  )
 
   // Пункты 3-4 правки "включение в домен VLAN": домены, в которых устройство состоит (или будет
   // состоять после сохранения) — показываются в блоке "VLAN устройства", чтобы включение было видно

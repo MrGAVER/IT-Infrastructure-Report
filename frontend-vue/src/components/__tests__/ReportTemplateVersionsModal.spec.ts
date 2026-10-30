@@ -25,12 +25,18 @@ const versionsFixture: ReportTemplateVersion[] = [
 
 beforeEach(() => {
   setActivePinia(createPinia()) // компонент читает authStore.canWrite («Восстановить» — только запись)
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true),
+  )
 })
 
 describe('ReportTemplateVersionsModal.vue', () => {
   it('грузит и показывает список версий с номером и датой', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(versionsFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(versionsFixture)),
+    )
     const wrapper = mount(ReportTemplateVersionsModal, { props: { template: templateFixture } })
     await flushPromises()
 
@@ -41,7 +47,10 @@ describe('ReportTemplateVersionsModal.vue', () => {
   })
 
   it('пустая история — сообщение вместо списка', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([])))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse([])),
+    )
     const wrapper = mount(ReportTemplateVersionsModal, { props: { template: templateFixture } })
     await flushPromises()
 
@@ -68,7 +77,10 @@ describe('ReportTemplateVersionsModal.vue', () => {
   })
 
   it('отказ от подтверждения — запрос на восстановление не отправляется', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const fetchMock = vi.fn(async () => jsonResponse(versionsFixture))
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(ReportTemplateVersionsModal, { props: { template: templateFixture } })
@@ -98,7 +110,10 @@ describe('ReportTemplateVersionsModal.vue', () => {
   })
 
   it('кнопка "Закрыть" эмитит close', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(versionsFixture)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(versionsFixture)),
+    )
     const wrapper = mount(ReportTemplateVersionsModal, { props: { template: templateFixture } })
     await flushPromises()
 

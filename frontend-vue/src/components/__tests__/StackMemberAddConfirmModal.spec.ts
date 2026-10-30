@@ -9,8 +9,22 @@ const PREVIEW: StackMemberPreview = {
   already_member: false,
   unchanged_count: 1,
   changes: [
-    { vlan_id: 'v-10', vlan_number: 10, vlan_name: 'mgmt', action: 'update', before: { ip_address: '10.0.10.9', prefix_length: 24, is_management: false }, after: { ip_address: '10.0.10.1', prefix_length: 24, is_management: true } },
-    { vlan_id: 'v-20', vlan_number: 20, vlan_name: 'users', action: 'add', before: null, after: { ip_address: '10.0.20.1', prefix_length: 24, is_management: false } },
+    {
+      vlan_id: 'v-10',
+      vlan_number: 10,
+      vlan_name: 'mgmt',
+      action: 'update',
+      before: { ip_address: '10.0.10.9', prefix_length: 24, is_management: false },
+      after: { ip_address: '10.0.10.1', prefix_length: 24, is_management: true },
+    },
+    {
+      vlan_id: 'v-20',
+      vlan_number: 20,
+      vlan_name: 'users',
+      action: 'add',
+      before: null,
+      after: { ip_address: '10.0.20.1', prefix_length: 24, is_management: false },
+    },
   ],
 }
 

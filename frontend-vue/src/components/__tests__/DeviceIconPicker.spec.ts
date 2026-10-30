@@ -60,7 +60,10 @@ describe('DeviceIconPicker.vue', () => {
     await wrapper.find('button').trigger('click') // "+ Загрузить свою иконку"
     await wrapper.find('input[type="text"]').setValue('Моя иконка')
     await wrapper.find('textarea').setValue('<svg><rect/></svg>')
-    await wrapper.findAll('button').find((b) => b.text().includes('Сохранить иконку'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Сохранить иконку'))!
+      .trigger('click')
     await flushPromises()
 
     const postCall = fetchMock.mock.calls.find(([u, init]) => (init?.method ?? 'GET') === 'POST' && (u as string).includes('diagram-icons'))
@@ -77,7 +80,10 @@ describe('DeviceIconPicker.vue', () => {
     const wrapper = mount(DeviceIconPicker, { props: { modelValue: null } })
 
     await wrapper.find('button').trigger('click')
-    await wrapper.findAll('button').find((b) => b.text().includes('Сохранить иконку'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Сохранить иконку'))!
+      .trigger('click')
     await flushPromises()
 
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('diagram-icons'), expect.objectContaining({ method: 'POST' }))

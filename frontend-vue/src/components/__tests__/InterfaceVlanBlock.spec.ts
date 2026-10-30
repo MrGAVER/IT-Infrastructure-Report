@@ -8,7 +8,16 @@ const vlans = [makeVlan('v10', 10, 'Гостевой'), makeVlan('v20', 20, 'С�
 
 function mountBlock(props: Partial<InstanceType<typeof InterfaceVlanBlock>['$props']> = {}) {
   return mount(InterfaceVlanBlock, {
-    props: { row: makeRow({ vlan_mode: 'trunk', vlan_ids: ['v10'] }), index: 0, vlanOptions: vlans, allVlans: false, managed: false, lockNote: '', conflict: undefined, ...props },
+    props: {
+      row: makeRow({ vlan_mode: 'trunk', vlan_ids: ['v10'] }),
+      index: 0,
+      vlanOptions: vlans,
+      allVlans: false,
+      managed: false,
+      lockNote: '',
+      conflict: undefined,
+      ...props,
+    },
   })
 }
 const radios = (wrapper: ReturnType<typeof mountBlock>) => wrapper.findAll('input[type="radio"]')

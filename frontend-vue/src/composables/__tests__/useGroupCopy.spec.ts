@@ -136,7 +136,13 @@ describe('useGroupCopy', () => {
   })
 
   it('у порта несколько IP-адресов — в сообщении сказано, что скопирован первый', async () => {
-    const row = makeRow({ name: 'Gi0/2', ips: [{ ip_address: '10.0.0.1', prefix_length: '24', purpose: '' }, { ip_address: '10.0.0.2', prefix_length: '24', purpose: '' }] })
+    const row = makeRow({
+      name: 'Gi0/2',
+      ips: [
+        { ip_address: '10.0.0.1', prefix_length: '24', purpose: '' },
+        { ip_address: '10.0.0.2', prefix_length: '24', purpose: '' },
+      ],
+    })
     const { copy, draft } = setup([row])
     copy.copySource.value = '0'
     await nextTick()

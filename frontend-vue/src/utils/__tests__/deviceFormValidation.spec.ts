@@ -24,7 +24,9 @@ function draft(patch: Partial<DeviceDraftToValidate> = {}): DeviceDraftToValidat
 
 describe('validateDeviceDraft', () => {
   it('корректная форма — проблем нет', () => {
-    expect(validateDeviceDraft(draft({ interfaces: [makeRow({ name: 'Gi0/1' })], deviceVlans: [vlanRow({ ip_address: '10.0.0.1', prefix_length: '24' })] }))).toBeNull()
+    expect(
+      validateDeviceDraft(draft({ interfaces: [makeRow({ name: 'Gi0/1' })], deviceVlans: [vlanRow({ ip_address: '10.0.0.1', prefix_length: '24' })] })),
+    ).toBeNull()
   })
 
   it('без типа устройства — первая проверка, остальное не смотрится', () => {

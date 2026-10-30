@@ -39,7 +39,10 @@ function displayedValue(root: DOMWrapper<Element>): string {
 beforeEach(() => {
   setActivePinia(createPinia())
   document.body.innerHTML = ''
-  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })),
+  )
 })
 
 describe('ConnectionFormModal.vue — быстрое добавление типа подключения', () => {
@@ -150,9 +153,7 @@ describe('ConnectionFormModal.vue — предупреждение о свобо
     const devices = useDevicesStore()
     devices.all = [{ id: 'dev-1', system_name: 'srv-01', serial_number: 'SN-1' } as never]
     const connections = useConnectionsStore()
-    connections.all = [
-      { id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-other', is_active: true } as never,
-    ]
+    connections.all = [{ id: 'c-1', source_interface_id: 'if-1', destination_interface_id: 'if-other', is_active: true } as never]
 
     const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
     const sourceFieldset = wrapper.findAll('.endpoint')[0]
@@ -229,8 +230,7 @@ interface PreviewWorld {
   vlans?: Record<string, number[]>
   approved?: Record<string, string>
 }
-const configKey = (s: PortConfigPreviewSide, d: PortConfigPreviewSide) =>
-  `${s.role}>${d.role}|${s.mode}>${d.mode}|${s.vlans.join(',')}>${d.vlans.join(',')}`
+const configKey = (s: PortConfigPreviewSide, d: PortConfigPreviewSide) => `${s.role}>${d.role}|${s.mode}>${d.mode}|${s.vlans.join(',')}>${d.vlans.join(',')}`
 
 function previewFor(url: string, world: PreviewWorld): PortConfigPreview {
   const p = new URL(url, 'http://x').searchParams
@@ -288,9 +288,21 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
     await flushPromises()
   }
 
-  interface Call { url: string; method: string; body?: Record<string, unknown> }
+  interface Call {
+    url: string
+    method: string
+    body?: Record<string, unknown>
+  }
 
-  function stubApi(opts: { portRoleStatus?: number; approveStatus?: number; previewStatus?: number; world?: PreviewWorld; cascade?: { plan: VlanModeCascadePlan; previewStatus?: number } } = {}) {
+  function stubApi(
+    opts: {
+      portRoleStatus?: number
+      approveStatus?: number
+      previewStatus?: number
+      world?: PreviewWorld
+      cascade?: { plan: VlanModeCascadePlan; previewStatus?: number }
+    } = {},
+  ) {
     const calls: Call[] = []
     vi.stubGlobal(
       'fetch',
@@ -303,11 +315,17 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
           const cascade = opts.cascade
           if (!cascade) return jsonResponse({ detail: 'Каскад не ожидался' }, 500)
           if (url.endsWith('/preview')) {
-            return cascade.previewStatus ? jsonResponse({ detail: 'Область изменения превышает 1000 портов' }, cascade.previewStatus) : jsonResponse(cascade.plan)
+            return cascade.previewStatus
+              ? jsonResponse({ detail: 'Область изменения превышает 1000 портов' }, cascade.previewStatus)
+              : jsonResponse(cascade.plan)
           }
           const id = url.match(/interfaces\/([^/]+)\/vlan-mode-cascade/)![1]
           const existing = (useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]).find((i) => i.id === id)
-          return jsonResponse({ plan: cascade.plan, applied: { ports: 1, groups: 0, devices: 1 }, interfaces: [{ ...existing, vlan_mode: cascade.plan.target_mode }] })
+          return jsonResponse({
+            plan: cascade.plan,
+            applied: { ports: 1, groups: 0, devices: 1 },
+            interfaces: [{ ...existing, vlan_mode: cascade.plan.target_mode }],
+          })
         }
         if (method === 'GET' && url.includes('/connections/port-config/preview')) {
           if (opts.previewStatus) return jsonResponse({ detail: 'Сервер недоступен' }, opts.previewStatus)
@@ -366,7 +384,13 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
     expect(wrapper.find('.resolution').exists()).toBe(false)
     const [create] = saveCalls(calls)
     expect(create.method).toBe('POST')
-    expect(create.body).toEqual({ source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1', is_active: true, description: null })
+    expect(create.body).toEqual({
+      source_interface_id: 'if-src',
+      destination_interface_id: 'if-dst',
+      connection_type_id: 'ct-1',
+      is_active: true,
+      description: null,
+    })
     expect(wrapper.emitted('saved')).toHaveLength(1)
   })
 
@@ -411,10 +435,7 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
     await flushPromises()
 
     const writes = calls.filter((c) => c.method !== 'GET')
-    expect(writes.map((c) => `${c.method} ${c.url.replace(/^.*\/api\/v1/, '')}`)).toEqual([
-      'PUT /interfaces/if-dst/port-role',
-      'POST /resources/connections',
-    ])
+    expect(writes.map((c) => `${c.method} ${c.url.replace(/^.*\/api\/v1/, '')}`)).toEqual(['PUT /interfaces/if-dst/port-role', 'POST /resources/connections'])
     expect(writes[0].body).toEqual({ is_management: true, is_data_transfer: false })
     expect(wrapper.emitted('saved')).toHaveLength(1)
     // Кэш портов обновлён — расхождения в форме больше нет.
@@ -542,7 +563,20 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
         makePlan({
           target_mode: 'trunk',
           start_interface_id: 'if-dst',
-          groups: [groupChange({ id: 'g-dst', name: 'Магистраль', device_id: 'dev-dst', device_name: 'dst-dev', from_mode: 'access', to_mode: 'trunk', ports: [{ id: 'if-dst', name: 'Gi0/2' }, { id: 'if-x', name: 'Gi0/3' }] })],
+          groups: [
+            groupChange({
+              id: 'g-dst',
+              name: 'Магистраль',
+              device_id: 'dev-dst',
+              device_name: 'dst-dev',
+              from_mode: 'access',
+              to_mode: 'trunk',
+              ports: [
+                { id: 'if-dst', name: 'Gi0/2' },
+                { id: 'if-x', name: 'Gi0/3' },
+              ],
+            }),
+          ],
           ports: [],
           devices: [{ id: 'dev-dst', name: 'dst-dev', deferred: false, port_count: 2, group_count: 1 }],
           totals: { ports: 2, devices: 1, groups: 1, deferred_ports: 0, immediate_ports: 2, immediate_devices: 1, dropped_vlans: 0 },
@@ -572,7 +606,11 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
 
       it('в обратную сторону: порту источника задаём режим назначения', async () => {
         modeMismatch()
-        const plan = makePlan({ target_mode: 'access', start_interface_id: 'if-src', ports: [portChange({ id: 'if-src', name: 'Gi0/1', device_id: 'dev-src', device_name: 'src-dev', from_mode: 'trunk', to_mode: 'access' })] })
+        const plan = makePlan({
+          target_mode: 'access',
+          start_interface_id: 'if-src',
+          ports: [portChange({ id: 'if-src', name: 'Gi0/1', device_id: 'dev-src', device_name: 'src-dev', from_mode: 'trunk', to_mode: 'access' })],
+        })
         const calls = stubApi({ cascade: { plan } })
         const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
         await fillAndSubmit(wrapper)
@@ -677,7 +715,10 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
         const wrapper = mount(ConnectionFormModal, { props: { connection: null } })
         await fillAndSubmit(wrapper)
         // в БД порты уже выровнены кем-то другим, а каталог формы об этом ещё не знает
-        useCatalogsStore().items['interfaces'] = (useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]).map((i) => ({ ...i, vlan_mode: 'trunk' })) as never
+        useCatalogsStore().items['interfaces'] = (useCatalogsStore().items['interfaces'] as unknown as DeviceInterface[]).map((i) => ({
+          ...i,
+          vlan_mode: 'trunk',
+        })) as never
 
         await wrapper.find('[data-resolution="mode-keep-source"]').trigger('click')
         await flushPromises()
@@ -765,7 +806,9 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
     it('«Сохранить» сразу после выбора порта дожидается ответа сервера и только потом решает, спрашивать ли', async () => {
       setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
       const calls = stubApi()
-      const respond = (globalThis.fetch as unknown as { getMockImplementation: () => (url: string, init?: RequestInit) => Promise<Response> }).getMockImplementation()
+      const respond = (
+        globalThis.fetch as unknown as { getMockImplementation: () => (url: string, init?: RequestInit) => Promise<Response> }
+      ).getMockImplementation()
       let release!: () => void
       const gate = new Promise<void>((resolve) => (release = resolve))
       vi.stubGlobal(
@@ -795,7 +838,9 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
       setupInterfaces({ is_data_transfer: true }, { is_data_transfer: true })
       useCatalogsStore().loaded = true // иначе DevicePortsModal.onMounted перезатрёт items['interfaces'] через reload()
       const calls = stubApi({ world: { vlans: { 'if-src': [10], 'if-dst': [10] } } })
-      const respond = (globalThis.fetch as unknown as { getMockImplementation: () => (url: string, init?: RequestInit) => Promise<Response> }).getMockImplementation()
+      const respond = (
+        globalThis.fetch as unknown as { getMockImplementation: () => (url: string, init?: RequestInit) => Promise<Response> }
+      ).getMockImplementation()
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string, init?: RequestInit) => {
@@ -851,7 +896,12 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
       mount(ConnectionFormModal, {
         props: {
           connection: {
-            id: 'conn-7', source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1', is_active: true, description: null,
+            id: 'conn-7',
+            source_interface_id: 'if-src',
+            destination_interface_id: 'if-dst',
+            connection_type_id: 'ct-1',
+            is_active: true,
+            description: null,
           } as never,
         },
       })
@@ -862,7 +912,12 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
 
     it('одобренное расхождение режима и VLAN не спрашивается повторно, пока оно не изменилось; изменилось — спрашивается заново', async () => {
       const connection = {
-        id: 'conn-1', source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1', is_active: true, description: null,
+        id: 'conn-1',
+        source_interface_id: 'if-src',
+        destination_interface_id: 'if-dst',
+        connection_type_id: 'ct-1',
+        is_active: true,
+        description: null,
         port_config_status: 'approved' as const,
       }
       setupInterfaces({ is_data_transfer: true, vlan_mode: 'trunk' }, { is_data_transfer: true, vlan_mode: 'access' })
@@ -890,11 +945,25 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
 
   describe('редактирование подключения с уже одобренным расхождением', () => {
     const approvedConnection = {
-      id: 'conn-1', source_interface_id: 'if-src', destination_interface_id: 'if-dst', connection_type_id: 'ct-1',
-      is_active: true, description: null,
-      source_device_name: 'src-dev', source_interface_name: 'Gi0/1', destination_device_name: 'dst-dev', destination_interface_name: 'Gi0/2', connection_type_name: 'Медь',
-      source_port_role: 'management' as const, destination_port_role: 'data' as const, port_config_status: 'approved' as const,
-      source_vlan_mode: 'trunk' as const, destination_vlan_mode: 'trunk' as const, source_vlans: [], destination_vlans: [], port_config_diff: ['role' as const],
+      id: 'conn-1',
+      source_interface_id: 'if-src',
+      destination_interface_id: 'if-dst',
+      connection_type_id: 'ct-1',
+      is_active: true,
+      description: null,
+      source_device_name: 'src-dev',
+      source_interface_name: 'Gi0/1',
+      destination_device_name: 'dst-dev',
+      destination_interface_name: 'Gi0/2',
+      connection_type_name: 'Медь',
+      source_port_role: 'management' as const,
+      destination_port_role: 'data' as const,
+      port_config_status: 'approved' as const,
+      source_vlan_mode: 'trunk' as const,
+      destination_vlan_mode: 'trunk' as const,
+      source_vlans: [],
+      destination_vlans: [],
+      port_config_diff: ['role' as const],
     }
 
     it('роли те же, что были одобрены — повторно не спрашивает и сохраняет сразу', async () => {
@@ -966,11 +1035,25 @@ describe('ConnectionFormModal.vue — prefill (фикс п.3.4, визуальн
       { id: 'dev-c', system_name: 'c', serial_number: 'SN-C' } as never,
     ]
     const connection = {
-      id: 'c1', source_interface_id: 'if-a', destination_interface_id: 'if-b', connection_type_id: 'ct-1',
-      is_active: true, description: null,
-      source_device_name: 'a', source_interface_name: 'eth0', destination_device_name: 'b', destination_interface_name: 'eth1', connection_type_name: 'Медь',
-      source_port_role: 'data' as const, destination_port_role: 'data' as const, port_config_status: 'ok' as const,
-      source_vlan_mode: 'trunk' as const, destination_vlan_mode: 'trunk' as const, source_vlans: [], destination_vlans: [], port_config_diff: [],
+      id: 'c1',
+      source_interface_id: 'if-a',
+      destination_interface_id: 'if-b',
+      connection_type_id: 'ct-1',
+      is_active: true,
+      description: null,
+      source_device_name: 'a',
+      source_interface_name: 'eth0',
+      destination_device_name: 'b',
+      destination_interface_name: 'eth1',
+      connection_type_name: 'Медь',
+      source_port_role: 'data' as const,
+      destination_port_role: 'data' as const,
+      port_config_status: 'ok' as const,
+      source_vlan_mode: 'trunk' as const,
+      destination_vlan_mode: 'trunk' as const,
+      source_vlans: [],
+      destination_vlans: [],
+      port_config_diff: [],
     }
 
     const wrapper = mount(ConnectionFormModal, { props: { connection, prefill: { sourceInterfaceId: 'if-a', destinationInterfaceId: 'if-c' } } })

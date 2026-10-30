@@ -149,41 +149,42 @@ async function removeItem() {
         <div v-if="!fields.length" class="form-error">Для «{{ resourceLabel }}» форма не настроена.</div>
 
         <fieldset v-else class="readonly-fieldset" :disabled="readOnly">
-        <form class="form-grid" @submit.prevent="submit">
-          <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
-            <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
-            <div v-if="f.type === 'fk'" class="fk-row">
-              <SearchableSelect
-                :model-value="(values[f.name] as string) ?? ''"
-                :options="fkSelectOptions(f)"
-                @update:model-value="(v) => (values[f.name] = v)"
-              />
-              <QuickAddButton
-                v-if="f.nestedQuickAdd && f.fkResource"
-                :resource="f.fkResource"
-                :title="QUICK_ADD_LABELS[f.fkResource]"
-                @created="(record) => onNestedCreated(f.name, record)"
-              />
-            </div>
-            <textarea v-else-if="f.type === 'textarea'" v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" rows="2"></textarea>
-            <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
-              <input
-                type="checkbox"
-                :checked="values[f.name] as boolean"
-                @change="values[f.name] = ($event.target as HTMLInputElement).checked"
-              />
-            </label>
-            <!-- Поле без своей <span>-подписи внутри <label>: DeviceIconPicker уже рендерит
+          <form class="form-grid" @submit.prevent="submit">
+            <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
+              <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
+              <div v-if="f.type === 'fk'" class="fk-row">
+                <SearchableSelect
+                  :model-value="(values[f.name] as string) ?? ''"
+                  :options="fkSelectOptions(f)"
+                  @update:model-value="(v) => (values[f.name] = v)"
+                />
+                <QuickAddButton
+                  v-if="f.nestedQuickAdd && f.fkResource"
+                  :resource="f.fkResource"
+                  :title="QUICK_ADD_LABELS[f.fkResource]"
+                  @created="(record) => onNestedCreated(f.name, record)"
+                />
+              </div>
+              <textarea
+                v-else-if="f.type === 'textarea'"
+                v-model="values[f.name] as string"
+                v-truncate-tooltip="String(values[f.name] ?? '')"
+                rows="2"
+              ></textarea>
+              <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
+                <input type="checkbox" :checked="values[f.name] as boolean" @change="values[f.name] = ($event.target as HTMLInputElement).checked" />
+              </label>
+              <!-- Поле без своей <span>-подписи внутри <label>: DeviceIconPicker уже рендерит
                  собственную подпись "Иконка на диаграмме топологии сети" в своём шаблоне,
                  повторять её здесь через внешний <span> означало бы дублирование текста. -->
-            <DeviceIconPicker
-              v-else-if="f.type === 'diagram-icon'"
-              :model-value="(values[f.name] as string) || null"
-              @update:model-value="(v) => (values[f.name] = v ?? '')"
-            />
-            <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
-          </label>
-        </form>
+              <DeviceIconPicker
+                v-else-if="f.type === 'diagram-icon'"
+                :model-value="(values[f.name] as string) || null"
+                @update:model-value="(v) => (values[f.name] = v ?? '')"
+              />
+              <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
+            </label>
+          </form>
         </fieldset>
 
         <div class="modal-foot">

@@ -84,11 +84,18 @@ export function useInterfaceRows(deps: InterfaceRowsDeps, ui: RowUiState) {
       return
     }
     if (target.open_ports.length) {
-      const ok = confirm(`На порту «${targetLabel}» уже есть открытые порты (${target.open_ports.length} шт.) — заменить их копией с «${sourceLabel}» (${source.open_ports.length} шт.)?`)
+      const ok = confirm(
+        `На порту «${targetLabel}» уже есть открытые порты (${target.open_ports.length} шт.) — заменить их копией с «${sourceLabel}» (${source.open_ports.length} шт.)?`,
+      )
       if (!ok) return
     }
     // Копия упорядочивается по номеру порта — как список, к которому пользователь добавил порт кнопкой.
-    updateRow(targetIndex, { open_ports: sortOpenPortRows(source.open_ports.map((p) => ({ ...p, id: undefined })), deps.protocolPortCatalog()) })
+    updateRow(targetIndex, {
+      open_ports: sortOpenPortRows(
+        source.open_ports.map((p) => ({ ...p, id: undefined })),
+        deps.protocolPortCatalog(),
+      ),
+    })
     notify(`Открытые порты скопированы с «${sourceLabel}» на «${targetLabel}».`, 'success')
     ui.setCopyTarget(sourceIndex, '')
   }

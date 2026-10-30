@@ -18,7 +18,11 @@ function stubServer(role: Role) {
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/auth/status')) return json({ enabled, session_ttl_hours: 12 })
-      if (url.endsWith('/auth/me')) return json({ enabled, user: enabled ? { id: 'u1', username: role, role, is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' } : null })
+      if (url.endsWith('/auth/me'))
+        return json({
+          enabled,
+          user: enabled ? { id: 'u1', username: role, role, is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' } : null,
+        })
       return preferencesFetch(url, init)
     }),
   )

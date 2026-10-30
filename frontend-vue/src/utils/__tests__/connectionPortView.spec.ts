@@ -15,7 +15,12 @@ describe('buildConfigView', () => {
     const view = buildConfigView(
       a,
       b,
-      preview(previewSide('if-a', { role: 'management', mode: 'trunk', vlans: [10, 20] }), previewSide('if-b', { role: 'data', mode: 'access', vlans: [] }), 'mismatch', ['role', 'mode', 'vlans']),
+      preview(
+        previewSide('if-a', { role: 'management', mode: 'trunk', vlans: [10, 20] }),
+        previewSide('if-b', { role: 'data', mode: 'access', vlans: [] }),
+        'mismatch',
+        ['role', 'mode', 'vlans'],
+      ),
     )
     expect(view).toEqual({
       status: 'mismatch',
@@ -59,7 +64,9 @@ describe('buildConfigView', () => {
 
 describe('sideLabel', () => {
   it('роль · режим · VLAN', () => {
-    expect(sideLabel({ id: 'x', name: 'x', role: 'management_data', mode: 'trunk', vlans: [10, 11, 12, 20] })).toBe('Передача данных и управление активами · trunk · VLAN 10–12, 20')
+    expect(sideLabel({ id: 'x', name: 'x', role: 'management_data', mode: 'trunk', vlans: [10, 11, 12, 20] })).toBe(
+      'Передача данных и управление активами · trunk · VLAN 10–12, 20',
+    )
   })
 
   it('режим и VLAN неизвестны — только роль', () => {

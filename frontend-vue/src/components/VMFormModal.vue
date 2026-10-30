@@ -221,9 +221,7 @@ async function submit() {
   saving.value = true
   try {
     const payload = toPayload()
-    const saved = isEdit.value
-      ? await updateResource<VirtualMachine>('vms', props.vm!.id, payload)
-      : await createResource<VirtualMachine>('vms', payload)
+    const saved = isEdit.value ? await updateResource<VirtualMachine>('vms', props.vm!.id, payload) : await createResource<VirtualMachine>('vms', payload)
     await persistVmIps(saved.id)
     await persistOpenPorts(saved.id)
     await persistSoftwareAssets(saved.id)
@@ -252,52 +250,52 @@ async function submit() {
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field field-wide">
-          <span>Название *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="255" />
-        </label>
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field field-wide">
+            <span>Название *</span>
+            <input v-model.trim="form.name" type="text" required maxlength="255" />
+          </label>
 
-        <label class="field">
-          <span>Операционная система</span>
-          <div class="lookup-row">
-            <SearchableSelect v-model="form.operating_system_id" :options="operatingSystemOptions" placeholder="— не указана —" />
-            <QuickAddButton resource="operating-systems" title="Операционная система" @created="(r) => (form.operating_system_id = r.id)" />
-          </div>
-        </label>
+          <label class="field">
+            <span>Операционная система</span>
+            <div class="lookup-row">
+              <SearchableSelect v-model="form.operating_system_id" :options="operatingSystemOptions" placeholder="— не указана —" />
+              <QuickAddButton resource="operating-systems" title="Операционная система" @created="(r) => (form.operating_system_id = r.id)" />
+            </div>
+          </label>
 
-        <label class="field">
-          <span>Физическое устройство (хост)</span>
-          <SearchableSelect v-model="form.physical_device_id" :options="hostOptions" placeholder="— не указано —" />
-          <small v-if="!hostCandidates.length" class="hint-small">Нет доступных серверов/СХД в реестре устройств.</small>
-        </label>
+          <label class="field">
+            <span>Физическое устройство (хост)</span>
+            <SearchableSelect v-model="form.physical_device_id" :options="hostOptions" placeholder="— не указано —" />
+            <small v-if="!hostCandidates.length" class="hint-small">Нет доступных серверов/СХД в реестре устройств.</small>
+          </label>
 
-        <label class="field">
-          <span>Гипервизор (определяется автоматически по хосту)</span>
-          <input :value="derivedHypervisor ?? '—'" type="text" disabled />
-        </label>
+          <label class="field">
+            <span>Гипервизор (определяется автоматически по хосту)</span>
+            <input :value="derivedHypervisor ?? '—'" type="text" disabled />
+          </label>
 
-        <label class="field field-wide">
-          <span>Целевое назначение</span>
-          <textarea v-model.trim="form.purpose" rows="2" maxlength="2000"></textarea>
-        </label>
+          <label class="field field-wide">
+            <span>Целевое назначение</span>
+            <textarea v-model.trim="form.purpose" rows="2" maxlength="2000"></textarea>
+          </label>
 
-        <label class="field field-wide">
-          <span>Описание</span>
-          <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
-        </label>
+          <label class="field field-wide">
+            <span>Описание</span>
+            <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
+          </label>
 
-        <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов и открытых портов…</p>
-        <VmIpListEditor v-else v-model="vmIps" />
-        <OpenPortListEditor
-          v-if="!loadingNested"
-          v-model="openPorts"
-          :catalog-entries="catalogs.protocolPortCatalog"
-          :collapse-after="formPreferences.collapseRows"
-          sorted-unique
-        />
-        <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
-      </form>
+          <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов и открытых портов…</p>
+          <VmIpListEditor v-else v-model="vmIps" />
+          <OpenPortListEditor
+            v-if="!loadingNested"
+            v-model="openPorts"
+            :catalog-entries="catalogs.protocolPortCatalog"
+            :collapse-after="formPreferences.collapseRows"
+            sorted-unique
+          />
+          <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
+        </form>
       </fieldset>
 
       <div class="modal-foot">

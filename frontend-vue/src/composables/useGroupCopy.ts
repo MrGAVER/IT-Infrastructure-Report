@@ -29,7 +29,9 @@ export function useGroupCopy(deps: GroupCopyDeps) {
   const copyPortOptions = computed(() => deps.rows().map((row, i) => ({ value: String(i), label: row.name || `#${i + 1}` })))
   const copyRow = computed(() => (copySource.value === '' ? undefined : deps.rows()[Number(copySource.value)]))
   const copyAvailable = computed(() => (copyRow.value ? copyableFields(copyRow.value) : none()))
-  const copyNothingAvailable = computed(() => !!copyRow.value && !copyAvailable.value.vlan && !copyAvailable.value.ip && !copyAvailable.value.openPorts && !copyAvailable.value.subinterfaces)
+  const copyNothingAvailable = computed(
+    () => !!copyRow.value && !copyAvailable.value.vlan && !copyAvailable.value.ip && !copyAvailable.value.openPorts && !copyAvailable.value.subinterfaces,
+  )
   const canCopy = computed(
     () =>
       (copyWhat.value.vlan && copyAvailable.value.vlan) ||
@@ -56,7 +58,10 @@ export function useGroupCopy(deps: GroupCopyDeps) {
     deps.apply(next)
     const label = row.name || `#${Number(copySource.value) + 1}`
     const manyIps = copyWhat.value.ip && row.ips.filter((ip) => ip.ip_address.trim() !== '').length > 1
-    notify(manyIps ? `Значения скопированы с порта «${label}». У порта несколько IP-адресов — скопирован первый.` : `Значения скопированы с порта «${label}».`, 'success')
+    notify(
+      manyIps ? `Значения скопированы с порта «${label}». У порта несколько IP-адресов — скопирован первый.` : `Значения скопированы с порта «${label}».`,
+      'success',
+    )
     // Подинтерфейсы на VLAN, которых нет в VLAN группы, шаблонами не становятся: говорим об этом, а не теряем молча.
     if (copyWhat.value.subinterfaces && copyAvailable.value.subinterfaces) {
       const { templates, skipped } = subinterfaceTemplatesFromRow(row, next, deviceVlanIds)

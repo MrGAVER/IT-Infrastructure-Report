@@ -25,7 +25,10 @@ function setup(initial: InterfaceDraftRow[]) {
 
 describe('usePortGenerator', () => {
   beforeEach(() => {
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
   })
 
   it('начальное количество — число уже загруженных строк', () => {
@@ -65,7 +68,10 @@ describe('usePortGenerator', () => {
   })
 
   it('отказ в подтверждении оставляет список и галочку как есть', () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
     const { rows, generator } = setup([makeRow({ name: 'keep' })])
     generator.replaceAllPorts.value = true
     generator.applyGenerator()

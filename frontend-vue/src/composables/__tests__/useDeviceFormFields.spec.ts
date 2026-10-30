@@ -21,10 +21,23 @@ function setup() {
 beforeEach(() => {
   setActivePinia(createPinia())
   seed({
-    buildings: [{ id: 'b1', name: 'Корпус 1' }, { id: 'b2', name: 'Корпус 2' }],
-    rooms: [{ id: 'r1', name: 'Серверная', building_id: 'b1' }, { id: 'r2', name: 'Склад', building_id: 'b1' }, { id: 'r3', name: 'ЦОД', building_id: 'b2' }],
-    racks: [{ id: 'k1', name: 'Стойка 1', room_id: 'r1' }, { id: 'k2', name: 'Стойка 2', room_id: 'r3' }],
-    'device-types': [{ id: 't-sw', name: 'Коммутатор' }, { id: 't-srv', name: 'Сервер' }],
+    buildings: [
+      { id: 'b1', name: 'Корпус 1' },
+      { id: 'b2', name: 'Корпус 2' },
+    ],
+    rooms: [
+      { id: 'r1', name: 'Серверная', building_id: 'b1' },
+      { id: 'r2', name: 'Склад', building_id: 'b1' },
+      { id: 'r3', name: 'ЦОД', building_id: 'b2' },
+    ],
+    racks: [
+      { id: 'k1', name: 'Стойка 1', room_id: 'r1' },
+      { id: 'k2', name: 'Стойка 2', room_id: 'r3' },
+    ],
+    'device-types': [
+      { id: 't-sw', name: 'Коммутатор' },
+      { id: 't-srv', name: 'Сервер' },
+    ],
     manufacturers: [{ id: 'm-cisco', name: 'Cisco' }],
     'device-models': [
       { id: 'mod-1', model: 'WS-C2960', name: '', manufacturer_id: 'm-cisco', device_type_id: 't-sw' },
@@ -38,7 +51,10 @@ beforeEach(() => {
 describe('опции справочников', () => {
   it('здания, ОС и встроенная ОС: подпись — название и версия', () => {
     const { fields } = setup()
-    expect(fields.buildingOptions.value).toEqual([{ value: 'b1', label: 'Корпус 1' }, { value: 'b2', label: 'Корпус 2' }])
+    expect(fields.buildingOptions.value).toEqual([
+      { value: 'b1', label: 'Корпус 1' },
+      { value: 'b2', label: 'Корпус 2' },
+    ])
     expect(fields.operatingSystemOptions.value).toEqual([{ value: 'os-1', label: 'Windows Server 2022' }])
     expect(fields.embeddedOsOptions.value).toEqual([{ value: 'eos-1', label: 'IOS' }])
   })

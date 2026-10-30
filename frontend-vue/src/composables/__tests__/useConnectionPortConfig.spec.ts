@@ -17,11 +17,17 @@ function setup(initial: { source?: DeviceInterface | null; destination?: DeviceI
   const destination = ref<DeviceInterface | null>(initial.destination ?? null)
   const connectionId = ref<string | undefined>(initial.connectionId)
   const isActive = ref(initial.isActive ?? true)
-  const config = useConnectionPortConfig({ source: () => source.value, destination: () => destination.value, connectionId: () => connectionId.value, isActive: () => isActive.value })
+  const config = useConnectionPortConfig({
+    source: () => source.value,
+    destination: () => destination.value,
+    connectionId: () => connectionId.value,
+    isActive: () => isActive.value,
+  })
   return { config, source, destination, connectionId, isActive }
 }
 
-const mismatchPreview = () => preview(previewSide('if-a', { role: 'management', mode: 'trunk' }), previewSide('if-b', { role: 'data', mode: 'access' }), 'mismatch', ['role', 'mode'])
+const mismatchPreview = () =>
+  preview(previewSide('if-a', { role: 'management', mode: 'trunk' }), previewSide('if-b', { role: 'data', mode: 'access' }), 'mismatch', ['role', 'mode'])
 
 beforeEach(() => {
   previewMock.mockReset()

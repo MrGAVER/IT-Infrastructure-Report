@@ -130,7 +130,14 @@ describe('InterfaceRow — свёрнутая строка', () => {
 
   it('сводка перечисляет IP, подинтерфейсы, подключение и группу', () => {
     const group = emptyGroup('Магистраль')
-    const connection = { peer_device_id: 'dev-2', peer_interface_id: 'p9', connection_type_id: '', description: '', peer_device_name: 'sw-02', peer_interface_name: 'Gi0/9' }
+    const connection = {
+      peer_device_id: 'dev-2',
+      peer_interface_id: 'p9',
+      connection_type_id: '',
+      description: '',
+      peer_device_name: 'sw-02',
+      peer_interface_name: 'Gi0/9',
+    }
     const row = makeRow({
       id: 'if-1',
       vlan_mode: 'trunk',
@@ -256,7 +263,12 @@ describe('InterfaceRow — раскрытая часть', () => {
 
     expect(wrapper.findAll('.vlan-block input[type="radio"]').every((r) => r.attributes('disabled') !== undefined)).toBe(true)
     expect(wrapper.find('.ip-head button').exists()).toBe(false)
-    expect(wrapper.findAll('.group-lock').map((n) => n.text()).every((t) => t.includes('«Магистраль»'))).toBe(true)
+    expect(
+      wrapper
+        .findAll('.group-lock')
+        .map((n) => n.text())
+        .every((t) => t.includes('«Магистраль»')),
+    ).toBe(true)
     expect(wrapper.findAll('.group-lock')).toHaveLength(3) // режим и VLAN, IP-адрес, открытые порты
     expect(wrapper.find('textarea').attributes('disabled')).toBeUndefined() // описание группа не задаёт
     wrapper.unmount()
@@ -286,7 +298,17 @@ describe('InterfaceRow — раскрытая часть', () => {
       makeRow({ id: 'e', name: 'Gi0/5', connection: link('a') }),
     ]
     const wrapper = mountRow(
-      { row: rows[1], rows, index: 1, expanded: true, deviceId: 'dev-1', deviceLabel: 'sw-01', freedPeerIds: new Set(['p1']), peersVersion: 4, applyingPeerConfig: true },
+      {
+        row: rows[1],
+        rows,
+        index: 1,
+        expanded: true,
+        deviceId: 'dev-1',
+        deviceLabel: 'sw-01',
+        freedPeerIds: new Set(['p1']),
+        peersVersion: 4,
+        applyingPeerConfig: true,
+      },
       { editConnections: true },
     )
     const editor = wrapper.getComponent(InterfaceConnectionEditor)
@@ -302,7 +324,12 @@ describe('InterfaceRow — раскрытая часть', () => {
   it('«Подключение»: изменение подключения уходит в update, применение конфигурации — отдельными событиями', async () => {
     const wrapper = mountRow({ expanded: true }, { editConnections: true })
     const editor = wrapper.getComponent(InterfaceConnectionEditor)
-    const peer = { ref: 'p1', label: 'b1', config: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' as const, all_vlans: false }, isSelf: false }
+    const peer = {
+      ref: 'p1',
+      label: 'b1',
+      config: { is_management: false, is_data_transfer: false, vlan_mode: 'trunk' as const, all_vlans: false },
+      isSelf: false,
+    }
 
     editor.vm.$emit('update:modelValue', null)
     editor.vm.$emit('apply-peer-config', peer, ['flags'])

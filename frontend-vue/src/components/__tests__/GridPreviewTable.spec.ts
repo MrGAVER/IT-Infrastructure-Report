@@ -15,7 +15,15 @@ describe('GridPreviewTable.vue', () => {
     const section: GridPreviewSection = {
       title: 'Лист 1',
       n_cols: 2,
-      rows: [{ height: 20, cells: [{ col: 0, colspan: 1, rowspan: 1, value: 'Имя', is_datetime: false, style: {} }, { col: 1, colspan: 1, rowspan: 1, value: 'srv-01', is_datetime: false, style: {} }] }],
+      rows: [
+        {
+          height: 20,
+          cells: [
+            { col: 0, colspan: 1, rowspan: 1, value: 'Имя', is_datetime: false, style: {} },
+            { col: 1, colspan: 1, rowspan: 1, value: 'srv-01', is_datetime: false, style: {} },
+          ],
+        },
+      ],
       total_records: 1,
     }
     const wrapper = mount(GridPreviewTable, { props: { section } })
@@ -39,7 +47,13 @@ describe('GridPreviewTable.vue', () => {
       n_cols: 2,
       rows: [
         { height: 20, cells: [{ col: 0, colspan: 2, rowspan: 1, value: 'Заголовок', is_datetime: false, style: {} }] },
-        { height: 20, cells: [{ col: 0, colspan: 1, rowspan: 1, value: 'a', is_datetime: false, style: {} }, { col: 1, colspan: 1, rowspan: 1, value: 'b', is_datetime: false, style: {} }] },
+        {
+          height: 20,
+          cells: [
+            { col: 0, colspan: 1, rowspan: 1, value: 'a', is_datetime: false, style: {} },
+            { col: 1, colspan: 1, rowspan: 1, value: 'b', is_datetime: false, style: {} },
+          ],
+        },
       ],
     }
     const wrapper = mount(GridPreviewTable, { props: { section } })

@@ -58,10 +58,7 @@ async function removeUnit(node: StructuralUnitNode) {
 <template>
   <div class="units-view">
     <div class="toolbar">
-      <p class="hint">
-        Иерархический справочник — используется для фильтрации отчётов и устройств по
-        подразделениям (через привязку к зданиям).
-      </p>
+      <p class="hint">Иерархический справочник — используется для фильтрации отчётов и устройств по подразделениям (через привязку к зданиям).</p>
       <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreateRoot">
         <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
         Добавить корневую единицу
@@ -70,9 +67,7 @@ async function removeUnit(node: StructuralUnitNode) {
 
     <div v-if="catalogs.error" class="error-banner card">{{ catalogs.error }}</div>
     <div v-else-if="catalogs.loading && !catalogs.loaded" class="loading-banner">Загрузка…</div>
-    <div v-else-if="!catalogs.structuralUnitTree.length" class="empty-banner card">
-      Структурные единицы ещё не заведены.
-    </div>
+    <div v-else-if="!catalogs.structuralUnitTree.length" class="empty-banner card">Структурные единицы ещё не заведены.</div>
 
     <div v-else class="tree card">
       <StructuralUnitCrudNode
@@ -86,13 +81,7 @@ async function removeUnit(node: StructuralUnitNode) {
       />
     </div>
 
-    <StructuralUnitFormModal
-      v-if="modal.open"
-      :unit="modal.unit"
-      :default-parent-id="modal.defaultParentId"
-      @close="closeModal"
-      @saved="onSaved"
-    />
+    <StructuralUnitFormModal v-if="modal.open" :unit="modal.unit" :default-parent-id="modal.defaultParentId" @close="closeModal" @saved="onSaved" />
   </div>
 </template>
 

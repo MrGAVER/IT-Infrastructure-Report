@@ -3,8 +3,8 @@ import { generateInventoryReport, generateStructuralAppendixReport, generateAudi
 
 describe('reports API', () => {
   it('generateInventoryReport добавляет information_system_id в query, а не в тело', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
-      new Response(JSON.stringify({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' })),
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' })),
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -27,8 +27,8 @@ describe('reports API', () => {
   })
 
   it('generateStructuralAppendixReport шлёт имя ИС и единицы в теле, пустой список единиц -> null', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
-      new Response(JSON.stringify({ file_name: 'a.docx', download_url: '/api/v1/reports/download/a.docx' })),
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ file_name: 'a.docx', download_url: '/api/v1/reports/download/a.docx' })),
     )
     vi.stubGlobal('fetch', fetchMock)
 
@@ -95,13 +95,19 @@ describe('reports API', () => {
     })
 
     it('401 (просроченная сессия) выбрасывает понятную ошибку вместо тихого "файл недоступен"', async () => {
-      vi.stubGlobal('fetch', vi.fn(async (_url: string, _init?: RequestInit) => mockBlobResponse(401)))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, _init?: RequestInit) => mockBlobResponse(401)),
+      )
 
       await expect(downloadReport({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' })).rejects.toThrow(/сессия истекла/i)
     })
 
     it('освобождает object URL после скачивания', async () => {
-      vi.stubGlobal('fetch', vi.fn(async (_url: string, _init?: RequestInit) => mockBlobResponse()))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, _init?: RequestInit) => mockBlobResponse()),
+      )
       const revokeSpy = vi.fn()
       vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: revokeSpy })
 

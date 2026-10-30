@@ -59,9 +59,13 @@ function stubFreeInterfaces(failWith?: number) {
         const offset = Number(params.get('offset') ?? 0)
         const limit = Number(params.get('limit') ?? 50)
         const found = serverDevices
-          .filter((d) => !exclude.has(d.id) && (include.has(d.id) || !q || deviceLabel(d).toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q)))
+          .filter(
+            (d) => !exclude.has(d.id) && (include.has(d.id) || !q || deviceLabel(d).toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q)),
+          )
           .sort((a, b) => deviceLabel(a).toLowerCase().localeCompare(deviceLabel(b).toLowerCase()))
-        const items = found.slice(offset, offset + limit).map((d) => ({ id: d.id, label: deviceLabel(d), system_name: d.system_name || null, serial_number: d.serial_number }))
+        const items = found
+          .slice(offset, offset + limit)
+          .map((d) => ({ id: d.id, label: deviceLabel(d), system_name: d.system_name || null, serial_number: d.serial_number }))
         return new Response(JSON.stringify({ items, total: found.length, offset, limit }))
       }
       if (failWith) {
@@ -76,7 +80,9 @@ function stubFreeInterfaces(failWith?: number) {
       const offset = Number(params.get('offset') ?? 0)
       const limit = Number(params.get('limit') ?? 100)
       const selected = (serverPorts[match[1]] ?? []).filter((p) => !p.occupied || include.has(p.id))
-      const items = selected.slice(offset, offset + limit).map((p) => ({ is_management: false, is_data_transfer: true, vlan_mode: 'trunk', occupied: false, ...p }))
+      const items = selected
+        .slice(offset, offset + limit)
+        .map((p) => ({ is_management: false, is_data_transfer: true, vlan_mode: 'trunk', occupied: false, ...p }))
       return new Response(JSON.stringify({ items, total: selected.length, offset, limit }))
     }),
   )
@@ -168,7 +174,10 @@ describe('InterfaceConnectionEditor.vue', () => {
     const select = wrapper.find('.connection-peer-device .searchable-select')
     await select.find('input').trigger('focus')
     await flushPromises()
-    await select.findAll('.ss-option').find((o) => o.text() === 'A-serial')!.trigger('mousedown')
+    await select
+      .findAll('.ss-option')
+      .find((o) => o.text() === 'A-serial')!
+      .trigger('mousedown')
 
     const next = wrapper.emitted('update:modelValue')![0][0] as InterfaceConnectionDraft
     // Подпись нового устройства запоминается в черновике — полного списка устройств у формы нет.
@@ -180,7 +189,10 @@ describe('InterfaceConnectionEditor.vue', () => {
     const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b' }))
     const portSelect = wrapper.find('.connection-peer-port .searchable-select')
     await portSelect.find('input').trigger('focus')
-    await portSelect.findAll('.ss-option').find((o) => o.text() === 'Gi0/2')!.trigger('mousedown')
+    await portSelect
+      .findAll('.ss-option')
+      .find((o) => o.text() === 'Gi0/2')!
+      .trigger('mousedown')
     await wrapper.find('.connection-description input').setValue('патч-корд №5')
 
     const emitted = wrapper.emitted('update:modelValue')!
@@ -264,7 +276,12 @@ describe('InterfaceConnectionEditor.vue', () => {
     })
 
     it('сосед — порт этого же устройства: в событии строка формы (rowKey, isSelf), конфигурация из формы', async () => {
-      const differ: SelfPortCandidate = { value: 'row:k3', label: 'eth2 (строка 3)', rowKey: 'k3', config: { is_management: true, is_data_transfer: true, vlan_mode: 'trunk' } }
+      const differ: SelfPortCandidate = {
+        value: 'row:k3',
+        label: 'eth2 (строка 3)',
+        rowKey: 'k3',
+        config: { is_management: true, is_data_transfer: true, vlan_mode: 'trunk' },
+      }
       const wrapper = await mountEditor(draft({ peer_device_id: 'dev-self', peer_interface_id: '', peer_row_key: 'k3' }), { selfPorts: [differ] })
       await applyButtons(wrapper)[0].trigger('click')
 
@@ -310,9 +327,23 @@ describe('InterfaceConnectionEditor.vue', () => {
       vi.fn(async (url: string) => {
         if (url.includes('/devices/dev-b/')) {
           await gate // ответ по dev-b приходит после ответа по dev-a
-          return new Response(JSON.stringify({ items: [{ ...port('b-1', 'Gi0/1'), is_management: false, is_data_transfer: true, vlan_mode: 'trunk', occupied: false }], total: 1, offset: 0, limit: 200 }))
+          return new Response(
+            JSON.stringify({
+              items: [{ ...port('b-1', 'Gi0/1'), is_management: false, is_data_transfer: true, vlan_mode: 'trunk', occupied: false }],
+              total: 1,
+              offset: 0,
+              limit: 200,
+            }),
+          )
         }
-        return new Response(JSON.stringify({ items: [{ ...port('a-1', 'eth0'), is_management: false, is_data_transfer: true, vlan_mode: 'trunk', occupied: false }], total: 1, offset: 0, limit: 200 }))
+        return new Response(
+          JSON.stringify({
+            items: [{ ...port('a-1', 'eth0'), is_management: false, is_data_transfer: true, vlan_mode: 'trunk', occupied: false }],
+            total: 1,
+            offset: 0,
+            limit: 200,
+          }),
+        )
       }),
     )
     const wrapper = mount(InterfaceConnectionEditor, { props: { modelValue: draft({ peer_device_id: 'dev-b' }), deviceId: 'dev-self', config } })
@@ -357,11 +388,17 @@ describe('InterfaceConnectionEditor.vue — порты этого же устр�
     const select = wrapper.find('.connection-peer-port .searchable-select')
 
     await select.find('input').trigger('focus')
-    await select.findAll('.ss-option').find((o) => o.text().startsWith('eth2'))!.trigger('mousedown')
+    await select
+      .findAll('.ss-option')
+      .find((o) => o.text().startsWith('eth2'))!
+      .trigger('mousedown')
     expect(wrapper.emitted('update:modelValue')![0][0]).toMatchObject({ peer_device_id: 'dev-self', peer_interface_id: '', peer_row_key: 'k3' })
 
     await select.find('input').trigger('focus')
-    await select.findAll('.ss-option').find((o) => o.text().startsWith('eth1'))!.trigger('mousedown')
+    await select
+      .findAll('.ss-option')
+      .find((o) => o.text().startsWith('eth1'))!
+      .trigger('mousedown')
     const second = wrapper.emitted('update:modelValue')![1][0] as InterfaceConnectionDraft
     expect(second).toMatchObject({ peer_interface_id: 'self-2' })
     expect(second).not.toHaveProperty('peer_row_key')
@@ -369,13 +406,19 @@ describe('InterfaceConnectionEditor.vue — порты этого же устр�
   })
 
   it('у ещё не сохранённого устройства «это устройство» — служебное значение SELF_DEVICE, а смена на другое устройство сбрасывает ссылку на строку', async () => {
-    const wrapper = await mountEditor(draft({ peer_device_id: SELF_DEVICE, peer_interface_id: '', peer_row_key: 'k3' }), { selfPorts: [newSibling], deviceId: null })
+    const wrapper = await mountEditor(draft({ peer_device_id: SELF_DEVICE, peer_interface_id: '', peer_row_key: 'k3' }), {
+      selfPorts: [newSibling],
+      deviceId: null,
+    })
     const select = wrapper.find('.connection-peer-device .searchable-select')
     expect((select.find('input').element as HTMLInputElement).value).toBe('Это устройство (новое)')
 
     await select.find('input').trigger('focus')
     await flushPromises()
-    await select.findAll('.ss-option').find((o) => o.text() === 'sw-b')!.trigger('mousedown')
+    await select
+      .findAll('.ss-option')
+      .find((o) => o.text() === 'sw-b')!
+      .trigger('mousedown')
     const next = wrapper.emitted('update:modelValue')![0][0] as InterfaceConnectionDraft
     expect(next).toMatchObject({ peer_device_id: 'dev-b', peer_device_name: 'sw-b', peer_interface_id: '' })
     expect(next).not.toHaveProperty('peer_row_key')
@@ -433,7 +476,10 @@ describe('InterfaceConnectionEditor.vue — устройства-соседи и
   async function typeDevices(wrapper: VueWrapper, text: string) {
     await deviceSelect(wrapper).find('input').setValue(text)
   }
-  const labels = (wrapper: VueWrapper) => deviceSelect(wrapper).findAll('.ss-option').map((o) => o.text())
+  const labels = (wrapper: VueWrapper) =>
+    deviceSelect(wrapper)
+      .findAll('.ss-option')
+      .map((o) => o.text())
 
   it('список устройств не запрашивается, пока выпадающий список не открыт: показ блока «Подключение» сети не нагружает', async () => {
     const wrapper = await mountEditor(draft())
@@ -476,7 +522,15 @@ describe('InterfaceConnectionEditor.vue — устройства-соседи и
   })
 
   it('локально опции не отфильтровываются: что вернул сервер (например, найденное по серийному номеру), то и показано', async () => {
-    deviceHandler = () => new Response(JSON.stringify({ items: [{ id: 'dev-x', label: 'Коммутатор-7', system_name: 'Коммутатор-7', serial_number: 'ZZZ-1' }], total: 1, offset: 0, limit: 50 }))
+    deviceHandler = () =>
+      new Response(
+        JSON.stringify({
+          items: [{ id: 'dev-x', label: 'Коммутатор-7', system_name: 'Коммутатор-7', serial_number: 'ZZZ-1' }],
+          total: 1,
+          offset: 0,
+          limit: 50,
+        }),
+      )
     vi.useFakeTimers()
     try {
       const wrapper = await mountEditor(draft())
@@ -491,7 +545,10 @@ describe('InterfaceConnectionEditor.vue — устройства-соседи и
   })
 
   it('выбранный сосед остаётся в списке и подписан, даже когда поиск его не нашёл', async () => {
-    deviceHandler = () => new Response(JSON.stringify({ items: [{ id: 'dev-a', label: 'A-serial', system_name: null, serial_number: 'A-serial' }], total: 1, offset: 0, limit: 50 }))
+    deviceHandler = () =>
+      new Response(
+        JSON.stringify({ items: [{ id: 'dev-a', label: 'A-serial', system_name: null, serial_number: 'A-serial' }], total: 1, offset: 0, limit: 50 }),
+      )
     const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }))
     expect((deviceSelect(wrapper).find('input').element as HTMLInputElement).value).toBe('sw-b') // подпись из черновика
 
@@ -578,7 +635,10 @@ describe('InterfaceConnectionEditor.vue — устройства-соседи и
   it('«это устройство» и очистка выбора не запоминают подпись устройства', async () => {
     const wrapper = await mountEditor(draft({ peer_device_id: 'dev-b', peer_interface_id: 'b-1' }), { selfPorts: [], deviceLabel: 'srv-self' })
     await openDevices(wrapper)
-    await deviceSelect(wrapper).findAll('.ss-option').find((o) => o.text().startsWith('srv-self'))!.trigger('mousedown')
+    await deviceSelect(wrapper)
+      .findAll('.ss-option')
+      .find((o) => o.text().startsWith('srv-self'))!
+      .trigger('mousedown')
 
     const next = wrapper.emitted('update:modelValue')![0][0] as InterfaceConnectionDraft
     expect(next).toMatchObject({ peer_device_id: 'dev-self', peer_interface_id: '' })

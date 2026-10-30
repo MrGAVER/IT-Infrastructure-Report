@@ -15,7 +15,20 @@ function sampleDiagram(overrides: Partial<SavedDiagramDetail> = {}): SavedDiagra
     created_at: null,
     updated_at: null,
     nodes: [
-      { id: 'dev-1', type: 'device', label: 'sw-01', serial_number: 'SN-1', system_name: 'sw-01', category_id: null, manufacturer: null, model: null, ip_addresses: [], icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', manufacturer_label: '', model_label: '' }, x: 0, y: 0 },
+      {
+        id: 'dev-1',
+        type: 'device',
+        label: 'sw-01',
+        serial_number: 'SN-1',
+        system_name: 'sw-01',
+        category_id: null,
+        manufacturer: null,
+        model: null,
+        ip_addresses: [],
+        icon: { mode: 'generated', shape: 'switch', color: '#4f7cff', glyph: 'M1 4h3v4H1z', manufacturer_label: '', model_label: '' },
+        x: 0,
+        y: 0,
+      },
     ],
     edges: [],
     viewport: { zoom: 1, pan_x: 0, pan_y: 0 },
@@ -33,7 +46,10 @@ beforeEach(() => {
 
 describe('useDiagramStore', () => {
   it('load() успешно подгружает диаграмму', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(sampleDiagram())))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(sampleDiagram())),
+    )
     const store = useDiagramStore()
     await store.load('d1')
     expect(store.diagram?.id).toBe('d1')
@@ -42,7 +58,10 @@ describe('useDiagramStore', () => {
   })
 
   it('load() при ошибке сети выставляет error и оставляет diagram пустым', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Диаграмма не найдена' }, 404)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Диаграмма не найдена' }, 404)),
+    )
     const store = useDiagramStore()
     await store.load('missing')
     expect(store.diagram).toBeNull()
@@ -115,7 +134,10 @@ describe('useDiagramStore', () => {
   })
 
   it('regenerate сохраняет текущий viewport, даже если бэкенд его не возвращает', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ...sampleDiagram(), viewport: null })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ ...sampleDiagram(), viewport: null })),
+    )
     const store = useDiagramStore()
     store.diagram = sampleDiagram({ viewport: { zoom: 2.5, pan_x: 40, pan_y: -10 } })
 
@@ -171,7 +193,10 @@ describe('useDiagramStore', () => {
   })
 
   it('rename() при ошибке (напр. занятое имя) выбрасывает исключение и не трогает имя в сторе', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Диаграмма с таким названием уже существует' }, 409)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Диаграмма с таким названием уже существует' }, 409)),
+    )
     const store = useDiagramStore()
     store.diagram = sampleDiagram()
 
@@ -180,14 +205,16 @@ describe('useDiagramStore', () => {
   })
 
   it('remove() очищает текущую диаграмму', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ status: 'ok' })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ status: 'ok' })),
+    )
     const store = useDiagramStore()
     store.diagram = sampleDiagram()
     await store.remove()
     expect(store.diagram).toBeNull()
   })
 })
-
 
 describe('useDiagramStore — отложенное сохранение раскладки не теряется (B-09)', () => {
   type Call = { method: string; url: string; body: unknown }
@@ -226,9 +253,7 @@ describe('useDiagramStore — отложенное сохранение раск
     await store.load('d2')
     await vi.advanceTimersByTimeAsync(2000) // таймер не должен «выстрелить» повторно уже по новой диаграмме
 
-    expect(net.puts()).toEqual([
-      { method: 'PUT', url: '/api/v1/diagrams/d1/layout', body: { node_positions: { 'dev-1': { x: 111, y: 222 } } } },
-    ])
+    expect(net.puts()).toEqual([{ method: 'PUT', url: '/api/v1/diagrams/d1/layout', body: { node_positions: { 'dev-1': { x: 111, y: 222 } } } }])
     expect(store.diagram?.id).toBe('d2')
     // порядок: сохранение исходной диаграммы ушло раньше, чем загрузилась новая
     expect(net.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/v1/diagrams/d1/layout', 'GET /api/v1/diagrams/d2'])

@@ -87,77 +87,73 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form @submit.prevent="submit">
-        <div class="endpoint-pair">
-          <ConnectionEndpointFieldset
-            v-model:device-id="form.sourceDeviceId"
-            v-model:interface-id="form.source_interface_id"
-            legend="Исходное устройство"
-            manage-ports-label="Управлять портами исходного устройства"
-            :device-options="deviceOptions"
-            :port-options="sourcePortOptions"
-            :has-no-ports-at-all="sourceHasNoInterfacesAtAll"
-            @manage-ports="portsDialog.open('source')"
-          />
+        <form @submit.prevent="submit">
+          <div class="endpoint-pair">
+            <ConnectionEndpointFieldset
+              v-model:device-id="form.sourceDeviceId"
+              v-model:interface-id="form.source_interface_id"
+              legend="Исходное устройство"
+              manage-ports-label="Управлять портами исходного устройства"
+              :device-options="deviceOptions"
+              :port-options="sourcePortOptions"
+              :has-no-ports-at-all="sourceHasNoInterfacesAtAll"
+              @manage-ports="portsDialog.open('source')"
+            />
 
-          <div class="link-icon">
-            <svg class="icon"><use href="/icons.svg#i-network" /></svg>
+            <div class="link-icon">
+              <svg class="icon"><use href="/icons.svg#i-network" /></svg>
+            </div>
+
+            <ConnectionEndpointFieldset
+              v-model:device-id="form.destinationDeviceId"
+              v-model:interface-id="form.destination_interface_id"
+              legend="Конечное устройство"
+              manage-ports-label="Управлять портами конечного устройства"
+              :device-options="deviceOptions"
+              :port-options="destinationPortOptions"
+              :has-no-ports-at-all="destinationHasNoInterfacesAtAll"
+              @manage-ports="portsDialog.open('destination')"
+            />
           </div>
 
-          <ConnectionEndpointFieldset
-            v-model:device-id="form.destinationDeviceId"
-            v-model:interface-id="form.destination_interface_id"
-            legend="Конечное устройство"
-            manage-ports-label="Управлять портами конечного устройства"
-            :device-options="deviceOptions"
-            :port-options="destinationPortOptions"
-            :has-no-ports-at-all="destinationHasNoInterfacesAtAll"
-            @manage-ports="portsDialog.open('destination')"
-          />
-        </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Тип физической линии связи *</span>
+              <div class="lookup-row">
+                <SearchableSelect v-model="form.connection_type_id" :options="connectionTypeOptions" placeholder="— выберите —" />
+                <QuickAddButton resource="connection-types" title="Тип подключения" @created="(r) => (form.connection_type_id = r.id)" />
+              </div>
+            </label>
 
-        <div class="form-grid">
-          <label class="field">
-            <span>Тип физической линии связи *</span>
-            <div class="lookup-row">
-              <SearchableSelect v-model="form.connection_type_id" :options="connectionTypeOptions" placeholder="— выберите —" />
-              <QuickAddButton resource="connection-types" title="Тип подключения" @created="(r) => (form.connection_type_id = r.id)" />
-            </div>
-          </label>
-
-          <!-- Конфигурация портов (роль, режим, VLAN): роли — единственный источник «назначения линии
+            <!-- Конфигурация портов (роль, режим, VLAN): роли — единственный источник «назначения линии
                связи» (см. useConnectionSave). При расхождении сохранение потребует явного решения.
                Сверку делает сервер (см. useConnectionPortConfig). -->
-          <div v-if="configView" class="field field-wide port-roles" :class="{ mismatch: portMismatch }">
-            <span class="port-roles-title">Конфигурация портов</span>
-            <span v-for="side in [configView.source, configView.destination]" :key="side.id" class="port-roles-row">
-              <span class="mono">{{ side.name }}</span> — {{ sideLabel(side) }}
-            </span>
-            <span v-if="portMismatch && !mismatchAlreadyApproved" class="warning-text">
-              ⚠ Конфигурации портов различаются ({{ facetsLabel(portMismatch.diff) }}). При сохранении нужно будет выбрать решение: выровнять порты или одобрить расхождение.
-            </span>
-            <span v-else-if="mismatchAlreadyApproved" class="approved-text">✓ Расхождение ({{ facetsLabel(portMismatch!.diff) }}) одобрено ранее.</span>
+            <div v-if="configView" class="field field-wide port-roles" :class="{ mismatch: portMismatch }">
+              <span class="port-roles-title">Конфигурация портов</span>
+              <span v-for="side in [configView.source, configView.destination]" :key="side.id" class="port-roles-row">
+                <span class="mono">{{ side.name }}</span> — {{ sideLabel(side) }}
+              </span>
+              <span v-if="portMismatch && !mismatchAlreadyApproved" class="warning-text">
+                ⚠ Конфигурации портов различаются ({{ facetsLabel(portMismatch.diff) }}). При сохранении нужно будет выбрать решение: выровнять порты или
+                одобрить расхождение.
+              </span>
+              <span v-else-if="mismatchAlreadyApproved" class="approved-text">✓ Расхождение ({{ facetsLabel(portMismatch!.diff) }}) одобрено ранее.</span>
+            </div>
+
+            <label class="field checkbox-field">
+              <input v-model="form.is_active" type="checkbox" />
+              <span>Подключение активно</span>
+            </label>
+
+            <label class="field field-wide">
+              <span>Описание</span>
+              <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
+            </label>
           </div>
-
-          <label class="field checkbox-field">
-            <input v-model="form.is_active" type="checkbox" />
-            <span>Подключение активно</span>
-          </label>
-
-          <label class="field field-wide">
-            <span>Описание</span>
-            <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
-          </label>
-        </div>
-      </form>
+        </form>
       </fieldset>
 
-      <ConnectionResolutionPanel
-        v-if="resolving && portMismatch"
-        :mismatch="portMismatch"
-        @resolve="resolveAndSave"
-        @back="resolving = false"
-      />
+      <ConnectionResolutionPanel v-if="resolving && portMismatch" :mismatch="portMismatch" @resolve="resolveAndSave" @back="resolving = false" />
 
       <div v-else class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>

@@ -109,7 +109,13 @@ export function reviewPeerTarget(peer: ReviewPeerRef, rows: readonly InterfaceDr
   }
   const info = peer.interfaceId ? peers[peer.interfaceId] : undefined
   if (!peer.interfaceId || !info) return null
-  return { ref: peer.ref, label: `«${peer.nameHint ?? info.name}» (${peer.deviceNameHint ?? 'другое устройство'})`, config: info.config, interfaceId: peer.interfaceId, isSelf: false }
+  return {
+    ref: peer.ref,
+    label: `«${peer.nameHint ?? info.name}» (${peer.deviceNameHint ?? 'другое устройство'})`,
+    config: info.config,
+    interfaceId: peer.interfaceId,
+    isSelf: false,
+  }
 }
 
 /** Расхождения, оставшиеся ПРЯМО СЕЙЧАС: считаются заново из строк формы и конфигурации соседей, поэтому устранённое

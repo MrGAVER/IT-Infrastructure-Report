@@ -8,9 +8,7 @@ const node: StructuralUnitNode = {
   id: 'root-1',
   name: 'Дирекция ИТ',
   parent_id: null,
-  children: [
-    { id: 'child-1', name: 'Отдел эксплуатации', parent_id: 'root-1', children: [] },
-  ],
+  children: [{ id: 'child-1', name: 'Отдел эксплуатации', parent_id: 'root-1', children: [] }],
 }
 
 beforeEach(() => {

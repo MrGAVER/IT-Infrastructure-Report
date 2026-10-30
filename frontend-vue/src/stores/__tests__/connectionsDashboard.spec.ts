@@ -21,7 +21,11 @@ function row(id: string, overrides: Partial<Connection> = {}): Connection {
     source_port_role: 'data',
     destination_port_role: 'data',
     port_config_status: 'ok',
-    source_vlan_mode: 'trunk', destination_vlan_mode: 'trunk', source_vlans: [], destination_vlans: [], port_config_diff: [],
+    source_vlan_mode: 'trunk',
+    destination_vlan_mode: 'trunk',
+    source_vlans: [],
+    destination_vlans: [],
+    port_config_diff: [],
     ...overrides,
   }
 }
@@ -35,7 +39,11 @@ function page(items: Connection[], total = items.length, summary = SUMMARY): Con
 // Именно страница дашборда (/api/v1/connections?…), а не общий кэш (/api/v1/resources/connections?…).
 const PAGE_URL = /\/api\/v1\/connections\?/
 
-interface Call { url: string; method: string; body?: Record<string, unknown> }
+interface Call {
+  url: string
+  method: string
+  body?: Record<string, unknown>
+}
 let calls: Call[]
 const pageCalls = () => calls.filter((c) => c.method === 'GET' && PAGE_URL.test(c.url))
 const params = (call: Call) => new URL(call.url, 'http://x').searchParams
@@ -171,7 +179,10 @@ describe('useConnectionsDashboardStore — серверная страница',
     const store = useConnectionsDashboardStore()
     await store.load()
 
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сервер недоступен' }), { status: 500 })),
+    )
     await store.load()
 
     expect(store.error).toBe('Сервер недоступен')

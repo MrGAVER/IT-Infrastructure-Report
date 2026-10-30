@@ -75,7 +75,5 @@ export async function syncVmDeployedSoftware(vmId: string, rows: readonly Softwa
 /** Строки редактора ПО → payload синхронизации (общий для ВМ и физических устройств, см.
  * api/deviceDeployedSoftware.ts): строки без выбранного актива отбрасываются, пустая версия → null. */
 export function toDeployedSoftwarePayload(rows: readonly SoftwareAssetDraftRow[]) {
-  return rows
-    .filter((row) => row.software_asset_id)
-    .map((row) => ({ id: row.id, software_asset_id: row.software_asset_id, version: row.version || null }))
+  return rows.filter((row) => row.software_asset_id).map((row) => ({ id: row.id, software_asset_id: row.software_asset_id, version: row.version || null }))
 }

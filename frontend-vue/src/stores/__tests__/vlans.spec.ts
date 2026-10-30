@@ -5,7 +5,10 @@ import { vlanDashboardFixture } from './fixtures'
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(vlanDashboardFixture))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(vlanDashboardFixture))),
+  )
 })
 
 describe('useVLANsStore', () => {

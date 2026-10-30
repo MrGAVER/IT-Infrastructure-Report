@@ -105,7 +105,10 @@ const bulkApproving = ref(false)
 // ещё не отправленный поиск: иначе после неё мог бы уйти лишний запрос со старой строкой.
 const SEARCH_DEBOUNCE_MS = 300
 const searchDebounced = debounce(() => void dashboard.applyFilters(), SEARCH_DEBOUNCE_MS)
-watch(() => dashboard.search, () => searchDebounced())
+watch(
+  () => dashboard.search,
+  () => searchDebounced(),
+)
 watch(
   () => [dashboard.activeFilter, dashboard.portConfigFilter],
   () => {
@@ -118,7 +121,12 @@ onBeforeUnmount(() => searchDebounced.cancel())
 async function approveAllMatching() {
   const count = dashboard.total
   if (!count) return
-  if (!confirm(`Одобрить расхождение конфигурации портов у ${count} подключ. как допустимое? Одобрение потеряет силу, если роль, режим или VLAN любого из портов изменятся.`)) return
+  if (
+    !confirm(
+      `Одобрить расхождение конфигурации портов у ${count} подключ. как допустимое? Одобрение потеряет силу, если роль, режим или VLAN любого из портов изменятся.`,
+    )
+  )
+    return
   bulkApproving.value = true
   try {
     const { approved_count } = await dashboard.approveMatching()
@@ -154,7 +162,8 @@ async function onSaved() {
 }
 
 async function removeConnection(c: Connection) {
-  if (!confirm(`Удалить подключение «${c.source_device_name} / ${c.source_interface_name} — ${c.destination_device_name} / ${c.destination_interface_name}»?`)) return
+  if (!confirm(`Удалить подключение «${c.source_device_name} / ${c.source_interface_name} — ${c.destination_device_name} / ${c.destination_interface_name}»?`))
+    return
   deletingId.value = c.id
   try {
     await deleteResource('connections', c.id)
@@ -220,13 +229,7 @@ async function removeConnection(c: Connection) {
       >
         Одобрить все найденные ({{ dashboard.total }})
       </button>
-      <button
-        v-if="dashboard.summary.mismatch"
-        type="button"
-        class="btn btn-secondary"
-        data-action="sync-by-rules"
-        @click="syncPlanOpen = true"
-      >
+      <button v-if="dashboard.summary.mismatch" type="button" class="btn btn-secondary" data-action="sync-by-rules" @click="syncPlanOpen = true">
         Согласовать по правилам…
       </button>
       <div class="spacer"></div>
@@ -269,23 +272,55 @@ async function removeConnection(c: Connection) {
                 <span class="devname">{{ c.source_device_name }}</span>
                 <span class="portname mono">
                   {{ c.source_interface_name }}
-                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" data-action="edit-port-source" aria-label="Изменить роль, режим и VLAN порта источника" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'source')">
+                  <button
+                    v-if="auth.canWrite"
+                    type="button"
+                    class="port-manage-btn"
+                    data-action="edit-port-source"
+                    aria-label="Изменить роль, режим и VLAN порта источника"
+                    title="Изменить роль, режим и VLAN порта"
+                    @click="editPort(c, 'source')"
+                  >
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
-                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" aria-label="Управлять портами исходного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.source_interface_id, c.source_device_name)">
+                  <button
+                    v-if="auth.canWrite"
+                    type="button"
+                    class="port-manage-btn"
+                    aria-label="Управлять портами исходного устройства"
+                    title="Управлять портами устройства"
+                    @click="openPortsForInterface(c.source_interface_id, c.source_device_name)"
+                  >
                     <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                   </button>
                 </span>
               </td>
-              <td class="link-cell"><svg class="icon"><use href="/icons.svg#i-network" /></svg></td>
+              <td class="link-cell">
+                <svg class="icon"><use href="/icons.svg#i-network" /></svg>
+              </td>
               <td>
                 <span class="devname">{{ c.destination_device_name }}</span>
                 <span class="portname mono">
                   {{ c.destination_interface_name }}
-                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" data-action="edit-port-destination" aria-label="Изменить роль, режим и VLAN порта назначения" title="Изменить роль, режим и VLAN порта" @click="editPort(c, 'destination')">
+                  <button
+                    v-if="auth.canWrite"
+                    type="button"
+                    class="port-manage-btn"
+                    data-action="edit-port-destination"
+                    aria-label="Изменить роль, режим и VLAN порта назначения"
+                    title="Изменить роль, режим и VLAN порта"
+                    @click="editPort(c, 'destination')"
+                  >
                     <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
                   </button>
-                  <button v-if="auth.canWrite" type="button" class="port-manage-btn" aria-label="Управлять портами конечного устройства" title="Управлять портами устройства" @click="openPortsForInterface(c.destination_interface_id, c.destination_device_name)">
+                  <button
+                    v-if="auth.canWrite"
+                    type="button"
+                    class="port-manage-btn"
+                    aria-label="Управлять портами конечного устройства"
+                    title="Управлять портами устройства"
+                    @click="openPortsForInterface(c.destination_interface_id, c.destination_device_name)"
+                  >
                     <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
                   </button>
                 </span>
@@ -298,8 +333,8 @@ async function removeConnection(c: Connection) {
                 </template>
                 <template v-else>
                   <span v-for="side in sidesOf(c)" :key="side.key" class="role-line">
-                    <span class="mono">{{ side.port }}</span>:
-                    <span :class="{ diff: c.port_config_diff.includes('role') }">{{ roleLabel(side.role) }}</span> ·
+                    <span class="mono">{{ side.port }}</span
+                    >: <span :class="{ diff: c.port_config_diff.includes('role') }">{{ roleLabel(side.role) }}</span> ·
                     <span :class="{ diff: c.port_config_diff.includes('mode') }">{{ modeLabel(side.mode) }}</span> ·
                     <span :class="{ diff: c.port_config_diff.includes('vlans') }">VLAN {{ formatVlans(side.vlans) }}</span>
                   </span>
@@ -310,14 +345,14 @@ async function removeConnection(c: Connection) {
                     :aria-label="`Проверить конфигурацию портов: ${c.source_device_name} — ${c.destination_device_name}`"
                     @click="reviewing = c"
                   >
-                    {{ c.port_config_status === 'mismatch' ? 'Расхождение' : 'Одобрено' }}<template v-if="c.port_config_diff.length"> ({{ facetsLabel(c.port_config_diff) }})</template>{{ c.port_config_status === 'mismatch' ? ' — проверить' : '' }}
+                    {{ c.port_config_status === 'mismatch' ? 'Расхождение' : 'Одобрено'
+                    }}<template v-if="c.port_config_diff.length"> ({{ facetsLabel(c.port_config_diff) }})</template
+                    >{{ c.port_config_status === 'mismatch' ? ' — проверить' : '' }}
                   </button>
                 </template>
               </td>
               <td>
-                <span class="status" :class="c.is_active ? 'on' : 'off'">
-                  <span class="status-dot"></span>{{ c.is_active ? 'Активно' : 'Неактивно' }}
-                </span>
+                <span class="status" :class="c.is_active ? 'on' : 'off'"> <span class="status-dot"></span>{{ c.is_active ? 'Активно' : 'Неактивно' }} </span>
               </td>
               <td>
                 <div class="row-actions">
@@ -337,7 +372,12 @@ async function removeConnection(c: Connection) {
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ dashboard.items.length ? (dashboard.page - 1) * dashboard.pageSize + 1 : 0 }}–{{ (dashboard.page - 1) * dashboard.pageSize + dashboard.items.length }} из {{ dashboard.total }}</span>
+        <span
+          >Показано {{ dashboard.items.length ? (dashboard.page - 1) * dashboard.pageSize + 1 : 0 }}–{{
+            (dashboard.page - 1) * dashboard.pageSize + dashboard.items.length
+          }}
+          из {{ dashboard.total }}</span
+        >
         <PageSizeSelect :model-value="dashboard.pageSize" :options="dashboard.pageSizeOptions" @update:model-value="dashboard.setPageSize" />
         <PagerNav :page="dashboard.page" :page-count="dashboard.pageCount" @update:page="dashboard.setPage" />
       </div>
@@ -352,7 +392,13 @@ async function removeConnection(c: Connection) {
       @close="syncPlanOpen = false"
       @applied="dashboard.refreshAfterChange()"
     />
-    <PortConfigReviewModal v-if="reviewing" :connection="reviewing" @close="reviewing = null" @manage-ports="manageFromReview" @edit-port="editPortFromReview" />
+    <PortConfigReviewModal
+      v-if="reviewing"
+      :connection="reviewing"
+      @close="reviewing = null"
+      @manage-ports="manageFromReview"
+      @edit-port="editPortFromReview"
+    />
     <PortConfigEditModal
       v-if="editing"
       :connection="editing.connection"
@@ -361,13 +407,7 @@ async function removeConnection(c: Connection) {
       @saved="editing = null"
       @manage-ports="manageFromEdit"
     />
-    <DevicePortsModal
-      v-if="portsTarget"
-      :device-id="portsTarget.deviceId"
-      :device-label="portsTarget.deviceLabel"
-      @close="closePorts"
-      @saved="onPortsSaved"
-    />
+    <DevicePortsModal v-if="portsTarget" :device-id="portsTarget.deviceId" :device-label="portsTarget.deviceLabel" @close="closePorts" @saved="onPortsSaved" />
   </div>
 </template>
 

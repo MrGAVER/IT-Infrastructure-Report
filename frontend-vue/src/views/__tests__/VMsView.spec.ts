@@ -35,7 +35,10 @@ function seed(vms: VirtualMachine[]) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0 }))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ items: [], total: 0 }))),
+  )
 })
 
 describe('VMsView.vue — поиск', () => {

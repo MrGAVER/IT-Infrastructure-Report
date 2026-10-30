@@ -218,116 +218,116 @@ async function submit() {
       </div>
 
       <fieldset class="readonly-fieldset" :disabled="readOnly">
-      <form class="form-grid" @submit.prevent="submit">
-        <label class="field field-wide">
-          <span>Наименование *</span>
-          <input v-model.trim="form.name" type="text" required maxlength="255" />
-        </label>
-        <label class="field field-wide">
-          <span>Описание</span>
-          <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
-        </label>
+        <form class="form-grid" @submit.prevent="submit">
+          <label class="field field-wide">
+            <span>Наименование *</span>
+            <input v-model.trim="form.name" type="text" required maxlength="255" />
+          </label>
+          <label class="field field-wide">
+            <span>Описание</span>
+            <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
+          </label>
 
-        <template v-if="isEdit">
-          <p v-if="loadingDetail" class="loading-hint field-wide">Загрузка состава стека…</p>
-          <template v-else-if="detail">
-            <div class="nested-editor field-wide">
-              <div class="nested-head">
-                <b>Устройства в стеке</b>
-                <span class="hint">Позиция — номер участника в стеке (как физический stack member ID на оборудовании).</span>
+          <template v-if="isEdit">
+            <p v-if="loadingDetail" class="loading-hint field-wide">Загрузка состава стека…</p>
+            <template v-else-if="detail">
+              <div class="nested-editor field-wide">
+                <div class="nested-head">
+                  <b>Устройства в стеке</b>
+                  <span class="hint">Позиция — номер участника в стеке (как физический stack member ID на оборудовании).</span>
+                </div>
+
+                <div v-if="!detail.members.length" class="empty">Устройства не добавлены</div>
+                <table v-else class="member-table">
+                  <thead>
+                    <tr>
+                      <th class="col-pos">#</th>
+                      <th>Устройство</th>
+                      <th>Тип</th>
+                      <th class="col-actions"><span class="sr-only">Действия</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="m in detail.members" :key="m.id">
+                      <td class="col-pos">{{ m.stack_position }}</td>
+                      <td>{{ deviceLabel(m) }}</td>
+                      <td>{{ catalogs.label('device-types', m.device_type_id) }}</td>
+                      <td class="col-actions">
+                        <div class="row-actions">
+                          <button type="button" class="btn btn-secondary btn-sm" @click="viewingDevice = m">Просмотреть</button>
+                          <button
+                            type="button"
+                            class="icon-btn danger"
+                            :disabled="memberBusyId === m.stack_member_id"
+                            aria-label="Убрать из стека"
+                            @click="removeMember(m)"
+                          >
+                            <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div class="add-member-row">
+                  <SearchableSelect
+                    v-model="addMemberDeviceId"
+                    :options="availableToAdd.map((d) => ({ value: d.id, label: deviceLabel(d) }))"
+                    placeholder="— выберите устройство —"
+                  />
+                  <input v-model.number="addMemberPosition" type="number" min="1" class="position-input" title="Позиция в стеке" />
+                  <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId" @click="addMember">
+                    <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+                    Добавить
+                  </button>
+                </div>
               </div>
 
-              <div v-if="!detail.members.length" class="empty">Устройства не добавлены</div>
-              <table v-else class="member-table">
-                <thead>
-                  <tr>
-                    <th class="col-pos">#</th>
-                    <th>Устройство</th>
-                    <th>Тип</th>
-                    <th class="col-actions"><span class="sr-only">Действия</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="m in detail.members" :key="m.id">
-                    <td class="col-pos">{{ m.stack_position }}</td>
-                    <td>{{ deviceLabel(m) }}</td>
-                    <td>{{ catalogs.label('device-types', m.device_type_id) }}</td>
-                    <td class="col-actions">
-                      <div class="row-actions">
-                        <button type="button" class="btn btn-secondary btn-sm" @click="viewingDevice = m">Просмотреть</button>
-                        <button
-                          type="button"
-                          class="icon-btn danger"
-                          :disabled="memberBusyId === m.stack_member_id"
-                          aria-label="Убрать из стека"
-                          @click="removeMember(m)"
-                        >
-                          <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="nested-editor field-wide">
+                <div class="nested-head">
+                  <b>Топология стека</b>
+                  <span class="hint">
+                    Подключения между портами участников — обычные соединения (см. «Подключения»), связывающими стек считаются те, у которых оба конца
+                    принадлежат его устройствам.
+                  </span>
+                </div>
 
-              <div class="add-member-row">
-                <SearchableSelect
-                  v-model="addMemberDeviceId"
-                  :options="availableToAdd.map((d) => ({ value: d.id, label: deviceLabel(d) }))"
-                  placeholder="— выберите устройство —"
-                />
-                <input v-model.number="addMemberPosition" type="number" min="1" class="position-input" title="Позиция в стеке" />
-                <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId" @click="addMember">
+                <div v-if="!detail.connections.length" class="empty">Соединения между участниками стека не заданы</div>
+                <table v-else class="member-table">
+                  <thead>
+                    <tr>
+                      <th>Откуда</th>
+                      <th>Куда</th>
+                      <th>Тип</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="c in detail.connections" :key="c.id">
+                      <td>{{ c.source_device_name }} · {{ c.source_interface_name }}</td>
+                      <td>{{ c.destination_device_name }} · {{ c.destination_interface_name }}</td>
+                      <td>{{ c.connection_type_name }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <button type="button" class="btn btn-secondary" :disabled="detail.members.length < 2" @click="addingConnection = true">
                   <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-                  Добавить
+                  Соединение
                 </button>
-              </div>
-            </div>
-
-            <div class="nested-editor field-wide">
-              <div class="nested-head">
-                <b>Топология стека</b>
-                <span class="hint">
-                  Подключения между портами участников — обычные соединения (см. «Подключения»), связывающими стек считаются те,
-                  у которых оба конца принадлежат его устройствам.
-                </span>
+                <p v-if="detail.members.length < 2" class="hint">Нужно минимум два устройства в стеке, чтобы их соединить.</p>
               </div>
 
-              <div v-if="!detail.connections.length" class="empty">Соединения между участниками стека не заданы</div>
-              <table v-else class="member-table">
-                <thead>
-                  <tr>
-                    <th>Откуда</th>
-                    <th>Куда</th>
-                    <th>Тип</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="c in detail.connections" :key="c.id">
-                    <td>{{ c.source_device_name }} · {{ c.source_interface_name }}</td>
-                    <td>{{ c.destination_device_name }} · {{ c.destination_interface_name }}</td>
-                    <td>{{ c.connection_type_name }}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <button type="button" class="btn btn-secondary" :disabled="detail.members.length < 2" @click="addingConnection = true">
-                <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-                Соединение
-              </button>
-              <p v-if="detail.members.length < 2" class="hint">Нужно минимум два устройства в стеке, чтобы их соединить.</p>
-            </div>
-
-            <DeviceStackVlanIpEditor
-              :stack-id="props.stack!.id"
-              :reload-token="vlanReloadToken"
-              @applied="onSharedVlanIpApplied"
-              @removed="onSharedVlanIpApplied"
-            />
+              <DeviceStackVlanIpEditor
+                :stack-id="props.stack!.id"
+                :reload-token="vlanReloadToken"
+                @applied="onSharedVlanIpApplied"
+                @removed="onSharedVlanIpApplied"
+              />
+            </template>
           </template>
-        </template>
-        <p v-else class="loading-hint field-wide">Состав и топологию стека можно настроить после первого сохранения.</p>
-      </form>
+          <p v-else class="loading-hint field-wide">Состав и топологию стека можно настроить после первого сохранения.</p>
+        </form>
       </fieldset>
 
       <div class="modal-foot">

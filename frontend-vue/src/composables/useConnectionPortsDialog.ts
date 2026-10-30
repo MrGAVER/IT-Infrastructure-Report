@@ -24,7 +24,8 @@ export function useConnectionPortsDialog(draft: ConnectionDraft, refreshPortConf
   function onSaved() {
     const { form } = draft
     if (endpoint.value === 'source' && !draft.sourceInterfaces.value.some((i) => i.id === form.source_interface_id)) form.source_interface_id = ''
-    if (endpoint.value === 'destination' && !draft.destinationInterfaces.value.some((i) => i.id === form.destination_interface_id)) form.destination_interface_id = ''
+    if (endpoint.value === 'destination' && !draft.destinationInterfaces.value.some((i) => i.id === form.destination_interface_id))
+      form.destination_interface_id = ''
     close()
     // VLAN порта могли измениться, а ключ пересчёта сверки их не видит.
     void refreshPortConfig()

@@ -7,7 +7,10 @@ import { useCollapsibleRows } from '../useCollapsibleRows'
 function setup(initialRows: number, initialLimit: number | 'off' = 10) {
   const rows = ref(initialRows)
   const limit = ref<number | undefined>(initialLimit === 'off' ? undefined : initialLimit)
-  const state = useCollapsibleRows(() => rows.value, () => limit.value)
+  const state = useCollapsibleRows(
+    () => rows.value,
+    () => limit.value,
+  )
   return { rows, limit, state }
 }
 

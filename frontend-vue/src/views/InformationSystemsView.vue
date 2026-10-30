@@ -148,9 +148,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
               </td>
               <td>{{ catalogs.label('support-organizations', s.support_organization_id) }}</td>
               <td>
-                <span class="status" :class="s.siem_enabled ? 'on' : 'off'">
-                  <span class="status-dot"></span>{{ s.siem_enabled ? 'Да' : 'Нет' }}
-                </span>
+                <span class="status" :class="s.siem_enabled ? 'on' : 'off'"> <span class="status-dot"></span>{{ s.siem_enabled ? 'Да' : 'Нет' }} </span>
               </td>
               <td>
                 <span class="status" :class="s.crypto_protection_enabled ? 'on' : 'off'">
@@ -178,7 +176,12 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
         </table>
       </div>
       <div class="table-foot">
-        <span>Показано {{ systems.pageItems.length ? (systems.page - 1) * systems.pageSize + 1 : 0 }}–{{ (systems.page - 1) * systems.pageSize + systems.pageItems.length }} из {{ systems.filtered.length }}</span>
+        <span
+          >Показано {{ systems.pageItems.length ? (systems.page - 1) * systems.pageSize + 1 : 0 }}–{{
+            (systems.page - 1) * systems.pageSize + systems.pageItems.length
+          }}
+          из {{ systems.filtered.length }}</span
+        >
         <PageSizeSelect :model-value="systems.pageSize" :options="systems.pageSizeOptions" @update:model-value="systems.setPageSize" />
         <div class="pager">
           <button :disabled="systems.page <= 1" @click="systems.setPage(systems.page - 1)">‹</button>

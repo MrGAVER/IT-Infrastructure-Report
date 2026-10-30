@@ -14,6 +14,7 @@ export interface GroupLocks {
 export function useGroupLocks(groups: () => InterfaceGroupDraft[]): GroupLocks {
   const rowGroup = (row: InterfaceDraftRow) => findGroup(row, groups())
   const rowManaged = (row: InterfaceDraftRow) => managedFields(rowGroup(row))
-  const groupLockNote = (row: InterfaceDraftRow, what: string) => `${what} задан группой «${rowGroup(row)?.name ?? ''}» — измените в группе или выведите порт из группы.`
+  const groupLockNote = (row: InterfaceDraftRow, what: string) =>
+    `${what} задан группой «${rowGroup(row)?.name ?? ''}» — измените в группе или выведите порт из группы.`
   return { rowGroup, rowManaged, groupLockNote }
 }

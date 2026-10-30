@@ -12,7 +12,7 @@ import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS, QUICK_ADD_SINGLE_COLUMN } from '../
 import type { QuickAddFkScope, QuickField } from '../quickAdd/schema'
 import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
-import { vTruncateTooltip } from '../directives/truncateTooltip'// Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
+import { vTruncateTooltip } from '../directives/truncateTooltip' // Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
 // Циклический импорт (QuickAddButton.vue сам рендерит QuickAddModal.vue) безопасен: обе стороны
 // используются только в шаблоне/во время рендера, а не в теле модуля при загрузке — к моменту
 // первого рендера оба модуля уже полностью инициализированы. Второй уровень вложенности не
@@ -170,11 +170,7 @@ async function submit() {
             </div>
             <textarea v-else-if="f.type === 'textarea'" v-model="values[f.name] as string" rows="2"></textarea>
             <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
-              <input
-                type="checkbox"
-                :checked="values[f.name] as boolean"
-                @change="values[f.name] = ($event.target as HTMLInputElement).checked"
-              />
+              <input type="checkbox" :checked="values[f.name] as boolean" @change="values[f.name] = ($event.target as HTMLInputElement).checked" />
             </label>
             <DeviceIconPicker
               v-else-if="f.type === 'diagram-icon'"

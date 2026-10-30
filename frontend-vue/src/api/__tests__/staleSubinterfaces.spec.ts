@@ -19,7 +19,17 @@ function item(patch: Partial<StaleSubinterface> = {}): StaleSubinterface {
 }
 
 function groupItem(patch: Partial<StaleGroupSubinterface> = {}): StaleGroupSubinterface {
-  return { subinterface_id: 'gs-1', group_id: 'g-1', group_name: 'Серверные', device_id: 'd-1', device_name: 'RTR-1', vlan_id: 'v-30', vlan_number: 30, vlan_name: 'Резерв', ...patch }
+  return {
+    subinterface_id: 'gs-1',
+    group_id: 'g-1',
+    group_name: 'Серверные',
+    device_id: 'd-1',
+    device_name: 'RTR-1',
+    vlan_id: 'v-30',
+    vlan_number: 30,
+    vlan_name: 'Резерв',
+    ...patch,
+  }
 }
 
 describe('fetchStaleSubinterfaces', () => {
@@ -34,7 +44,10 @@ describe('fetchStaleSubinterfaces', () => {
   })
 
   it('ошибку сервера не глотает', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'Сбой' }), { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сбой' }), { status: 500 })),
+    )
     await expect(fetchStaleSubinterfaces()).rejects.toThrow()
   })
 })
@@ -61,7 +74,10 @@ describe('groupStaleByDevice', () => {
   it('шаблоны групп раскладываются по тем же устройствам; устройства — по имени, даже если у них только шаблоны', () => {
     const groups = groupStaleByDevice(
       [item({ subinterface_id: 'b', device_id: 'd-2', device_name: 'B-RTR' })],
-      [groupItem({ subinterface_id: 'g-a', device_id: 'd-1', device_name: 'A-FW', group_name: 'Серверные' }), groupItem({ subinterface_id: 'g-b', device_id: 'd-2', device_name: 'B-RTR', group_name: 'Гости' })],
+      [
+        groupItem({ subinterface_id: 'g-a', device_id: 'd-1', device_name: 'A-FW', group_name: 'Серверные' }),
+        groupItem({ subinterface_id: 'g-b', device_id: 'd-2', device_name: 'B-RTR', group_name: 'Гости' }),
+      ],
     )
 
     expect(groups.map((g) => [g.device_name, g.items.length, g.group_items.map((i) => i.group_name)])).toEqual([

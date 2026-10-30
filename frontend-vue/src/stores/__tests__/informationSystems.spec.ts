@@ -8,7 +8,10 @@ beforeEach(() => {
   // /api/v1/information-systems - единственный эндпоинт в этом бэкенде, отдающий
   // ПЛОСКИЙ массив (не {items,total} и не {items,total,offset,limit}) - см. комментарий
   // в stores/informationSystems.ts. Мок это отражает буквально.
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(informationSystemsFixture))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(informationSystemsFixture))),
+  )
 })
 
 describe('useInformationSystemsStore', () => {

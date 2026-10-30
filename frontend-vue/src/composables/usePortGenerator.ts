@@ -27,7 +27,13 @@ export function usePortGenerator(deps: PortGeneratorDeps, ui: RowUiState) {
   const replaceAllPorts = ref(false)
 
   function settings(count: number, defaultStart: number): GeneratorSettings {
-    return { count, startNumber: resolveStartNumber(genStartAt.value, defaultStart), nameTemplate: genNameTemplate.value, typeId: genTypeId.value, speedId: genSpeedId.value }
+    return {
+      count,
+      startNumber: resolveStartNumber(genStartAt.value, defaultStart),
+      nameTemplate: genNameTemplate.value,
+      typeId: genTypeId.value,
+      speedId: genSpeedId.value,
+    }
   }
 
   const requestedCount = () => Math.max(0, Number(genCount.value) || 0)

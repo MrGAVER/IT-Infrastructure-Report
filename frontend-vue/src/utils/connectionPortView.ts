@@ -34,7 +34,13 @@ export function buildConfigView(source: DeviceInterface | null, destination: Dev
       status: preview.status,
       diff: preview.diff,
       source: { id: source.id, name: source.name, role: preview.source.role, mode: preview.source.mode, vlans: preview.source.vlans },
-      destination: { id: destination.id, name: destination.name, role: preview.destination.role, mode: preview.destination.mode, vlans: preview.destination.vlans },
+      destination: {
+        id: destination.id,
+        name: destination.name,
+        role: preview.destination.role,
+        mode: preview.destination.mode,
+        vlans: preview.destination.vlans,
+      },
     }
   }
   const rolesDiffer = hasRoleMismatch(source, destination)

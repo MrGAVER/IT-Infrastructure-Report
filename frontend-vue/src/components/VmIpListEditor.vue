@@ -66,11 +66,7 @@ function updateField(index: number, patch: Partial<VmIpDraftRow>) {
         @input="updateField(i, { purpose: ($event.target as HTMLInputElement).value })"
       />
       <label class="col-mgmt">
-        <input
-          type="checkbox"
-          :checked="row.is_management"
-          @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })"
-        />
+        <input type="checkbox" :checked="row.is_management" @change="updateField(i, { is_management: ($event.target as HTMLInputElement).checked })" />
         IP администрирования
       </label>
       <button type="button" class="icon-btn danger" aria-label="Удалить IP-адрес" @click="removeRow(i)">

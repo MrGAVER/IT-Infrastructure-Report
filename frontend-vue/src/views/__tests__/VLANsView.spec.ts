@@ -18,7 +18,9 @@ beforeEach(() => {
 
 function seedStores() {
   const vlans = useVLANsStore()
-  vlans.groups = [{ vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] }]
+  vlans.groups = [
+    { vlan_id: 10, definitions: [{ id: 'v-10', vlan_id: 10, name: 'Мониторинг', description: '', domain_id: null, domain_name: '', devices: [] }] },
+  ]
   vlans.loaded = true
 
   const devices = useDevicesStore()
@@ -39,7 +41,10 @@ describe('VLANsView.vue — массовое назначение VLAN', () => {
     await flushPromises()
 
     expect(wrapper.find('.bulk-panel').exists()).toBe(false)
-    await wrapper.findAll('button').find((b) => b.text().includes('Массовое назначение VLAN'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Массовое назначение VLAN'))!
+      .trigger('click')
     expect(wrapper.find('.bulk-panel').exists()).toBe(true)
   })
 
@@ -47,7 +52,10 @@ describe('VLANsView.vue — массовое назначение VLAN', () => {
     seedStores()
     const wrapper = mount(VLANsView)
     await flushPromises()
-    await wrapper.findAll('button').find((b) => b.text().includes('Массовое назначение VLAN'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Массовое назначение VLAN'))!
+      .trigger('click')
 
     await wrapper.find('.bulk-device-all input').setValue(true)
 
@@ -59,7 +67,10 @@ describe('VLANsView.vue — массовое назначение VLAN', () => {
     seedStores()
     const wrapper = mount(VLANsView)
     await flushPromises()
-    await wrapper.findAll('button').find((b) => b.text().includes('Массовое назначение VLAN'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Массовое назначение VLAN'))!
+      .trigger('click')
 
     await wrapper.find('.bulk-fields select').setValue('v-10')
     await wrapper.find('.bulk-device-all input').setValue(true)
@@ -90,7 +101,10 @@ describe('VLANsView.vue — массовое назначение VLAN', () => {
     seedStores()
     const wrapper = mount(VLANsView)
     await flushPromises()
-    await wrapper.findAll('button').find((b) => b.text().includes('Массовое назначение VLAN'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Массовое назначение VLAN'))!
+      .trigger('click')
     await wrapper.find('.bulk-fields select').setValue('v-10')
 
     const fetchSpy = vi.fn(async () => jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 }))
@@ -105,7 +119,17 @@ describe('VLANsView.vue — массовое назначение VLAN', () => {
 })
 
 describe('VLANsView.vue — подинтерфейсы на недоступных VLAN', () => {
-  const staleItem = { subinterface_id: 's-1', subinterface_name: 'Gi0/0.30', port_id: 'p-1', port_name: 'Gi0/0', device_id: 'dev-2', device_name: 'srv-02', vlan_id: 'v-30', vlan_number: 30, vlan_name: 'Резерв' }
+  const staleItem = {
+    subinterface_id: 's-1',
+    subinterface_name: 'Gi0/0.30',
+    port_id: 'p-1',
+    port_name: 'Gi0/0',
+    device_id: 'dev-2',
+    device_name: 'srv-02',
+    vlan_id: 'v-30',
+    vlan_number: 30,
+    vlan_name: 'Резерв',
+  }
 
   function stubIntegrity(items: unknown[]) {
     const fetchMock = vi.fn(async (url: string) => {
@@ -115,7 +139,8 @@ describe('VLANsView.vue — подинтерфейсы на недоступны
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock
   }
-  const staleCalls = (fetchMock: ReturnType<typeof stubIntegrity>) => fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/integrity/stale-subinterfaces')).length
+  const staleCalls = (fetchMock: ReturnType<typeof stubIntegrity>) =>
+    fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/integrity/stale-subinterfaces')).length
 
   async function mountView() {
     seedStores()
@@ -174,13 +199,15 @@ describe('VLANsView.vue — подинтерфейсы на недоступны
     const wrapper = await mountView()
     expect(staleCalls(fetchMock)).toBe(1)
 
-    await wrapper.findAll('button').find((b) => b.text().includes('Обновить'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Обновить'))!
+      .trigger('click')
     await flushPromises()
 
     expect(staleCalls(fetchMock)).toBe(2)
   })
 })
-
 
 describe('VLANsView.vue — пагинация', () => {
   const group = (id: number) => ({

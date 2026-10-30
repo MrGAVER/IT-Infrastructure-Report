@@ -2,7 +2,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { api, ApiError, ClientErrorCode, DEFAULT_REQUEST_TIMEOUT_MS, ErrorCode, listAllResource, parseRetryAfter, request, setStoredToken, UNAUTHORIZED_EVENT } from '../client'
+import {
+  api,
+  ApiError,
+  ClientErrorCode,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  ErrorCode,
+  listAllResource,
+  parseRetryAfter,
+  request,
+  setStoredToken,
+  UNAUTHORIZED_EVENT,
+} from '../client'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(body === null ? null : JSON.stringify(body), { status })
@@ -22,7 +33,10 @@ describe('api/client: ответ 401 и событие UNAUTHORIZED_EVENT', () =
   })
 
   it('401 на PUT /auth/me/password (неверный текущий пароль) НЕ завершает сессию, ошибка пробрасывается', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Текущий пароль указан неверно.' }, 401)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Текущий пароль указан неверно.' }, 401)),
+    )
 
     await expect(api.put('/auth/me/password', { current_password: 'x', new_password: 'y' })).rejects.toMatchObject({
       status: 401,
@@ -32,27 +46,36 @@ describe('api/client: ответ 401 и событие UNAUTHORIZED_EVENT', () =
   })
 
   it('401 на POST /auth/login (неверный пароль при входе) тоже не отправляет событие', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Неверное имя пользователя или пароль.' }, 401)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Неверное имя пользователя или пароль.' }, 401)),
+    )
 
     await expect(api.post('/auth/login', { username: 'a', password: 'b' })).rejects.toMatchObject({ status: 401 })
     expect(onUnauthorized).not.toHaveBeenCalled()
   })
 
-  it.each(['/auth/me', '/resources/devices', '/devices'])(
-    '401 на GET %s (протухший токен) отправляет UNAUTHORIZED_EVENT',
-    async (path) => {
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Требуется вход.' }, 401)))
+  it.each(['/auth/me', '/resources/devices', '/devices'])('401 на GET %s (протухший токен) отправляет UNAUTHORIZED_EVENT', async (path) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Требуется вход.' }, 401)),
+    )
 
-      await expect(api.get(path)).rejects.toMatchObject({ status: 401 })
-      expect(onUnauthorized).toHaveBeenCalledTimes(1)
-    },
-  )
+    await expect(api.get(path)).rejects.toMatchObject({ status: 401 })
+    expect(onUnauthorized).toHaveBeenCalledTimes(1)
+  })
 
   it('другие ошибки (403, 500) событие не отправляют', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Недостаточно прав' }, 403)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Недостаточно прав' }, 403)),
+    )
     await expect(api.get('/resources/devices')).rejects.toMatchObject({ status: 403 })
 
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Ошибка' }, 500)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Ошибка' }, 500)),
+    )
     await expect(api.get('/resources/devices')).rejects.toMatchObject({ status: 500 })
 
     expect(onUnauthorized).not.toHaveBeenCalled()
@@ -222,12 +245,18 @@ describe('api/client: разбор ответа (B-11)', () => {
   beforeEach(() => localStorage.clear())
 
   it('204 возвращает null', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    )
     await expect(api.delete('/resources/devices/d1')).resolves.toBeNull()
   })
 
   it('ошибка с detail-объектом: message и code берутся из detail', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: { message: 'Позиция занята', code: 'RACK_POSITION_OCCUPIED' } }, 409)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: { message: 'Позиция занята', code: 'RACK_POSITION_OCCUPIED' } }, 409)),
+    )
 
     const error = await api.post('/resources/devices', {}).catch((e: unknown) => e)
 
@@ -236,7 +265,10 @@ describe('api/client: разбор ответа (B-11)', () => {
   })
 
   it('ошибка с телом не в JSON: текст ответа становится сообщением, code = null', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('Bad Gateway', { status: 502 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Bad Gateway', { status: 502 })),
+    )
 
     await expect(api.get('/devices')).rejects.toMatchObject({ status: 502, message: 'Bad Gateway', code: null })
   })
@@ -283,10 +315,13 @@ describe('api/client: таймаут и отмена запросов (B-11)', (
 
   it('своевременный ответ таймером не прерывается, а таймер снимается (после ответа отмены нет)', async () => {
     let seenSignal: AbortSignal | undefined
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: FetchInit) => {
-      seenSignal = init?.signal
-      return jsonResponse({ ok: true })
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: FetchInit) => {
+        seenSignal = init?.signal
+        return jsonResponse({ ok: true })
+      }),
+    )
 
     await expect(api.get('/resources/devices')).resolves.toEqual({ ok: true })
     await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS * 2)
@@ -346,14 +381,17 @@ describe('api/client: таймаут и отмена запросов (B-11)', (
   it('listAllResource передаёт signal во все запросы страниц и прерывается при отмене', async () => {
     const controller = new AbortController()
     const seen: Array<AbortSignal | undefined> = []
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: FetchInit) => {
-      seen.push(init?.signal)
-      if (seen.length === 1) {
-        controller.abort() // отмена между страницами
-        return jsonResponse({ items: [{ id: 'a' }], total: 2500, offset: 0, limit: 1000 })
-      }
-      throw init?.signal?.reason
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: FetchInit) => {
+        seen.push(init?.signal)
+        if (seen.length === 1) {
+          controller.abort() // отмена между страницами
+          return jsonResponse({ items: [{ id: 'a' }], total: 2500, offset: 0, limit: 1000 })
+        }
+        throw init?.signal?.reason
+      }),
+    )
 
     const error = await listAllResource('connections', {}, { signal: controller.signal }).catch((e: unknown) => e)
 
@@ -366,10 +404,16 @@ describe('api/client: Retry-After и новые коды ошибок (B-12)', (
   beforeEach(() => localStorage.clear())
 
   it('429 TOO_MANY_ATTEMPTS: ApiError хранит code и retryAfter из заголовка Retry-After', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа. Повторите через 7 с.' } }),
-      { status: 429, headers: { 'Retry-After': '7' } },
-    )))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: { code: 'TOO_MANY_ATTEMPTS', message: 'Слишком много неудачных попыток входа. Повторите через 7 с.' } }), {
+            status: 429,
+            headers: { 'Retry-After': '7' },
+          }),
+      ),
+    )
 
     const error = await api.post('/auth/login', { username: 'a', password: 'b' }).catch((e: unknown) => e)
 
@@ -378,7 +422,10 @@ describe('api/client: Retry-After и новые коды ошибок (B-12)', (
   })
 
   it('без заголовка Retry-After retryAfter = null; у обычных ошибок он тоже null', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'Нет доступа' }, 403)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Нет доступа' }, 403)),
+    )
     await expect(api.get('/devices')).rejects.toMatchObject({ status: 403, retryAfter: null })
   })
 
@@ -428,4 +475,3 @@ describe('api/client: Retry-After и новые коды ошибок (B-12)', (
     expect(Object.keys(ErrorCode).sort()).toEqual([...backendCodes].sort())
   })
 })
-

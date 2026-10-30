@@ -109,7 +109,13 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
       <span>Сортировка (необязательно)</span>
       <div class="path-row">
         <input type="text" :value="block.sort_by ?? ''" @input="$emit('update', { sort_by: ($event.target as HTMLInputElement).value })" />
-        <select v-if="fieldPaths.length" @change="$emit('update', { sort_by: ($event.target as HTMLSelectElement).value }); ($event.target as HTMLSelectElement).selectedIndex = 0">
+        <select
+          v-if="fieldPaths.length"
+          @change="
+            $emit('update', { sort_by: ($event.target as HTMLSelectElement).value })
+            ;($event.target as HTMLSelectElement).selectedIndex = 0
+          "
+        >
           <option value="">Вставить поле…</option>
           <option v-for="p in fieldPaths" :key="p.path" :value="p.path">{{ p.label }}</option>
         </select>
@@ -156,10 +162,20 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
 
         <div v-if="c.source === 'field'" class="column-value">
           <input type="text" placeholder="путь поля" :value="c.path ?? ''" @input="updateColumn(ci, { path: ($event.target as HTMLInputElement).value })" />
-          <input type="text" placeholder="разделитель" :value="c.separator ?? '; '" @input="updateColumn(ci, { separator: ($event.target as HTMLInputElement).value })" />
+          <input
+            type="text"
+            placeholder="разделитель"
+            :value="c.separator ?? '; '"
+            @input="updateColumn(ci, { separator: ($event.target as HTMLInputElement).value })"
+          />
         </div>
         <div v-else-if="c.source === 'static'" class="column-value">
-          <input type="text" placeholder="текст (можно {{параметр}})" :value="c.value ?? ''" @input="updateColumn(ci, { value: ($event.target as HTMLInputElement).value })" />
+          <input
+            type="text"
+            placeholder="текст (можно {{параметр}})"
+            :value="c.value ?? ''"
+            @input="updateColumn(ci, { value: ($event.target as HTMLInputElement).value })"
+          />
         </div>
         <div v-else class="column-value empty">— порядковый номер строки —</div>
 

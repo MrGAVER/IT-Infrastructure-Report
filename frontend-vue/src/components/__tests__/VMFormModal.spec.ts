@@ -45,13 +45,27 @@ describe('VMFormModal.vue', () => {
         if (url.includes('/resources/ip-addresses')) {
           return jsonResponse({
             ...EMPTY_PAGE,
-            items: [{ id: 'ip-1', owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }],
+            items: [
+              { id: 'ip-1', owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true },
+            ],
           })
         }
         if (url.includes('/resources/open-ports')) {
           return jsonResponse({
             ...EMPTY_PAGE,
-            items: [{ id: 'op-1', owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', port: 443, protocol: 'HTTPS', protocol_catalog_id: 'cat-https', ip_address: null, description: null }],
+            items: [
+              {
+                id: 'op-1',
+                owner_type: 'virtual_machine',
+                owner_id: 'vm-1',
+                transport_protocol: 'TCP',
+                port: 443,
+                protocol: 'HTTPS',
+                protocol_catalog_id: 'cat-https',
+                ip_address: null,
+                description: null,
+              },
+            ],
           })
         }
         return jsonResponse(EMPTY_PAGE)
@@ -84,7 +98,10 @@ describe('VMFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (method === 'POST' && url.endsWith('/resources/vms')) {
-          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null }, 201)
+          return jsonResponse(
+            { id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null },
+            201,
+          )
         }
         if (method === 'GET' && (url.includes('/resources/ip-addresses') || url.includes('/resources/open-ports'))) {
           return jsonResponse(EMPTY_PAGE)
@@ -160,7 +177,10 @@ describe('VMFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method })
         if (method === 'POST' && url.endsWith('/resources/vms')) {
-          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null }, 201)
+          return jsonResponse(
+            { id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null },
+            201,
+          )
         }
         return jsonResponse(EMPTY_PAGE)
       }),
@@ -184,8 +204,22 @@ describe('VMFormModal.vue', () => {
       purpose: null,
       description: null,
     }
-    const apiIp = (id: string, ip: string) => ({ id, owner_type: 'virtual_machine', owner_id: 'vm-1', ip_address: ip, prefix_length: null, purpose: null, is_management: false })
-    const apiSoftware = (id: string, assetId: string, version: string | null) => ({ id, owner_type: 'virtual_machine', owner_id: 'vm-1', software_asset_id: assetId, version })
+    const apiIp = (id: string, ip: string) => ({
+      id,
+      owner_type: 'virtual_machine',
+      owner_id: 'vm-1',
+      ip_address: ip,
+      prefix_length: null,
+      purpose: null,
+      is_management: false,
+    })
+    const apiSoftware = (id: string, assetId: string, version: string | null) => ({
+      id,
+      owner_type: 'virtual_machine',
+      owner_id: 'vm-1',
+      software_asset_id: assetId,
+      version,
+    })
 
     type Call = { url: string; method: string; body: unknown }
     function stubApi(ips: unknown[], software: unknown[]): Call[] {
@@ -295,7 +329,10 @@ describe('VMFormModal.vue', () => {
         const method = init?.method ?? 'GET'
         calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
         if (method === 'POST' && url.endsWith('/resources/vms')) {
-          return jsonResponse({ id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null }, 201)
+          return jsonResponse(
+            { id: 'vm-new', name: 'new-vm', operating_system_id: null, physical_device_id: null, hypervisor_os_id: null, purpose: null, description: null },
+            201,
+          )
         }
         if (method === 'PUT' && url.endsWith('/vms/vm-new/deployed-software')) {
           return jsonResponse({ items: [{ id: 'sw-new' }] })
@@ -392,10 +429,34 @@ describe('VMFormModal.vue', () => {
           const method = init?.method ?? 'GET'
           calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
           if (method === 'GET' && url.includes('/resources/ip-addresses')) {
-            return jsonResponse({ ...EMPTY_PAGE, items: [{ id: 'ip-src', owner_type: 'virtual_machine', owner_id: 'vm-src', ip_address: '10.20.30.5', prefix_length: 24, purpose: 'LAN', is_management: true }] })
+            return jsonResponse({
+              ...EMPTY_PAGE,
+              items: [
+                {
+                  id: 'ip-src',
+                  owner_type: 'virtual_machine',
+                  owner_id: 'vm-src',
+                  ip_address: '10.20.30.5',
+                  prefix_length: 24,
+                  purpose: 'LAN',
+                  is_management: true,
+                },
+              ],
+            })
           }
           if (method === 'POST' && url.endsWith('/resources/vms')) {
-            return jsonResponse({ id: 'vm-new', name: 'app-server-02', operating_system_id: 'os-1', physical_device_id: null, hypervisor_os_id: null, purpose: 'веб-сервер', description: null }, 201)
+            return jsonResponse(
+              {
+                id: 'vm-new',
+                name: 'app-server-02',
+                operating_system_id: 'os-1',
+                physical_device_id: null,
+                hypervisor_os_id: null,
+                purpose: 'веб-сервер',
+                description: null,
+              },
+              201,
+            )
           }
           return jsonResponse(EMPTY_PAGE)
         }),
@@ -427,11 +488,22 @@ describe('VMFormModal.vue — открытые порты: сортировка 
     { id: 'cat-https', port: 443, protocol_type: 'HTTPS', description: null },
   ]
   const existingVm: VirtualMachine = {
-    id: 'vm-1', name: 'app-server-01', operating_system_id: null, physical_device_id: null,
-    hypervisor_os_id: null, purpose: null, description: null,
+    id: 'vm-1',
+    name: 'app-server-01',
+    operating_system_id: null,
+    physical_device_id: null,
+    hypervisor_os_id: null,
+    purpose: null,
+    description: null,
   }
   const apiPort = (id: string, catalogId: string) => ({
-    id, owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', protocol_catalog_id: catalogId, ip_address: null, description: null,
+    id,
+    owner_type: 'virtual_machine',
+    owner_id: 'vm-1',
+    transport_protocol: 'TCP',
+    protocol_catalog_id: catalogId,
+    ip_address: null,
+    description: null,
   })
 
   type Call = { url: string; method: string; body: unknown }
@@ -488,7 +560,10 @@ describe('VMFormModal.vue — открытые порты: сортировка 
 
     const pick = async (rowIndex: number, label: string) => {
       await wrapper.findAll('.col-catalog .searchable-select input')[rowIndex].trigger('focus')
-      await wrapper.findAll('.col-catalog .ss-option').find((o) => o.text() === label)!.trigger('mousedown')
+      await wrapper
+        .findAll('.col-catalog .ss-option')
+        .find((o) => o.text() === label)!
+        .trigger('mousedown')
     }
     await wrapper.findAll('button.add-btn')[1].trigger('click') // + Открытый порт
     await pick(0, '443 / HTTPS')
@@ -506,7 +581,10 @@ describe('VMFormModal.vue — открытые порты: сортировка 
     await flushPromises()
 
     const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-new/open-ports'))
-    expect((sync?.body as { open_ports: Array<{ protocol_catalog_id: string }> }).open_ports.map((p) => p.protocol_catalog_id)).toEqual(['cat-ssh', 'cat-https'])
+    expect((sync?.body as { open_ports: Array<{ protocol_catalog_id: string }> }).open_ports.map((p) => p.protocol_catalog_id)).toEqual([
+      'cat-ssh',
+      'cat-https',
+    ])
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 
@@ -518,11 +596,16 @@ describe('VMFormModal.vue — открытые порты: сортировка 
 
     await wrapper.findAll('button.add-btn')[1].trigger('click') // + Открытый порт
     await wrapper.findAll('.col-catalog .searchable-select input')[2].trigger('focus')
-    await wrapper.findAll('.col-catalog .ss-option').find((o) => o.text() === '80 / HTTP')!.trigger('mousedown')
+    await wrapper
+      .findAll('.col-catalog .ss-option')
+      .find((o) => o.text() === '80 / HTTP')!
+      .trigger('mousedown')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(calls.filter((c) => c.url.includes('/open-ports') && c.method !== 'GET').map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/v1/vms/vm-1/open-ports'])
+    expect(calls.filter((c) => c.url.includes('/open-ports') && c.method !== 'GET').map((c) => `${c.method} ${c.url}`)).toEqual([
+      'PUT /api/v1/vms/vm-1/open-ports',
+    ])
     const sync = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/vms/vm-1/open-ports'))
     expect(sync?.body).toEqual({
       open_ports: [
@@ -567,11 +650,22 @@ describe('VMFormModal.vue — открытые порты: сортировка 
 describe('VMFormModal.vue — открытые порты сворачиваются по общему порогу из «Настроек»', () => {
   const catalog = Array.from({ length: 4 }, (_, i) => ({ id: `cat-${i}`, port: 8000 + i, protocol_type: `P${i}`, description: null }))
   const vm: VirtualMachine = {
-    id: 'vm-1', name: 'app-server-01', operating_system_id: null, physical_device_id: null,
-    hypervisor_os_id: null, purpose: null, description: null,
+    id: 'vm-1',
+    name: 'app-server-01',
+    operating_system_id: null,
+    physical_device_id: null,
+    hypervisor_os_id: null,
+    purpose: null,
+    description: null,
   }
   const apiPort = (i: number) => ({
-    id: `op-${i}`, owner_type: 'virtual_machine', owner_id: 'vm-1', transport_protocol: 'TCP', protocol_catalog_id: `cat-${i}`, ip_address: null, description: null,
+    id: `op-${i}`,
+    owner_type: 'virtual_machine',
+    owner_id: 'vm-1',
+    transport_protocol: 'TCP',
+    protocol_catalog_id: `cat-${i}`,
+    ip_address: null,
+    description: null,
   })
   function stubPorts(items: unknown[]) {
     vi.stubGlobal(
@@ -729,8 +823,13 @@ describe('VMFormModal.vue — «Операционная система» и «�
   describe('выбранный хост, который не входит в список допустимых', () => {
     // Тип «Коммутатор» не проходит фильтр хостов, но у ВМ он мог остаться в БД (сменили тип устройства).
     const staleVm: VirtualMachine = {
-      id: 'vm-1', name: 'app-01', operating_system_id: null, physical_device_id: 'd-sw',
-      hypervisor_os_id: null, purpose: null, description: null,
+      id: 'vm-1',
+      name: 'app-01',
+      operating_system_id: null,
+      physical_device_id: 'd-sw',
+      hypervisor_os_id: null,
+      purpose: null,
+      description: null,
     }
     function seedDevices() {
       seedCatalogs()
@@ -739,7 +838,10 @@ describe('VMFormModal.vue — «Операционная система» и «�
 
     it('сохранённый хост вне фильтра показывается в поле с пометкой, а не пустым полем', async () => {
       seedDevices()
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+      )
       const wrapper = mount(VMFormModal, { props: { vm: staleVm } })
       await flushPromises()
       const select = fieldSelect(wrapper, 'Физическое устройство')
@@ -750,18 +852,27 @@ describe('VMFormModal.vue — «Операционная система» и «�
 
     it('после выбора допустимого хоста «лишний» вариант исчезает из списка', async () => {
       seedDevices()
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+      )
       const wrapper = mount(VMFormModal, { props: { vm: staleVm } })
       await flushPromises()
       const select = fieldSelect(wrapper, 'Физическое устройство')
       await select.find('input').trigger('focus')
-      await select.findAll('.ss-option').find((o) => o.text() === 'srv-2')!.trigger('mousedown')
+      await select
+        .findAll('.ss-option')
+        .find((o) => o.text() === 'srv-2')!
+        .trigger('mousedown')
       expect(await openAndList(select)).toEqual(['srv-2', 'srv-10'])
     })
 
     it('допустимый хост пометки не получает; id, которого нет в реестре устройств, ничего не добавляет и не ломает форму', async () => {
       seedDevices()
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(EMPTY_PAGE)))
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(EMPTY_PAGE)),
+      )
       const okVm = mount(VMFormModal, { props: { vm: { ...staleVm, physical_device_id: 'd2' } } })
       await flushPromises()
       expect((fieldSelect(okVm, 'Физическое устройство').find('input').element as HTMLInputElement).value).toBe('srv-2')

@@ -53,7 +53,7 @@ const glyphMarkup = computed(() => {
 // видимость завязана просто на "у устройства есть хотя бы один известный порт" — работает
 // одинаково для switch, сервера с несколькими NIC, файрвола с WAN/LAN/DMZ и т.д.
 const portTicks = computed(() => (icon.value.mode === 'generated' ? Math.max(0, Math.min(icon.value.port_ticks ?? 0, MAX_PORT_TICKS)) : 0))
-const portOverflow = computed(() => (icon.value.mode === 'generated' ? icon.value.port_overflow ?? 0 : 0))
+const portOverflow = computed(() => (icon.value.mode === 'generated' ? (icon.value.port_overflow ?? 0) : 0))
 
 /** x-координата i-й засечки вдоль нижнего края — тот же расчёт, что
  * backend/app/services/diagram_export.py:_svg_port_ticks (spacing = width / (ticks + 1)). */

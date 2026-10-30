@@ -42,10 +42,7 @@ export type PortRowLike = Pick<InterfaceDraftRow, 'id' | 'name' | 'is_management
  * const connections = await fetchDeviceInterfaceConnections(deviceId)
  * const conflicts = computePortConflicts(rows, connections)
  */
-export function computePortConflicts(
-  rows: PortRowLike[],
-  connections: readonly DeviceInterfaceConnection[],
-): Record<string, PortConflictInfo> {
+export function computePortConflicts(rows: PortRowLike[], connections: readonly DeviceInterfaceConnection[]): Record<string, PortConflictInfo> {
   const conflicts: Record<string, PortConflictInfo> = {}
   if (!connections.length || !rows.some((r) => r.id)) return conflicts
   const neighborOf = new Map<string, DeviceInterfaceConnection>()
@@ -68,7 +65,12 @@ export function computePortConflicts(
       flagsDiffer,
       vlanModeDiffer,
       allVlansDiffer: allVlansDiffers,
-      other: { is_management: neighbor.peer_is_management, is_data_transfer: neighbor.peer_is_data_transfer, vlan_mode: neighbor.peer_vlan_mode, all_vlans: peerAllVlans },
+      other: {
+        is_management: neighbor.peer_is_management,
+        is_data_transfer: neighbor.peer_is_data_transfer,
+        vlan_mode: neighbor.peer_vlan_mode,
+        all_vlans: peerAllVlans,
+      },
     }
   }
   return conflicts

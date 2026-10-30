@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import type { VLANDefinition } from '../../api/types'
-import { allVlansDiffer, carriesAllVlans, describeVlanValue, isAllVlansSelected, pickerSelection, toggleValueAll, toggleValueVlan, valueFromSource } from '../allVlans'
+import {
+  allVlansDiffer,
+  carriesAllVlans,
+  describeVlanValue,
+  isAllVlansSelected,
+  pickerSelection,
+  toggleValueAll,
+  toggleValueVlan,
+  valueFromSource,
+} from '../allVlans'
 
-const vlan = (id: string, number: number): VLANDefinition => ({ id, vlan_id: number, name: `VLAN ${number}`, description: '', domain_id: null, domain_name: '', devices: [] })
+const vlan = (id: string, number: number): VLANDefinition => ({
+  id,
+  vlan_id: number,
+  name: `VLAN ${number}`,
+  description: '',
+  domain_id: null,
+  domain_name: '',
+  devices: [],
+})
 const options = [vlan('a10', 10), vlan('a20', 20), vlan('a30', 30)]
 
 describe('isAllVlansSelected', () => {

@@ -197,7 +197,9 @@ async function removeDefinition(d: VLANDefinition) {
           <span>VLAN</span>
           <select v-model="bulkVlanId">
             <option value="">— выберите VLAN —</option>
-            <option v-for="v in allVlanDefinitions" :key="v.id" :value="v.id">{{ v.vlan_id }} — {{ v.name }}{{ v.domain_name ? ` (${v.domain_name})` : '' }}</option>
+            <option v-for="v in allVlanDefinitions" :key="v.id" :value="v.id">
+              {{ v.vlan_id }} — {{ v.name }}{{ v.domain_name ? ` (${v.domain_name})` : '' }}
+            </option>
           </select>
         </label>
         <label class="field">
@@ -212,12 +214,12 @@ async function removeDefinition(d: VLANDefinition) {
         </label>
         <div v-if="!devices.all.length" class="no-devices">Устройств нет</div>
         <label v-for="d in devices.all" :key="d.id" class="bulk-device">
-          <input
-            type="checkbox"
-            :checked="bulkSelectedDeviceIds.has(d.id)"
-            @change="toggleDevice(d.id, ($event.target as HTMLInputElement).checked)"
-          />
-          {{ catalogs.label('device-types', d.device_type_id, '') ? `${d.system_name || d.serial_number} (${catalogs.label('device-types', d.device_type_id, '')})` : d.system_name || d.serial_number }}
+          <input type="checkbox" :checked="bulkSelectedDeviceIds.has(d.id)" @change="toggleDevice(d.id, ($event.target as HTMLInputElement).checked)" />
+          {{
+            catalogs.label('device-types', d.device_type_id, '')
+              ? `${d.system_name || d.serial_number} (${catalogs.label('device-types', d.device_type_id, '')})`
+              : d.system_name || d.serial_number
+          }}
         </label>
       </div>
       <button class="btn btn-primary" :disabled="bulkAssigning" @click="applyBulkAssign">Назначить выбранным</button>
