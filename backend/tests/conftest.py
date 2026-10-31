@@ -282,11 +282,16 @@ def _reset_login_throttle():
 
 
 @pytest.fixture(autouse=True)
-def _reset_auth_flag_cache():
+def _reset_auth_flag_cache(monkeypatch):
     """Кэш флага «аутентификация включена» (services/auth._auth_enabled_cached) общий для процесса, а БД у каждого теста
-    своя: без сброса значение из предыдущего теста (скажем, «включена») действовало бы до двух секунд и в следующем."""
+    своя: без сброса значение из предыдущего теста (скажем, «включена») действовало бы до двух секунд и в следующем.
+
+    Часы кэша заморожены: иначе тесты, сравнивающие число SQL-запросов двух соседних запросов (test_connection_query,
+    test_code_review_correctness), зависели бы от того, истёк ли TTL между ними, — на медленном прогоне с покрытием
+    нерегулярно получали бы лишний SELECT настроек. Срок действия и сброс проверяет test_auth_flag_cache.py на своих часах."""
     from app.services import auth as auth_module
 
+    monkeypatch.setattr(auth_module, "_flag_clock", lambda: 0.0)
     auth_module.reset_auth_enabled_cache()
     yield
     auth_module.reset_auth_enabled_cache()

@@ -185,7 +185,9 @@ def test_query_count_does_not_grow_with_page_size(client, seed, sql_log):
     def statements_for(limit: int) -> int:
         sql_log.clear()
         _page(client, limit=limit)
-        return len(sql_log)
+        # Чтение настроек аутентификации в middleware не относится к эндпоинту журнала: оно кэшируется (П-5), и первый запрос
+        # теста, в отличие от следующих, делает его на самом деле.
+        return len([statement for statement in sql_log if "FROM auth_settings" not in statement])
 
     assert statements_for(2) == statements_for(50)
 
