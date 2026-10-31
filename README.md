@@ -518,6 +518,9 @@ FastAPI + Uvicorn
 EXE-сборка делают это автоматически (см. `backend/Dockerfile`, `installer/build_windows.bat`),
 для локального запуска без Docker — см. [Локальный запуск без Docker](#локальный-запуск-без-docker).
 
+Код фронтенда проверяют ESLint (`npm run lint`) и Prettier (`npm run format:check`); оба шага входят в CI и блокируют слияние.
+Правила, конвенции и настройка `git blame` — в разделе «Линтер и форматирование» [`frontend-vue/README.md`](frontend-vue/README.md).
+
 ## Отчёт Excel
 
 Отчёт формируется по техническому заданию и состоит из 4 листов.
@@ -886,11 +889,11 @@ CI проверяет, что lock-файлы актуальны (пересбо
   запоминается на процесс (отключить: `INFRA_REGISTRY_TEST_NO_UPGRADE_CACHE=1`); PBKDF2 в тестах идёт на 1 000 итераций
   (тест, которому нужно боевое число, помечается `@pytest.mark.real_password_hashing`).
 - **Покрытие backend**: `pytest --cov` (настройки — `[tool.coverage]` в `pyproject.toml`, считаются и ветви; нужен
-  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На 2.157.0 покрытие
-  94 %, порог в `pyproject.toml` (`fail_under`) — 92 %; CI запускает тесты с `--cov`, печатает сводку в Summary job-а и
+  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На 2.158.0 покрытие
+  94,97 %, порог в `pyproject.toml` (`fail_under`) — 92 %; CI запускает тесты с `--cov`, печатает сводку в Summary job-а и
   падает, если покрытие ниже порога. Самые слабые места: `api/report_builder.py` (68 %), `api/frontend_assets.py`,
   `db.py`, `services/report_render.py`, `services/diagram_graph.py`.
-- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 69 файлов) — Vitest +
+- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, около 220 файлов) — Vitest +
   `@vue/test-utils` на `jsdom` (см. `vitest.config.ts`): сторы Pinia (catalogs, devices, auth,
   connections, vlans и т. д.), утилиты (`utils/gridCoverage.ts`, `utils/reportEntityPaths.ts` и
   др.) и компоненты, включая модалки, рендерящиеся через `Teleport`. Не e2e — без реального
@@ -913,7 +916,7 @@ CI проверяет, что lock-файлы актуальны (пересбо
 ## История изменений
 
 Полная хронология версий вынесена в отдельный файл — см. [CHANGELOG.md](./CHANGELOG.md).
-Текущая версия: **2.90.0**.
+Текущая версия: **2.158.0** (источник — `APP_VERSION` в `backend/app/config.py`, отдаётся в `GET /api/v1/health`).
 
 ## Известные ограничения и заметки
 
@@ -931,13 +934,16 @@ CI проверяет, что lock-файлы актуальны (пересбо
   в `infra_registry.spec` — `collect_submodules('app')` не всегда достаточно (см. запись 2.40.0 в
   [CHANGELOG.md](./CHANGELOG.md)), и падение проявляется только в frozen EXE-сборке, не в
   Docker/обычном запуске.
-- **Тесты не проверяют реальную цепочку alembic-миграций.** `tests/conftest.py` строит схему БД
-  через `Base.metadata.create_all()` из текущих определений моделей — быстро, но означает, что
+- **Обычный прогон тестов строит схему не миграциями.** По умолчанию `tests/conftest.py` создаёт схему БД
+  из текущих определений моделей (копия шаблона, собранного `Base.metadata.create_all()`) — быстро, но
   расхождение между моделью и тем, что реально накопится в БД после `alembic upgrade head` на
-  продовой истории миграций, невидимо для pytest (см. запись 2.43.0 — так `information_systems.name`
-  потеряло UNIQUE на несколько миграций и ни один тест этого не заметил). При добавлении
-  `batch_alter_table()` на SQLite стоит вручную проверять итоговую DDL (`sqlite_master`), а не
-  полагаться только на зелёный pytest.
+  продовой истории миграций, этим прогоном не видно (см. запись 2.43.0 — так `information_systems.name`
+  потеряло UNIQUE на несколько миграций и ни один тест этого не заметил). Страхуют от этого
+  тест-страж `tests/test_migrations_match_models.py` (цепочка миграций на пустой базе сверяется с моделями; падает при любом
+  новом расхождении) и режим `INFRA_REGISTRY_TEST_SCHEMA=migrations` (весь набор на схеме из миграций, в CI — job
+  `test-postgres-migrations`). Миграции, которые перестраивают таблицы или работают с накопленными данными, всё равно
+  стоит проверять на копии реальной базы: при `batch_alter_table()` на SQLite смотрите итоговую DDL (`sqlite_master`), а
+  не только зелёный pytest.
 - **PostgreSQL: цепочка миграций Alembic проходит на пустой базе** (с 2.156.0; проверено на PostgreSQL 16). Раньше
   `alembic upgrade head` на чистом томе падал, и контейнер из `docker-compose.yml` не стартовал. Исправлено в девяти
   миграциях: булевы литералы `1`/`0` в сырых SQL заменены параметрами (`e8c2f1a9b430`, `e7a2c9f4d813`, `8c5d1f7a2b40`,
