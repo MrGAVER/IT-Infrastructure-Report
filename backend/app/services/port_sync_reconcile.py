@@ -116,6 +116,21 @@ def _chunks(values: Sequence[str], size: int = _CHUNK):
         yield values[start:start + size]
 
 
+def _lock_statement(interface_ids: Sequence[str]):
+    """SELECT ... FOR UPDATE строк портов. Порядок по id — единый для всех применений, поэтому два одновременных применения
+    с пересекающимися портами не блокируют друг друга взаимно. populate_existing обновляет уже загруженные в сессию
+    объекты портов состоянием, которое видно после получения блокировки. На SQLite FOR UPDATE не рисуется (безопасный
+    no-op): там запись и так сериализована блокировкой файла."""
+    return select(DeviceInterface).where(DeviceInterface.id.in_(interface_ids)).order_by(DeviceInterface.id).with_for_update().execution_options(populate_existing=True)
+
+
+def _lock_interfaces(session: Session, interface_ids: Sequence[str]) -> None:
+    """Блокирует строки портов до конца транзакции: чужая правка этих портов ждёт commit применения, а применение, пришедшее
+    после чужой правки, видит её результат. Порции идут по возрастанию id (глобально — тот же порядок, что внутри порции)."""
+    for chunk in _chunks(sorted(set(interface_ids))):
+        session.scalars(_lock_statement(chunk)).all()
+
+
 def _load_ports(session: Session, interface_ids: Sequence[str]) -> tuple[dict[str, _Port], dict[str, VLAN]]:
     """Порты вместе со всем, что нужно для условий правил и для записи: устройство, группа, назначенные
     VLAN и VLAN, доступные устройству. Несколько запросов на весь набор портов, а не по запросу на порт."""
@@ -484,10 +499,13 @@ def _plan_hash(planned: list[_Planned]) -> str:
     return hashlib.sha256(json.dumps(effects, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _compute(session: Session, connection_ids: Any, rule_id: str | None) -> _Plan:
+def _compute(session: Session, connection_ids: Any, rule_id: str | None, *, lock_ports: bool = False) -> _Plan:
+    """Считает план. lock_ports=True (применение) блокирует порты плана ДО их чтения — план строится из актуального состояния."""
     rules = rules_for_reconcile(session, rule_id)
     connections, explicit = _selected_connections(session, connection_ids)
     interface_ids = [i for c in connections for i in (c.source_interface_id, c.destination_interface_id)]
+    if lock_ports:
+        _lock_interfaces(session, interface_ids)
     ports, vlans = _load_ports(session, interface_ids)
     plan = _Plan()
     claimed: set[str] = set()
@@ -591,11 +609,18 @@ def apply_reconcile(payload: Any, session: Session) -> dict[str, Any]:
     транзакция — записано всё или ничего.
 
     payload: {connection_ids?, rule_id?, plan_hash, confirm: true} — условия те же, что при предпросмотре.
-    Без confirm=true — 422; если план при применении отличается от показанного (hash) — 409."""
+    Без confirm=true — 422; если план при применении отличается от показанного (hash) — 409.
+
+    Параллельные правки. Строки портов плана блокируются (SELECT ... FOR UPDATE) до расчёта, поэтому правка порта,
+    сохранённая другим пользователем раньше, попадает в расчёт и меняет hash (409), а правка, начатая позже, ждёт
+    commit применения. Блокируется только то, что есть в плане: порты других подключений не затрагиваются. Строка
+    порта защищена от одновременной записи и от добавления к ней связей (внешний ключ); одновременное УДАЛЕНИЕ связей
+    порта (запись, не трогающая строку порта) блокировка не останавливает: сохранённое уже после расчёта плана, оно
+    применением не учитывается."""
     connection_ids, rule_id = _parse_scope(payload)
     if payload.get("confirm") is not True:
         raise HTTPException(422, "Применение требует подтверждения: confirm = true")
-    plan = _compute(session, connection_ids, rule_id)
+    plan = _compute(session, connection_ids, rule_id, lock_ports=True)
     if not plan.planned:
         return {"applied": {"ports": 0, "connections": 0}, "connection_ids": [], "summary": plan.summary}
     if payload.get("plan_hash") != plan.hash:
