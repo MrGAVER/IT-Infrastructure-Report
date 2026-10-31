@@ -199,10 +199,10 @@ def create_user(session: Session, *, username: str, password: str, role: str) ->
     validate_password_strength(password, username=username)
     user = User(username=username, password_hash=hash_password(password), role=role, is_active=True)
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    session.flush()  # id генерируется при flush и нужен записи аудита; нарушение уникальности имени проявится уже здесь
     audit(session, "users", user.id, AuditAction.CREATE, f"Создана учётная запись «{username}» (роль: {role})")
-    session.commit()
+    session.commit()  # учётная запись и запись аудита — одной транзакцией: не бывает пользователя без следа в журнале
+    session.refresh(user)
     return user
 
 
@@ -243,15 +243,16 @@ def update_user(
         changes.append("сменён пароль")
         security_sensitive = True
 
-    session.commit()
-    session.refresh(user)
+    # Изменение, запись аудита и отзыв сессий — ОДНА транзакция. Раньше это были три commit(): процесс, упавший между
+    # первым и последним, оставлял новый пароль (или деактивацию) при ещё действующих старых токенах и без записи в журнале.
     if changes:
         audit(session, "users", user.id, AuditAction.UPDATE, "; ".join(changes))
-        session.commit()
     if security_sensitive:
         # Смена пароля или деактивация должны немедленно аннулировать уже выданные токены —
         # иначе украденный/оставленный открытым токен продолжал бы работать до истечения TTL.
-        revoke_all_sessions(session, user.id)
+        revoke_all_sessions(session, user.id, commit=False)
+    session.commit()
+    session.refresh(user)
     return user
 
 
@@ -289,11 +290,12 @@ def change_own_password(
     user.password_hash = hash_password(new_password)
     user.failed_attempts = 0
     user.locked_until = None
+    # Новый хеш, запись аудита и отзыв остальных сессий — одна транзакция (см. update_user): иначе сбой между commit()
+    # оставил бы старые токены действующими при уже сменённом пароле.
+    audit(session, "users", user.id, AuditAction.UPDATE, f"«{user.username}» сменил(а) собственный пароль")
+    revoke_all_sessions_except(session, user.id, keep_token, commit=False)
     session.commit()
     session.refresh(user)
-    audit(session, "users", user.id, AuditAction.UPDATE, f"«{user.username}» сменил(а) собственный пароль")
-    session.commit()
-    revoke_all_sessions_except(session, user.id, keep_token)
     return user
 
 
@@ -407,12 +409,15 @@ def revoke_session(session: Session, token: str) -> None:
     session.commit()
 
 
-def revoke_all_sessions(session: Session, user_id: str) -> None:
+def revoke_all_sessions(session: Session, user_id: str, *, commit: bool = True) -> None:
+    """commit=False — отзыв входит в транзакцию вызывающего (смена пароля, деактивация): коммит делает он, одним разом
+    вместе с самим изменением и записью аудита."""
     session.execute(delete(AuthSession).where(AuthSession.user_id == user_id))
-    session.commit()
+    if commit:
+        session.commit()
 
 
-def revoke_all_sessions_except(session: Session, user_id: str, keep_token: Optional[str]) -> None:
+def revoke_all_sessions_except(session: Session, user_id: str, keep_token: Optional[str], *, commit: bool = True) -> None:
     """Как revoke_all_sessions, но сохраняет одну сессию — ту, которой был вызван именно этот
     запрос (см. change_own_password). Иначе смена собственного пароля тут же выкидывала бы
     пользователя из только что открытой вкладки настроек."""
@@ -420,7 +425,8 @@ def revoke_all_sessions_except(session: Session, user_id: str, keep_token: Optio
     if keep_token:
         stmt = stmt.where(AuthSession.token_hash != _hash_token(keep_token))
     session.execute(stmt)
-    session.commit()
+    if commit:
+        session.commit()
 
 
 def revoke_session_by_id(session: Session, user_id: str, session_id: str) -> bool:
