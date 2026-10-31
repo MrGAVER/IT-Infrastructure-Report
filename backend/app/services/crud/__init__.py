@@ -7,6 +7,7 @@
   - audit_log: Запись в журнал аудита и человекочитаемое описание изменений (кто — см. services/actor_context.py).
   - validators: Доменная валидация записей generic CRUD: реестр валидаторов по моделям, слот в стойке.
   - vlan_domains: Согласование VLAN устройств с VLAN-доменами при создании и изменении ресурсов.
+  - hooks: Хуки ресурсов: особое поведение отдельных моделей (порядок строк, обогащение, проверки, побочные действия).
   - generic: Generic CRUD: список с фильтрами и пагинацией, создание и изменение записей любого ресурса.
   - deletion: Удаление записей: проверка ссылающихся записей, очистка полиморфных владельцев.
   - owned_rows: Синхронизация «собственных» строк владельца: открытые порты, IP-адреса, развёрнутое ПО (устройства, ВМ, интерфейсы).
@@ -17,7 +18,7 @@
   - device_vlans: Синхронизация VLAN физического устройства.
   - information_system: Детали информационной системы: связанные таблицы и источники.
 
-Зависимости между модулями направлены в одну сторону (generic -> validators/vlan_domains/owned_rows -> audit_log/columns/payload);
+Зависимости между модулями направлены в одну сторону (generic -> hooks -> validators/vlan_domains/owned_rows -> audit_log/columns/payload);
 циклов нет. Если тест подменяет функцию (monkeypatch), патчить нужно модуль, который её ВЫЗЫВАЕТ, а не этот пакет.
 """
 from __future__ import annotations
@@ -86,6 +87,11 @@ from .vlan_domains import (  # noqa: F401
     _unassign_moved_vlan_from_former_domain_devices,
     _auto_assign_new_domain_vlan_to_domain_devices,
     assign_domain_vlans_to_device,
+)
+from .hooks import (  # noqa: F401
+    HOOKS,
+    ResourceHooks,
+    hooks_for,
 )
 from .generic import (  # noqa: F401
     _parse_range_datetime,
@@ -184,6 +190,8 @@ from .information_system import (  # noqa: F401
 )
 
 __all__ = [
+    'HOOKS',
+    'ResourceHooks',
     '_ECHOED_READONLY_KEYS',
     '_GroupState',
     '_IP_PURPOSE_MAX_LENGTH',
@@ -267,6 +275,7 @@ __all__ = [
     'ensure_writable',
     'get_device_subinterfaces',
     'group_subinterfaces_by_group',
+    'hooks_for',
     'get_information_system_details',
     'get_interface_groups',
     'get_device_interface_ips',
