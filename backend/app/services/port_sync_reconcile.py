@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -131,54 +132,65 @@ def _lock_interfaces(session: Session, interface_ids: Sequence[str]) -> None:
         session.scalars(_lock_statement(chunk)).all()
 
 
+def _load_by_ids(session: Session, model: Any, ids: Iterable[str]) -> dict[str, Any]:
+    """Строки модели по id, порциями _CHUNK (ограничение числа параметров одного IN)."""
+    found: dict[str, Any] = {}
+    for chunk in _chunks(list(ids)):
+        for row in session.scalars(select(model).where(model.id.in_(chunk))).all():
+            found[row.id] = row
+    return found
+
+
+def _load_id_sets(session: Session, key_column: Any, value_column: Any, keys: Iterable[str]) -> dict[str, set[str]]:
+    """Пары (ключ, значение) как «ключ → множество значений», порциями _CHUNK."""
+    sets: dict[str, set[str]] = {}
+    for chunk in _chunks(list(keys)):
+        for key, value in session.execute(select(key_column, value_column).where(key_column.in_(chunk))).all():
+            sets.setdefault(key, set()).add(value)
+    return sets
+
+
+@dataclass(frozen=True)
+class _PortLookups:
+    """Загруженное вокруг портов: по нему из строки порта собирается _Port."""
+
+    devices: dict[str, PhysicalDevice]
+    groups: dict[str, InterfaceGroup]
+    device_vlans: dict[str, set[str]]  # VLAN, назначенные устройству
+    type_vlans: dict[str, set[str]]  # VLAN, назначенные типу устройства
+    assigned: dict[str, set[str]]  # VLAN порта: выбранные или, при «Все VLAN», все VLAN его устройства
+    vlans: dict[str, VLAN]
+
+    def build(self, iface: DeviceInterface) -> _Port:
+        device = self.devices.get(iface.physical_device_id)
+        assigned = self.assigned.get(iface.id, set())
+        allowed = (self.device_vlans.get(device.id, set()) | self.type_vlans.get(device.device_type_id, set())) if device else set()
+        facts = PortFacts(
+            role=port_role(iface),
+            mode=iface.vlan_mode or DEFAULT_VLAN_MODE,
+            vlans=frozenset(self.vlans[v].vlan_id for v in assigned if v in self.vlans),
+            # «Все VLAN» — сохраняемый признак порта (галочка в форме устройства), а не вывод из набора VLAN.
+            all_vlans=carries_all_vlans(iface),
+        )
+        group = self.groups.get(iface.group_id) if iface.group_id else None
+        return _Port(iface, device, group, assigned, allowed, facts)
+
+
 def _load_ports(session: Session, interface_ids: Sequence[str]) -> tuple[dict[str, _Port], dict[str, VLAN]]:
     """Порты вместе со всем, что нужно для условий правил и для записи: устройство, группа, назначенные
     VLAN и VLAN, доступные устройству. Несколько запросов на весь набор портов, а не по запросу на порт."""
     ids = list(dict.fromkeys(interface_ids))
-    interfaces: list[DeviceInterface] = []
-    for chunk in _chunks(ids):
-        interfaces += session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(chunk))).all()
-    device_ids = list({i.physical_device_id for i in interfaces})
-    devices: dict[str, PhysicalDevice] = {}
-    device_vlans: dict[str, set[str]] = {}
-    type_vlans: dict[str, set[str]] = {}
-    for chunk in _chunks(device_ids):
-        for device in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(chunk))).all():
-            devices[device.id] = device
-        for device_id, vlan_id in session.execute(select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id.in_(chunk))).all():
-            device_vlans.setdefault(device_id, set()).add(vlan_id)
-    type_ids = list({d.device_type_id for d in devices.values()})
-    for chunk in _chunks(type_ids):
-        for type_id, vlan_id in session.execute(select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id.in_(chunk))).all():
-            type_vlans.setdefault(type_id, set()).add(vlan_id)
-    group_ids = list({i.group_id for i in interfaces if i.group_id})
-    groups: dict[str, InterfaceGroup] = {}
-    for chunk in _chunks(group_ids):
-        for group in session.scalars(select(InterfaceGroup).where(InterfaceGroup.id.in_(chunk))).all():
-            groups[group.id] = group
+    interfaces = _load_by_ids(session, DeviceInterface, ids)
+    device_ids = list({i.physical_device_id for i in interfaces.values()})
+    devices = _load_by_ids(session, PhysicalDevice, device_ids)
+    device_vlans = _load_id_sets(session, PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id, device_ids)
+    type_vlans = _load_id_sets(session, DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id, {d.device_type_id for d in devices.values()})
+    groups = _load_by_ids(session, InterfaceGroup, {i.group_id for i in interfaces.values() if i.group_id})
     # VLAN порта: выбранные (interface_vlans) или, у порта с «Все VLAN», все VLAN его устройства (services/port_vlans.py).
-    by_iface = effective_vlan_ids(session, ids)
-    vlan_ids_needed = set().union(*by_iface.values(), *device_vlans.values(), *type_vlans.values()) if (by_iface or device_vlans or type_vlans) else set()
-    vlans: dict[str, VLAN] = {}
-    for chunk in _chunks(list(vlan_ids_needed)):
-        for vlan in session.scalars(select(VLAN).where(VLAN.id.in_(chunk))).all():
-            vlans[vlan.id] = vlan
-
-    ports: dict[str, _Port] = {}
-    for iface in interfaces:
-        device = devices.get(iface.physical_device_id)
-        assigned = by_iface.get(iface.id, set())
-        allowed = (device_vlans.get(device.id, set()) | type_vlans.get(device.device_type_id, set())) if device else set()
-        numbers = frozenset(vlans[v].vlan_id for v in assigned if v in vlans)
-        facts = PortFacts(
-            role=port_role(iface),
-            mode=iface.vlan_mode or DEFAULT_VLAN_MODE,
-            vlans=numbers,
-            # «Все VLAN» — сохраняемый признак порта (галочка в форме устройства), а не вывод из набора VLAN.
-            all_vlans=carries_all_vlans(iface),
-        )
-        ports[iface.id] = _Port(iface, device, groups.get(iface.group_id) if iface.group_id else None, assigned, allowed, facts)
-    return ports, vlans
+    assigned = effective_vlan_ids(session, ids)
+    vlans = _load_by_ids(session, VLAN, set().union(*assigned.values(), *device_vlans.values(), *type_vlans.values()))
+    lookups = _PortLookups(devices, groups, device_vlans, type_vlans, assigned, vlans)
+    return {iface.id: lookups.build(iface) for iface in interfaces.values()}, vlans
 
 
 # --- сопоставление VLAN целевого порта -----------------------------------------------------------
@@ -322,21 +334,46 @@ def _resolve_target_vlans(changes: Changes, target: _Port, source: _Port, vlans:
     return _VlanOutcome(resolved_ids, skipped, final_numbers, diverges)
 
 
-def _blocked_reason(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
-    """Первая причина, по которой изменение применить нельзя, либо None. Порядок проверок — часть поведения:
-    при нескольких причинах пользователь видит первую (закреплено tests/test_plan_target_behaviour.py)."""
-    if changes.violation:
-        return changes.violation
-    if (changes.mode is not None or changes.vlans is not None or changes.all_vlans) and target.group is not None and target.group.vlan_mode:
+def _reason_violation(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
+    return changes.violation or None
+
+
+def _reason_group(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
+    touches_vlans = changes.mode is not None or changes.vlans is not None or changes.all_vlans
+    if touches_vlans and target.group is not None and target.group.vlan_mode:
         return f"Порт входит в группу «{target.group.name}», которая задаёт режим и VLAN, — измените группу"
-    if (changes.vlans is not None or changes.all_vlans) and outcome.resolved_ids is None and changes.role is None and changes.mode is None:
-        if outcome.skipped:
-            return "Ни один из VLAN соседнего порта не доступен устройству этого порта — добавьте их в «VLAN устройства»"
-        return "У устройства этого порта нет VLAN, которые можно назначить, — добавьте их в «VLAN устройства»" if changes.all_vlans else "Изменений нет"
+    return None
+
+
+def _reason_nothing_to_assign(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
+    only_vlans = (changes.vlans is not None or changes.all_vlans) and outcome.resolved_ids is None and changes.role is None and changes.mode is None
+    if not only_vlans:
+        return None
+    if outcome.skipped:
+        return "Ни один из VLAN соседнего порта не доступен устройству этого порта — добавьте их в «VLAN устройства»"
+    return "У устройства этого порта нет VLAN, которые можно назначить, — добавьте их в «VLAN устройства»" if changes.all_vlans else "Изменений нет"
+
+
+def _reason_access_limit(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
     if (changes.mode or target.facts.mode) == "access" and len(outcome.final_numbers) > 1:
         return "В режиме access у порта может быть не более одного VLAN"
-    if target_id in claimed:
-        return "Порт уже изменяется другим подключением этого же плана"
+    return None
+
+
+def _reason_claimed(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
+    return "Порт уже изменяется другим подключением этого же плана" if target_id in claimed else None
+
+
+# Порядок проверок — часть поведения: при нескольких причинах пользователь видит первую.
+_BLOCK_CHECKS = (_reason_violation, _reason_group, _reason_nothing_to_assign, _reason_access_limit, _reason_claimed)
+
+
+def _blocked_reason(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
+    """Первая причина, по которой изменение применить нельзя, либо None (закреплено tests/test_plan_target_behaviour.py)."""
+    for check in _BLOCK_CHECKS:
+        reason = check(changes, target, target_id, outcome, claimed)
+        if reason:
+            return reason
     return None
 
 
@@ -403,6 +440,31 @@ def _skipped_vlans(part: _TargetPlan) -> list[int]:
     return vlans["skipped"] if vlans else []
 
 
+def _prefixed(part: _TargetPlan, text: str, several: bool) -> str:
+    """У пары портов (симметричное правило) текст относится к конкретному порту — его подпись пишется в начале."""
+    return f"Порт {_port_label(part.port)}: {text}" if several else text
+
+
+def _is_partial(parts: list[_TargetPlan], ready: list[_TargetPlan]) -> bool:
+    """Применимо, но расхождение останется: порт из пары не меняется или часть VLAN ему назначить нельзя."""
+    return bool(ready) and (len(ready) < len(parts) or any(_skipped_vlans(part) or part.diverges for part in ready))
+
+
+def _decision_item(parts: list[_TargetPlan], ready: list[_TargetPlan]) -> dict[str, Any]:
+    several = len(parts) > 1
+    item: dict[str, Any] = {
+        "outcome": "auto" if ready else "blocked",
+        "partial": _is_partial(parts, ready),
+        "target": "both" if several else parts[0].apply_to,
+        "changes": None if several else parts[0].changes,
+        "targets": [{"target": p.apply_to, "changes": p.changes, "blocked": p.blocked} for p in parts],
+        "warnings": [_prefixed(p, w, several) for p in parts for w in p.warnings],
+    }
+    if not ready:
+        item["reason"] = "; ".join(_prefixed(p, str(p.blocked), several) for p in parts)
+    return item
+
+
 def _apply_decision(
     decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]
 ) -> tuple[dict[str, Any], list[_Planned]]:
@@ -414,22 +476,11 @@ def _apply_decision(
     VLAN ничего не снимает, поэтому частичное применение расхождение не ухудшает. Подключение
     блокируется, только если не изменяется ни один порт."""
     parts = [_plan_target(option, decision.rule, connection, ports, vlans, claimed) for option in decision.options]
-    several = len(parts) > 1
     ready = [part for part in parts if part.planned]
-    item: dict[str, Any] = {
-        "outcome": "auto" if ready else "blocked",
-        # Применимо, но расхождение останется: порт из пары не меняется или часть VLAN ему назначить нельзя.
-        "partial": bool(ready) and (len(ready) < len(parts) or any(_skipped_vlans(part) or part.diverges for part in ready)),
-        "target": "both" if several else parts[0].apply_to,
-        "changes": None if several else parts[0].changes,
-        "targets": [{"target": p.apply_to, "changes": p.changes, "blocked": p.blocked} for p in parts],
-        "warnings": [f"Порт {_port_label(p.port)}: {w}" if several else w for p in parts for w in p.warnings],
-    }
+    item = _decision_item(parts, ready)
     if not ready:
-        item["reason"] = "; ".join(f"Порт {_port_label(p.port)}: {p.blocked}" if several else str(p.blocked) for p in parts)
         return item, []
-    for part in ready:
-        claimed.add(part.port.iface.id)
+    claimed.update(part.port.iface.id for part in ready)
     return item, [part.planned for part in ready if part.planned]
 
 

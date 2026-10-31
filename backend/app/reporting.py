@@ -351,45 +351,82 @@ def _load_report_data(session: Session, only_is: Optional[str], structural_unit_
     return d
 
 
+def _yes_no(flag) -> str:
+    return "Да" if flag else "Нет"
+
+
+def _is_equipment_labels(linked_devices: list, linked_vms: list, linked_containers: list, placements: list, d: SimpleNamespace) -> list:
+    """Оборудование ИС: устройства (каждое — с установленным ПО), ВМ, контейнеры и площадки размещения."""
+    labels = []
+    for dev in linked_devices:
+        labels.append(device_label(dev))
+        labels += [f"ПО: {s.name}" for s in d.software_by_device.get(dev.id, [])]
+    labels += [f"VM: {v.name}" for v in linked_vms]
+    labels += [f"Контейнер: {c.name}" for c in linked_containers]
+    labels += [d.placement_assets[x.placement_asset_id].name for x in placements if x.placement_asset_id in d.placement_assets]
+    return labels
+
+
+def _is_protocol_label(protocol, d: SimpleNamespace) -> str:
+    cat = d.protocol_catalog.get(protocol.protocol_catalog_id)
+    proto = cat.protocol_type if cat else ""
+    port = cat.port if cat else None
+    desc = join_values([cat.description if cat else None, protocol.description])
+    return join_values([f"{proto}/{port}" if port else proto, desc])
+
+
+def _is_physical_devices(linked_devices: list, linked_vms: list, d: SimpleNamespace) -> list:
+    """Физические устройства ИС: связанные напрямую, затем (без повторов) хосты её виртуальных машин."""
+    devices = linked_devices[:]
+    for v in linked_vms:
+        host = d.device_map.get(v.physical_device_id)
+        if host is not None and host not in devices:
+            devices.append(host)
+    return devices
+
+
+def _management_ip_labels(devices: list, d: SimpleNamespace) -> list:
+    """IP управления устройств: адреса портов с ролью «Управление», затем адреса управляющих подинтерфейсов."""
+    labels = []
+    for dev in devices:
+        labels += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id, []) if iface.is_management for ip in d.ips_by_iface.get(iface.id, [])]
+        # Управление может висеть на подинтерфейсе порта (например, Gi0/0.99) — его IP это тоже IP управления устройства.
+        labels += [ip_label(ip) for sub in d.subs_by_device.get(dev.id, []) if sub.is_management for ip in d.ips_by_sub.get(sub.id, [])]
+    return labels
+
+
+def _is_departments_text(obj, d: SimpleNamespace) -> str:
+    return join_values([d.dep_map[x.department_id].name for x in d.dep_by_is[obj.id] if x.department_id in d.dep_map])
+
+
+def _is_crypto_text(obj, d: SimpleNamespace) -> str:
+    means = d.crypto_means.get(obj.crypto_protection_description_id)
+    return join_values([_yes_no(obj.crypto_protection_enabled), means.name if means else None])
+
+
 def _is_row_values(obj, d: SimpleNamespace) -> list:
     """Значения одной строки листа 'Перечень ИС' (без №) — вынесено из _populate_sheet1, чтобы эту
     же логику мог переиспользовать конструктор отчётов (services/report_registry_rows.py) без
     дублирования: расхождение между регламентированным отчётом и его "точной" заготовкой в
-    конструкторе было бы куда хуже, чем общая функция."""
-    source_rows=d.source_by_is[obj.id]
+    конструкторе было бы куда хуже, чем общая функция.
+
+    Столбцы не независимы (список ВМ и их IP входит сразу в несколько), поэтому строка собирается из общих
+    промежуточных значений, а каждое составное значение — отдельной функцией выше."""
+    source_rows = d.source_by_is[obj.id]
     linked_devices, linked_vms, linked_containers = _is_source_links(obj, d)
-    equipment=[]
-    for dev in linked_devices:
-        equipment.append(device_label(dev))
-        equipment += [f"ПО: {s.name}" for s in d.software_by_device.get(dev.id,[])]
-    for v in linked_vms: equipment.append(f"VM: {v.name}")
-    for c in linked_containers: equipment.append(f"Контейнер: {c.name}")
-    equipment += [d.placement_assets[x.placement_asset_id].name for x in d.placement_by_is[obj.id] if x.placement_asset_id in d.placement_assets]
-    protocols_text=[]
-    for p in d.protocol_by_is[obj.id]:
-        cat=d.protocol_catalog.get(p.protocol_catalog_id)
-        proto=cat.protocol_type if cat else ""
-        port=cat.port if cat else None
-        desc=join_values([cat.description if cat else None, p.description])
-        protocols_text.append(join_values([f"{proto}/{port}" if port else proto, desc]))
-    physical_names=linked_devices[:]
-    # Add hosts of linked VMs and their management IPs.
-    for v in linked_vms:
-        if v.physical_device_id in d.device_map and d.device_map[v.physical_device_id] not in physical_names: physical_names.append(d.device_map[v.physical_device_id])
-    physical_ips=[]
-    for dev in physical_names:
-        physical_ips += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id,[]) if iface.is_management for ip in d.ips_by_iface.get(iface.id,[])]
-        # Управление может висеть на подинтерфейсе порта (например, Gi0/0.99) — его IP это тоже IP управления устройства.
-        physical_ips += [ip_label(ip) for sub in d.subs_by_device.get(dev.id,[]) if sub.is_management for ip in d.ips_by_sub.get(sub.id,[])]
-    vm_names=[v.name for v in linked_vms] + [c.name for c in linked_containers]
-    vm_ips=[ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id,[])]
-    departments_text=join_values([d.dep_map[x.department_id].name for x in d.dep_by_is[obj.id] if x.department_id in d.dep_map])
-    ips_text=join_values([x.ip_address for src in source_rows for x in d.ips_by_source.get(src.id,[])] + vm_ips)
-    support=d.support_map.get(obj.support_organization_id)
-    support_method_name=d.support_methods[obj.support_method_id].name if obj.support_method_id in d.support_methods else ""
-    crypto_mean=d.crypto_means.get(obj.crypto_protection_description_id)
-    crypto_text=join_values(["Да" if obj.crypto_protection_enabled else "Нет", crypto_mean.name if crypto_mean else None])
-    return [obj.name,obj.description or "",obj.purpose or "",departments_text,obj.localization or "",join_values(equipment),join_values(protocols_text),ips_text,crypto_text,"Да" if obj.siem_enabled else "Нет",support.name if support else "",support_method_name,obj.process_description or "",join_values([device_label(dev) for dev in physical_names]),join_values(physical_ips),join_values(vm_names),join_values(vm_ips)]
+    physical_devices = _is_physical_devices(linked_devices, linked_vms, d)
+    vm_ips = [ip_label(ip) for v in linked_vms for ip in d.vmips_by_vm.get(v.id, [])]
+    source_ips = [x.ip_address for src in source_rows for x in d.ips_by_source.get(src.id, [])]
+    equipment = _is_equipment_labels(linked_devices, linked_vms, linked_containers, d.placement_by_is[obj.id], d)
+    support = d.support_map.get(obj.support_organization_id)
+    support_method = d.support_methods.get(obj.support_method_id)
+    return [
+        obj.name, obj.description or "", obj.purpose or "", _is_departments_text(obj, d), obj.localization or "",
+        join_values(equipment), join_values([_is_protocol_label(p, d) for p in d.protocol_by_is[obj.id]]), join_values(source_ips + vm_ips),
+        _is_crypto_text(obj, d), _yes_no(obj.siem_enabled), support.name if support else "", support_method.name if support_method else "",
+        obj.process_description or "", join_values([device_label(dev) for dev in physical_devices]), join_values(_management_ip_labels(physical_devices, d)),
+        join_values([v.name for v in linked_vms] + [c.name for c in linked_containers]), join_values(vm_ips),
+    ]
 
 
 def _populate_sheet1(ws1, d: SimpleNamespace) -> None:
