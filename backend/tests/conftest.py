@@ -282,6 +282,17 @@ def _reset_login_throttle():
 
 
 @pytest.fixture(autouse=True)
+def _reset_auth_flag_cache():
+    """Кэш флага «аутентификация включена» (services/auth._auth_enabled_cached) общий для процесса, а БД у каждого теста
+    своя: без сброса значение из предыдущего теста (скажем, «включена») действовало бы до двух секунд и в следующем."""
+    from app.services import auth as auth_module
+
+    auth_module.reset_auth_enabled_cache()
+    yield
+    auth_module.reset_auth_enabled_cache()
+
+
+@pytest.fixture(autouse=True)
 def _reset_port_sync_plan_cache():
     """Кэш планов согласования (services/port_sync_plan_cache.py) живёт в памяти процесса — как и троттлинг
     входа, он не должен переносить снимки планов из одного теста в другой (у пустых планов один и тот же хеш)."""
