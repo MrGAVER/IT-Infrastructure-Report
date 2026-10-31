@@ -270,12 +270,15 @@ def _reuse_alembic_upgrades_on_empty_sqlite(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _reset_login_throttle():
     """Троттлинг входа (services/login_throttle.py) держит состояние в памяти процесса — без сброса
-    неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один)."""
+    неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один).
+    Счётчик по адресу (ip_throttle) без сброса накапливал бы неудачи всех тестов и после порога давал бы 429."""
     from app.services import auth as auth_module
 
     auth_module.login_throttle.clear()
+    auth_module.ip_throttle.clear()
     yield
     auth_module.login_throttle.clear()
+    auth_module.ip_throttle.clear()
 
 
 @pytest.fixture(autouse=True)

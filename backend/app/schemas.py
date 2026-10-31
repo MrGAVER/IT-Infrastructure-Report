@@ -123,16 +123,21 @@ class VLANUpdate(BaseModel):
 # (services/crud/) — учётным записям нужны хеширование пароля и своя проверка прав, а не
 # сырой dict напрямую в модель.
 
+# Предел длины пароля — один для входа, смены и создания учётной записи: иначе пароль, принятый при создании, нельзя
+# было бы ввести на входе. Сам предел нужен, чтобы анонимный запрос не нёс в PBKDF2 тело произвольного размера.
+MAX_PASSWORD_LENGTH = 256
+
+
 class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     username: str = Field(min_length=1, max_length=150)
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
 class UserCreateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     username: str = Field(min_length=1, max_length=150)
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
     role: str = "viewer"
 
 
@@ -141,7 +146,7 @@ class UserUpdateRequest(BaseModel):
     что и в generic CRUD, см. PhysicalDeviceUpdate выше)."""
     model_config = ConfigDict(extra="ignore")
     username: Optional[str] = Field(default=None, min_length=1, max_length=150)
-    password: Optional[str] = Field(default=None, min_length=1)
+    password: Optional[str] = Field(default=None, min_length=1, max_length=MAX_PASSWORD_LENGTH)
     role: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -150,8 +155,8 @@ class ChangePasswordRequest(BaseModel):
     """Самостоятельная смена СВОЕГО пароля (PUT /auth/me/password) — в отличие от
     UserUpdateRequest (смена ЧУЖОГО пароля админом), требует подтверждение текущим паролем."""
     model_config = ConfigDict(extra="ignore")
-    current_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=1)
+    current_password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    new_password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
 class AuthSettingsUpdate(BaseModel):
