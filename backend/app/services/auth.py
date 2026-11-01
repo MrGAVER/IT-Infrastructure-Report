@@ -380,7 +380,7 @@ def set_auth_enabled(session: Session, enabled: bool, *, actor: Optional[User] =
         session.commit()
         session.refresh(settings_row)
         reset_auth_enabled_cache()  # сразу после commit: в этом процессе переключение действует со следующего же запроса
-        who =f" ({actor.username})" if actor else ""
+        who = f" ({actor.username})" if actor else ""
         audit(session, "auth", "singleton", AuditAction.UPDATE, f"Аутентификация {'включена' if enabled else 'выключена'}{who}")
         session.commit()
     return settings_row
