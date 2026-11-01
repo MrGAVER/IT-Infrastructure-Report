@@ -214,9 +214,18 @@ function resetCollapseLimit() {
   gap: 8px;
   flex-wrap: wrap;
 }
+/* Подпись — гибкая (flex-basis 200px, может расти и переноситься по строкам), а поле и кнопки не сжимаются. Раньше подпись
+ * занимала всю свою ширину в одну строку, и в карточке 640px кнопка «Сбросить» уходила под поле одна. Теперь на десктопе
+ * всё в одной строке, а в узкой карточке подпись остаётся сверху, и поле с обеими кнопками переносятся вместе. */
 .collapse-limit-row label {
+  flex: 1 1 200px;
+  min-width: 0;
   font-size: 12.5px;
   color: var(--ink);
+}
+.collapse-limit-row input,
+.collapse-limit-row .btn {
+  flex: none;
 }
 .collapse-limit-row input {
   width: 90px;

@@ -5,7 +5,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.exc import DataError
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, ENABLE_DOCS, FORWARDED_ALLOW_IPS, FRONTEND_DIR
@@ -143,10 +144,34 @@ async def data_error_handler(request: Request, exc: DataError) -> JSONResponse:
     return JSONResponse(status_code=422, content={'detail': 'Ошибка валидации: значение не подходит по типу или размеру.'})
 
 
+# Первая таблица, к которой обращается старт приложения (seed_defaults читает из неё маркер): если её нет, схема БД не создана.
+SCHEMA_PROBE_TABLE = 'catalog_seed_markers'
+
+SCHEMA_NOT_MIGRATED_MESSAGE = (
+    f'База данных не инициализирована: в ней нет таблицы {SCHEMA_PROBE_TABLE} — не применены миграции Alembic. '
+    'Выполните в каталоге backend команду «alembic upgrade head» и запустите приложение снова. '
+    'Docker (команда запуска образа) и EXE (launcher.py) применяют миграции сами, поэтому эта ошибка возможна только '
+    'при прямом запуске «uvicorn app.main:app» на пустой или ещё не обновлённой базе.'
+)
+
+
+def _raise_if_schema_not_migrated(session) -> None:
+    """Сбой первого же запроса к БД на старте: если причина — схемы нет вовсе (пустая база без миграций), заменяет ошибку драйвера
+    («no such table … [SQL: SELECT …]») понятным указанием, что делать. Любую другую причину (недоступная БД, блокировка, права)
+    не маскирует — вызывающий пробрасывает исходное исключение."""
+    session.rollback()  # на PostgreSQL после ошибки транзакция прервана, и inspector в ней не сработал бы
+    if not sa_inspect(session.get_bind()).has_table(SCHEMA_PROBE_TABLE):
+        raise RuntimeError(SCHEMA_NOT_MIGRATED_MESSAGE) from None
+
+
 def seed_catalogs_on_startup():
     session = SessionLocal()
     try:
-        seed_defaults(session)
+        try:
+            seed_defaults(session)
+        except (OperationalError, ProgrammingError):
+            _raise_if_schema_not_migrated(session)
+            raise
         # Стандартные правила согласования портов: добавляются по устойчивому коду, существующие (в том
         # числе изменённые администратором) не перезаписываются.
         ensure_default_rules(session)
