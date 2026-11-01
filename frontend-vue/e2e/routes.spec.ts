@@ -42,6 +42,13 @@ for (const viewport of VIEWPORTS) {
 
         const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }))
         expect(scrollWidth, 'страница шире окна — появилась горизонтальная прокрутка').toBeLessThanOrEqual(innerWidth)
+        // Прокручивается именно .content, а не документ: элемент, выступающий за правый край, document.scrollWidth не раздувает
+        // (так на телефоне выходила за край кнопка «Новая диаграмма» — UI-4, критерий «ни один элемент не выходит за правый край»).
+        const contentOverflow = await page.evaluate(() => {
+          const content = document.querySelector('.content')
+          return content ? content.scrollWidth - content.clientWidth : 0
+        })
+        expect(contentOverflow, 'область .content шире окна — что-то выходит за правый край').toBeLessThanOrEqual(0)
         expect(observation.pageErrors).toEqual([])
         expect(observation.consoleErrors).toEqual([])
         expect(observation.failedRequests).toEqual([])

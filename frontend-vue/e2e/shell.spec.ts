@@ -107,8 +107,8 @@ test.describe('десктоп 1440×900, вход выполнен', () => {
     expect(hrefs.filter((href, index) => hrefs.indexOf(href) !== index)).toEqual([])
     expect(await findEmptyIcons(page)).toEqual([])
 
-    // На «Отчёты» — переходом по меню, а не page.goto(): прямой заход на экран при включённой аутентификации сейчас уводит на
-    // дашборд (см. тест «известный дефект» ниже).
+    // На «Отчёты» — переходом по меню: так проверяется иконка на экране, открытом из каркаса (прямой заход на экран при включённой
+    // аутентификации проверяет тест про обновление страницы ниже).
     await page.locator('.sidebar').getByRole('link', { name: 'Отчёты', exact: true }).click()
     await expect(page).toHaveURL(/\/reports$/)
     await page.waitForLoadState('networkidle')
@@ -170,18 +170,42 @@ test.describe('десктоп 1440×900, вход выполнен', () => {
   })
 })
 
-test.describe('известные дефекты (найдены при написании проверок, в ревью не входили)', () => {
+test.describe('глубокие ссылки при включённой аутентификации', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  // App.vue: при включённой аутентификации init() выставляет enabled = true раньше, чем придёт /auth/me, и watch(needsLogin)
-  // на мгновение видит «нужен вход» — уводит на /login с redirect = '/' (в этот момент route ещё стартовый), а после ответа
-  // /auth/me экран входа отправляет на /dashboard. Итог: F5 или закладка на любой экран, кроме дашборда, ведут на дашборд.
-  // Воспроизводится и на настоящей аутентификации (проверено вручную). test.fail() — когда дефект исправят, тест «неожиданно
-  // пройдёт», и Playwright потребует убрать эту пометку.
+  // App.vue: раньше при включённой аутентификации init() выставлял enabled = true раньше, чем приходил /auth/me, и watch(needsLogin)
+  // на мгновение видел «нужен вход» — уводил на /login с redirect = '/' (в этот момент route ещё стартовый), а после ответа
+  // /auth/me экран входа отправлял на /dashboard. Итог: F5 или закладка на любой экран, кроме дашборда, вели на дашборд.
+  // Теперь watch молчит, пока auth.init() не закончился, и решение о входе принимает роутер-гард с настоящим адресом.
   test('обновление страницы при включённой аутентификации не теряет текущий экран', async ({ page }) => {
-    test.fail(true, 'Известный дефект App.vue: глубокая ссылка при включённой аутентификации уводит на /dashboard')
     await signInAsAdmin(page)
     await openApp(page, '/devices')
     await expect(page).toHaveURL(/\/devices$/)
+
+    await page.reload()
+    await page.locator('.topbar').waitFor()
+    await expect(page).toHaveURL(/\/devices$/)
+  })
+
+  test('закладка на экран с параметрами сохраняет и экран, и параметры', async ({ page }) => {
+    await signInAsAdmin(page)
+    await openApp(page, '/vlans?search=10')
+    await expect(page).toHaveURL(/\/vlans\?search=10$/)
+  })
+})
+
+test.describe('значок вкладки', () => {
+  test('/favicon.ico отдаётся без аутентификации как ICO, а index.html на него ссылается', async ({ page, request, baseURL }) => {
+    const observation = observePage(page, baseURL ?? '')
+    await openApp(page, '/dashboard')
+
+    const response = await request.get('/favicon.ico')
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toBe('image/x-icon')
+    const body = await response.body()
+    expect([...body.subarray(0, 4)]).toEqual([0, 0, 1, 0]) // заголовок ICO, а не HTML от SPA-фоллбэка
+
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.ico')
+    expect(observation.consoleErrors).toEqual([])
   })
 })

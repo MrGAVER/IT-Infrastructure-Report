@@ -47,9 +47,7 @@ export interface PageObservation {
 export function observePage(page: Page, origin: string): PageObservation {
   const observation: PageObservation = { consoleErrors: [], pageErrors: [], failedRequests: [], foreignRequests: [] }
   page.on('console', (message) => {
-    // /favicon.ico браузер запрашивает сам, когда у страницы нет <link rel="icon"> (у приложения значка вкладки пока нет), и в
-    // режиме headless без «shell» (свой Chromium через E2E_CHROMIUM_PATH) 404 попадает в консоль. К экрану это не относится.
-    if (message.type() === 'error' && !message.location().url.endsWith('/favicon.ico')) observation.consoleErrors.push(message.text())
+    if (message.type() === 'error') observation.consoleErrors.push(message.text())
   })
   page.on('pageerror', (error) => observation.pageErrors.push(error.message))
   page.on('requestfailed', (request) => observation.failedRequests.push(`${request.url()} — ${request.failure()?.errorText ?? 'неизвестная ошибка'}`))
