@@ -21,9 +21,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
+import logging
 import math
 import re
 import secrets
+import threading
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import NamedTuple, Optional
 
@@ -43,6 +48,7 @@ from ..config import (
     AUTH_MIN_PASSWORD_LENGTH,
     AUTH_SESSION_TTL_HOURS,
     CSP_POLICY,
+    FORWARDED_ALLOW_IPS,
     SETUP_TOKEN,
 )
 from ..constants import AuditAction, ErrorCode, UserRole
@@ -54,6 +60,8 @@ from .preferences import delete_user_preferences
 from .timeutil import iso_utc, utcnow_naive
 
 __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роутеры берут актора отсюда
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Время: SQLite/SQLAlchemy отбрасывают tzinfo при round-trip через DateTime без
@@ -192,10 +200,10 @@ def create_user(session: Session, *, username: str, password: str, role: str) ->
     validate_password_strength(password, username=username)
     user = User(username=username, password_hash=hash_password(password), role=role, is_active=True)
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    session.flush()  # id генерируется при flush и нужен записи аудита; нарушение уникальности имени проявится уже здесь
     audit(session, "users", user.id, AuditAction.CREATE, f"Создана учётная запись «{username}» (роль: {role})")
-    session.commit()
+    session.commit()  # учётная запись и запись аудита — одной транзакцией: не бывает пользователя без следа в журнале
+    session.refresh(user)
     return user
 
 
@@ -236,15 +244,16 @@ def update_user(
         changes.append("сменён пароль")
         security_sensitive = True
 
-    session.commit()
-    session.refresh(user)
+    # Изменение, запись аудита и отзыв сессий — ОДНА транзакция. Раньше это были три commit(): процесс, упавший между
+    # первым и последним, оставлял новый пароль (или деактивацию) при ещё действующих старых токенах и без записи в журнале.
     if changes:
         audit(session, "users", user.id, AuditAction.UPDATE, "; ".join(changes))
-        session.commit()
     if security_sensitive:
         # Смена пароля или деактивация должны немедленно аннулировать уже выданные токены —
         # иначе украденный/оставленный открытым токен продолжал бы работать до истечения TTL.
-        revoke_all_sessions(session, user.id)
+        revoke_all_sessions(session, user.id, commit=False)
+    session.commit()
+    session.refresh(user)
     return user
 
 
@@ -282,11 +291,12 @@ def change_own_password(
     user.password_hash = hash_password(new_password)
     user.failed_attempts = 0
     user.locked_until = None
+    # Новый хеш, запись аудита и отзыв остальных сессий — одна транзакция (см. update_user): иначе сбой между commit()
+    # оставил бы старые токены действующими при уже сменённом пароле.
+    audit(session, "users", user.id, AuditAction.UPDATE, f"«{user.username}» сменил(а) собственный пароль")
+    revoke_all_sessions_except(session, user.id, keep_token, commit=False)
     session.commit()
     session.refresh(user)
-    audit(session, "users", user.id, AuditAction.UPDATE, f"«{user.username}» сменил(а) собственный пароль")
-    session.commit()
-    revoke_all_sessions_except(session, user.id, keep_token)
     return user
 
 
@@ -321,6 +331,42 @@ def get_or_create_auth_settings(session: Session) -> AuthSettings:
     return row
 
 
+# Кэш флага «аутентификация включена» для middleware (ревью 2.158.0, П-5). Раньше _authorize на КАЖДЫЙ запрос к /api/*
+# читал настройки из БД — даже в режиме без аутентификации (по умолчанию), где больше ничего из БД не нужно. Здесь —
+# (момент чтения, значение) с коротким TTL. Переключение через set_auth_enabled сбрасывает кэш сразу, поэтому в том же
+# процессе оно действует немедленно.
+_FLAG_TTL = 2.0
+_flag_clock = time.monotonic  # подменяется в тестах
+_flag_cache: Optional[tuple[float, bool]] = None
+_flag_generation = 0  # растёт при каждом сбросе: читатель, застигнутый переключением посреди чтения, устаревшее значение не сохранит
+
+
+def _auth_enabled_cached(db_session: Session) -> bool:
+    """Включена ли аутентификация — из кэша не старше _FLAG_TTL секунд, иначе из БД.
+
+    Компромисс: при нескольких процессах backend за общей БД (серверный вариант) процесс, в котором переключатель не
+    нажимали, увидит новое значение с задержкой до _FLAG_TTL — две секунды, после чего сам перечитает БД. Кэшируется только
+    сам флаг: токен и пользователь по-прежнему проверяются по БД на каждый запрос, поэтому отзыв сессии (выход, смена
+    пароля, деактивация) действует мгновенно."""
+    global _flag_cache
+    now = _flag_clock()
+    cached = _flag_cache
+    if cached is not None and now - cached[0] <= _FLAG_TTL:
+        return cached[1]
+    generation = _flag_generation
+    enabled = get_or_create_auth_settings(db_session).enabled
+    if generation == _flag_generation:  # за время чтения никто не переключал: значение можно запомнить
+        _flag_cache = (now, enabled)
+    return enabled
+
+
+def reset_auth_enabled_cache() -> None:
+    """Забывает кэш флага: следующий запрос прочитает его из БД. Вызывается после изменения AuthSettings.enabled."""
+    global _flag_cache, _flag_generation
+    _flag_generation += 1
+    _flag_cache = None
+
+
 def set_auth_enabled(session: Session, enabled: bool, *, actor: Optional[User] = None) -> AuthSettings:
     settings_row = get_or_create_auth_settings(session)
     if enabled and not settings_row.enabled and len(_lock_active_admins(session)) == 0:
@@ -333,7 +379,8 @@ def set_auth_enabled(session: Session, enabled: bool, *, actor: Optional[User] =
         settings_row.enabled = enabled
         session.commit()
         session.refresh(settings_row)
-        who = f" ({actor.username})" if actor else ""
+        reset_auth_enabled_cache()  # сразу после commit: в этом процессе переключение действует со следующего же запроса
+        who =f" ({actor.username})" if actor else ""
         audit(session, "auth", "singleton", AuditAction.UPDATE, f"Аутентификация {'включена' if enabled else 'выключена'}{who}")
         session.commit()
     return settings_row
@@ -400,12 +447,15 @@ def revoke_session(session: Session, token: str) -> None:
     session.commit()
 
 
-def revoke_all_sessions(session: Session, user_id: str) -> None:
+def revoke_all_sessions(session: Session, user_id: str, *, commit: bool = True) -> None:
+    """commit=False — отзыв входит в транзакцию вызывающего (смена пароля, деактивация): коммит делает он, одним разом
+    вместе с самим изменением и записью аудита."""
     session.execute(delete(AuthSession).where(AuthSession.user_id == user_id))
-    session.commit()
+    if commit:
+        session.commit()
 
 
-def revoke_all_sessions_except(session: Session, user_id: str, keep_token: Optional[str]) -> None:
+def revoke_all_sessions_except(session: Session, user_id: str, keep_token: Optional[str], *, commit: bool = True) -> None:
     """Как revoke_all_sessions, но сохраняет одну сессию — ту, которой был вызван именно этот
     запрос (см. change_own_password). Иначе смена собственного пароля тут же выкидывала бы
     пользователя из только что открытой вкладки настроек."""
@@ -413,7 +463,8 @@ def revoke_all_sessions_except(session: Session, user_id: str, keep_token: Optio
     if keep_token:
         stmt = stmt.where(AuthSession.token_hash != _hash_token(keep_token))
     session.execute(stmt)
-    session.commit()
+    if commit:
+        session.commit()
 
 
 def revoke_session_by_id(session: Session, user_id: str, session_id: str) -> bool:
@@ -445,7 +496,35 @@ def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) 
 # Вход: блокировка после серии неудачных попыток
 # ---------------------------------------------------------------------------
 # Один на процесс: состояние троттлинга (см. services/login_throttle.py) живёт в памяти.
+# Ключ — пара (адрес клиента, логин): гасит перебор пароля одного логина, не задевая его владельца с другого адреса.
 login_throttle = LoginThrottle()
+
+# Второй рубеж — на адрес клиента целиком, независимо от логина (ключ (адрес, None)). Пара (адрес, логин) обходится сменой
+# логина: каждая попытка с выдуманным логином оказывается «первой» для своей пары и никогда не задерживается, а стоит одного
+# PBKDF2 (≈0,5 с CPU). Здесь порог выше (20 бесплатных попыток): за одним адресом (NAT офиса, прокси без FORWARDED_ALLOW_IPS)
+# бывают много честных пользователей. Успешный вход этот счётчик НЕ сбрасывает — иначе нападающий с любой своей учётной
+# записью вставлял бы между подборами удачный вход и обнулял задержку; счётчик сам затухает по окну неактивности.
+ip_throttle = LoginThrottle(free_attempts=20, base_delay=1.0, max_delay=300.0)
+
+# Не больше стольких одновременных проверок пароля (PBKDF2) на входе. /login — синхронный эндпоинт в пуле потоков
+# (по умолчанию ~40), и без этого предела два десятка параллельных запросов заняли бы весь пул на ~0,5 с каждый: API
+# перестало бы отвечать ещё до аутентификации. Лишний запрос отклоняется сразу (503), а не ждёт в очереди и не держит поток.
+_HASH_SLOT_COUNT = 4
+_HASH_SLOTS = threading.BoundedSemaphore(_HASH_SLOT_COUNT)
+
+
+@contextmanager
+def _password_hash_slot():
+    """Занимает один из _HASH_SLOTS на время хеширования или проверки пароля; свободных нет — 503 с Retry-After.
+    Слот освобождается всегда, в том числе при исключении внутри блока. Отказ по занятым слотам не считается неудачной
+    попыткой входа: тот, кому отказали, пароль ещё не проверял."""
+    slots = _HASH_SLOTS  # тот же объект и на release, даже если модульное имя подменили посреди запроса
+    if not slots.acquire(blocking=False):
+        raise HTTPException(503, "Сервер занят проверкой паролей, повторите позже.", headers={"Retry-After": "2"})
+    try:
+        yield
+    finally:
+        slots.release()
 
 
 def _invalid_credentials() -> HTTPException:
@@ -527,32 +606,48 @@ def _register_failed_password(
     return locked_now
 
 
+def _reject_if_throttled(pair_key: tuple, ip_key: tuple) -> None:
+    """429, если задержка назначена паре (адрес, логин) или всему адресу — по большей из двух. Вызывается до любой работы
+    с БД и хешированием: перебор отбивается дёшево, без траты CPU на PBKDF2."""
+    wait = max(login_throttle.retry_after(pair_key), ip_throttle.retry_after(ip_key))
+    if wait <= 0:
+        return
+    retry_after = max(1, math.ceil(wait))
+    raise HTTPException(
+        429,
+        {
+            "message": f"Слишком много неудачных попыток входа. Повторите через {retry_after} с.",
+            "code": ErrorCode.TOO_MANY_ATTEMPTS,
+        },
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _record_login_failure(pair_key: tuple, ip_key: tuple) -> None:
+    login_throttle.record_failure(pair_key)
+    ip_throttle.record_failure(ip_key)
+
+
 def authenticate(session: Session, username: str, password: str, *, request: Optional[Request] = None) -> tuple[User, str]:
     """Возвращает (пользователь, токен сессии) либо кидает HTTPException. Намеренно не различает
     в тексте ошибки «нет такого пользователя» и «неверный пароль» (защита от перебора логинов) —
     но блокировка (423) неизбежно подтверждает существование аккаунта, это осознанный компромисс
-    между защитой от перебора паролей и полной анонимностью логинов."""
+    между защитой от перебора паролей и полной анонимностью логинов.
+
+    Порядок защит: троттлинг по паре (адрес, логин) и по адресу (429) → поиск пользователя → блокировка учётной записи
+    (423) → проверка пароля под ограничением параллелизма (503, см. _password_hash_slot)."""
     client_ip = _client_ip(request)
     throttle_key = (client_ip, username.strip().casefold())
-    wait = login_throttle.retry_after(throttle_key)
-    if wait > 0:
-        # До любой работы с БД и хешированием: отбиваем перебор дёшево, не тратя CPU на PBKDF2.
-        retry_after = max(1, math.ceil(wait))
-        raise HTTPException(
-            429,
-            {
-                "message": f"Слишком много неудачных попыток входа. Повторите через {retry_after} с.",
-                "code": ErrorCode.TOO_MANY_ATTEMPTS,
-            },
-            headers={"Retry-After": str(retry_after)},
-        )
+    ip_key = (client_ip, None)
+    _reject_if_throttled(throttle_key, ip_key)
 
     user = find_user_by_username(session, username)
     if user is None or not user.is_active:
         # Тратим примерно то же время, что и на реальную проверку пароля — чтобы «нет такого
         # пользователя» не отвечал заметно быстрее «пароль неверный» (ещё один timing-сигнал).
-        hash_password(password)
-        login_throttle.record_failure(throttle_key)
+        with _password_hash_slot():
+            hash_password(password)
+        _record_login_failure(throttle_key, ip_key)
         raise _invalid_credentials()
 
     now = _now()
@@ -563,8 +658,12 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         # посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг выше и счётчик ниже действуют.
         raise _account_locked(user.locked_until, now)
 
-    if not verify_password(password, user.password_hash):
-        login_throttle.record_failure(throttle_key)
+    with _password_hash_slot():
+        verified = verify_password(password, user.password_hash)
+        # Пересчёт устаревшего хеша — тоже PBKDF2, поэтому под тем же слотом.
+        upgraded_hash = hash_password(password) if verified and _needs_rehash(user.password_hash) else None
+    if not verified:
+        _record_login_failure(throttle_key, ip_key)
         _register_failed_password(
             session, user, details=f"Неудачная попытка входа «{user.username}»", now=now,
             actor=Actor(user.id, user.username, client_ip),
@@ -574,8 +673,8 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
     user.failed_attempts = 0
     user.locked_until = None
     user.last_login_at = now
-    if _needs_rehash(user.password_hash):
-        user.password_hash = hash_password(password)
+    if upgraded_hash is not None:
+        user.password_hash = upgraded_hash
     session.commit()
 
     login_throttle.reset(throttle_key)
@@ -654,6 +753,81 @@ def _with_security_headers(response, path: str = ""):
     return response
 
 
+# ---------------------------------------------------------------------------
+# Прокси, которому не доверяет uvicorn (ревью 2.158.0, П-3)
+# ---------------------------------------------------------------------------
+# uvicorn подставляет адрес клиента из X-Forwarded-For только тогда, когда TCP-соединение пришло с адреса из
+# FORWARDED_ALLOW_IPS. Если прокси там не перечислен, у всех клиентов за ним один адрес — прокси: троттлинг входа
+# (пара «адрес + логин» и счётчик адреса) становится общим, и неверные пароли нападающего задерживают вход настоящего
+# администратора, а «знакомым» (см. _is_known_client) оказывается любой. Программно это не запретить — только заметить.
+_proxy_headers_warned = False  # один раз на процесс: сообщение о конфигурации, а не журнал каждого запроса
+
+
+def _normalize_host(value: str) -> str:
+    """Адрес без порта и скобок — так запись X-Forwarded-For разбирает uvicorn: «1.2.3.4:80» → «1.2.3.4», «[::1]:80» → «::1»."""
+    value = value.strip()
+    if value.startswith("["):
+        end = value.find("]")
+        return value[1:end] if end != -1 else value
+    if value.count(":") == 1:
+        return value.rsplit(":", 1)[0]
+    return value
+
+
+def _same_host(left: str, right: str) -> bool:
+    try:
+        return ipaddress.ip_address(left) == ipaddress.ip_address(right)
+    except ValueError:
+        return left.casefold() == right.casefold()
+
+
+def _untrusted_proxy_header(request: Request) -> Optional[str]:
+    """Имя прокси-заголовка, пришедшего от адреса, которому uvicorn НЕ доверяет, иначе None.
+
+    К моменту работы middleware uvicorn уже мог заменить request.client на адрес из X-Forwarded-For (если соединение пришло
+    с доверенного прокси), поэтому сравнивать client.host со списком FORWARDED_ALLOW_IPS нельзя: за правильно настроенным
+    прокси адрес клиента там никогда не бывает, и предупреждение срабатывало бы на каждый запрос. Признак другой: при подмене
+    адрес клиента — одна из записей самого заголовка; если заголовок пришёл, а адреса соединения среди его записей нет, значит
+    uvicorn его не разбирал. Заголовок Forwarded (RFC 7239) uvicorn не разбирает вообще, поэтому за ним адрес клиента — всегда
+    адрес прокси. Значение заголовка (его присылает кто угодно) наружу не отдаётся."""
+    client = request.client
+    if client is None:
+        return None
+    entries = (_normalize_host(part) for value in request.headers.getlist("x-forwarded-for") for part in value.split(","))
+    seen_entry = False
+    for entry in entries:
+        if not entry:
+            continue
+        seen_entry = True
+        if _same_host(client.host, entry):
+            return None
+    if seen_entry:
+        return "X-Forwarded-For"
+    return "Forwarded" if "forwarded" in request.headers else None
+
+
+def _warn_once_if_proxy_untrusted(request: Request) -> None:
+    """Однократное (на процесс) предупреждение в журнал сервера: пришёл заголовок обратного прокси от адреса, которого нет в
+    FORWARDED_ALLOW_IPS. Запрос не блокируется и не меняется — это подсказка администратору, не защита."""
+    global _proxy_headers_warned
+    if _proxy_headers_warned:
+        return
+    header = _untrusted_proxy_header(request)
+    if header is None:
+        return
+    _proxy_headers_warned = True
+    hint = " Заголовок Forwarded uvicorn не разбирает — настройте прокси на X-Forwarded-For." if header == "Forwarded" else ""
+    logger.warning(
+        "Запрос пришёл с заголовком %s от адреса %s, которому uvicorn не доверяет (FORWARDED_ALLOW_IPS: %s): адрес клиента "
+        "остаётся адресом этого узла. Если это обратный прокси, у всех клиентов за ним один адрес — троттлинг входа (в том "
+        "числе для настоящего администратора) и «знакомые» адреса считают их одним клиентом, а в журнале аудита и списке "
+        "сессий будет адрес прокси. Перечислите адрес прокси в FORWARDED_ALLOW_IPS (README, «Аутентификация и авторизация»).%s "
+        "Сообщение выводится один раз за процесс.",
+        header, request.client.host if request.client else "—",
+        ", ".join(FORWARDED_ALLOW_IPS) if FORWARDED_ALLOW_IPS else "не задана, по умолчанию 127.0.0.1", hint,
+    )
+
+
 async def auth_gate_middleware(request: Request, call_next):
     """Раздача Vue-оболочки (`/`, `/assets/*`, SPA-фоллбэк в main.py) не проходит проверку
     доступа — статика всегда отдаётся, экран логина рисует сам Vue-роутер на клиенте (см.
@@ -670,6 +844,7 @@ async def auth_gate_middleware(request: Request, call_next):
     if not path.startswith("/api/"):
         return _with_security_headers(await call_next(request), path)
 
+    _warn_once_if_proxy_untrusted(request)
     actor_token = current_actor.set(Actor(ip=_client_ip(request)))
     try:
         response = await _gate_api_request(request, call_next)
@@ -703,7 +878,7 @@ def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDec
     `from X import Y` создал бы отдельную, непропатчиваемую ссылку."""
     db_session = db_module.SessionLocal()
     try:
-        auth_enabled = get_or_create_auth_settings(db_session).enabled
+        auth_enabled = _auth_enabled_cached(db_session)
         if not auth_enabled or path in PUBLIC_API_PATHS:
             return _GateDecision(auth_enabled, None)
 

@@ -40,9 +40,11 @@ import re
 import shutil
 import tempfile
 import zipfile
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 — только запись и сборка (ElementTree.write, SubElement, register_namespace); разбор — через SafeET
 from urllib.parse import quote
 from xml.sax.saxutils import escape
+
+from defusedxml import ElementTree as SafeET
 
 from .diagram_icons import safe_color
 
@@ -601,7 +603,7 @@ def _finalize_vsdx_package(saved_path: str, template_path: str) -> None:
     for part in _VSDX_CONTENT_PARTS:
         data = entries[part]
         if _SYNTHETIC_NAMESPACE_DECLARATION.search(data):
-            root = ET.fromstring(data)
+            root = SafeET.fromstring(data)  # части пакета формирует само приложение, но разбор — безопасный: DTD-сущности и внешние ссылки запрещены
             if root.tag.startswith("{"):
                 ET.register_namespace("", root.tag[1:].split("}", 1)[0])
             buf = io.BytesIO()
@@ -654,8 +656,8 @@ def _embed_vsdx_category_icons(saved_path: str, icon_pngs: dict[str, bytes]) -> 
         entries = {name: zf.read(name) for name in order}
 
     rels_path = "visio/pages/_rels/page1.xml.rels"
-    rels_root = ET.fromstring(entries[rels_path])
-    ct_root = ET.fromstring(entries["[Content_Types].xml"])
+    rels_root = SafeET.fromstring(entries[rels_path])
+    ct_root = SafeET.fromstring(entries["[Content_Types].xml"])
     has_png_default = any(el.get("Extension") == "png" for el in ct_root.findall(f"{{{_CONTENT_TYPES_NS_URI}}}Default"))
 
     for index, (rel_id, png_bytes) in enumerate(sorted(icon_pngs.items()), start=1):
