@@ -231,6 +231,9 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
   color: var(--ink);
   font-size: 12.5px;
   width: 100%;
+  min-width: 0;
+  /* Длинный плейсхолдер/запрос обрезается многоточием, а не посреди буквы. */
+  text-overflow: ellipsis;
 }
 .chip-group {
   display: flex;
@@ -392,6 +395,24 @@ tbody tr:hover td {
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+/* Телефон (то же ≤760px, что у мобильного меню): поиск занимает всю строку, чтобы плейсхолдер помещался, а группа
+ * кнопок переносится на новую строку вместо обрезки. Разделители между кнопками рисует gap на фоне цвета рамки. */
+@media (max-width: 760px) {
+  .search-box {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .chip-group {
+    flex-wrap: wrap;
+    gap: 1px;
+    background: var(--border);
+    max-width: 100%;
+  }
+  .chip-group button {
+    flex: 1 1 auto;
+    border-right: none;
   }
 }
 </style>
