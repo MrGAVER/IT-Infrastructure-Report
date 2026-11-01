@@ -70,7 +70,10 @@ const {
     </div>
   </label>
 
-  <label class="field checkbox-field">
+  <!-- UI-12: чекбокс в своей строке на всю ширину. Раньше он делил строку с «Зданием», и порядок
+       «Здание → Помещение → Стойка» читался зигзагом (справа, слева, справа). Теперь сетка идёт парами:
+       «Здание | Помещение», «Стойка | Позиция в стойке». -->
+  <label class="field field-wide checkbox-field">
     <input v-model="form.siem_enabled" type="checkbox" />
     <span>Отправляет события в SIEM</span>
   </label>
@@ -219,7 +222,6 @@ const {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  margin-top: 18px;
 }
 .checkbox-field input {
   accent-color: var(--brand);
