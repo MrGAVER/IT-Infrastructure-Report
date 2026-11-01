@@ -100,3 +100,48 @@ def test_icons_svg_missing_returns_404(client, tmp_path, monkeypatch):
     r = client.get('/icons.svg')
 
     assert r.status_code == 404
+
+
+def test_favicon_served_from_frontend_dir(client, tmp_path, monkeypatch):
+    vue_dir = tmp_path / 'vue-dist'
+    vue_dir.mkdir(parents=True, exist_ok=True)
+    payload = b'\x00\x00\x01\x00\x01\x00' + b'\x00' * 16  # заголовок ICO: подлинность формата проверяет тест сборки фронтенда
+    (vue_dir / 'favicon.ico').write_bytes(payload)
+    monkeypatch.setattr(assets_module, 'FRONTEND_DIR', vue_dir)
+
+    r = client.get('/favicon.ico')
+
+    assert r.status_code == 200
+    assert r.content == payload
+    assert r.headers['content-type'] == 'image/x-icon'
+    assert r.headers['cache-control'] == assets_module.FAVICON_CACHE_CONTROL
+
+
+def test_favicon_missing_returns_404_not_spa_fallback(client, tmp_path, monkeypatch):
+    # Без файла ответ — 404, а не index.html от SPA-фоллбэка: иначе браузер получил бы HTML вместо иконки.
+    vue_dir = tmp_path / 'vue-dist'
+    _write_index(vue_dir, 'SPA-INDEX')
+    monkeypatch.setattr(assets_module, 'FRONTEND_DIR', vue_dir)
+    monkeypatch.setattr(app_main, 'FRONTEND_DIR', vue_dir)
+
+    r = client.get('/favicon.ico')
+
+    assert r.status_code == 404
+    assert 'SPA-INDEX' not in r.text
+
+
+def test_favicon_is_public_when_authentication_is_enabled(client, tmp_path, monkeypatch):
+    # /favicon.ico лежит вне /api/, поэтому аутентификация его не закрывает (иконка нужна уже на экране входа).
+    vue_dir = tmp_path / 'vue-dist'
+    vue_dir.mkdir(parents=True, exist_ok=True)
+    (vue_dir / 'favicon.ico').write_bytes(b'\x00\x00\x01\x00')
+    monkeypatch.setattr(assets_module, 'FRONTEND_DIR', vue_dir)
+    r = client.post('/api/v1/auth/users', json={'username': 'admin', 'password': 'Admin1234', 'role': 'admin'})
+    assert r.status_code == 201, r.text
+    r = client.put('/api/v1/auth/settings', json={'enabled': True})
+    assert r.status_code == 200, r.text
+    assert client.get('/api/v1/devices').status_code == 401  # аутентификация действительно включена
+
+    r = client.get('/favicon.ico')  # без токена
+
+    assert r.status_code == 200
