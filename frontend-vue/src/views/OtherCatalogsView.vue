@@ -244,7 +244,9 @@ async function onDeleted() {
 }
 .layout {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  /* minmax(0, 1fr), а не 1fr: у 1fr минимальная ширина колонки равна ширине содержимого (min-content), и широкая
+   * таблица раздвигала бы колонку шире окна вместо того, чтобы прокручиваться внутри .table-wrap. */
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -340,14 +342,18 @@ thead th {
   color: var(--ink-muted);
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
-  white-space: nowrap;
 }
 tbody td {
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
   vertical-align: middle;
-  max-width: 260px;
+  /* max-width: 0 делает колонки «гибкими»: ширина делится между ними по содержимому, а длинный текст обрезается
+   * многоточием (.cell-text) с подсказкой v-truncate-tooltip. Раньше стояло 260px на каждую колонку: у справочников
+   * с 4–5 колонками сумма превышала ширину .table-wrap, и кнопка «Редактировать» уезжала за край. min-width не даёт
+   * колонкам схлопнуться до нечитаемой ширины на узких экранах — там таблица прокручивается по горизонтали. */
+  min-width: 96px;
+  max-width: 0;
 }
 tbody tr:last-child td {
   border-bottom: none;
@@ -358,9 +364,16 @@ tbody tr:last-child td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Колонка действий закреплена у правого края: если таблица всё же шире экрана (узкое окно), кнопка остаётся
+ * видимой без горизонтальной прокрутки. Фон нужен, чтобы под закреплённой ячейкой не просвечивал прокручиваемый текст. */
 .col-actions {
   width: 1%;
+  min-width: 0;
+  max-width: none;
   text-align: right;
+  position: sticky;
+  right: 0;
+  background: var(--surface);
 }
 
 @media (max-width: 860px) {
