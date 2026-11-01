@@ -43,10 +43,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* Flex с переносом, а не grid из 4 колонок: карточек 7, и в сетке последний ряд оставался на три четверти пустым.
+ * Здесь карточки последнего ряда растягиваются на всю ширину (flex-grow: 1), поэтому «дыры» нет при любом их числе.
+ * Базис calc(25% - 12px) даёт ровно 4 карточки в ряд с запасом в один gap на округление; на ≤980px — 2 в ряд. */
 .stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
+}
+.stat-grid > * {
+  flex: 1 1 calc(25% - 12px);
+  min-width: 0;
 }
 .error-banner {
   padding: 16px;
@@ -57,8 +64,8 @@ onMounted(async () => {
   color: var(--ink-muted);
 }
 @media (max-width: 980px) {
-  .stat-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .stat-grid > * {
+    flex-basis: calc(50% - 12px);
   }
 }
 </style>

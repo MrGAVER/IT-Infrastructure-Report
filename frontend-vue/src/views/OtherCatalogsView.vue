@@ -145,14 +145,10 @@ async function onDeleted() {
 
 <template>
   <div class="other-catalogs">
-    <header class="page-head">
-      <div>
-        <h1>Другие справочники</h1>
-        <p class="hint">
-          Значения, которые раньше можно было только быстро добавить через «+» в других формах — здесь их можно посмотреть списком, отредактировать или удалить.
-        </p>
-      </div>
-    </header>
+    <!-- Заголовок страницы («Другие справочники») уже показывает топбар (layout/pageTitles.ts) — второй h1 здесь дублировал бы его. -->
+    <p class="hint">
+      Значения, которые раньше можно было только быстро добавить через «+» в других формах — здесь их можно посмотреть списком, отредактировать или удалить.
+    </p>
 
     <div v-if="loading" class="empty-state">Загрузка…</div>
     <div v-else class="layout">
@@ -221,11 +217,6 @@ async function onDeleted() {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-.page-head h1 {
-  font-family: var(--font-display);
-  font-size: 20px;
-  margin: 0 0 4px;
 }
 .hint {
   font-size: 12.5px;

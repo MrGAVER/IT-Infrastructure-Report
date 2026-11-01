@@ -47,6 +47,16 @@ function seedCatalogs() {
 }
 
 describe('OtherCatalogsView.vue', () => {
+  it('не дублирует заголовок страницы: h1 показывает топбар, на экране остаётся только пояснение и заголовок выбранного справочника', async () => {
+    seedCatalogs()
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    expect(wrapper.find('h1').exists()).toBe(false)
+    expect(wrapper.find('.hint').text()).toContain('быстро добавить через «+»')
+    expect(wrapper.find('h2').text()).toBe('Тип устройства')
+  })
+
   it('по умолчанию выбран первый справочник списка ("Тип устройства"), показаны его записи', async () => {
     seedCatalogs()
     const wrapper = mount(OtherCatalogsView)
