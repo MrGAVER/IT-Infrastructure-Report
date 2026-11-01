@@ -16,6 +16,7 @@ const router = useRouter()
 // "клик вне области закрывает" уже используется в SearchableSelect.vue.
 const menuOpen = ref(false)
 const rootEl = ref<HTMLElement | null>(null)
+const triggerEl = ref<HTMLButtonElement | null>(null)
 
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
@@ -25,8 +26,22 @@ function onDocumentClick(event: MouseEvent) {
   if (menuOpen.value && rootEl.value && !rootEl.value.contains(event.target as Node)) menuOpen.value = false
 }
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
+// UI-10 (ревью merge/review-2158-executors): Esc закрывает меню и возвращает фокус на кнопку-чип, откуда его открыли, —
+// иначе клавиатурный пользователь терял место в порядке обхода.
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (!menuOpen.value || event.key !== 'Escape' || event.defaultPrevented) return
+  menuOpen.value = false
+  triggerEl.value?.focus()
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('keydown', onDocumentKeydown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('keydown', onDocumentKeydown)
+})
 
 // Фикс auth п.1.1 (батч4): выход из топбара — тот же переход на /login, что уже делает
 // Sidebar.vue:logout(), продублирован здесь намеренно (два независимых места входа в один и тот
@@ -51,7 +66,7 @@ async function logout() {
       <slot name="right" />
       <ThemeSwitcher compact />
       <div v-if="auth.enabled && auth.user" ref="rootEl" class="user-chip">
-        <button type="button" class="user-chip-trigger" :aria-expanded="menuOpen" aria-haspopup="menu" @click="toggleMenu">
+        <button ref="triggerEl" type="button" class="user-chip-trigger" :aria-expanded="menuOpen" aria-haspopup="menu" @click="toggleMenu">
           <div class="avatar">{{ auth.user.username.charAt(0).toUpperCase() }}</div>
           <div class="who">
             <b>{{ auth.user.username }}</b>
@@ -78,6 +93,11 @@ async function logout() {
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  /* UI-5: топбар остаётся вверху окна, пока прокручивается длинная страница (и гамбургер доступен на телефоне).
+     z-index ниже подложки мобильного меню (25), самого меню (30) и модальных окон (60+). */
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 .hamburger {
   display: none;
@@ -122,8 +142,9 @@ async function logout() {
   cursor: pointer;
   color: var(--ink);
 }
+/* UI-7: --surface-1 — алиас на --surface (theme.css), то есть ровно фон топбара и меню: hover был невидим. */
 .user-chip-trigger:hover {
-  background: var(--surface-1, rgba(127, 127, 127, 0.08));
+  background: var(--surface-2);
 }
 .avatar {
   width: 28px;
@@ -188,7 +209,7 @@ async function logout() {
   text-align: left;
 }
 .user-menu-item:hover {
-  background: var(--surface-1, rgba(127, 127, 127, 0.08));
+  background: var(--surface-2);
 }
 
 @media (max-width: 760px) {

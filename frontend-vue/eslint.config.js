@@ -9,7 +9,7 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig([
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'test-results/**', 'playwright-report/**'] },
 
   js.configs.recommended,
   tseslint.configs.recommended,
@@ -79,6 +79,12 @@ export default defineConfig([
   {
     files: ['*.config.{js,ts}', 'vite.config.ts', 'vitest.config.ts'],
     languageOptions: { globals: { ...globals.node } },
+  },
+
+  {
+    // E2E-проверки Playwright и запуск backend для них выполняются в Node; тела page.evaluate() — уже в браузере (document, window).
+    files: ['playwright.config.ts', 'e2e/**/*.{ts,mjs}'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 
   // Последним: отключает правила, конфликтующие с Prettier.

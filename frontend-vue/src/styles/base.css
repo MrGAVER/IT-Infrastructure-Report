@@ -1,4 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Golos+Text:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Шрифты подключены локально (UI-9, ревью merge/review-2158-executors): раньше @import с fonts.googleapis.com — внешний запрос
+   при каждом открытии, блокирующий отрисовку и выдающий факт использования приложения и IP клиента в закрытом контуре; серверный
+   CSP (style-src 'self') такой импорт к тому же блокирует. Вариативные woff2 берутся из пакетов @fontsource-variable (OFL-1.1),
+   браузер догружает только нужные подмножества (кириллица, латиница) по unicode-range. Семейства называются «<Имя> Variable» —
+   см. --font-* в theme.css. */
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/golos-text/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
 
 *,
 *::before,
@@ -110,13 +117,15 @@ svg.icon {
   font-weight: 600;
 }
 
+/* Точка 6 px с полупрозрачным ореолом (UI-6): сплошной box-shadow того же цвета давал круг 12 px. В браузерах без color-mix
+   (Chrome < 111) объявление отбрасывается — остаётся просто точка без ореола. */
 .status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 3px currentColor;
-  opacity: 0.85;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 25%, transparent);
+  opacity: 1;
 }
 
 .status.on {

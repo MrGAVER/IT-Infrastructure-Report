@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
 
-defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const organization = useOrganizationStore()
@@ -13,32 +13,42 @@ const router = useRouter()
 // Журнал аудита виден только тому, кому его отдаёт сервер (A-23): viewer получил бы 403.
 const visibleSystemNav = computed(() => systemNav.filter((item) => !item.adminOnly || auth.canViewAuditLog))
 
+// UI-10 (ревью merge/review-2158-executors): мобильное меню закрывается по Esc. Слушатель на document, а не на
+// самом меню: фокус после открытия остаётся на кнопке-гамбургере в топбаре, то есть вне <aside>.
+function onKeydown(event: KeyboardEvent) {
+  if (props.open && event.key === 'Escape' && !event.defaultPrevented) emit('close')
+}
+onMounted(() => document.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+
 async function logout() {
   await auth.logout()
   emit('close')
   router.replace({ name: 'login' })
 }
 
+// Каждому пункту — своя иконка (UI-11): раньше i-layers стояла у четырёх пунктов, i-box, i-sitemap и i-network — у двух.
+// Тест «у каждого пункта меню своя иконка» в Sidebar.spec.ts не даст повторить это снова.
 const primaryNav = [
   { to: '/dashboard', icon: 'i-home', label: 'Дашборд' },
-  { to: '/information-systems', icon: 'i-layers', label: 'Информационные системы' },
+  { to: '/information-systems', icon: 'i-database', label: 'Информационные системы' },
   { to: '/devices', icon: 'i-server', label: 'Инвентаризация устройств' },
   { to: '/device-stacks', icon: 'i-layers', label: 'Стеки устройств' },
   { to: '/connections', icon: 'i-network', label: 'Подключения' },
   { to: '/diagrams', icon: 'i-sitemap', label: 'Диаграмма топологии сети' },
-  { to: '/vms', icon: 'i-box', label: 'Виртуальные машины' },
+  { to: '/vms', icon: 'i-cpu', label: 'Виртуальные машины' },
   { to: '/containers', icon: 'i-box', label: 'Контейнеры' },
 ]
 const catalogNav = [
   { to: '/vlans', icon: 'i-grid', label: 'VLAN' },
   { to: '/buildings', icon: 'i-building', label: 'Здания и помещения' },
-  { to: '/structural-units', icon: 'i-sitemap', label: 'Структурные подразделения' },
-  { to: '/other-catalogs', icon: 'i-layers', label: 'Другие справочники' },
+  { to: '/structural-units', icon: 'i-users', label: 'Структурные подразделения' },
+  { to: '/other-catalogs', icon: 'i-book', label: 'Другие справочники' },
 ]
 const systemNav = [
   { to: '/reports', icon: 'i-file', label: 'Отчёты' },
-  { to: '/report-templates', icon: 'i-layers', label: 'Шаблоны отчётов' },
-  { to: '/port-sync-rules', icon: 'i-network', label: 'Правила согласования портов' },
+  { to: '/report-templates', icon: 'i-template', label: 'Шаблоны отчётов' },
+  { to: '/port-sync-rules', icon: 'i-shuffle', label: 'Правила согласования портов' },
   { to: '/audit-log', icon: 'i-activity', label: 'Журнал аудита', adminOnly: true },
 ]
 </script>
@@ -238,6 +248,20 @@ const systemNav = [
   color: var(--ink);
 }
 
+/* UI-5: на десктопе сайдбар остаётся на месте, пока прокручивается страница, — «Настройки» и «Выйти» не уезжают
+   в самый низ длинного документа. Своя прокрутка нужна, когда пунктов больше, чем влезает в окно. */
+@media (min-width: 761px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+}
+
 @media (max-width: 760px) {
   .sidebar {
     position: fixed;
@@ -248,9 +272,22 @@ const systemNav = [
     transform: translateX(-104%);
     box-shadow: 20px 0 40px rgba(0, 0, 0, 0.35);
     transition: transform 0.2s ease;
+    /* UI-1: у position: fixed нет собственной прокрутки страницы — на 390×667 содержимое (823 px) обрезалось, и пункты
+       от «Шаблонов отчётов» до «Выйти» были недоступны. */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
   }
   .sidebar.open {
     transform: translateX(0);
+  }
+  /* UI-10: закрытое меню лишь сдвинуто за экран, но остаётся в порядке фокуса (первый Tab попадал на скрытую ссылку).
+     visibility включается с задержкой на время анимации закрытия, при открытии — сразу (у .open своя transition). */
+  .sidebar:not(.open) {
+    visibility: hidden;
+    transition:
+      transform 0.2s ease,
+      visibility 0s 0.2s;
   }
   .backdrop {
     position: fixed;

@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Результаты e2e-проверок Playwright (npm run e2e)
+test-results
+playwright-report
