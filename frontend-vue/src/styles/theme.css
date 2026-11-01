@@ -9,6 +9,10 @@
  * (тот файл используется для отрисовки образцов цвета в пикере схем).
  */
 :root {
+  /* UI-8: единственное объявление color-scheme — нативные чекбоксы, select, пикеры дат и полосы прокрутки тёмные везде
+     (раньше — только у одного input[type=date] в DeviceMainFields.vue). */
+  color-scheme: dark;
+
   --surface: #16212e;
   /* Алиас для var(--surface-1) — переменная с этим именем используется в HelpTip.vue,
      DeviceInterfacesEditor.vue и ряде мест с фолбэком (var(--surface-1, ...)), но нигде не была
@@ -35,9 +39,11 @@
   --r-m: 10px;
   --r-l: 14px;
 
-  --font-display: 'Golos Text', 'Inter', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* «<Имя> Variable» — семейства локальных вариативных шрифтов из base.css (UI-9); обычные имена следом — для машин,
+     где эти шрифты установлены в системе. */
+  --font-display: 'Golos Text Variable', 'Golos Text', 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
 }
 
 /* Бирюза — схема по умолчанию */
