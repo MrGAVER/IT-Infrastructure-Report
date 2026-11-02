@@ -323,11 +323,15 @@ async function commitRename() {
 </template>
 
 <style scoped>
+/* UI-05: высота — окно минус фактическая шапка (--topbar-h публикует AppShell) и отступы контента. Раньше стояла
+   константа 96 px: она не совпадала с реальной шапкой (документ получал +22 px на 900 и +59 px на 844), а 100vh на мобильных
+   браузерах «прыгает» вместе с адресной строкой. Первое объявление height — запасное для браузеров без dvh. */
 .diagram-view {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: calc(100vh - 96px);
+  height: calc(100vh - var(--topbar-h, 68px) - var(--content-pad-top, 18px) - var(--content-pad-bottom, 32px));
+  height: calc(100dvh - var(--topbar-h, 68px) - var(--content-pad-top, 18px) - var(--content-pad-bottom, 32px));
 }
 .toolbar {
   display: flex;
@@ -400,8 +404,10 @@ async function commitRename() {
 }
 .canvas-wrap {
   position: relative;
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  /* Холст не сжимается в полоску, когда тулбар в несколько строк съедает высоту (низкий телефон в альбомной ориентации): лучше
+     прокрутка страницы, чем диаграмма, которую нельзя разглядеть. */
+  min-height: 320px;
   border: 1px solid var(--border);
   border-radius: var(--r-m);
   overflow: hidden;

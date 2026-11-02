@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import Topbar from '../Topbar.vue'
 import { useAuthStore } from '../../stores/auth'
-import { declaration, readStyles, ruleBody } from '../../__tests__/cssSource'
+import { declaration, mediaBlock, readStyles, ruleBody } from '../../__tests__/cssSource'
 
 const replaceMock = vi.fn()
 vi.mock('vue-router', () => ({
@@ -145,5 +145,23 @@ describe('Topbar.vue — закрытие меню пользователя по
     pressEscape()
 
     expect(document.activeElement).not.toBe(trigger)
+  })
+})
+
+describe('UI-05: Topbar на телефоне', () => {
+  const phone = mediaBlock(readStyles('src/layout/Topbar.vue'), '(max-width: 760px)')
+
+  it('хлебные крошки скрыты, заголовок — шрифт 16 px и не больше двух строк', () => {
+    expect(phone).not.toBeNull()
+    expect(declaration(ruleBody(phone, '.crumb'), 'display')).toBe('none')
+    const title = ruleBody(phone, '.page-title')
+    expect(declaration(title, 'font-size')).toBe('16px')
+    expect(declaration(title, '-webkit-line-clamp')).toBe('2')
+    expect(declaration(title, 'line-clamp')).toBe('2')
+  })
+
+  it('отступы шапки на телефоне короче, а заголовок может сжиматься (min-width: 0)', () => {
+    expect(declaration(ruleBody(phone, '.topbar'), 'padding')).toBe('10px 14px')
+    expect(declaration(ruleBody(readStyles('src/layout/Topbar.vue'), '.titles'), 'min-width')).toBe('0')
   })
 })

@@ -110,6 +110,10 @@ async function logout() {
   width: 20px;
   height: 20px;
 }
+/* Без min-width: 0 длинный заголовок распирал бы флекс-контейнер, а не сжимался и не переносился. */
+.titles {
+  min-width: 0;
+}
 .crumb {
   font-size: 11.5px;
   color: var(--ink-muted);
@@ -213,6 +217,28 @@ async function logout() {
 }
 
 @media (max-width: 760px) {
+  /* UI-05: на 390 px шапка с заголовком «Инвентаризация физических устройств» занимала ≈ 125 из 844 px. Хлебные крошки на
+     телефоне не нужны (раздел виден в меню), заголовок — не больше двух строк, отступы короче. */
+  .topbar {
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .topbar-right {
+    gap: 10px;
+  }
+  .crumb {
+    display: none;
+  }
+  .page-title {
+    font-size: 16px;
+    line-height: 1.25;
+    margin-top: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .hamburger {
     display: block;
   }
