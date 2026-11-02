@@ -10,6 +10,7 @@ import { api } from '../api/client'
 import type { Device, DevicesResponse } from '../api/types'
 import { useCatalogsStore } from './catalogs'
 import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
+import { sortNaturally } from '../utils/naturalSort'
 
 const DEFAULT_PAGE_SIZE = 6
 const LIST_ID = 'devices'
@@ -119,7 +120,9 @@ export const useDevicesStore = defineStore('devices', {
       this.error = null
       try {
         const res = await api.get<DevicesResponse>('/devices')
-        this.all = res.items
+        // backend сортирует по строке («dev-12» раньше «dev-6»), поэтому порядок один раз приводится к естественному при записи —
+        // не на каждое изменение фильтра. Устройства без системного имени, как и на сервере, идут первыми (UI-13).
+        this.all = sortNaturally(res.items, (d) => d.system_name, { emptyFirst: true })
         this.total = res.total
         this.loaded = true
       } catch (e) {
