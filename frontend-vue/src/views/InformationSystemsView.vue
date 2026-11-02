@@ -13,6 +13,8 @@ import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import YesNoStatus from '../components/YesNoStatus.vue'
 import InformationSystemFormModal from '../components/InformationSystemFormModal.vue'
+// Общая панель фильтров (поиск, селекты, кнопки действий) — UI-10/UI-11.
+import '../styles/list-toolbar.css'
 
 const systems = useInformationSystemsStore()
 const catalogs = useCatalogsStore()
@@ -94,25 +96,35 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
       <StatCard :value="systems.all.length - siemCount()" label="Без покрытия SIEM" tone="warn" />
     </div>
 
-    <div class="filter-bar">
-      <div class="search-box">
-        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="systems.search" type="text" placeholder="Поиск по наименованию, описанию, назначению, IP-адресу…" />
+    <div class="filter-bar list-toolbar">
+      <div class="filter-fields">
+        <div class="search-box">
+          <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+          <input
+            v-model="systems.search"
+            type="text"
+            placeholder="Поиск по названию, описанию, IP-адресу…"
+            title="Поиск по наименованию, описанию, назначению, IP-адресу"
+            aria-label="Поиск по наименованию, описанию, назначению, IP-адресу"
+          />
+        </div>
+        <div class="chip-group">
+          <button :class="{ on: systems.siemFilter === 'all' }" @click="systems.siemFilter = 'all'">SIEM: все</button>
+          <button :class="{ on: systems.siemFilter === 'yes' }" @click="systems.siemFilter = 'yes'">Да</button>
+          <button :class="{ on: systems.siemFilter === 'no' }" @click="systems.siemFilter = 'no'">Нет</button>
+        </div>
       </div>
-      <div class="chip-group">
-        <button :class="{ on: systems.siemFilter === 'all' }" @click="systems.siemFilter = 'all'">SIEM: все</button>
-        <button :class="{ on: systems.siemFilter === 'yes' }" @click="systems.siemFilter = 'yes'">Да</button>
-        <button :class="{ on: systems.siemFilter === 'no' }" @click="systems.siemFilter = 'no'">Нет</button>
+
+      <div class="filter-actions">
+        <button class="btn btn-secondary" :disabled="systems.loading" @click="systems.reload()">
+          <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
+          Обновить
+        </button>
+        <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
+          <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+          Добавить ИС
+        </button>
       </div>
-      <div class="spacer"></div>
-      <button class="btn btn-secondary" :disabled="systems.loading" @click="systems.reload()">
-        <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
-        Обновить
-      </button>
-      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Добавить ИС
-      </button>
     </div>
 
     <div class="table-card card">
@@ -200,65 +212,6 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 18px;
-}
-.filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  padding: 7px 10px;
-  min-width: 260px;
-  flex: 1;
-  max-width: 420px;
-}
-.search-box .icon {
-  color: var(--ink-muted);
-}
-.search-box input {
-  border: none;
-  background: transparent;
-  outline: none;
-  color: var(--ink);
-  font-size: 12.5px;
-  width: 100%;
-  min-width: 0;
-  /* Длинный плейсхолдер/запрос обрезается многоточием, а не посреди буквы. */
-  text-overflow: ellipsis;
-}
-.chip-group {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  overflow: hidden;
-}
-.chip-group button {
-  border: none;
-  background: var(--surface);
-  padding: 7px 11px;
-  font-size: 12px;
-  color: var(--ink-muted);
-  font-weight: 500;
-  border-right: 1px solid var(--border);
-}
-.chip-group button:last-child {
-  border-right: none;
-}
-.chip-group button.on {
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-weight: 700;
-}
-.spacer {
-  flex: 1;
 }
 .table-wrap {
   overflow-x: auto;
@@ -394,24 +347,6 @@ tbody tr:hover td {
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
-  }
-}
-/* Телефон (то же ≤760px, что у мобильного меню): поиск занимает всю строку, чтобы плейсхолдер помещался, а группа
- * кнопок переносится на новую строку вместо обрезки. Разделители между кнопками рисует gap на фоне цвета рамки. */
-@media (max-width: 760px) {
-  .search-box {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .chip-group {
-    flex-wrap: wrap;
-    gap: 1px;
-    background: var(--border);
-    max-width: 100%;
-  }
-  .chip-group button {
-    flex: 1 1 auto;
-    border-right: none;
   }
 }
 </style>

@@ -13,6 +13,8 @@ import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
 import DeviceTableRow from '../components/DeviceTableRow.vue'
 import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
+// Общая панель фильтров (поиск, селекты, кнопки действий) — UI-10/UI-11.
+import '../styles/list-toolbar.css'
 
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
@@ -154,54 +156,63 @@ async function onStackSaved(stack: DeviceStack) {
       <StatCard :value="devices.total - siemCount()" label="Без покрытия SIEM" tone="warn" />
     </div>
 
-    <div class="filter-bar">
-      <div class="search-box">
-        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="devices.search" type="text" placeholder="Поиск по имени, серийному №, IP…" />
-      </div>
-
-      <select v-model="devices.buildingId" class="fbtn">
-        <option value="">Здание: все</option>
-        <option v-for="b in catalogs.items['buildings'] ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
-      </select>
-
-      <select v-model="devices.deviceTypeId" class="fbtn">
-        <option value="">Тип устройства: все</option>
-        <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
-      </select>
-
-      <div class="chip-group">
-        <button :class="{ on: devices.siemFilter === 'all' }" @click="devices.siemFilter = 'all'">SIEM: все</button>
-        <button :class="{ on: devices.siemFilter === 'yes' }" @click="devices.siemFilter = 'yes'">Да</button>
-        <button :class="{ on: devices.siemFilter === 'no' }" @click="devices.siemFilter = 'no'">Нет</button>
-      </div>
-
-      <details class="tree-pop">
-        <summary class="fbtn">
-          <svg class="icon"><use href="/icons.svg#i-sitemap" /></svg>
-          Структурные подразделения
-          <span v-if="devices.structuralUnitIds.length" class="count-badge">{{ devices.structuralUnitIds.length }}</span>
-          <svg class="icon"><use href="/icons.svg#i-chevd" /></svg>
-        </summary>
-        <div class="tree-panel">
-          <p v-if="!catalogs.structuralUnitTree.length" class="empty-hint">Структурные единицы ещё не заведены в справочнике.</p>
-          <StructuralUnitTree v-else :nodes="catalogs.structuralUnitTree" :selected="devices.structuralUnitIds" @toggle="toggleUnit" />
+    <div class="filter-bar list-toolbar">
+      <div class="filter-fields">
+        <div class="search-box">
+          <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+          <input
+            v-model="devices.search"
+            type="text"
+            placeholder="Поиск по имени, серийному №, IP…"
+            title="Поиск по имени, серийному номеру, IP-адресу и описанию"
+            aria-label="Поиск по имени, серийному номеру, IP-адресу и описанию"
+          />
         </div>
-      </details>
 
-      <div class="spacer"></div>
-      <button class="btn btn-secondary" :disabled="devices.loading" @click="devices.reload()">
-        <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
-        Обновить
-      </button>
-      <button v-if="auth.canWrite" class="btn btn-secondary" @click="openCreateStack">
-        <svg class="icon"><use href="/icons.svg#i-layers" /></svg>
-        Стек
-      </button>
-      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Добавить устройство
-      </button>
+        <select v-model="devices.buildingId" class="fbtn" aria-label="Здание">
+          <option value="">Здание: все</option>
+          <option v-for="b in catalogs.items['buildings'] ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
+        </select>
+
+        <select v-model="devices.deviceTypeId" class="fbtn" aria-label="Тип устройства">
+          <option value="">Тип устройства: все</option>
+          <option v-for="t in catalogs.items['device-types'] ?? []" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+
+        <div class="chip-group">
+          <button :class="{ on: devices.siemFilter === 'all' }" @click="devices.siemFilter = 'all'">SIEM: все</button>
+          <button :class="{ on: devices.siemFilter === 'yes' }" @click="devices.siemFilter = 'yes'">Да</button>
+          <button :class="{ on: devices.siemFilter === 'no' }" @click="devices.siemFilter = 'no'">Нет</button>
+        </div>
+
+        <details class="tree-pop">
+          <summary class="fbtn">
+            <svg class="icon"><use href="/icons.svg#i-sitemap" /></svg>
+            Структурные подразделения
+            <span v-if="devices.structuralUnitIds.length" class="count-badge">{{ devices.structuralUnitIds.length }}</span>
+            <svg class="icon"><use href="/icons.svg#i-chevd" /></svg>
+          </summary>
+          <div class="tree-panel">
+            <p v-if="!catalogs.structuralUnitTree.length" class="empty-hint">Структурные единицы ещё не заведены в справочнике.</p>
+            <StructuralUnitTree v-else :nodes="catalogs.structuralUnitTree" :selected="devices.structuralUnitIds" @toggle="toggleUnit" />
+          </div>
+        </details>
+      </div>
+
+      <div class="filter-actions">
+        <button class="btn btn-secondary" :disabled="devices.loading" @click="devices.reload()">
+          <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
+          Обновить
+        </button>
+        <button v-if="auth.canWrite" class="btn btn-secondary" @click="openCreateStack">
+          <svg class="icon"><use href="/icons.svg#i-layers" /></svg>
+          Стек
+        </button>
+        <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
+          <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+          Добавить устройство
+        </button>
+      </div>
     </div>
 
     <div class="table-card card">
@@ -295,81 +306,6 @@ async function onStackSaved(stack: DeviceStack) {
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 18px;
-}
-.filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  padding: 7px 10px;
-  min-width: 220px;
-}
-.search-box .icon {
-  color: var(--ink-muted);
-}
-.search-box input {
-  border: none;
-  background: transparent;
-  outline: none;
-  color: var(--ink);
-  font-size: 12.5px;
-  width: 100%;
-  min-width: 0;
-  /* Длинный плейсхолдер/запрос обрезается многоточием, а не посреди буквы. */
-  text-overflow: ellipsis;
-}
-.fbtn,
-select.fbtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  /* Нативный <select> по умолчанию раскрывается до самой длинной опции (названия зданий бывают в 60+ символов) и на
-   * телефоне выходил за правый край экрана. max-width: 100% ограничивает его шириной строки фильтров. */
-  min-width: 0;
-  max-width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  padding: 7px 11px;
-  font-size: 12px;
-  color: var(--ink);
-  font-family: inherit;
-  font-weight: 500;
-}
-.chip-group {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  overflow: hidden;
-}
-.chip-group button {
-  border: none;
-  background: var(--surface);
-  padding: 7px 11px;
-  font-size: 12px;
-  color: var(--ink-muted);
-  font-weight: 500;
-  border-right: 1px solid var(--border);
-}
-.chip-group button:last-child {
-  border-right: none;
-}
-.chip-group button.on {
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-weight: 700;
-}
-.spacer {
-  flex: 1;
 }
 .tree-pop {
   position: relative;
@@ -528,24 +464,6 @@ tbody tr:hover td {
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
-  }
-}
-/* Телефон (то же ≤760px, что у мобильного меню): поиск занимает всю строку, чтобы плейсхолдер помещался, а группа
- * кнопок переносится на новую строку вместо обрезки. Разделители между кнопками рисует gap на фоне цвета рамки. */
-@media (max-width: 760px) {
-  .search-box {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .chip-group {
-    flex-wrap: wrap;
-    gap: 1px;
-    background: var(--border);
-    max-width: 100%;
-  }
-  .chip-group button {
-    flex: 1 1 auto;
-    border-right: none;
   }
 }
 </style>

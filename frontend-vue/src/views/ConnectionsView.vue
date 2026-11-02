@@ -19,6 +19,8 @@ import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
 import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
 import PortConfigEditModal from '../components/PortConfigEditModal.vue'
 import DevicePortsModal from '../components/DevicePortsModal.vue'
+// Общая панель фильтров (поиск, селекты, кнопки действий) — UI-10/UI-11.
+import '../styles/list-toolbar.css'
 
 // Таблица — постраничная выборка с сервера (connectionsDashboard); общий кэш (connections) нужен
 // формам и схеме — карта занятых портов, см. комментарии в обоих сторах.
@@ -200,51 +202,62 @@ async function removeConnection(c: Connection) {
       </button>
     </div>
 
-    <div class="filter-bar">
-      <div class="search-box">
-        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="dashboard.search" type="text" placeholder="Поиск по устройству, порту, роли, режиму порта…" />
-      </div>
-      <div class="chip-group">
-        <button :class="{ on: dashboard.activeFilter === 'all' }" @click="dashboard.activeFilter = 'all'">Все</button>
-        <button :class="{ on: dashboard.activeFilter === 'yes' }" @click="dashboard.activeFilter = 'yes'">Активные</button>
-        <button :class="{ on: dashboard.activeFilter === 'no' }" @click="dashboard.activeFilter = 'no'">Неактивные</button>
-      </div>
-      <div class="chip-group" role="group" aria-label="Проверка конфигурации портов">
-        <button :class="{ on: dashboard.portConfigFilter === 'all' }" @click="dashboard.portConfigFilter = 'all'">Все порты</button>
-        <button :class="{ on: dashboard.portConfigFilter === 'mismatch' }" data-filter="mismatch" @click="dashboard.portConfigFilter = 'mismatch'">
-          Расхождения ({{ dashboard.summary.mismatch }})
+    <div class="filter-bar list-toolbar">
+      <div class="filter-fields">
+        <div class="search-box">
+          <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+          <input
+            v-model="dashboard.search"
+            type="text"
+            placeholder="Поиск по устройству, порту, роли…"
+            title="Поиск по устройству, порту, роли, режиму порта"
+            aria-label="Поиск по устройству, порту, роли, режиму порта"
+          />
+        </div>
+        <div class="chip-group">
+          <button :class="{ on: dashboard.activeFilter === 'all' }" @click="dashboard.activeFilter = 'all'">Все</button>
+          <button :class="{ on: dashboard.activeFilter === 'yes' }" @click="dashboard.activeFilter = 'yes'">Активные</button>
+          <button :class="{ on: dashboard.activeFilter === 'no' }" @click="dashboard.activeFilter = 'no'">Неактивные</button>
+        </div>
+        <div class="chip-group" role="group" aria-label="Проверка конфигурации портов">
+          <button :class="{ on: dashboard.portConfigFilter === 'all' }" @click="dashboard.portConfigFilter = 'all'">Все порты</button>
+          <button :class="{ on: dashboard.portConfigFilter === 'mismatch' }" data-filter="mismatch" @click="dashboard.portConfigFilter = 'mismatch'">
+            Расхождения ({{ dashboard.summary.mismatch }})
+          </button>
+          <button :class="{ on: dashboard.portConfigFilter === 'approved' }" data-filter="approved" @click="dashboard.portConfigFilter = 'approved'">
+            Одобренные ({{ dashboard.summary.approved }})
+          </button>
+        </div>
+        <button
+          v-if="dashboard.portConfigFilter === 'mismatch' && dashboard.total"
+          type="button"
+          class="btn btn-secondary"
+          data-action="approve-all"
+          :disabled="bulkApproving"
+          @click="approveAllMatching"
+        >
+          Одобрить все найденные ({{ dashboard.total }})
         </button>
-        <button :class="{ on: dashboard.portConfigFilter === 'approved' }" data-filter="approved" @click="dashboard.portConfigFilter = 'approved'">
-          Одобренные ({{ dashboard.summary.approved }})
+        <button v-if="dashboard.summary.mismatch" type="button" class="btn btn-secondary" data-action="sync-by-rules" @click="syncPlanOpen = true">
+          Согласовать по правилам…
         </button>
       </div>
-      <button
-        v-if="dashboard.portConfigFilter === 'mismatch' && dashboard.total"
-        type="button"
-        class="btn btn-secondary"
-        data-action="approve-all"
-        :disabled="bulkApproving"
-        @click="approveAllMatching"
-      >
-        Одобрить все найденные ({{ dashboard.total }})
-      </button>
-      <button v-if="dashboard.summary.mismatch" type="button" class="btn btn-secondary" data-action="sync-by-rules" @click="syncPlanOpen = true">
-        Согласовать по правилам…
-      </button>
-      <div class="spacer"></div>
-      <button class="btn btn-secondary" :disabled="dashboard.loading" @click="dashboard.refreshAfterChange()">
-        <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
-        Обновить
-      </button>
-      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Добавить подключение
-      </button>
-      <button class="btn btn-secondary" @click="canvasOpen = true">
-        <svg class="icon"><use href="/icons.svg#i-sitemap" /></svg>
-        Визуальный режим
-      </button>
+
+      <!-- Кнопка схемы — в группе действий справа, а не отдельным элементом панели: перенос выбрасывал её одну на вторую строку (UI-11). -->
+      <div class="filter-actions">
+        <button class="btn btn-secondary" :disabled="dashboard.loading" @click="dashboard.refreshAfterChange()">
+          <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
+          Обновить
+        </button>
+        <button class="btn btn-secondary" @click="canvasOpen = true">
+          <svg class="icon"><use href="/icons.svg#i-sitemap" /></svg>
+          Визуальный режим
+        </button>
+        <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
+          <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+          Добавить подключение
+        </button>
+      </div>
     </div>
 
     <div class="table-card card">
@@ -436,64 +449,6 @@ async function removeConnection(c: Connection) {
   height: 15px;
   flex-shrink: 0;
 }
-.filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  padding: 7px 10px;
-  min-width: 240px;
-  max-width: 380px;
-}
-.search-box .icon {
-  color: var(--ink-muted);
-}
-.search-box input {
-  border: none;
-  background: transparent;
-  outline: none;
-  color: var(--ink);
-  font-size: 12.5px;
-  width: 100%;
-  min-width: 0;
-  /* Длинный плейсхолдер/запрос обрезается многоточием, а не посреди буквы. */
-  text-overflow: ellipsis;
-}
-.chip-group {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  overflow: hidden;
-}
-.chip-group button {
-  border: none;
-  background: var(--surface);
-  padding: 7px 11px;
-  font-size: 12px;
-  color: var(--ink-muted);
-  font-weight: 500;
-  border-right: 1px solid var(--border);
-}
-.chip-group button:last-child {
-  border-right: none;
-}
-.chip-group button.on {
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-weight: 700;
-}
-.spacer {
-  flex: 1;
-}
 .table-wrap {
   overflow-x: auto;
   transition: opacity 0.12s;
@@ -666,24 +621,6 @@ tr:hover .port-manage-btn {
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
-  }
-}
-/* Телефон (то же ≤760px, что у мобильного меню): поиск занимает всю строку, чтобы плейсхолдер помещался, а группа
- * кнопок переносится на новую строку вместо обрезки. Разделители между кнопками рисует gap на фоне цвета рамки. */
-@media (max-width: 760px) {
-  .search-box {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .chip-group {
-    flex-wrap: wrap;
-    gap: 1px;
-    background: var(--border);
-    max-width: 100%;
-  }
-  .chip-group button {
-    flex: 1 1 auto;
-    border-right: none;
   }
 }
 </style>

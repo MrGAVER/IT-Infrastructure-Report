@@ -1,0 +1,150 @@
+/* Панель фильтров над таблицами «Устройства», «Подключения», «Информационные системы», «VLAN» (UI-10, UI-11 ревью
+ * merge/review-2158-executors, поток Исполнителя 2).
+ *
+ * До правки каждый экран держал собственную копию этих правил, и у всех была одна беда: все элементы панели были
+ * равноправными flex-элементами одной строки, поэтому
+ *  - нативный <select> «Здание» раскрывался до самой длинной опции (название здания в 120 символов) и растягивался
+ *    примерно до 800px при соседях в ≈290px;
+ *  - кнопки действий переносились по одной: «Визуальный режим» оказывался одиноко на второй строке;
+ *  - поле поиска сжималось до min-width 220px, и плейсхолдер обрезался («Поиск по имени, серийном…»).
+ *
+ * Теперь панель — две группы: .filter-fields (поиск, селекты, переключатели) растёт и переносится внутри себя, а
+ * .filter-actions (кнопки) всегда идёт одним блоком справа и при нехватке места переносится целиком.
+ *
+ * Файл не scoped и подключается import'ом в четырёх экранах (Vite исполняет модуль один раз). Все правила под классом
+ * .list-toolbar — экраны, которые его не используют (ВМ, контейнеры, журнал аудита), остаются на собственных стилях.
+ */
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+}
+/* flex-basis 480px, а не auto: при auto группа фильтров занимала бы всю строку в одну линию и выталкивала кнопки вниз —
+ * с 480px фильтры предпочитают перенестись внутри себя, а кнопки остаются в одной строке с ними. */
+.list-toolbar .filter-fields {
+  display: flex;
+  flex: 1 1 480px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.list-toolbar .filter-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Поиск: достаточно широкий для плейсхолдера (он короткий, полная подсказка — в title/aria-label), но не растягивается
+ * на всю строку. min(100%, …) — чтобы на узком экране поле не было шире родителя. */
+.list-toolbar .search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 300px;
+  min-width: min(100%, 240px);
+  max-width: 460px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 7px 10px;
+}
+.list-toolbar .search-box .icon {
+  color: var(--ink-muted);
+}
+.list-toolbar .search-box input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--ink);
+  font-size: 12.5px;
+  width: 100%;
+  min-width: 0;
+  /* Длинный запрос обрезается многоточием, а не посреди буквы. */
+  text-overflow: ellipsis;
+}
+
+/* Селекты и «выпадающие» кнопки фильтров. Ширина селекта фиксирована (200px) и не зависит от самой длинной опции — иначе
+ * название здания в 120 символов растягивало его на пол-экрана; выбранное значение, не поместившееся в 200px,
+ * обрезается многоточием. max-width: 100% — чтобы на телефоне селект не выходил за край экрана. */
+.list-toolbar .fbtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  padding: 7px 11px;
+  font-size: 12px;
+  color: var(--ink);
+  font-family: inherit;
+  font-weight: 500;
+}
+.list-toolbar select.fbtn {
+  flex: 0 1 200px;
+  width: 200px;
+  text-overflow: ellipsis;
+}
+
+.list-toolbar .chip-group {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  overflow: hidden;
+}
+.list-toolbar .chip-group button {
+  border: none;
+  background: var(--surface);
+  padding: 7px 11px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+  border-right: 1px solid var(--border);
+}
+.list-toolbar .chip-group button:last-child {
+  border-right: none;
+}
+.list-toolbar .chip-group button.on {
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 700;
+}
+
+/* Телефон (то же ≤760px, что у мобильного меню): поиск и действия занимают всю строку, группа переключателей переносится
+ * на новую строку вместо обрезки. Разделители между кнопками рисует gap на фоне цвета рамки. */
+@media (max-width: 760px) {
+  .list-toolbar .search-box {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .list-toolbar select.fbtn {
+    flex: 1 1 100%;
+    width: auto;
+  }
+  .list-toolbar .chip-group {
+    flex-wrap: wrap;
+    gap: 1px;
+    background: var(--border);
+    max-width: 100%;
+  }
+  .list-toolbar .chip-group button {
+    flex: 1 1 auto;
+    border-right: none;
+  }
+  .list-toolbar .filter-actions {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+  .list-toolbar .filter-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
