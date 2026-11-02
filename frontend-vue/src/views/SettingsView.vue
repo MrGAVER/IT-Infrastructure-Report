@@ -9,6 +9,8 @@ import { useOrganizationStore, DEFAULT_ORGANIZATION_NAME } from '../stores/organ
 import { useFormPreferencesStore } from '../stores/formPreferences'
 import { usePreferencesStore } from '../stores/preferences'
 import { DEFAULT_COLLAPSE_ROWS, MAX_COLLAPSE_ROWS, MIN_COLLAPSE_ROWS, isValidCollapseLimit } from '../utils/collapseLimit'
+// Общий вид панелей (заголовки, подписи, поля) — один файл на SettingsView, AuthSettingsPanel и AccountPanel (UI-03).
+import '../styles/settings-section.css'
 
 const theme = useThemeStore()
 const organization = useOrganizationStore()
@@ -84,7 +86,7 @@ function resetCollapseLimit() {
 
 <template>
   <div class="settings-view">
-    <section class="card section">
+    <section class="card settings-section">
       <h2>Наименование организации</h2>
       <p class="hint">
         Отображается в шапке слева, под названием реестра. Общее для всех пользователей и хранится на сервере. По умолчанию — «{{ DEFAULT_ORGANIZATION_NAME }}».
@@ -105,7 +107,7 @@ function resetCollapseLimit() {
       <p v-if="saved" class="current">Сохранено.</p>
     </section>
 
-    <section class="card section" data-testid="forms-settings">
+    <section class="card settings-section" data-testid="forms-settings">
       <h2>Формы</h2>
       <p class="hint">
         Длинные списки в форме физического устройства — блок «VLAN устройства» и «Открытые порты» — сворачиваются, когда в них больше указанного количества
@@ -131,7 +133,7 @@ function resetCollapseLimit() {
       <p v-else-if="collapseLimitSaved" class="current" data-testid="collapse-limit-saved">Сохранено.</p>
     </section>
 
-    <section class="card section">
+    <section class="card settings-section">
       <h2>Цветовая схема</h2>
       <p class="hint">
         Приложение — рабочий инструмент дежурного инженера («Диспетчерская»), поэтому фон и поверхности остаются тёмными во всех схемах. Меняется только
@@ -144,7 +146,7 @@ function resetCollapseLimit() {
       </p>
     </section>
 
-    <section class="card section preview">
+    <section class="card settings-section preview">
       <h2>Предпросмотр</h2>
       <div class="preview-row">
         <button class="btn btn-primary">Основная кнопка</button>
@@ -172,25 +174,6 @@ function resetCollapseLimit() {
   gap: 16px;
   max-width: 640px;
 }
-.section {
-  padding: 20px 22px;
-}
-.section h2 {
-  font-family: var(--font-display);
-  font-size: 15px;
-  margin: 0 0 10px;
-}
-.hint {
-  font-size: 12.5px;
-  color: var(--ink-muted);
-  line-height: 1.6;
-  margin: 0 0 16px;
-}
-.current {
-  font-size: 12.5px;
-  color: var(--ink-muted);
-  margin-top: 14px;
-}
 .org-name-row {
   display: flex;
   align-items: center;
@@ -198,15 +181,8 @@ function resetCollapseLimit() {
   flex-wrap: wrap;
 }
 .org-name-row input {
-  flex: 1;
-  min-width: 220px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 8px 9px;
-  font-size: 13px;
-  color: var(--ink);
-  font-family: inherit;
+  flex: 1 1 220px;
+  min-width: 0;
 }
 .collapse-limit-row {
   display: flex;
@@ -229,18 +205,6 @@ function resetCollapseLimit() {
 }
 .collapse-limit-row input {
   width: 90px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 8px 9px;
-  font-size: 13px;
-  color: var(--ink);
-  font-family: inherit;
-}
-.field-error {
-  font-size: 12.5px;
-  color: var(--status-crit);
-  margin: 10px 0 0;
 }
 .preview-row {
   display: flex;
