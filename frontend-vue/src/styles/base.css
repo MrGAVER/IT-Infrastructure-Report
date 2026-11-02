@@ -152,13 +152,22 @@ svg.icon {
   border-radius: var(--r-s);
   border: 1px solid var(--border);
   background: var(--surface-1, var(--surface));
-  box-shadow: var(--shadow-m, 0 4px 16px rgba(0, 0, 0, 0.3));
+  box-shadow: var(--shadow-m);
   color: var(--ink);
   font-size: 12px;
   line-height: 1.4;
   white-space: pre-line;
   word-break: break-word;
   pointer-events: none;
+}
+
+/* UI-07: граница текстового поля, списка и области ввода — --field-border (≥ 3 : 1 на фоне, WCAG 1.4.11), а не --border (1,4 : 1),
+   который годится только для разделителей. Поля рисуются scoped-правилами десятков компонентов (64 правила в 48 файлах) с
+   border: 1px solid var(--border); одно общее правило с повышенной специфичностью (:is берёт самый специфичный аргумент, плюс html)
+   заменяет их все сразу. Фокус исключён: у полей он задаётся своими цветами. Чекбоксы, радио и ползунок рамку не рисуют. */
+html :is(.field, .nested-row, .ip-row, .filter-row, .ss-input-row)
+  :is(input:not([type='checkbox']):not([type='radio']):not([type='range']), select, textarea):not(:focus) {
+  border-color: var(--field-border);
 }
 
 /* Подвал модальной формы («Отмена» / «Сохранить») закреплён у нижнего края окна (UI-04, ревью 2.158.0): форма устройства — 1373 px

@@ -197,7 +197,7 @@ const systemNav = [
 }
 .nav a.router-link-active {
   background: var(--brand-soft);
-  color: var(--brand);
+  color: var(--brand-ink);
   border-left-color: var(--brand);
   font-weight: 600;
 }

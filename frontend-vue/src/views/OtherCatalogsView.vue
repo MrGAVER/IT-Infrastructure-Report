@@ -289,7 +289,7 @@ async function onDeleted() {
   font-size: 10.5px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--surface-3, var(--surface));
+  background: var(--surface-3);
   color: var(--ink-muted);
 }
 

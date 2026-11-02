@@ -195,7 +195,7 @@ async function logout() {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  box-shadow: var(--shadow-m, 0 8px 24px rgba(0, 0, 0, 0.16));
+  box-shadow: var(--shadow-m);
   padding: 6px;
   z-index: 30;
 }

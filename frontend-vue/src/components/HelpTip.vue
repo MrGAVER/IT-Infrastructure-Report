@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
   border-radius: var(--r-s);
   border: 1px solid var(--border);
   background: var(--surface-1, var(--surface));
-  box-shadow: var(--shadow-m, 0 4px 16px rgba(0, 0, 0, 0.25));
+  box-shadow: var(--shadow-m);
   color: var(--ink);
   font-size: 11.5px;
   font-weight: 400;

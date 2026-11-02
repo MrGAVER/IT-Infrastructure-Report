@@ -89,7 +89,7 @@ h3 {
 }
 .form-error {
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 8px 10px;
   font-size: 12px;

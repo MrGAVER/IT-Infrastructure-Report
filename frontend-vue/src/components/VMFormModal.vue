@@ -350,7 +350,7 @@ async function submit() {
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 9px 12px;
   font-size: 12.5px;

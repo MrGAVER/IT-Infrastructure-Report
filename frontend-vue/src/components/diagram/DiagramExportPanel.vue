@@ -92,7 +92,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
 .split-btn-toggle {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-left: 1px solid var(--border-muted, rgba(0, 0, 0, 0.12));
+  border-left: 1px solid var(--border-muted);
   padding-left: 6px;
   padding-right: 6px;
 }
@@ -103,7 +103,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
   margin-top: 4px;
   min-width: 100px;
   background: var(--surface, #fff);
-  border: 1px solid var(--border-muted, rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--border-muted);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   z-index: 20;
@@ -120,6 +120,6 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
   cursor: pointer;
 }
 .split-btn-menu-item:hover {
-  background: var(--surface-hover, rgba(0, 0, 0, 0.05));
+  background: var(--surface-hover);
 }
 </style>

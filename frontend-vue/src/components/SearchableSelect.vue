@@ -377,7 +377,7 @@ function onEnter() {
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   background: var(--surface-1, var(--surface));
-  box-shadow: var(--shadow-m, 0 8px 24px rgba(0, 0, 0, 0.35));
+  box-shadow: var(--shadow-m);
   padding: 4px;
 }
 /* floating: панель в <body> — координаты (left/width/maxHeight и top либо bottom) приходят инлайн-стилем из

@@ -458,7 +458,7 @@ const dragLinePath = computed(() => {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.1));
+  box-shadow: var(--shadow-s);
   overflow: hidden;
   user-select: none;
 }
