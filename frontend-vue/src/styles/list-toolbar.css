@@ -31,10 +31,13 @@
   gap: 8px;
   min-width: 0;
 }
+/* max-width: 100% — при flex: 0 0 auto блок берёт ширину всех кнопок в одну строку; если она больше строки панели
+ * (VLAN: четыре кнопки на 820px), без ограничения блок вылезал за правый край, а flex-wrap внутри него не срабатывал. */
 .list-toolbar .filter-actions {
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: 8px;
   margin-left: auto;

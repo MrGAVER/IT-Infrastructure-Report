@@ -40,6 +40,8 @@ describe('styles/list-toolbar.css', () => {
     expect(declaration(actions, 'flex')).toBe('0 0 auto')
     expect(declaration(actions, 'margin-left')).toBe('auto')
     expect(declaration(actions, 'flex-wrap')).toBe('wrap')
+    // Без max-width контейнер с flex: 0 0 auto берёт ширину всех кнопок в одну строку и вылезает за край (регрессия /vlans на 820px).
+    expect(declaration(actions, 'max-width')).toBe('100%')
   })
 
   it('на телефоне (≤760px) поиск и кнопки действий занимают всю строку', () => {
