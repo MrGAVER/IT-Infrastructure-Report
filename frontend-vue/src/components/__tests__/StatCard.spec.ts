@@ -59,17 +59,37 @@ describe('StatCard.vue', () => {
     })
 
     it('числовая строка читается как число: «0» нейтрально, «12» предупреждает', () => {
-      expect(mount(StatCard, { props: { value: '0', label: 'x', tone: 'warn' } }).find('.stat-card').classes()).not.toContain('warn')
-      expect(mount(StatCard, { props: { value: '12', label: 'x', tone: 'warn' } }).find('.stat-card').classes()).toContain('warn')
+      expect(
+        mount(StatCard, { props: { value: '0', label: 'x', tone: 'warn' } })
+          .find('.stat-card')
+          .classes(),
+      ).not.toContain('warn')
+      expect(
+        mount(StatCard, { props: { value: '12', label: 'x', tone: 'warn' } })
+          .find('.stat-card')
+          .classes(),
+      ).toContain('warn')
     })
 
     it('нечисловое значение («—») и отрицательное не считаются предупреждением', () => {
-      expect(mount(StatCard, { props: { value: '—', label: 'x', tone: 'warn' } }).find('.stat-card').classes()).not.toContain('warn')
-      expect(mount(StatCard, { props: { value: -1, label: 'x', tone: 'warn' } }).find('.stat-card').classes()).not.toContain('warn')
+      expect(
+        mount(StatCard, { props: { value: '—', label: 'x', tone: 'warn' } })
+          .find('.stat-card')
+          .classes(),
+      ).not.toContain('warn')
+      expect(
+        mount(StatCard, { props: { value: -1, label: 'x', tone: 'warn' } })
+          .find('.stat-card')
+          .classes(),
+      ).not.toContain('warn')
     })
 
     it('без tone карточка никогда не предупреждает, сколько бы ни было', () => {
-      expect(mount(StatCard, { props: { value: 99, label: 'x' } }).find('.stat-card').classes()).not.toContain('warn')
+      expect(
+        mount(StatCard, { props: { value: 99, label: 'x' } })
+          .find('.stat-card')
+          .classes(),
+      ).not.toContain('warn')
     })
 
     it('значение меняется — тон пересчитывается: появилась проблема — карточка стала предупреждающей', async () => {
