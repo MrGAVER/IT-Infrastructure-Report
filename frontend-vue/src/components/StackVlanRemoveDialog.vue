@@ -2,20 +2,22 @@
 // Подтверждение снятия общей настройки VLAN со стека. По умолчанию значения на устройствах остаются (поля у них снова
 // редактируются); отдельная галочка убирает VLAN и у всех устройств стека — действие необратимое, поэтому оно явно
 // описано и не включено по умолчанию.
-import { ref } from 'vue'
+import { ref, useId } from 'vue'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 
 defineProps<{ vlanLabel: string; stackName: string; memberCount: number; busy: boolean; error: string | null }>()
 const emit = defineEmits<{ confirm: [removeFromDevices: boolean]; cancel: [] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('cancel'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 const removeFromDevices = ref(false)
 </script>
 
 <template>
   <Teleport to="body">
     <div class="overlay" data-testid="stack-vlan-remove-dialog" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="dialog card" role="dialog" aria-modal="true">
-        <h3>Снять общую настройку VLAN {{ vlanLabel }}?</h3>
+      <div class="dialog card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+        <h3 :id="titleId">Снять общую настройку VLAN {{ vlanLabel }}?</h3>
         <p class="lead">Стек «{{ stackName }}»: после снятия IP-адрес, префикс и «Управление» этого VLAN снова можно менять на каждом устройстве отдельно.</p>
         <label class="option">
           <input v-model="removeFromDevices" type="checkbox" data-testid="stack-vlan-remove-from-devices" />

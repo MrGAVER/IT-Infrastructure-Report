@@ -10,7 +10,7 @@
 // отклоняются бэкендом 409-ошибкой (FK-констрейнт Connection → DeviceInterface, см.
 // delete_resource в backend/app/services/crud/deletion.py, sync_interfaces в crud/interfaces.py) — то же сообщение об ошибке,
 // что и у остальных форм.
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useId } from 'vue'
 import { api } from '../api/client'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from '../api/deviceConnectivity'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../api/deviceInterfaces'
@@ -27,6 +27,8 @@ import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, typ
 const props = defineProps<{ deviceId: string; deviceLabel: string }>()
 const emit = defineEmits<{ close: []; saved: [deviceId: string, items: DeviceInterface[]] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
@@ -111,9 +113,9 @@ async function submit() {
        QuickAddModal.vue, хоть и по другой причине (там — во избежание вложенного <form>). -->
   <Teleport to="body">
     <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" role="dialog" aria-modal="true">
+      <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
         <div class="modal-head">
-          <h2>Порты устройства «{{ deviceLabel }}»</h2>
+          <h2 :id="titleId">Порты устройства «{{ deviceLabel }}»</h2>
           <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
             <svg class="icon"><use href="/icons.svg#i-x" /></svg>
           </button>

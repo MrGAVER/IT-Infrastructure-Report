@@ -10,7 +10,7 @@
 // Управление составом и топологией доступно только при редактировании УЖЕ СУЩЕСТВУЮЩЕГО
 // стека — тот же приём, что и в VLANDomainFormModal.vue: добавление участника идёт через
 // POST /device-stacks/{id}/members, которому нужен реальный id стека.
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, useId } from 'vue'
 import { api, createResource, deleteResource, updateResource } from '../api/client'
 import type { Connection, Device, DeviceStack, DeviceStackDetail, DeviceStackMemberDetail, StackMemberPreview } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
@@ -30,6 +30,8 @@ const { readOnly } = useReadOnlyForm()
 const props = defineProps<{ stack: DeviceStack | null }>()
 const emit = defineEmits<{ close: []; saved: [stack: DeviceStack] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const devicesStore = useDevicesStore()
 const catalogs = useCatalogsStore()
@@ -204,9 +206,9 @@ async function submit() {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать стек устройств' : 'Добавить стек устройств' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать стек устройств' : 'Добавить стек устройств' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>

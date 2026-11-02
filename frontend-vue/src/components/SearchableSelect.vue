@@ -239,6 +239,13 @@ function onArrowUp() {
   highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0)
   scrollHighlightedIntoView()
 }
+// Esc закрывает только ОТКРЫТЫЙ список и забирает событие себе (preventDefault): иначе тот же Esc закрыл бы ещё и окно, в котором
+// стоит поле (UI-04, useEscapeClose). Список открывается по фокусу, поэтому первый Esc — список, второй — окно.
+function onEscape(event: KeyboardEvent) {
+  if (!open.value) return
+  event.preventDefault()
+  closeDropdown()
+}
 function onEnter() {
   if (!open.value) return
   const opt = filteredOptions.value[highlightedIndex.value]
@@ -262,7 +269,7 @@ function onEnter() {
         @keydown.down.prevent="onArrowDown"
         @keydown.up.prevent="onArrowUp"
         @keydown.enter.prevent="onEnter"
-        @keydown.esc="closeDropdown"
+        @keydown.esc="onEscape"
       />
       <button v-if="modelValue && !disabled" type="button" class="ss-clear" aria-label="Очистить выбор" @mousedown.prevent="clearSelection">
         <svg class="icon"><use href="/icons.svg#i-x" /></svg>

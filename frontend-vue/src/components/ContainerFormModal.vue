@@ -5,7 +5,7 @@
 // варианта "вручную" (у контейнера нет своего IP на уровне отчёта). hostType — локальное поле
 // формы, не персистится само по себе: при сохранении в payload попадает только тот из двух FK,
 // что соответствует выбранному типу, второй всегда null.
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, useId } from 'vue'
 import { createResource, updateResource } from '../api/client'
 import type { Container, Device } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -21,6 +21,8 @@ const { readOnly } = useReadOnlyForm()
 const props = defineProps<{ container: Container | null; copyFrom?: Container | null }>()
 const emit = defineEmits<{ close: []; saved: [container: Container] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -116,9 +118,9 @@ async function submit() {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать контейнер' : 'Добавить контейнер' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать контейнер' : 'Добавить контейнер' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>

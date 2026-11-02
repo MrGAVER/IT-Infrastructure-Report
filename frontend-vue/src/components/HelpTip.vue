@@ -15,7 +15,10 @@ function onDocumentClick(event: MouseEvent) {
   if (open.value && rootEl.value && !rootEl.value.contains(event.target as Node)) open.value = false
 }
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') open.value = false
+  // Esc закрывает только открытую подсказку и забирает событие (UI-04): иначе он закрыл бы ещё и окно, в котором она стоит.
+  if (event.key !== 'Escape' || !open.value) return
+  open.value = false
+  event.preventDefault()
 }
 
 onMounted(() => {

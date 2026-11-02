@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useId } from 'vue'
 // Окно выбора VLAN для массового редактирования портов: список VLAN вынесен из ячейки таблицы во всплывающее окно со своей
 // внутренней прокруткой (а не растягивающийся список в ячейке). Отмеченные VLAN хранит useBulkEdit — окно только показывает их
 // и сообщает о кликах.
@@ -20,13 +21,15 @@ const emit = defineEmits<{
 }>()
 
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 </script>
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="vlan-picker-modal card" role="dialog" aria-modal="true">
+    <div class="vlan-picker-modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="conflict-modal-head">
-        <h3>Выбор VLAN — массовое редактирование</h3>
+        <h3 :id="titleId">Выбор VLAN — массовое редактирование</h3>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>

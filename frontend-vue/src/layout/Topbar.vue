@@ -30,6 +30,7 @@ function onDocumentClick(event: MouseEvent) {
 // иначе клавиатурный пользователь терял место в порядке обхода.
 function onDocumentKeydown(event: KeyboardEvent) {
   if (!menuOpen.value || event.key !== 'Escape' || event.defaultPrevented) return
+  event.preventDefault() // забираем Esc себе (UI-04): окно под меню не должно закрыться тем же нажатием
   menuOpen.value = false
   triggerEl.value?.focus()
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useId } from 'vue'
 // Форма создания/редактирования подключения. Источник и назначение выбираются в два шага (устройство -> порт), т.к. интерфейсы
 // принадлежат конкретному устройству.
 //
@@ -37,6 +38,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const draft = useConnectionDraft({ connection: () => props.connection, prefill: () => props.prefill })
 const {
@@ -73,9 +76,9 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать подключение' : 'Добавить подключение' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать подключение' : 'Добавить подключение' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>

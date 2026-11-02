@@ -149,10 +149,10 @@ describe('Topbar.vue — закрытие меню пользователя по
 })
 
 describe('UI-05: Topbar на телефоне', () => {
-  const phone = mediaBlock(readStyles('src/layout/Topbar.vue'), '(max-width: 760px)')
+  const phone = mediaBlock(readStyles('src/layout/Topbar.vue'), '(max-width: 760px)') ?? ''
 
   it('хлебные крошки скрыты, заголовок — шрифт 16 px и не больше двух строк', () => {
-    expect(phone).not.toBeNull()
+    expect(phone).not.toBe('')
     expect(declaration(ruleBody(phone, '.crumb'), 'display')).toBe('none')
     const title = ruleBody(phone, '.page-title')
     expect(declaration(title, 'font-size')).toBe('16px')

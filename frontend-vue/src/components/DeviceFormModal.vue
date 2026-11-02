@@ -4,7 +4,7 @@
 // Состояние формы — useDeviceDraft; загрузка (редактирование или копия донора) — useDeviceLoader; сохранение с подтверждением
 // конфликтов 409 — useDeviceSave; домены VLAN, VLAN портов и общие настройки VLAN стека — useDeviceDomains, useDevicePortVlans,
 // useDeviceStackVlans. Основные поля формы и их справочники — DeviceMainFields (useDeviceFormFields).
-import { ref } from 'vue'
+import { ref, useId } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useFormPreferencesStore } from '../stores/formPreferences'
@@ -29,6 +29,8 @@ const { readOnly } = useReadOnlyForm()
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
@@ -64,9 +66,9 @@ const { saving, submit } = useDeviceSave(draft, {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать устройство' : 'Добавить устройство' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать устройство' : 'Добавить устройство' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>

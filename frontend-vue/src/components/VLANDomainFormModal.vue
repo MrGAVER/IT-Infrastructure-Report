@@ -10,7 +10,7 @@
 // участника идёт через POST /vlan-domains/{id}/members, которому нужен реальный id домена —
 // для новой записи его ещё нет. Сохраните домен один раз, затем откройте его снова, чтобы
 // добавлять участников.
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, useId } from 'vue'
 import { api, createResource, deleteResource, listAllResource, updateResource } from '../api/client'
 import type { Device, VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
@@ -23,6 +23,8 @@ const { readOnly } = useReadOnlyForm()
 const props = defineProps<{ domain: VLANDomain | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const devicesStore = useDevicesStore()
 const saving = ref(false)
@@ -146,9 +148,9 @@ async function submit() {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать VLAN-домен' : 'Добавить VLAN-домен' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать VLAN-домен' : 'Добавить VLAN-домен' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
