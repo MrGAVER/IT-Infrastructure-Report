@@ -11,6 +11,7 @@ import { useToast } from '../composables/useToast'
 import type { InformationSystem } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import YesNoStatus from '../components/YesNoStatus.vue'
 import InformationSystemFormModal from '../components/InformationSystemFormModal.vue'
 // Общая панель фильтров (поиск, селекты, кнопки действий) — UI-10/UI-11.
@@ -133,7 +134,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
         {{ systems.error }}
       </div>
       <div v-else-if="systems.loading && !systems.loaded" class="loading-banner">Загрузка реестра информационных систем…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Список информационных систем">
         <table>
           <thead>
             <tr>
@@ -149,10 +150,12 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
           <tbody>
             <tr v-for="s in systems.pageItems" :key="s.id">
               <td>
-                <span class="isname">{{ s.name }}</span>
-                <span v-if="s.description" class="isdesc">{{ s.description }}</span>
+                <span class="isname" :title="s.name">{{ s.name }}</span>
+                <span v-if="s.description" class="isdesc" :title="s.description">{{ s.description }}</span>
               </td>
-              <td class="purpose-cell">{{ s.purpose || '—' }}</td>
+              <td class="purpose-cell">
+                <span class="clamp-3" :title="s.purpose || undefined">{{ s.purpose || '—' }}</span>
+              </td>
               <td class="ip-cell">
                 <template v-if="s.ip_addresses?.length">
                   <span v-for="ip in s.ip_addresses" :key="ip" class="ip">{{ ip }}</span>
@@ -185,7 +188,7 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
             </tr>
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ systems.pageItems.length ? (systems.page - 1) * systems.pageSize + 1 : 0 }}–{{
@@ -212,9 +215,6 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 18px;
-}
-.table-wrap {
-  overflow-x: auto;
 }
 table {
   width: 100%;
@@ -245,12 +245,22 @@ tbody tr:last-child td {
 tbody tr:hover td {
   background: var(--surface-2);
 }
+/* Длинные названия, описания и назначения ограничены по высоте (3/2/3 строки): раньше одно «Государственная информационная система
+ * автоматизации …» делало строку таблицы выше экрана телефона (UI-06). Полный текст — в title, целиком — в форме записи. */
 .isname {
   font-weight: 600;
-  display: block;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 360px;
+  overflow-wrap: anywhere;
 }
 .isdesc {
-  display: block;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   color: var(--ink-muted);
   font-size: 11.3px;
   margin-top: 2px;
@@ -259,6 +269,13 @@ tbody tr:hover td {
 .purpose-cell {
   color: var(--ink-muted);
   max-width: 260px;
+}
+.clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .ip-cell {
   color: var(--ink-muted);

@@ -14,6 +14,7 @@ import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
 import PortSyncPlanModal from '../components/PortSyncPlanModal.vue'
 import StatCard from '../components/StatCard.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
 import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
@@ -266,7 +267,7 @@ async function removeConnection(c: Connection) {
         {{ dashboard.error }}
       </div>
       <div v-else-if="dashboard.loading && !dashboard.loaded" class="loading-banner">Загрузка реестра подключений…</div>
-      <div v-else class="table-wrap" :class="{ stale: dashboard.loading }">
+      <ScrollableTableWrap v-else label="Список подключений" :class="{ stale: dashboard.loading }">
         <table>
           <thead>
             <tr>
@@ -383,7 +384,7 @@ async function removeConnection(c: Connection) {
             </tr>
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ dashboard.items.length ? (dashboard.page - 1) * dashboard.pageSize + 1 : 0 }}–{{
@@ -450,7 +451,6 @@ async function removeConnection(c: Connection) {
   flex-shrink: 0;
 }
 .table-wrap {
-  overflow-x: auto;
   transition: opacity 0.12s;
 }
 .table-wrap.stale {

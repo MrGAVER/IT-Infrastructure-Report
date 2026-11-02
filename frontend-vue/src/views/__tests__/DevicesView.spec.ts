@@ -175,3 +175,45 @@ describe('DevicesView.vue — тон «Нет» и нулевых счётчик
     expect(card().classes()).toContain('warn')
   })
 })
+
+describe('DevicesView.vue — подпись счётчика строк (UI-09)', () => {
+  const footText = (wrapper: ReturnType<typeof mount>) => wrapper.find('.table-foot span').text().replace(/\s+/g, ' ')
+
+  it('со стеком число строк меньше числа устройств — подпись называет обе величины', async () => {
+    seed([
+      device({ id: 's1', system_name: 'stk-1', stack_id: 'st', stack_name: 'Стек', stack_position: 1 }),
+      device({ id: 's2', system_name: 'stk-2', stack_id: 'st', stack_name: 'Стек', stack_position: 2 }),
+      device({ id: 'x', system_name: 'edge-1' }),
+    ])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    expect(footText(wrapper)).toBe('Показано 1–2 из 2 строк (устройств: 3)')
+  })
+
+  it('без стеков число строк равно числу устройств — подпись прежняя, без лишних скобок', async () => {
+    seed([device({ id: 'a', system_name: 'a' }), device({ id: 'b', system_name: 'b' })])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    expect(footText(wrapper)).toBe('Показано 1–2 из 2')
+  })
+
+  it('поиск сужает обе величины: считаются отфильтрованные строки и устройства', async () => {
+    seed([
+      device({ id: 's1', system_name: 'stk-1', stack_id: 'st', stack_name: 'Стек', stack_position: 1 }),
+      device({ id: 's2', system_name: 'stk-2', stack_id: 'st', stack_name: 'Стек', stack_position: 2 }),
+      device({ id: 'x', system_name: 'edge-1' }),
+    ])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    useDevicesStore().search = 'stk'
+    await flushPromises()
+    expect(footText(wrapper)).toBe('Показано 1–1 из 1 строк (устройств: 2)')
+
+    useDevicesStore().search = 'edge'
+    await flushPromises()
+    expect(footText(wrapper)).toBe('Показано 1–1 из 1')
+  })
+})

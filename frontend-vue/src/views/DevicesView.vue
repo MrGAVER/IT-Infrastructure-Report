@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
@@ -9,6 +9,7 @@ import { useToast } from '../composables/useToast'
 import type { Device, DeviceStack } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
 import DeviceTableRow from '../components/DeviceTableRow.vue'
@@ -69,6 +70,14 @@ function deviceCountLabel(n: number): string {
 }
 
 const siemCount = () => devices.all.filter((d) => d.siem_enabled).length
+
+// «Показано 1–6 из 25» при карточке «Всего устройств 26» сбивало с толку (UI-09): пагинация считает строками, а стек из нескольких
+// устройств — одна строка (см. stores/devices.ts: groupedFiltered). Когда числа расходятся, подпись называет обе величины.
+const footTotalLabel = computed(() => {
+  const rows = devices.groupedFiltered.length
+  const deviceCount = devices.filtered.length
+  return rows === deviceCount ? String(rows) : `${rows} строк (устройств: ${deviceCount})`
+})
 const serverTypeName = 'Сервер'
 
 function openCreate() {
@@ -221,7 +230,7 @@ async function onStackSaved(stack: DeviceStack) {
         {{ devices.error }}
       </div>
       <div v-else-if="devices.loading && !devices.loaded" class="loading-banner">Загрузка реестра устройств…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Список устройств">
         <table>
           <thead>
             <tr>
@@ -278,13 +287,13 @@ async function onStackSaved(stack: DeviceStack) {
             </tr>
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ devices.pageItems.length ? (devices.page - 1) * devices.pageSize + 1 : 0 }}–{{
             (devices.page - 1) * devices.pageSize + devices.pageItems.length
           }}
-          из {{ devices.groupedFiltered.length }}</span
+          из {{ footTotalLabel }}</span
         >
         <PageSizeSelect :model-value="devices.pageSize" :options="devices.pageSizeOptions" @update:model-value="devices.setPageSize" />
         <div class="pager">
@@ -343,9 +352,6 @@ async function onStackSaved(stack: DeviceStack) {
   font-size: 12px;
   color: var(--ink-muted);
   margin: 0;
-}
-.table-wrap {
-  overflow-x: auto;
 }
 table {
   width: 100%;

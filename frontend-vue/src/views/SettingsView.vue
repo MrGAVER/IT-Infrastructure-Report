@@ -89,7 +89,7 @@ function resetCollapseLimit() {
     <section class="card settings-section">
       <h2>Наименование организации</h2>
       <p class="hint">
-        Отображается в шапке слева, под названием реестра. Общее для всех пользователей и хранится на сервере. По умолчанию — «{{ DEFAULT_ORGANIZATION_NAME }}».
+        Отображается в шапке слева, под названием реестра. Общее для всех пользователей и хранится на сервере. По умолчанию — {{ DEFAULT_ORGANIZATION_NAME }}.
       </p>
       <div class="org-name-row">
         <input

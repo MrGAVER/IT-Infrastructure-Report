@@ -163,4 +163,13 @@ describe('SettingsView.vue — подпись, где хранятся личн�
     const wrapper = mount(SettingsView)
     expect(wrapper.text()).toContain('Общее для всех пользователей и хранится на сервере')
   })
+
+  it('подпись про название по умолчанию не заключает «ООО «Организация»» в ещё одни кавычки (UI-17)', () => {
+    const wrapper = mount(SettingsView)
+
+    const hint = wrapper.find('.settings-section .hint').text()
+    expect(hint).toContain(`По умолчанию — ${DEFAULT_ORGANIZATION_NAME}.`)
+    expect(hint).not.toContain('«ООО «')
+    expect(hint).not.toContain('»»')
+  })
 })
