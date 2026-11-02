@@ -323,12 +323,19 @@ async function onStackSaved(stack: DeviceStack) {
   color: var(--ink);
   font-size: 12.5px;
   width: 100%;
+  min-width: 0;
+  /* Длинный плейсхолдер/запрос обрезается многоточием, а не посреди буквы. */
+  text-overflow: ellipsis;
 }
 .fbtn,
 select.fbtn {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Нативный <select> по умолчанию раскрывается до самой длинной опции (названия зданий бывают в 60+ символов) и на
+   * телефоне выходил за правый край экрана. max-width: 100% ограничивает его шириной строки фильтров. */
+  min-width: 0;
+  max-width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
@@ -521,6 +528,24 @@ tbody tr:hover td {
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+/* Телефон (то же ≤760px, что у мобильного меню): поиск занимает всю строку, чтобы плейсхолдер помещался, а группа
+ * кнопок переносится на новую строку вместо обрезки. Разделители между кнопками рисует gap на фоне цвета рамки. */
+@media (max-width: 760px) {
+  .search-box {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .chip-group {
+    flex-wrap: wrap;
+    gap: 1px;
+    background: var(--border);
+    max-width: 100%;
+  }
+  .chip-group button {
+    flex: 1 1 auto;
+    border-right: none;
   }
 }
 </style>

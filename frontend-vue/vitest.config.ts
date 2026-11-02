@@ -1,11 +1,13 @@
 import { mergeConfig } from 'vite'
-import { defineConfig as defineVitestConfig } from 'vitest/config'
+import { configDefaults, defineConfig as defineVitestConfig } from 'vitest/config'
 import viteConfig from './vite.config.ts'
 
 export default mergeConfig(
   viteConfig,
   defineVitestConfig({
     test: {
+      // e2e/ — проверки Playwright (npm run e2e): у них свой раннер, vitest их запускать не должен.
+      exclude: [...configDefaults.exclude, 'e2e/**'],
       environment: 'jsdom',
       // Каждый тестовый файл по-прежнему получает собственное окружение (изоляция сохранена), но создаётся оно не новым
       // процессом на файл, а контекстом vm в потоке: прогон 167 файлов (2446 тестов) ускорился с ~222 с до ~50 с (−77%),

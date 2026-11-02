@@ -20,9 +20,17 @@ const auth = useAuthStore()
 // в main.ts), гард не сработает сам по себе, пока пользователь куда-нибудь не перейдёт. Этот
 // watch — единственное место, которое реагирует на сам ФАКТ смены needsLogin, а не на попытку
 // навигации, и форсирует переход на /login сразу, а не после следующего клика.
+//
+// Пока auth.init() не закончился (initialized === false), watch молчит: при обновлении страницы (F5) или заходе по закладке
+// init() сначала получает /auth/status и выставляет enabled = true, и только потом ждёт /auth/me, чтобы восстановить
+// пользователя — на это время needsLogin истинно, хотя сессия валидна. Первая навигация в этот момент ещё стоит в
+// роутер-гарде (router/index.ts ждёт init()), route стартовый (fullPath '/'), и принудительный переход терял бы
+// запрошенный экран: на /login с redirect = '/', а оттуда после /auth/me — на /dashboard. Решение о входе для первой
+// навигации принимает сам гард после init(), с настоящим to.fullPath.
 watch(
   () => auth.needsLogin,
   (needsLogin) => {
+    if (!auth.initialized) return
     if (needsLogin && route.name !== 'login') {
       router.replace({ name: 'login', query: { redirect: route.fullPath } })
     }

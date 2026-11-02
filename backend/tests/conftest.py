@@ -270,12 +270,31 @@ def _reuse_alembic_upgrades_on_empty_sqlite(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _reset_login_throttle():
     """Троттлинг входа (services/login_throttle.py) держит состояние в памяти процесса — без сброса
-    неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один)."""
+    неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один).
+    Счётчик по адресу (ip_throttle) без сброса накапливал бы неудачи всех тестов и после порога давал бы 429."""
     from app.services import auth as auth_module
 
     auth_module.login_throttle.clear()
+    auth_module.ip_throttle.clear()
     yield
     auth_module.login_throttle.clear()
+    auth_module.ip_throttle.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_flag_cache(monkeypatch):
+    """Кэш флага «аутентификация включена» (services/auth._auth_enabled_cached) общий для процесса, а БД у каждого теста
+    своя: без сброса значение из предыдущего теста (скажем, «включена») действовало бы до двух секунд и в следующем.
+
+    Часы кэша заморожены: иначе тесты, сравнивающие число SQL-запросов двух соседних запросов (test_connection_query,
+    test_code_review_correctness), зависели бы от того, истёк ли TTL между ними, — на медленном прогоне с покрытием
+    нерегулярно получали бы лишний SELECT настроек. Срок действия и сброс проверяет test_auth_flag_cache.py на своих часах."""
+    from app.services import auth as auth_module
+
+    monkeypatch.setattr(auth_module, "_flag_clock", lambda: 0.0)
+    auth_module.reset_auth_enabled_cache()
+    yield
+    auth_module.reset_auth_enabled_cache()
 
 
 @pytest.fixture(autouse=True)

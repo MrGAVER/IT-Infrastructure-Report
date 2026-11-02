@@ -211,6 +211,9 @@ function hostLabel(c: Container): string {
   color: var(--ink);
   font-size: 12.5px;
   width: 100%;
+  min-width: 0;
+  /* Длинный плейсхолдер/запрос обрезается многоточием, а не посреди буквы. */
+  text-overflow: ellipsis;
 }
 .spacer {
   flex: 1;
@@ -331,6 +334,13 @@ tbody tr:hover td {
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+/* Телефон (то же ≤760px, что у мобильного меню): поиск занимает всю строку, чтобы плейсхолдер помещался. */
+@media (max-width: 760px) {
+  .search-box {
+    flex: 1 1 100%;
+    min-width: 0;
   }
 }
 </style>

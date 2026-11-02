@@ -70,7 +70,10 @@ const {
     </div>
   </label>
 
-  <label class="field checkbox-field">
+  <!-- UI-12: чекбокс в своей строке на всю ширину. Раньше он делил строку с «Зданием», и порядок
+       «Здание → Помещение → Стойка» читался зигзагом (справа, слева, справа). Теперь сетка идёт парами:
+       «Здание | Помещение», «Стойка | Позиция в стойке». -->
+  <label class="field field-wide checkbox-field">
     <input v-model="form.siem_enabled" type="checkbox" />
     <span>Отправляет события в SIEM</span>
   </label>
@@ -201,17 +204,6 @@ const {
   min-width: 0;
   box-sizing: border-box;
 }
-/* Фикс: "Дата внесения в реестр" (единственный input[type=date] в этой форме) визуально
-   выпадала из стиля проекта — селектор выше раньше подхватывал только input[type='text'], а
-   тёмная тема приложения (theme.css) нигде не объявляет color-scheme, поэтому нативные иконка
-   календаря и всплывающий пикер браузера всегда светлые поверх тёмного инпута. color-scheme
-   переключает именно их палитру на тёмную, ничего в разметке/поведении не меняя; ширина/фон/
-   рамка самого поля уже выровнены общим правилом выше. Область действия — только это поле, а
-   не вся тема, т.к. остальные нативные контролы приложения (например, <select>) решены иначе —
-   собственным SearchableSelect.vue, а не color-scheme. */
-.oac-cert-grid input[type='date'] {
-  color-scheme: dark;
-}
 .field select:disabled {
   opacity: 0.5;
 }
@@ -219,7 +211,6 @@ const {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  margin-top: 18px;
 }
 .checkbox-field input {
   accent-color: var(--brand);

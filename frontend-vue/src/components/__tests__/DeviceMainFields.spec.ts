@@ -99,6 +99,18 @@ describe('DeviceMainFields: разметка', () => {
     expect(Array.from(direct[12].classList)).toEqual(expect.arrayContaining(['field', 'field-wide']))
   })
 
+  it('чекбокс SIEM занимает отдельную строку, поля расположения идут парами «Здание | Помещение», «Стойка | Позиция в стойке»', () => {
+    const { wrapper } = mountFields()
+    const direct = Array.from((wrapper.element as HTMLElement).children)
+    const field = (text: string) => direct.find((el) => el.tagName === 'LABEL' && el.querySelector('span')?.textContent === text)!
+    // Без field-wide чекбокс делил строку двухколоночной сетки со «Зданием», и порядок «Здание → Помещение → Стойка» читался зигзагом
+    expect(field('Отправляет события в SIEM').classList.contains('field-wide')).toBe(true)
+    // Четыре поля расположения — по одной ячейке сетки, а значит, после чекбокса они встают ровными парами
+    for (const label of ['Здание', 'Помещение', 'Стойка', 'Позиция в стойке']) {
+      expect(field(label).classList.contains('field-wide')).toBe(false)
+    }
+  })
+
   it('обязательные поля и ограничения длины сохранены', () => {
     const { wrapper } = mountFields()
     expect(inputOf(wrapper, 'Серийный номер').attributes()).toMatchObject({ required: '', maxlength: '255', type: 'text' })

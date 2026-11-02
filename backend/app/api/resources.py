@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..registry import DISPLAY_NAMES, MODEL_MAP
+from ..services.auth import require_admin_if_auth_enabled
 from ..services.crud import columns_for, create_resource, delete_resource, list_resource, model_for, update_resource, get_information_system_details, sync_information_system_details
 from ..services.serialization import serialize
 
@@ -10,17 +11,30 @@ router = APIRouter(prefix='/api/v1/resources', tags=['CRUD'])
 
 RESERVED_QUERY_PARAMS = {'q', 'offset', 'limit', 'date_from', 'date_to'}
 
+# Ресурсы generic-роутера, которые при включённой аутентификации читает только администратор. Журнал аудита
+# (имена пользователей, IP-адреса, неудачные входы) есть и в MODEL_MAP, а зависимость require_admin_if_auth_enabled
+# висит лишь на выделенном роутере /api/v1/audit-log, — без этой проверки viewer читал бы журнал здесь.
+# Запись в такие ресурсы закрыта отдельно: роль viewer не пишет вовсе, а audit-log ещё и в registry.READONLY_RESOURCES.
+ADMIN_ONLY_RESOURCES = frozenset({'audit-log'})
+
+def _guard(resource: str, request: Request) -> None:
+    """Проверка роли выполняется раньше поиска ресурса и записи: по коду ответа нельзя понять, есть ли запись."""
+    if resource in ADMIN_ONLY_RESOURCES:
+        require_admin_if_auth_enabled(request)
+
 @router.get('')
 def resources():
-    return [{'key': k, 'name': DISPLAY_NAMES.get(k, k), 'columns': columns_for(v)} for k, v in MODEL_MAP.items() if k != 'audit-log']
+    return [{'key': k, 'name': DISPLAY_NAMES.get(k, k), 'columns': columns_for(v)} for k, v in MODEL_MAP.items() if k not in ADMIN_ONLY_RESOURCES]
 
 @router.get('/{resource}/schema')
-def resource_schema(resource: str):
+def resource_schema(resource: str, request: Request):
+    _guard(resource, request)
     model = model_for(resource)
     return {'key': resource, 'name': DISPLAY_NAMES.get(resource, resource), 'columns': columns_for(model)}
 
 @router.get('/{resource}')
 def list_endpoint(resource: str, request: Request, q: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), date_from: str | None = None, date_to: str | None = None, session: Session = Depends(get_db)):
+    _guard(resource, request)
     # Any query param other than q/offset/limit/date_from/date_to is treated as an equality filter
     # on that column, e.g. GET /resources/interfaces?physical_device_id=<id> — validated against
     # real model columns in list_resource, so this cannot be used to reach arbitrary attributes.
@@ -36,7 +50,8 @@ def information_system_details_update(item_id: str, payload: dict, session: Sess
     return sync_information_system_details(item_id, payload, session)
 
 @router.get('/{resource}/{item_id}')
-def get_endpoint(resource: str, item_id: str, session: Session = Depends(get_db)):
+def get_endpoint(resource: str, item_id: str, request: Request, session: Session = Depends(get_db)):
+    _guard(resource, request)
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     return serialize(obj)
