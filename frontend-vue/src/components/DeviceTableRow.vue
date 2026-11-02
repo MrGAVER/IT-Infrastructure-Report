@@ -6,6 +6,7 @@
 // в отдельный компонент вместо дублирования полутора десятков <td> в двух местах DevicesView.vue.
 import { useCatalogsStore } from '../stores/catalogs'
 import type { Device } from '../api/types'
+import YesNoStatus from './YesNoStatus.vue'
 
 defineProps<{
   device: Device
@@ -23,9 +24,6 @@ defineEmits<{ edit: [d: Device]; copy: [d: Device]; remove: [d: Device] }>()
 
 const catalogs = useCatalogsStore()
 
-function siemLabel(v: boolean) {
-  return v ? 'Да' : 'Нет'
-}
 function buildingLabel(id: string | null) {
   if (!id) return '—'
   return (catalogs.indexOf('buildings').get(id)?.name as string) ?? '—'
@@ -54,7 +52,7 @@ function roomLabel(id: string | null) {
     <td class="mono">{{ device.management_ips || '—' }}</td>
     <td>{{ [buildingLabel(device.building_id), roomLabel(device.room_id)].filter(Boolean).join(' · ') }}</td>
     <td>
-      <span class="status" :class="device.siem_enabled ? 'on' : 'off'"> <span class="status-dot"></span>{{ siemLabel(device.siem_enabled) }} </span>
+      <YesNoStatus :value="device.siem_enabled" />
     </td>
     <td>
       <div class="row-actions">

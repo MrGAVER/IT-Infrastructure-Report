@@ -141,3 +141,22 @@ describe('InformationSystemsView.vue — столбец «IP-адреса»', ()
     expect(wrapper.find('.ip-cell').text()).toBe('10.0.0.2')
   })
 })
+
+describe('InformationSystemsView.vue — тон «Нет» (UI-12)', () => {
+  it('«Нет» у SIEM и СКЗИ нейтральное, «Да» зелёное', async () => {
+    stubServer([system({ id: 'a', name: 'Альфа', siem_enabled: true, crypto_protection_enabled: false })])
+    const wrapper = await mountView()
+
+    const [siem, crypto] = wrapper.findAll('tbody tr')[0].findAll('.status')
+    expect(siem.classes()).toContain('on')
+    expect(crypto.classes()).toEqual(expect.arrayContaining(['off', 'neutral']))
+  })
+
+  it('«Без покрытия SIEM» = 0 — карточка нейтральная', async () => {
+    stubServer([system({ id: 'a', name: 'Альфа', siem_enabled: true })])
+    const wrapper = await mountView()
+
+    const card = wrapper.findAll('.stat-card').find((c) => c.text().includes('Без покрытия SIEM'))!
+    expect(card.classes()).not.toContain('warn')
+  })
+})

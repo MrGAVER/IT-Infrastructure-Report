@@ -147,3 +147,31 @@ describe('DevicesView.vue', () => {
     expect(wrapper.find('.modal-head h2').text()).toBe('Редактировать стек устройств')
   })
 })
+
+describe('DevicesView.vue — тон «Нет» и нулевых счётчиков (UI-12)', () => {
+  it('«Нет» в столбце SIEM нейтральный (neutral), «Да» — зелёный', async () => {
+    seed([device({ id: 'a', system_name: 'a', siem_enabled: true }), device({ id: 'b', system_name: 'b', siem_enabled: false })])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].find('.status').classes()).toContain('on')
+    expect(rows[1].find('.status').classes()).toEqual(expect.arrayContaining(['off', 'neutral']))
+  })
+
+  it('«Без покрытия SIEM» = 0 — карточка не предупреждает; появляется устройство без SIEM — предупреждает', async () => {
+    seed([device({ id: 'a', system_name: 'a', siem_enabled: true })])
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+    const card = () => wrapper.findAll('.stat-card').find((c) => c.text().includes('Без покрытия SIEM'))!
+
+    expect(card().classes()).not.toContain('warn')
+
+    const store = useDevicesStore()
+    store.all = [...store.all, device({ id: 'b', system_name: 'b', siem_enabled: false })]
+    store.total = 2
+    await flushPromises()
+
+    expect(card().classes()).toContain('warn')
+  })
+})

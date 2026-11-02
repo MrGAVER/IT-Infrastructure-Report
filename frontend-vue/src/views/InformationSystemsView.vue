@@ -11,6 +11,7 @@ import { useToast } from '../composables/useToast'
 import type { InformationSystem } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
+import YesNoStatus from '../components/YesNoStatus.vue'
 import InformationSystemFormModal from '../components/InformationSystemFormModal.vue'
 
 const systems = useInformationSystemsStore()
@@ -148,12 +149,10 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
               </td>
               <td>{{ catalogs.label('support-organizations', s.support_organization_id) }}</td>
               <td>
-                <span class="status" :class="s.siem_enabled ? 'on' : 'off'"> <span class="status-dot"></span>{{ s.siem_enabled ? 'Да' : 'Нет' }} </span>
+                <YesNoStatus :value="s.siem_enabled" />
               </td>
               <td>
-                <span class="status" :class="s.crypto_protection_enabled ? 'on' : 'off'">
-                  <span class="status-dot"></span>{{ s.crypto_protection_enabled ? 'Да' : 'Нет' }}
-                </span>
+                <YesNoStatus :value="s.crypto_protection_enabled" />
               </td>
               <td>
                 <div class="row-actions">
