@@ -23,6 +23,7 @@ import DiagramConnectionEdge from '../components/diagram/DiagramConnectionEdge.v
 import DiagramDetailPanel from '../components/diagram/DiagramDetailPanel.vue'
 import DiagramExportPanel from '../components/diagram/DiagramExportPanel.vue'
 import { CONNECTION_EDGE_TYPE, edgeBaseStyle, edgeIsRelatedToHover, GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
+import { FIT_VIEW_OPTIONS, resolveInitialView } from '../utils/diagramViewport'
 import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagrams'
 
 const route = useRoute()
@@ -30,7 +31,7 @@ const router = useRouter()
 const store = useDiagramStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
-const { fitView } = useVueFlow()
+const { fitView, setViewport, onNodesInitialized } = useVueFlow()
 
 const diagramId = computed(() => String(route.params.id))
 
@@ -48,14 +49,28 @@ function syncFromStore() {
   localEdges.value = edges.map((e) => toFlowEdge(e)) as Edge<DiagramEdge>[]
 }
 
-async function loadAndFit() {
+// UI-01 (ревью 2.158.0): раньше fitView() вызывался в requestAnimationFrame сразу после установки узлов — до того, как Vue Flow
+// измерил их размеры, — и граф оставался в масштабе 1 со сдвигом 0, обрезанный по краю холста. Теперь начальный вид применяется
+// по событию nodesInitialized (у всех узлов уже есть размеры). Флаг нужен, чтобы событие, которое приходит и при каждой
+// следующей замене узлов (разворачивание группы, «Пересобрать»), не сбрасывало вид, выбранный пользователем.
+let applyInitialView = false
+
+async function loadDiagram() {
   await store.load(diagramId.value)
+  if (store.diagram) applyInitialView = true
   syncFromStore()
-  if (store.diagram) requestAnimationFrame(() => fitView())
 }
 
-onMounted(loadAndFit)
-watch(diagramId, loadAndFit)
+onNodesInitialized(() => {
+  if (!applyInitialView) return
+  applyInitialView = false
+  const view = resolveInitialView(store.diagram?.viewport)
+  if (view.kind === 'restore') void setViewport(view.viewport)
+  else void fitView(FIT_VIEW_OPTIONS)
+})
+
+onMounted(loadDiagram)
+watch(diagramId, loadDiagram)
 // Сдвиг узла уходит на сервер с задержкой (debounce в сторе): при уходе с экрана отправляем его сразу.
 // Смену диаграммы на этом же экране покрывает store.load(). Ошибка сохранения остаётся в store.error.
 onBeforeUnmount(() => {
@@ -271,7 +286,6 @@ async function commitRename() {
       <VueFlow
         v-model:nodes="localNodes"
         v-model:edges="localEdges"
-        :default-viewport="{ zoom: store.diagram?.viewport?.zoom ?? 1, x: store.diagram?.viewport?.pan_x ?? 0, y: store.diagram?.viewport?.pan_y ?? 0 }"
         :min-zoom="0.1"
         :max-zoom="2.5"
         :nodes-connectable="false"
