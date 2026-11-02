@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Экран одной диаграммы топологии сети (раздел 11 ТЗ). @vue-flow/core — единственная новая
-// рантайм-зависимость фронтенда (раздел 11 ТЗ) — без дополнительных пакетов @vue-flow/background
-// и @vue-flow/controls: панорамирование/масштабирование колесом уже встроены в @vue-flow/core,
-// доп. пакеты добавляют только декоративный фон и панель кнопок зума, без которых можно обойтись.
+// Экран одной диаграммы топологии сети (раздел 11 ТЗ). @vue-flow/core — основная зависимость холста (раздел 11 ТЗ);
+// панорамирование и масштабирование колесом встроены в неё. Кнопки масштаба — собственный компонент
+// (DiagramZoomControls.vue), мини-карта — пакет @vue-flow/minimap (UI-02, ревью 2.158.0): без них диаграмму на 30+ узлов не
+// охватить, а на телефоне нечем увеличить. Декоративный @vue-flow/background по-прежнему не подключён.
 //
 // localNodes/localEdges — v-model, привязанный к @vue-flow/core (это их задокументированный
 // способ "управляемого" состояния канваса, см. README примеров пакета): библиотеке нужен
@@ -13,7 +13,9 @@
 // (onNodeDragStop -> store.moveNode, раздел 4.6 ТЗ), а не автоматической синхронизацией.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
+import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type GraphNode, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
+import { MiniMap } from '@vue-flow/minimap'
+import '@vue-flow/minimap/dist/style.css'
 import { useDiagramStore } from '../stores/diagram'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
@@ -22,6 +24,8 @@ import DiagramGroupNode from '../components/diagram/DiagramGroupNode.vue'
 import DiagramConnectionEdge from '../components/diagram/DiagramConnectionEdge.vue'
 import DiagramDetailPanel from '../components/diagram/DiagramDetailPanel.vue'
 import DiagramExportPanel from '../components/diagram/DiagramExportPanel.vue'
+import DiagramZoomControls from '../components/diagram/DiagramZoomControls.vue'
+import { useMediaQuery } from '../composables/useMediaQuery'
 import { CONNECTION_EDGE_TYPE, edgeBaseStyle, edgeIsRelatedToHover, GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
 import { FIT_VIEW_OPTIONS, resolveInitialView } from '../utils/diagramViewport'
 import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagrams'
@@ -34,6 +38,14 @@ const { notify, notifyError } = useToast()
 const { fitView, setViewport, onNodesInitialized } = useVueFlow()
 
 const diagramId = computed(() => String(route.params.id))
+
+// Мини-карта на телефоне занимает заметную часть холста шириной 350 px, а ориентироваться там помогают кнопки масштаба.
+const isPhone = useMediaQuery('(max-width: 760px)')
+const MINIMAP_NEUTRAL_COLOR = '#8fa0b3'
+function miniMapNodeColor(node: GraphNode): string {
+  const data = node.data as DiagramNode | undefined
+  return data?.type === 'device' && 'color' in data.icon && data.icon.color ? data.icon.color : MINIMAP_NEUTRAL_COLOR
+}
 
 const localNodes = ref<Node<DiagramNode>[]>([])
 const localEdges = ref<Edge<DiagramEdge>[]>([])
@@ -302,6 +314,8 @@ async function commitRename() {
         <template #node-device="nodeProps"><DiagramDeviceNode v-bind="nodeProps" /></template>
         <template #node-group="nodeProps"><DiagramGroupNode v-bind="nodeProps" /></template>
         <template #[`edge-${CONNECTION_EDGE_TYPE}`]="edgeProps"><DiagramConnectionEdge v-bind="edgeProps" /></template>
+        <DiagramZoomControls />
+        <MiniMap v-if="!isPhone" class="diagram-minimap" position="bottom-left" pannable zoomable aria-label="Мини-карта диаграммы" :node-color="miniMapNodeColor" :width="160" :height="110" />
       </VueFlow>
       <DiagramDetailPanel :selection="store.selection" @close="store.clearSelection()" @expand-group="(k) => expandGroup(`${GROUP_PREFIX}${k}`)" />
     </div>
@@ -392,5 +406,18 @@ async function commitRename() {
   border-radius: var(--r-m);
   overflow: hidden;
   background: var(--bg);
+}
+/* Мини-карта — справа от кнопок масштаба (оба в левом нижнем углу), чтобы не оказаться под панелью сведений справа. Стили
+   пакета светлые (#fff), поэтому фон, рамка и «шторка» вне вида берутся из токенов темы. */
+.canvas-wrap :deep(.vue-flow__minimap) {
+  margin-left: 66px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  overflow: hidden;
+}
+.canvas-wrap :deep(.vue-flow__minimap-mask) {
+  fill: color-mix(in srgb, var(--bg) 72%, transparent);
+  stroke: var(--brand);
 }
 </style>
