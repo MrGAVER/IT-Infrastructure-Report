@@ -1,17 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 
 // to — необязательный переход: если задан, число становится ссылкой на соответствующий раздел
 // (так дашборд ведёт от количества к списку). Без to карточка остаётся обычным блоком, как на
 // остальных экранах со сводкой.
-withDefaults(defineProps<{ value: number | string; label: string; tone?: 'normal' | 'warn'; to?: RouteLocationRaw }>(), {
+const props = withDefaults(defineProps<{ value: number | string; label: string; tone?: 'normal' | 'warn'; to?: RouteLocationRaw }>(), {
   tone: 'normal',
   to: undefined,
 })
+
+// tone="warn" — «на это стоит обратить внимание»: у счётчика нарушений ноль означает «всё в порядке», и оранжевый «0» у
+// «Неактивные», «Расхождения», «ID с разными именами» ложно тревожил (UI-12). Поэтому предупреждение показывается только
+// при значении больше нуля; нечисловое значение («—», пустая строка) тоже остаётся нейтральным.
+const effectiveTone = computed(() => (props.tone === 'warn' && Number(props.value) > 0 ? 'warn' : 'normal'))
 </script>
 
 <template>
-  <div class="stat-card" :class="tone">
+  <div class="stat-card" :class="effectiveTone">
     <router-link v-if="to" :to="to" class="num num-link" :title="`Открыть: ${label}`" :aria-label="`${label}: ${value}. Открыть раздел`">{{
       value
     }}</router-link>

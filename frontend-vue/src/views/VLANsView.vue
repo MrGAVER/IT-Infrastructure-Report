@@ -14,6 +14,8 @@ import VLANFormModal from '../components/VLANFormModal.vue'
 import VLANDomainsPanel from '../components/VLANDomainsPanel.vue'
 import StaleSubinterfacesPanel from '../components/StaleSubinterfacesPanel.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
+// Общая панель фильтров (поиск, селекты, кнопки действий) — UI-10/UI-11.
+import '../styles/list-toolbar.css'
 
 const vlans = useVLANsStore()
 const catalogs = useCatalogsStore()
@@ -165,26 +167,36 @@ async function removeDefinition(d: VLANDefinition) {
       <StatCard :value="vlans.conflictingVlanIds.length" label="ID с разными именами по доменам" tone="warn" />
     </div>
 
-    <div class="filter-bar">
-      <div class="search-box">
-        <svg class="icon"><use href="/icons.svg#i-search" /></svg>
-        <input v-model="vlans.search" type="text" placeholder="Поиск по VLAN ID, имени, домену, устройству…" />
+    <div class="filter-bar list-toolbar">
+      <div class="filter-fields">
+        <div class="search-box">
+          <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+          <input
+            v-model="vlans.search"
+            type="text"
+            placeholder="Поиск по VLAN ID, имени, домену…"
+            title="Поиск по VLAN ID, имени, домену, устройству"
+            aria-label="Поиск по VLAN ID, имени, домену, устройству"
+          />
+        </div>
       </div>
-      <div class="spacer"></div>
-      <button class="btn btn-secondary" :disabled="vlans.loading" @click="reloadAll">
-        <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
-        Обновить
-      </button>
-      <button v-if="auth.canWrite" class="btn btn-secondary" @click="toggleBulkAssign">
-        {{ bulkAssignOpen ? 'Скрыть массовое назначение' : 'Массовое назначение VLAN' }}
-      </button>
-      <button class="btn btn-secondary" @click="domainsPanelOpen = !domainsPanelOpen">
-        {{ domainsPanelOpen ? 'Скрыть домены VLAN' : 'Домены VLAN' }}
-      </button>
-      <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
-        <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
-        Добавить VLAN
-      </button>
+
+      <div class="filter-actions">
+        <button class="btn btn-secondary" :disabled="vlans.loading" @click="reloadAll">
+          <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
+          Обновить
+        </button>
+        <button v-if="auth.canWrite" class="btn btn-secondary" @click="toggleBulkAssign">
+          {{ bulkAssignOpen ? 'Скрыть массовое назначение' : 'Массовое назначение VLAN' }}
+        </button>
+        <button class="btn btn-secondary" @click="domainsPanelOpen = !domainsPanelOpen">
+          {{ domainsPanelOpen ? 'Скрыть домены VLAN' : 'Домены VLAN' }}
+        </button>
+        <button v-if="auth.canWrite" class="btn btn-primary" @click="openCreate">
+          <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
+          Добавить VLAN
+        </button>
+      </div>
     </div>
 
     <VLANDomainsPanel v-if="domainsPanelOpen" />
@@ -294,41 +306,6 @@ async function removeDefinition(d: VLANDefinition) {
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 18px;
-}
-.filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-m);
-  padding: 7px 10px;
-  min-width: 260px;
-  max-width: 420px;
-}
-.search-box .icon {
-  color: var(--ink-muted);
-}
-.search-box input {
-  border: none;
-  background: transparent;
-  outline: none;
-  color: var(--ink);
-  font-size: 12.5px;
-  width: 100%;
-  min-width: 0;
-  /* Длинный плейсхолдер/запрос обрезается многоточием, а не посреди буквы. */
-  text-overflow: ellipsis;
-}
-.spacer {
-  flex: 1;
 }
 .bulk-panel {
   padding: 16px;
@@ -525,13 +502,6 @@ async function removeDefinition(d: VLANDefinition) {
 @media (max-width: 980px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
-  }
-}
-/* Телефон (то же ≤760px, что у мобильного меню): поиск занимает всю строку, чтобы плейсхолдер помещался. */
-@media (max-width: 760px) {
-  .search-box {
-    flex: 1 1 100%;
-    min-width: 0;
   }
 }
 </style>

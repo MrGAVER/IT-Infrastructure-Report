@@ -141,3 +141,44 @@ describe('InformationSystemsView.vue — столбец «IP-адреса»', ()
     expect(wrapper.find('.ip-cell').text()).toBe('10.0.0.2')
   })
 })
+
+describe('InformationSystemsView.vue — тон «Нет» (UI-12)', () => {
+  it('«Нет» у SIEM и СКЗИ нейтральное, «Да» зелёное', async () => {
+    stubServer([system({ id: 'a', name: 'Альфа', siem_enabled: true, crypto_protection_enabled: false })])
+    const wrapper = await mountView()
+
+    const [siem, crypto] = wrapper.findAll('tbody tr')[0].findAll('.status')
+    expect(siem.classes()).toContain('on')
+    expect(crypto.classes()).toEqual(expect.arrayContaining(['off', 'neutral']))
+  })
+
+  it('«Без покрытия SIEM» = 0 — карточка нейтральная', async () => {
+    stubServer([system({ id: 'a', name: 'Альфа', siem_enabled: true })])
+    const wrapper = await mountView()
+
+    const card = wrapper.findAll('.stat-card').find((c) => c.text().includes('Без покрытия SIEM'))!
+    expect(card.classes()).not.toContain('warn')
+  })
+})
+
+describe('InformationSystemsView.vue — длинные значения (UI-06)', () => {
+  it('название, описание и назначение имеют title с полным текстом, чтобы обрезанное в таблице можно было прочитать', async () => {
+    const longName = 'Государственная информационная система автоматизации межведомственного электронного взаимодействия и документооборота 0'
+    stubServer([system({ id: 'a', name: longName, description: 'Описание '.repeat(20).trim(), purpose: 'Назначение '.repeat(20).trim() })])
+    const wrapper = await mountView()
+
+    const row = wrapper.find('tbody tr')
+    expect(row.find('.isname').attributes('title')).toBe(longName)
+    expect(row.find('.isdesc').attributes('title')).toBe('Описание '.repeat(20).trim())
+    expect(row.find('.purpose-cell .clamp-3').attributes('title')).toBe('Назначение '.repeat(20).trim())
+  })
+
+  it('без назначения в ячейке прочерк и без title', async () => {
+    stubServer([system({ id: 'a', name: 'Альфа', purpose: null })])
+    const wrapper = await mountView()
+
+    const cell = wrapper.find('.purpose-cell .clamp-3')
+    expect(cell.text()).toBe('—')
+    expect(cell.attributes('title')).toBeUndefined()
+  })
+})

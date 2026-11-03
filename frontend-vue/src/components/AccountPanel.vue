@@ -6,6 +6,8 @@ import { onMounted, reactive, ref } from 'vue'
 import { ApiError, ErrorCode } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { formatServerDateTime } from '../utils/dateTime'
+// Общий вид панелей «Настроек»: без него заголовок и подписи панели брали браузерные стили (UI-03).
+import '../styles/settings-section.css'
 
 const auth = useAuthStore()
 
@@ -63,7 +65,7 @@ async function revoke(id: string) {
 </script>
 
 <template>
-  <section class="card section">
+  <section class="card settings-section">
     <h2>Моя учётная запись</h2>
     <p class="hint">Вы вошли как «{{ auth.user?.username }}» ({{ auth.isAdmin ? 'администратор' : 'только просмотр' }}).</p>
 
@@ -122,11 +124,6 @@ async function revoke(id: string) {
 </template>
 
 <style scoped>
-.section h3 {
-  font-family: var(--font-display);
-  font-size: 13px;
-  margin: 18px 0 10px;
-}
 .pwd-form {
   display: flex;
   flex-wrap: wrap;
@@ -141,30 +138,7 @@ async function revoke(id: string) {
   color: var(--ink-muted);
 }
 .field input {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 8px 9px;
-  font-size: 13px;
-  color: var(--ink);
-  font-family: inherit;
   min-width: 180px;
-}
-.current {
-  font-size: 12.5px;
-  color: var(--ink-muted);
-  margin-top: 10px;
-}
-.form-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
-  border-radius: var(--r-m);
-  padding: 8px 11px;
-  font-size: 12.5px;
-  margin-top: 10px;
 }
 .sessions-table {
   width: 100%;

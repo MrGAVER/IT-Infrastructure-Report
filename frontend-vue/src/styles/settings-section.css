@@ -1,0 +1,72 @@
+/* Общий вид панелей экрана «Настройки» (UI-03 ревью merge/review-2158-executors).
+ *
+ * Панели живут в трёх компонентах: SettingsView.vue (организация, формы, схема, предпросмотр), AuthSettingsPanel.vue
+ * и AccountPanel.vue. Scoped-стили SettingsView не действуют на содержимое дочерних компонентов, поэтому заголовок и
+ * подпись «Аутентификации» и «Учётной записи» получали браузерные значения (h2 ≈ 24px, непритушённый текст) и выпадали
+ * из ряда остальных панелей.
+ *
+ * Файл намеренно НЕ scoped и подключается обычным import'ом в каждом из трёх компонентов: Vite исполняет модуль один раз,
+ * поэтому CSS в сборку попадает единожды. Все правила под классом .settings-section — он есть только у корневого
+ * <section> этих панелей, так что на остальные экраны (там тоже бывают h2 и .hint) правила не просачиваются.
+ */
+.settings-section {
+  padding: 20px 22px;
+}
+.settings-section h2 {
+  font-family: var(--font-display);
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+.settings-section h3 {
+  font-family: var(--font-display);
+  font-size: 13px;
+  margin: 18px 0 10px;
+}
+.settings-section .hint {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+.settings-section .current {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin-top: 14px;
+}
+.settings-section .field-error {
+  font-size: 12.5px;
+  color: var(--status-crit);
+  margin: 10px 0 0;
+}
+.settings-section .form-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--status-crit-soft);
+  color: var(--status-crit);
+  border-radius: var(--r-m);
+  padding: 8px 11px;
+  font-size: 12.5px;
+  margin-top: 10px;
+}
+
+/* Поля ввода панелей: одна рамка, фон и размер шрифта вместо трёх копий в компонентах. Ширину и flex поля задаёт раскладка
+ * конкретной строки (scoped-стиль компонента), здесь только внешний вид — иначе два источника спорили бы за min-width. */
+.settings-section input[type='text'],
+.settings-section input[type='password'],
+.settings-section input[type='number'] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  padding: 8px 9px;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.settings-section select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  color: var(--ink);
+  font-family: inherit;
+}
