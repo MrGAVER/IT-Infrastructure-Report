@@ -7,7 +7,7 @@
 // до серверов/СХД (validate_vm_host в services/validation.py отклонит остальные
 // типы с 422) — фильтрация здесь не замена серверной проверке, а просто не даёт
 // пользователю выбрать заведомо невалидный вариант.
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, useId } from 'vue'
 import { createResource, listAllResource, updateResource } from '../api/client'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
@@ -33,6 +33,8 @@ const { readOnly } = useReadOnlyForm()
 const props = defineProps<{ vm: VirtualMachine | null; copyFrom?: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -236,9 +238,9 @@ async function submit() {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать виртуальную машину' : 'Добавить виртуальную машину' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать виртуальную машину' : 'Добавить виртуальную машину' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
@@ -348,7 +350,7 @@ async function submit() {
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 9px 12px;
   font-size: 12.5px;

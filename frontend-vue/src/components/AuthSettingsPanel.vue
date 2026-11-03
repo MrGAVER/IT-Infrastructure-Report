@@ -8,6 +8,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiError, ErrorCode, getStoredSetupToken, setStoredSetupToken } from '../api/client'
 import type { UserRole } from '../api/types'
 import { useAuthStore } from '../stores/auth'
+// Общий вид панелей «Настроек»: без него заголовок и подписи панели брали браузерные стили (UI-03).
+import '../styles/settings-section.css'
 
 const auth = useAuthStore()
 const canManage = computed(() => !auth.enabled || auth.isAdmin)
@@ -136,7 +138,7 @@ async function removeUser(id: string, username: string) {
 </script>
 
 <template>
-  <section class="card section">
+  <section class="card settings-section">
     <h2>Аутентификация</h2>
     <p class="hint">
       По умолчанию выключена — однопользовательский локальный режим, реестр открыт без входа (как и до появления этой настройки). Включите, если с приложением
@@ -218,11 +220,6 @@ async function removeUser(id: string, username: string) {
 </template>
 
 <style scoped>
-.section h3 {
-  font-family: var(--font-display);
-  font-size: 13px;
-  margin: 18px 0 10px;
-}
 .auth-status {
   display: flex;
   align-items: center;
@@ -233,17 +230,6 @@ async function removeUser(id: string, username: string) {
 }
 .status.off {
   color: var(--ink-muted);
-}
-.form-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
-  border-radius: var(--r-m);
-  padding: 8px 11px;
-  font-size: 12.5px;
-  margin-top: 10px;
 }
 .users-table {
   width: 100%;
@@ -264,12 +250,7 @@ async function removeUser(id: string, username: string) {
   vertical-align: middle;
 }
 .users-table select {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
   padding: 5px 7px;
-  color: var(--ink);
-  font-family: inherit;
   font-size: 12px;
 }
 .btn-sm {
@@ -296,15 +277,8 @@ async function removeUser(id: string, username: string) {
   margin: 0;
 }
 .setup-token-row input {
-  flex: 1;
-  min-width: 160px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 8px 9px;
-  font-size: 13px;
-  color: var(--ink);
-  font-family: inherit;
+  flex: 1 1 160px;
+  min-width: 0;
 }
 .new-user-row {
   display: flex;
@@ -314,23 +288,16 @@ async function removeUser(id: string, username: string) {
   margin-top: 14px;
 }
 .new-user-row input {
-  flex: 1;
-  min-width: 160px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  padding: 8px 9px;
-  font-size: 13px;
-  color: var(--ink);
-  font-family: inherit;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+/* Пароль получает вдвое больше свободного места и не меньше 300px: плейсхолдер «Пароль (мин. 8 символов, буквы и цифры)»
+ * в поле на 160px обрезался до «…8 символ…» (UI-03). На телефоне поле занимает всю строку, поэтому помещается и там. */
+.new-user-row input[type='password'] {
+  flex: 2 1 300px;
 }
 .new-user-row select {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
   padding: 8px 9px;
-  color: var(--ink);
-  font-family: inherit;
   font-size: 12.5px;
 }
 </style>

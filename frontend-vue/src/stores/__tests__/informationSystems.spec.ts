@@ -103,4 +103,19 @@ describe('useInformationSystemsStore', () => {
     await store.ensureLoaded()
     expect((fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAfterFirst)
   })
+
+  it('сортирует системы естественным порядком: «ИС 2» раньше «ИС 10» (UI-13)', async () => {
+    const base = informationSystemsFixture[0]
+    const named = (id: string, name: string) => ({ ...base, id, name })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify([named('a', 'ИС 10'), named('b', 'ИС 2'), named('c', 'ИС 1'), named('d', 'ИС 11')]))),
+    )
+    const store = useInformationSystemsStore()
+
+    await store.reload()
+
+    expect(store.all.map((s) => s.name)).toEqual(['ИС 1', 'ИС 2', 'ИС 10', 'ИС 11'])
+    expect(store.pageItems.map((s) => s.id)).toEqual(['c', 'b', 'a', 'd'])
+  })
 })

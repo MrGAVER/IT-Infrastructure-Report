@@ -405,3 +405,30 @@ describe('SearchableSelect.vue — режим floating (панель вне пр
     expect(removeSpy).toHaveBeenCalledWith('resize', expect.any(Function))
   })
 })
+
+describe('SearchableSelect.vue — Esc и окно вокруг поля (UI-04)', () => {
+  function pressEscape(wrapper: ReturnType<typeof mount>): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    wrapper.find('input').element.dispatchEvent(event)
+    return event
+  }
+
+  it('Esc при открытом списке закрывает его и забирает событие: окно вокруг поля не закроется тем же нажатием', async () => {
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS }, attachTo: document.body })
+    await wrapper.find('input').trigger('focus')
+    expect(wrapper.find('.ss-panel').exists()).toBe(true)
+
+    const event = pressEscape(wrapper)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.ss-panel').exists()).toBe(false)
+    expect(event.defaultPrevented).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('Esc при закрытом списке событие не трогает: оно доходит до окна и закрывает его', () => {
+    const wrapper = mount(SearchableSelect, { props: { modelValue: '', options: OPTIONS }, attachTo: document.body })
+    const event = pressEscape(wrapper)
+    expect(event.defaultPrevented).toBe(false)
+    wrapper.unmount()
+  })
+})

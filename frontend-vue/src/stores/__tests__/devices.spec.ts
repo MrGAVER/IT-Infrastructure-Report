@@ -139,4 +139,20 @@ describe('useDevicesStore', () => {
     expect(store.groupedFiltered).toHaveLength(2)
     expect(store.pageCount).toBe(1)
   })
+
+  it('сортирует устройства естественным порядком: dev-6 раньше dev-12, без имени — первыми (UI-13)', async () => {
+    const base = devicesFixture.items[0]
+    const named = (id: string, system_name: string | null) => ({ ...base, id, system_name, stack_id: null, stack_name: null, stack_position: null })
+    const payload = { items: [named('d12', 'dev-12'), named('d6', 'dev-6'), named('d0', null), named('d1', 'dev-1')], total: 4, offset: 0, limit: 1000 }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(payload))),
+    )
+    const store = useDevicesStore()
+
+    await store.reload()
+
+    expect(store.all.map((d) => d.id)).toEqual(['d0', 'd1', 'd6', 'd12'])
+    expect(store.filtered.map((d) => d.id)).toEqual(['d0', 'd1', 'd6', 'd12'])
+  })
 })

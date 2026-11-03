@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, useId } from 'vue'
 import { createResource, updateResource } from '../api/client'
 import type { CatalogItem, StructuralUnit } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -13,6 +13,8 @@ const { readOnly } = useReadOnlyForm()
 const props = defineProps<{ unit: StructuralUnit | null; defaultParentId: string | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const saving = ref(false)
@@ -68,9 +70,9 @@ async function submit() {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать структурную единицу' : 'Добавить структурную единицу' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать структурную единицу' : 'Добавить структурную единицу' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
@@ -147,7 +149,7 @@ async function submit() {
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 9px 12px;
   font-size: 12.5px;

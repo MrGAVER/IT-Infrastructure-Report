@@ -4,7 +4,7 @@
 // отдаётся (см. ReportTemplateVersion в api/types.ts), просмотреть содержимое прошлой версии
 // нельзя, только восстановить целиком. Текущее состояние тоже сохраняется как версия перед
 // восстановлением — откат обратим.
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useId } from 'vue'
 import { listReportTemplateVersions, restoreReportTemplateVersion } from '../api/reportTemplates'
 import type { ReportTemplate, ReportTemplateVersion } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
@@ -15,6 +15,8 @@ const auth = useAuthStore() // «Восстановить версию» мен�
 const props = defineProps<{ template: ReportTemplate }>()
 const emit = defineEmits<{ close: []; restored: [template: ReportTemplate] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const versions = ref<ReportTemplateVersion[]>([])
 const loading = ref(true)
@@ -48,9 +50,9 @@ async function restore(v: ReportTemplateVersion) {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>История версий «{{ template.name }}»</h2>
+        <h2 :id="titleId">История версий «{{ template.name }}»</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
@@ -118,7 +120,7 @@ async function restore(v: ReportTemplateVersion) {
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 9px 12px;
   font-size: 12.5px;

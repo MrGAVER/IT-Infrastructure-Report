@@ -8,6 +8,7 @@ import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import type { InformationSystem } from '../api/types'
 import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
+import { sortNaturally } from '../utils/naturalSort'
 
 const DEFAULT_PAGE_SIZE = 8
 const LIST_ID = 'informationSystems'
@@ -60,7 +61,8 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
       this.loading = true
       this.error = null
       try {
-        this.all = await api.get<InformationSystem[]>('/information-systems')
+        // backend сортирует по строке («ИС 10» раньше «ИС 2»): порядок приводится к естественному один раз при записи (UI-13).
+        this.all = sortNaturally(await api.get<InformationSystem[]>('/information-systems'), (s) => s.name)
         this.loaded = true
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить информационные системы'

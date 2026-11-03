@@ -62,3 +62,22 @@ describe('public/icons.svg', () => {
     }
   })
 })
+
+describe('UI-20: иконка «здание»', () => {
+  const sprite = readFileSync(path.resolve(process.cwd(), 'public/icons.svg'), 'utf-8')
+  const symbol = (id: string) => new RegExp(`<symbol id="${id}"[^>]*>([\\s\\S]*?)</symbol>`).exec(sprite)?.[1] ?? ''
+
+  it('i-building больше не лист документа: прежний прямоугольник 14×18 с рядами «строк» удалён', () => {
+    expect(symbol('i-building')).not.toContain('<rect x="5" y="3" width="14" height="18"')
+  })
+
+  it('силуэт здания: земля, башня с окнами, пристройка и дверь', () => {
+    const building = symbol('i-building')
+    expect(building).toContain('d="M3 21h18"') // линия земли — у документа её нет
+    expect(building.match(/<path\b/g)!.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('иконка документа i-file не изменилась — по ней «Отчёты» отличаются от «Зданий»', () => {
+    expect(symbol('i-file')).toContain('M7 3h7l4 4v14H7z')
+  })
+})

@@ -6,7 +6,7 @@
 // прежнем vanilla-фронтенде (до 2.60.0). Устаревшие связанные таблицы (ips/devices/vms/
 // containers) удалены вместе со всей их поддержкой (миграция b7f2c1e5a904, см. models.py) —
 // sources (InformationSystemSource) теперь единственный источник этих данных.
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, useId } from 'vue'
 import { api, createResource, updateResource } from '../api/client'
 import type {
   InformationSystem,
@@ -41,6 +41,8 @@ const { readOnly } = useReadOnlyForm()
 const props = defineProps<{ system: InformationSystem | null; copyFrom?: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -285,9 +287,9 @@ async function submit() {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card" role="dialog" aria-modal="true">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>{{ isEdit ? 'Редактировать информационную систему' : 'Добавить информационную систему' }}</h2>
+        <h2 :id="titleId">{{ isEdit ? 'Редактировать информационную систему' : 'Добавить информационную систему' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
@@ -452,7 +454,7 @@ async function submit() {
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 9px 12px;
   font-size: 12.5px;
