@@ -41,10 +41,20 @@ const targetPortLabel = computed(() => texts.value.target)
 // подпись никогда не оказывалась вверх ногами).
 const angle = computed(() => edgeAngleDeg(props.sourceX, props.sourceY, props.targetX, props.targetY))
 const sourceLabelPos = computed(() =>
-  offsetAlongHandle(props.sourceX, props.sourceY, props.sourcePosition, portLabelDistance(sourcePortLabel.value ?? '', angle.value, props.sourcePosition, layout.value?.sourceSlot ?? 0)),
+  offsetAlongHandle(
+    props.sourceX,
+    props.sourceY,
+    props.sourcePosition,
+    portLabelDistance(sourcePortLabel.value ?? '', angle.value, props.sourcePosition, layout.value?.sourceSlot ?? 0),
+  ),
 )
 const targetLabelPos = computed(() =>
-  offsetAlongHandle(props.targetX, props.targetY, props.targetPosition, portLabelDistance(targetPortLabel.value ?? '', angle.value, props.targetPosition, layout.value?.targetSlot ?? 0)),
+  offsetAlongHandle(
+    props.targetX,
+    props.targetY,
+    props.targetPosition,
+    portLabelDistance(targetPortLabel.value ?? '', angle.value, props.targetPosition, layout.value?.targetSlot ?? 0),
+  ),
 )
 // Пункт 4: DiagramView.vue приглушает НЕсвязанные с наведением рёбра через props.style.opacity
 // (см. edgeIsRelatedToHover) — тот style применяется только к <BaseEdge> (сама линия), подписи

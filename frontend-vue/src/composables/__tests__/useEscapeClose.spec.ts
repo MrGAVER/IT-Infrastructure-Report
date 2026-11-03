@@ -9,7 +9,10 @@ const mounted: VueWrapper[] = []
 
 /** Окно, которое закрывается по Esc; child — вложенное окно, рисуемое внутри (как «+» быстрого добавления внутри формы). */
 const Modal = defineComponent({
-  props: { onClose: { type: Function as PropType<() => void>, required: true }, child: { type: Object as PropType<ReturnType<typeof defineComponent>>, default: null } },
+  props: {
+    onClose: { type: Function as PropType<() => void>, required: true },
+    child: { type: Object as PropType<ReturnType<typeof defineComponent>>, default: null },
+  },
   setup(props) {
     useEscapeClose(() => props.onClose())
     return () => h('div', { class: 'modal' }, props.child ? [h(props.child)] : [])

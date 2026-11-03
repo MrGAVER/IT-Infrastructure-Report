@@ -103,9 +103,11 @@ export async function seedParallelLinks(request: APIRequestContext, options: { l
   const connectionTypes = (await (await request.get(`${API}/resources/connection-types`)).json()) as Catalog | Array<{ id: string }>
   const connectionTypeId = (Array.isArray(connectionTypes) ? connectionTypes : (connectionTypes.items ?? []))[0]?.id
   const all = await request.get(`${API}/resources/interfaces?limit=1000`)
-  const interfaces = (await all.json()) as { items?: Array<{ id: string; name: string; physical_device_id: string }> } | Array<{ id: string; name: string; physical_device_id: string }>
+  const interfaces = (await all.json()) as
+    { items?: Array<{ id: string; name: string; physical_device_id: string }> } | Array<{ id: string; name: string; physical_device_id: string }>
   const rows = Array.isArray(interfaces) ? interfaces : (interfaces.items ?? [])
-  const byDevice = (deviceId: string) => rows.filter((row) => row.physical_device_id === deviceId).sort((x, y) => x.name.localeCompare(y.name, 'en', { numeric: true }))
+  const byDevice = (deviceId: string) =>
+    rows.filter((row) => row.physical_device_id === deviceId).sort((x, y) => x.name.localeCompare(y.name, 'en', { numeric: true }))
   const [left, right] = [byDevice(devices[0].id), byDevice(devices[1].id)]
   for (let index = 0; index < options.links; index++) {
     await postJson(request, '/resources/connections', {

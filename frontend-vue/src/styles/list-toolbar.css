@@ -116,7 +116,7 @@
 }
 .list-toolbar .chip-group button.on {
   background: var(--brand-soft);
-  color: var(--brand);
+  color: var(--brand-ink);
   font-weight: 700;
 }
 

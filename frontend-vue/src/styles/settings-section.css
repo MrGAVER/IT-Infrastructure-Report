@@ -43,7 +43,7 @@
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft);
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 8px 11px;
   font-size: 12.5px;

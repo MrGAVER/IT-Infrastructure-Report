@@ -18,13 +18,33 @@ const atMinZoom = computed(() => viewport.value.zoom <= minZoom.value + ZOOM_EPS
 
 <template>
   <Panel position="bottom-left" class="diagram-zoom-controls" role="group" aria-label="Масштаб диаграммы">
-    <button type="button" class="zoom-btn" aria-label="Увеличить масштаб" title="Увеличить масштаб" :disabled="atMaxZoom" @click="zoomIn({ duration: ZOOM_ANIMATION_MS })">
+    <button
+      type="button"
+      class="zoom-btn"
+      aria-label="Увеличить масштаб"
+      title="Увеличить масштаб"
+      :disabled="atMaxZoom"
+      @click="zoomIn({ duration: ZOOM_ANIMATION_MS })"
+    >
       <svg class="icon" aria-hidden="true"><use href="/icons.svg#i-plus" /></svg>
     </button>
-    <button type="button" class="zoom-btn" aria-label="Уменьшить масштаб" title="Уменьшить масштаб" :disabled="atMinZoom" @click="zoomOut({ duration: ZOOM_ANIMATION_MS })">
+    <button
+      type="button"
+      class="zoom-btn"
+      aria-label="Уменьшить масштаб"
+      title="Уменьшить масштаб"
+      :disabled="atMinZoom"
+      @click="zoomOut({ duration: ZOOM_ANIMATION_MS })"
+    >
       <svg class="icon" aria-hidden="true"><use href="/icons.svg#i-minus" /></svg>
     </button>
-    <button type="button" class="zoom-btn" aria-label="Показать всю диаграмму" title="Показать всю диаграмму" @click="fitView({ ...FIT_VIEW_OPTIONS, duration: ZOOM_ANIMATION_MS })">
+    <button
+      type="button"
+      class="zoom-btn"
+      aria-label="Показать всю диаграмму"
+      title="Показать всю диаграмму"
+      @click="fitView({ ...FIT_VIEW_OPTIONS, duration: ZOOM_ANIMATION_MS })"
+    >
       <svg class="icon" aria-hidden="true"><use href="/icons.svg#i-fit" /></svg>
     </button>
   </Panel>

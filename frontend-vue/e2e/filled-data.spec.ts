@@ -347,32 +347,6 @@ test.describe('телефон 390×844: таблицы с заполненным
   })
 })
 
-// Проверки находок Исполнителя 1 (UI-01, UI-04): по отчёту их пишет Исполнитель 2, а исправляет Исполнитель 1, поэтому до слияния
-// ветки fix/review-ui-executor-1 они упали бы. Отмечены fixme: после слияния убрать .fixme (диаграмме нужны данные из
-// seed_review_data.py — номер диаграммы в E2E_DIAGRAM_ID).
-test.describe('после слияния потока Исполнителя 1', () => {
-  test.fixme('UI-01: диаграмма вписана в холст', async ({ page }) => {
-    const id = process.env.E2E_DIAGRAM_ID
-    expect(id, 'задайте E2E_DIAGRAM_ID — идентификатор диаграммы с узлами (seed_review_data.py)').toBeTruthy()
-    await page.goto(`/diagrams/${id}`)
-    await expect
-      .poll(async () =>
-        page.evaluate(() => {
-          const canvas = document.querySelector('.canvas-wrap')!.getBoundingClientRect()
-          return [...document.querySelectorAll('.vue-flow__node')].every((node) => {
-            const r = node.getBoundingClientRect()
-            return r.left >= canvas.left - 1 && r.right <= canvas.right + 1 && r.top >= canvas.top - 1 && r.bottom <= canvas.bottom + 1
-          })
-        }),
-      )
-      .toBe(true)
-  })
-
-  test.fixme('UI-04: Esc закрывает модальное окно', async ({ page }) => {
-    await openApp(page, '/devices')
-    await page.getByRole('button', { name: 'Добавить устройство' }).click()
-    await expect(page.locator('.modal')).toHaveCount(1)
-    await page.keyboard.press('Escape')
-    await expect(page.locator('.modal')).toHaveCount(0)
-  })
-})
+// Проверки находок Исполнителя 1 (UI-01 «диаграмма вписана в холст», UI-04 «Esc закрывает модалку») после слияния потоков живут
+// рядом с кодом, который они проверяют: e2e/diagram-filled.spec.ts (данные диаграммы создаются через API самим тестом, а не
+// передаются в E2E_DIAGRAM_ID) и e2e/modals.spec.ts.

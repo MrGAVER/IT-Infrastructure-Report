@@ -77,22 +77,9 @@ describe('UI-07: контраст токенов темы', () => {
   })
 })
 
-// Охранный тест: пара «текст --status-crit / --brand на своей мягкой подложке» не возвращается в общие файлы. Файлы второго исполнителя
-// (views/*, AccountPanel, AuthSettingsPanel) в этой ветке не правились по границам владения — их замена остаётся отдельным шагом
-// после слияния потоков; когда её сделают, список ниже должен опустеть.
+// Охранный тест: пара «текст --status-crit / --brand на своей мягкой подложке» не возвращается ни в один файл.
+// После слияния потоков исключений нет: файлы второго исполнителя переведены на --crit-ink / --brand-ink.
 describe('UI-07: текст на мягкой подложке использует --crit-ink / --brand-ink', () => {
-  const PENDING_OTHER_EXECUTOR = new Set([
-    'components/AccountPanel.vue',
-    'components/AuthSettingsPanel.vue',
-    'views/AuditLogView.vue',
-    'views/ConnectionsView.vue',
-    'views/DevicesView.vue',
-    'views/InformationSystemsView.vue',
-    'views/LoginView.vue',
-    'views/PortSyncRulesView.vue',
-    'views/ReportDocxEditorView.vue',
-    'views/ReportGridEditorView.vue',
-  ])
   const SRC = path.resolve(process.cwd(), 'src')
 
   function styled(dir: string): string[] {
@@ -106,7 +93,7 @@ describe('UI-07: текст на мягкой подложке использу�
   const offenders = (kind: 'crit' | 'brand'): string[] =>
     styled(SRC)
       .map((file) => path.relative(SRC, file).split(path.sep).join('/'))
-      .filter((file) => !PENDING_OTHER_EXECUTOR.has(file) && file !== 'styles/theme.css')
+      .filter((file) => file !== 'styles/theme.css')
       .filter((file) => {
         const text = readFileSync(path.join(SRC, file), 'utf-8')
         const background = kind === 'crit' ? /background(?:-color)?:\s*var\(--status-crit-soft[,)]/ : /background(?:-color)?:\s*var\(--brand-soft[,)]/

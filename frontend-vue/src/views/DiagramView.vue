@@ -42,7 +42,10 @@ const diagramId = computed(() => String(route.params.id))
 
 // UI-22 (ревью 2.158.0): слоты подписей портов и группы параллельных связей считаются один раз на диаграмму и отдаются рёбрам через
 // provide — данные рёбер (контракт API) остаются нетронутыми. На мелком масштабе (< 0,6) подписи рёбер скрыты классом на холсте.
-provide(EDGE_LABEL_LAYOUT_KEY, computed(() => computeEdgeLabelLayout(store.diagram?.edges ?? [])))
+provide(
+  EDGE_LABEL_LAYOUT_KEY,
+  computed(() => computeEdgeLabelLayout(store.diagram?.edges ?? [])),
+)
 const labelsHidden = computed(() => !edgeLabelsVisible(viewport.value.zoom))
 
 // Мини-карта на телефоне занимает заметную часть холста шириной 350 px, а ориентироваться там помогают кнопки масштаба.
@@ -321,7 +324,17 @@ async function commitRename() {
         <template #node-group="nodeProps"><DiagramGroupNode v-bind="nodeProps" /></template>
         <template #[`edge-${CONNECTION_EDGE_TYPE}`]="edgeProps"><DiagramConnectionEdge v-bind="edgeProps" /></template>
         <DiagramZoomControls />
-        <MiniMap v-if="!isPhone" class="diagram-minimap" position="bottom-left" pannable zoomable aria-label="Мини-карта диаграммы" :node-color="miniMapNodeColor" :width="160" :height="110" />
+        <MiniMap
+          v-if="!isPhone"
+          class="diagram-minimap"
+          position="bottom-left"
+          pannable
+          zoomable
+          aria-label="Мини-карта диаграммы"
+          :node-color="miniMapNodeColor"
+          :width="160"
+          :height="110"
+        />
       </VueFlow>
       <DiagramDetailPanel :selection="store.selection" @close="store.clearSelection()" @expand-group="(k) => expandGroup(`${GROUP_PREFIX}${k}`)" />
     </div>

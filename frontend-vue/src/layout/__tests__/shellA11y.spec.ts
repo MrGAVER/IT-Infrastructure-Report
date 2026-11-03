@@ -67,7 +67,10 @@ describe('UI-19: гамбургер и фон при открытом меню',
 
   describe('inert на основной области', () => {
     const phone = (matches: boolean) =>
-      vi.stubGlobal('matchMedia', vi.fn(() => ({ matches, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+      vi.stubGlobal(
+        'matchMedia',
+        vi.fn(() => ({ matches, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+      )
     const mountShell = () => mount(AppShell, { global: { stubs: { ...stubs, Sidebar: false } }, attachTo: document.body })
 
     it('на телефоне при открытом меню .main получает inert — фон не доступен ни мышью, ни клавиатурой', async () => {

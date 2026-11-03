@@ -281,7 +281,7 @@ function showPlan(scope: PortSyncScope, title?: string) {
 .tag.action.auto {
   background: var(--brand-soft);
   border-color: var(--brand);
-  color: var(--brand);
+  color: var(--brand-ink);
 }
 .tag.muted {
   opacity: 0.8;

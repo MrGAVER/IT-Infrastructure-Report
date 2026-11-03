@@ -12,7 +12,10 @@ function stubMatchMedia(initial: boolean) {
     addEventListener: vi.fn((_: string, cb: Listener) => listeners.add(cb)),
     removeEventListener: vi.fn((_: string, cb: Listener) => listeners.delete(cb)),
   }
-  vi.stubGlobal('matchMedia', vi.fn(() => list))
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => list),
+  )
   return { list, emit: (matches: boolean) => listeners.forEach((cb) => cb({ matches })), listeners }
 }
 

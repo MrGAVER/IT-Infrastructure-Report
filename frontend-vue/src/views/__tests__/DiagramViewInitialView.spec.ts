@@ -45,7 +45,10 @@ function diagramWith(viewport: DiagramViewport | null): SavedDiagramDetail {
 }
 
 async function mountScreen(viewport: DiagramViewport | null) {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(diagramWith(viewport)))))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(diagramWith(viewport)))),
+  )
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [

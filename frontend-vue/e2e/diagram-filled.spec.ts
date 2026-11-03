@@ -36,7 +36,9 @@ async function canvasScale(page: Page): Promise<number> {
 async function labelOverlaps(page: Page): Promise<{ labels: number; labelLabel: number; labelNode: number }> {
   return page.evaluate(() => {
     const visible = (el: Element) => getComputedStyle(el).display !== 'none'
-    const labels = Array.from(document.querySelectorAll('.diagram-edge-label--port')).filter(visible).map((el) => el.getBoundingClientRect())
+    const labels = Array.from(document.querySelectorAll('.diagram-edge-label--port'))
+      .filter(visible)
+      .map((el) => el.getBoundingClientRect())
     const nodes = Array.from(document.querySelectorAll('.vue-flow__node-device')).map((el) => el.getBoundingClientRect())
     const hit = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
     let labelLabel = 0

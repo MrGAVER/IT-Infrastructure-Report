@@ -48,7 +48,9 @@ describe('base.css — граница полей ввода (UI-07)', () => {
   const css = readStyles('src/styles/base.css')
 
   it('поля .field, строк таблиц и фильтров получают border-color: var(--field-border), кроме состояния :focus', () => {
-    expect(css).toMatch(/html :is\(\.field, \.nested-row, \.ip-row, \.filter-row, \.ss-input-row\)\s*:is\(input:not\(\[type='checkbox'\]\)[^{]*select, textarea\):not\(:focus\)\s*\{\s*border-color:\s*var\(--field-border\);/)
+    expect(css).toMatch(
+      /html\s+:is\(\.field, \.nested-row, \.ip-row, \.filter-row, \.ss-input-row\)\s*:is\(input:not\(\[type='checkbox'\]\)[^{]*select, textarea\):not\(:focus\)\s*\{\s*border-color:\s*var\(--field-border\);/,
+    )
   })
 
   it('чекбоксы, радио и ползунок рамку не получают', () => {

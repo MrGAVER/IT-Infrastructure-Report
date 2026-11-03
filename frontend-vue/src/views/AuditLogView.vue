@@ -189,7 +189,7 @@ onBeforeUnmount(() => searchDebounced.cancel())
 }
 .chip-group button.on {
   background: var(--brand-soft);
-  color: var(--brand);
+  color: var(--brand-ink);
   font-weight: 700;
 }
 .spacer {
@@ -254,12 +254,12 @@ tbody tr:hover td {
   color: var(--status-ok);
 }
 .action-badge.update {
-  color: var(--brand);
+  color: var(--brand-ink);
   background: var(--brand-soft);
 }
 .action-badge.delete {
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.15));
-  color: var(--status-crit);
+  color: var(--crit-ink);
 }
 .action-badge.sync {
   background: var(--status-warn-soft, rgba(232, 163, 61, 0.15));
