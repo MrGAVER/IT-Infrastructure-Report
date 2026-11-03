@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openApp } from './fixtures.ts'
-import { seedDiagram, seedParallelLinks } from './seed.ts'
+import { cleanupSeeded, seedDiagram, seedParallelLinks } from './seed.ts'
+
+// Данные, созданные фикстурами, убираются после каждого теста — иначе они остаются в общей базе и меняют чужие проверки.
+test.afterEach(async ({ request }) => {
+  await cleanupSeeded(request)
+})
 
 // Экран диаграммы на заполненных данных (ревью 2.158.0, поток «исполнитель 1»): UI-01 — граф вписан в холст при открытии,
 // UI-02 — есть кнопки масштаба и «вписать», на десктопе мини-карта, UI-22 — подписи портов не накладываются. Нужна именно заполненная база: на пустой диаграмме

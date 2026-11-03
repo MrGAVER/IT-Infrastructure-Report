@@ -11,11 +11,35 @@ interface Catalog {
   items?: Array<{ id: string; name: string }>
 }
 
-async function postJson<T>(request: APIRequestContext, path: string, data: unknown): Promise<T> {
+// Пути DELETE созданных фикстурами ресурсов — в порядке создания. База у всех тестов прогона общая: без уборки устройства из одного
+// теста попадали бы на экраны, которые другие тесты проверяют на пустой базе (так «/devices шире окна» всплыло в routes.spec.ts).
+const created: string[] = []
+
+async function postJson<T extends { id?: string }>(request: APIRequestContext, path: string, data: unknown): Promise<T> {
   // Origin обязателен: backend проверяет его у небезопасных методов (CSRF), браузерный fetch проставляет его сам.
   const response = await request.post(`${API}${path}`, { data, headers: { Origin: ORIGIN } })
   if (!response.ok()) throw new Error(`POST ${path} → ${response.status()}: ${(await response.text()).slice(0, 200)}`)
-  return (await response.json()) as T
+  const body = (await response.json()) as T
+  if (body.id) created.push(`${API}${path}/${body.id}`)
+  return body
+}
+
+/**
+ * Удаляет всё, что создали фикстуры этого файла, в обратном порядке (диаграмма → подключения → устройства → здание). Вызывать в
+ * test.afterEach. 404 не ошибка (ресурс уже удалён каскадом); любой другой отказ — ошибка: молчаливая утечка данных в общую базу
+ * ломала бы чужие тесты непредсказуемо.
+ */
+export async function cleanupSeeded(request: APIRequestContext): Promise<void> {
+  const failures: string[] = []
+  for (const path of created.splice(0).reverse()) {
+    // Устройство с интерфейсами backend не удаляет (409 REFERENCED_BY_OTHER_RECORDS) — сначала очищаем их; подключения к этому
+    // моменту уже удалены (обратный порядок), иначе интерфейсы тоже были бы заняты.
+    const device = /\/resources\/devices\/([^/]+)$/.exec(path)
+    if (device) await request.put(`${API}/devices/${device[1]}/interfaces`, { data: { interfaces: [] }, headers: { Origin: ORIGIN } })
+    const response = await request.delete(path, { headers: { Origin: ORIGIN } })
+    if (!response.ok() && response.status() !== 404) failures.push(`DELETE ${path} → ${response.status()}`)
+  }
+  if (failures.length) throw new Error(`не удалось убрать данные фикстур: ${failures.join('; ')}`)
 }
 
 async function deviceTypeIds(request: APIRequestContext): Promise<string[]> {
