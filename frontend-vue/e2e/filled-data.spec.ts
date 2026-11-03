@@ -336,8 +336,28 @@ test.describe('телефон 390×844: таблицы с заполненным
     for (const height of heights) expect(height).toBeLessThanOrEqual(110)
   })
 
-  test('UI-06: на десктопе подсказка прокрутки не показывается — таблица помещается целиком', async ({ page }) => {
+  // Подсказка не должна врать при любой ширине: тень и tabindex есть тогда и только тогда, когда таблица действительно шире окна.
+  // Ширина «впритык» зависит от версии Chromium и растеризации шрифта (на стрессовых данных у таблицы при 1440 px запас ≈ 10 px:
+  // в CI на другой сборке браузера она оказалась на пару пикселей шире окна), поэтому факт переполнения измеряется, а не предполагается.
+  test('UI-06: подсказка прокрутки совпадает с фактом — тень и tabindex только если таблица шире окна (1440)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
+    await mockFilledData(page)
+    await openApp(page, '/devices')
+
+    const wrap = page.locator('.table-wrap')
+    const scrollable = await wrap.evaluate((el) => el.scrollWidth > el.clientWidth)
+    if (scrollable) {
+      await expect(wrap).toHaveClass(/shade-right/)
+      await expect(wrap).toHaveAttribute('tabindex', '0')
+    } else {
+      await expect(wrap).not.toHaveClass(/shade-(left|right)/)
+      await expect(wrap).not.toHaveAttribute('tabindex', /.*/)
+    }
+  })
+
+  // Минимальная ширина таблицы ≈ 1160 px, окно 1920 даёт ≈ 1650 px — запас, не зависящий от браузера: подсказки нет.
+  test('UI-06: на широком десктопе (1920) подсказка прокрутки не показывается — таблица помещается целиком', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 })
     await mockFilledData(page)
     await openApp(page, '/devices')
 
