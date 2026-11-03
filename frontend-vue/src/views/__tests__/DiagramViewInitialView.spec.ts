@@ -20,6 +20,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     onNodesInitialized: (cb: () => void) => {
       flow.handler = cb
     },
+    viewport: { value: { x: 0, y: 0, zoom: 1 } },
   }),
 }))
 

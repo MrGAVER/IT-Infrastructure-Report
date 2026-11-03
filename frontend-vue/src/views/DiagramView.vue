@@ -11,7 +11,7 @@
 // localNodes/localEdges пересобираются из него заново при каждой загрузке/пересборке диаграммы
 // (см. syncFromStore), а обратно в стор данные идут ТОЛЬКО через явные действия
 // (onNodeDragStop -> store.moveNode, раздел 4.6 ТЗ), а не автоматической синхронизацией.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type GraphNode, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
@@ -28,6 +28,7 @@ import DiagramZoomControls from '../components/diagram/DiagramZoomControls.vue'
 import { useMediaQuery } from '../composables/useMediaQuery'
 import { CONNECTION_EDGE_TYPE, edgeBaseStyle, edgeIsRelatedToHover, GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
 import { FIT_VIEW_OPTIONS, resolveInitialView } from '../utils/diagramViewport'
+import { EDGE_LABEL_LAYOUT_KEY, computeEdgeLabelLayout, edgeLabelsVisible } from '../utils/diagramEdgeLabels'
 import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagrams'
 
 const route = useRoute()
@@ -35,9 +36,14 @@ const router = useRouter()
 const store = useDiagramStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
-const { fitView, setViewport, onNodesInitialized } = useVueFlow()
+const { fitView, setViewport, onNodesInitialized, viewport } = useVueFlow()
 
 const diagramId = computed(() => String(route.params.id))
+
+// UI-22 (ревью 2.158.0): слоты подписей портов и группы параллельных связей считаются один раз на диаграмму и отдаются рёбрам через
+// provide — данные рёбер (контракт API) остаются нетронутыми. На мелком масштабе (< 0,6) подписи рёбер скрыты классом на холсте.
+provide(EDGE_LABEL_LAYOUT_KEY, computed(() => computeEdgeLabelLayout(store.diagram?.edges ?? [])))
+const labelsHidden = computed(() => !edgeLabelsVisible(viewport.value.zoom))
 
 // Мини-карта на телефоне занимает заметную часть холста шириной 350 px, а ориентироваться там помогают кнопки масштаба.
 const isPhone = useMediaQuery('(max-width: 760px)')
@@ -294,7 +300,7 @@ async function commitRename() {
     </div>
     <div v-else-if="store.loading && !store.diagram" class="loading-banner">Загрузка диаграммы…</div>
 
-    <div v-else class="canvas-wrap">
+    <div v-else class="canvas-wrap" :class="{ 'labels-hidden': labelsHidden }">
       <VueFlow
         v-model:nodes="localNodes"
         v-model:edges="localEdges"
@@ -412,6 +418,10 @@ async function commitRename() {
   border-radius: var(--r-m);
   overflow: hidden;
   background: var(--bg);
+}
+/* UI-22: подписи рёбер рисуются отдельным слоем (EdgeLabelRenderer) внутри холста, поэтому скрываются по классу на нём. */
+.canvas-wrap.labels-hidden :deep(.diagram-edge-label) {
+  display: none;
 }
 /* Мини-карта — справа от кнопок масштаба (оба в левом нижнем углу), чтобы не оказаться под панелью сведений справа. Стили
    пакета светлые (#fff), поэтому фон, рамка и «шторка» вне вида берутся из токенов темы. */

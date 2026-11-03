@@ -52,3 +52,50 @@ export async function seedDiagram(request: APIRequestContext, options: { devices
   })
   return diagram.id
 }
+
+/**
+ * Диаграмма из двух коммутаторов с `links` параллельными связями между соседними портами (0…links − 1 на обоих концах) — именно
+ * так подписи портов у соседних засечек наслаиваются друг на друга (UI-22). Возвращает id диаграммы.
+ */
+export async function seedParallelLinks(request: APIRequestContext, options: { links: number }): Promise<string> {
+  const [typeId] = await deviceTypeIds(request)
+  const run = `${Date.now().toString(36)}-${counter++}`
+  // База общая для всех тестов прогона, а фильтр диаграммы не умеет «только эти устройства» — изолируем отдельным зданием.
+  const building = await postJson<{ id: string }>(request, '/resources/buildings', { name: `e2e-здание-${run}`, address: 'e2e' })
+  const devices: Array<{ id: string }> = []
+  for (const side of ['a', 'b']) {
+    const device = await postJson<{ id: string }>(request, '/resources/devices', {
+      device_type_id: typeId,
+      system_name: `e2e-link-${run}-${side}`,
+      serial_number: `E2E-LINK-${run}-${side}`,
+      building_id: building.id,
+    })
+    const interfaces = Array.from({ length: 8 }, (_, index) => ({ name: `Gi1/0/${index + 1}`, is_management: false, ips: [] }))
+    const put = await request.put(`${API}/devices/${device.id}/interfaces`, { data: { interfaces }, headers: { Origin: ORIGIN } })
+    if (!put.ok()) throw new Error(`PUT interfaces → ${put.status()}`)
+    devices.push(device)
+  }
+
+  const connectionTypes = (await (await request.get(`${API}/resources/connection-types`)).json()) as Catalog | Array<{ id: string }>
+  const connectionTypeId = (Array.isArray(connectionTypes) ? connectionTypes : (connectionTypes.items ?? []))[0]?.id
+  const all = await request.get(`${API}/resources/interfaces?limit=1000`)
+  const interfaces = (await all.json()) as { items?: Array<{ id: string; name: string; physical_device_id: string }> } | Array<{ id: string; name: string; physical_device_id: string }>
+  const rows = Array.isArray(interfaces) ? interfaces : (interfaces.items ?? [])
+  const byDevice = (deviceId: string) => rows.filter((row) => row.physical_device_id === deviceId).sort((x, y) => x.name.localeCompare(y.name, 'en', { numeric: true }))
+  const [left, right] = [byDevice(devices[0].id), byDevice(devices[1].id)]
+  for (let index = 0; index < options.links; index++) {
+    await postJson(request, '/resources/connections', {
+      source_interface_id: left[index].id,
+      destination_interface_id: right[index].id,
+      connection_type_id: connectionTypeId,
+    })
+  }
+
+  const diagram = await postJson<{ id: string }>(request, '/diagrams', {
+    name: `e2e-связи-${run}`,
+    scope_filter: { building_ids: [building.id] },
+    group_by: 'device_category',
+    collapse_threshold: 500,
+  })
+  return diagram.id
+}
