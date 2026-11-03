@@ -32,4 +32,18 @@ describe('ThemeSwitcher.vue', () => {
     const wrapper = mount(ThemeSwitcher, { props: { compact: true } })
     expect(wrapper.find('.swatch-name').exists()).toBe(false)
   })
+
+  it('UI-16: у каждой кнопки есть aria-label с названием схемы — в компактном режиме текста внутри нет', () => {
+    const wrapper = mount(ThemeSwitcher, { props: { compact: true } })
+    const labels = wrapper.findAll('.swatch-btn').map((b) => b.attributes('aria-label'))
+    expect(labels).toEqual(COLOR_SCHEMES.map((scheme) => `Цветовая схема: ${scheme.name}`))
+  })
+
+  it('UI-16: выбранная схема различима не только галочкой — aria-pressed есть у каждой кнопки и true только у выбранной', async () => {
+    const wrapper = mount(ThemeSwitcher)
+    const pressed = () => wrapper.findAll('.swatch-btn').map((b) => b.attributes('aria-pressed'))
+    expect(pressed()).toEqual(['true', 'false', 'false'])
+    await wrapper.findAll('.swatch-btn')[2].trigger('click')
+    expect(pressed()).toEqual(['false', 'false', 'true'])
+  })
 })

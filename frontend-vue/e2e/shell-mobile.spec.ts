@@ -51,3 +51,38 @@ test.describe('UI-05: шапка и высота холста диаграммы
     })
   })
 })
+
+test.describe('UI-15: название в меню', () => {
+  test('«ИТ-инфраструктуры» не рвётся по дефису — фрагмент занимает одну строку', async ({ page }) => {
+    await openApp(page, '/dashboard')
+    const lines = await page.locator('.brand-text .nobreak').evaluate((el) => el.getClientRects().length)
+    expect(lines).toBe(1)
+  })
+})
+
+test.describe('UI-19: мобильное меню', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('открытое меню блокирует фон: inert, фокус в меню, Tab не уходит за подложку, Esc возвращает фокус на гамбургер', async ({ page }) => {
+    await openApp(page, '/dashboard')
+    const burger = page.getByRole('button', { name: 'Меню' })
+    await expect(burger).toHaveAttribute('aria-expanded', 'false')
+    await expect(burger).toHaveAttribute('aria-controls', 'app-sidebar')
+
+    await burger.click()
+    await expect(burger).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('.main')).toHaveAttribute('inert', '')
+    const focusInMenu = () => page.evaluate(() => !!document.activeElement?.closest('#app-sidebar'))
+    expect(await focusInMenu()).toBe(true)
+
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press('Tab')
+      expect(await focusInMenu(), `Tab №${i + 1} ушёл за пределы меню`).toBe(true)
+    }
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.main')).not.toHaveAttribute('inert', /.*/)
+    await expect(burger).toBeFocused()
+    await expect(burger).toHaveAttribute('aria-expanded', 'false')
+  })
+})

@@ -18,7 +18,7 @@ describe('Sidebar.vue', () => {
       props: { open: false },
       global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
     })
-    expect(wrapper.find('.brand-text span').text()).toBe('ООО «Организация»')
+    expect(wrapper.find('.brand-text .org').text()).toBe('ООО «Организация»')
   })
 
   // Регресс на п.6: раньше строка была захардкожена в шаблоне, а не в сторе — изменить
@@ -30,7 +30,7 @@ describe('Sidebar.vue', () => {
       props: { open: false },
       global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
     })
-    expect(wrapper.find('.brand-text span').text()).toBe('ООО «Ромашка»')
+    expect(wrapper.find('.brand-text .org').text()).toBe('ООО «Ромашка»')
   })
 
   // п.6: пункт меню "Другие справочники", ведущий на новый OtherCatalogsView.vue.

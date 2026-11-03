@@ -4,8 +4,13 @@ import { useRouter } from 'vue-router'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
 import { useAuthStore } from '../stores/auth'
 
-defineProps<{ title: string; crumb: string }>()
+// sidebarOpen — состояние мобильного меню: гамбургер сообщает его через aria-expanded (UI-19).
+defineProps<{ title: string; crumb: string; sidebarOpen?: boolean }>()
 defineEmits<{ 'toggle-sidebar': [] }>()
+
+// Фокус возвращается на гамбургер после закрытия меню (AppShell): пока меню открыто, топбар inert, и фокус с него уходит.
+const burgerEl = ref<HTMLButtonElement | null>(null)
+defineExpose({ focusMenuButton: () => burgerEl.value?.focus() })
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -56,7 +61,15 @@ async function logout() {
 
 <template>
   <div class="topbar">
-    <button class="hamburger" aria-label="Меню" @click="$emit('toggle-sidebar')">
+    <button
+      ref="burgerEl"
+      type="button"
+      class="hamburger"
+      aria-label="Меню"
+      aria-controls="app-sidebar"
+      :aria-expanded="sidebarOpen === true"
+      @click="$emit('toggle-sidebar')"
+    >
       <svg class="icon"><use href="/icons.svg#i-menu" /></svg>
     </button>
     <div class="titles">
@@ -68,11 +81,12 @@ async function logout() {
       <ThemeSwitcher compact />
       <div v-if="auth.enabled && auth.user" ref="rootEl" class="user-chip">
         <button ref="triggerEl" type="button" class="user-chip-trigger" :aria-expanded="menuOpen" aria-haspopup="menu" @click="toggleMenu">
-          <div class="avatar">{{ auth.user.username.charAt(0).toUpperCase() }}</div>
-          <div class="who">
+          <!-- UI-19: внутри <button> допустимо только фразовое содержимое — <span>, не <div> (display задаётся стилями). -->
+          <span class="avatar">{{ auth.user.username.charAt(0).toUpperCase() }}</span>
+          <span class="who">
             <b>{{ auth.user.username }}</b>
             <span>{{ auth.isAdmin ? 'Администратор' : 'Только просмотр' }}</span>
-          </div>
+          </span>
           <svg class="icon chevron" :class="{ open: menuOpen }"><use href="/icons.svg#i-chevd" /></svg>
         </button>
         <div v-if="menuOpen" class="user-menu" role="menu">
@@ -166,6 +180,7 @@ async function logout() {
   flex-shrink: 0;
 }
 .who {
+  display: block;
   font-size: 11.5px;
   line-height: 1.3;
   text-align: left;

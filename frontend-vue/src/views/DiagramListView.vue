@@ -81,7 +81,8 @@ function onCreated(id: string) {
 <template>
   <div class="diagrams-view">
     <div class="filter-bar">
-      <h1>Диаграммы топологии сети</h1>
+      <!-- UI-17: тот же заголовок уже в шапке («Диаграмма топологии сети»); h1 оставлен для скринридера, видимого дубля нет. -->
+      <h1 class="sr-only">Диаграммы топологии сети</h1>
       <div class="spacer"></div>
       <button class="btn btn-secondary" :disabled="loading" @click="reload">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
