@@ -2,7 +2,7 @@
 // Подтверждение добавления устройства в стек: у стека есть общие настройки VLAN, поэтому устройство получит их значения.
 // Окно заранее показывает, что произойдёт с данными устройства — какие VLAN будут назначены и какие значения заменятся
 // (было → станет); ничего не записывается, пока пользователь не подтвердит.
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import type { StackMemberPreview } from '../api/types'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { describeMemberChange } from '../utils/stackVlans'
@@ -10,6 +10,8 @@ import { describeMemberChange } from '../utils/stackVlans'
 const props = defineProps<{ preview: StackMemberPreview; busy: boolean }>()
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('cancel'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 const addedCount = computed(() => props.preview.changes.filter((c) => c.action === 'add').length)
 const replacedCount = computed(() => props.preview.changes.filter((c) => c.action === 'update').length)
 </script>
@@ -17,8 +19,8 @@ const replacedCount = computed(() => props.preview.changes.filter((c) => c.actio
 <template>
   <Teleport to="body">
     <div class="overlay" data-testid="stack-member-confirm" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="dialog card" role="dialog" aria-modal="true">
-        <h3>Добавить «{{ preview.device_name }}» в стек «{{ preview.stack_name }}»?</h3>
+      <div class="dialog card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+        <h3 :id="titleId">Добавить «{{ preview.device_name }}» в стек «{{ preview.stack_name }}»?</h3>
         <p class="lead">У стека заданы общие настройки VLAN — устройство получит их значения. Данные устройства изменятся так:</p>
         <p class="summary" data-testid="stack-member-confirm-summary">
           VLAN будет назначено: <b>{{ addedCount }}</b

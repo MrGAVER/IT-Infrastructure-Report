@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Экран одной диаграммы топологии сети (раздел 11 ТЗ). @vue-flow/core — единственная новая
-// рантайм-зависимость фронтенда (раздел 11 ТЗ) — без дополнительных пакетов @vue-flow/background
-// и @vue-flow/controls: панорамирование/масштабирование колесом уже встроены в @vue-flow/core,
-// доп. пакеты добавляют только декоративный фон и панель кнопок зума, без которых можно обойтись.
+// Экран одной диаграммы топологии сети (раздел 11 ТЗ). @vue-flow/core — основная зависимость холста (раздел 11 ТЗ);
+// панорамирование и масштабирование колесом встроены в неё. Кнопки масштаба — собственный компонент
+// (DiagramZoomControls.vue), мини-карта — пакет @vue-flow/minimap (UI-02, ревью 2.158.0): без них диаграмму на 30+ узлов не
+// охватить, а на телефоне нечем увеличить. Декоративный @vue-flow/background по-прежнему не подключён.
 //
 // localNodes/localEdges — v-model, привязанный к @vue-flow/core (это их задокументированный
 // способ "управляемого" состояния канваса, см. README примеров пакета): библиотеке нужен
@@ -11,9 +11,11 @@
 // localNodes/localEdges пересобираются из него заново при каждой загрузке/пересборке диаграммы
 // (см. syncFromStore), а обратно в стор данные идут ТОЛЬКО через явные действия
 // (onNodeDragStop -> store.moveNode, раздел 4.6 ТЗ), а не автоматической синхронизацией.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
+import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type GraphNode, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
+import { MiniMap } from '@vue-flow/minimap'
+import '@vue-flow/minimap/dist/style.css'
 import { useDiagramStore } from '../stores/diagram'
 import { useToast } from '../composables/useToast'
 import { useAuthStore } from '../stores/auth'
@@ -22,7 +24,11 @@ import DiagramGroupNode from '../components/diagram/DiagramGroupNode.vue'
 import DiagramConnectionEdge from '../components/diagram/DiagramConnectionEdge.vue'
 import DiagramDetailPanel from '../components/diagram/DiagramDetailPanel.vue'
 import DiagramExportPanel from '../components/diagram/DiagramExportPanel.vue'
+import DiagramZoomControls from '../components/diagram/DiagramZoomControls.vue'
+import { useMediaQuery } from '../composables/useMediaQuery'
 import { CONNECTION_EDGE_TYPE, edgeBaseStyle, edgeIsRelatedToHover, GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
+import { FIT_VIEW_OPTIONS, resolveInitialView } from '../utils/diagramViewport'
+import { EDGE_LABEL_LAYOUT_KEY, computeEdgeLabelLayout, edgeLabelsVisible } from '../utils/diagramEdgeLabels'
 import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagrams'
 
 const route = useRoute()
@@ -30,9 +36,22 @@ const router = useRouter()
 const store = useDiagramStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
-const { fitView } = useVueFlow()
+const { fitView, setViewport, onNodesInitialized, viewport } = useVueFlow()
 
 const diagramId = computed(() => String(route.params.id))
+
+// UI-22 (ревью 2.158.0): слоты подписей портов и группы параллельных связей считаются один раз на диаграмму и отдаются рёбрам через
+// provide — данные рёбер (контракт API) остаются нетронутыми. На мелком масштабе (< 0,6) подписи рёбер скрыты классом на холсте.
+provide(EDGE_LABEL_LAYOUT_KEY, computed(() => computeEdgeLabelLayout(store.diagram?.edges ?? [])))
+const labelsHidden = computed(() => !edgeLabelsVisible(viewport.value.zoom))
+
+// Мини-карта на телефоне занимает заметную часть холста шириной 350 px, а ориентироваться там помогают кнопки масштаба.
+const isPhone = useMediaQuery('(max-width: 760px)')
+const MINIMAP_NEUTRAL_COLOR = '#8fa0b3'
+function miniMapNodeColor(node: GraphNode): string {
+  const data = node.data as DiagramNode | undefined
+  return data?.type === 'device' && 'color' in data.icon && data.icon.color ? data.icon.color : MINIMAP_NEUTRAL_COLOR
+}
 
 const localNodes = ref<Node<DiagramNode>[]>([])
 const localEdges = ref<Edge<DiagramEdge>[]>([])
@@ -48,14 +67,28 @@ function syncFromStore() {
   localEdges.value = edges.map((e) => toFlowEdge(e)) as Edge<DiagramEdge>[]
 }
 
-async function loadAndFit() {
+// UI-01 (ревью 2.158.0): раньше fitView() вызывался в requestAnimationFrame сразу после установки узлов — до того, как Vue Flow
+// измерил их размеры, — и граф оставался в масштабе 1 со сдвигом 0, обрезанный по краю холста. Теперь начальный вид применяется
+// по событию nodesInitialized (у всех узлов уже есть размеры). Флаг нужен, чтобы событие, которое приходит и при каждой
+// следующей замене узлов (разворачивание группы, «Пересобрать»), не сбрасывало вид, выбранный пользователем.
+let applyInitialView = false
+
+async function loadDiagram() {
   await store.load(diagramId.value)
+  if (store.diagram) applyInitialView = true
   syncFromStore()
-  if (store.diagram) requestAnimationFrame(() => fitView())
 }
 
-onMounted(loadAndFit)
-watch(diagramId, loadAndFit)
+onNodesInitialized(() => {
+  if (!applyInitialView) return
+  applyInitialView = false
+  const view = resolveInitialView(store.diagram?.viewport)
+  if (view.kind === 'restore') void setViewport(view.viewport)
+  else void fitView(FIT_VIEW_OPTIONS)
+})
+
+onMounted(loadDiagram)
+watch(diagramId, loadDiagram)
 // Сдвиг узла уходит на сервер с задержкой (debounce в сторе): при уходе с экрана отправляем его сразу.
 // Смену диаграммы на этом же экране покрывает store.load(). Ошибка сохранения остаётся в store.error.
 onBeforeUnmount(() => {
@@ -267,11 +300,10 @@ async function commitRename() {
     </div>
     <div v-else-if="store.loading && !store.diagram" class="loading-banner">Загрузка диаграммы…</div>
 
-    <div v-else class="canvas-wrap">
+    <div v-else class="canvas-wrap" :class="{ 'labels-hidden': labelsHidden }">
       <VueFlow
         v-model:nodes="localNodes"
         v-model:edges="localEdges"
-        :default-viewport="{ zoom: store.diagram?.viewport?.zoom ?? 1, x: store.diagram?.viewport?.pan_x ?? 0, y: store.diagram?.viewport?.pan_y ?? 0 }"
         :min-zoom="0.1"
         :max-zoom="2.5"
         :nodes-connectable="false"
@@ -288,6 +320,8 @@ async function commitRename() {
         <template #node-device="nodeProps"><DiagramDeviceNode v-bind="nodeProps" /></template>
         <template #node-group="nodeProps"><DiagramGroupNode v-bind="nodeProps" /></template>
         <template #[`edge-${CONNECTION_EDGE_TYPE}`]="edgeProps"><DiagramConnectionEdge v-bind="edgeProps" /></template>
+        <DiagramZoomControls />
+        <MiniMap v-if="!isPhone" class="diagram-minimap" position="bottom-left" pannable zoomable aria-label="Мини-карта диаграммы" :node-color="miniMapNodeColor" :width="160" :height="110" />
       </VueFlow>
       <DiagramDetailPanel :selection="store.selection" @close="store.clearSelection()" @expand-group="(k) => expandGroup(`${GROUP_PREFIX}${k}`)" />
     </div>
@@ -295,11 +329,15 @@ async function commitRename() {
 </template>
 
 <style scoped>
+/* UI-05: высота — окно минус фактическая шапка (--topbar-h публикует AppShell) и отступы контента. Раньше стояла
+   константа 96 px: она не совпадала с реальной шапкой (документ получал +22 px на 900 и +59 px на 844), а 100vh на мобильных
+   браузерах «прыгает» вместе с адресной строкой. Первое объявление height — запасное для браузеров без dvh. */
 .diagram-view {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: calc(100vh - 96px);
+  height: calc(100vh - var(--topbar-h, 68px) - var(--content-pad-top, 18px) - var(--content-pad-bottom, 32px));
+  height: calc(100dvh - var(--topbar-h, 68px) - var(--content-pad-top, 18px) - var(--content-pad-bottom, 32px));
 }
 .toolbar {
   display: flex;
@@ -372,11 +410,30 @@ async function commitRename() {
 }
 .canvas-wrap {
   position: relative;
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  /* Холст не сжимается в полоску, когда тулбар в несколько строк съедает высоту (низкий телефон в альбомной ориентации): лучше
+     прокрутка страницы, чем диаграмма, которую нельзя разглядеть. */
+  min-height: 320px;
   border: 1px solid var(--border);
   border-radius: var(--r-m);
   overflow: hidden;
   background: var(--bg);
+}
+/* UI-22: подписи рёбер рисуются отдельным слоем (EdgeLabelRenderer) внутри холста, поэтому скрываются по классу на нём. */
+.canvas-wrap.labels-hidden :deep(.diagram-edge-label) {
+  display: none;
+}
+/* Мини-карта — справа от кнопок масштаба (оба в левом нижнем углу), чтобы не оказаться под панелью сведений справа. Стили
+   пакета светлые (#fff), поэтому фон, рамка и «шторка» вне вида берутся из токенов темы. */
+.canvas-wrap :deep(.vue-flow__minimap) {
+  margin-left: 66px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  overflow: hidden;
+}
+.canvas-wrap :deep(.vue-flow__minimap-mask) {
+  fill: color-mix(in srgb, var(--bg) 72%, transparent);
+  stroke: var(--brand);
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
@@ -16,8 +16,23 @@ const visibleSystemNav = computed(() => systemNav.filter((item) => !item.adminOn
 // UI-10 (ревью merge/review-2158-executors): мобильное меню закрывается по Esc. Слушатель на document, а не на
 // самом меню: фокус после открытия остаётся на кнопке-гамбургере в топбаре, то есть вне <aside>.
 function onKeydown(event: KeyboardEvent) {
-  if (props.open && event.key === 'Escape' && !event.defaultPrevented) emit('close')
+  if (!props.open || event.key !== 'Escape' || event.defaultPrevented) return
+  // Забираем Esc себе (UI-04): иначе он дойдёт до useEscapeClose и закроет ещё и окно, если оно оказалось открытым.
+  event.preventDefault()
+  emit('close')
 }
+// UI-19: пока меню открыто, фон под ним (.main) недоступен — inert (AppShell). Фокус при этом нельзя оставлять на гамбургере в топбаре:
+// он станет недоступным и браузер сбросит его на body. Поэтому при открытии фокус переходит на первый пункт меню.
+const asideEl = ref<HTMLElement | null>(null)
+watch(
+  () => props.open,
+  async (isOpen) => {
+    if (!isOpen) return
+    await nextTick()
+    asideEl.value?.querySelector<HTMLElement>('a, button')?.focus()
+  },
+)
+
 onMounted(() => document.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
@@ -54,12 +69,12 @@ const systemNav = [
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ open }">
+  <aside id="app-sidebar" ref="asideEl" class="sidebar" :class="{ open }">
     <div class="brand">
       <div class="brand-mark">ITR</div>
       <div class="brand-text">
-        Реестр ИТ-инфраструктуры
-        <span>{{ organization.name }}</span>
+        Реестр <span class="nobreak">ИТ-инфраструктуры</span>
+        <span class="org">{{ organization.name }}</span>
       </div>
     </div>
 
@@ -154,7 +169,11 @@ const systemNav = [
   font-size: 13.5px;
   line-height: 1.25;
 }
-.brand-text span {
+/* UI-15: «ИТ-инфраструктуры» не рвётся по дефису («Реестр ИТ-» / «инфраструктуры»): при нехватке места переносится целиком. */
+.nobreak {
+  white-space: nowrap;
+}
+.brand-text .org {
   display: block;
   font-family: var(--font-body);
   font-weight: 400;
@@ -194,7 +213,7 @@ const systemNav = [
 }
 .nav a.router-link-active {
   background: var(--brand-soft);
-  color: var(--brand);
+  color: var(--brand-ink);
   border-left-color: var(--brand);
   font-weight: 600;
 }

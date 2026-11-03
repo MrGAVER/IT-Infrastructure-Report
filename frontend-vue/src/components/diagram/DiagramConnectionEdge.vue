@@ -6,10 +6,11 @@
 // utils/diagramFlow.ts). Вся содержательная логика (текст подписей, геометрия отступа) вынесена
 // в чистые функции diagramFlow.ts и проверяется там; этот файл только раскладывает их результат
 // по разметке.
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@vue-flow/core'
 import type { DiagramEdge } from '../../api/diagrams'
-import { edgeAngleDeg, edgeMidLabel, edgeSourcePortLabel, edgeTargetPortLabel, offsetAlongHandle } from '../../utils/diagramFlow'
+import { edgeAngleDeg, offsetAlongHandle } from '../../utils/diagramFlow'
+import { EDGE_LABEL_LAYOUT_KEY, edgeLabelTexts, portLabelDistance } from '../../utils/diagramEdgeLabels'
 
 const props = defineProps<EdgeProps<DiagramEdge>>()
 
@@ -27,15 +28,24 @@ const path = computed(() => bezier.value[0])
 const midX = computed(() => bezier.value[1])
 const midY = computed(() => bezier.value[2])
 
-const midLabel = computed(() => edgeMidLabel(props.data))
-const sourcePortLabel = computed(() => edgeSourcePortLabel(props.data))
-const targetPortLabel = computed(() => edgeTargetPortLabel(props.data))
-const sourceLabelPos = computed(() => offsetAlongHandle(props.sourceX, props.sourceY, props.sourcePosition))
-const targetLabelPos = computed(() => offsetAlongHandle(props.targetX, props.targetY, props.targetPosition))
+// UI-22: какие подписи у ребра (группировка параллельных связей в «×N») и на каком расстоянии от узла их класть (угол линии и слот
+// среди соседних портов) решают чистые функции diagramEdgeLabels.ts; раскладку всей диаграммы даёт DiagramView через provide.
+const layoutMap = inject(EDGE_LABEL_LAYOUT_KEY, undefined)
+const layout = computed(() => layoutMap?.value.get(props.id))
+const texts = computed(() => edgeLabelTexts(props.data, layout.value))
+const midLabel = computed(() => texts.value.mid)
+const sourcePortLabel = computed(() => texts.value.source)
+const targetPortLabel = computed(() => texts.value.target)
 // Пункт 3 правки "диаграмма топологии сети": один угол на все три подписи этого ребра, а не
 // горизонтальный текст независимо от направления линии (см. edgeAngleDeg — нормализован, чтобы
 // подпись никогда не оказывалась вверх ногами).
 const angle = computed(() => edgeAngleDeg(props.sourceX, props.sourceY, props.targetX, props.targetY))
+const sourceLabelPos = computed(() =>
+  offsetAlongHandle(props.sourceX, props.sourceY, props.sourcePosition, portLabelDistance(sourcePortLabel.value ?? '', angle.value, props.sourcePosition, layout.value?.sourceSlot ?? 0)),
+)
+const targetLabelPos = computed(() =>
+  offsetAlongHandle(props.targetX, props.targetY, props.targetPosition, portLabelDistance(targetPortLabel.value ?? '', angle.value, props.targetPosition, layout.value?.targetSlot ?? 0)),
+)
 // Пункт 4: DiagramView.vue приглушает НЕсвязанные с наведением рёбра через props.style.opacity
 // (см. edgeIsRelatedToHover) — тот style применяется только к <BaseEdge> (сама линия), подписи
 // рисуются отдельно через EdgeLabelRenderer со своим style и не унаследовали бы его сами по

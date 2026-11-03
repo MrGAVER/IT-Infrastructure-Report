@@ -42,3 +42,44 @@ describe('шрифты — локальные, без внешнего CDN (UI-9
     }
   })
 })
+
+// UI-07: граница полей — --field-border; правило одно, вместо 64 scoped-правил в 48 файлах.
+describe('base.css — граница полей ввода (UI-07)', () => {
+  const css = readStyles('src/styles/base.css')
+
+  it('поля .field, строк таблиц и фильтров получают border-color: var(--field-border), кроме состояния :focus', () => {
+    expect(css).toMatch(/html :is\(\.field, \.nested-row, \.ip-row, \.filter-row, \.ss-input-row\)\s*:is\(input:not\(\[type='checkbox'\]\)[^{]*select, textarea\):not\(:focus\)\s*\{\s*border-color:\s*var\(--field-border\);/)
+  })
+
+  it('чекбоксы, радио и ползунок рамку не получают', () => {
+    for (const type of ['checkbox', 'radio', 'range']) expect(css).toContain(`:not([type='${type}'])`)
+  })
+})
+
+// UI-21: у .btn / .btn-primary не было ни :hover, ни :active — кнопка не отвечала на наведение и нажатие (в компонентах их тоже нет).
+describe('base.css — состояния кнопок (UI-21)', () => {
+  const css = readStyles('src/styles/base.css')
+
+  it('у основной кнопки есть :hover и :active — через color-mix от токена акцента, без жёстких цветов', () => {
+    const hover = ruleBody(css, '.btn-primary:hover:not(:disabled)')
+    const active = ruleBody(css, '.btn-primary:active:not(:disabled)')
+    expect(declaration(hover, 'background')).toMatch(/^color-mix\(in srgb, var\(--brand\)/)
+    expect(declaration(active, 'background')).toMatch(/^color-mix\(in srgb, var\(--brand\)/)
+    expect(declaration(hover, 'background')).not.toBe(declaration(active, 'background'))
+  })
+
+  it('у вторичной и обычной кнопки при наведении фон — --surface-hover, при нажатии темнее', () => {
+    expect(declaration(ruleBody(css, '.btn-secondary:hover:not(:disabled)'), 'background')).toBe('var(--surface-hover)')
+    expect(declaration(ruleBody(css, '.btn-secondary:active:not(:disabled)'), 'background')).toMatch(/^color-mix\(/)
+  })
+
+  it('заблокированная кнопка на наведение и нажатие не реагирует (:not(:disabled))', () => {
+    expect(css).not.toMatch(/\.btn(?:-primary|-secondary)?:hover\s*\{/)
+    expect(css).not.toMatch(/\.btn(?:-primary|-secondary)?:active\s*\{/)
+  })
+
+  it('есть общий .sr-only — для заголовков, видимых только скринридеру', () => {
+    expect(declaration(ruleBody(css, '.sr-only'), 'position')).toBe('absolute')
+    expect(declaration(ruleBody(css, '.sr-only'), 'clip-path')).toBe('inset(50%)')
+  })
+})

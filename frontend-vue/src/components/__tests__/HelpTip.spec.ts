@@ -40,4 +40,22 @@ describe('HelpTip.vue', () => {
     expect(wrapper.find('.help-tip-panel').exists()).toBe(false)
     wrapper.unmount()
   })
+
+  it('UI-04: Esc при открытой подсказке закрывает её и забирает событие — окно вокруг не закроется', async () => {
+    const wrapper = mount(HelpTip, { props: { text: 'Пояснение' }, attachTo: document.body })
+    await wrapper.find('.help-tip-btn').trigger('click')
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('UI-04: Esc при закрытой подсказке событие не трогает — оно дойдёт до окна', () => {
+    const wrapper = mount(HelpTip, { props: { text: 'Пояснение' }, attachTo: document.body })
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    wrapper.unmount()
+  })
 })

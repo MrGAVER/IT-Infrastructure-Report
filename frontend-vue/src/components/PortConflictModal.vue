@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useId } from 'vue'
 // Окно решения расхождения порта с соседним портом (значок-предупреждение в строке порта): показывает конфигурацию текущего
 // порта и соседнего рядом и даёт применить любую из двух. Само применение — useNeighborSync (applyNeighborConfig /
 // applyCurrentConfigToNeighbor); окно только показывает данные и сообщает о выборе.
@@ -23,13 +24,15 @@ const emit = defineEmits<{
 }>()
 
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 </script>
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="conflict-modal card" role="dialog" aria-modal="true">
+    <div class="conflict-modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="conflict-modal-head">
-        <h3>{{ conflictTitle(kind) }}</h3>
+        <h3 :id="titleId">{{ conflictTitle(kind) }}</h3>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>

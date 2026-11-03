@@ -14,6 +14,7 @@ const theme = useThemeStore()
       class="swatch-btn"
       :class="{ active: theme.schemeId === s.id }"
       :title="s.name"
+      :aria-label="`Цветовая схема: ${s.name}`"
       :aria-pressed="theme.schemeId === s.id"
       @click="theme.setScheme(s.id)"
     >

@@ -4,8 +4,13 @@ import { useRouter } from 'vue-router'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
 import { useAuthStore } from '../stores/auth'
 
-defineProps<{ title: string; crumb: string }>()
+// sidebarOpen — состояние мобильного меню: гамбургер сообщает его через aria-expanded (UI-19).
+defineProps<{ title: string; crumb: string; sidebarOpen?: boolean }>()
 defineEmits<{ 'toggle-sidebar': [] }>()
+
+// Фокус возвращается на гамбургер после закрытия меню (AppShell): пока меню открыто, топбар inert, и фокус с него уходит.
+const burgerEl = ref<HTMLButtonElement | null>(null)
+defineExpose({ focusMenuButton: () => burgerEl.value?.focus() })
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -30,6 +35,7 @@ function onDocumentClick(event: MouseEvent) {
 // иначе клавиатурный пользователь терял место в порядке обхода.
 function onDocumentKeydown(event: KeyboardEvent) {
   if (!menuOpen.value || event.key !== 'Escape' || event.defaultPrevented) return
+  event.preventDefault() // забираем Esc себе (UI-04): окно под меню не должно закрыться тем же нажатием
   menuOpen.value = false
   triggerEl.value?.focus()
 }
@@ -55,7 +61,15 @@ async function logout() {
 
 <template>
   <div class="topbar">
-    <button class="hamburger" aria-label="Меню" @click="$emit('toggle-sidebar')">
+    <button
+      ref="burgerEl"
+      type="button"
+      class="hamburger"
+      aria-label="Меню"
+      aria-controls="app-sidebar"
+      :aria-expanded="sidebarOpen === true"
+      @click="$emit('toggle-sidebar')"
+    >
       <svg class="icon"><use href="/icons.svg#i-menu" /></svg>
     </button>
     <div class="titles">
@@ -67,11 +81,12 @@ async function logout() {
       <ThemeSwitcher compact />
       <div v-if="auth.enabled && auth.user" ref="rootEl" class="user-chip">
         <button ref="triggerEl" type="button" class="user-chip-trigger" :aria-expanded="menuOpen" aria-haspopup="menu" @click="toggleMenu">
-          <div class="avatar">{{ auth.user.username.charAt(0).toUpperCase() }}</div>
-          <div class="who">
+          <!-- UI-19: внутри <button> допустимо только фразовое содержимое — <span>, не <div> (display задаётся стилями). -->
+          <span class="avatar">{{ auth.user.username.charAt(0).toUpperCase() }}</span>
+          <span class="who">
             <b>{{ auth.user.username }}</b>
             <span>{{ auth.isAdmin ? 'Администратор' : 'Только просмотр' }}</span>
-          </div>
+          </span>
           <svg class="icon chevron" :class="{ open: menuOpen }"><use href="/icons.svg#i-chevd" /></svg>
         </button>
         <div v-if="menuOpen" class="user-menu" role="menu">
@@ -109,6 +124,10 @@ async function logout() {
 .hamburger .icon {
   width: 20px;
   height: 20px;
+}
+/* Без min-width: 0 длинный заголовок распирал бы флекс-контейнер, а не сжимался и не переносился. */
+.titles {
+  min-width: 0;
 }
 .crumb {
   font-size: 11.5px;
@@ -161,6 +180,7 @@ async function logout() {
   flex-shrink: 0;
 }
 .who {
+  display: block;
   font-size: 11.5px;
   line-height: 1.3;
   text-align: left;
@@ -190,7 +210,7 @@ async function logout() {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  box-shadow: var(--shadow-m, 0 8px 24px rgba(0, 0, 0, 0.16));
+  box-shadow: var(--shadow-m);
   padding: 6px;
   z-index: 30;
 }
@@ -213,6 +233,28 @@ async function logout() {
 }
 
 @media (max-width: 760px) {
+  /* UI-05: на 390 px шапка с заголовком «Инвентаризация физических устройств» занимала ≈ 125 из 844 px. Хлебные крошки на
+     телефоне не нужны (раздел виден в меню), заголовок — не больше двух строк, отступы короче. */
+  .topbar {
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .topbar-right {
+    gap: 10px;
+  }
+  .crumb {
+    display: none;
+  }
+  .page-title {
+    font-size: 16px;
+    line-height: 1.25;
+    margin-top: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .hamburger {
     display: block;
   }

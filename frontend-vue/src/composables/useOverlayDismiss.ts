@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { useEscapeClose } from './useEscapeClose'
 
 /**
  * Клик по подложке модалки закрывает её — общий паттерн во всех *FormModal.vue этого приложения
@@ -13,12 +14,16 @@ import { ref } from 'vue'
  * Фикс: закрываем только если подложка была целью И mousedown, И click — то есть весь клик,
  * от нажатия до отпускания, целиком произошёл на подложке, а не просто "закончился" на ней.
  *
+ * Esc закрывает окно тем же действием (UI-04, ревью 2.158.0): «закрыть окно» одно, а способов — два. Подписку на Esc
+ * делает useEscapeClose, поэтому она есть во всех модалках, которые уже вызывают этот композабл (верхнее окно из вложенных).
+ *
  * @example
  * const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
  * // <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
  */
 export function useOverlayDismiss(onDismiss: () => void) {
   const pointerDownOnOverlay = ref(false)
+  useEscapeClose(onDismiss)
 
   function onOverlayPointerDown(event: MouseEvent) {
     pointerDownOnOverlay.value = event.target === event.currentTarget

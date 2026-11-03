@@ -11,7 +11,7 @@
 // в списке его интерфейсов), а не измерением DOM через getBoundingClientRect() на каждый порт —
 // это делает координаты пинов детерминированными, дешёвыми для computed() и не требующими
 // перерасчёта после каждого рендера.
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, useId } from 'vue'
 import type { Connection, Device, DeviceInterface } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { sortOptionsByLabel } from '../utils/selectOptions'
@@ -24,6 +24,8 @@ import ConnectionFormModal from './ConnectionFormModal.vue'
 
 const emit = defineEmits<{ close: [] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -279,9 +281,9 @@ const dragLinePath = computed(() => {
 
 <template>
   <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-    <div class="modal card canvas-modal" role="dialog" aria-modal="true">
+    <div class="modal card canvas-modal" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
-        <h2>Визуальный режим подключений</h2>
+        <h2 :id="titleId">Визуальный режим подключений</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
@@ -456,7 +458,7 @@ const dragLinePath = computed(() => {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  box-shadow: var(--shadow-s, 0 2px 8px rgba(0, 0, 0, 0.1));
+  box-shadow: var(--shadow-s);
   overflow: hidden;
   user-select: none;
 }

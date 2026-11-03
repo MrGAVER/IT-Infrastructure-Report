@@ -7,7 +7,7 @@
 // create/edit ради одного экрана — больше риска регресса, чем пользы от устранения дублирования
 // разметки полей (тот же компромисс, что уже сделан для SearchableSelect.vue при выборе точки
 // применения, см. README).
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, useId } from 'vue'
 import { createResource, deleteResource, updateResource } from '../api/client'
 import { useCatalogsStore } from '../stores/catalogs'
 import { sortOptionsByLabel } from '../utils/selectOptions'
@@ -33,6 +33,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; saved: [record: CatalogItem]; deleted: [id: string] }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -134,9 +136,9 @@ async function removeItem() {
 <template>
   <Teleport to="body">
     <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" role="dialog" aria-modal="true">
+      <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
         <div class="modal-head">
-          <h2>{{ title }}</h2>
+          <h2 :id="titleId">{{ title }}</h2>
           <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
             <svg class="icon"><use href="/icons.svg#i-x" /></svg>
           </button>
@@ -238,7 +240,7 @@ async function removeItem() {
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 9px 12px;
   font-size: 12.5px;

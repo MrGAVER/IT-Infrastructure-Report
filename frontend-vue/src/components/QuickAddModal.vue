@@ -3,7 +3,7 @@
 // по схеме из quickAdd/schema.ts, без отдельного Vue-компонента на каждый из полутора десятков
 // справочников. Портировано с openQuickModal()/saveQuickForm() прежнего vanilla-фронтенда (до 2.60.0)
 // (см. schema.ts про то, что сознательно не перенесено).
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, useId } from 'vue'
 import { createResource } from '../api/client'
 import { useCatalogsStore, sortProtocolPortCatalog } from '../stores/catalogs'
 import { sortOptionsByLabel } from '../utils/selectOptions'
@@ -37,6 +37,8 @@ const emit = defineEmits<{
   'nested-created': [fieldName: string, fkResource: string, record: CatalogItem]
 }>()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
+const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
@@ -134,9 +136,9 @@ async function submit() {
        submit мог бы всплыть и отправить ВНЕШНЮЮ форму вместо этой). -->
   <Teleport to="body">
     <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" :class="{ 'modal-wide': singleColumn }" role="dialog" aria-modal="true">
+      <div class="modal card" :class="{ 'modal-wide': singleColumn }" role="dialog" aria-modal="true" :aria-labelledby="titleId">
         <div class="modal-head">
-          <h2>Добавить: {{ title }}</h2>
+          <h2 :id="titleId">Добавить: {{ title }}</h2>
           <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
             <svg class="icon"><use href="/icons.svg#i-x" /></svg>
           </button>
@@ -238,7 +240,7 @@ async function submit() {
   align-items: center;
   gap: 8px;
   background: var(--status-crit-soft, rgba(229, 72, 77, 0.12));
-  color: var(--status-crit);
+  color: var(--crit-ink);
   border-radius: var(--r-m);
   padding: 9px 12px;
   font-size: 12.5px;

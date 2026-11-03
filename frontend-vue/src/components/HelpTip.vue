@@ -15,7 +15,10 @@ function onDocumentClick(event: MouseEvent) {
   if (open.value && rootEl.value && !rootEl.value.contains(event.target as Node)) open.value = false
 }
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') open.value = false
+  // Esc закрывает только открытую подсказку и забирает событие (UI-04): иначе он закрыл бы ещё и окно, в котором она стоит.
+  if (event.key !== 'Escape' || !open.value) return
+  open.value = false
+  event.preventDefault()
 }
 
 onMounted(() => {
@@ -70,7 +73,7 @@ onBeforeUnmount(() => {
   border-radius: var(--r-s);
   border: 1px solid var(--border);
   background: var(--surface-1, var(--surface));
-  box-shadow: var(--shadow-m, 0 4px 16px rgba(0, 0, 0, 0.25));
+  box-shadow: var(--shadow-m);
   color: var(--ink);
   font-size: 11.5px;
   font-weight: 400;

@@ -94,6 +94,36 @@ svg.icon {
   cursor: not-allowed;
 }
 
+/* UI-21 (ревью 2.158.0): у кнопок не было ни :hover, ни :active — они не отвечали на наведение и нажатие. Состояния заданы от токенов
+   (color-mix к чёрному), а не жёсткими цветами, поэтому следуют за схемой «Бирюза / Индиго / Медь». :not(:disabled) — заблокированная
+   кнопка не реагирует. Локальных .btn:hover в компонентах нет (проверено), перебивать нечего. В браузерах без color-mix (Chrome < 111)
+   объявление отбрасывается — остаётся прежний фон. */
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brand) 88%, #000);
+}
+.btn-primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--brand) 76%, #000);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.btn-secondary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-2) 80%, #000);
+}
+
+/* Виден только скринридеру: заголовок, который уже есть в шапке, но нужен странице как h1 (UI-17). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -152,13 +182,45 @@ svg.icon {
   border-radius: var(--r-s);
   border: 1px solid var(--border);
   background: var(--surface-1, var(--surface));
-  box-shadow: var(--shadow-m, 0 4px 16px rgba(0, 0, 0, 0.3));
+  box-shadow: var(--shadow-m);
   color: var(--ink);
   font-size: 12px;
   line-height: 1.4;
   white-space: pre-line;
   word-break: break-word;
   pointer-events: none;
+}
+
+/* UI-07: граница текстового поля, списка и области ввода — --field-border (≥ 3 : 1 на фоне, WCAG 1.4.11), а не --border (1,4 : 1),
+   который годится только для разделителей. Поля рисуются scoped-правилами десятков компонентов (64 правила в 48 файлах) с
+   border: 1px solid var(--border); одно общее правило с повышенной специфичностью (:is берёт самый специфичный аргумент, плюс html)
+   заменяет их все сразу. Фокус исключён: у полей он задаётся своими цветами. Чекбоксы, радио и ползунок рамку не рисуют. */
+html :is(.field, .nested-row, .ip-row, .filter-row, .ss-input-row)
+  :is(input:not([type='checkbox']):not([type='radio']):not([type='range']), select, textarea):not(:focus) {
+  border-color: var(--field-border);
+}
+
+/* Подвал модальной формы («Отмена» / «Сохранить») закреплён у нижнего края окна (UI-04, ревью 2.158.0): форма устройства — 1373 px
+   при окне 900 и 2010 px при 667, и кнопки были достижимы только после прокрутки всей формы. Прокручивается .overlay (fixed,
+   overflow-y: auto), у .modal своего overflow нет, поэтому sticky цепляется именно за край окна. Фон нужен, чтобы поля,
+   уезжающие под подвал, не просвечивали сквозь него. Раскладку (flex, отступы, рамку) по-прежнему задаёт scoped-правило каждой формы.
+   padding-bottom: 12px с margin-bottom: -12px — отступ кнопок от края в закреплённом положении, не увеличивающий нижний отступ
+   карточки в обычном (подвал заходит в её padding-bottom 18px, цвет тот же). */
+.modal-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding-bottom: 12px;
+  margin-bottom: -12px;
+}
+
+/* sticky упирается в нижний padding прокручиваемого родителя: при padding: 40px у .overlay под закреплённым подвалом оставалась полоса
+   40 px, в которой просвечивали поля формы. Для окон с подвалом нижний отступ оверлея обнуляется (его задают scoped-правила форм
+   с классом-атрибутом, поэтому нужна специфичность выше — отсюда html). В браузерах без :has() правило отбрасывается, подвал
+   остаётся закреплённым, только с полосой, как до правки. */
+html .overlay:has(.modal-foot) {
+  padding-bottom: 0;
 }
 
 /* Форма-модалка в режиме «только просмотр» (composables/useReadOnlyForm.ts): <fieldset disabled> отключает

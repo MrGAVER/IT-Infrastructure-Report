@@ -239,6 +239,13 @@ function onArrowUp() {
   highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0)
   scrollHighlightedIntoView()
 }
+// Esc закрывает только ОТКРЫТЫЙ список и забирает событие себе (preventDefault): иначе тот же Esc закрыл бы ещё и окно, в котором
+// стоит поле (UI-04, useEscapeClose). Список открывается по фокусу, поэтому первый Esc — список, второй — окно.
+function onEscape(event: KeyboardEvent) {
+  if (!open.value) return
+  event.preventDefault()
+  closeDropdown()
+}
 function onEnter() {
   if (!open.value) return
   const opt = filteredOptions.value[highlightedIndex.value]
@@ -262,7 +269,7 @@ function onEnter() {
         @keydown.down.prevent="onArrowDown"
         @keydown.up.prevent="onArrowUp"
         @keydown.enter.prevent="onEnter"
-        @keydown.esc="closeDropdown"
+        @keydown.esc="onEscape"
       />
       <button v-if="modelValue && !disabled" type="button" class="ss-clear" aria-label="Очистить выбор" @mousedown.prevent="clearSelection">
         <svg class="icon"><use href="/icons.svg#i-x" /></svg>
@@ -370,7 +377,7 @@ function onEnter() {
   border: 1px solid var(--border);
   border-radius: var(--r-s);
   background: var(--surface-1, var(--surface));
-  box-shadow: var(--shadow-m, 0 8px 24px rgba(0, 0, 0, 0.35));
+  box-shadow: var(--shadow-m);
   padding: 4px;
 }
 /* floating: панель в <body> — координаты (left/width/maxHeight и top либо bottom) приходят инлайн-стилем из

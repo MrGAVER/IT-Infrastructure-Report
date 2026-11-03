@@ -130,3 +130,17 @@ describe('DiagramListView.vue', () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/diagrams/d1'), expect.objectContaining({ method: 'DELETE' }))
   })
 })
+
+describe('DiagramListView — заголовок (UI-17)', () => {
+  it('видимого дубля заголовка шапки нет: «Диаграммы топологии сети» остаётся только для скринридера', async () => {
+    setActivePinia(createPinia())
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(SAMPLE))))
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/diagrams', component: { template: '<div/>' } }] })
+    await router.push('/diagrams')
+    const wrapper = mount(DiagramListView, { global: { plugins: [router] } })
+    await flushPromises()
+    const heading = wrapper.get('h1')
+    expect(heading.classes()).toContain('sr-only')
+    expect(heading.text()).toBe('Диаграммы топологии сети')
+  })
+})
