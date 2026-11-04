@@ -12,6 +12,7 @@ import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import VMFormModal from '../components/VMFormModal.vue'
 import ListEmptyRow from '../components/ListEmptyRow.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 
 const vms = useVMsStore()
 const catalogs = useCatalogsStore()
@@ -119,7 +120,7 @@ function hostLabel(id: string | null) {
         {{ vms.error }}
       </div>
       <div v-else-if="vms.loading && !vms.loaded" class="loading-banner">Загрузка реестра виртуальных машин…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Список виртуальных машин">
         <table>
           <thead>
             <tr>
@@ -163,7 +164,7 @@ function hostLabel(id: string | null) {
             />
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ vms.pageItems.length ? (vms.page - 1) * vms.pageSize + 1 : 0 }}–{{ (vms.page - 1) * vms.pageSize + vms.pageItems.length }} из
@@ -223,9 +224,6 @@ function hostLabel(id: string | null) {
 }
 .spacer {
   flex: 1;
-}
-.table-wrap {
-  overflow-x: auto;
 }
 table {
   width: 100%;

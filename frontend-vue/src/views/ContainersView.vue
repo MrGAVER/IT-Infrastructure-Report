@@ -11,6 +11,7 @@ import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ContainerFormModal from '../components/ContainerFormModal.vue'
 import ListEmptyRow from '../components/ListEmptyRow.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 
 const containers = useContainersStore()
 const devices = useDevicesStore()
@@ -120,7 +121,7 @@ function hostLabel(c: Container): string {
         {{ containers.error }}
       </div>
       <div v-else-if="containers.loading && !containers.loaded" class="loading-banner">Загрузка контейнеров…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Список контейнеров">
         <table>
           <thead>
             <tr>
@@ -162,7 +163,7 @@ function hostLabel(c: Container): string {
             />
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ containers.pageItems.length ? (containers.page - 1) * containers.pageSize + 1 : 0 }}–{{
@@ -224,9 +225,6 @@ function hostLabel(c: Container): string {
 }
 .spacer {
   flex: 1;
-}
-.table-wrap {
-  overflow-x: auto;
 }
 table {
   width: 100%;
