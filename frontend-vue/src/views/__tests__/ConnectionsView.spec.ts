@@ -299,8 +299,10 @@ describe('ConnectionsView.vue — постраничная выборка с с�
     expect(wrapper.find('.error-banner').text()).toContain('База данных недоступна')
   })
 
-  it('пустой результат — сообщение «Ничего не найдено»', async () => {
-    const wrapper = await mountView({ rows: [], total: 0 })
+  // До F-04 здесь стоял пустой реестр (summary.total = 0): тест закреплял дефект — «не найдено по фильтрам» при нуле подключений.
+  // Пустой реестр и его текст проверяет listEmptyState.spec.ts; здесь в реестре подключения есть, а страница пуста из-за условий.
+  it('пустой результат при непустом реестре — сообщение «Ничего не найдено»', async () => {
+    const wrapper = await mountView({ rows: [], total: 0, summary: { total: 3 } })
     expect(wrapper.find('.empty-row').text()).toContain('Ничего не найдено')
   })
 })

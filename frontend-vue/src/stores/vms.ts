@@ -69,5 +69,10 @@ export const useVMsStore = defineStore('vms', {
     resetPageOnFilterChange() {
       this.page = 1
     },
+    /** Снимает поиск (кнопка «Сбросить фильтры» в пустой таблице, F-04). */
+    resetFilters() {
+      this.search = ''
+      this.page = 1
+    },
   },
 })

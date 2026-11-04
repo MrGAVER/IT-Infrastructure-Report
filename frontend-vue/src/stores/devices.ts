@@ -145,5 +145,14 @@ export const useDevicesStore = defineStore('devices', {
     resetPageOnFilterChange() {
       this.page = 1
     },
+    /** Снимает поиск и все фильтры (кнопка «Сбросить фильтры» в пустой таблице, F-04). */
+    resetFilters() {
+      this.search = ''
+      this.buildingId = ''
+      this.deviceTypeId = ''
+      this.siemFilter = 'all'
+      this.structuralUnitIds = []
+      this.page = 1
+    },
   },
 })

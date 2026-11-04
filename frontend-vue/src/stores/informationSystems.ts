@@ -90,5 +90,11 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
     resetPageOnFilterChange() {
       this.page = 1
     },
+    /** Снимает поиск и фильтр SIEM (кнопка «Сбросить фильтры» в пустой таблице, F-04). */
+    resetFilters() {
+      this.search = ''
+      this.siemFilter = 'all'
+      this.page = 1
+    },
   },
 })

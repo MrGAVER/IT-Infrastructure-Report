@@ -82,6 +82,13 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
         if (request === latestRequest) this.loading = false
       }
     },
+    /** Снимает поиск и оба фильтра (кнопка «Сбросить фильтры» в пустой таблице, F-04). Только меняет условия: страницу
+     * с сервера перечитывает экран — его наблюдатели за поиском и фильтрами, как при любом другом их изменении. */
+    resetFilters() {
+      this.search = ''
+      this.activeFilter = 'all'
+      this.portConfigFilter = 'all'
+    },
     /** Смена поиска или фильтра — всегда с первой страницы. */
     applyFilters(): Promise<void> {
       this.page = 1

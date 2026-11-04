@@ -10,6 +10,7 @@ import type { Container } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ContainerFormModal from '../components/ContainerFormModal.vue'
+import ListEmptyRow from '../components/ListEmptyRow.vue'
 
 const containers = useContainersStore()
 const devices = useDevicesStore()
@@ -150,9 +151,15 @@ function hostLabel(c: Container): string {
                 </div>
               </td>
             </tr>
-            <tr v-if="!containers.filtered.length">
-              <td colspan="5" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
-            </tr>
+            <ListEmptyRow
+              v-if="!containers.filtered.length"
+              :colspan="5"
+              :registry-empty="!containers.all.length"
+              empty-text="Контейнеров пока нет."
+              :action-label="auth.canWrite ? 'Добавить контейнер' : undefined"
+              @action="openCreate"
+              @reset="containers.resetFilters()"
+            />
           </tbody>
         </table>
       </div>
@@ -256,11 +263,6 @@ tbody tr:hover td {
 .purpose-cell {
   color: var(--ink-muted);
   max-width: 260px;
-}
-.empty-row {
-  text-align: center;
-  color: var(--ink-muted);
-  padding: 26px 14px;
 }
 .error-banner {
   display: flex;

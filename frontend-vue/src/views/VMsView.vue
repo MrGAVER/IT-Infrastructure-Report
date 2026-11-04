@@ -11,6 +11,7 @@ import type { VirtualMachine } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import VMFormModal from '../components/VMFormModal.vue'
+import ListEmptyRow from '../components/ListEmptyRow.vue'
 
 const vms = useVMsStore()
 const catalogs = useCatalogsStore()
@@ -151,9 +152,15 @@ function hostLabel(id: string | null) {
                 </div>
               </td>
             </tr>
-            <tr v-if="!vms.filtered.length">
-              <td colspan="6" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
-            </tr>
+            <ListEmptyRow
+              v-if="!vms.filtered.length"
+              :colspan="6"
+              :registry-empty="!vms.all.length"
+              empty-text="Виртуальных машин пока нет."
+              :action-label="auth.canWrite ? 'Добавить ВМ' : undefined"
+              @action="openCreate"
+              @reset="vms.resetFilters()"
+            />
           </tbody>
         </table>
       </div>
@@ -255,11 +262,6 @@ tbody tr:hover td {
 .purpose-cell {
   color: var(--ink-muted);
   max-width: 260px;
-}
-.empty-row {
-  text-align: center;
-  color: var(--ink-muted);
-  padding: 26px 14px;
 }
 .error-banner {
   display: flex;
