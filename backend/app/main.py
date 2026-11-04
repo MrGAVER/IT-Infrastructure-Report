@@ -9,7 +9,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, ENABLE_DOCS, FORWARDED_ALLOW_IPS, FRONTEND_DIR
+from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, ENABLE_DOCS, FORWARDED_ALLOW_IPS, FRONTEND_DIR, MAX_REQUEST_BODY_BYTES
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
@@ -28,6 +28,7 @@ from .api.vlan import router as vlan_router
 from .api.vms import router as vms_router
 from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
+from .services.body_limit import BodySizeLimitMiddleware
 from .services.catalogs import seed_defaults
 from .services.csrf_guard import SameOriginGuardMiddleware, forwarded_host_trusted
 from .services.integrity import ReferencedRecordError
@@ -72,8 +73,9 @@ def install_http_security(
     cors_origins: list[str],
     allowed_clients: list[IPNetwork] | None = None,
     trust_forwarded_host: bool = False,
+    max_body_bytes: int | None = None,
 ) -> None:
-    """CORS, проверка заголовка Host, проверка origin и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
+    """CORS, проверка заголовка Host, проверка origin, предел размера тела и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
 
     - Пустой cors_origins — CORS не включается вовсе: чужие origin'ы не получают ни заголовков
       Access-Control-*, ни ответа на preflight, то есть браузер не даст стороннему сайту читать API.
@@ -88,8 +90,14 @@ def install_http_security(
       DELETE к /api/ с чужого origin (CSRF: CORS защищает чтение, но не мешает браузеру отправить сам запрос). Origin'ы
       из cors_origins считаются доверенными; X-Forwarded-Host учитывается при trust_forwarded_host. Стоит внутри CORS
       и проверки Host, но снаружи auth_gate_middleware: чужая страница получает отказ раньше, чем 401/обработчик.
+    - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (F-06 код-ревью main:
+      раньше тело любого размера целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
+      дошёл до браузера на dev-сервере с понятным текстом, а не CORS-ошибкой, и внутри проверок клиента, Host и origin — чужие
+      запросы отсекаются раньше. Снаружи auth_gate_middleware: тело больше предела не читается и до проверки входа.
     allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через
     куки — широкий allow_origins вместе с allow_credentials=True был бы лишним риском без пользы."""
+    if max_body_bytes is not None:
+        app.add_middleware(BodySizeLimitMiddleware, max_bytes=max_body_bytes)
     app.add_middleware(SameOriginGuardMiddleware, extra_origins=cors_origins, trust_forwarded_host=trust_forwarded_host)
     if cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
@@ -108,6 +116,7 @@ install_http_security(
     cors_origins=CORS_ALLOWED_ORIGINS,
     allowed_clients=ALLOWED_CLIENT_NETWORKS,
     trust_forwarded_host=forwarded_host_trusted(FORWARDED_ALLOW_IPS),
+    max_body_bytes=MAX_REQUEST_BODY_BYTES,
 )
 app.include_router(auth_router)
 app.include_router(preferences_router)
