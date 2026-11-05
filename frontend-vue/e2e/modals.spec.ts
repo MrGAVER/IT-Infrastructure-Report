@@ -6,7 +6,8 @@ import { openApp } from './fixtures.ts'
 
 const OPEN_FORM = async (page: import('@playwright/test').Page) => {
   await openApp(page, '/devices')
-  await page.getByRole('button', { name: 'Добавить устройство' }).click()
+  // На пустом реестре такая же кнопка есть и в пустой строке таблицы (F-04, ListEmptyRow); берём кнопку панели — она первая в разметке.
+  await page.getByRole('button', { name: 'Добавить устройство' }).first().click()
   await expect(page.locator('.modal')).toHaveCount(1)
 }
 
