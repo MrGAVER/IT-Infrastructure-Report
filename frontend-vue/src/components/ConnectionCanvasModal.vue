@@ -17,13 +17,12 @@ import { useCatalogsStore } from '../stores/catalogs'
 import { sortOptionsByLabel } from '../utils/selectOptions'
 import { useDevicesStore } from '../stores/devices'
 import { useConnectionsStore } from '../stores/connections'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import SearchableSelect from './SearchableSelect.vue'
 import ConnectionFormModal from './ConnectionFormModal.vue'
 
 const emit = defineEmits<{ close: [] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -123,7 +122,7 @@ const draggingNode = ref<{ deviceId: string; offsetX: number; offsetY: number } 
 // а не в его видимой области. getBoundingClientRect() даёт позицию ВИДИМОЙ области контейнера в
 // вьюпорте — без прибавления scrollLeft/scrollTop координата курсора считалась бы так, будто
 // прокрутки не было вовсе: чем больше проскроллено вниз, тем сильнее конец протягиваемой линии
-// отстаёт от курсора вверх (сам баг). Прокрутка СТРАНИЦЫ (.overlay, overflow-y:auto) сюда не
+// отстаёт от курсора вверх (сам баг). Прокрутка СТРАНИЦЫ (.modal-overlay, overflow-y:auto) сюда не
 // относится — getBoundingClientRect() уже сама пересчитывается при любой прокрутке страницы, в
 // отличие от прокрутки СОДЕРЖИМОГО самого canvasEl.
 // null — холста уже нет в DOM (модалку закрыли посреди перетаскивания): координаты считать не из чего.
@@ -280,7 +279,7 @@ const dragLinePath = computed(() => {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal :offset="30" @close="emit('close')">
     <div class="modal card canvas-modal" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">Визуальный режим подключений</h2>
@@ -363,21 +362,10 @@ const dragLinePath = computed(() => {
       @saved="onConnectionCreated"
     />
     <ConnectionFormModal v-if="editingConnection" :connection="editingConnection" @close="closeEditingConnection" @saved="onConnectionUpdated" />
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 30px 16px;
-  overflow-y: auto;
-}
 .canvas-modal {
   width: 100%;
   max-width: 1180px;

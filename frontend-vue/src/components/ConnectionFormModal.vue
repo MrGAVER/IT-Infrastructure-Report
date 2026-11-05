@@ -21,7 +21,7 @@ import { useConnectionDraft } from '../composables/useConnectionDraft'
 import { useConnectionPortConfig } from '../composables/useConnectionPortConfig'
 import { useConnectionPortsDialog } from '../composables/useConnectionPortsDialog'
 import { useConnectionSave } from '../composables/useConnectionSave'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
@@ -37,7 +37,6 @@ const props = defineProps<{
   prefill?: ConnectionPrefill | null
 }>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -75,7 +74,7 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать подключение' : 'Добавить подключение' }}</h2>
@@ -182,21 +181,10 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
       @confirm="cascadeConfirm"
       @cancel="cancelCascade"
     />
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 680px;

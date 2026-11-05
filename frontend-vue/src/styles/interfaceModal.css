@@ -1,17 +1,6 @@
-/* Подложка и карточка модальных окон редактора портов (NeighborReviewModal.vue, PortConflictModal.vue,
-   BulkVlanPickerModal.vue). Подключается в каждое окно через <style scoped src>. .overlay — та же база, что и в остальных
-   модалках приложения (напр. ConnectionFormModal.vue), но с собственным z-index: окна стоят над формой устройства. */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 70;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 60px 16px;
-  overflow-y: auto;
-}
+/* Карточка модальных окон редактора портов (NeighborReviewModal.vue, PortConflictModal.vue, BulkVlanPickerModal.vue).
+   Подключается в каждое окно через <style scoped src>. Подложку, закрытие, фокус и слой даёт BaseModal.vue; эти окна стоят
+   ниже по экрану (offset 60), чем формы. */
 .conflict-modal {
   width: 100%;
   max-width: 420px;

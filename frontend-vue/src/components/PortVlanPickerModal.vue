@@ -15,7 +15,7 @@
 // />
 import { computed, ref } from 'vue'
 import type { VLANDefinition } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { filterVlansByQuery, vlanLabel } from '../utils/vlan'
 
 const props = withDefaults(
@@ -42,11 +42,10 @@ const search = ref('')
 const filtered = computed(() => filterVlansByQuery(props.options, search.value))
 const selected = computed(() => new Set(props.selectedIds))
 const selectedCount = computed(() => props.options.filter((v) => selected.value.has(v.id)).length)
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 </script>
 
 <template>
-  <div class="overlay" data-testid="port-vlan-picker" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal :offset="60" data-testid="port-vlan-picker" @close="emit('close')">
     <div class="vlan-picker-modal card" role="dialog" aria-modal="true" :aria-label="title">
       <div class="picker-head">
         <h3>{{ title }}</h3>
@@ -83,22 +82,10 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
         <button type="button" class="btn btn-primary" @click="emit('close')">Готово</button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-/* Поверх окна формы устройства и окна групп портов: те же z-index и подложка, что у остальных окон редактора портов. */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 75;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 60px 16px;
-  overflow-y: auto;
-}
 .vlan-picker-modal {
   width: 100%;
   max-width: 360px;

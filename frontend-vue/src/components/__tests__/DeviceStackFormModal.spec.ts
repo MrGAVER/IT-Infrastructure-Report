@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import DeviceStackFormModal from '../DeviceStackFormModal.vue'
 import ConnectionFormModal from '../ConnectionFormModal.vue'
 import DeviceStackVlanIpEditor from '../DeviceStackVlanIpEditor.vue'
+import ScrollableTableWrap from '../ScrollableTableWrap.vue'
+import { declaration, readStyles, ruleBody } from '../../__tests__/cssSource'
 import { useDevicesStore } from '../../stores/devices'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useConnectionsStore } from '../../stores/connections'
@@ -412,6 +414,75 @@ describe('DeviceStackFormModal.vue', () => {
     await flushPromises()
 
     expect(wrapper.findAllComponents({ name: 'DeviceFormModal' }).length).toBeGreaterThan(0)
+  })
+
+  // F-10 (код-ревью main): таблицы состава и топологии стека — 4 и 3 колонки; на телефоне (320–360 px) они раздвигали окно за край
+  // экрана. Теперь листаются внутри ScrollableTableWrap (затухание у края подсказывает прокрутку), а элемент сетки формы может
+  // сжиматься (min-width: 0) — без этого обёртке нечему было ограничивать ширину.
+  describe('F-10: таблицы окна на телефоне', () => {
+    it('обе таблицы (состав и топология) лежат в ScrollableTableWrap с доступными именами', async () => {
+      seedDevices()
+      const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.includes('/device-stacks/stack-1/detail')) {
+            return jsonResponse(
+              detailResponse({
+                members: [
+                  {
+                    id: 'dev-1',
+                    system_name: 'core-sw-01',
+                    serial_number: 'SN-1',
+                    device_type_id: 'dt-1',
+                    stack_member_id: 'sm-1',
+                    stack_position: 1,
+                  } as never,
+                ],
+                connections: [
+                  {
+                    id: 'conn-1',
+                    source_device_name: 'core-sw-01',
+                    source_interface_name: 'Te1/0/1',
+                    destination_device_name: 'core-sw-02',
+                    destination_interface_name: 'Te1/0/2',
+                    connection_type_name: 'Оптика',
+                  } as never,
+                ],
+              }),
+            )
+          }
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+
+      const wraps = wrapper.findAllComponents(ScrollableTableWrap)
+      expect(wraps.map((wrap) => wrap.attributes('aria-label'))).toEqual(['Устройства в стеке', 'Соединения стека'])
+      for (const wrap of wraps) expect(wrap.find('table.member-table').exists()).toBe(true)
+    })
+
+    it('пустые состав и топология таблиц не рисуют — обёртки нет', async () => {
+      seedDevices()
+      const stack: DeviceStack = { id: 'stack-1', name: 'Стек ядра', description: null }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => (url.includes('/device-stacks/stack-1/detail') ? jsonResponse(detailResponse()) : jsonResponse(EMPTY_PAGE))),
+      )
+
+      const wrapper = mount(DeviceStackFormModal, { props: { stack } })
+      await flushPromises()
+
+      expect(wrapper.findAllComponents(ScrollableTableWrap)).toHaveLength(0)
+      expect(wrapper.text()).toContain('Устройства не добавлены')
+    })
+
+    it('блок со вложенной таблицей может сжиматься в сетке формы: .nested-editor { min-width: 0 }', () => {
+      const body = ruleBody(readStyles('src/components/DeviceStackFormModal.vue'), '.nested-editor')
+      expect(declaration(body, 'min-width')).toBe('0')
+    })
   })
 
   describe('подтверждение добавления в стек при заданных общих настройках VLAN', () => {

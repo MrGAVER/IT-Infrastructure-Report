@@ -41,7 +41,7 @@ describe('BulkVlanPickerModal', () => {
     await wrapper.get('.conflict-modal-actions button').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(2)
 
-    const overlay = wrapper.get('.overlay')
+    const overlay = wrapper.get('.modal-overlay')
     await overlay.trigger('mousedown')
     await overlay.trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(3)

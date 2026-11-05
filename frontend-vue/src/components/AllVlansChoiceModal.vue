@@ -18,7 +18,7 @@
 // />
 import { computed, ref } from 'vue'
 import type { VLANDefinition } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { describeVlanValue, pickerSelection, toggleValueAll, toggleValueVlan, type VlanValue } from '../utils/allVlans'
 import { formatVlans } from '../utils/portConfig'
 import PortVlanPickerModal from './PortVlanPickerModal.vue'
@@ -50,12 +50,10 @@ const pickerOpen = ref(false)
 const sourceText = computed(() => describeVlanValue(props.sourceValue, props.options))
 const otherText = computed(() => describeVlanValue(other.value, props.options))
 const result = computed<VlanValue>(() => (choice.value === 'source' ? props.sourceValue : other.value))
-
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('cancel'))
 </script>
 
 <template>
-  <div class="overlay" data-testid="all-vlans-choice" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal :offset="60" data-testid="all-vlans-choice" @close="emit('cancel')">
     <div class="choice-modal card" role="dialog" aria-modal="true" aria-labelledby="all-vlans-choice-title">
       <div class="choice-head">
         <h3 id="all-vlans-choice-title">VLAN порта {{ portLabel }}</h3>
@@ -90,7 +88,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
         <button type="button" class="btn btn-primary" data-testid="choice-apply" @click="emit('confirm', result)">Применить</button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 
   <PortVlanPickerModal
     v-if="pickerOpen"
@@ -106,17 +104,6 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('c
 
 <style scoped>
 /* Выше диалогов редактора портов (70), из которых окно открывается, и ниже окна выбора VLAN (75). */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 74;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 60px 16px;
-  overflow-y: auto;
-}
 .choice-modal {
   width: 100%;
   max-width: 460px;

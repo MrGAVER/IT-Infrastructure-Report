@@ -359,7 +359,7 @@ describe('InterfaceGroupsPanel.vue', () => {
       await pickerButton(wrapper).trigger('click')
 
       // Окно выбора — последняя подложка в DOM (поверх подложки окна группы).
-      const overlays = wrapper.findAll('.overlay')
+      const overlays = wrapper.findAll('.modal-overlay')
       expect(overlays).toHaveLength(2)
       await overlays[1].trigger('mousedown')
       await overlays[1].trigger('click')
