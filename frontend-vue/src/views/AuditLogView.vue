@@ -5,6 +5,7 @@ import { useCatalogsStore } from '../stores/catalogs'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import { debounce } from '../utils/debounce'
 import { formatServerDateTime } from '../utils/dateTime'
 
@@ -76,7 +77,7 @@ onBeforeUnmount(() => searchDebounced.cancel())
         {{ log.error }}
       </div>
       <div v-else-if="log.loading && !log.loaded" class="loading-banner">Загрузка журнала аудита…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Журнал аудита">
         <table>
           <thead>
             <tr>
@@ -104,7 +105,7 @@ onBeforeUnmount(() => searchDebounced.cancel())
             </tr>
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ log.items.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.items.length }} из
@@ -194,9 +195,6 @@ onBeforeUnmount(() => searchDebounced.cancel())
 }
 .spacer {
   flex: 1;
-}
-.table-wrap {
-  overflow-x: auto;
 }
 table {
   width: 100%;

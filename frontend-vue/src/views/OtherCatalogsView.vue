@@ -20,6 +20,7 @@ import { usePagedList } from '../composables/usePagedList'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import CatalogRecordFormModal from '../components/CatalogRecordFormModal.vue'
 import PagedListFooter from '../components/PagedListFooter.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 
 const OTHER_CATALOGS = [
   'device-types',
@@ -92,7 +93,7 @@ const records = computed<Record<string, unknown>[]>(() => {
 // (запоминается как настройка списка «otherCatalogs»), а страница при смене справочника сбрасывается на первую.
 const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
   () => records.value,
-  { listId: 'otherCatalogs', defaultPageSize: 10 },
+  { listId: 'otherCatalogs' },
 )
 watch(selected, () => resetPage())
 
@@ -170,7 +171,7 @@ async function onDeleted() {
 
         <p v-if="!fields.length" class="empty-state">Для «{{ selected }}» форма редактирования не настроена.</p>
         <p v-else-if="!records.length" class="empty-state">Записей пока нет.</p>
-        <div v-else class="table-wrap">
+        <ScrollableTableWrap v-else :label="`Записи справочника «${QUICK_ADD_LABELS[selected] ?? selected}»`">
           <table>
             <thead>
               <tr>
@@ -191,7 +192,7 @@ async function onDeleted() {
               </tr>
             </tbody>
           </table>
-        </div>
+        </ScrollableTableWrap>
         <PagedListFooter
           v-if="fields.length && records.length"
           class="catalog-foot"
@@ -318,9 +319,6 @@ async function onDeleted() {
   gap: 6px;
 }
 
-.table-wrap {
-  overflow-x: auto;
-}
 table {
   width: 100%;
   border-collapse: collapse;

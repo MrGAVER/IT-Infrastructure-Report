@@ -78,7 +78,7 @@ const systemNav = [
       </div>
     </div>
 
-    <div class="nav-group-label">Регламентный отчёт</div>
+    <div class="nav-group-label">Реестр</div>
     <ul class="nav">
       <li v-for="item in primaryNav" :key="item.to">
         <router-link :to="item.to" @click="$emit('close')">

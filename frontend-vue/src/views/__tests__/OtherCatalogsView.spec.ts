@@ -295,15 +295,15 @@ describe('OtherCatalogsView.vue — пагинация', () => {
 
   it('смена размера страницы меняет число строк и запоминается для экрана', async () => {
     const puts = stubPrefs()
-    seedMany(25)
+    seedMany(30)
     const wrapper = mount(OtherCatalogsView)
     await flushPromises()
 
-    await wrapper.find('.page-size select').setValue('20')
+    await wrapper.find('.page-size select').setValue('25')
     await flushPromises()
 
-    expect(wrapper.findAll('tbody tr')).toHaveLength(20)
-    expect(puts).toEqual([{ page_sizes: { otherCatalogs: 20 } }])
+    expect(wrapper.findAll('tbody tr')).toHaveLength(25)
+    expect(puts).toEqual([{ page_sizes: { otherCatalogs: 25 } }])
   })
 
   it('при переходе на другой справочник страница сбрасывается на первую', async () => {

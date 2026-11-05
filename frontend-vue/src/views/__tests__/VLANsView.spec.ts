@@ -265,14 +265,14 @@ describe('VLANsView.vue — пагинация', () => {
 
   it('смена размера страницы меняет число групп и запоминается', async () => {
     const puts = stubApi()
-    const wrapper = await mountWith(25)
+    const wrapper = await mountWith(30)
 
-    await wrapper.find('.page-size select').setValue('20')
+    await wrapper.find('.page-size select').setValue('25')
     await flushPromises()
 
-    expect(cards(wrapper)).toHaveLength(20)
-    expect(range(wrapper)).toBe('Показано 1–20 из 25')
-    expect(puts).toEqual([{ page_sizes: { vlans: 20 } }])
+    expect(cards(wrapper)).toHaveLength(25)
+    expect(range(wrapper)).toBe('Показано 1–25 из 30')
+    expect(puts).toEqual([{ page_sizes: { vlans: 25 } }])
   })
 
   it('поиск возвращает на первую страницу, а не оставляет на несуществующей', async () => {

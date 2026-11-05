@@ -63,7 +63,7 @@ async function reloadAll() {
 // Постранично выводятся группы по номеру VLAN (карточка «VLAN 10» со всеми определениями по доменам остаётся целой).
 const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
   () => vlans.filtered,
-  { listId: 'vlans', defaultPageSize: 10 },
+  { listId: 'vlans' },
 )
 // Без сброса страницы поиск оставлял бы пустой экран: список после фильтра короче, а номер страницы прежний.
 watch(

@@ -10,6 +10,7 @@ import type { Device, DeviceStack } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
+import ListEmptyRow from '../components/ListEmptyRow.vue'
 import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
 import DeviceTableRow from '../components/DeviceTableRow.vue'
@@ -282,9 +283,15 @@ async function onStackSaved(stack: DeviceStack) {
                 </template>
               </template>
             </template>
-            <tr v-if="!devices.filtered.length">
-              <td colspan="9" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
-            </tr>
+            <ListEmptyRow
+              v-if="!devices.filtered.length"
+              :colspan="9"
+              :registry-empty="!devices.all.length"
+              empty-text="Устройств пока нет."
+              :action-label="auth.canWrite ? 'Добавить устройство' : undefined"
+              @action="openCreate"
+              @reset="devices.resetFilters()"
+            />
           </tbody>
         </table>
       </ScrollableTableWrap>
@@ -416,11 +423,6 @@ tbody tr:hover td {
   color: var(--ink-muted);
   font-size: 11px;
   margin-left: auto;
-}
-.empty-row {
-  text-align: center;
-  color: var(--ink-muted);
-  padding: 26px 14px;
 }
 .error-banner {
   display: flex;
