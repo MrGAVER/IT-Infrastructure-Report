@@ -451,6 +451,19 @@ describe('api/client: Retry-After и новые коды ошибок (B-12)', (
     expect(parseRetryAfter('Sun, 25 Oct 2026 11:59:00 GMT', now)).toBe(0)
   })
 
+  it('413 REQUEST_BODY_TOO_LARGE (F-06): ApiError несёт код и русское сообщение сервера с названием предела', async () => {
+    const message = 'Запрос слишком большой: тело превышает допустимые 2 МБ. Уменьшите объём отправляемых данных.'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: { code: ErrorCode.REQUEST_BODY_TOO_LARGE, message } }, 413)),
+    )
+    const error = await api.post('/diagrams', { name: 'x' }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(413)
+    expect((error as ApiError).code).toBe('REQUEST_BODY_TOO_LARGE')
+    expect((error as ApiError).message).toBe(message)
+  })
+
   it('ErrorCode содержит четыре кода, которых раньше не было', () => {
     expect(ErrorCode).toMatchObject({
       SETUP_ACCESS_DENIED: 'SETUP_ACCESS_DENIED',

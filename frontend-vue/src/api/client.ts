@@ -285,6 +285,8 @@ export const ErrorCode = {
   INTEGRITY_ERROR: 'INTEGRITY_ERROR',
   /** 403: запрос, меняющий данные, пришёл со страницы другого origin (защита от CSRF); повтор не поможет — см. INFRA_REGISTRY_CORS_ORIGINS. */
   CROSS_ORIGIN_BLOCKED: 'CROSS_ORIGIN_BLOCKED',
+  /** 413: тело запроса больше INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES (по умолчанию 2 МБ); message сервера называет предел. Повтор того же запроса не поможет. */
+  REQUEST_BODY_TOO_LARGE: 'REQUEST_BODY_TOO_LARGE',
   /** 422: неверный текущий пароль при смене собственного пароля. Сессию не завершает (в отличие от 401), попытка считается неудачным входом. */
   WRONG_CURRENT_PASSWORD: 'WRONG_CURRENT_PASSWORD',
 } as const
