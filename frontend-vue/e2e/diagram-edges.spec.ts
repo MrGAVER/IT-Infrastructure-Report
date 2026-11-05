@@ -88,13 +88,27 @@ test.describe('рёбра диаграммы после перетаскиван
     await expect.poll(async () => (await measureEdges(page)).edges).toBe(links)
     await expect.poll(async () => (await measureEdges(page)).throughNodes, { timeout: 10_000 }).toBe(0)
 
-    // Узел из верхнего ряда переносим в пустое место ниже схемы — линии, шедшие к нему, должны перестроиться вокруг остальных узлов.
+    // Узел из верхнего ряда переносим в свободное место ниже схемы — линии, шедшие к нему, должны перестроиться вокруг остальных узлов.
+    // Схема вписана в холст по высоте, поэтому свободное место появляется только после уменьшения масштаба; его положение берём
+    // из измеренных прямоугольников узлов, а не из размеров холста, иначе узел мог упасть на другой узел и «сквозь узлы» стало бы
+    // неизбежным.
+    for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Уменьшить масштаб' }).click()
     const node = page.locator('.vue-flow__node').first()
+    await expect
+      .poll(
+        async () => {
+          const rects = await page.locator('.vue-flow__node').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom))
+          const canvasBox = (await page.locator('.canvas-wrap').boundingBox())!
+          return canvasBox.y + canvasBox.height - Math.max(...rects)
+        },
+        { message: 'под схемой нет свободного места для переноса узла' },
+      )
+      .toBeGreaterThan(120)
     const box = (await node.boundingBox())!
-    const canvas = (await page.locator('.canvas-wrap').boundingBox())!
+    const lowest = await page.locator('.vue-flow__node').evaluateAll((els) => Math.max(...els.map((el) => el.getBoundingClientRect().bottom)))
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
-    await page.mouse.move(box.x + box.width / 2 + 40, canvas.y + canvas.height - 120, { steps: 12 })
+    await page.mouse.move(box.x + box.width / 2, lowest + box.height + 30, { steps: 12 })
     await page.mouse.up()
 
     await expect.poll(async () => (await measureEdges(page)).throughNodes, { message: 'после сдвига узла рёбра проходят сквозь узлы', timeout: 10_000 }).toBe(0)
