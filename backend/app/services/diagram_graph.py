@@ -75,8 +75,13 @@ MAX_LAYOUT_NODES = 5000
 MAX_LAYOUT_KEY_LENGTH = 200
 
 
-def _finite_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+def finite_number(value) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # целое из сотен цифр не приводится к float: это не «конечное число» раскладки, а некорректное значение
+        return False
 
 
 def clean_position(raw) -> Optional[dict]:
@@ -84,7 +89,7 @@ def clean_position(raw) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
     x, y = raw.get("x"), raw.get("y")
-    return {"x": x, "y": y} if _finite_number(x) and _finite_number(y) else None
+    return {"x": x, "y": y} if finite_number(x) and finite_number(y) else None
 
 
 def clean_positions_lenient(raw) -> dict[str, dict]:

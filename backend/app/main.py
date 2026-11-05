@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,6 +41,7 @@ from .services.network_access import (
     parse_client_networks,
 )
 from .services.port_sync_store import ensure_default_rules
+from .services.request_errors import request_validation_handler
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,10 @@ app.include_router(port_sync_router)
 app.include_router(audit_log_router)
 app.include_router(report_builder_router)
 app.include_router(diagrams_router)
+
+# 422 при ошибке разбора запроса — строкой на русском, как остальные 422 приложения (по умолчанию FastAPI отдаёт список объектов).
+app.add_exception_handler(RequestValidationError, request_validation_handler)
+
 
 @app.exception_handler(ReferencedRecordError)
 async def referenced_record_handler(request: Request, exc: ReferencedRecordError) -> JSONResponse:
