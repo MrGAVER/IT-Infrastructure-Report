@@ -93,7 +93,7 @@ const records = computed<Record<string, unknown>[]>(() => {
 // (запоминается как настройка списка «otherCatalogs»), а страница при смене справочника сбрасывается на первую.
 const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
   () => records.value,
-  { listId: 'otherCatalogs', defaultPageSize: 10 },
+  { listId: 'otherCatalogs' },
 )
 watch(selected, () => resetPage())
 

@@ -14,9 +14,8 @@ import { approveMatchingPortConfig, approvePortConfig, revokePortConfigApproval 
 import type { ApprovePortConfigResult } from '../api/portConfig'
 import type { Connection, ConnectionsSummary, PortConfigStatus } from '../api/types'
 import { useConnectionsStore } from './connections'
-import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
+import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 
-export const DEFAULT_PAGE_SIZE = 8
 const LIST_ID = 'connections'
 
 export type ActiveFilter = 'all' | 'yes' | 'no'
@@ -36,7 +35,7 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
     /** Итоги по всему реестру — не зависят от поиска и фильтров. */
     summary: { ...EMPTY_SUMMARY } as ConnectionsSummary,
     page: 1,
-    pageSize: loadPageSize(LIST_ID, DEFAULT_PAGE_SIZE),
+    pageSize: loadPageSize(LIST_ID),
     search: '',
     activeFilter: 'all' as ActiveFilter,
     portConfigFilter: 'all' as PortConfigFilter,
@@ -46,7 +45,7 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
   }),
   getters: {
     pageCount: (state): number => Math.max(1, Math.ceil(state.total / state.pageSize)),
-    pageSizeOptions: (): number[] => pageSizeOptionsFor(DEFAULT_PAGE_SIZE),
+    pageSizeOptions: (): number[] => [...PAGE_SIZE_OPTIONS],
     /** Условия выборки в виде, общем для списка и для «одобрить все найденные». */
     isActiveParam: (state): boolean | undefined => (state.activeFilter === 'all' ? undefined : state.activeFilter === 'yes'),
     searchParam: (state): string | undefined => state.search.trim() || undefined,
@@ -97,7 +96,7 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
     /** Смена количества строк: остаёмся на странице с тем же первым видимым подключением, выбор
      * запоминается. Недопустимое значение игнорируется. */
     setPageSize(size: number): Promise<void> {
-      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return Promise.resolve()
+      if (size === this.pageSize || !isAllowedPageSize(size)) return Promise.resolve()
       this.page = pageAfterSizeChange(this.page, this.pageSize, size)
       this.pageSize = size
       savePageSize(LIST_ID, size)

@@ -69,17 +69,17 @@ describe('useContainersStore', () => {
     expect(store.filtered).toHaveLength(2)
   })
 
-  it('пагинирует по 8 записей на страницу', async () => {
-    const many = Array.from({ length: 10 }, (_, i) => container({ id: `ct-${i}`, name: `container-${i}` }))
+  it('пагинирует по 10 записей на страницу', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => container({ id: `ct-${i}`, name: `container-${i}` }))
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ items: many, total: 10, offset: 0, limit: 1000 }))),
+      vi.fn(async () => new Response(JSON.stringify({ items: many, total: 12, offset: 0, limit: 1000 }))),
     )
     const store = useContainersStore()
     await store.ensureLoaded()
 
     expect(store.pageCount).toBe(2)
-    expect(store.pageItems).toHaveLength(8)
+    expect(store.pageItems).toHaveLength(10)
 
     store.setPage(2)
     expect(store.pageItems).toHaveLength(2)

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { DEFAULT_PAGE_SIZE, useAuditLogStore } from '../auditLog'
+import { useAuditLogStore } from '../auditLog'
+import { DEFAULT_PAGE_SIZE } from '../../utils/pageSize'
 import { auditJournal, auditServer } from './fixtures'
 import type { AuditLogPage } from '../../api/types'
 import { usePreferencesStore } from '../preferences'
@@ -131,19 +132,19 @@ describe('useAuditLogStore — серверная страница', () => {
 
   it('страница за концом (журнал сузили) → переход на последнюю существующую', async () => {
     let call = 0
-    const server = auditServer(auditJournal(30))
+    const server = auditServer(auditJournal(35))
     stubApi((url) => {
       call += 1
-      // Первый ответ: на странице 5 пусто, но записей всего 30 (3 страницы по 12 → последняя — 3-я).
-      return call === 1 ? { ...server(url), items: [], offset: 48 } : server(url)
+      // Первый ответ: на странице 6 пусто, но записей всего 35 (4 страницы по 10 → последняя — 4-я).
+      return call === 1 ? { ...server(url), items: [], offset: 50 } : server(url)
     })
     const store = useAuditLogStore()
-    store.page = 5
+    store.page = 6
 
     await store.load()
 
-    expect(store.page).toBe(3)
-    expect(store.items.map((e) => e.id)).toEqual(['a-24', 'a-25', 'a-26', 'a-27', 'a-28', 'a-29'])
+    expect(store.page).toBe(4)
+    expect(store.items.map((e) => e.id)).toEqual(['a-30', 'a-31', 'a-32', 'a-33', 'a-34'])
     expect(urls).toHaveLength(2)
     expect(store.loading).toBe(false)
   })
@@ -159,9 +160,9 @@ describe('useAuditLogStore — серверная страница', () => {
     store.search = 'Запись 12'
     const second = store.load()
 
-    resolvers[1](server('/audit-log?q=Запись 12&offset=0&limit=12'))
+    resolvers[1](server('/audit-log?q=Запись 12&offset=0&limit=10'))
     await second
-    resolvers[0](server('/audit-log?q=Запись 1&offset=0&limit=12')) // ответ на первый запрос приходит последним
+    resolvers[0](server('/audit-log?q=Запись 1&offset=0&limit=10')) // ответ на первый запрос приходит последним
     await first
 
     expect(store.items.map((e) => e.id)).toEqual(['a-12'])
@@ -202,34 +203,34 @@ describe('useAuditLogStore — серверная страница', () => {
 })
 
 describe('useAuditLogStore — размер страницы', () => {
-  it('по умолчанию 12; варианты — x1, x2, x4, x8', () => {
+  it('по умолчанию 10; варианты — 10, 25, 50, 100', () => {
     const store = useAuditLogStore()
-    expect(store.pageSize).toBe(12)
-    expect(store.pageSizeOptions).toEqual([12, 24, 48, 96])
+    expect(store.pageSize).toBe(10)
+    expect(store.pageSizeOptions).toEqual([10, 25, 50, 100])
   })
 
   it('смена размера запрашивает страницу с новым limit и остаётся на странице с тем же первым элементом', async () => {
     const store = useAuditLogStore()
     await store.load()
-    await store.setPage(5) // строки 49–60
+    await store.setPage(6) // строки 51–60
 
-    await store.setPageSize(48)
+    await store.setPageSize(50)
 
-    expect(lastParams().get('limit')).toBe('48')
-    expect(store.page).toBe(2) // 49-я запись теперь на странице 2 (49–96)
-    expect(lastParams().get('offset')).toBe('48')
-    expect(store.items).toHaveLength(48)
-    expect(store.pageCount).toBe(3)
+    expect(lastParams().get('limit')).toBe('50')
+    expect(store.page).toBe(2) // 51-я запись теперь первая на странице 2 (51–100)
+    expect(lastParams().get('offset')).toBe('50')
+    expect(store.items).toHaveLength(50)
+    expect(store.pageCount).toBe(2)
   })
 
   it('выбор запоминается для этого списка и применяется после «перезагрузки»', async () => {
     const store = useAuditLogStore()
-    await store.setPageSize(24)
-    expect(usePreferencesStore().user.page_sizes).toEqual({ auditLog: 24 })
+    await store.setPageSize(25)
+    expect(usePreferencesStore().user.page_sizes).toEqual({ auditLog: 25 })
 
     reloadPinia() // «перезагрузка»: настройки подтянуты с сервера
 
-    expect(useAuditLogStore().pageSize).toBe(24)
+    expect(useAuditLogStore().pageSize).toBe(25)
   })
 
   it('недопустимое значение и то же значение ничего не меняют и не вызывают запрос', async () => {
@@ -239,9 +240,10 @@ describe('useAuditLogStore — размер страницы', () => {
     const before = urls.length
 
     await store.setPageSize(7)
-    await store.setPageSize(12)
+    await store.setPageSize(12) // и значение прежней шкалы 12/24/48/96 тоже недопустимо
+    await store.setPageSize(10)
 
-    expect(store.pageSize).toBe(12)
+    expect(store.pageSize).toBe(10)
     expect(store.page).toBe(2)
     expect(urls).toHaveLength(before)
     expect(usePreferencesStore().user.page_sizes).toBeUndefined()
