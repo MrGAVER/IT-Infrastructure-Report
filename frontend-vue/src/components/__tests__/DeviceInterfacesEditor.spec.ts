@@ -2345,8 +2345,8 @@ describe('DeviceInterfacesEditor.vue — расхождение с соседо�
       expect(await cross.result).toBe(false)
 
       const outside = await open()
-      await outside.wrapper.find('.overlay').trigger('mousedown')
-      await outside.wrapper.find('.overlay').trigger('click')
+      await outside.wrapper.find('.modal-overlay').trigger('mousedown')
+      await outside.wrapper.find('.modal-overlay').trigger('click')
       expect(await outside.result).toBe(false)
       expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
     })

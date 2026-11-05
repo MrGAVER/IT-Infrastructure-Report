@@ -3,7 +3,7 @@ import { useId } from 'vue'
 // Окно решения расхождения порта с соседним портом (значок-предупреждение в строке порта): показывает конфигурацию текущего
 // порта и соседнего рядом и даёт применить любую из двух. Само применение — useNeighborSync (applyNeighborConfig /
 // applyCurrentConfigToNeighbor); окно только показывает данные и сообщает о выборе.
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import type { InterfaceDraftRow, PortConflictInfo } from '../api/types'
 import { carriesAllVlans } from '../utils/allVlans'
 import { conflictTitle, type ConflictKind } from '../utils/interfaceRowView'
@@ -23,13 +23,12 @@ const emit = defineEmits<{
   'apply-current': []
 }>()
 
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal :offset="60" @close="emit('close')">
     <div class="conflict-modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="conflict-modal-head">
         <h3 :id="titleId">{{ conflictTitle(kind) }}</h3>
@@ -88,7 +87,7 @@ const titleId = useId()
         «Все VLAN» у устройств — разные наборы номеров, поэтому значение для порта выбираете вы: как у порта-источника или другое.
       </p>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped src="../styles/interfaceModal.css"></style>

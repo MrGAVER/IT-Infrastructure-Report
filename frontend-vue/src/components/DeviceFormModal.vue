@@ -8,7 +8,7 @@ import { ref, useId } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useFormPreferencesStore } from '../stores/formPreferences'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 import { useDeviceDomains } from '../composables/useDeviceDomains'
 import { useDeviceDraft } from '../composables/useDeviceDraft'
@@ -28,7 +28,6 @@ const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -65,7 +64,7 @@ const { saving, submit } = useDeviceSave(draft, {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать устройство' : 'Добавить устройство' }}</h2>
@@ -136,21 +135,10 @@ const { saving, submit } = useDeviceSave(draft, {
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* Список интерфейсов (DeviceInterfacesEditor.vue) — таблица из 10 колонок; на типичных

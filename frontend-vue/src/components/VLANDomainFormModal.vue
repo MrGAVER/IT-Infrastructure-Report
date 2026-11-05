@@ -14,7 +14,7 @@ import { computed, reactive, ref, watch, useId } from 'vue'
 import { api, createResource, deleteResource, listAllResource, updateResource } from '../api/client'
 import type { Device, VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
@@ -22,7 +22,6 @@ const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ domain: VLANDomain | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -147,7 +146,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать VLAN-домен' : 'Добавить VLAN-домен' }}</h2>
@@ -225,21 +224,10 @@ async function submit() {
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 560px;

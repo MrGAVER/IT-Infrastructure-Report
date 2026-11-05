@@ -29,7 +29,7 @@ import ISSourcesListEditor from './ISSourcesListEditor.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
 import type { SearchableSelectOption } from './SearchableSelect.vue'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { stripIds } from '../utils/copyEntity'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
@@ -40,7 +40,6 @@ const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ system: InformationSystem | null; copyFrom?: InformationSystem | null }>()
 const emit = defineEmits<{ close: []; saved: [system: InformationSystem] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -286,7 +285,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать информационную систему' : 'Добавить информационную систему' }}</h2>
@@ -410,21 +409,10 @@ async function submit() {
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* п.7.2: та же правка ширины, что и в DeviceFormModal.vue (п.1.3) — форма ИС

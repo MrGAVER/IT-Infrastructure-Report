@@ -16,6 +16,8 @@ export default mergeConfig(
       // встроенных объектов между контекстами (instanceof, Date), вернуть `pool: 'forks'`.
       pool: 'vmThreads',
       globals: true,
+      // Teleport окон (BaseModal) заменён заглушкой — см. комментарий в файле.
+      setupFiles: ['./src/__tests__/setup.ts'],
       css: false,
       // Стабы vi.stubGlobal (fetch, confirm и т.п.) не должны переживать границу
       // теста по умолчанию — иначе тест может случайно пройти на стабе, оставшемся

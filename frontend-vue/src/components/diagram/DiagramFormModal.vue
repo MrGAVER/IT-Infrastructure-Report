@@ -4,13 +4,15 @@
 // только create/regenerate/duplicate/delete и отдельные PUT для раскладки/состояния групп.
 // Изменить область охвата уже созданной диаграммы можно только создав новую (или продублировав
 // и переоткрыв в этой форме заново — сама форма правки не предлагает, ограничение API).
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, useId } from 'vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
 import { createDiagram, GROUP_BY_OPTIONS, type DiagramGroupBy } from '../../api/diagrams'
 import { useToast } from '../../composables/useToast'
+import BaseModal from '../BaseModal.vue'
 
 const emit = defineEmits<{ close: []; created: [id: string] }>()
+const titleId = useId()
 const { notifyError } = useToast()
 const catalogs = useCatalogsStore()
 const vlans = useVLANsStore()
@@ -67,9 +69,9 @@ async function save() {
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('close')">
-    <form class="modal card" @submit.prevent="save">
-      <h2>Новая диаграмма</h2>
+  <BaseModal align="center" @close="emit('close')">
+    <form class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId" @submit.prevent="save">
+      <h2 :id="titleId">Новая диаграмма</h2>
 
       <label class="field">
         <span>Название</span>
@@ -126,19 +128,10 @@ async function save() {
         <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Создание…' : 'Создать' }}</button>
       </div>
     </form>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 60;
-}
 .modal {
   width: 640px;
   max-width: calc(100vw - 32px);

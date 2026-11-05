@@ -154,9 +154,9 @@ describe('QuickAddModal.vue', () => {
     expect(typeAddButton).toBeTruthy()
     await typeAddButton!.trigger('click')
 
-    // Вложенная QuickAddModal телепортируется в тот же document.body — второй .overlay поверх первого.
-    expect(body().findAll('.overlay')).toHaveLength(2)
-    const nested = body().findAll('.overlay')[1]
+    // Вложенная QuickAddModal телепортируется в тот же document.body — второй .modal-overlay поверх первого.
+    expect(body().findAll('.modal-overlay')).toHaveLength(2)
+    const nested = body().findAll('.modal-overlay')[1]
     await nested.find('input[type="text"]').setValue('Коммутатор')
     // Категория — обязательное fk-поле вложенной формы; выбираем единственный доступный вариант.
     await nested.find('.searchable-select input').trigger('focus')
@@ -167,7 +167,7 @@ describe('QuickAddModal.vue', () => {
     // Вложенная форма закрылась сама, а её результат сразу выбран в SearchableSelect основной
     // формы — проверяем через показанную подпись (id -> label резолвится внутри SearchableSelect
     // по modelValue by поиску в options), а не через несуществующий теперь HTMLSelectElement.value.
-    expect(body().findAll('.overlay')).toHaveLength(1)
+    expect(body().findAll('.modal-overlay')).toHaveLength(1)
     const deviceTypeInput = body().findAll('.searchable-select input')[0].element as HTMLInputElement
     expect(deviceTypeInput.value).toBe('Коммутатор')
     expect(catalogs.items['device-types']).toEqual([
@@ -205,12 +205,12 @@ describe('QuickAddModal.vue', () => {
     expect(domainAddButton).toBeTruthy()
     await domainAddButton!.trigger('click')
 
-    const nested = body().findAll('.overlay')[1]
+    const nested = body().findAll('.modal-overlay')[1]
     await nested.find('input[type="text"]').setValue('Филиал-2')
     await nested.find('form').trigger('submit')
     await flushPromises()
 
-    expect(body().findAll('.overlay')).toHaveLength(1)
+    expect(body().findAll('.modal-overlay')).toHaveLength(1)
     const domainInput = body().find('.searchable-select input').element as HTMLInputElement
     expect(domainInput.value).toBe('Филиал-2')
   })

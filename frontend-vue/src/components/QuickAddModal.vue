@@ -11,7 +11,7 @@ import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS, QUICK_ADD_SINGLE_COLUMN } from '../quickAdd/schema'
 import type { QuickAddFkScope, QuickField } from '../quickAdd/schema'
 import type { CatalogItem, ProtocolPortCatalogEntry } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { vTruncateTooltip } from '../directives/truncateTooltip' // Кнопка "+" для вложенного быстрого добавления (см. nestedQuickAdd в quickAdd/schema.ts).
 // Циклический импорт (QuickAddButton.vue сам рендерит QuickAddModal.vue) безопасен: обе стороны
 // используются только в шаблоне/во время рендера, а не в теле модуля при загрузке — к моменту
@@ -36,7 +36,6 @@ const emit = defineEmits<{
   // уже существующего вложенного события дальше вверх по цепочке компонентов.
   'nested-created': [fieldName: string, fkResource: string, record: CatalogItem]
 }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -130,82 +129,64 @@ async function submit() {
 </script>
 
 <template>
-  <!-- Teleport в body: без него, при использовании внутри QuickAddButton, вложенном в форму
-       вызывающего компонента (DeviceFormModal.vue и т.п.), получился бы <form> внутри <form> —
-       HTML не допускает вложенные формы, браузер обработал бы это непредсказуемо (вложенный
-       submit мог бы всплыть и отправить ВНЕШНЮЮ форму вместо этой). -->
-  <Teleport to="body">
-    <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" :class="{ 'modal-wide': singleColumn }" role="dialog" aria-modal="true" :aria-labelledby="titleId">
-        <div class="modal-head">
-          <h2 :id="titleId">Добавить: {{ title }}</h2>
-          <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
-            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
-          </button>
-        </div>
+  <!-- BaseModal выносит окно в <body>: иначе при использовании внутри QuickAddButton, вложенном в форму вызывающего
+       компонента (DeviceFormModal.vue и т.п.), получился бы <form> внутри <form> — HTML не допускает вложенные формы,
+       вложенный submit мог бы всплыть и отправить ВНЕШНЮЮ форму вместо этой. -->
+  <BaseModal @close="emit('close')">
+    <div class="modal card" :class="{ 'modal-wide': singleColumn }" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+      <div class="modal-head">
+        <h2 :id="titleId">Добавить: {{ title }}</h2>
+        <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
+      </div>
 
-        <div v-if="errorMessage" class="form-error">
-          <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-          {{ errorMessage }}
-        </div>
-        <div v-if="!fields.length" class="form-error">Для «{{ resource }}» быстрое добавление не настроено.</div>
+      <div v-if="errorMessage" class="form-error">
+        <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+        {{ errorMessage }}
+      </div>
+      <div v-if="!fields.length" class="form-error">Для «{{ resource }}» быстрое добавление не настроено.</div>
 
-        <form v-else class="form-grid" :class="{ 'form-grid-single': singleColumn }" @submit.prevent="submit">
-          <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
-            <!-- Правка "иконка вместо текстового блока в 'Добавить: Модель устройства'": та же
+      <form v-else class="form-grid" :class="{ 'form-grid-single': singleColumn }" @submit.prevent="submit">
+        <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
+          <!-- Правка "иконка вместо текстового блока в 'Добавить: Модель устройства'": та же
                  причина без <span>-подписи здесь, что и в аналогичном месте
                  CatalogRecordFormModal.vue — DeviceIconPicker уже рендерит собственную подпись
                  "Иконка на диаграмме топологии сети" в своём шаблоне. -->
-            <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
-            <div v-if="f.type === 'fk'" class="fk-row">
-              <SearchableSelect
-                :model-value="(values[f.name] as string) ?? ''"
-                :options="fkSelectOptions(f)"
-                @update:model-value="(v) => (values[f.name] = v)"
-              />
-              <QuickAddButton
-                v-if="f.nestedQuickAdd && f.fkResource"
-                :resource="f.fkResource"
-                :title="QUICK_ADD_LABELS[f.fkResource]"
-                @created="(record) => onNestedCreated(f.name, f.fkResource ?? '', record)"
-              />
-            </div>
-            <textarea v-else-if="f.type === 'textarea'" v-model="values[f.name] as string" rows="2"></textarea>
-            <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
-              <input type="checkbox" :checked="values[f.name] as boolean" @change="values[f.name] = ($event.target as HTMLInputElement).checked" />
-            </label>
-            <DeviceIconPicker
-              v-else-if="f.type === 'diagram-icon'"
-              :model-value="(values[f.name] as string) || null"
-              @update:model-value="(v) => (values[f.name] = v ?? '')"
+          <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
+          <div v-if="f.type === 'fk'" class="fk-row">
+            <SearchableSelect :model-value="(values[f.name] as string) ?? ''" :options="fkSelectOptions(f)" @update:model-value="(v) => (values[f.name] = v)" />
+            <QuickAddButton
+              v-if="f.nestedQuickAdd && f.fkResource"
+              :resource="f.fkResource"
+              :title="QUICK_ADD_LABELS[f.fkResource]"
+              @created="(record) => onNestedCreated(f.name, f.fkResource ?? '', record)"
             />
-            <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
+          </div>
+          <textarea v-else-if="f.type === 'textarea'" v-model="values[f.name] as string" rows="2"></textarea>
+          <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
+            <input type="checkbox" :checked="values[f.name] as boolean" @change="values[f.name] = ($event.target as HTMLInputElement).checked" />
           </label>
-        </form>
+          <DeviceIconPicker
+            v-else-if="f.type === 'diagram-icon'"
+            :model-value="(values[f.name] as string) || null"
+            @update:model-value="(v) => (values[f.name] = v ?? '')"
+          />
+          <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
+        </label>
+      </form>
 
-        <div class="modal-foot">
-          <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-          <button type="button" class="btn btn-primary" :disabled="saving || !fields.length" @click="submit">
-            {{ saving ? 'Сохранение…' : 'Добавить' }}
-          </button>
-        </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
+        <button type="button" class="btn btn-primary" :disabled="saving || !fields.length" @click="submit">
+          {{ saving ? 'Сохранение…' : 'Добавить' }}
+        </button>
       </div>
     </div>
-  </Teleport>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 70;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* Фикс п.1.3.6: было 460px фиксированных — при form-grid: 1fr 1fr (см. ниже) каждое fk-поле
