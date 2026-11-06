@@ -8,7 +8,8 @@
 """
 from __future__ import annotations
 
-from typing import Any, Sequence
+from dataclasses import dataclass
+from typing import Any, Sequence, TypeAlias
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -163,24 +164,43 @@ def _parse_match(match: Any) -> ConnectionQuery:
     return ConnectionQuery(q=q, is_active=is_active, status=PortConfigStatus.MISMATCH)
 
 
-def parse_approve_request(payload: Any) -> tuple[list[str] | None, ConnectionQuery | None]:
+@dataclass(frozen=True)
+class ApproveByIds:
+    """Одобрить перечисленные подключения: уникальные id в порядке прихода."""
+
+    ids: list[str]
+
+
+@dataclass(frozen=True)
+class ApproveByMatch:
+    """Одобрить все подключения с расхождением под условиями поиска."""
+
+    query: ConnectionQuery
+
+
+# Ровно один из двух вариантов: пара «(ids | None, query | None)» позволяла представить и «оба», и «ни одного», а вызывающему коду
+# приходилось доказывать компилятору (и интерпретатору, assert-ом), что второй вариант не None.
+ApproveSelection: TypeAlias = ApproveByIds | ApproveByMatch
+
+
+def parse_approve_request(payload: Any) -> ApproveSelection:
     """Разбор тела одобрения — чистая проверка формы, без обращения к БД (её же вызывает модель запроса
     `ApprovePortConfigRequest`, api/port_config_schemas.py, поэтому правила живут только здесь).
 
-    Ровно одно из `connection_ids` / `match`. Возвращает (уникальные id в порядке прихода, None) либо (None, условия поиска)."""
+    Ровно одно из `connection_ids` / `match`. Возвращает ApproveByIds (уникальные id в порядке прихода) либо ApproveByMatch (условия поиска)."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
     has_ids, has_match = "connection_ids" in payload, "match" in payload
     if has_ids == has_match:
         raise HTTPException(422, "Передайте ровно одно из полей: connection_ids или match")
     if has_match:
-        return None, _parse_match(payload["match"])
+        return ApproveByMatch(_parse_match(payload["match"]))
     ids = payload["connection_ids"]
     if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
         raise HTTPException(422, "Поле connection_ids должно быть непустым массивом идентификаторов подключений")
     if len(ids) > MAX_APPROVE_BATCH:
         raise HTTPException(422, f"За один запрос можно одобрить не более {MAX_APPROVE_BATCH} подключений")
-    return list(dict.fromkeys(ids)), None
+    return ApproveByIds(list(dict.fromkeys(ids)))
 
 
 def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, Any]:
@@ -196,9 +216,10 @@ def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, 
     Идемпотентно и безопасно к гонкам: подключение, у которого расхождения уже нет (роль порта
     успели выровнять) или которое неактивно, пропускается (`skipped_ids`). Всё — одной транзакцией:
     при ошибке не одобряется ничего. `approved_count` — сколько расхождений одобрено именно сейчас."""
-    unique_ids, query = parse_approve_request(payload)
+    selection = parse_approve_request(payload)
 
-    if unique_ids is not None:
+    if isinstance(selection, ApproveByIds):
+        unique_ids = selection.ids
         by_id = {c.id: c for c in session.scalars(select(Connection).where(Connection.id.in_(unique_ids))).all()}
         missing = [i for i in unique_ids if i not in by_id]
         if missing:
@@ -207,8 +228,7 @@ def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, 
         session.commit()
         return {"items": enrich_connections(covered, session), "skipped_ids": skipped, "approved_count": approved}
 
-    assert query is not None  # parse_approve_request вернул либо id, либо условия
-    ids = select_connection_ids(session, query)
+    ids = select_connection_ids(session, selection.query)
     approved = 0
     for start in range(0, len(ids), _APPROVE_CHUNK):
         chunk = session.scalars(select(Connection).where(Connection.id.in_(ids[start:start + _APPROVE_CHUNK]))).all()

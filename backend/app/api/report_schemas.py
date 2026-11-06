@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, field_validator, model_validator
 
 from ..services.report_params import (
     DEFAULT_PREVIEW_LIMIT,
@@ -29,7 +29,7 @@ from ..services.report_params import (
     parse_structural_unit_ids,
 )
 from ..services.structural_appendix_docx import DEFAULT_IS_NAME
-from .schema_base import RequestBody, delegate_to_parser
+from .schema_base import RequestBody, absent_as_null, delegate_to_parser
 
 DEFAULT_FORMAT = "xlsx"
 # Ограничения длины и числа элементов нужны схеме OpenAPI: сообщение об ошибке даёт валидатор из report_params, он срабатывает раньше.
@@ -125,12 +125,13 @@ class ReportTemplateWrite(RequestBody):
     # validate_default: отсутствующее поле проходит ту же проверку и получает то же сообщение, что и неверное значение.
     name: str = Field(default="", validate_default=True, description="Название шаблона, уникальное; пробелы по краям обрезаются.")
     format: str = Field(default=DEFAULT_FORMAT, description="xlsx или docx.")
-    config: dict[str, Any] = Field(
-        default=None,  # type: ignore[assignment]  # отсутствие поля отвергает валидатор: сообщение то же, что у неверного значения
-        validate_default=True,
-        description="Описание листов (xlsx) или блоков (docx); проверяется под формат шаблона.",
-    )
+    config: dict[str, Any] = Field(description="Описание листов (xlsx) или блоков (docx); проверяется под формат шаблона.")
     description: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _config_present(cls, raw: object) -> object:
+        return absent_as_null(raw, "config")  # отсутствие — то же сообщение, что у неверного значения (_config)
 
     @field_validator("name", mode="before")
     @classmethod

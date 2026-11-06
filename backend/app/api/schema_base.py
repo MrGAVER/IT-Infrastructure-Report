@@ -1,4 +1,4 @@
-"""Общая основа Pydantic-моделей тел запросов (код-ревью main, F-06, этап 2 — роутеры, кроме диаграмм).
+"""Общая основа Pydantic-моделей тел запросов (код-ревью main, F-06, этап 2 — все роутеры, включая диаграммы).
 
 Модель тела — граница API: она описывает форму запроса в OpenAPI и отклоняет неверное тело до обработчика. Правила при этом остаются
 там, где они были, — в сервисах (``services/report_params.py``, ``services/port_edit.py`` и т.д.): их вызывают и тесты, и другие
@@ -39,3 +39,20 @@ def delegate_to_parser(parse: Callable[[Any], T], raw: Any) -> T:
         if exc.status_code != 422:
             raise
         raise ValueError(str(exc.detail)) from None
+
+
+def absent_as_null(raw: object, *names: str) -> object:
+    """Подставляет ``null`` вместо отсутствующих обязательных полей (код-ревью, BE-05).
+
+    Для полей, у которых текст ошибки один и для «не прислали», и для «прислали не то»: валидатор поля (``mode="before"``) отвергает
+    ``None`` прежним сообщением, а поле объявлено обязательным — без значения по умолчанию, поэтому в OpenAPI оно попадает в
+    ``required``. Раньше для этого стояло ``Field(default=None, validate_default=True)`` с подавлением типов: тип обещал ``bool``,
+    а значением по умолчанию было ``None``.
+
+    Применяется из ``model_validator(mode="before")`` — до разбора полей, поэтому ошибки отсутствующих и неверных полей собираются
+    вместе (до трёх сообщений), как и прежде. Не-объект возвращается как есть: ошибку «ожидается объект» даёт сам Pydantic.
+    Если у поля нет проверяющего ``None`` валидатора, его отвергнет сам Pydantic — по типу."""
+    if not isinstance(raw, dict):
+        return raw
+    missing = [name for name in names if name not in raw]
+    return {**raw, **dict.fromkeys(missing)} if missing else raw

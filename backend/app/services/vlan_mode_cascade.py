@@ -501,7 +501,8 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
     return result
 
 
-def _parse_mode(mode: Any) -> str:
+def parse_cascade_mode(mode: Any) -> str:
+    # Публичный разбор для моделей запросов (api/port_config_schemas.py): правила остаются здесь, модели их только вызывают.
     if mode not in VLAN_MODES:
         raise HTTPException(422, "Режим порта должен быть 'access' или 'trunk'")
     return mode
@@ -545,7 +546,7 @@ def _parse_edited_group(key: Any, raw: Any) -> _EditedGroup:
     return _EditedGroup(mode=raw["mode"], vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name"))
 
 
-def _parse_edited(raw: Any) -> _Edited:
+def parse_cascade_edited(raw: Any) -> _Edited:
     """edited = {device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}}
     или null/отсутствует. group у порта — ключ группы формы (null — порт вне групп); группы формы — и
     сохранённые (ключ = id), и новые (временный ключ)."""
@@ -563,11 +564,6 @@ def _parse_edited(raw: Any) -> _Edited:
         ports={port_id: _parse_edited_port(port_id, state) for port_id, state in ports.items()},
         groups={key: _parse_edited_group(key, state) for key, state in groups.items()},
     )
-
-
-# Публичные имена разбора тела для моделей запросов (api/port_config_schemas.py): правила остаются здесь, модели их только вызывают.
-parse_cascade_mode = _parse_mode
-parse_cascade_edited = _parse_edited
 
 
 def _compute(start_id: str, mode: str, edited: _Edited, session: Session) -> _Change:
@@ -590,8 +586,8 @@ def preview_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], sessio
     port: {role?, vlan_ids?} — роль и набор VLAN порта-инициатора, проверяются под целевой режим (ничего не пишет)."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
-    mode = _parse_mode(payload.get("mode"))
-    plan = _compute(interface_id, mode, _parse_edited(payload.get("edited")), session).plan
+    mode = parse_cascade_mode(payload.get("mode"))
+    plan = _compute(interface_id, mode, parse_cascade_edited(payload.get("edited")), session).plan
     _prepare_port(interface_id, payload, mode, session)  # ошибка в роли/VLAN видна до подтверждения каскада
     return plan
 
@@ -648,7 +644,7 @@ def _parse_apply_request(payload: Any) -> tuple[str, _Edited]:
     """Проверки тела запроса применения — до любых обращений к БД. Порядок: объект → mode → edited → confirm."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
-    mode, edited = _parse_mode(payload.get("mode")), _parse_edited(payload.get("edited"))
+    mode, edited = parse_cascade_mode(payload.get("mode")), parse_cascade_edited(payload.get("edited"))
     if payload.get("confirm") is not True:
         raise HTTPException(422, "Применение требует подтверждения: confirm = true")
     return mode, edited

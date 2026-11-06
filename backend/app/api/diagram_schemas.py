@@ -19,9 +19,10 @@ from __future__ import annotations
 import re
 from typing import Any, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import Field, StrictBool, field_validator, model_validator
 
 from ..services.diagram_graph import GROUP_DIMENSIONS, MAX_LAYOUT_KEY_LENGTH, MAX_LAYOUT_NODES, clean_position, finite_number
+from .schema_base import RequestBody, absent_as_null
 
 Number: TypeAlias = int | float  # int | float, а не float: целые координаты сохраняются целыми, как их прислал клиент
 DEFAULT_COLLAPSE_THRESHOLD = 20
@@ -91,12 +92,7 @@ def checked_threshold(value: object, field: str, *, nullable: bool = False) -> i
     return value
 
 
-class _Body(BaseModel):
-    # Лишние поля игнорируются, как и раньше: клиент может прислать целиком объект диаграммы.
-    model_config = ConfigDict(extra="ignore")
-
-
-class DiagramCreate(_Body):
+class DiagramCreate(RequestBody):
     """POST /api/v1/diagrams."""
 
     # validate_default: отсутствующее название проходит ту же проверку и получает то же сообщение «Укажите название диаграммы».
@@ -134,7 +130,7 @@ class DiagramCreate(_Body):
         return checked_threshold(value, "collapse_threshold")
 
 
-class DiagramRename(_Body):
+class DiagramRename(RequestBody):
     """PUT /api/v1/diagrams/{id}/rename."""
 
     name: str = Field(default="", validate_default=True)
@@ -145,15 +141,16 @@ class DiagramRename(_Body):
         return checked_name(value)
 
 
-class DiagramLayoutUpdate(_Body):
+class DiagramLayoutUpdate(RequestBody):
     """PUT /api/v1/diagrams/{id}/layout."""
 
-    node_positions: dict[str, dict[str, Number]] = Field(
-        default=None,  # type: ignore[assignment]  # отсутствие поля отвергает валидатор: сообщение то же, что у неверного значения
-        validate_default=True,
-        description=f"Позиции узлов {{id: {{x, y}}}}, не более {MAX_LAYOUT_NODES} узлов.",
-    )
+    node_positions: dict[str, dict[str, Number]] = Field(description=f"Позиции узлов {{id: {{x, y}}}}, не более {MAX_LAYOUT_NODES} узлов.")
     viewport: dict[str, Number] | None = Field(default=None, description="Положение и масштаб холста: x, y, zoom, pan_x, pan_y — или null.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _node_positions_present(cls, raw: object) -> object:
+        return absent_as_null(raw, "node_positions")  # отсутствие — то же сообщение, что у неверного значения (_node_positions)
 
     @field_validator("node_positions", mode="before")
     @classmethod
@@ -166,7 +163,7 @@ class DiagramLayoutUpdate(_Body):
         return checked_viewport(value)
 
 
-class DiagramGroupStateUpdate(_Body):
+class DiagramGroupStateUpdate(RequestBody):
     """PUT /api/v1/diagrams/{id}/groups/{group_key}. Применяется только то, что прислано: отсутствующее поле состояние не трогает,
     а ``custom_threshold: null`` сбрасывает порог группы (различие — по ``model_fields_set``)."""
 

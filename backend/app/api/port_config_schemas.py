@@ -20,7 +20,7 @@ from pydantic import ConfigDict, Field, StrictBool, field_validator, model_valid
 from ..services.connection_review import MAX_APPROVE_BATCH, parse_approve_request
 from ..services.port_edit import parse_port_change
 from ..services.vlan_mode_cascade import parse_cascade_edited, parse_cascade_mode
-from .schema_base import RequestBody, delegate_to_parser
+from .schema_base import RequestBody, absent_as_null, delegate_to_parser
 
 PortMode = Literal["access", "trunk"]
 
@@ -35,8 +35,13 @@ def _checked_flag(name: str, value: object) -> bool:
 class PortRoleUpdate(RequestBody):
     """PUT /api/v1/interfaces/{id}/port-role — обе роли заданы всегда: пара флагов однозначно определяет роль порта."""
 
-    is_management: StrictBool = Field(default=None, validate_default=True, description="Порт используется для управления.")  # type: ignore[assignment]
-    is_data_transfer: StrictBool = Field(default=None, validate_default=True, description="Порт используется для передачи данных.")  # type: ignore[assignment]
+    is_management: StrictBool = Field(description="Порт используется для управления.")
+    is_data_transfer: StrictBool = Field(description="Порт используется для передачи данных.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _both_flags_present(cls, raw: object) -> object:
+        return absent_as_null(raw, "is_management", "is_data_transfer")  # отсутствие — тот же текст, что у неверного значения
 
     @field_validator("is_management", mode="before")
     @classmethod
@@ -73,7 +78,7 @@ class PortConfigUpdate(RequestBody):
 class CascadePreviewRequest(RequestBody):
     """POST /api/v1/interfaces/{id}/vlan-mode-cascade/preview — предпросмотр каскадной смены режима порта."""
 
-    mode: PortMode = Field(default=None, validate_default=True, description="Целевой режим порта-инициатора.")  # type: ignore[assignment]
+    mode: PortMode = Field(description="Целевой режим порта-инициатора.")
     edited: dict[str, Any] | None = Field(
         default=None,
         description="Снимок формы устройства с открытой формой: {device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, "
@@ -84,6 +89,11 @@ class CascadePreviewRequest(RequestBody):
         default=None,
         description="Роль и ПОЛНЫЙ набор VLAN порта-инициатора {role?, vlan_ids?, all_vlans?}: проверяются под целевой режим.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mode_present(cls, raw: object) -> object:
+        return absent_as_null(raw, "mode")  # отсутствие — то же сообщение, что у неверного режима (_mode)
 
     @field_validator("mode", mode="before")
     @classmethod
