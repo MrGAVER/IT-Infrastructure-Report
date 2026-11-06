@@ -12,6 +12,7 @@
 * тело проверяется до обработчика, поэтому запрос с неверным телом к несуществующей диаграмме получает 422, а не 404;
 * ``description`` — строка или null (раньше в БД уходил любой JSON-тип);
 * ``is_collapsed`` — булево значение (раньше любое значение приводилось через ``bool(...)``).
+* ``collapse_threshold`` и ``custom_threshold`` не больше MAX_COLLAPSE_THRESHOLD (раньше сверхбольшое целое доходило до драйвера БД: 500).
 """
 from __future__ import annotations
 
@@ -24,6 +25,10 @@ from ..services.diagram_graph import GROUP_DIMENSIONS, MAX_LAYOUT_KEY_LENGTH, MA
 
 Number: TypeAlias = int | float  # int | float, а не float: целые координаты сохраняются целыми, как их прислал клиент
 DEFAULT_COLLAPSE_THRESHOLD = 20
+# Верхняя граница порогов сворачивания (collapse_threshold, custom_threshold). Заведомо больше MAX_LAYOUT_NODES (5000) и помещается в
+# INTEGER и SQLite, и PostgreSQL. Без границы значение вроде 10**30 доходило до драйвера БД и заканчивалось 500 (OverflowError).
+# Это же число стоит в поле ввода frontend (DiagramFormModal.vue, max="1000000"): менять их нужно вместе.
+MAX_COLLAPSE_THRESHOLD = 1_000_000
 MAX_DIAGRAM_NAME_LENGTH = 255  # длина колонки SavedDiagram.name
 # Управляющие символы C0/C1 (в том числе CR, LF, табуляция, DEL) и разделители строк/абзацев Unicode.
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
@@ -72,8 +77,18 @@ def checked_viewport(raw: object) -> dict | None:
     return dict(raw)
 
 
-def _is_positive_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+def checked_threshold(value: object, field: str, *, nullable: bool = False) -> int | None:
+    """Порог сворачивания: целое число от 1 до MAX_COLLAPSE_THRESHOLD (для nullable-поля допустим ещё null).
+
+    Тип и нижняя граница дают прежние сообщения; верхняя граница — новое, с названием поля. Булево значение целым не считается
+    (True — это int в Python, но не число в JSON)."""
+    if value is None and nullable:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{field} должен быть положительным целым числом" + (" или null" if nullable else ""))
+    if value > MAX_COLLAPSE_THRESHOLD:
+        raise ValueError(f"{field} не должен превышать {MAX_COLLAPSE_THRESHOLD}")
+    return value
 
 
 class _Body(BaseModel):
@@ -89,8 +104,8 @@ class DiagramCreate(_Body):
     group_by: str = Field(default="structural_unit", description="Измерение группировки узлов.", json_schema_extra={"enum": list(GROUP_DIMENSIONS)})
     scope_filter: dict[str, Any] = Field(default_factory=dict, description="Фильтр охвата: какие устройства попадают на диаграмму.")
     description: str | None = None
-    # ge=1 нужен только схеме OpenAPI (minimum): сообщение об ошибке даёт валидатор ниже.
-    collapse_threshold: int = Field(default=DEFAULT_COLLAPSE_THRESHOLD, ge=1, description="Группа крупнее этого числа устройств сворачивается.")
+    # ge/le нужны только схеме OpenAPI (minimum/maximum): сообщение об ошибке даёт валидатор ниже.
+    collapse_threshold: int = Field(default=DEFAULT_COLLAPSE_THRESHOLD, ge=1, le=MAX_COLLAPSE_THRESHOLD, description="Группа крупнее этого числа устройств сворачивается.")
 
     @field_validator("name", mode="before")
     @classmethod
@@ -115,10 +130,8 @@ class DiagramCreate(_Body):
 
     @field_validator("collapse_threshold", mode="before")
     @classmethod
-    def _collapse_threshold(cls, value: object) -> object:
-        if not _is_positive_int(value):
-            raise ValueError("collapse_threshold должен быть положительным целым числом")
-        return value
+    def _collapse_threshold(cls, value: object) -> int | None:
+        return checked_threshold(value, "collapse_threshold")
 
 
 class DiagramRename(_Body):
@@ -158,11 +171,9 @@ class DiagramGroupStateUpdate(_Body):
     а ``custom_threshold: null`` сбрасывает порог группы (различие — по ``model_fields_set``)."""
 
     is_collapsed: StrictBool = False
-    custom_threshold: int | None = Field(default=None, description="Свой порог сворачивания группы; null — использовать порог диаграммы.")
+    custom_threshold: int | None = Field(default=None, ge=1, le=MAX_COLLAPSE_THRESHOLD, description="Свой порог сворачивания группы; null — использовать порог диаграммы.")
 
     @field_validator("custom_threshold", mode="before")
     @classmethod
-    def _custom_threshold(cls, value: object) -> object:
-        if value is not None and not _is_positive_int(value):
-            raise ValueError("custom_threshold должен быть положительным целым числом или null")
-        return value
+    def _custom_threshold(cls, value: object) -> int | None:
+        return checked_threshold(value, "custom_threshold", nullable=True)

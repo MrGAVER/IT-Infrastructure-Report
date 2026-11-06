@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from app.api.diagram_schemas import MAX_DIAGRAM_NAME_LENGTH, checked_viewport
+from app.api.diagram_schemas import MAX_COLLAPSE_THRESHOLD, MAX_DIAGRAM_NAME_LENGTH, checked_viewport
 from app.api.diagrams import _parse_viewport
 from app.main import app
 from app.models import DiagramGroupState, DiagramLayout, SavedDiagram
@@ -46,6 +46,9 @@ CREATE_ERRORS = [
     ({"name": "d", "collapse_threshold": 0}, "collapse_threshold должен быть положительным целым числом"),
     ({"name": "d", "collapse_threshold": True}, "collapse_threshold должен быть положительным целым числом"),
     ({"name": "d", "collapse_threshold": "5"}, "collapse_threshold должен быть положительным целым числом"),
+    ({"name": "d", "collapse_threshold": -1}, "collapse_threshold должен быть положительным целым числом"),
+    ({"name": "d", "collapse_threshold": 1.5}, "collapse_threshold должен быть положительным целым числом"),
+    ({"name": "d", "collapse_threshold": None}, "collapse_threshold должен быть положительным целым числом"),
 ]
 
 
@@ -83,6 +86,8 @@ GROUP_ERRORS = [
     ({"custom_threshold": 0}, "custom_threshold должен быть положительным целым числом или null"),
     ({"custom_threshold": "7"}, "custom_threshold должен быть положительным целым числом или null"),
     ({"custom_threshold": True}, "custom_threshold должен быть положительным целым числом или null"),
+    ({"custom_threshold": -1}, "custom_threshold должен быть положительным целым числом или null"),
+    ({"custom_threshold": 1.5}, "custom_threshold должен быть положительным целым числом или null"),
 ]
 
 
@@ -120,6 +125,15 @@ def test_openapi_lists_the_grouping_dimensions_and_the_threshold_minimum():
     props = app.openapi()["components"]["schemas"]["DiagramCreate"]["properties"]
     assert props["group_by"]["enum"] == ["structural_unit", "vlan", "building", "device_category"]
     assert props["collapse_threshold"]["minimum"] == 1
+
+
+def test_openapi_lists_the_threshold_maximum_for_both_threshold_fields():
+    schemas = app.openapi()["components"]["schemas"]
+    assert schemas["DiagramCreate"]["properties"]["collapse_threshold"]["maximum"] == MAX_COLLAPSE_THRESHOLD
+    # custom_threshold допускает null, поэтому границы лежат в ветке anyOf с типом integer
+    custom = schemas["DiagramGroupStateUpdate"]["properties"]["custom_threshold"]["anyOf"]
+    integer = next(branch for branch in custom if branch.get("type") == "integer")
+    assert (integer["minimum"], integer["maximum"]) == (1, MAX_COLLAPSE_THRESHOLD)
 
 
 # --- Поведение на корректных запросах не изменилось -----------------------------------------------------------------------
@@ -215,3 +229,38 @@ def test_rejected_requests_change_nothing(client, db_session):
     before = db_session.query(SavedDiagram).count()
     assert client.post(API, json={"name": "Не создастся", "collapse_threshold": -1}).status_code == 422
     assert db_session.query(SavedDiagram).count() == before
+
+
+# --- Верхняя граница порогов (код-ревью, BE-01) ---------------------------------------------------------------------------
+# Раньше 10**30 доходило до драйвера БД: OverflowError → 500 на SQLite, а 2**31 не помещалось в INTEGER PostgreSQL.
+
+OUT_OF_RANGE_THRESHOLDS = [
+    pytest.param(10**30, id="10**30"),
+    pytest.param(10**400, id="10**400"),
+    pytest.param(2**31, id="2**31"),
+    pytest.param(MAX_COLLAPSE_THRESHOLD + 1, id="max+1"),
+]
+
+
+@pytest.mark.parametrize("value", OUT_OF_RANGE_THRESHOLDS)
+def test_create_rejects_a_collapse_threshold_above_the_maximum(client, db_session, value):
+    before = db_session.query(SavedDiagram).count()
+    response = client.post(API, content=json.dumps({"name": "Порог выше границы", "collapse_threshold": value}), headers={"content-type": "application/json"})
+    _assert_422(response, f"collapse_threshold не должен превышать {MAX_COLLAPSE_THRESHOLD}")
+    assert db_session.query(SavedDiagram).count() == before
+
+
+@pytest.mark.parametrize("value", OUT_OF_RANGE_THRESHOLDS)
+def test_group_state_rejects_a_custom_threshold_above_the_maximum(client, db_session, value):
+    diagram = _create(client, "Порог группы выше границы")
+    response = client.put(f"{API}/{diagram['id']}/groups/g1", content=json.dumps({"custom_threshold": value}), headers={"content-type": "application/json"})
+    _assert_422(response, f"custom_threshold не должен превышать {MAX_COLLAPSE_THRESHOLD}")
+    assert db_session.query(DiagramGroupState).filter_by(saved_diagram_id=diagram["id"]).count() == 0
+
+
+def test_the_maximum_threshold_itself_is_accepted_by_both_endpoints(client):
+    created = _create(client, "Порог на границе", collapse_threshold=MAX_COLLAPSE_THRESHOLD)
+    assert created["collapse_threshold"] == MAX_COLLAPSE_THRESHOLD
+    response = client.put(f"{API}/{created['id']}/groups/g1", json={"custom_threshold": MAX_COLLAPSE_THRESHOLD})
+    assert response.status_code == 200, response.text
+    assert response.json()["custom_threshold"] == MAX_COLLAPSE_THRESHOLD
