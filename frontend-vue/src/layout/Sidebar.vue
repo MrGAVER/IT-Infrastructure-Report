@@ -287,7 +287,7 @@ const systemNav = [
     top: 0;
     left: 0;
     bottom: 0;
-    z-index: 30;
+    z-index: var(--z-sidebar);
     transform: translateX(-104%);
     box-shadow: 20px 0 40px rgba(0, 0, 0, 0.35);
     transition: transform 0.2s ease;
@@ -312,7 +312,7 @@ const systemNav = [
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.45);
-    z-index: 25;
+    z-index: var(--z-sidebar-backdrop);
   }
 }
 </style>

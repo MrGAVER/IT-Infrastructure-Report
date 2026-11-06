@@ -368,7 +368,7 @@ function onEnter() {
 }
 .ss-panel {
   position: absolute;
-  z-index: 85;
+  z-index: var(--z-popover);
   top: calc(100% + 4px);
   left: 0;
   right: 0;

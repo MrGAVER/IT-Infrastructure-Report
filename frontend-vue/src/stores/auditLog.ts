@@ -91,6 +91,13 @@ export const useAuditLogStore = defineStore('auditLog', {
     reload(): Promise<void> {
       return this.load()
     },
+    /** Кнопка «Сбросить фильтры» пустого списка: поиск и оба фильтра — в исходное. Загрузку не запускает: экран следит за этими полями
+     * (поиск — с задержкой, фильтры — сразу) и перечитывает страницу сам. */
+    resetFilters(): void {
+      this.search = ''
+      this.actionFilter = 'all'
+      this.entityTypeFilter = ''
+    },
     /** Смена поиска или фильтра — всегда с первой страницы. */
     applyFilters(): Promise<void> {
       this.page = 1

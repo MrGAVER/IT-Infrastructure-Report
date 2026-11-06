@@ -26,7 +26,7 @@ function runAction(toast: Toast) {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 100;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;

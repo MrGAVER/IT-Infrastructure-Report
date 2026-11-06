@@ -252,4 +252,20 @@ describe('useAuditLogStore — размер страницы', () => {
   it('limit не превышает серверный максимум (200) для всех допустимых размеров', () => {
     expect(useAuditLogStore().pageSizeOptions.every((n) => n <= 200)).toBe(true)
   })
+
+  it('resetFilters возвращает поиск и оба фильтра в исходное, но сам ничего не загружает', async () => {
+    stubApi()
+    const store = useAuditLogStore()
+    store.search = 'нет такого'
+    store.actionFilter = 'DELETE'
+    store.entityTypeFilter = 'devices'
+    store.page = 3
+    const before = urls.length
+
+    store.resetFilters()
+
+    expect([store.search, store.actionFilter, store.entityTypeFilter]).toEqual(['', 'all', ''])
+    expect(store.page).toBe(3) // страницу сбрасывает applyFilters, который экран вызовет по смене полей
+    expect(urls).toHaveLength(before) // загрузку запускает экран (поиск — с задержкой, фильтры — сразу), а не стор
+  })
 })

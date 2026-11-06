@@ -109,10 +109,10 @@ async function logout() {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   /* UI-5: топбар остаётся вверху окна, пока прокручивается длинная страница (и гамбургер доступен на телефоне).
-     z-index ниже подложки мобильного меню (25), самого меню (30) и модальных окон (60+). */
+     Слой --z-raised ниже подложки мобильного меню, самого меню и модальных окон (шкала — в styles/theme.css). */
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: var(--z-raised);
 }
 .hamburger {
   display: none;
@@ -212,7 +212,7 @@ async function logout() {
   border-radius: var(--r-m);
   box-shadow: var(--shadow-m);
   padding: 6px;
-  z-index: 30;
+  z-index: var(--z-menu);
 }
 .user-menu-item {
   display: flex;

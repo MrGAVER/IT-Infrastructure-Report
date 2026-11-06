@@ -345,7 +345,7 @@ async function onStackSaved(stack: DeviceStack) {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 20;
+  z-index: var(--z-raised);
   width: 280px;
   max-height: 320px;
   overflow: auto;
