@@ -41,6 +41,7 @@ from .services.network_access import (
     parse_client_networks,
 )
 from .services.port_sync_store import ensure_default_rules
+from .services.openapi_errors import install_error_formats
 from .services.request_errors import request_validation_handler
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,8 @@ app.include_router(diagrams_router)
 
 # 422 при ошибке разбора запроса — строкой на русском, как остальные 422 приложения (по умолчанию FastAPI отдаёт список объектов).
 app.add_exception_handler(RequestValidationError, request_validation_handler)
+# Схема OpenAPI описывает те же ответы, что отдают обработчики: 422 — строкой, 413 — для операций с телом (код-ревью, BE-02).
+install_error_formats(app, max_body_bytes=MAX_REQUEST_BODY_BYTES)
 
 
 @app.exception_handler(ReferencedRecordError)
