@@ -565,6 +565,11 @@ def _parse_edited(raw: Any) -> _Edited:
     )
 
 
+# Публичные имена разбора тела для моделей запросов (api/port_config_schemas.py): правила остаются здесь, модели их только вызывают.
+parse_cascade_mode = _parse_mode
+parse_cascade_edited = _parse_edited
+
+
 def _compute(start_id: str, mode: str, edited: _Edited, session: Session) -> _Change:
     loader = _Loader(session)
     loader.load_ports([start_id])

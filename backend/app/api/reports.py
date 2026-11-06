@@ -9,14 +9,15 @@ from ..reporting import build_report
 from ..services.audit_export import build_audit_log_report
 from ..services.auth import require_admin_if_auth_enabled
 from ..services.report_cleanup import cleanup_before_new_report
-from ..services.report_params import parse_structural_unit_ids
-from ..services.structural_appendix_docx import DEFAULT_IS_NAME, StructuralAppendixError, build_structural_appendix
+from ..services.structural_appendix_docx import StructuralAppendixError, build_structural_appendix
+from .report_schemas import InventoryReportRequest, StructuralAppendixRequest
 
 router = APIRouter(tags=['Reports'])
 
 @router.post('/api/v1/reports/inventory')
-def generate_report(information_system_id: str | None = None, payload: dict | None = None, session: Session = Depends(get_db)):
-    structural_unit_ids = parse_structural_unit_ids((payload or {}).get('structural_unit_ids'))
+def generate_report(information_system_id: str | None = None, body: InventoryReportRequest | None = None, session: Session = Depends(get_db)):
+    """Excel-отчёт «Регламентный отчёт». Тело (необязательное): structural_unit_ids — ограничение оборудованием выбранных структурных единиц."""
+    structural_unit_ids = (body or InventoryReportRequest()).structural_unit_ids
     cleanup_before_new_report(REPORT_DIR)
     path = build_report(session, REPORT_DIR, information_system_id, structural_unit_ids)
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
@@ -28,19 +29,15 @@ def generate_audit_log_report(date_from: str | None = None, date_to: str | None 
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}
 
 @router.post('/api/v1/reports/structural-appendix')
-def generate_structural_appendix(payload: dict | None = None, session: Session = Depends(get_db)):
+def generate_structural_appendix(body: StructuralAppendixRequest | None = None, session: Session = Depends(get_db)):
     """Word-документ «Приложение к структурной схеме» (3 таблицы: линии связи, VLAN, оборудование).
 
     Тело (необязательное): is_name — короткое имя ИС для заголовков (по умолчанию «ЕАИС ТО»; ведущее «ЕАИС»/«ИС» в заголовках не дублируется),
     structural_unit_ids — ограничение оборудованием выбранных структурных единиц, как у регламентированного отчёта."""
-    payload = payload or {}
-    is_name = payload.get('is_name', DEFAULT_IS_NAME)
-    if not isinstance(is_name, str):
-        raise HTTPException(422, 'Короткое имя ИС должно быть строкой')
-    unit_ids = parse_structural_unit_ids(payload.get('structural_unit_ids'))
+    body = body or StructuralAppendixRequest()
     cleanup_before_new_report(REPORT_DIR)
     try:
-        path = build_structural_appendix(session, REPORT_DIR, is_name=is_name, structural_unit_ids=unit_ids)
+        path = build_structural_appendix(session, REPORT_DIR, is_name=body.is_name, structural_unit_ids=body.structural_unit_ids)
     except StructuralAppendixError as e:
         raise HTTPException(422, str(e)) from e
     return {'file_name':path.name,'download_url':f'/api/v1/reports/download/{path.name}'}

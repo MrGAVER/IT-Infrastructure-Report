@@ -2,10 +2,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from ..db import get_db
+from ..models import InformationSystem
 from ..registry import DISPLAY_NAMES, MODEL_MAP
 from ..services.auth import require_admin_if_auth_enabled
 from ..services.crud import columns_for, create_resource, delete_resource, list_resource, model_for, update_resource, get_information_system_details, sync_information_system_details
 from ..services.serialization import serialize
+from .resource_schemas import InformationSystemDetailsUpdate, ResourceBody
 
 router = APIRouter(prefix='/api/v1/resources', tags=['CRUD'])
 
@@ -45,9 +47,15 @@ def list_endpoint(resource: str, request: Request, q: str | None = None, offset:
 def information_system_details(item_id: str, session: Session = Depends(get_db)):
     return get_information_system_details(item_id, session)
 
-@router.put('/information-systems/{item_id}/details')
-def information_system_details_update(item_id: str, payload: dict, session: Session = Depends(get_db)):
-    return sync_information_system_details(item_id, payload, session)
+def _existing_information_system(item_id: str, session: Session = Depends(get_db)) -> None:
+    """404 для неизвестной ИС — зависимостью, раньше разбора тела: порядок «сначала 404, потом 422 про тело» остался прежним."""
+    if not session.get(InformationSystem, item_id):
+        raise HTTPException(404, 'Информационная система не найдена')
+
+@router.put('/information-systems/{item_id}/details', dependencies=[Depends(_existing_information_system)])
+def information_system_details_update(item_id: str, body: InformationSystemDetailsUpdate, session: Session = Depends(get_db)):
+    """Заменяет связанные данные ИС (подразделения, протоколы, размещение, источники) переданными списками."""
+    return sync_information_system_details(item_id, body.model_dump(), session)
 
 @router.get('/{resource}/{item_id}')
 def get_endpoint(resource: str, item_id: str, request: Request, session: Session = Depends(get_db)):
@@ -57,11 +65,13 @@ def get_endpoint(resource: str, item_id: str, request: Request, session: Session
     return serialize(obj)
 
 @router.post('/{resource}', status_code=201)
-def create_endpoint(resource: str, payload: dict, session: Session = Depends(get_db)):
+def create_endpoint(resource: str, payload: ResourceBody, session: Session = Depends(get_db)):
+    """Создаёт запись ресурса {resource}."""
     return create_resource(resource, payload, session)
 
 @router.put('/{resource}/{item_id}')
-def update_endpoint(resource: str, item_id: str, payload: dict, session: Session = Depends(get_db)):
+def update_endpoint(resource: str, item_id: str, payload: ResourceBody, session: Session = Depends(get_db)):
+    """Изменяет запись ресурса {resource}: меняются только присланные поля."""
     return update_resource(resource, item_id, payload, session)
 
 @router.delete('/{resource}/{item_id}')

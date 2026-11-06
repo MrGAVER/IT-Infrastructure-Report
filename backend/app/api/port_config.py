@@ -7,6 +7,7 @@ from ..services.connection_review import approve_port_config, preview_port_confi
 from ..services.port_config import PortConfigStatus
 from ..services.port_edit import set_port_config
 from ..services.vlan_mode_cascade import apply_vlan_mode_cascade, preview_vlan_mode_cascade
+from .port_config_schemas import ApprovePortConfigRequest, CascadeApplyRequest, CascadePreviewRequest, PortConfigUpdate, PortRoleUpdate
 
 # Записывающие методы защищены общей мидлварью авторизации (viewer получает 403) — отдельной
 # проверки роли здесь не нужно.
@@ -30,21 +31,22 @@ def connections_page(
 
 
 @router.put('/interfaces/{interface_id}/port-role')
-def update_port_role(interface_id: str, payload: dict, session: Session = Depends(get_db)):
-    return set_port_role(interface_id, payload, session)
+def update_port_role(interface_id: str, body: PortRoleUpdate, session: Session = Depends(get_db)):
+    """Точечно меняет роль порта (управление / передача данных), не трогая остальные его настройки."""
+    return set_port_role(interface_id, body.model_dump(), session)
 
 
 @router.put('/interfaces/{interface_id}/port-config')
-def update_port_config(interface_id: str, payload: dict, session: Session = Depends(get_db)):
+def update_port_config(interface_id: str, body: PortConfigUpdate, session: Session = Depends(get_db)):
     """Правка порта с дашборда: роль и/или набор VLAN одной операцией. Тело: {role?, vlan_ids?, mode?} —
     vlan_ids это ПОЛНЫЙ набор (id записей справочника VLAN); mode — не смена режима, а проверка, что набор
     выбран для текущего режима порта (иначе 409). Когда меняется и режим, роль и VLAN передаются в поле `port`
     каскада ниже — тогда режим, роль и VLAN записываются одной транзакцией."""
-    return set_port_config(interface_id, payload, session)
+    return set_port_config(interface_id, body.model_dump(exclude_unset=True), session)
 
 
 @router.post('/interfaces/{interface_id}/vlan-mode-cascade/preview')
-def vlan_mode_cascade_preview(interface_id: str, payload: dict, session: Session = Depends(get_db)):
+def vlan_mode_cascade_preview(interface_id: str, body: CascadePreviewRequest, session: Session = Depends(get_db)):
     """Предпросмотр каскадной смены режима порта (access/trunk): затронутые группы и порты, VLAN,
     которые будут сняты, предупреждения о последствиях и hash плана. Ничего не записывает.
 
@@ -56,16 +58,16 @@ def vlan_mode_cascade_preview(interface_id: str, payload: dict, session: Session
 
     port: {role?, vlan_ids?} — роль и ПОЛНЫЙ набор VLAN порта-инициатора (окно правки порта на дашборде): они
     проверяются под целевой режим уже здесь и записываются вместе с каскадом (см. apply). С edited не сочетается."""
-    return preview_vlan_mode_cascade(interface_id, payload, session)
+    return preview_vlan_mode_cascade(interface_id, body.model_dump(exclude_unset=True), session)
 
 
 @router.post('/interfaces/{interface_id}/vlan-mode-cascade')
-def vlan_mode_cascade_apply(interface_id: str, payload: dict, session: Session = Depends(get_db)):
+def vlan_mode_cascade_apply(interface_id: str, body: CascadeApplyRequest, session: Session = Depends(get_db)):
     """Применяет план из предпросмотра: тело {mode, edited?, port?, plan_hash, confirm: true} (mode, edited и
     port те же, что при предпросмотре). Если данные изменились после предпросмотра — 409. С `port` режим со
     всей областью каскада, роль и набор VLAN порта-инициатора записываются ОДНОЙ транзакцией (`port_written`
     в ответе); ошибка в роли или VLAN не оставляет ничего записанным, в том числе режима."""
-    return apply_vlan_mode_cascade(interface_id, payload, session)
+    return apply_vlan_mode_cascade(interface_id, body.model_dump(exclude_unset=True), session)
 
 
 @router.get('/connections/port-config/preview')
@@ -82,8 +84,9 @@ def preview(
 
 
 @router.post('/connections/port-config/approve')
-def approve(payload: dict, session: Session = Depends(get_db)):
-    return approve_port_config(payload, session)
+def approve(body: ApprovePortConfigRequest, session: Session = Depends(get_db)):
+    """Одобряет текущее расхождение конфигурации портов: у перечисленных подключений (`connection_ids`) или у всех найденных (`match`)."""
+    return approve_port_config(body.model_dump(exclude_unset=True), session)
 
 
 @router.delete('/connections/{connection_id}/port-config/approval')
