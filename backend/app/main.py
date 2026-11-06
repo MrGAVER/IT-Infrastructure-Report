@@ -7,10 +7,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, ENABLE_DOCS, FORWARDED_ALLOW_IPS, FRONTEND_DIR, MAX_REQUEST_BODY_BYTES
+from .config import (
+    ALLOWED_CLIENTS,
+    ALLOWED_HOSTS,
+    APP_VERSION,
+    CORS_ALLOWED_ORIGINS,
+    DATABASE_URL,
+    ENABLE_DOCS,
+    FORWARDED_ALLOW_IPS,
+    FRONTEND_DIR,
+    MAX_REQUEST_BODY_BYTES,
+    MIN_DB_PASSWORD_LENGTH,
+    MIN_SETUP_TOKEN_LENGTH,
+    SETUP_TOKEN,
+    weak_db_password,
+    weak_setup_token,
+)
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
@@ -196,8 +212,30 @@ def seed_catalogs_on_startup():
         auth_settings = get_or_create_auth_settings(session)
         _warn_if_insecure_server_config(auth_settings.enabled)
         _warn_if_remote_access_without_auth(auth_settings.enabled)
+        _warn_if_weak_secrets()
     finally:
         session.close()
+
+def _warn_if_weak_secrets() -> None:
+    """Токен первичной настройки или пароль БД — заглушка из .env.example либо слишком короткое значение (код-ревью, BE-03).
+
+    docker-compose.yml требует лишь непустое значение, поэтому скопированный и не отредактированный .env запускается. Публичная
+    заглушка вместо токена даёт право с любого адреса создать администратора и включить аутентификацию, пока она выключена.
+    Запуск НЕ блокируется (существующие установки должны продолжать работать) — только предупреждение; само значение в журнал
+    не попадает, называется лишь переменная."""
+    if weak_setup_token(SETUP_TOKEN):
+        logger.warning(
+            "INFRA_REGISTRY_SETUP_TOKEN совпадает с заглушкой из .env.example или короче %d символов: зная такое значение, любой, кто "
+            "достаёт до порта, может создать администратора и включить аутентификацию. Замените его на длинную случайную строку, "
+            "например: openssl rand -hex 24",
+            MIN_SETUP_TOKEN_LENGTH,
+        )
+    if weak_db_password(make_url(DATABASE_URL).password or ""):  # у SQLite пароля нет — пустая строка слабой не считается
+        logger.warning(
+            "Пароль базы данных (POSTGRES_PASSWORD или пароль в DATABASE_URL) совпадает с заглушкой из .env.example или короче %d "
+            "символов. Замените его на свой пароль.",
+            MIN_DB_PASSWORD_LENGTH,
+        )
 
 def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
     """Доступ по сети открыт (в списке клиентов есть адреса не с этого компьютера), а аутентификация
