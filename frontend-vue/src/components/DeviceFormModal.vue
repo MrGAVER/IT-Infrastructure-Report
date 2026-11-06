@@ -146,7 +146,7 @@ const { saving, submit } = useDeviceSave(draft, {
      "Применить к выбранным" в последней колонке приходится прокручивать таблицу горизонтально.
      Увеличенные 70vw/1400px дают заметно больше места именно на таких окнах (напр. 1440px
      окно: было 720px, стало ~1008px), а нижняя граница 640px не меняется — на узких экранах
-     ничего не задевает, и там же по-прежнему работает .iface-table-wrap { overflow-x: auto }
+     ничего не задевает, и там же таблицу листают вбок (ScrollableTableWrap в DeviceInterfacesEditor.vue)
      как запасной вариант. */
   max-width: clamp(640px, 70vw, 1400px);
   padding: 20px 22px 18px;
@@ -175,7 +175,8 @@ const { saving, submit } = useDeviceSave(draft, {
 }
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr): таблица интерфейсов во всю ширину формы не должна растягивать колонки шире окна и на планшете. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 14px;
 }
 /* Свой экземпляр правила (а не из DeviceMainFields): им пользуются строка загрузки и корень DeviceStackVlanIpEditor — scoped-стиль
@@ -199,7 +200,9 @@ const { saving, submit } = useDeviceSave(draft, {
 
 @media (max-width: 640px) {
   .form-grid {
-    grid-template-columns: 1fr;
+    /* Не «1fr»: у него минимум — ширина содержимого, и 10-колонная таблица интерфейсов растягивала форму шире окна (до 1100 px
+       при 390). minmax(0, 1fr) держит дорожку в ширине окна, а таблица листается внутри своей обёртки. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

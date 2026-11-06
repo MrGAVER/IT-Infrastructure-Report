@@ -104,10 +104,11 @@ describe('AuditLogView.vue — пагинация', () => {
     expect(pageLabels(wrapper)).toEqual(['1'])
   })
 
-  it('пустой журнал: сообщение «Ничего не найдено», 0–0 из 0', async () => {
+  it('пустой журнал: «В журнале аудита пока нет записей.» (а не «ничего не найдено по фильтрам»), 0–0 из 0', async () => {
     const wrapper = await mountView(0)
 
-    expect(wrapper.text()).toContain('Ничего не найдено по заданным фильтрам.')
+    expect(wrapper.text()).toContain('В журнале аудита пока нет записей.')
+    expect(wrapper.text()).not.toContain('Ничего не найдено')
     expect(foot(wrapper)).toContain('Показано 0–0 из 0')
   })
 })

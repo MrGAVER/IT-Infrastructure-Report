@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import DeviceInterfacesEditor from '../DeviceInterfacesEditor.vue'
 import InterfaceConnectionEditor from '../InterfaceConnectionEditor.vue'
 import InterfaceSubinterfacesEditor from '../InterfaceSubinterfacesEditor.vue'
+import ScrollableTableWrap from '../ScrollableTableWrap.vue'
 import SearchableSelect from '../SearchableSelect.vue'
 import type { CatalogItem, InterfaceDraftRow, InterfaceGroupDraft, VLANDefinition } from '../../api/types'
 import { useToast } from '../../composables/useToast'
@@ -965,8 +966,10 @@ describe('DeviceInterfacesEditor.vue', () => {
       const panel = wrapper.find('.iface-panel')
       expect(panel.exists()).toBe(true)
       expect(panel.find('.iface-list-head').exists()).toBe(true)
-      const table = panel.find('.iface-table-wrap table.iface-table')
+      const table = panel.find('[role="region"] table.iface-table')
       expect(table.exists()).toBe(true)
+      // F-05: таблица из 10 колонок листается вбок внутри обёртки с подсказкой, а не раздувает форму устройства.
+      expect(panel.getComponent(ScrollableTableWrap).attributes('aria-label')).toBe('Список интерфейсов')
       expect(table.find('.bulk-edit-row').exists()).toBe(true)
       // "Первая строка" — буквально: сразу после thead, перед реальными строками интерфейсов.
       expect(table.find('tbody tr').classes()).toContain('bulk-edit-row')

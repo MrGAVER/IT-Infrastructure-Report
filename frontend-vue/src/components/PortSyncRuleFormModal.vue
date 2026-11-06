@@ -294,7 +294,7 @@ async function submit() {
 }
 .row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: end;
 }
@@ -341,12 +341,12 @@ async function submit() {
 }
 .triple {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .apply-row {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto auto minmax(0, 1fr);
   gap: 16px;
   align-items: end;
 }
@@ -380,7 +380,8 @@ async function submit() {
   .triple,
   .apply-row,
   .row {
-    grid-template-columns: 1fr;
+    /* minmax(0, …), а не «1fr»: минимум у «1fr» — ширина самого длинного пункта списка, и окно на телефоне выходило за экран. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
