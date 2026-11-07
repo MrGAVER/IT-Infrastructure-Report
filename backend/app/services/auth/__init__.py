@@ -30,7 +30,6 @@ from starlette.concurrency import run_in_threadpool
 
 from ... import db as db_module
 from ...config import (
-    CSP_POLICY,
     FORWARDED_ALLOW_IPS,
     SETUP_TOKEN,
 )
@@ -49,6 +48,7 @@ from .sessions import (
     revoke_session_by_id,
     serialize_session,
 )
+from .security_headers import with_security_headers
 from .settings import auth_enabled_cached, get_or_create_auth_settings, reset_auth_enabled_cache, set_auth_enabled
 from .users import (
     change_own_password,
@@ -131,29 +131,6 @@ def _extract_bearer_token(header_value: Optional[str]) -> Optional[str]:
         return None
     token = header_value[len("Bearer "):].strip()
     return token or None
-
-
-_SECURITY_HEADERS = {
-    # Базовый набор против MIME-sniffing и кликджекинга для встроенного Vue-интерфейса.
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "same-origin",
-}
-
-# Swagger UI/ReDoc подгружают скрипты и стили со сторонних CDN — строгая политика сломала бы
-# страницы документации, а данных реестра на них нет.
-_CSP_EXEMPT_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect", "/openapi.json"})
-
-
-def _with_security_headers(response, path: str = ""):
-    for header, value in _SECURITY_HEADERS.items():
-        response.headers.setdefault(header, value)
-    # Content-Security-Policy — второй рубеж после DOMPurify: токен сессии лежит в localStorage, и любая
-    # XSS означала бы его кражу. Политику можно заменить или отключить через INFRA_REGISTRY_CSP
-    # (см. config.CSP_POLICY) — например, когда её выставляет обратный прокси.
-    if CSP_POLICY and path not in _CSP_EXEMPT_PATHS:
-        response.headers.setdefault("Content-Security-Policy", CSP_POLICY)
-    return response
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +222,7 @@ async def auth_gate_middleware(request: Request, call_next):
     пользователь): из него crud.audit() берёт автора действия для журнала аудита."""
     path = request.url.path
     if not path.startswith("/api/"):
-        return _with_security_headers(await call_next(request), path)
+        return with_security_headers(await call_next(request), path)
 
     _warn_once_if_proxy_untrusted(request)
     actor_token = current_actor.set(Actor(ip=_client_ip(request)))
@@ -253,7 +230,7 @@ async def auth_gate_middleware(request: Request, call_next):
         response = await _gate_api_request(request, call_next)
     finally:
         current_actor.reset(actor_token)
-    return _with_security_headers(response, path)
+    return with_security_headers(response, path)
 
 
 class _GateDecision(NamedTuple):
