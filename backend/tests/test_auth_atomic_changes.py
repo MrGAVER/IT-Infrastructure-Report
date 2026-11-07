@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from app.constants import AuditAction
 from app.models import AuditLog, AuthSession, User
 from app.services import auth as auth_module
+from app.services.auth import sessions as sessions_module
 
 OLD_PASSWORD = "Alice1234"
 NEW_PASSWORD = "Newpass5678"
@@ -177,7 +178,7 @@ class TestChangeOwnPassword:
         assert len(commits) == 1
         assert auth_module.verify_password(NEW_PASSWORD, _stored(db_session, user.id).password_hash)
         remaining = db_session.scalars(select(AuthSession.token_hash).where(AuthSession.user_id == user.id)).all()
-        assert remaining == [auth_module._hash_token(current)]
+        assert remaining == [sessions_module._hash_token(current)]
         assert _audit_rows(db_session, user.id, AuditAction.UPDATE, "собственный пароль") == 1
 
     def test_failure_while_revoking_leaves_old_password_and_all_sessions(self, db_session, monkeypatch):
