@@ -1,10 +1,12 @@
 // F-07 (код-ревью main): рёбра диаграммы не проходят сквозь узлы и не ложатся друг на друга.
 // Раньше ребро было кривой Безье между засечками у нижнего края узлов: внутри одного ряда сетки кривая вырождалась в горизонталь
 // вдоль нижней границы, а связи между рядами шли по диагонали через чужие узлы. На схеме из 18 узлов 16 из 22 рёбер проходили сквозь узлы.
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   MAX_GRID_VERTICES,
+  MAX_ROUTED_EDGES,
   ROUTE_CLEARANCE,
+  ROUTING_BUDGET_MS,
   roundedPolylinePath,
   routeEdges,
   routeInputsFromFlow,
@@ -284,9 +286,130 @@ describe('routeEdges: особые случаи', () => {
       const to = (i * 13 + 5) % 60
       if (from !== to) requests.push(link(`e${i}`, nodes, from, nextPort(from), to, nextPort(to)))
     }
-    const routes = routeEdges(nodes, requests)
+    // Проверяется геометрия, а не скорость: бюджет времени отключён, чтобы медленная машина CI не превратила тест в нестабильный.
+    const routes = routeEdges(nodes, requests, { budgetMs: Number.POSITIVE_INFINITY })
     expect(routes.size).toBe(requests.length)
     expect(routesEnteringNodes(routes, nodes)).toEqual([])
+  })
+})
+
+describe('routeEdges: бюджет времени и предел числа рёбер (FE-01 ревью)', () => {
+  /** Схема, на которой все связи прокладываются: нужна, чтобы отличить «не успели» от «пути нет». */
+  function scene(edges: number): { nodes: RouteNode[]; requests: RouteRequest[] } {
+    const nodes = gridNodes(30)
+    const used = new Map<number, number>()
+    const nextPort = (node: number) => {
+      const port = (used.get(node) ?? 0) % TICKS
+      used.set(node, (used.get(node) ?? 0) + 1)
+      return port
+    }
+    const requests: RouteRequest[] = []
+    for (let i = 0; i < edges; i++) {
+      const from = (i * 7) % 30
+      const to = (i * 11 + 3) % 30
+      if (from !== to) requests.push(link(`e${i}`, nodes, from, nextPort(from), to, nextPort(to)))
+    }
+    return { nodes, requests }
+  }
+
+  /** Порядок прокладки: от коротких к длинным, при равенстве — по id (так же, как в routeEdges). */
+  function expectedOrder(requests: RouteRequest[]): string[] {
+    const length = (r: RouteRequest) => Math.abs(r.source.point.x - r.target.point.x) + Math.abs(r.source.point.y - r.target.point.y)
+    return [...requests].sort((a, b) => length(a) - length(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((r) => r.id)
+  }
+
+  it('когда бюджет исчерпан, прокладываются только первые (самые короткие) рёбра, остальные остаются кривыми', () => {
+    const { nodes, requests } = scene(40)
+    const full = routeEdges(nodes, requests, { budgetMs: Number.POSITIVE_INFINITY })
+    expect(full.size).toBe(requests.length) // без ограничения времени проложены все — иначе тест ничего не доказывает
+
+    // «Часы» тикают на 1 при каждом чтении; бюджет 6 — расчёт останавливается после нескольких рёбер.
+    let tick = 0
+    const limited = routeEdges(nodes, requests, { budgetMs: 6, now: () => tick++ })
+    expect(limited.size).toBeGreaterThan(0)
+    expect(limited.size).toBeLessThan(requests.length)
+    const order = expectedOrder(requests)
+    const routedIds = new Set(limited.keys())
+    // Проложенные рёбра — непрерывное начало списка «от коротких к длинным»: длинное не обгоняет короткое.
+    expect(order.slice(0, routedIds.size).every((id) => routedIds.has(id))).toBe(true)
+    // То, что успели, не отличается от полного расчёта.
+    for (const [id, route] of limited) expect(route).toEqual(full.get(id))
+  })
+
+  it('бюджет, исчерпанный до первого ребра, даёт пустой результат, а не исключение', () => {
+    const { nodes, requests } = scene(10)
+    // Часы тикают на 1 при каждом чтении: срок = 0 + бюджет, а первая проверка перед ребром уже видит время больше срока.
+    let tick = 0
+    expect(routeEdges(nodes, requests, { budgetMs: 0, now: () => tick++ }).size).toBe(0)
+    tick = 0
+    expect(routeEdges(nodes, requests, { budgetMs: -1, now: () => tick++ }).size).toBe(0)
+  })
+
+  it('бюджет не вмешивается, пока время не вышло: результат малой схемы тот же, что без ограничения', () => {
+    const { nodes, requests } = reproScene()
+    const unlimited = routeEdges(nodes, requests, { budgetMs: Number.POSITIVE_INFINITY })
+    const budgeted = routeEdges(nodes, requests, { now: () => 0 })
+    expect(budgeted.size).toBe(requests.length)
+    for (const request of requests) expect(budgeted.get(request.id)).toEqual(unlimited.get(request.id))
+  })
+
+  it('время проверяется и внутри поиска одного ребра: часы, «ушедшие вперёд» посреди A*, прерывают расчёт', () => {
+    // Цель — узел внутри замкнутого кольца из четырёх узлов: пути нет, и A* перебирает всю доступную сетку поля из 60 узлов, то есть
+    // делает несколько тысяч раскрытий. Часы читаются: раз при задании срока, раз перед ребром, далее — раз на каждые 4096 раскрытий.
+    const ring: RouteNode[] = [
+      { id: 'top', x: 80, y: 60, width: 240, height: 40 },
+      { id: 'bottom', x: 80, y: 300, width: 240, height: 40 },
+      { id: 'left', x: 80, y: 60, width: 40, height: 280 },
+      { id: 'right', x: 280, y: 60, width: 40, height: 280 },
+    ]
+    const inner: RouteNode = { id: 'inner', x: 160, y: 150, width: 80, height: 60 }
+    const field: RouteNode[] = Array.from({ length: 60 }, (_, i) => ({
+      id: `f${i}`,
+      x: 600 + (i % 6) * 220,
+      y: Math.floor(i / 6) * 160,
+      width: NODE_W,
+      height: NODE_H,
+    }))
+    const nodes = [...ring, inner, ...field]
+    const sealed: RouteRequest = {
+      id: 'sealed',
+      source: { point: { x: field[0].x + NODE_W / 2, y: field[0].y + NODE_H + 3 }, side: 'bottom' },
+      target: { point: { x: inner.x + inner.width / 2, y: inner.y + inner.height + 3 }, side: 'bottom' },
+    }
+
+    let readsWhenRunning = 0
+    expect(routeEdges(nodes, [sealed], { budgetMs: 10, now: () => (++readsWhenRunning, 0) }).size).toBe(0)
+    expect(readsWhenRunning).toBeGreaterThan(3) // поиск идёт до конца: сверок с часами несколько
+
+    let readsWhenExpired = 0
+    const expired = () => (++readsWhenExpired <= 2 ? 0 : 1_000_000)
+    expect(routeEdges(nodes, [sealed], { budgetMs: 10, now: expired }).size).toBe(0)
+    expect(readsWhenExpired).toBe(3) // первая же сверка внутри поиска увидела «время вышло» и прервала его
+  })
+
+  it(`схема с числом рёбер больше MAX_ROUTED_EDGES (${MAX_ROUTED_EDGES}) не трассируется: результат пуст`, () => {
+    const nodes = gridNodes(2)
+    const request = link('a', nodes, 0, 0, 1, 0)
+    const many = Array.from({ length: MAX_ROUTED_EDGES + 1 }, (_, i) => ({ ...request, id: `e${i}` }))
+    expect(routeEdges(nodes, many).size).toBe(0)
+    // Ровно на пределе трассировка ещё работает.
+    expect(routeEdges(nodes, many.slice(0, MAX_ROUTED_EDGES)).size).toBe(MAX_ROUTED_EDGES)
+  })
+
+  it('бюджет по умолчанию — ROUTING_BUDGET_MS, предел рёбер — MAX_ROUTED_EDGES', () => {
+    expect(ROUTING_BUDGET_MS).toBe(250)
+    expect(MAX_ROUTED_EDGES).toBe(400)
+  })
+
+  it('порядок прокладки не зависит от локали браузера: localeCompare не используется', () => {
+    const spy = vi.spyOn(String.prototype, 'localeCompare')
+    try {
+      const { nodes, requests } = reproScene()
+      routeEdges(nodes, requests)
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 

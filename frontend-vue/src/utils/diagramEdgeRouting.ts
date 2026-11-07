@@ -15,8 +15,9 @@
 //  4. рёбра прокладываются от коротких к длинным: короткая связь получает ближайшую дорожку, длинной приходится обходить.
 //
 // Всё это геометрия без DOM и без Vue, поэтому проверяется юнит-тестами (utils/__tests__/diagramEdgeRouting.spec.ts). Сложность
-// ограничена: у слишком большой схемы (см. MAX_GRID_VERTICES) трассировка отключается, и рёбра остаются кривыми Безье — лучше
-// прежний вид, чем зависший интерфейс. Узел, который пользователь тащит мышью, не пересчитывается на каждом кадре: маршруты
+// ограничена тремя защитами: у слишком большой схемы (MAX_GRID_VERTICES) и у схемы с чрезмерным числом рёбер (MAX_ROUTED_EDGES)
+// трассировка отключается, а общий расчёт укладывается в бюджет времени ROUTING_BUDGET_MS: что не успело, рисуется прежней кривой
+// Безье — лучше прежний вид, чем зависший интерфейс (код-ревью, FE-01). Узел, который пользователь тащит мышью, не пересчитывается на каждом кадре: маршруты
 // считает DiagramView после остановки, а пока маршрут не совпадает с положением хэндлов, ребро рисуется кривой Безье.
 import type { Position } from '@vue-flow/core'
 import type { InjectionKey, Ref } from 'vue'
@@ -73,6 +74,12 @@ const HUG_FACTOR = 0.15
 export const MAX_GRID_VERTICES = 160_000
 /** Предел числа вершин, которые A* может раскрыть для одного ребра: защита от патологически запутанной схемы. */
 const MAX_EXPANSIONS = 400_000
+/** Бюджет времени на расчёт всех маршрутов, мс: что не успело — рисуется прежней кривой Безье. */
+export const ROUTING_BUDGET_MS = 250
+/** Выше этого числа рёбер трассировка не включается: время расчёта растёт быстрее числа рёбер (на 1500 рёбрах — десятки секунд). */
+export const MAX_ROUTED_EDGES = 400
+/** Как часто A* сверяется с часами, в раскрытиях вершин (степень двойки минус один — маска): чтение времени на каждом шаге дороже самого шага. */
+const CLOCK_CHECK_MASK = 0xfff
 
 const EPS = 1e-6
 
@@ -261,29 +268,61 @@ function buildGrid(nodes: readonly RouteNode[], stubs: readonly Point[]): Grid |
   return { xs, ys, width, height, cellBlocked, hUse: new Uint16Array(width * height), vUse: new Uint16Array(width * height) }
 }
 
+/**
+ * Рабочие массивы A*, общие для всех рёбер схемы. Размер — по числу состояний сетки (до 320 000 элементов), и раньше они создавались
+ * и заполнялись заново на каждое ребро. Теперь создаются один раз, а «чистка» — это новый номер поиска `run`: значение
+ * `best`/`cameFrom` состояния действительно, только если `seen[состояние] === run`.
+ */
+interface Scratch {
+  best: Float64Array
+  cameFrom: Int32Array
+  seen: Uint32Array
+  run: number
+}
+
+function createScratch(grid: Grid): Scratch {
+  const total = grid.width * grid.height * 2
+  return { best: new Float64Array(total), cameFrom: new Int32Array(total), seen: new Uint32Array(total), run: 0 }
+}
+
+/** Часы расчёта: `now` подменяется в тестах, `deadline` — момент, после которого новые рёбра не начинаются, а начатый поиск прерывается. */
+interface Clock {
+  now: () => number
+  deadline: number
+}
+
 /** Состояние поиска: вершина сетки и ось последнего звена (0 — горизонталь, 1 — вертикаль). Поворот — отдельный переход со штрафом. */
 function stateOf(grid: Grid, i: number, j: number, axis: 0 | 1): number {
   return (j * grid.width + i) * 2 + axis
 }
 
 /** Найденный путь как последовательность вершин сетки (i, j); None, если пути нет. */
-function findPath(grid: Grid, start: { i: number; j: number; axis: 0 | 1 }, goal: { i: number; j: number; axis: 0 | 1 }): Array<[number, number]> | null {
+function findPath(
+  grid: Grid,
+  scratch: Scratch,
+  start: { i: number; j: number; axis: 0 | 1 },
+  goal: { i: number; j: number; axis: 0 | 1 },
+  clock: Clock,
+): Array<[number, number]> | null {
   const { xs, ys, width, height } = grid
-  const total = width * height * 2
-  const best = new Float64Array(total).fill(Infinity)
-  const cameFrom = new Int32Array(total).fill(-1)
+  const { best, cameFrom, seen } = scratch
+  // Массивы общие для всех рёбер схемы и не очищаются: состояние принадлежит этому поиску, только если seen[s] === run (метка поколения).
+  const run = ++scratch.run
   const heap = new MinHeap()
   const goalState = stateOf(grid, goal.i, goal.j, goal.axis)
   const heuristic = (i: number, j: number): number => Math.abs(xs[i] - xs[goal.i]) + Math.abs(ys[j] - ys[goal.j])
 
   const startState = stateOf(grid, start.i, start.j, start.axis)
+  seen[startState] = run
   best[startState] = 0
+  cameFrom[startState] = -1
   heap.push(heuristic(start.i, start.j), startState)
   let expansions = 0
 
   const relax = (from: number, to: number, cost: number, i: number, j: number): void => {
     const next = best[from] + cost
-    if (next + EPS < best[to]) {
+    if (seen[to] !== run || next + EPS < best[to]) {
+      seen[to] = run
       best[to] = next
       cameFrom[to] = from
       heap.push(next + heuristic(i, j), to)
@@ -294,6 +333,8 @@ function findPath(grid: Grid, start: { i: number; j: number; axis: 0 | 1 }, goal
     const state = heap.pop()
     if (state === goalState) break
     if (++expansions > MAX_EXPANSIONS) return null
+    // Время сверяется не на каждом шаге: поиск, не уложившийся в срок, отдаёт ребро кривой Безье, а не держит интерфейс.
+    if ((expansions & CLOCK_CHECK_MASK) === 0 && clock.now() > clock.deadline) return null
     const axis = (state & 1) as 0 | 1
     const vertex = state >> 1
     const i = vertex % width
@@ -318,7 +359,7 @@ function findPath(grid: Grid, start: { i: number; j: number; axis: 0 | 1 }, goal
     }
   }
 
-  if (cameFrom[goalState] === -1 && goalState !== startState) return null
+  if (seen[goalState] !== run) return null
   const vertices: Array<[number, number]> = []
   for (let state = goalState; state !== -1; state = cameFrom[state]) {
     const vertex = state >> 1
@@ -394,27 +435,45 @@ function nearestLine(lines: readonly number[], value: number): number {
   return indexOfValue(lines, value)
 }
 
+export interface RouteOptions {
+  /** Бюджет времени на весь расчёт, мс (по умолчанию ROUTING_BUDGET_MS). */
+  budgetMs?: number
+  /** Источник времени в мс; подменяется в тестах, по умолчанию `performance.now()`. */
+  now?: () => number
+}
+
+/** Порядок без учёта локали: `localeCompare` зависит от языка браузера, и раскладка одной схемы у разных пользователей различалась бы. */
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
 /**
  * Прокладывает маршруты для всех запросов. Ребро, для которого путь не нашёлся (хэндл зажат между узлами, исчерпан предел поиска),
- * в результат не попадает — вызывающий код рисует его прежней кривой. Если сетка слишком велика (MAX_GRID_VERTICES), пуст весь результат.
+ * в результат не попадает — вызывающий код рисует его прежней кривой. Если сетка слишком велика (MAX_GRID_VERTICES) или рёбер больше
+ * MAX_ROUTED_EDGES, пуст весь результат. Рёбра идут от коротких к длинным, и когда бюджет времени вышел, остальные (длинные) тоже
+ * остаются без маршрута: короткие связи важнее для читаемости, а длинным кривая и так привычна.
  */
-export function routeEdges(nodes: readonly RouteNode[], requests: readonly RouteRequest[]): Map<string, EdgeRoute> {
+export function routeEdges(nodes: readonly RouteNode[], requests: readonly RouteRequest[], options: RouteOptions = {}): Map<string, EdgeRoute> {
+  const { budgetMs = ROUTING_BUDGET_MS, now = () => performance.now() } = options
   const routes = new Map<string, EdgeRoute>()
-  if (requests.length === 0) return routes
+  if (requests.length === 0 || requests.length > MAX_ROUTED_EDGES) return routes
+  const clock: Clock = { now, deadline: now() + budgetMs }
   const stubs = requests.flatMap((request) => [stubPoint(request.source), stubPoint(request.target)])
   const grid = buildGrid(nodes, stubs)
   if (!grid) return routes
+  const scratch = createScratch(grid)
   for (const request of requests) {
     reserveCorridor(grid, request.source, stubPoint(request.source))
     reserveCorridor(grid, request.target, stubPoint(request.target))
   }
 
   // Короткие связи первыми: они занимают ближайшие дорожки, а длинным обходить всё равно.
-  const ordered = [...requests].sort((a, b) => manhattan(a) - manhattan(b) || a.id.localeCompare(b.id))
+  const ordered = [...requests].sort((a, b) => manhattan(a) - manhattan(b) || compareIds(a.id, b.id))
   // Связи с одинаковыми концами (параллельные линки между двумя свёрнутыми группами подключаются к одному хэндлу на каждой стороне)
   // идут одним маршрутом: у них нет повода расходиться, а разводить по дорожкам значило бы гнать копии длинными обходами. Число
   // таких связей показывает подпись «×N» (diagramEdgeLabels.ts).
   const byEnds = new Map<string, EdgeRoute | null>()
+  let outOfTime = false
   for (const request of ordered) {
     const endsKey = routeEndsKey(request)
     const shared = byEnds.get(endsKey)
@@ -422,12 +481,15 @@ export function routeEdges(nodes: readonly RouteNode[], requests: readonly Route
       if (shared) routes.set(request.id, shared)
       continue
     }
+    // Копии уже проложенного маршрута ничего не стоят и берутся даже после срока; новый поиск после срока не начинается.
+    if (!outOfTime && now() > clock.deadline) outOfTime = true
+    if (outOfTime) continue
     const sourceStub = stubPoint(request.source)
     const targetStub = stubPoint(request.target)
     const start = { i: nearestLine(grid.xs, sourceStub.x), j: nearestLine(grid.ys, sourceStub.y), axis: sideAxis(request.source.side) }
     // В цель путь входит вдоль оси выхода приёмника: тогда у хэндла нет лишнего излома.
     const goal = { i: nearestLine(grid.xs, targetStub.x), j: nearestLine(grid.ys, targetStub.y), axis: sideAxis(request.target.side) }
-    const vertices = findPath(grid, start, goal)
+    const vertices = findPath(grid, scratch, start, goal, clock)
     if (!vertices) {
       byEnds.set(endsKey, null)
       continue
