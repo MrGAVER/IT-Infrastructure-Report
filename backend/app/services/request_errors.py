@@ -46,23 +46,42 @@ def _limit(ctx: Mapping[str, Any], key: str) -> str:
     return str(ctx.get(key, ""))
 
 
-def _chars(count: object) -> str:
+def _plural(count: object, one: str, few: str, many: str) -> str:
     """«1 символ», «2 символа», «5 символов» — число и слово в правильной форме."""
     if not isinstance(count, int):
-        return f"{count} символов"
+        return f"{count} {many}"
     last_two, last = count % 100, count % 10
     if last == 1 and last_two != 11:
-        word = "символ"
+        word = one
     elif 2 <= last <= 4 and not 12 <= last_two <= 14:
-        word = "символа"
+        word = few
     else:
-        word = "символов"
+        word = many
     return f"{count} {word}"
+
+
+def _chars(count: object) -> str:
+    return _plural(count, "символ", "символа", "символов")
+
+
+def _items(count: object) -> str:
+    return _plural(count, "элемент", "элемента", "элементов")
 
 
 def _too_short(label: str, ctx: Mapping[str, Any]) -> str:
     minimum = ctx.get("min_length")
     return f"{label}: значение не должно быть пустым" if minimum == 1 else f"{label}: минимальная длина — {_chars(minimum)}"
+
+
+def _too_few_items(label: str, ctx: Mapping[str, Any]) -> str:
+    minimum = ctx.get("min_length")
+    return f"{label}: значение не должно быть пустым" if minimum == 1 else f"{label}: минимальное количество — {_items(minimum)}"
+
+
+def _literal_error(label: str, ctx: Mapping[str, Any]) -> str:
+    """Допустимые значения берутся из схемы (``ctx["expected"]``: «'a', 'b' or 'c'»), а не из ввода клиента."""
+    expected = str(ctx.get("expected") or "").replace(" or ", " или ")
+    return f"{label}: допустимые значения — {expected}" if expected else f"{label}: недопустимое значение"
 
 
 def _expected(noun: str) -> Formatter:
@@ -78,7 +97,9 @@ _BY_TYPE: dict[str, Formatter] = {
     "missing": lambda label, ctx: f"{label}: значение обязательно",
     "json_invalid": lambda label, ctx: "Тело запроса не является корректным JSON",
     "model_attributes_type": _expected("объект"),
+    "model_type": _expected("объект"),
     "dict_type": _expected("объект"),
+    "extra_forbidden": lambda label, ctx: f"{label}: не предусмотрено",
     "list_type": _expected("список"),
     "string_type": _expected("строка"),
     "bool_type": _expected("true или false"),
@@ -95,6 +116,9 @@ _BY_TYPE: dict[str, Formatter] = {
     "less_than": _bound("меньше", "lt"),
     "string_too_long": lambda label, ctx: f"{label}: максимальная длина — {_chars(ctx.get('max_length'))}",
     "string_too_short": _too_short,
+    "too_long": lambda label, ctx: f"{label}: максимальное количество — {_items(ctx.get('max_length'))}",
+    "too_short": _too_few_items,
+    "literal_error": _literal_error,
 }
 
 
