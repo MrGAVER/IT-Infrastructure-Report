@@ -7,7 +7,7 @@ import ToastHost from '../components/ToastHost.vue'
 import PortSyncPlanHost from '../components/PortSyncPlanHost.vue'
 import { resolvePageHeading } from './pageTitles'
 import { useMediaQuery } from '../composables/useMediaQuery'
-import { hasOpenModal } from '../composables/modalStack'
+import { hasOpenModal } from '../composables/modalLayer'
 
 const sidebarOpen = ref(false)
 const route = useRoute()

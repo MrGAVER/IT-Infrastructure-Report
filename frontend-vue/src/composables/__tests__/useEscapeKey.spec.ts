@@ -1,11 +1,11 @@
 // UI-04 (ревью 2.158.0): Esc закрывает верхнее из открытых окон — одно, а не все сразу.
-// FE-06 (ревью ветки fix/code-review-main-f06-stage2-f05): «верхнее» определяет единый стек окон (modalStack), а не второй, независимый
+// FE-06 (ревью ветки fix/code-review-main-f06-stage2-f05): «верхнее» определяет единый стек окон (modalLayer.ts), а не второй, независимый
 // стек Esc, согласованность которого с первым держалась на одинаковом порядке вызовов в setup().
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { useEscapeKey } from '../useEscapeKey'
-import { useModalStack } from '../modalStack'
+import { useEscapeKey } from '../modalLayer'
+import { useModalStack } from '../modalLayer'
 
 const mounted: VueWrapper[] = []
 

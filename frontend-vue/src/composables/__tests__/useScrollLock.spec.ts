@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defineComponent, h, nextTick, Suspense } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { useScrollLock } from '../useScrollLock'
+import { useScrollLock } from '../modalLayer'
 
 const Win = defineComponent({
   setup() {

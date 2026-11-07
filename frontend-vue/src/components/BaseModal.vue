@@ -4,12 +4,13 @@
 //
 // Что даёт окну:
 //  — подложку `.modal-overlay` в <body> (Teleport): окно не зависит от transform/overflow предков и стоит над страницей;
-//  — закрытие по клику на подложку (useOverlayDismiss: выделение текста, закончившееся над подложкой, окно не закрывает) и по Esc
-//    (useEscapeKey) одним событием close; из вложенных окон по Esc закрывается только верхнее — по тому же стеку, что и фокус;
-//  — ловушку фокуса и возврат фокуса на кнопку, открывшую окно (useFocusTrap);
-//  — блокировку прокрутки страницы под окном (useScrollLock);
-//  — слой: z-index = --z-modal + номер окна в стеке открытых окон (modalStack.ts), так что вложенное окно всегда выше родителя
-//    независимо от порядка в DOM.
+//  — закрытие по клику на подложку (выделение текста, закончившееся над подложкой, окно не закрывает) и по Esc одним событием close;
+//    из вложенных окон по Esc закрывается только верхнее — по тому же стеку, что и фокус;
+//  — ловушку фокуса и возврат фокуса на кнопку, открывшую окно;
+//  — блокировку прокрутки страницы под окном;
+//  — слой: z-index = --z-modal + номер окна в стеке открытых окон, так что вложенное окно всегда выше родителя независимо от порядка
+//    в DOM.
+// Всё это — один вызов useModalLayer (composables/modalLayer.ts): порядок сторон и их связь со стеком окон там, а не здесь.
 //
 // Карточку диалога (`<div class="… card" role="dialog" aria-modal="true" aria-labelledby=…>`), заголовок и кнопки окно
 // кладёт в слот само: у каждого окна своя ширина и своя раскладка, и стили карточки остаются в его собственном scoped-CSS.
@@ -20,11 +21,7 @@
 //   <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId"> … </div>
 // </BaseModal>
 import { computed, inject, ref } from 'vue'
-import { useModalStack } from '../composables/modalStack'
-import { useFocusTrap } from '../composables/useFocusTrap'
-import { useEscapeKey } from '../composables/useEscapeKey'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
-import { useScrollLock } from '../composables/useScrollLock'
+import { useModalLayer } from '../composables/modalLayer'
 import { MODAL_TELEPORT_DISABLED } from './baseModalKeys'
 
 // Атрибуты родителя (data-testid и т. п.) попадают на подложку, а не на Teleport, у которого корня-элемента нет.
@@ -44,16 +41,11 @@ const emit = defineEmits<{ close: [] }>()
 const teleportDisabled = inject(MODAL_TELEPORT_DISABLED, false)
 
 const overlay = ref<HTMLElement | null>(null)
-const { depth, isTop } = useModalStack()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
-// Esc — через общий стек окон: закрывается только верхнее. defaultPrevented и IME отсеивает сам useEscapeKey.
-useEscapeKey((event) => {
-  if (!isTop()) return
-  event.preventDefault()
-  emit('close')
+// Стек окон, Esc, закрытие по подложке, ловушка фокуса и блокировка прокрутки — одним вызовом, в нужном порядке (modalLayer.ts).
+const { depth, onOverlayPointerDown, onOverlayClick } = useModalLayer({
+  dialog: () => overlay.value?.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]') ?? overlay.value,
+  onClose: () => emit('close'),
 })
-useFocusTrap(() => overlay.value?.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]') ?? overlay.value, isTop)
-useScrollLock()
 
 const layerStyle = computed(() => ({ '--modal-depth': depth.value, '--modal-offset': `${props.offset}px` }))
 </script>

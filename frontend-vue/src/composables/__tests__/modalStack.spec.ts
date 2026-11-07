@@ -2,14 +2,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { defineComponent, h, nextTick, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { hasOpenModal, useModalStack, type ModalLayer } from '../modalStack'
+import { hasOpenModal, useModalStack, type ModalStackEntry } from '../modalLayer'
 
 const mounted: VueWrapper[] = []
 
 /** Окно в стеке; child — вложенное окно, которое рисуется внутри (как «+» быстрого добавления внутри формы). */
 const Win = defineComponent({
   props: {
-    onLayer: { type: Function as PropType<(layer: ModalLayer) => void>, required: true },
+    onLayer: { type: Function as PropType<(layer: ModalStackEntry) => void>, required: true },
     child: { type: Object as PropType<ReturnType<typeof defineComponent>>, default: null },
   },
   setup(props) {
@@ -18,7 +18,7 @@ const Win = defineComponent({
   },
 })
 
-function open(onLayer: (layer: ModalLayer) => void) {
+function open(onLayer: (layer: ModalStackEntry) => void) {
   const wrapper = mount(Win, { props: { onLayer } })
   mounted.push(wrapper)
   return wrapper
@@ -30,15 +30,15 @@ afterEach(() => {
 
 describe('useModalStack', () => {
   it('одно окно — нижнее и верхнее одновременно', () => {
-    let layer!: ModalLayer
+    let layer!: ModalStackEntry
     open((l) => (layer = l))
     expect(layer.depth.value).toBe(0)
     expect(layer.isTop()).toBe(true)
   })
 
   it('окно, открытое позже, выше и единственное верхнее', () => {
-    let first!: ModalLayer
-    let second!: ModalLayer
+    let first!: ModalStackEntry
+    let second!: ModalStackEntry
     open((l) => (first = l))
     open((l) => (second = l))
     expect(first.depth.value).toBe(0)
@@ -48,15 +48,15 @@ describe('useModalStack', () => {
   })
 
   it('окно, вложенное в другое при первом рендере, оказывается выше родителя: setup родителя идёт раньше, хотя onMounted — позже', () => {
-    let outer!: ModalLayer
-    let inner!: ModalLayer
+    let outer!: ModalStackEntry
+    let inner!: ModalStackEntry
     const Inner = defineComponent({
       setup() {
         inner = useModalStack()
         return () => h('div')
       },
     })
-    mounted.push(mount(Win, { props: { onLayer: (l: ModalLayer) => (outer = l), child: Inner } }))
+    mounted.push(mount(Win, { props: { onLayer: (l: ModalStackEntry) => (outer = l), child: Inner } }))
     expect(outer.depth.value).toBe(0)
     expect(inner.depth.value).toBe(1)
     expect(inner.isTop()).toBe(true)
@@ -64,9 +64,9 @@ describe('useModalStack', () => {
   })
 
   it('закрытое окно уходит из стека: верхним снова становится нижнее, а глубина оставшихся пересчитывается', async () => {
-    let first!: ModalLayer
-    let second!: ModalLayer
-    let third!: ModalLayer
+    let first!: ModalStackEntry
+    let second!: ModalStackEntry
+    let third!: ModalStackEntry
     const a = open((l) => (first = l))
     open((l) => (second = l))
     open((l) => (third = l))
@@ -82,7 +82,7 @@ describe('useModalStack', () => {
   })
 
   it('после закрытия верхнего окна верхним снова становится окно под ним', () => {
-    let first!: ModalLayer
+    let first!: ModalStackEntry
     open((l) => (first = l))
     const second = open(() => {})
     expect(first.isTop()).toBe(false)

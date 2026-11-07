@@ -7,7 +7,7 @@ import { realModalTeleport } from '../../__tests__/realModalTeleport'
 import { readSource } from '../../__tests__/cssSource'
 import { MODAL_TELEPORT_DISABLED } from '../baseModalKeys'
 import BaseModal from '../BaseModal.vue'
-import { useModalStack } from '../../composables/modalStack'
+import { useModalStack } from '../../composables/modalLayer'
 
 const mounted: VueWrapper[] = []
 

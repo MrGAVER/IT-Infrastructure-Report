@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { defineComponent, h, ref, type PropType, type VNode } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { useModalStack } from '../modalStack'
+import { useModalStack } from '../modalLayer'
 import { useFocusTrap } from '../useFocusTrap'
 
 const mounted: VueWrapper[] = []

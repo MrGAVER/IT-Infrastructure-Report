@@ -7,7 +7,7 @@ import { onBeforeUnmount, onMounted, onUnmounted, toValue, type MaybeRefOrGetter
 //  2. Tab с последнего элемента переходит на первый, Shift+Tab с первого — на последний; пока фокус вне окна (клик по
 //     подложке уводит его на body), Tab возвращает его внутрь;
 //  3. при закрытии возвращает фокус на элемент, открывший окно.
-// Из вложенных окон реагирует только верхнее — см. modalStack.ts.
+// Из вложенных окон реагирует только верхнее — см. modalLayer.ts.
 
 const TABBABLE_SELECTOR = [
   'a[href]',
