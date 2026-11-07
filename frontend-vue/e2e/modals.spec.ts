@@ -91,7 +91,8 @@ test.describe('F-01: фокус и прокрутка модальных око�
 
   test('после закрытия фокус возвращается на кнопку, открывшую окно', async ({ page }) => {
     await openApp(page, '/devices')
-    const opener = page.getByRole('button', { name: 'Добавить устройство' })
+    // На пустом реестре такая же кнопка есть и в пустой строке таблицы (F-04, ListEmptyRow); берём кнопку панели — она первая в разметке.
+    const opener = page.getByRole('button', { name: 'Добавить устройство' }).first()
     await opener.focus()
     await page.keyboard.press('Enter')
     await expect(page.locator('.modal')).toHaveCount(1)
