@@ -88,6 +88,7 @@ _BY_TYPE: dict[str, Formatter] = {
     "int_from_float": _expected("целое число"),
     "float_type": _expected("число"),
     "float_parsing": _expected("число"),
+    "finite_number": _expected("конечное число"),
     "greater_than_equal": _bound("не меньше", "ge"),
     "greater_than": _bound("больше", "gt"),
     "less_than_equal": _bound("не больше", "le"),

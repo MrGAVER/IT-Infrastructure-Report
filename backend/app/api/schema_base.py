@@ -23,9 +23,13 @@ T = TypeVar("T")
 
 
 class RequestBody(BaseModel):
-    """Тело запроса. Лишние поля игнорируются, как и у прежнего ``payload: dict``: клиент может прислать объект целиком."""
+    """Тело запроса. Лишние поля игнорируются, как и у прежнего ``payload: dict``: клиент может прислать объект целиком.
 
-    model_config = ConfigDict(extra="ignore")
+    ``allow_inf_nan=False``: ``NaN`` и ``±Infinity`` в JSON-стандарте нет, а Python-разбор их принимает — такое число доходило до
+    записи и ломало кодирование ответа (500). Вещественное поле теперь отвечает 422 («ожидается конечное число»); в произвольных
+    объектах (``config`` отчёта) то же проверяет ``reject_non_finite_numbers``."""
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
 
 def delegate_to_parser(parse: Callable[[Any], T], raw: Any) -> T:

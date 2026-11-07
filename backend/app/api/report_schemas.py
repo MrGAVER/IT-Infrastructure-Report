@@ -150,7 +150,7 @@ class ReportTemplateWrite(RequestBody):
     def _config(cls, value: object) -> dict[str, Any]:
         if not isinstance(value, dict):
             raise ValueError("Поле config должно быть объектом с описанием листов/блоков")
-        return value
+        return delegate_to_parser(parse_config_object, value)  # NaN/Infinity в ширине, высоте и т. п. — 422, а не 500 при ответе
 
     @field_validator("description", mode="before")
     @classmethod

@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from fastapi import HTTPException
@@ -30,12 +31,31 @@ def parse_preview_limit(payload: dict[str, Any]) -> int:
     return raw
 
 
+def reject_non_finite_numbers(value: Any, field: str) -> None:
+    """422, если в произвольном JSON (объект/список любой глубины) есть ``NaN`` или ``±Infinity``.
+
+    Python-разбор JSON принимает эти значения (в стандарте JSON их нет): ширина столбца ``NaN`` проходила предметную проверку шаблона
+    (любое сравнение с ``NaN`` ложно), сохранялась в БД, а ответ с ней не кодировался (``Out of range float values are not JSON compliant``)
+    — 500 на каждое чтение шаблона. Обход итеративный: глубину вложенности клиент задаёт сам."""
+    pending = [value]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, float) and not math.isfinite(node):
+            raise HTTPException(422, f"{field}: значения NaN и Infinity не допускаются")
+        if isinstance(node, dict):
+            pending.extend(node.values())
+        elif isinstance(node, list):
+            pending.extend(node)
+
+
 def parse_config_object(raw: Any) -> dict[str, Any]:
-    """`config` предпросмотра: не прислан или `null` — пустой объект (его отклонит валидатор шаблона с понятным текстом), иначе объект."""
+    """`config` предпросмотра и шаблона: не прислан или `null` — пустой объект (его отклонит валидатор шаблона с понятным текстом), иначе объект
+    без ``NaN``/``Infinity``."""
     if raw is None:
         return {}
     if not isinstance(raw, dict):
         raise HTTPException(422, "config должен быть объектом с описанием листов/блоков")
+    reject_non_finite_numbers(raw, "config")
     return raw
 
 
