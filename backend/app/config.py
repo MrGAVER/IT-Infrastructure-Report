@@ -159,7 +159,7 @@ CSP_POLICY = os.getenv(
     "form-action 'self'; frame-ancestors 'none'",
 )
 
-# Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth.py) —
+# Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth/settings.py) —
 # переменные ниже настраивают её поведение, когда она включена, а не сам факт включения.
 AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12'))
 # 10, а не 5: от перебора с одного адреса защищает троттлинг входа (services/login_throttle.py), а

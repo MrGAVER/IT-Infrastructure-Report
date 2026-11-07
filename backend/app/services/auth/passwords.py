@@ -23,7 +23,7 @@ _SALT_BYTES = 16
 def hash_password(password: str) -> str:
     """'<алгоритм>$<итерации>$<соль-b64>$<хеш-b64>' — самоописывающийся формат: при повышении
     PBKDF2_ITERATIONS в будущей версии старые хеши не ломаются, а прозрачно пересчитываются на
-    следующий успешный вход (см. _needs_rehash + authenticate)."""
+    следующий успешный вход (см. needs_rehash + login.authenticate)."""
     salt = secrets.token_bytes(_SALT_BYTES)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
     return f"{PBKDF2_ALGORITHM}${PBKDF2_ITERATIONS}${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}"

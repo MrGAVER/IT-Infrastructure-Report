@@ -1,4 +1,4 @@
-"""Тесты аутентификации/авторизации (app/services/auth.py, app/api/auth.py).
+"""Тесты аутентификации/авторизации (пакет app/services/auth, app/api/auth.py).
 
 Каждый тест получает изолированную in-memory БД (фикстура client/db_session из conftest.py),
 поэтому AuthSettings всегда стартует в состоянии по умолчанию: enabled=False.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 def _bootstrap_admin(client, username: str = "admin", password: str = "Admin1234") -> dict:
     """Заводит первого администратора, пока аутентификация ещё выключена (открытый bootstrap,
-    см. docstring services/auth.set_auth_enabled) и включает переключатель."""
+    см. docstring services/auth/settings.set_auth_enabled) и включает переключатель."""
     r = client.post("/api/v1/auth/users", json={"username": username, "password": password, "role": "admin"})
     assert r.status_code == 201, r.text
     r = client.put("/api/v1/auth/settings", json={"enabled": True})

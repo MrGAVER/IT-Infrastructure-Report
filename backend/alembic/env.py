@@ -11,7 +11,7 @@ if config.config_file_name is not None:
     # не упомянутый в alembic.ini явно (там сконфигурированы только root/sqlalchemy/alembic).
     # test_migrations_diagram.py вызывает command.upgrade()/downgrade() (а значит, и этот env.py)
     # много раз за сессию pytest — начиная с первого вызова, logging.getLogger("app.main")
-    # (services/auth.py и т.п., создаётся при импорте app.main для фикстуры client в conftest.py)
+    # (пакет services/auth и т.п., создаётся при импорте app.main для фикстуры client в conftest.py)
     # навсегда замолкал для всех ПОСЛЕДУЮЩИХ тестов сессии, включая уже упавший на этом
     # test_startup_warnings.py. disable_existing_loggers=False — обычная и рекомендуемая правка
     # именно для этого сценария (Alembic исполняется как часть более крупного приложения, а не

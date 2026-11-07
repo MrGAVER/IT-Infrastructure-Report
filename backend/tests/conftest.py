@@ -317,13 +317,13 @@ def client_factory(db_session, monkeypatch):
     get_db (это не FastAPI-зависимость) — поэтому его тоже подменяем на фабрику, привязанную
     к тому же engine, что и db_session, иначе стартовый seed уйдёт в другую БД.
 
-    app.services.auth.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
+    app.services.auth.gate.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
     FastAPI Depends, поэтому dependency_overrides её не касается; она открывает сессии через
-    app.db.SessionLocal() (см. комментарий в services/auth.py про `from X import Y`), которую
+    app.db.SessionLocal() (см. комментарий в services/auth/gate.py про `from X import Y`), которую
     подменяем здесь же на ту же тестовую фабрику.
 
     Адрес клиента задаётся параметром: первичная настройка аутентификации (см.
-    services/auth.require_admin) доступна только с localhost, поэтому по умолчанию — 127.0.0.1, а
+    services/auth/guards.require_admin) доступна только с localhost, поэтому по умолчанию — 127.0.0.1, а
     тесты «удалённого» доступа просят другой адрес."""
     from fastapi.testclient import TestClient
 
