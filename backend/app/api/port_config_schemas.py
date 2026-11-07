@@ -19,10 +19,13 @@ from typing import Any, Literal, Self
 
 from pydantic import ConfigDict, Field, ModelWrapValidatorHandler, PrivateAttr, StrictBool, field_validator, model_validator
 
+from ..services.connection_query import MAX_SEARCH_LENGTH
 from ..services.connection_review import MAX_APPROVE_BATCH, parse_approve_request
-from ..services.port_edit import PortConfigRequest, parse_port_config_request
+from ..services.port_edit import MAX_VLAN_IDS, PortConfigRequest, parse_port_config_request
 from ..services.vlan_mode_cascade import parse_cascade_edited, parse_cascade_mode
 from .schema_base import RequestBody, absent_as_null, delegate_to_parser
+
+MAX_PLAN_HASH_LENGTH = 64  # отпечаток плана — 32 hex-символа (sha256[:32]); запас на смену алгоритма
 
 PortMode = Literal["access", "trunk"]
 
@@ -65,7 +68,7 @@ class PortConfigUpdate(RequestBody):
     model_config = ConfigDict(extra="forbid")
 
     role: str | None = Field(default=None, description="Роль порта: management, data, both или none.")
-    vlan_ids: list[str] | None = Field(default=None, description="Полный набор VLAN порта (id записей справочника).")
+    vlan_ids: list[str] | None = Field(default=None, max_length=MAX_VLAN_IDS, description="Полный набор VLAN порта (id записей справочника).")
     all_vlans: bool | None = Field(default=None, description="«Все VLAN» устройства порта; тогда vlan_ids игнорируется. Только в режиме trunk.")
     mode: PortMode | None = Field(default=None, description="Режим, под который выбран набор VLAN; у порта другой режим — 409.")
 
@@ -125,7 +128,7 @@ class CascadePreviewRequest(RequestBody):
 class CascadeApplyRequest(CascadePreviewRequest):
     """POST /api/v1/interfaces/{id}/vlan-mode-cascade — применение плана из предпросмотра (mode, edited и port те же)."""
 
-    plan_hash: str | None = Field(default=None, description="Hash плана из предпросмотра; план изменился — 409.")
+    plan_hash: str | None = Field(default=None, max_length=MAX_PLAN_HASH_LENGTH, description="Hash плана из предпросмотра; план изменился — 409.")
     confirm: bool | None = Field(default=None, description="Должно быть true — явное подтверждение применения.")
 
     @field_validator("confirm", mode="before")
@@ -139,7 +142,7 @@ class CascadeApplyRequest(CascadePreviewRequest):
 class ApproveMatch(RequestBody):
     """Условия «одобрить все найденные»: те же q и is_active, что у списка подключений."""
 
-    q: str | None = Field(default=None, description="Строка поиска, как в списке подключений.")
+    q: str | None = Field(default=None, max_length=MAX_SEARCH_LENGTH, description="Строка поиска, как в списке подключений.")
     is_active: bool | None = Field(default=None, description="Только активные (true), только неактивные (false) или все (null).")
 
 
@@ -150,6 +153,7 @@ class ApprovePortConfigRequest(RequestBody):
 
     connection_ids: list[str] | None = Field(
         default=None,
+        max_length=MAX_APPROVE_BATCH,
         description=f"Идентификаторы подключений; от 1 до {MAX_APPROVE_BATCH} за запрос.",
     )
     match: ApproveMatch | None = Field(default=None, description="Условия поиска: одобрить ВСЕ подключения с расхождением, а не только показанную страницу.")

@@ -96,7 +96,7 @@ class DiagramCreate(RequestBody):
     """POST /api/v1/diagrams."""
 
     # validate_default: отсутствующее название проходит ту же проверку и получает то же сообщение «Укажите название диаграммы».
-    name: str = Field(default="", validate_default=True, description="Название диаграммы; управляющие символы заменяются пробелом, не длиннее 255 символов.")
+    name: str = Field(default="", validate_default=True, max_length=MAX_DIAGRAM_NAME_LENGTH, description="Название диаграммы; управляющие символы заменяются пробелом, не длиннее 255 символов.")
     group_by: str = Field(default="structural_unit", description="Измерение группировки узлов.", json_schema_extra={"enum": list(GROUP_DIMENSIONS)})
     scope_filter: dict[str, Any] = Field(default_factory=dict, description="Фильтр охвата: какие устройства попадают на диаграмму.")
     description: str | None = None
@@ -133,7 +133,7 @@ class DiagramCreate(RequestBody):
 class DiagramRename(RequestBody):
     """PUT /api/v1/diagrams/{id}/rename."""
 
-    name: str = Field(default="", validate_default=True)
+    name: str = Field(default="", validate_default=True, max_length=MAX_DIAGRAM_NAME_LENGTH)
 
     @field_validator("name", mode="before")
     @classmethod

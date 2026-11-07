@@ -34,6 +34,8 @@ from .schema_base import RequestBody, absent_as_null, delegate_to_parser
 DEFAULT_FORMAT = "xlsx"
 # Ограничения длины и числа элементов нужны схеме OpenAPI: сообщение об ошибке даёт валидатор из report_params, он срабатывает раньше.
 StructuralUnitId = Annotated[str, StringConstraints(min_length=1, max_length=MAX_ID_LENGTH)]
+MAX_TEMPLATE_NAME_LENGTH = 255  # длина колонки ReportTemplate.name
+MAX_IS_NAME_LENGTH = 255  # как InformationSystem.name: короткое имя попадает в заголовки docx
 
 
 def _checked_format(value: object) -> str:
@@ -65,6 +67,7 @@ class StructuralAppendixRequest(_WithStructuralUnits):
 
     is_name: str = Field(
         default=DEFAULT_IS_NAME,
+        max_length=MAX_IS_NAME_LENGTH,
         description="Короткое имя ИС для заголовков; ведущее «ЕАИС» / «ИС» в заголовках не дублируется.",
     )
 
@@ -73,6 +76,8 @@ class StructuralAppendixRequest(_WithStructuralUnits):
     def _is_name(cls, value: object) -> str:
         if not isinstance(value, str):
             raise ValueError("Короткое имя ИС должно быть строкой")
+        if len(value) > MAX_IS_NAME_LENGTH:
+            raise ValueError(f"Короткое имя ИС не должно быть длиннее {MAX_IS_NAME_LENGTH} символов")
         return value
 
 
@@ -123,7 +128,7 @@ class ReportTemplateWrite(RequestBody):
     """POST /api/v1/report-templates и PUT /api/v1/report-templates/{id} — шаблон целиком."""
 
     # validate_default: отсутствующее поле проходит ту же проверку и получает то же сообщение, что и неверное значение.
-    name: str = Field(default="", validate_default=True, description="Название шаблона, уникальное; пробелы по краям обрезаются.")
+    name: str = Field(default="", validate_default=True, max_length=MAX_TEMPLATE_NAME_LENGTH, description="Название шаблона, уникальное; пробелы по краям обрезаются.")
     format: str = Field(default=DEFAULT_FORMAT, description="xlsx или docx.")
     config: dict[str, Any] = Field(description="Описание листов (xlsx) или блоков (docx); проверяется под формат шаблона.")
     description: str | None = None
@@ -138,7 +143,10 @@ class ReportTemplateWrite(RequestBody):
     def _name(cls, value: object) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Укажите название шаблона")
-        return value.strip()
+        name = value.strip()
+        if len(name) > MAX_TEMPLATE_NAME_LENGTH:
+            raise ValueError(f"Название шаблона не должно быть длиннее {MAX_TEMPLATE_NAME_LENGTH} символов")
+        return name
 
     @field_validator("format", mode="before")
     @classmethod
