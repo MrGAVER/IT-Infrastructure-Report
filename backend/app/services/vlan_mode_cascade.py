@@ -171,13 +171,13 @@ class _Loader:
         draft = edited.groups.get(key) if edited.device_id else None
         if group is not None and group.physical_device_id != edited.device_id:
             draft = None  # группа другого устройства: форма о ней ничего не знает
-        if group is None and draft is None:
-            return None
-        device_id = group.physical_device_id if group is not None else str(edited.device_id)
         if draft is None:
-            assert group is not None  # проверено выше: нет ни группы, ни черновика — вернули None
+            if group is None:
+                return None  # нет ни группы, ни черновика: такой группы каскад не знает
+            device_id = group.physical_device_id
             mode, name, vlan_ids = group.vlan_mode or "", group.name, None
         else:
+            device_id = group.physical_device_id if group is not None else str(edited.device_id)
             mode = draft.mode
             name = draft.name if draft.name is not None else (group.name if group is not None else "")
             # VLAN не переданы: у сохранённой группы берутся из БД, у новой их ещё нет.
@@ -198,6 +198,16 @@ class _Loader:
             return None  # порт формы ссылается на группу другого устройства (или наоборот) — такой группы для него нет
         return info
 
+    def group_info(self, key: str) -> _GroupInfo:
+        """Описание группы, которую каскад уже признал управляющей режимом (managing_group): None здесь — ошибка вызывающего кода.
+
+        Явная проверка вместо ``assert``: assert исчезает при запуске с ``python -O``, и тогда на месте понятной ошибки был бы
+        ``AttributeError`` где-то дальше по плану."""
+        info = self.infos.get(key)
+        if info is None:
+            raise LookupError(f"Группа {key!r} не подготовлена каскадом: сначала нужен managing_group")
+        return info
+
     def load_members(self, edited: _Edited, keys: Iterable[str]) -> None:
         """Участники групп: у группы из БД — её порты; у группы редактируемого устройства порты, переданные
         в форме, определяет черновик, остальные — БД."""
@@ -210,8 +220,7 @@ class _Loader:
                 found[port.group_id].append(port.id)
             self._db_members.update(found)
         for key in wanted:
-            info = self.infos[key]
-            assert info is not None
+            info = self.group_info(key)
             ids = list(self._db_members.get(key, []))
             if info.deferred:
                 ids = [p for p in ids if p not in edited.ports or not edited.ports[p].group_given]
@@ -336,8 +345,7 @@ def _collect_group_vlans(change: _Change) -> None:
     loader = change.loader
     stored_groups: list[str] = []
     for key in change.changed_groups:
-        info = loader.infos[key]
-        assert info is not None
+        info = loader.group_info(key)
         if info.vlan_ids is not None:
             change.group_vlans[key] = list(dict.fromkeys(info.vlan_ids))
         else:
@@ -402,8 +410,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
     loader, target, edited = change.loader, change.target, change.edited
     groups_out: list[dict[str, Any]] = []
     for key, from_mode in change.changed_groups.items():
-        info = loader.infos[key]
-        assert info is not None
+        info = loader.group_info(key)
         before = change.group_vlans.get(key, [])
         after, dropped = _split_vlans(before, change.vlans, target)
         groups_out.append({
