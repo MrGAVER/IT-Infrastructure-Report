@@ -6,27 +6,29 @@
 (тесты, другие сервисы). Модель добавляет к этому описание формы тела в OpenAPI и проверку до обработчика.
 
 Обработчики передают в сервис ``body.model_dump(exclude_unset=True)`` — тот же словарь, что прислал клиент (без полей, которых он не
-присылал): сигнатуры сервисов не менялись.
+присылал): сигнатуры сервисов не менялись. Исключение — пилот однократного разбора (код-ревью, BE-04): ``PortConfigUpdate`` разбирает тело
+один раз и отдаёт результат как ``body.request``, а обработчик зовёт ``apply_port_config`` без повторного разбора того же словаря.
+Остальные модели (каскад, одобрение) пока работают по-старому.
 
 Порядок проверок прежний: форму тела (режим, edited, флаги, id подключений) сервис и раньше проверял до обращения к БД; содержимое
 ``port`` у каскада — после поиска порта, поэтому модель его не проверяет.
 """
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import ConfigDict, Field, StrictBool, field_validator, model_validator
+from pydantic import ConfigDict, Field, ModelWrapValidatorHandler, PrivateAttr, StrictBool, field_validator, model_validator
 
 from ..services.connection_review import MAX_APPROVE_BATCH, parse_approve_request
-from ..services.port_edit import parse_port_change
+from ..services.port_edit import PortConfigRequest, parse_port_config_request
 from ..services.vlan_mode_cascade import parse_cascade_edited, parse_cascade_mode
-from .schema_base import RequestBody, delegate_to_parser
+from .schema_base import RequestBody, absent_as_null, delegate_to_parser
 
 PortMode = Literal["access", "trunk"]
 
 
 def _checked_flag(name: str, value: object) -> bool:
-    """Булево поле с прежним текстом ошибки (у отсутствующего поля он тот же: значение по умолчанию тоже проходит проверку)."""
+    """Булево поле с прежним текстом ошибки (у отсутствующего поля он тот же: его подменяет на null ``absent_as_null``)."""
     if not isinstance(value, bool):
         raise ValueError(f"Поле {name} должно быть true или false")
     return value
@@ -35,8 +37,13 @@ def _checked_flag(name: str, value: object) -> bool:
 class PortRoleUpdate(RequestBody):
     """PUT /api/v1/interfaces/{id}/port-role — обе роли заданы всегда: пара флагов однозначно определяет роль порта."""
 
-    is_management: StrictBool = Field(default=None, validate_default=True, description="Порт используется для управления.")  # type: ignore[assignment]
-    is_data_transfer: StrictBool = Field(default=None, validate_default=True, description="Порт используется для передачи данных.")  # type: ignore[assignment]
+    is_management: StrictBool = Field(description="Порт используется для управления.")
+    is_data_transfer: StrictBool = Field(description="Порт используется для передачи данных.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _both_flags_present(cls, raw: object) -> object:
+        return absent_as_null(raw, "is_management", "is_data_transfer")  # отсутствие — тот же текст, что у неверного значения
 
     @field_validator("is_management", mode="before")
     @classmethod
@@ -62,18 +69,31 @@ class PortConfigUpdate(RequestBody):
     all_vlans: bool | None = Field(default=None, description="«Все VLAN» устройства порта; тогда vlan_ids игнорируется. Только в режиме trunk.")
     mode: PortMode | None = Field(default=None, description="Режим, под который выбран набор VLAN; у порта другой режим — 409.")
 
-    @model_validator(mode="before")
+    _request: PortConfigRequest = PrivateAttr()
+
+    @model_validator(mode="wrap")
     @classmethod
-    def _whole_body(cls, raw: object) -> object:
+    def _parse_whole_body_once(cls, raw: object, handler: ModelWrapValidatorHandler[Self]) -> Self:
         # Лишние поля, «хотя бы одно из», типы и допустимые значения — одним прежним разбором: он же отвечает за тексты ошибок.
-        delegate_to_parser(lambda body: parse_port_change(body, allow_mode=True), raw)
-        return raw
+        # Результат остаётся в модели (`request`), поэтому сервис второй раз тело не разбирает. Отказ разбора поднимается ДО проверки
+        # полей модели — как и раньше, когда разбор стоял в валидаторе mode="before".
+        if isinstance(raw, cls):  # повторная проверка готового экземпляра: разбор уже сделан
+            return handler(raw)
+        request = delegate_to_parser(parse_port_config_request, raw)
+        model = handler(raw)
+        model._request = request
+        return model
+
+    @property
+    def request(self) -> PortConfigRequest:
+        """Разобранное тело: правка (роль, набор VLAN, «Все VLAN») и режим, под который выбран набор (None — не проверять)."""
+        return self._request
 
 
 class CascadePreviewRequest(RequestBody):
     """POST /api/v1/interfaces/{id}/vlan-mode-cascade/preview — предпросмотр каскадной смены режима порта."""
 
-    mode: PortMode = Field(default=None, validate_default=True, description="Целевой режим порта-инициатора.")  # type: ignore[assignment]
+    mode: PortMode = Field(description="Целевой режим порта-инициатора.")
     edited: dict[str, Any] | None = Field(
         default=None,
         description="Снимок формы устройства с открытой формой: {device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, "
@@ -84,6 +104,11 @@ class CascadePreviewRequest(RequestBody):
         default=None,
         description="Роль и ПОЛНЫЙ набор VLAN порта-инициатора {role?, vlan_ids?, all_vlans?}: проверяются под целевой режим.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mode_present(cls, raw: object) -> object:
+        return absent_as_null(raw, "mode")  # отсутствие — то же сообщение, что у неверного режима (_mode)
 
     @field_validator("mode", mode="before")
     @classmethod

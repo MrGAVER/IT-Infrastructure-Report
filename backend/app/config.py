@@ -124,6 +124,32 @@ MAX_REQUEST_BODY_BYTES = int(os.getenv('INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES', 
 # обратным прокси или в Docker, где адрес клиента не localhost.
 SETUP_TOKEN = os.getenv('INFRA_REGISTRY_SETUP_TOKEN', '')
 
+# Значения-заглушки из .env.example и самые ходовые слабые пароли. docker-compose.yml требует лишь непустое значение, поэтому
+# скопированный и не отредактированный .env запускался без возражений, а публичная заглушка вместо токена даёт право с любого адреса
+# создать администратора и включить аутентификацию (код-ревью, BE-03). Запуск не блокируется (существующие установки продолжают
+# работать) — при старте в журнал пишется предупреждение (main._warn_if_weak_secrets).
+PLACEHOLDER_SECRETS = frozenset({'change_me', 'change_me_long_random_string', 'changeme', 'password', 'secret'})
+# Токен из `openssl rand -hex 24` — 48 символов; 16 — нижняя граница, ниже которой перебор по сети уже реалистичен.
+MIN_SETUP_TOKEN_LENGTH = 16
+# Пароль БД только предупреждается как заведомо слабый: порт БД в compose наружу не публикуется, поэтому планка ниже.
+MIN_DB_PASSWORD_LENGTH = 8
+
+
+def weak_secret(value: str, min_length: int) -> bool:
+    """Секрет задан, но это заглушка из .env.example (без учёта регистра и пробелов по краям) или он короче ``min_length``.
+    Пустое значение слабым не считается: «не задан» — другой случай, его обрабатывает вызывающий код (токен выключен и т. п.)."""
+    return bool(value) and (value.strip().lower() in PLACEHOLDER_SECRETS or len(value) < min_length)
+
+
+def weak_setup_token(token: str) -> bool:
+    """Токен первичной настройки (INFRA_REGISTRY_SETUP_TOKEN) — заглушка или короче MIN_SETUP_TOKEN_LENGTH."""
+    return weak_secret(token, MIN_SETUP_TOKEN_LENGTH)
+
+
+def weak_db_password(password: str) -> bool:
+    """Пароль БД (POSTGRES_PASSWORD или пароль из DATABASE_URL) — заглушка или короче MIN_DB_PASSWORD_LENGTH."""
+    return weak_secret(password, MIN_DB_PASSWORD_LENGTH)
+
 # Content-Security-Policy для интерфейса и API. Пустая строка отключает заголовок целиком (например,
 # если политику выставляет обратный прокси); любое другое значение заменяет политику по умолчанию.
 CSP_POLICY = os.getenv(
@@ -133,7 +159,7 @@ CSP_POLICY = os.getenv(
     "form-action 'self'; frame-ancestors 'none'",
 )
 
-# Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth.py) —
+# Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth/settings.py) —
 # переменные ниже настраивают её поведение, когда она включена, а не сам факт включения.
 AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12'))
 # 10, а не 5: от перебора с одного адреса защищает троттлинг входа (services/login_throttle.py), а

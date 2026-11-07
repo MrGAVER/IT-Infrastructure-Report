@@ -60,7 +60,7 @@ def test_documentation_can_be_enabled_by_the_environment_variable(tmp_path, valu
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert result[path][0] == 200, path
     assert "application/json" in result["/openapi.json"][1]
-    # Swagger UI и ReDoc грузят скрипты с CDN — строгая политика им снята намеренно (services/auth._CSP_EXEMPT_PATHS).
+    # Swagger UI и ReDoc грузят скрипты с CDN — строгая политика им снята намеренно (services/auth/security_headers._CSP_EXEMPT_PATHS).
     assert result["/docs"][2] is False and result["/redoc"][2] is False
 
 

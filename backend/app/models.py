@@ -824,13 +824,13 @@ class AuditLog(TimestampMixin, Base):
 
 class User(TimestampMixin, Base):
     """Учётная запись приложения. Существует независимо от AuthSettings.enabled — учётные записи
-    можно завести заранее, пока переключатель ещё выключен (см. services/auth.py), а не только
+    можно завести заранее, пока переключатель ещё выключен (см. services/auth/settings.py), а не только
     после включения аутентификации. password_hash — самоописывающийся формат
-    'pbkdf2_sha256$<итерации>$<соль-b64>$<хеш-b64>' (см. services/auth.hash_password), это
+    'pbkdf2_sha256$<итерации>$<соль-b64>$<хеш-b64>' (см. services/auth/passwords.hash_password), это
     позволяет поднять число итераций в будущем, не инвалидируя уже существующие пароли (старые
-    хеши перевычисляются на следующий успешный вход — services/auth.authenticate).
+    хеши перевычисляются на следующий успешный вход — services/auth/login.authenticate).
 
-    failed_attempts/locked_until — защита от подбора пароля (см. services/auth.MAX_FAILED_ATTEMPTS):
+    failed_attempts/locked_until — защита от подбора пароля (см. services/auth/lockout.py и config.AUTH_MAX_FAILED_ATTEMPTS):
     после серии неудачных попыток учётная запись временно блокируется независимо от того, был ли
     следующий пароль верным."""
     __tablename__ = "users"
@@ -862,7 +862,7 @@ class AuthSettings(Base):
     """Синглтон (id зафиксирован строкой 'singleton', ровно одна строка в таблице) — глобальный
     тумблер аутентификации. По умолчанию enabled=False: однопользовательский локальный режим,
     все /api/* открыты без токена, поведение идентично состоянию приложения до этой фичи (см.
-    services/auth.py:auth_gate_middleware). Отдельная таблица, а не запись в каком-то общем
+    services/auth/gate.py:auth_gate_middleware). Отдельная таблица, а не запись в каком-то общем
     key-value справочнике настроек — на момент написания это единственная серверная настройка,
     заводить ради неё общий механизм преждевременно."""
     __tablename__ = "auth_settings"

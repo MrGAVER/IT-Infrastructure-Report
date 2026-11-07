@@ -7,10 +7,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from .config import ALLOWED_CLIENTS, ALLOWED_HOSTS, APP_VERSION, CORS_ALLOWED_ORIGINS, DATABASE_URL, ENABLE_DOCS, FORWARDED_ALLOW_IPS, FRONTEND_DIR, MAX_REQUEST_BODY_BYTES
+from .config import (
+    ALLOWED_CLIENTS,
+    ALLOWED_HOSTS,
+    APP_VERSION,
+    CORS_ALLOWED_ORIGINS,
+    DATABASE_URL,
+    ENABLE_DOCS,
+    FORWARDED_ALLOW_IPS,
+    FRONTEND_DIR,
+    MAX_REQUEST_BODY_BYTES,
+    MIN_DB_PASSWORD_LENGTH,
+    MIN_SETUP_TOKEN_LENGTH,
+    SETUP_TOKEN,
+    weak_db_password,
+    weak_setup_token,
+)
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
@@ -41,6 +57,7 @@ from .services.network_access import (
     parse_client_networks,
 )
 from .services.port_sync_store import ensure_default_rules
+from .services.openapi_errors import install_error_formats
 from .services.request_errors import request_validation_handler
 
 logger = logging.getLogger(__name__)
@@ -140,6 +157,8 @@ app.include_router(diagrams_router)
 
 # 422 при ошибке разбора запроса — строкой на русском, как остальные 422 приложения (по умолчанию FastAPI отдаёт список объектов).
 app.add_exception_handler(RequestValidationError, request_validation_handler)
+# Схема OpenAPI описывает те же ответы, что отдают обработчики: 422 — строкой, 413 — для операций с телом (код-ревью, BE-02).
+install_error_formats(app, max_body_bytes=MAX_REQUEST_BODY_BYTES)
 
 
 @app.exception_handler(ReferencedRecordError)
@@ -193,14 +212,36 @@ def seed_catalogs_on_startup():
         auth_settings = get_or_create_auth_settings(session)
         _warn_if_insecure_server_config(auth_settings.enabled)
         _warn_if_remote_access_without_auth(auth_settings.enabled)
+        _warn_if_weak_secrets()
     finally:
         session.close()
+
+def _warn_if_weak_secrets() -> None:
+    """Токен первичной настройки или пароль БД — заглушка из .env.example либо слишком короткое значение (код-ревью, BE-03).
+
+    docker-compose.yml требует лишь непустое значение, поэтому скопированный и не отредактированный .env запускается. Публичная
+    заглушка вместо токена даёт право с любого адреса создать администратора и включить аутентификацию, пока она выключена.
+    Запуск НЕ блокируется (существующие установки должны продолжать работать) — только предупреждение; само значение в журнал
+    не попадает, называется лишь переменная."""
+    if weak_setup_token(SETUP_TOKEN):
+        logger.warning(
+            "INFRA_REGISTRY_SETUP_TOKEN совпадает с заглушкой из .env.example или короче %d символов: зная такое значение, любой, кто "
+            "достаёт до порта, может создать администратора и включить аутентификацию. Замените его на длинную случайную строку, "
+            "например: openssl rand -hex 24",
+            MIN_SETUP_TOKEN_LENGTH,
+        )
+    if weak_db_password(make_url(DATABASE_URL).password or ""):  # у SQLite пароля нет — пустая строка слабой не считается
+        logger.warning(
+            "Пароль базы данных (POSTGRES_PASSWORD или пароль в DATABASE_URL) совпадает с заглушкой из .env.example или короче %d "
+            "символов. Замените его на свой пароль.",
+            MIN_DB_PASSWORD_LENGTH,
+        )
 
 def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
     """Доступ по сети открыт (в списке клиентов есть адреса не с этого компьютера), а аутентификация
     выключена — значит любой разрешённый адрес читает и меняет весь реестр без входа. Запуск не блокируется:
     администратор сам выбрал список адресов, а включить аутентификацию можно только на самом компьютере
-    (services/auth.require_setup_access) — поэтому подсказываем, как это сделать."""
+    (services/auth/guards.require_setup_access) — поэтому подсказываем, как это сделать."""
     if auth_enabled or not has_remote_clients(ALLOWED_CLIENT_NETWORKS):
         return
     logger.warning(
@@ -214,7 +255,7 @@ def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
     docker-compose.yml) для нескольких сотрудников, а аутентификация по умолчанию выключена —
     рассчитано на однопользовательский локальный/EXE-сценарий (см. .env.example). В серверном сценарии
     выключенная аутентификация означает, что любой, кто достаёт до порта, имеет полный доступ на
-    чтение/запись реестра (первичная настройка при этом защищена, см. services/auth.require_setup_access),
+    чтение/запись реестра (первичная настройка при этом защищена, см. services/auth/guards.require_setup_access),
     а явно заданный CORS '*' разрешает это ещё и чужим веб-страницам. Запуск НЕ блокируется — только
     предупреждение в лог; сам DATABASE_URL в сообщение не попадает, чтобы не светить пароль БД в логах."""
     if not DATABASE_URL.lower().startswith("postgresql"):

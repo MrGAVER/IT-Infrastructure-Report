@@ -5,7 +5,7 @@ from ..db import get_db
 from ..services.connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, list_connections
 from ..services.connection_review import approve_port_config, preview_port_config, revoke_port_config_approval, set_port_role
 from ..services.port_config import PortConfigStatus
-from ..services.port_edit import set_port_config
+from ..services.port_edit import apply_port_config
 from ..services.vlan_mode_cascade import apply_vlan_mode_cascade, preview_vlan_mode_cascade
 from .port_config_schemas import ApprovePortConfigRequest, CascadeApplyRequest, CascadePreviewRequest, PortConfigUpdate, PortRoleUpdate
 
@@ -42,7 +42,7 @@ def update_port_config(interface_id: str, body: PortConfigUpdate, session: Sessi
     vlan_ids это ПОЛНЫЙ набор (id записей справочника VLAN); mode — не смена режима, а проверка, что набор
     выбран для текущего режима порта (иначе 409). Когда меняется и режим, роль и VLAN передаются в поле `port`
     каскада ниже — тогда режим, роль и VLAN записываются одной транзакцией."""
-    return set_port_config(interface_id, body.model_dump(exclude_unset=True), session)
+    return apply_port_config(interface_id, body.request, session)  # тело уже разобрано моделью — второй раз не разбирается
 
 
 @router.post('/interfaces/{interface_id}/vlan-mode-cascade/preview')
