@@ -26,6 +26,7 @@ from app import config as app_config
 from app.main import install_http_security
 from app.models import AuditLog, User
 from app.services import auth as auth_module
+from app.services.auth import guards as guards_module
 from app.services.auth import passwords as passwords_module
 from app.services.diagram_export import export_svg
 from app.services.diagram_icons import validate_svg_markup
@@ -84,7 +85,7 @@ class TestSetupAccess:
         assert r.json()["detail"]["code"] == "SETUP_ACCESS_DENIED"
 
     def test_setup_token_lets_a_remote_client_in(self, client_factory, monkeypatch):
-        monkeypatch.setattr(auth_module, "SETUP_TOKEN", "s3cret-token")
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", "s3cret-token")
         remote = client_factory("203.0.113.7")
         assert remote.post("/api/v1/auth/users", json=ADMIN).status_code == 403
         assert remote.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "wrong"}).status_code == 403
@@ -92,13 +93,13 @@ class TestSetupAccess:
         assert r.status_code == 201, r.text
 
     def test_with_a_configured_token_localhost_needs_it_too(self, client, monkeypatch):
-        monkeypatch.setattr(auth_module, "SETUP_TOKEN", "s3cret-token")
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", "s3cret-token")
         assert client.post("/api/v1/auth/users", json=ADMIN).status_code == 403
         assert client.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "s3cret-token"}).status_code == 201
 
     def test_enabled_auth_still_requires_an_admin_token_not_the_setup_token(self, client, monkeypatch):
         token = _enable_auth_and_login(client)
-        monkeypatch.setattr(auth_module, "SETUP_TOKEN", "s3cret-token")
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", "s3cret-token")
         assert client.get("/api/v1/auth/users", headers={"X-Setup-Token": "s3cret-token"}).status_code == 401
         assert client.get("/api/v1/auth/users", headers=_bearer(token)).status_code == 200
 
