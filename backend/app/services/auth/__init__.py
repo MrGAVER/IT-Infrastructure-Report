@@ -26,28 +26,24 @@ import re
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta
 from typing import NamedTuple, Optional
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from ... import db as db_module
 from ...config import (
-    AUTH_KNOWN_CLIENT_DAYS,
     AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS,
-    AUTH_LOCKOUT_MINUTES,
-    AUTH_MAX_FAILED_ATTEMPTS,
     CSP_POLICY,
     FORWARDED_ALLOW_IPS,
     SETUP_TOKEN,
 )
 from ...constants import AuditAction, ErrorCode, UserRole
-from ...models import AuditLog, AuthSettings, User
+from ...models import AuthSettings, User
 from ..actor_context import Actor, current_actor
 from ..crud import audit
 from ..login_throttle import LoginThrottle
@@ -65,6 +61,7 @@ from .sessions import (
     revoke_session_by_id,
     serialize_session,
 )
+from .lockout import account_locked, is_known_client, register_failed_password
 from .passwords import hash_password, needs_rehash, validate_password_strength, verify_password
 
 # Публичный интерфейс пакета. До нарезки (код-ревью, BE-06) всё это жило в одном модуле services/auth.py, поэтому прежние
@@ -232,12 +229,12 @@ def change_own_password(
     if user.locked_until and user.locked_until > now:
         # Как при входе: пока учётная запись заблокирована, пароль не проверяется. Без этого владелец (или тот, кто получил
         # его токен) продолжал бы подбирать пароль через этот эндпоинт и после блокировки.
-        raise _account_locked(user.locked_until, now)
+        raise account_locked(user.locked_until, now)
     if not verify_password(current_password, user.password_hash):
         # Ошибка в поле формы, а не «сессия недействительна»: 401 в этом API означает отсутствующий или недействительный токен
         # (клиент по нему завершает сессию), поэтому здесь 422 с собственным кодом. Попытка засчитывается так же, как неверный
         # пароль при входе: тот, у кого оказался чужой токен, не должен подбирать пароль без ограничений и без следа в журнале.
-        _register_failed_password(session, user, details=f"Неверный текущий пароль при смене пароля «{user.username}»", now=now)
+        register_failed_password(session, user, details=f"Неверный текущий пароль при смене пароля «{user.username}»", now=now)
         raise HTTPException(422, {"message": "Текущий пароль указан неверно.", "code": ErrorCode.WRONG_CURRENT_PASSWORD})
     validate_password_strength(new_password, username=user.username)
     user.password_hash = hash_password(new_password)
@@ -379,75 +376,6 @@ def _invalid_credentials() -> HTTPException:
     return HTTPException(401, "Неверное имя пользователя или пароль.")
 
 
-def _increment_failed_attempts(session: Session, user_id: str) -> int:
-    """Атомарный `UPDATE ... SET failed_attempts = failed_attempts + 1` в самой БД — а не
-    read-modify-write в Python (было: `user.failed_attempts += 1; session.commit()`). При
-    нескольких процессах backend за общей БД (см. README — серверный вариант, Docker+PostgreSQL)
-    два параллельных неверных пароля от ОДНОГО пользователя, обработанные разными процессами
-    почти одновременно, иначе могли оба прочитать один и тот же старый счётчик и оба записать
-    n+1 вместо n+2 — теряя попытку из порога AUTH_MAX_FAILED_ATTEMPTS. Postgres выполняет такой
-    UPDATE атомарно на уровне строки независимо от уровня изоляции; на SQLite вопрос не стоит —
-    она и так сериализует писателей на уровне файла БД целиком. Возвращает значение после
-    инкремента (отдельным SELECT, не RETURNING — совместимо со старыми сборками SQLite)."""
-    session.execute(update(User).where(User.id == user_id).values(failed_attempts=User.failed_attempts + 1))
-    session.commit()
-    return session.scalar(select(User.failed_attempts).where(User.id == user_id)) or 0
-
-
-def _is_known_client(session: Session, user_id: str, client_ip: Optional[str], now: datetime) -> bool:
-    """Входил ли этот пользователь успешно с этого адреса за последние AUTH_KNOWN_CLIENT_DAYS дней.
-
-    Источник — записи LOGIN журнала аудита (в них хранится адрес входа), а не таблица сессий: просроченные сессии удаляются при
-    каждом входе любого пользователя (cleanup_expired_sessions), так что «память» об адресе жила бы часы, а не дни. Журнал только
-    растёт. Неизвестный адрес (нет данных о клиенте) знакомым не считается; неудачные входы и чужие входы с того же адреса — тоже."""
-    if not client_ip:
-        return False
-    since = now - timedelta(days=AUTH_KNOWN_CLIENT_DAYS)
-    found = session.scalar(
-        select(AuditLog.id)
-        .where(
-            AuditLog.action == AuditAction.LOGIN,
-            AuditLog.entity_type == "auth",
-            AuditLog.actor_id == user_id,
-            AuditLog.actor_ip == client_ip,
-            AuditLog.created_at >= since,
-        )
-        .limit(1)
-    )
-    return found is not None
-
-
-def _account_locked(locked_until: datetime, now: datetime) -> HTTPException:
-    remaining_minutes = max(1, int((locked_until - now).total_seconds() // 60) + 1)
-    return HTTPException(423, {
-        "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. "
-                   f"Повторите попытку через {remaining_minutes} мин.",
-        "code": ErrorCode.ACCOUNT_LOCKED,
-    })
-
-
-def _register_failed_password(
-    session: Session, user: User, *, details: str, now: datetime, actor: Optional[Actor] = None,
-) -> bool:
-    """Учёт неверного пароля — общий для входа и смены пароля: атомарный инкремент `failed_attempts`, блокировка учётной записи на
-    AUTH_LOCKOUT_MINUTES при достижении AUTH_MAX_FAILED_ATTEMPTS, запись LOGIN_FAILED в журнал аудита. Возвращает True, если эта
-    попытка заблокировала учётную запись. actor не передан — автор берётся из контекста запроса (см. crud.audit)."""
-    new_attempts = _increment_failed_attempts(session, user.id)
-    locked_now = new_attempts >= AUTH_MAX_FAILED_ATTEMPTS
-    if locked_now:
-        # Тоже атомарный UPDATE, не user.locked_until = ...; session.commit() — user здесь
-        # уже мог устареть относительно счётчика, только что изменённого выше отдельным
-        # запросом (см. _increment_failed_attempts); пишем оба поля явным UPDATE по id.
-        session.execute(update(User).where(User.id == user.id).values(
-            locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
-        ))
-        session.commit()
-    audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
-          details + (" — учётная запись заблокирована" if locked_now else ""), actor=actor)
-    session.commit()
-    return locked_now
-
-
 def _reject_if_throttled(pair_key: tuple, ip_key: tuple) -> None:
     """429, если задержка назначена паре (адрес, логин) или всему адресу — по большей из двух. Вызывается до любой работы
     с БД и хешированием: перебор отбивается дёшево, без траты CPU на PBKDF2."""
@@ -494,11 +422,11 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
 
     now = _now()
     if user.locked_until and user.locked_until > now and not (
-        AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and _is_known_client(session, user.id, client_ip, now)
+        AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and is_known_client(session, user.id, client_ip, now)
     ):
         # С «знакомого» адреса пароль проверяется и во время блокировки (см. config.AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS): иначе
         # посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг выше и счётчик ниже действуют.
-        raise _account_locked(user.locked_until, now)
+        raise account_locked(user.locked_until, now)
 
     with _password_hash_slot():
         verified = verify_password(password, user.password_hash)
@@ -506,7 +434,7 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         upgraded_hash = hash_password(password) if verified and needs_rehash(user.password_hash) else None
     if not verified:
         _record_login_failure(throttle_key, ip_key)
-        _register_failed_password(
+        register_failed_password(
             session, user, details=f"Неудачная попытка входа «{user.username}»", now=now,
             actor=Actor(user.id, user.username, client_ip),
         )
