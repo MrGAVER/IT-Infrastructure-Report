@@ -37,6 +37,18 @@ jobs:
         run: npm ci
         working-directory: frontend-vue
 
+      - name: npm audit frontend-vue (runtime-зависимости, уровень high и выше) — gate
+        # Аналог pip-audit для frontend: известная уязвимость уровня high и выше в зависимости, которая попадает в сборку, блокирует слияние.
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend-vue
+
+      - name: npm audit frontend-vue (вместе с dev-зависимостями) — не блокирует
+        # Цепочка dev-инструментов (eslint, prettier, vitest и их зависимости) в сборку не входит: шаг сообщает о замечаниях в журнале, но
+        # не валит сборку — как pip-audit набора для EXE ниже.
+        continue-on-error: true
+        run: npm audit --audit-level=high
+        working-directory: frontend-vue
+
       - name: ESLint frontend-vue (npm run lint)
         run: npm run lint
         working-directory: frontend-vue

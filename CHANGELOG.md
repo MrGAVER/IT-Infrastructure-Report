@@ -5254,3 +5254,10 @@ F-08 и F-09 выполнены по решению владельца. Не в�
   `useEscapeClose` вызывался только из `useOverlayDismiss` ← `BaseModal` (проверено поиском), поэтому замена локальна;
   `useOverlayDismiss` теперь отвечает только за клик по подложке. `useEscapeClose.spec.ts` переписан в `useEscapeKey.spec.ts`
   (8 тестов, включая «слушатель на window, а не на document»).
+- **FE-07 — CI проверяет уязвимости npm-зависимостей** (`.github/workflows/ci.yml`, job `test`, сразу после `npm ci`). Раньше в CI был
+  блокирующий `pip-audit`, а для npm аналогичного шага не было. Добавлены два шага: `npm audit --omit=dev --audit-level=high` —
+  блокирующий (зависимости, которые попадают в сборку: сейчас 0 уязвимостей, шаг проходит) и `npm audit --audit-level=high` с
+  `continue-on-error: true` — информационный, для цепочки dev-инструментов (15 замечаний уровня moderate в `minimatch` / `eslint` /
+  `typescript-eslint` / `js-beautify`, в сборку не входят): в журнале виден полный отчёт, но слияние не блокируется — по аналогии с
+  `pip-audit` набора для EXE. Теста у задачи нет (в отчёте не указан): проверены сами команды — оба кода возврата 0 — и разбор YAML;
+  `backend/tests/test_build_lock.py`, читающий `ci.yml`, проходит (12 из 12).
