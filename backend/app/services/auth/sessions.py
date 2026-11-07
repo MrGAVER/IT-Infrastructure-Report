@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ...config import AUTH_SESSION_TTL_HOURS
 from ...models import AuthSession, User
 from ..timeutil import iso_utc
-from ._common import now
+from ._common import naive_utc_now
 
 def _generate_token() -> str:
     return secrets.token_urlsafe(32)
@@ -39,7 +39,7 @@ def create_session(session: Session, user: User, *, request: Optional[Request] =
     row = AuthSession(
         token_hash=_hash_token(token),
         user_id=user.id,
-        expires_at=now() + timedelta(hours=AUTH_SESSION_TTL_HOURS),
+        expires_at=naive_utc_now() + timedelta(hours=AUTH_SESSION_TTL_HOURS),
         user_agent=(request.headers.get("user-agent", "")[:255] or None) if request else None,
         ip_address=(request.client.host if request and request.client else None),
     )
@@ -52,7 +52,7 @@ def cleanup_expired_sessions(session: Session) -> int:
     """Удаляет ВСЕ просроченные сессии (всех пользователей), не только текущего — вызывается на
     каждый логин (см. create_session). Возвращает количество удалённых строк (пригодится, если
     когда-нибудь понадобится залогировать/промониторить объём)."""
-    result = session.execute(delete(AuthSession).where(AuthSession.expires_at < now()))
+    result = session.execute(delete(AuthSession).where(AuthSession.expires_at < naive_utc_now()))
     session.commit()
     return result.rowcount or 0
 
@@ -61,7 +61,7 @@ def resolve_session(session: Session, token: str) -> Optional[User]:
     row = session.scalar(select(AuthSession).where(AuthSession.token_hash == _hash_token(token)))
     if row is None:
         return None
-    if row.expires_at < now():
+    if row.expires_at < naive_utc_now():
         session.delete(row)
         session.commit()
         return None
@@ -108,7 +108,7 @@ def revoke_session_by_id(session: Session, user_id: str, session_id: str) -> boo
 
 def list_active_sessions(session: Session, user_id: str) -> list[AuthSession]:
     return list(session.scalars(
-        select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= now())
+        select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= naive_utc_now())
         .order_by(AuthSession.created_at.desc())
     ).all())
 

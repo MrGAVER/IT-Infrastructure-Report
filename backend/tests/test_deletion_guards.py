@@ -40,7 +40,7 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 # crud.assert_deletable() (см. docstring services/integrity.py).
 ALLOWED_DELETIONS = {
     # сессии и учётные записи
-    ("app/services/auth/__init__.py", "delete_user", "user"),
+    ("app/services/auth/users.py", "delete_user", "user"),
     ("app/services/auth/sessions.py", "cleanup_expired_sessions", "AuthSession"),
     ("app/services/auth/sessions.py", "resolve_session", "row"),
     ("app/services/auth/sessions.py", "revoke_session", "AuthSession"),

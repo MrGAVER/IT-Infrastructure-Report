@@ -19,6 +19,7 @@ from app.constants import AuditAction
 from app.models import AuditLog, AuthSession, User
 from app.services import auth as auth_module
 from app.services.auth import sessions as sessions_module
+from app.services.auth import users as users_module
 
 OLD_PASSWORD = "Alice1234"
 NEW_PASSWORD = "Newpass5678"
@@ -80,7 +81,7 @@ class TestCreateUser:
 
     def test_failure_while_auditing_leaves_no_user_behind(self, db_session, monkeypatch):
         """Раньше пользователь коммитился до записи аудита: сбой между ними давал учётную запись без следа в журнале."""
-        monkeypatch.setattr(auth_module, "audit", _boom)
+        monkeypatch.setattr(users_module, "audit", _boom)
         with pytest.raises(RuntimeError):
             _alice(db_session)
         _crash_and_reload(db_session)
@@ -110,7 +111,7 @@ class TestUpdateUser:
     def test_failure_while_revoking_leaves_old_password_and_sessions(self, db_session, monkeypatch):
         """Тот самый разрыв из ревью: пароль уже сменён, а старые токены ещё действуют. Теперь откатывается всё вместе."""
         user, _tokens = self._with_sessions(db_session)
-        monkeypatch.setattr(auth_module, "revoke_all_sessions", _boom)
+        monkeypatch.setattr(users_module, "revoke_all_sessions", _boom)
         with pytest.raises(RuntimeError):
             auth_module.update_user(db_session, user, password=NEW_PASSWORD)
         _crash_and_reload(db_session)
@@ -120,7 +121,7 @@ class TestUpdateUser:
 
     def test_failure_while_auditing_leaves_old_password(self, db_session, monkeypatch):
         user, _tokens = self._with_sessions(db_session)
-        monkeypatch.setattr(auth_module, "audit", _boom)
+        monkeypatch.setattr(users_module, "audit", _boom)
         with pytest.raises(RuntimeError):
             auth_module.update_user(db_session, user, password=NEW_PASSWORD)
         _crash_and_reload(db_session)
@@ -138,7 +139,7 @@ class TestUpdateUser:
 
     def test_failure_while_revoking_leaves_the_account_active(self, db_session, monkeypatch):
         user, _tokens = self._with_sessions(db_session)
-        monkeypatch.setattr(auth_module, "revoke_all_sessions", _boom)
+        monkeypatch.setattr(users_module, "revoke_all_sessions", _boom)
         with pytest.raises(RuntimeError):
             auth_module.update_user(db_session, user, is_active=False)
         _crash_and_reload(db_session)
@@ -183,7 +184,7 @@ class TestChangeOwnPassword:
 
     def test_failure_while_revoking_leaves_old_password_and_all_sessions(self, db_session, monkeypatch):
         user, _current, _other = self._with_sessions(db_session)
-        monkeypatch.setattr(auth_module, "revoke_all_sessions_except", _boom)
+        monkeypatch.setattr(users_module, "revoke_all_sessions_except", _boom)
         with pytest.raises(RuntimeError):
             auth_module.change_own_password(db_session, user, current_password=OLD_PASSWORD, new_password=NEW_PASSWORD, keep_token=None)
         _crash_and_reload(db_session)
@@ -193,7 +194,7 @@ class TestChangeOwnPassword:
 
     def test_failure_while_auditing_leaves_old_password(self, db_session, monkeypatch):
         user, _current, _other = self._with_sessions(db_session)
-        monkeypatch.setattr(auth_module, "audit", _boom)
+        monkeypatch.setattr(users_module, "audit", _boom)
         with pytest.raises(RuntimeError):
             auth_module.change_own_password(db_session, user, current_password=OLD_PASSWORD, new_password=NEW_PASSWORD, keep_token=None)
         _crash_and_reload(db_session)
