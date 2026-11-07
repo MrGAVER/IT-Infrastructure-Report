@@ -19,5 +19,5 @@ def naive_utc_now() -> datetime:
     return utcnow_naive()
 
 
-def client_ip(request: Optional[Request]) -> Optional[str]:
+def request_client_ip(request: Optional[Request]) -> Optional[str]:
     return request.client.host if request is not None and request.client else None

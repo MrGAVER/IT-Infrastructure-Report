@@ -272,13 +272,13 @@ def _reset_login_throttle():
     """Троттлинг входа (services/login_throttle.py) держит состояние в памяти процесса — без сброса
     неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один).
     Счётчик по адресу (ip_throttle) без сброса накапливал бы неудачи всех тестов и после порога давал бы 429."""
-    from app.services import auth as auth_module
+    from app.services.auth import login as login_module
 
-    auth_module.login_throttle.clear()
-    auth_module.ip_throttle.clear()
+    login_module.login_throttle.clear()
+    login_module.ip_throttle.clear()
     yield
-    auth_module.login_throttle.clear()
-    auth_module.ip_throttle.clear()
+    login_module.login_throttle.clear()
+    login_module.ip_throttle.clear()
 
 
 @pytest.fixture(autouse=True)

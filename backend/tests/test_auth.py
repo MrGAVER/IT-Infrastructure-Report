@@ -95,12 +95,12 @@ class TestLoginFlow:
     def test_account_locks_after_max_failed_attempts(self, client, monkeypatch):
         # Порог — настраиваемая константа (по умолчанию 10), а троттлинг входа по IP (см.
         # services/login_throttle.py) здесь отключён: тест проверяет именно блокировку аккаунта.
-        from app.services import auth as auth_module
         from app.services.auth import lockout as lockout_module
+        from app.services.auth import login as login_module
         from app.services.login_throttle import LoginThrottle
 
         monkeypatch.setattr(lockout_module, "AUTH_MAX_FAILED_ATTEMPTS", 5)  # порог читает модуль блокировки
-        monkeypatch.setattr(auth_module, "login_throttle", LoginThrottle(free_attempts=1000))
+        monkeypatch.setattr(login_module, "login_throttle", LoginThrottle(free_attempts=1000))  # authenticate читает троттлинг из модуля входа
         _bootstrap_admin(client)
         for _ in range(5):
             r = client.post("/api/v1/auth/login", json={"username": "admin", "password": "wrong-pass1"})

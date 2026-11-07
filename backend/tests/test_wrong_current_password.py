@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.models import AuditLog, User
 from app.services import auth as auth_module
 from app.services.auth import lockout as lockout_module
+from app.services.auth import login as login_module
 
 URL = "/api/v1/auth/me/password"
 THRESHOLD = 4
@@ -28,7 +29,7 @@ def admin_token(client, monkeypatch) -> str:
     from app.services.login_throttle import LoginThrottle
 
     monkeypatch.setattr(lockout_module, "AUTH_MAX_FAILED_ATTEMPTS", THRESHOLD)
-    monkeypatch.setattr(auth_module, "login_throttle", LoginThrottle(free_attempts=1000))  # троттлинг входа не мешает проверке блокировки
+    monkeypatch.setattr(login_module, "login_throttle", LoginThrottle(free_attempts=1000))  # троттлинг входа не мешает проверке блокировки
     assert client.post("/api/v1/auth/users", json={"username": "admin", "password": "Admin1234", "role": "admin"}).status_code == 201
     assert client.put("/api/v1/auth/settings", json={"enabled": True}).status_code == 200
     return _login(client, "Admin1234")
