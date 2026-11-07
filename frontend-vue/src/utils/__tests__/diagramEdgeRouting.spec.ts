@@ -413,6 +413,68 @@ describe('routeEdges: бюджет времени и предел числа р�
   })
 })
 
+// Раздел 5 ревью (frontend, п. 1): регрессионный замер времени. Тесты выше проверяют геометрию и бюджет на подменённых часах; настоящую
+// скорость не проверял никто, а она зависит от весов штрафов (BEND_PENALTY, CONGESTION_FACTOR, OVERLAP_PENALTY) — правка веса может
+// незаметно умножить время расчёта. Замер идёт без бюджета времени (budgetMs: Infinity): иначе расчёт обрывался бы на 250 мс и тест был
+// бы зелёным при любой деградации. Тег `slow` — как маркер `slow` у отчётов в backend: по умолчанию тест выполняется, исключить его
+// можно ключом `vitest run --tags-filter '!slow'` (npm run test:fast).
+const BENCH_NODES = 60
+const BENCH_EDGES = 150
+/** Потолок на самом медленном ожидаемом CI. Замер ревью: ≈ 310 мс на одном ядре параллельно с другой нагрузкой — запас втрое. */
+const BENCH_CEILING_MS = 1000
+const BENCH_RUNS = 3
+
+/** Детерминированный генератор (LCG): та же схема при каждом запуске и на любой машине. */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state / 0x100000000
+  }
+}
+
+/** Схема из «случайных» пар узлов (как замеры FE-01): у узла не больше TICKS связей, у каждой связи свой порт на каждом конце. */
+function benchScene(): { nodes: RouteNode[]; requests: RouteRequest[] } {
+  const nodes = gridNodes(BENCH_NODES)
+  const random = seededRandom(20260508)
+  const used = new Array<number>(BENCH_NODES).fill(0)
+  const requests: RouteRequest[] = []
+  while (requests.length < BENCH_EDGES) {
+    const a = Math.floor(random() * BENCH_NODES)
+    const b = Math.floor(random() * BENCH_NODES)
+    if (a === b || used[a] >= TICKS || used[b] >= TICKS) continue
+    requests.push(link(`e${requests.length}`, nodes, a, used[a]++, b, used[b]++))
+  }
+  return { nodes, requests }
+}
+
+describe('routeEdges: регрессионный замер времени (раздел 5 ревью, frontend п. 1)', () => {
+  it(`${BENCH_NODES} узлов и ${BENCH_EDGES} рёбер: полный расчёт без бюджета — не дольше ${BENCH_CEILING_MS} мс`, { tags: ['slow'] }, () => {
+    const { nodes, requests } = benchScene()
+    // Лучшее из нескольких прогонов: разовый скачок (сборка мусора, соседний процесс на общем CI-раннере) не должен давать красный тест,
+    // а настоящая деградация замедляет и лучший прогон.
+    const timings: number[] = []
+    let routed = 0
+    for (let run = 0; run < BENCH_RUNS; run++) {
+      const started = performance.now()
+      routed = routeEdges(nodes, requests, { budgetMs: Number.POSITIVE_INFINITY }).size
+      timings.push(performance.now() - started)
+    }
+    // Замер полезной работы: ребро без маршрута (отказ поиска) делало бы расчёт «быстрым» за счёт результата.
+    expect(routed).toBe(BENCH_EDGES)
+    const best = Math.min(...timings)
+    expect(best, `прогоны, мс: ${timings.map((t) => t.toFixed(0)).join(', ')}`).toBeLessThanOrEqual(BENCH_CEILING_MS)
+  })
+
+  it('схема замера детерминирована и укладывается в ограничения размера', () => {
+    const first = benchScene()
+    const second = benchScene()
+    expect(second.requests).toEqual(first.requests)
+    expect(first.requests).toHaveLength(BENCH_EDGES)
+    expect(BENCH_EDGES).toBeLessThanOrEqual(MAX_ROUTED_EDGES)
+  })
+})
+
 describe('stubPoint', () => {
   it('отступает наружу на ROUTE_CLEARANCE в сторону выхода', () => {
     const point = { x: 10, y: 20 }
