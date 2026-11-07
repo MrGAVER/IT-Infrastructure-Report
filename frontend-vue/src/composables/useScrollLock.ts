@@ -30,8 +30,22 @@ function unlock(): void {
   saved = null
 }
 
-/** Блокирует прокрутку страницы, пока окно смонтировано. Вызывать в setup() окна. */
+/**
+ * Блокирует прокрутку страницы, пока окно смонтировано. Вызывать в setup() окна.
+ *
+ * Парность держится на уровне экземпляра (FE-06 ревью): onBeforeUnmount срабатывает и у окна, которое прошло setup(), но не успело
+ * смонтироваться (родитель переключил v-if в том же такте, ожидающий Suspense снят). Безусловный unlock уменьшал бы общий счётчик без
+ * парного lock, и страница отпускалась бы под ещё открытым вторым окном.
+ */
 export function useScrollLock(): void {
-  onMounted(lock)
-  onBeforeUnmount(unlock)
+  let held = false
+  onMounted(() => {
+    lock()
+    held = true
+  })
+  onBeforeUnmount(() => {
+    if (!held) return
+    held = false
+    unlock()
+  })
 }

@@ -4,7 +4,9 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
 
-const props = defineProps<{ open: boolean }>()
+// inert — над страницей открыто модальное окно (AppShell): меню недоступно ни указателю, ни клавиатуре, ни скринридеру.
+// Атрибутом он не проваливается сам: у компонента два корня (<aside> и подложка), поэтому проп ставится на <aside> явно.
+const props = defineProps<{ open: boolean; inert?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const organization = useOrganizationStore()
@@ -17,7 +19,7 @@ const visibleSystemNav = computed(() => systemNav.filter((item) => !item.adminOn
 // самом меню: фокус после открытия остаётся на кнопке-гамбургере в топбаре, то есть вне <aside>.
 function onKeydown(event: KeyboardEvent) {
   if (!props.open || event.key !== 'Escape' || event.defaultPrevented) return
-  // Забираем Esc себе (UI-04): иначе он дойдёт до useEscapeClose и закроет ещё и окно, если оно оказалось открытым.
+  // Забираем Esc себе (UI-04): иначе он дойдёт до useEscapeKey окна и закроет ещё и окно, если оно оказалось открытым.
   event.preventDefault()
   emit('close')
 }
@@ -69,7 +71,7 @@ const systemNav = [
 </script>
 
 <template>
-  <aside id="app-sidebar" ref="asideEl" class="sidebar" :class="{ open }">
+  <aside id="app-sidebar" ref="asideEl" class="sidebar" :class="{ open }" :inert="inert || undefined">
     <div class="brand">
       <div class="brand-mark">ITR</div>
       <div class="brand-text">

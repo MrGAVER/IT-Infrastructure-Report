@@ -1,5 +1,4 @@
 import { ref } from 'vue'
-import { useEscapeClose } from './useEscapeClose'
 
 /**
  * Клик по подложке модалки закрывает её. Подключается один раз — в BaseModal.vue, основе всех модальных окон приложения
@@ -15,8 +14,9 @@ import { useEscapeClose } from './useEscapeClose'
  * Фикс: закрываем только если подложка была целью И mousedown, И click — то есть весь клик,
  * от нажатия до отпускания, целиком произошёл на подложке, а не просто "закончился" на ней.
  *
- * Esc закрывает окно тем же действием (UI-04, ревью 2.158.0): «закрыть окно» одно, а способов — два. Подписку на Esc
- * делает useEscapeClose; из вложенных окон закрывается верхнее.
+ * Esc закрывает окно тем же действием (UI-04, ревью 2.158.0): «закрыть окно» одно, а способов — два. Подписку на Esc делает
+ * BaseModal через useEscapeKey (FE-06): «верхнее» из вложенных окон определяет единый стек окон — modalStack, — поэтому здесь Esc
+ * не обрабатывается.
  *
  * @example
  * const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
@@ -24,7 +24,6 @@ import { useEscapeClose } from './useEscapeClose'
  */
 export function useOverlayDismiss(onDismiss: () => void) {
   const pointerDownOnOverlay = ref(false)
-  useEscapeClose(onDismiss)
 
   function onOverlayPointerDown(event: MouseEvent) {
     pointerDownOnOverlay.value = event.target === event.currentTarget

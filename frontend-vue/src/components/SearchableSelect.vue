@@ -240,7 +240,7 @@ function onArrowUp() {
   scrollHighlightedIntoView()
 }
 // Esc закрывает только ОТКРЫТЫЙ список и забирает событие себе (preventDefault): иначе тот же Esc закрыл бы ещё и окно, в котором
-// стоит поле (UI-04, useEscapeClose). Список открывается по фокусу, поэтому первый Esc — список, второй — окно.
+// стоит поле (UI-04, useEscapeKey). Список открывается по фокусу, поэтому первый Esc — список, второй — окно.
 function onEscape(event: KeyboardEvent) {
   if (!open.value) return
   event.preventDefault()

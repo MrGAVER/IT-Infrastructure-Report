@@ -1,6 +1,6 @@
 // F-01 (код-ревью main): при открытом окне страница под подложкой не должна прокручиваться.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, nextTick, Suspense } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { useScrollLock } from '../useScrollLock'
 
@@ -77,5 +77,46 @@ describe('useScrollLock', () => {
     expect(document.body.style.paddingRight).toBe('4px')
     Reflect.deleteProperty(document.documentElement, 'clientWidth')
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
+  })
+})
+
+// FE-06 (ревью ветки fix/code-review-main-f06-stage2-f05): unlock вызывался в onBeforeUnmount безусловно, а lock — в onMounted. Окно,
+// которое успело пройти setup(), но так и не смонтировалось (родитель переключил v-if в том же такте, ожидающий Suspense снят), всё
+// равно уменьшало счётчик без парного увеличения — и страница отпускалась под ещё открытым вторым окном.
+describe('useScrollLock: парность lock/unlock на уровне экземпляра (FE-06)', () => {
+  /** Окно, которое никогда не смонтируется: его setup() асинхронный и не завершается, Suspense держит его в ожидании. */
+  const NeverMounted = defineComponent({
+    async setup() {
+      useScrollLock()
+      await new Promise<void>(() => {})
+      return () => h('div')
+    },
+  })
+
+  async function openPending() {
+    const wrapper = mount({ render: () => h(Suspense, null, { default: () => h(NeverMounted), fallback: () => h('span', 'ожидание') }) })
+    await nextTick()
+    return wrapper
+  }
+
+  it('окно, размонтированное до монтирования, не уменьшает счётчик: страница остаётся заблокированной под другим открытым окном', async () => {
+    const first = open() // блокировка 1
+    expect(document.body.style.overflow).toBe('hidden')
+
+    const pending = await openPending()
+    pending.unmount() // setup() прошёл, onMounted не было — парного lock нет
+
+    expect(document.body.style.overflow).toBe('hidden') // под первым окном страница по-прежнему не прокручивается
+    first.unmount()
+    mounted.splice(mounted.indexOf(first), 1)
+    expect(document.body.style.overflow).toBe('') // и отпускается ровно один раз, когда закрылось последнее окно
+  })
+
+  it('обычное окно по-прежнему блокирует и отпускает ровно один раз', () => {
+    const wrapper = open()
+    expect(document.body.style.overflow).toBe('hidden')
+    wrapper.unmount()
+    mounted.pop()
+    expect(document.body.style.overflow).toBe('')
   })
 })

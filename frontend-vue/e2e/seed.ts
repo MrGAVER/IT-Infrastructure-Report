@@ -194,3 +194,42 @@ export async function seedTopology(request: APIRequestContext, options: { device
   })
   return { diagramId: diagram.id, links }
 }
+
+/**
+ * Подключение между двумя устройствами, у портов которого разные роли (источник — «Передача данных», приёмник — «Управление
+ * активами»): при его сохранении форма показывает блок «Расхождение конфигурации портов» (ConnectionResolutionPanel). Устройства лежат
+ * в отдельном здании. Возвращает системное имя устройства-источника: по нему строка находится в таблице подключений.
+ */
+export async function seedMismatchedConnection(request: APIRequestContext): Promise<{ sourceName: string }> {
+  const [typeId] = await deviceTypeIds(request)
+  const run = `${Date.now().toString(36)}-${counter++}`
+  const building = await postJson<{ id: string }>(request, '/resources/buildings', { name: `e2e-здание-${run}`, address: 'e2e' })
+  const devices: Array<{ id: string; system_name: string }> = []
+  for (const side of ['a', 'b']) {
+    const device = await postJson<{ id: string; system_name: string }>(request, '/resources/devices', {
+      device_type_id: typeId,
+      system_name: `e2e-resol-${run}-${side}`,
+      serial_number: `E2E-RESOL-${run}-${side}`,
+      building_id: building.id,
+    })
+    // Роль порта — единственное различие: у устройства «a» порт передаёт данные, у «b» — управляет активами.
+    const interfaces = [{ name: 'Gi1/0/1', is_management: side === 'b', ips: [] }]
+    const put = await request.put(`${API}/devices/${device.id}/interfaces`, { data: { interfaces }, headers: { Origin: ORIGIN } })
+    if (!put.ok()) throw new Error(`PUT interfaces → ${put.status()}`)
+    devices.push(device)
+  }
+
+  const connectionTypes = (await (await request.get(`${API}/resources/connection-types`)).json()) as Catalog | Array<{ id: string }>
+  const connectionTypeId = (Array.isArray(connectionTypes) ? connectionTypes : (connectionTypes.items ?? []))[0]?.id
+  const all = await request.get(`${API}/resources/interfaces?limit=1000`)
+  const body = (await all.json()) as { items?: Array<{ id: string; physical_device_id: string }> } | Array<{ id: string; physical_device_id: string }>
+  const rows = Array.isArray(body) ? body : (body.items ?? [])
+  const [source, destination] = devices.map((device) => rows.find((row) => row.physical_device_id === device.id))
+  if (!source || !destination) throw new Error('интерфейсы засеянных устройств не найдены')
+  await postJson(request, '/resources/connections', {
+    source_interface_id: source.id,
+    destination_interface_id: destination.id,
+    connection_type_id: connectionTypeId,
+  })
+  return { sourceName: devices[0].system_name }
+}

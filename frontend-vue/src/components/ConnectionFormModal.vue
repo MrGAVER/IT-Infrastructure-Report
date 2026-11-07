@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useId } from 'vue'
+import { nextTick, ref, useId } from 'vue'
 // Форма создания/редактирования подключения. Источник и назначение выбираются в два шага (устройство -> порт), т.к. интерфейсы
 // принадлежат конкретному устройству.
 //
@@ -40,6 +40,11 @@ const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
+// FE-08: панель расхождения занимает место кнопок, поэтому «Сохранить» при показе панели нет в DOM; по «Вернуться к правке» фокус
+// возвращается на неё (иначе он остался бы на <body>). Только по явному возврату, а не по любому сбросу `resolving`: после выбора
+// решения может открыться окно каскада, и фокус у него отнимать нельзя.
+const saveButton = ref<HTMLButtonElement | null>(null)
+
 const draft = useConnectionDraft({ connection: () => props.connection, prefill: () => props.prefill })
 const {
   saving,
@@ -71,6 +76,12 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
   readOnly,
   onSaved: (connection) => emit('saved', connection),
 })
+
+async function backToEdit(): Promise<void> {
+  resolving.value = false
+  await nextTick() // кнопка «Сохранить» появляется в DOM только после перерисовки
+  saveButton.value?.focus()
+}
 </script>
 
 <template>
@@ -155,11 +166,11 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
         </form>
       </fieldset>
 
-      <ConnectionResolutionPanel v-if="resolving && portMismatch" :mismatch="portMismatch" @resolve="resolveAndSave" @back="resolving = false" />
+      <ConnectionResolutionPanel v-if="resolving && portMismatch" :mismatch="portMismatch" @resolve="resolveAndSave" @back="backToEdit" />
 
       <div v-else class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
-        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button v-if="!readOnly" ref="saveButton" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>
