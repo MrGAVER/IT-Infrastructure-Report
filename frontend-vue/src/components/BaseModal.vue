@@ -19,7 +19,7 @@
 // <BaseModal @close="emit('close')">
 //   <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId"> … </div>
 // </BaseModal>
-import { computed, getCurrentInstance, inject, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { useModalStack } from '../composables/modalStack'
 import { useFocusTrap } from '../composables/useFocusTrap'
 import { useEscapeKey } from '../composables/useEscapeKey'
@@ -40,9 +40,8 @@ const props = withDefaults(
   { align: 'top', offset: 40 },
 )
 const emit = defineEmits<{ close: [] }>()
-// Имя окна-хозяина (его компонент — родитель BaseModal): только для тестового переключателя Teleport, см. baseModalKeys.ts.
-const ownerName = getCurrentInstance()?.parent?.type.__name ?? ''
-const teleportDisabled = inject(MODAL_TELEPORT_DISABLED, () => false)(ownerName)
+// Тестовый переключатель Teleport (в приложении не задаётся — окно всегда в <body>), см. baseModalKeys.ts.
+const teleportDisabled = inject(MODAL_TELEPORT_DISABLED, false)
 
 const overlay = ref<HTMLElement | null>(null)
 const { depth, isTop } = useModalStack()

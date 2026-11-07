@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { defineComponent, h, nextTick } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { realModalTeleport } from '../../__tests__/realModalTeleport'
+import { readSource } from '../../__tests__/cssSource'
+import { MODAL_TELEPORT_DISABLED } from '../baseModalKeys'
 import BaseModal from '../BaseModal.vue'
 import { useModalStack } from '../../composables/modalStack'
 
@@ -109,6 +111,44 @@ describe('BaseModal: закрытие', () => {
     key({ key: 'Escape' })
     expect(outerModal.emitted('close')).toBeUndefined()
     expect(innerModal.emitted('close')).toHaveLength(1)
+  })
+})
+
+// FE-05 (ревью ветки fix/code-review-main-f06-stage2-f05): в боевом BaseModal жил тестовый шов, зависевший от внутренностей Vue
+// (getCurrentInstance) и от имени компонента-владельца (type.__name), а setup.ts хранил список имён окон. Теперь шов — обычный булев
+// ключ, а решение «где рисовать окно» принимает тестовая инфраструктура.
+describe('BaseModal: тестовый переключатель Teleport не вшит в боевой код (FE-05)', () => {
+  it('BaseModal не использует внутренности Vue и не знает имён окон-владельцев', () => {
+    const source = readSource('src/components/BaseModal.vue')
+    expect(source).not.toContain('getCurrentInstance')
+    expect(source).not.toContain('__name')
+    expect(source).not.toContain('ownerName')
+  })
+
+  it('в приложении ключ не задаётся, поэтому значение по умолчанию — «Teleport включён»: окно в <body>', () => {
+    // Тесты всегда задают ключ (setup.ts), поэтому умолчание проверяется по исходнику: inject(ключ, false).
+    expect(readSource('src/components/BaseModal.vue')).toContain('inject(MODAL_TELEPORT_DISABLED, false)')
+  })
+
+  const Host = defineComponent({
+    setup: () => () => h(BaseModal, null, () => h('div', { class: 'modal card', role: 'dialog', 'aria-label': 'Окно' })),
+  })
+  const hosts: VueWrapper[] = []
+  afterEach(() => {
+    while (hosts.length) hosts.pop()!.unmount()
+  })
+
+  it('ключ true — окно рисуется на месте, внутри обёртки теста', () => {
+    const wrapper = mount(Host, { attachTo: document.body, global: { provide: { [MODAL_TELEPORT_DISABLED]: true } } })
+    hosts.push(wrapper)
+    expect(wrapper.find('.modal-overlay').exists()).toBe(true)
+  })
+
+  it('ключ false — окно уходит в <body>, вне обёртки теста', () => {
+    const wrapper = mount(Host, { attachTo: document.body, global: { provide: { [MODAL_TELEPORT_DISABLED]: false } } })
+    hosts.push(wrapper)
+    expect(wrapper.find('.modal-overlay').exists()).toBe(false)
+    expect(document.body.querySelector(':scope > .modal-overlay')).not.toBeNull()
   })
 })
 
