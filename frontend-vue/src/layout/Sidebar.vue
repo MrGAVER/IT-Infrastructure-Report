@@ -19,7 +19,7 @@ const visibleSystemNav = computed(() => systemNav.filter((item) => !item.adminOn
 // самом меню: фокус после открытия остаётся на кнопке-гамбургере в топбаре, то есть вне <aside>.
 function onKeydown(event: KeyboardEvent) {
   if (!props.open || event.key !== 'Escape' || event.defaultPrevented) return
-  // Забираем Esc себе (UI-04): иначе он дойдёт до useEscapeClose и закроет ещё и окно, если оно оказалось открытым.
+  // Забираем Esc себе (UI-04): иначе он дойдёт до useEscapeKey окна и закроет ещё и окно, если оно оказалось открытым.
   event.preventDefault()
   emit('close')
 }

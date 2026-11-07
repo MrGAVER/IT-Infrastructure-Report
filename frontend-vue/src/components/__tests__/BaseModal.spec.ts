@@ -5,6 +5,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { realModalTeleport } from '../../__tests__/realModalTeleport'
 import BaseModal from '../BaseModal.vue'
+import { useModalStack } from '../../composables/modalStack'
 
 const mounted: VueWrapper[] = []
 
@@ -108,6 +109,42 @@ describe('BaseModal: закрытие', () => {
     key({ key: 'Escape' })
     expect(outerModal.emitted('close')).toBeUndefined()
     expect(innerModal.emitted('close')).toHaveLength(1)
+  })
+})
+
+describe('BaseModal: Esc и фокус опираются на один стек окон (FE-06)', () => {
+  it('Esc закрывает окно только пока оно верхнее в общем стеке: тот, кто встал в стек выше, забирает «верхнее» и у Esc', async () => {
+    // Раньше у Esc был свой, второй стек (useEscapeClose), и BaseModal под таким «чужим» верхним слоем всё равно закрывался по Esc,
+    // хотя ловушка фокуса уже считала верхним не его.
+    const wrapper = open(Win('a'))
+    const above = mount(
+      defineComponent({
+        setup() {
+          useModalStack()
+          return () => h('div', { class: 'foreign-layer' })
+        },
+      }),
+      { attachTo: document.body },
+    )
+    mounted.push(above)
+
+    key({ key: 'Escape' })
+    expect(wrapper.findComponent(BaseModal).emitted('close')).toBeUndefined()
+
+    above.unmount()
+    mounted.splice(mounted.indexOf(above), 1)
+    key({ key: 'Escape' })
+    expect(wrapper.findComponent(BaseModal).emitted('close')).toHaveLength(1)
+  })
+
+  it('по одному нажатию Esc закрывается ровно одно окно из трёх вложенных, и событие помечено обработанным', () => {
+    const wrapper = open(Win('a', Win('b', Win('c'))))
+    const [first, second, third] = wrapper.findAllComponents(BaseModal)
+    const event = key({ key: 'Escape' })
+    expect(third.emitted('close')).toHaveLength(1)
+    expect(second.emitted('close')).toBeUndefined()
+    expect(first.emitted('close')).toBeUndefined()
+    expect(event.defaultPrevented).toBe(true)
   })
 })
 

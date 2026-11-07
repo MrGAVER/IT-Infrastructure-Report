@@ -4,8 +4,8 @@
 //
 // Что даёт окну:
 //  — подложку `.modal-overlay` в <body> (Teleport): окно не зависит от transform/overflow предков и стоит над страницей;
-//  — закрытие по клику на подложку и по Esc одним событием close (useOverlayDismiss: выделение текста, закончившееся над
-//    подложкой, окно не закрывает; из вложенных окон закрывается только верхнее);
+//  — закрытие по клику на подложку (useOverlayDismiss: выделение текста, закончившееся над подложкой, окно не закрывает) и по Esc
+//    (useEscapeKey) одним событием close; из вложенных окон по Esc закрывается только верхнее — по тому же стеку, что и фокус;
 //  — ловушку фокуса и возврат фокуса на кнопку, открывшую окно (useFocusTrap);
 //  — блокировку прокрутки страницы под окном (useScrollLock);
 //  — слой: z-index = --z-modal + номер окна в стеке открытых окон (modalStack.ts), так что вложенное окно всегда выше родителя
@@ -22,6 +22,7 @@
 import { computed, getCurrentInstance, inject, ref } from 'vue'
 import { useModalStack } from '../composables/modalStack'
 import { useFocusTrap } from '../composables/useFocusTrap'
+import { useEscapeKey } from '../composables/useEscapeKey'
 import { useOverlayDismiss } from '../composables/useOverlayDismiss'
 import { useScrollLock } from '../composables/useScrollLock'
 import { MODAL_TELEPORT_DISABLED } from './baseModalKeys'
@@ -46,6 +47,12 @@ const teleportDisabled = inject(MODAL_TELEPORT_DISABLED, () => false)(ownerName)
 const overlay = ref<HTMLElement | null>(null)
 const { depth, isTop } = useModalStack()
 const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
+// Esc — через общий стек окон: закрывается только верхнее. defaultPrevented и IME отсеивает сам useEscapeKey.
+useEscapeKey((event) => {
+  if (!isTop()) return
+  event.preventDefault()
+  emit('close')
+})
 useFocusTrap(() => overlay.value?.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]') ?? overlay.value, isTop)
 useScrollLock()
 
