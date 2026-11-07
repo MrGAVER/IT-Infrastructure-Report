@@ -3,6 +3,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 from app.models import Base
 from app.config import DATABASE_URL
+from app.db import register_sqlite_adapters
 
 config = context.config
 if config.config_file_name is not None:
@@ -18,6 +19,7 @@ if config.config_file_name is not None:
     # как отдельный CLI-процесс).
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 target_metadata = Base.metadata
+register_sqlite_adapters()  # миграции передают date/datetime драйверу напрямую: без явных адаптеров Python 3.12+ предупреждает
 
 
 def _url():
