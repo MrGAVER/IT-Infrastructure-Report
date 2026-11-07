@@ -39,8 +39,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from .. import db as db_module
-from ..config import (
+from ... import db as db_module
+from ...config import (
     AUTH_KNOWN_CLIENT_DAYS,
     AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS,
     AUTH_LOCKOUT_MINUTES,
@@ -51,13 +51,13 @@ from ..config import (
     FORWARDED_ALLOW_IPS,
     SETUP_TOKEN,
 )
-from ..constants import AuditAction, ErrorCode, UserRole
-from ..models import AuditLog, AuthSession, AuthSettings, User
-from .actor_context import Actor, current_actor
-from .crud import audit
-from .login_throttle import LoginThrottle
-from .preferences import delete_user_preferences
-from .timeutil import iso_utc, utcnow_naive
+from ...constants import AuditAction, ErrorCode, UserRole
+from ...models import AuditLog, AuthSession, AuthSettings, User
+from ..actor_context import Actor, current_actor
+from ..crud import audit
+from ..login_throttle import LoginThrottle
+from ..preferences import delete_user_preferences
+from ..timeutil import iso_utc, utcnow_naive
 
 __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роутеры берут актора отсюда
 
