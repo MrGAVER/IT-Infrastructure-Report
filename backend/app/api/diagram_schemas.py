@@ -14,6 +14,7 @@
 * ``is_collapsed`` — булево значение (раньше любое значение приводилось через ``bool(...)``).
 * ``collapse_threshold`` и ``custom_threshold`` не больше MAX_COLLAPSE_THRESHOLD (раньше сверхбольшое целое доходило до драйвера БД: 500).
 """
+
 from __future__ import annotations
 
 import re

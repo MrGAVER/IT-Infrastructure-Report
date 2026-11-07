@@ -2,6 +2,10 @@
 line-length = 400
 extend-exclude = ["frontend"]
 
+# Форматтер (`ruff format`) к backend целиком не применяется: код написан плотно сознательно (line-length = 400). Он проверяется только для
+# модулей границы API, написанных после код-ревью (шаг CI «ruff format --check»): backend/app/api/*_schemas.py, api/schema_base.py,
+# services/body_limit.py, services/request_errors.py. Новый модуль такого рода — добавьте в список шага в .github/workflows/ci.yml.
+
 [tool.ruff.lint]
 # Только реальные ошибки: pyflakes (неиспользуемые/неопределённые имена и т.п.) + синтаксис.
 # Полный дефолтный набор ruff (стиль импортов, длина строк, пробелы) конфликтует с сознательным

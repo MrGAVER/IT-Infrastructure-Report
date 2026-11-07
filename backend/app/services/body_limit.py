@@ -26,6 +26,7 @@ FastAPI разбирал бы в память. При выключенной а�
 в JSON — до 1,5 МБ даже при экранировании каждого символа как ``\\uXXXX``, поэтому предел по умолчанию (2 МБ) выше. Размеры
 остальных тяжёлых запросов (раскладка на максимум узлов, устройство со стеком портов) измерены в tests/test_body_limit.py.
 """
+
 from __future__ import annotations
 
 from fastapi import HTTPException
@@ -52,10 +53,7 @@ def too_large_detail(max_bytes: int) -> dict[str, str]:
     """Тело ошибки в том же виде, что и остальные структурированные ошибки API (``detail.code`` + ``detail.message``)."""
     return {
         "code": ErrorCode.REQUEST_BODY_TOO_LARGE,
-        "message": (
-            f"Запрос слишком большой: тело превышает допустимые {describe_limit(max_bytes)}. Уменьшите объём отправляемых данных. "
-            "Администратор может поднять предел параметром INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES."
-        ),
+        "message": (f"Запрос слишком большой: тело превышает допустимые {describe_limit(max_bytes)}. Уменьшите объём отправляемых данных. Администратор может поднять предел параметром INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES."),
     }
 
 

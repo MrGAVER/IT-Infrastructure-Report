@@ -10,6 +10,7 @@
   объектом произвольных полей (``ResourceBody``), но теперь с описанием в OpenAPI, а не безымянным ``dict``. Модель на ресурс — отдельный
   этап: сначала нужно решить, как поддерживать 30+ схем рядом с колонками SQLAlchemy, чтобы они не разошлись.
 """
+
 from __future__ import annotations
 
 from typing import Annotated, Any
@@ -22,10 +23,7 @@ from .schema_base import RequestBody
 ResourceBody = Annotated[
     dict[str, Any],
     Body(
-        description=(
-            "Поля записи — колонки ресурса из {resource} (список: GET /api/v1/resources/{resource}/schema). "
-            "Неизвестные колонки игнорируются; типы и правила проверяются по ресурсу, ошибка — 422 с текстом на русском."
-        ),
+        description=("Поля записи — колонки ресурса из {resource} (список: GET /api/v1/resources/{resource}/schema). Неизвестные колонки игнорируются; типы и правила проверяются по ресурсу, ошибка — 422 с текстом на русском."),
     ),
 ]
 

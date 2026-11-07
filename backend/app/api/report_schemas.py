@@ -10,6 +10,7 @@
 * ``name`` шаблона не строка — «Укажите название шаблона» (раньше ``.strip()`` у числа давал 500);
 * ``description`` шаблона — строка или null (раньше в БД уходил любой JSON-тип).
 """
+
 from __future__ import annotations
 
 from typing import Annotated, Any
