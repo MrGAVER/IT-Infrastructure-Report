@@ -102,6 +102,46 @@ test.describe('F-01: фокус и прокрутка модальных око�
     await expect(opener).toBeFocused()
   })
 
+  // FE-03 (ревью ветки fix/code-review-main-f06-stage2-f05): jsdom не знает, что браузер не передаёт фокус элементу внутри inert,
+  // поэтому порядок «inert снят — потом фокус возвращён» проверяется только здесь, в настоящем Chromium.
+  test('FE-03: пока окно открыто, меню и основная область inert; после закрытия inert снят, а фокус вернулся на кнопку', async ({ page }) => {
+    await openApp(page, '/devices')
+    const opener = page.getByRole('button', { name: 'Добавить устройство' }).first()
+    const main = page.locator('.app-shell > .main')
+    const sidebar = page.locator('.app-shell > .sidebar')
+    await expect(main).toHaveJSProperty('inert', false)
+    await expect(sidebar).toHaveJSProperty('inert', false)
+
+    await opener.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.modal')).toHaveCount(1)
+    await expect(main).toHaveJSProperty('inert', true)
+    await expect(sidebar).toHaveJSProperty('inert', true)
+    // Само окно вне inert-областей: в нём по-прежнему можно работать.
+    await expect(page.getByRole('dialog', { name: 'Добавить устройство' })).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.modal')).toHaveCount(0)
+    await expect(main).toHaveJSProperty('inert', false)
+    await expect(sidebar).toHaveJSProperty('inert', false)
+    await expect(opener).toBeFocused()
+  })
+
+  test('FE-03: при вложенных окнах inert держится, пока не закрыто последнее', async ({ page }) => {
+    await OPEN_FORM(page)
+    const main = page.locator('.app-shell > .main')
+    await page.locator('.modal .quick-add-btn').first().click()
+    await expect(page.locator('.modal')).toHaveCount(2)
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.modal')).toHaveCount(1)
+    await expect(main).toHaveJSProperty('inert', true)
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.modal')).toHaveCount(0)
+    await expect(main).toHaveJSProperty('inert', false)
+  })
+
   test('вложенное окно забирает фокус и лежит выше; после его закрытия фокус на кнопке «+», нижнее окно остаётся открытым', async ({ page }) => {
     await OPEN_FORM(page)
     const quickAddButton = page.locator('.modal .quick-add-btn').first()

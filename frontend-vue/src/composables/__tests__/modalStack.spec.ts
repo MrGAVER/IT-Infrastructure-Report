@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { defineComponent, h, nextTick, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { useModalStack, type ModalLayer } from '../modalStack'
+import { hasOpenModal, useModalStack, type ModalLayer } from '../modalStack'
 
 const mounted: VueWrapper[] = []
 
@@ -89,5 +89,36 @@ describe('useModalStack', () => {
     second.unmount()
     mounted.splice(mounted.indexOf(second), 1)
     expect(first.isTop()).toBe(true)
+  })
+})
+
+// FE-03 (ревью ветки fix/code-review-main-f06-stage2-f05): по стеку окон AppShell решает, делать ли фон inert, поэтому «есть
+// открытое окно» должно быть реактивным и точным: ложь без окон, истина, пока открыто хоть одно.
+describe('hasOpenModal', () => {
+  it('без окон — false; пока открыто хоть одно — true; после закрытия последнего снова false', async () => {
+    expect(hasOpenModal.value).toBe(false)
+    const first = open(() => {})
+    expect(hasOpenModal.value).toBe(true)
+    const second = open(() => {})
+    expect(hasOpenModal.value).toBe(true)
+
+    second.unmount()
+    mounted.splice(mounted.indexOf(second), 1)
+    expect(hasOpenModal.value).toBe(true) // нижнее окно ещё открыто
+
+    first.unmount()
+    mounted.splice(mounted.indexOf(first), 1)
+    expect(hasOpenModal.value).toBe(false)
+  })
+
+  it('реактивно: computed, зависящий от него, пересчитывается при открытии и закрытии окна', async () => {
+    const seen: boolean[] = []
+    const { watch } = await import('vue')
+    const stop = watch(hasOpenModal, (value) => seen.push(value), { flush: 'sync' })
+    const wrapper = open(() => {})
+    wrapper.unmount()
+    mounted.splice(mounted.indexOf(wrapper), 1)
+    stop()
+    expect(seen).toEqual([true, false])
   })
 })

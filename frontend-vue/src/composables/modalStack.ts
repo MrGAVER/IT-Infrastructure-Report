@@ -10,6 +10,14 @@ import { computed, onBeforeUnmount, shallowReactive, type ComputedRef } from 'vu
 
 const stack = shallowReactive<symbol[]>([])
 
+/**
+ * Открыто ли хотя бы одно модальное окно. Реактивно: по нему AppShell делает фон страницы inert (FE-03 ревью), пока окно открыто.
+ * Атрибут inert ставит один владелец — AppShell, а окна только сообщают о себе стеком: так окно, закрывшееся под открытым мобильным
+ * меню, не снимет inert, поставленный меню. Запись в стеке снимается в onBeforeUnmount, то есть до onUnmounted окна (возврат фокуса,
+ * useFocusTrap), а перерисовка AppShell идёт в том же проходе планировщика раньше хуков onUnmounted — к возврату фокуса inert уже снят.
+ */
+export const hasOpenModal = computed(() => stack.length > 0)
+
 export interface ModalLayer {
   /** Номер окна от низа стека: 0 у нижнего, 1 у окна поверх него и так далее. Реактивен: закрылось нижнее — верхние сдвинулись. */
   depth: ComputedRef<number>
