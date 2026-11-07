@@ -213,9 +213,9 @@ def _fast_password_hashing(request, monkeypatch):
     Тесты, которым нужно именно боевое значение, помечаются @pytest.mark.real_password_hashing."""
     if request.node.get_closest_marker("real_password_hashing"):
         return
-    from app.services import auth as auth_module
+    from app.services.auth import passwords as passwords_module
 
-    monkeypatch.setattr(auth_module, "PBKDF2_ITERATIONS", 1_000)
+    monkeypatch.setattr(passwords_module, "PBKDF2_ITERATIONS", 1_000)  # читает hash_password/needs_rehash — патч на модуле паролей
 
 
 @pytest.fixture(scope="session", autouse=True)

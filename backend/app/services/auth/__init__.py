@@ -18,7 +18,6 @@
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import ipaddress
@@ -45,7 +44,6 @@ from ...config import (
     AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS,
     AUTH_LOCKOUT_MINUTES,
     AUTH_MAX_FAILED_ATTEMPTS,
-    AUTH_MIN_PASSWORD_LENGTH,
     AUTH_SESSION_TTL_HOURS,
     CSP_POLICY,
     FORWARDED_ALLOW_IPS,
@@ -57,82 +55,17 @@ from ..actor_context import Actor, current_actor
 from ..crud import audit
 from ..login_throttle import LoginThrottle
 from ..preferences import delete_user_preferences
-from ..timeutil import iso_utc, utcnow_naive
+from ..timeutil import iso_utc
+from ._common import client_ip as _client_ip, now as _now
+from .passwords import hash_password, needs_rehash, validate_password_strength, verify_password
 
 __all__ = ["Actor", "current_actor"]  # реэкспорт: тесты и роутеры берут актора отсюда
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Время: SQLite/SQLAlchemy отбрасывают tzinfo при round-trip через DateTime без
-# timezone=True (проверено эмпирически), поэтому все datetime здесь — naive UTC.
-# Сравнение naive с aware кидает TypeError, а не тихо считает их равными — лучше
-# держать всё в одном представлении, чем ловить это в проде на первой проверке
-# истечения сессии.
-# ---------------------------------------------------------------------------
-def _now() -> datetime:
-    return utcnow_naive()
-
-
-# ---------------------------------------------------------------------------
 # Пароли
 # ---------------------------------------------------------------------------
-PBKDF2_ALGORITHM = "pbkdf2_sha256"
-PBKDF2_ITERATIONS = 600_000  # рекомендация OWASP для PBKDF2-HMAC-SHA256; хеши с меньшим числом итераций пересчитываются при входе
-_SALT_BYTES = 16
-
-
-def hash_password(password: str) -> str:
-    """'<алгоритм>$<итерации>$<соль-b64>$<хеш-b64>' — самоописывающийся формат: при повышении
-    PBKDF2_ITERATIONS в будущей версии старые хеши не ломаются, а прозрачно пересчитываются на
-    следующий успешный вход (см. _needs_rehash + authenticate)."""
-    salt = secrets.token_bytes(_SALT_BYTES)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
-    return f"{PBKDF2_ALGORITHM}${PBKDF2_ITERATIONS}${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}"
-
-
-def verify_password(password: str, stored: str) -> bool:
-    """hmac.compare_digest — таймингобезопасное сравнение: посимвольный '==' на разной длине
-    совпадения давал бы микроскопическую, но реальную для локальной сети утечку через тайминг."""
-    try:
-        algorithm, iterations_s, salt_b64, hash_b64 = stored.split("$")
-        if algorithm != PBKDF2_ALGORITHM:
-            return False
-        salt = base64.b64decode(salt_b64)
-        expected = base64.b64decode(hash_b64)
-        iterations = int(iterations_s)
-    except (ValueError, TypeError):
-        return False
-    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    return hmac.compare_digest(candidate, expected)
-
-
-def _needs_rehash(stored: str) -> bool:
-    try:
-        algorithm, iterations_s, _salt, _hash = stored.split("$")
-        return algorithm != PBKDF2_ALGORITHM or int(iterations_s) < PBKDF2_ITERATIONS
-    except ValueError:
-        return True
-
-
-def validate_password_strength(password: str, *, username: Optional[str] = None) -> None:
-    if len(password) < AUTH_MIN_PASSWORD_LENGTH:
-        raise HTTPException(422, {
-            "message": f"Пароль должен быть не короче {AUTH_MIN_PASSWORD_LENGTH} символов.",
-            "code": ErrorCode.WEAK_PASSWORD,
-        })
-    if username and password.casefold() == username.strip().casefold():
-        raise HTTPException(422, {
-            "message": "Пароль не должен совпадать с именем пользователя.",
-            "code": ErrorCode.WEAK_PASSWORD,
-        })
-    if not (any(c.isalpha() for c in password) and any(c.isdigit() for c in password)):
-        raise HTTPException(422, {
-            "message": "Пароль должен содержать и буквы, и цифры.",
-            "code": ErrorCode.WEAK_PASSWORD,
-        })
-
-
 # ---------------------------------------------------------------------------
 # Пользователи
 # ---------------------------------------------------------------------------
@@ -533,10 +466,6 @@ def _invalid_credentials() -> HTTPException:
     return HTTPException(401, "Неверное имя пользователя или пароль.")
 
 
-def _client_ip(request: Optional[Request]) -> Optional[str]:
-    return request.client.host if request is not None and request.client else None
-
-
 def _increment_failed_attempts(session: Session, user_id: str) -> int:
     """Атомарный `UPDATE ... SET failed_attempts = failed_attempts + 1` в самой БД — а не
     read-modify-write в Python (было: `user.failed_attempts += 1; session.commit()`). При
@@ -661,7 +590,7 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
     with _password_hash_slot():
         verified = verify_password(password, user.password_hash)
         # Пересчёт устаревшего хеша — тоже PBKDF2, поэтому под тем же слотом.
-        upgraded_hash = hash_password(password) if verified and _needs_rehash(user.password_hash) else None
+        upgraded_hash = hash_password(password) if verified and needs_rehash(user.password_hash) else None
     if not verified:
         _record_login_failure(throttle_key, ip_key)
         _register_failed_password(

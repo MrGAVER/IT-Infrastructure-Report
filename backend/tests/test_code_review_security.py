@@ -26,6 +26,7 @@ from app import config as app_config
 from app.main import install_http_security
 from app.models import AuditLog, User
 from app.services import auth as auth_module
+from app.services.auth import passwords as passwords_module
 from app.services.diagram_export import export_svg
 from app.services.diagram_icons import validate_svg_markup
 from app.services.login_throttle import LoginThrottle
@@ -398,7 +399,7 @@ class TestLoginHardening:
         digest = hashlib.pbkdf2_hmac("sha256", b"Admin1234", salt, 260_000)
         user.password_hash = f"pbkdf2_sha256$260000${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}"
         db_session.commit()
-        assert auth_module._needs_rehash(user.password_hash)
+        assert passwords_module.needs_rehash(user.password_hash)
         assert client.post("/api/v1/auth/login", json={"username": "admin", "password": "Admin1234"}).status_code == 200
         db_session.expire_all()
         assert int(db_session.scalar(select(User).where(User.username == "admin")).password_hash.split("$")[1]) >= 600_000
