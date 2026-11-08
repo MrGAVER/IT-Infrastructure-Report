@@ -1,12 +1,12 @@
 """Формирование и скачивание отчётов: инвентаризация, журнал аудита (код-ревью п. 10)."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..config import REPORT_DIR
 from ..db import get_db
 from ..reporting import build_report
-from ..services.audit_export import build_audit_log_report
+from ..services.audit_export import build_audit_log_report, is_audit_report_name
 from ..services.auth import require_admin_if_auth_enabled
 from ..services.report_cleanup import cleanup_before_new_report
 from ..services.structural_appendix_docx import StructuralAppendixError, build_structural_appendix
@@ -48,8 +48,15 @@ REPORT_MEDIA_TYPES = {
 }
 
 @router.get('/api/v1/reports/download/{filename}')
-def download_report(filename: str):
+def download_report(filename: str, request: Request):
+    # Отчёт журнала аудита (логины, IP-адреса, неудачные входы) — только администратору, как и его формирование: иначе имя файла из журнала
+    # прокси, истории браузера или чата открыло бы данные роли viewer. Проверка идёт ДО поиска файла и по имени без учёта регистра и формы
+    # Unicode (в Windows и macOS файл находится при любом регистре), а после resolve() — ещё раз по реальному имени файла.
+    if is_audit_report_name(filename):
+        require_admin_if_auth_enabled(request)
     path = (REPORT_DIR / filename).resolve()
     if path.parent != REPORT_DIR.resolve() or not path.is_file(): raise HTTPException(404, 'Файл отчета не найден')
+    if is_audit_report_name(path.name):
+        require_admin_if_auth_enabled(request)
     media_type = REPORT_MEDIA_TYPES.get(path.suffix.lower(), 'application/octet-stream')
     return FileResponse(path, media_type=media_type, filename=path.name)
