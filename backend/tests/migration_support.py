@@ -4,8 +4,33 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from pathlib import Path
 
 import sqlalchemy as sa
+from alembic import command
+from alembic.config import Config
+
+import app.config as app_config
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def alembic_config() -> Config:
+    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    cfg.attributes["configure_logger"] = False
+    return cfg
+
+
+def migrate(url: str, revision: str = "head", *, downgrade: bool = False) -> None:
+    """upgrade/downgrade до ревизии на базе `url`. env.py читает app.config.DATABASE_URL при каждом запуске команды — подставляем
+    адрес на время миграции."""
+    original = app_config.DATABASE_URL
+    app_config.DATABASE_URL = url
+    try:
+        (command.downgrade if downgrade else command.upgrade)(alembic_config(), revision)
+    finally:
+        app_config.DATABASE_URL = original
 
 
 def dummy(column_type, name: str):

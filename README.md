@@ -120,6 +120,19 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
+Проверка, что модели и миграции не разошлись (ту же команду выполняет CI на SQLite и PostgreSQL; ожидаемый ответ —
+`No new upgrade operations detected.`):
+
+```bash
+cd backend
+alembic upgrade head
+alembic check
+```
+
+Если `alembic check` находит расхождение, нужна миграция (`alembic revision --autogenerate`) или правка модели. На SQLite
+ограничения UNIQUE в сравнении не участвуют (SQLite хранит безымянные ограничения без имени), их наличие проверяет тест
+`backend/tests/test_migrations_match_models.py`.
+
 В Docker миграция выполняется автоматически перед запуском Uvicorn, в EXE — автоматически при
 старте приложения.
 

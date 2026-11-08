@@ -76,6 +76,16 @@ jobs:
           uv pip compile requirements-build.txt --universal --generate-hashes --python-version 3.12 -o requirements-build.lock --no-header
           git diff --exit-code -- requirements.lock requirements-dev.lock requirements-build.lock
 
+      - name: alembic check (SQLite) — схема из миграций совпадает с моделями
+        # Изменили models.py и забыли миграцию (или наоборот) — «No new upgrade operations detected» не выйдет, слияние блокируется.
+        # Строится пустая база цепочкой миграций, затем сравнивается с Base.metadata (compare_type и фильтр SQLite — alembic/env.py).
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:///${{ runner.temp }}/alembic_check.db
+        run: |
+          alembic upgrade head
+          alembic check
+
       - name: pip-audit (известные уязвимости в закреплённых зависимостях runtime, requirements.lock) — gate
         run: pip-audit -r backend/requirements.lock --require-hashes
 
@@ -250,6 +260,20 @@ jobs:
 
       - name: Установить зависимости backend (runtime + dev)
         run: pip install --require-hashes -r backend/requirements-dev.lock
+
+      - name: alembic check (PostgreSQL) — схема из миграций совпадает с моделями
+        # Отдельная чистая база: на PostgreSQL сравниваются и имена ограничений (на SQLite безымянные UNIQUE пропускаются).
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://infra:infra_test@localhost:5432/infra_alembic_check
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://infra:infra_test@localhost:5432/infra_test", autocommit=True) as connection:
+              connection.execute("CREATE DATABASE infra_alembic_check")
+          PY
+          alembic upgrade head
+          alembic check
 
       - name: Тесты backend на PostgreSQL (схема из миграций)
         run: pytest -v

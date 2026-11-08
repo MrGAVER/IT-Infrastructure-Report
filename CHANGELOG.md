@@ -5419,3 +5419,27 @@ F-08 и F-09 выполнены по решению владельца. Не в�
   `INFRA_REGISTRY_ALLOWED_HOSTS=localhost,127.0.0.1,reestr.corp.local`, иначе получит `400 Invalid host header`. Кто задавал `*` в `.env`
   явно, может оставить, но при выключенной аутентификации увидит предупреждение в журнале. Доступ по IP-адресу и с самого компьютера
   не меняется. Тесты: `test_host_check_defaults.py` (в том числе сверка умолчаний compose и `.env.example`).
+
+### Не выпущено — код-ревью ветки `merge/review-f06-stage2-f05-executors`, Backend и инфраструктура (Исполнитель 1)
+
+Ветка `fix/review-r1-backend`. Номер версии не менялся: его назначает владелец.
+
+- **R1-02 — схема из миграций совпадает с моделями, `alembic check` чист на SQLite и PostgreSQL.** Было 49 расхождений на SQLite и 51 на
+  PostgreSQL: у `created_at`/`updated_at` в базе из миграций стоял NULLABLE (42 колонки в 22 таблицах), часть индексов и ограничений
+  существовала под другими именами или только в базе. Страж `test_migrations_match_models.py` держал их в белом списке — теперь список пуст.
+  - Миграция `a7d3f1c8e925`: заполняет NULL (`created_at` — текущий момент UTC, `updated_at` — `created_at` той же строки) и переводит
+    колонки в NOT NULL; на SQLite таблицы пересобираются через `batch_alter_table`, на PostgreSQL — `ALTER COLUMN`. Список колонок собран
+    по обеим СУБД: отчёт опирался на SQLite и пропускал `information_system_sources.created_at/updated_at`, которые на PostgreSQL тоже
+    NULLABLE (тип колонок — `DateTime()` без часового пояса, как в `TimestampMixin`). Пересборка идёт только при выключенных внешних
+    ключах SQLite (иначе `DROP TABLE users` каскадно стёр бы сессии; если выключить не удалось, миграция останавливается), отказывается
+    трогать таблицы с триггерами и идемпотентна. Downgrade возвращает NULLABLE и не теряет строки.
+  - Модели описывают то, что уже есть в базе, без изменения боевых схем: именованное ограничение `uq_auth_sessions_token_hash`,
+    индексы `ix_deployed_software_owner`, `ix_deployed_software_software_asset_id`, `ix_ip_addresses_owner`,
+    `ix_physical_device_vlans_device_id`, а у `diagram_layouts.saved_diagram_id` — UNIQUE плюс обычный индекс.
+  - На SQLite безымянные UNIQUE (`vlans(domain_id, vlan_id)`) отдаются без имени, и Alembic считал их отсутствующими. Фильтр
+    `include_object` (`app/alembic_filters.py`, подключён в `alembic/env.py` и в страже) пропускает UNIQUE на SQLite, а их наличие
+    проверяет новый тест по колонкам, а не по именам. На PostgreSQL сравнение полное. Комментарий в страже «UNIQUE потерян пересборкой
+    таблицы» был неверен: ограничение на SQLite есть.
+  - CI: шаги `alembic upgrade head && alembic check` в job `test` (SQLite) и `test-postgres-migrations` (PostgreSQL); README — раздел про
+    проверку. Тесты: `test_migrations_timestamps_not_null.py` (данные с NULL, дочерние строки, триггеры, неизменность остальной схемы,
+    защита от включённых внешних ключей — на SQLite и PostgreSQL) и обновлённый `test_migrations_match_models.py`.

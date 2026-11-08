@@ -2,6 +2,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from app.models import Base
+from app.alembic_filters import make_include_object
 from app.config import DATABASE_URL
 from app.db import register_sqlite_adapters
 
@@ -38,7 +39,12 @@ def run_migrations_online():
     section["sqlalchemy.url"] = _url()
     connectable = engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            include_object=make_include_object(connection.dialect.name),  # SQLite: ложные срабатывания по безымянным UNIQUE
+        )
         with context.begin_transaction():
             context.run_migrations()
 
