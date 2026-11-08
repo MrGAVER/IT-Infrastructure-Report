@@ -1,8 +1,13 @@
 // UI-01 (ревью 2.158.0): граф вписывается в холст по событию nodesInitialized (когда у узлов уже есть размеры), а не в
 // requestAnimationFrame сразу после установки узлов. Реальный <VueFlow> в jsdom не поднять (нет ResizeObserver и раскладки),
 // поэтому useVueFlow подменён: тест перехватывает обработчик события и проверяет, что и когда он вызывает.
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+//
+// R2-02 (ревью merge/review-f06-stage2-f05-executors): обработчик nodesInitialized ставит таймер пересчёта маршрутов рёбер (60 мс),
+// а тот читает getNodes.value. Раньше в моке getNodes не было, а обёртки не размонтировались, поэтому таймер срабатывал уже после
+// конца теста и бросал TypeError вне теста («Unhandled Errors», код возврата vitest 1 — только под нагрузкой). Теперь мок отдаёт
+// getNodes, как настоящий useVueFlow, а каждая смонтированная обёртка снимается в afterEach: onBeforeUnmount делает clearTimeout.
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
@@ -10,6 +15,8 @@ const flow = vi.hoisted(() => ({
   fitView: vi.fn(),
   setViewport: vi.fn(),
   handler: null as null | (() => void),
+  // getNodes в настоящем useVueFlow — реактивная ссылка на массив измеренных узлов.
+  nodes: { value: [] as unknown[] },
 }))
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
@@ -21,6 +28,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
       flow.handler = cb
     },
     viewport: { value: { x: 0, y: 0, zoom: 1 } },
+    getNodes: flow.nodes,
   }),
 }))
 
@@ -44,6 +52,8 @@ function diagramWith(viewport: DiagramViewport | null): SavedDiagramDetail {
   }
 }
 
+const mounted: VueWrapper[] = []
+
 async function mountScreen(viewport: DiagramViewport | null) {
   vi.stubGlobal(
     'fetch',
@@ -58,6 +68,7 @@ async function mountScreen(viewport: DiagramViewport | null) {
   })
   await router.push('/diagrams/d1')
   const wrapper = mount(DiagramView, { global: { plugins: [router], stubs: { VueFlow: true, DiagramDetailPanel: true, DiagramExportPanel: true } } })
+  mounted.push(wrapper)
   await flushPromises()
   return wrapper
 }
@@ -70,6 +81,12 @@ beforeEach(() => {
   flow.fitView.mockReset()
   flow.setViewport.mockReset()
   flow.handler = null
+  flow.nodes.value = []
+})
+
+afterEach(() => {
+  // Размонтирование срабатывает onBeforeUnmount экрана → clearTimeout(routeTimer): таймер пересчёта маршрутов не переживает тест.
+  mounted.splice(0).forEach((wrapper) => wrapper.unmount())
 })
 
 describe('UI-01: DiagramView — начальный вид холста', () => {
