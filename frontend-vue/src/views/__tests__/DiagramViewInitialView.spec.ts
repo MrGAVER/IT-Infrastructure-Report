@@ -5,9 +5,10 @@
 // R2-02 (ревью merge/review-f06-stage2-f05-executors): обработчик nodesInitialized ставит таймер пересчёта маршрутов рёбер (60 мс),
 // а тот читает getNodes.value. Раньше в моке getNodes не было, а обёртки не размонтировались, поэтому таймер срабатывал уже после
 // конца теста и бросал TypeError вне теста («Unhandled Errors», код возврата vitest 1 — только под нагрузкой). Теперь мок отдаёт
-// getNodes, как настоящий useVueFlow, а каждая смонтированная обёртка снимается в afterEach: onBeforeUnmount делает clearTimeout.
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+// getNodes, как настоящий useVueFlow, а обёртка снимается после теста глобальным enableAutoUnmount (src/__tests__/setup.ts): onBeforeUnmount
+// экрана делает clearTimeout.
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
@@ -52,8 +53,6 @@ function diagramWith(viewport: DiagramViewport | null): SavedDiagramDetail {
   }
 }
 
-const mounted: VueWrapper[] = []
-
 async function mountScreen(viewport: DiagramViewport | null) {
   vi.stubGlobal(
     'fetch',
@@ -68,7 +67,6 @@ async function mountScreen(viewport: DiagramViewport | null) {
   })
   await router.push('/diagrams/d1')
   const wrapper = mount(DiagramView, { global: { plugins: [router], stubs: { VueFlow: true, DiagramDetailPanel: true, DiagramExportPanel: true } } })
-  mounted.push(wrapper)
   await flushPromises()
   return wrapper
 }
@@ -82,11 +80,6 @@ beforeEach(() => {
   flow.setViewport.mockReset()
   flow.handler = null
   flow.nodes.value = []
-})
-
-afterEach(() => {
-  // Размонтирование срабатывает onBeforeUnmount экрана → clearTimeout(routeTimer): таймер пересчёта маршрутов не переживает тест.
-  mounted.splice(0).forEach((wrapper) => wrapper.unmount())
 })
 
 describe('UI-01: DiagramView — начальный вид холста', () => {

@@ -1,4 +1,5 @@
-import { config } from '@vue/test-utils'
+import { config, enableAutoUnmount } from '@vue/test-utils'
+import { afterEach } from 'vitest'
 import type { ComponentPublicInstance } from 'vue'
 import { MODAL_TELEPORT_DISABLED } from '../components/baseModalKeys'
 
@@ -39,3 +40,11 @@ config.global.mixins = [
     },
   },
 ]
+
+// Каждый смонтированный в тесте компонент снимается после теста сам, поэтому тест не обязан помнить про wrapper.unmount()
+// (рекомендация 5 раздела 8 ревью merge/review-f06-stage2-f05-executors). Без этого незакрытые окна, таймеры и слушатели window
+// переживали тест: таймер пересчёта маршрутов диаграммы стрелял после его конца и ронял прогон с кодом 1 (R2-02), а открытые окна
+// оставались в общем стеке модуля modalLayer и влияли на следующие тесты файла. Вызывать enableAutoUnmount в самих спеках больше
+// не нужно (VTU разрешает один вызов на процесс — второй бросает ошибку); тест, которому нужен unmount посреди теста, по-прежнему
+// вызывает wrapper.unmount() сам.
+enableAutoUnmount(afterEach)
