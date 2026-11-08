@@ -22,6 +22,7 @@ from ..services.auth import (
     change_own_password,
     create_user,
     delete_user,
+    extract_bearer,
     get_or_create_auth_settings,
     list_active_sessions,
     require_admin,
@@ -37,8 +38,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
 def _bearer_token(request: Request) -> str | None:
-    header = request.headers.get("authorization", "")
-    return header[len("Bearer "):].strip() or None if header.startswith("Bearer ") else None
+    return extract_bearer(request.headers.get("authorization"))
 
 
 def _current_user(request: Request) -> User | None:

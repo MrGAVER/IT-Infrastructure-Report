@@ -16,7 +16,7 @@ from ... import db as db_module
 from ...constants import UserRole
 from ...models import User
 from ..actor_context import Actor, current_actor
-from ._common import request_client_ip
+from ._common import extract_bearer, request_client_ip
 from .proxy_headers import warn_once_if_proxy_untrusted
 from .security_headers import with_security_headers
 from .sessions import resolve_session
@@ -56,13 +56,6 @@ def _is_read_only_post(method: str, path: str) -> bool:
     if method != "POST":
         return False
     return path in READ_ONLY_POST_PATHS or _TEMPLATE_GENERATE_PATH.match(path) is not None
-
-
-def _extract_bearer_token(header_value: Optional[str]) -> Optional[str]:
-    if not header_value or not header_value.startswith("Bearer "):
-        return None
-    token = header_value[len("Bearer "):].strip()
-    return token or None
 
 
 async def auth_gate_middleware(request: Request, call_next):
@@ -119,7 +112,7 @@ def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDec
         if not auth_enabled or path in PUBLIC_API_PATHS:
             return _GateDecision(auth_enabled, None)
 
-        token = _extract_bearer_token(authorization)
+        token = extract_bearer(authorization)
         user = resolve_session(db_session, token) if token else None
         if user is None:
             return _GateDecision(True, None, 401, "Требуется аутентификация.")

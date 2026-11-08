@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 from ..actor_context import Actor, current_actor
+from ._common import extract_bearer
 from .gate import (
     PUBLIC_API_PATHS,
     READ_ONLY_POST_PATHS,
@@ -89,4 +90,6 @@ __all__ = [
     "auth_gate_middleware",
     # guards
     "require_admin", "require_admin_if_auth_enabled", "require_setup_access",
+    # _common
+    "extract_bearer",
 ]
