@@ -3,6 +3,7 @@
 // как в vlanDomains.ts.
 import { defineStore } from 'pinia'
 import { listAllResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { Container } from '../api/types'
 import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 
@@ -47,6 +48,7 @@ export const useContainersStore = defineStore('containers', {
         const res = await listAllResource<Container>('containers')
         this.all = res.items
         this.loaded = true
+        warnIfTruncated(res, 'контейнеров')
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить контейнеры'
       } finally {

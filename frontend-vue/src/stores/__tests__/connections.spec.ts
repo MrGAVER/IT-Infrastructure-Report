@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useConnectionsStore } from '../connections'
+import { useToast } from '../../composables/useToast'
 import { connectionsFixture } from './fixtures'
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  useToast().toasts.splice(0)
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response(JSON.stringify(connectionsFixture))),
@@ -50,5 +52,29 @@ describe('useConnectionsStore (общий кэш)', () => {
     await store.reload()
     expect(store.error).toBe('Сервер недоступен')
     expect(store.loading).toBe(false)
+  })
+
+  it('R2-01: полная загрузка — без предупреждений', async () => {
+    const store = useConnectionsStore()
+    await store.ensureLoaded()
+    expect(useToast().toasts).toHaveLength(0)
+  })
+
+  it('R2-01: усечённая загрузка (total больше, чем отдал сервер) — предупреждение, а данные при этом всё равно показываются', async () => {
+    // сервер обещает 2 000 записей, а на дальнейшие страницы отвечает пустыми — загрузка прерывается с truncated=true
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+        const items = offset === 0 ? connectionsFixture.items : []
+        return new Response(JSON.stringify({ ...connectionsFixture, items, total: 2000, offset }))
+      }),
+    )
+    const store = useConnectionsStore()
+    await store.ensureLoaded()
+
+    expect(store.loaded).toBe(true)
+    expect(store.all).toHaveLength(2)
+    expect(useToast().toasts.filter((t) => t.type === 'warning' && t.message.includes('подключений'))).toHaveLength(1)
   })
 })

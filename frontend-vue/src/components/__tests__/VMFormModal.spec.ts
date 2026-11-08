@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import VMFormModal from '../VMFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { usePreferencesStore } from '../../stores/preferences'
+import { useToast } from '../../composables/useToast'
 import { useDevicesStore } from '../../stores/devices'
 import type { Device, VirtualMachine } from '../../api/types'
 
@@ -21,9 +22,54 @@ function body(): DOMWrapper<HTMLElement> {
 beforeEach(() => {
   setActivePinia(createPinia())
   document.body.innerHTML = ''
+  useToast().toasts.splice(0)
 })
 
 describe('VMFormModal.vue', () => {
+  it('R2-01: усечённая загрузка вложенного списка ВМ не молчит — предупреждение о неполных данных', async () => {
+    const vm: VirtualMachine = {
+      id: 'vm-1',
+      name: 'app-server-01',
+      operating_system_id: null,
+      physical_device_id: null,
+      hypervisor_os_id: null,
+      purpose: null,
+      description: null,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        // у ВМ «2000» IP-адресов, но сервер отдаёт только первую страницу, а на следующие отвечает пустыми
+        if (url.includes('/resources/ip-addresses')) {
+          const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+          const items =
+            offset === 0
+              ? [
+                  {
+                    id: 'ip-1',
+                    owner_type: 'virtual_machine',
+                    owner_id: 'vm-1',
+                    ip_address: '10.0.0.1',
+                    prefix_length: 24,
+                    purpose: null,
+                    is_management: false,
+                  },
+                ]
+              : []
+          return jsonResponse({ items, total: 2000, offset, limit: 1000 })
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    mount(VMFormModal, { props: { vm } })
+    await flushPromises()
+
+    const warnings = useToast().toasts.filter((t) => t.type === 'warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].message).toContain('IP-адресов ВМ')
+  })
+
   it('при редактировании подгружает существующие IP-адреса и открытые порты ВМ', async () => {
     const vm: VirtualMachine = {
       id: 'vm-1',

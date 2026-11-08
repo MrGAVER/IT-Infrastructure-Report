@@ -2,6 +2,7 @@
 // группировка через /vlan-dashboard). Используется в VLANDomainsPanel.vue.
 import { defineStore } from 'pinia'
 import { listAllResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { VLANDomain } from '../api/types'
 
 export const useVLANDomainsStore = defineStore('vlanDomains', {
@@ -23,6 +24,7 @@ export const useVLANDomainsStore = defineStore('vlanDomains', {
         const res = await listAllResource<VLANDomain>('vlan-domains')
         this.all = res.items
         this.loaded = true
+        warnIfTruncated(res, 'VLAN-доменов')
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить VLAN-домены'
       } finally {

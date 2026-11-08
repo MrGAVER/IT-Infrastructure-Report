@@ -9,6 +9,7 @@ import { useVLANDomainsStore } from '../stores/vlanDomains'
 import { useDevicesStore } from '../stores/devices'
 import { useAuthStore } from '../stores/auth'
 import { api, deleteResource, listAllResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import { useToast } from '../composables/useToast'
 import type { VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import VLANDomainFormModal from './VLANDomainFormModal.vue'
@@ -26,6 +27,7 @@ const deletingId = ref<string | null>(null)
 
 async function loadMemberCounts() {
   const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices')
+  warnIfTruncated(links, 'устройств VLAN-доменов')
   const counts: Record<string, number> = {}
   for (const l of links.items) counts[l.domain_id] = (counts[l.domain_id] ?? 0) + 1
   memberCounts.value = counts

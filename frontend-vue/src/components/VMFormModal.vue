@@ -9,6 +9,7 @@
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch, useId } from 'vue'
 import { createResource, listAllResource, updateResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -111,6 +112,10 @@ watch(
         listAllResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id }),
         listAllResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id }),
       ])
+      // Форма сохраняет списки целиком: усечённая загрузка при сохранении удалила бы невидимые записи, поэтому о ней говорим сразу.
+      warnIfTruncated(ips, 'IP-адресов ВМ')
+      warnIfTruncated(ports, 'открытых портов ВМ')
+      warnIfTruncated(software, 'ПО ВМ')
       vmIps.value = isCopy ? stripIds(ips.items.map(toIpDraftRow)) : ips.items.map(toIpDraftRow)
       // Бэкенд отдаёт open-ports без сортировки по порту (list_resource) — упорядочиваем при загрузке,
       // чтобы и ранее сохранённые ВМ открывались с портами по возрастанию.

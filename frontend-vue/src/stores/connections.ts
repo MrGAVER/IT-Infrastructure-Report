@@ -6,6 +6,7 @@
 // статусом сверки ролей портов на сервере — см. stores/connectionsDashboard.ts.
 import { defineStore } from 'pinia'
 import { listAllResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { Connection } from '../api/types'
 
 export const useConnectionsStore = defineStore('connections', {
@@ -43,6 +44,7 @@ export const useConnectionsStore = defineStore('connections', {
         this.all = res.items
         this.total = res.total
         this.loaded = true
+        warnIfTruncated(res, 'подключений')
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить подключения'
       } finally {

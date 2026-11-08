@@ -226,32 +226,63 @@ export function listResource<T>(resource: string, params?: Record<string, string
 const PAGE_LIMIT = 1000
 /** Предохранитель от бесконечного цикла при некорректном `total`: не более 50 000 записей. */
 const MAX_PAGES = 50
+/** Сколько страниц читается одновременно: быстрее последовательной загрузки, но без шквала запросов к однопроцессному серверу. */
+const PAGE_CONCURRENCY = 4
+
+/** Ответ полной загрузки: обычная страница плюс признак того, что записей получено меньше, чем есть на сервере. */
+export type AllPagesResponse<T> = PagedResponse<T> & {
+  /** true — загружена только часть записей (упёрлись в MAX_PAGES или сервер отдал пустую страницу при неполном `total`).
+   * Экран, которому нужна полнота, обязан показать это пользователю: иначе таблица и счётчики молча расходятся с реестром. */
+  truncated: boolean
+}
 
 /**
  * Загружает ВСЕ записи ресурса, дочитывая страницы через `offset`, пока не получен весь `total`.
  *
  * Зачем: сервер отдаёт не более 1000 записей за запрос, а `listResource(..., { limit: 1000 })`
  * молча обрезал бы всё сверх этого (таблицы, счётчики и проверки занятости работали бы по
- * неполным данным без какой-либо ошибки). Порядок на сервере детерминирован (created_at, id),
- * поэтому постраничное дочитывание не даёт ни дублей, ни пропусков.
+ * неполным данным без какой-либо ошибки). Порядок на сервере детерминирован (created_at, id,
+ * см. services/crud/hooks.py:_default_ordering), поэтому постраничное дочитывание не даёт ни дублей, ни пропусков.
+ *
+ * Первая страница читается одна (из неё известен `total`), остальные — пакетами по PAGE_CONCURRENCY страниц одновременно;
+ * порядок записей в результате — по `offset`, независимо от того, какая страница пришла раньше.
+ *
+ * Предохранитель MAX_PAGES (50 000 записей) больше не молчит: если всё не поместилось, `truncated === true`
+ * (`total` при этом настоящий, а `limit` — число загруженных записей). Пустая страница при неполном `total` тоже даёт
+ * `truncated === true` и прерывает загрузку (защита от зацикливания, как и раньше).
  *
  * `params` — только фильтры ресурса; `limit` и `offset` выставляются здесь и из `params`
- * перекрываются. Пустая страница при неполном `total` прерывает цикл (защита от зацикливания).
- * `options.signal` отменяет всю загрузку, `options.timeoutMs` относится к каждому запросу страницы.
+ * перекрываются. `options.signal` отменяет всю загрузку (запросы пакета, уже ушедшие на сервер, получают тот же signal,
+ * новые пакеты не начинаются), `options.timeoutMs` относится к каждому запросу страницы.
  *
  * @example
  *   const res = await listAllResource<Connection>('connections')
+ *   if (res.truncated) notify(`Показана часть данных: ${res.items.length} из ${res.total}`, 'warning')
  *   const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id })
  */
-export async function listAllResource<T>(resource: string, params: Record<string, string | number> = {}, options?: RequestOptions): Promise<PagedResponse<T>> {
-  const first = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: 0 }, options)
+export async function listAllResource<T>(
+  resource: string,
+  params: Record<string, string | number> = {},
+  options?: RequestOptions,
+): Promise<AllPagesResponse<T>> {
+  const fetchPage = (page: number) => listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: page * PAGE_LIMIT }, options)
+  const first = await fetchPage(0)
   const items = [...first.items]
-  for (let page = 1; items.length < first.total && page < MAX_PAGES; page++) {
-    const next = await listResource<T>(resource, { ...params, limit: PAGE_LIMIT, offset: page * PAGE_LIMIT }, options)
-    if (!next.items.length) break // сервер ничего не вернул — выходим, чтобы не зациклиться
-    items.push(...next.items)
+  const pageCount = Math.min(Math.ceil(first.total / PAGE_LIMIT), MAX_PAGES)
+
+  let exhausted = false // сервер вернул пустую страницу раньше, чем набрался total — дальше читать нечего
+  for (let start = 1; start < pageCount && !exhausted; start += PAGE_CONCURRENCY) {
+    const count = Math.min(PAGE_CONCURRENCY, pageCount - start)
+    const batch = await Promise.all(Array.from({ length: count }, (_, i) => fetchPage(start + i)))
+    for (const next of batch) {
+      if (!next.items.length) {
+        exhausted = true
+        break
+      }
+      items.push(...next.items)
+    }
   }
-  return { items, total: first.total, offset: 0, limit: items.length }
+  return { items, total: first.total, offset: 0, limit: items.length, truncated: items.length < first.total }
 }
 
 export function createResource<T>(resource: string, payload: Record<string, unknown>) {
