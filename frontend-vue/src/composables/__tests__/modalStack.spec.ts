@@ -1,6 +1,6 @@
 // F-01/F-03 (код-ревью main): порядок вложенных окон задаёт стек, а не числа z-index и не порядок в DOM.
 import { afterEach, describe, expect, it } from 'vitest'
-import { defineComponent, h, nextTick, type PropType } from 'vue'
+import { createApp, defineComponent, h, nextTick, ref, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { hasOpenModal, useModalStack, type ModalStackEntry } from '../modalLayer'
 
@@ -120,5 +120,65 @@ describe('hasOpenModal', () => {
     mounted.splice(mounted.indexOf(wrapper), 1)
     stop()
     expect(seen).toEqual([true, false])
+  })
+})
+
+// R2-05 (ревью merge/review-f06-stage2-f05-executors): гипотеза «если setup() окна бросит после регистрации в стеке, запись останется,
+// hasOpenModal станет вечно истинным, а AppShell — inert». Проверено на настоящем Vue: в production (ошибка setup() обработана и
+// залогирована, приложение живёт дальше) запись снимается в onBeforeUnmount вместе с экземпляром, ничего не залипает.
+// Не покрыто и покрыть нечем: в dev-режиме, когда ошибка setup() пробрасывается из mount(), недостроенное дерево Vue не размонтирует —
+// ни onBeforeUnmount, ни onScopeDispose (предложенный в отчёте вариант) там не срабатывают, так что замена хука ничего не даёт.
+// VTU mount() пробрасывает ошибки setup() сам, поэтому здесь обычный createApp с errorHandler — как в боевом приложении.
+describe('useModalStack: запись не залипает при ошибке в setup() (R2-05)', () => {
+  function mountBroken(errors: unknown[]) {
+    const Broken = defineComponent({
+      setup() {
+        useModalStack()
+        throw new Error('сбой в setup() после регистрации в стеке')
+      },
+      render: () => h('div'),
+    })
+    const present = ref(true)
+    const app = createApp({ render: () => h('div', present.value ? [h(Broken)] : []) })
+    app.config.errorHandler = (error) => {
+      errors.push(error)
+    }
+    app.mount(document.createElement('div'))
+    return { app, present }
+  }
+
+  it('сломанное окно, которое родитель убрал (v-if), уходит из стека — фон снова доступен', async () => {
+    const errors: unknown[] = []
+    const { app, present } = mountBroken(errors)
+    expect(errors).toHaveLength(1) // ошибка не потеряна: её получил errorHandler приложения
+
+    present.value = false
+    await nextTick()
+
+    expect(hasOpenModal.value).toBe(false)
+    app.unmount()
+  })
+
+  it('сломанное окно уходит из стека и при размонтировании всего приложения', () => {
+    const errors: unknown[] = []
+    const { app } = mountBroken(errors)
+
+    app.unmount()
+
+    expect(hasOpenModal.value).toBe(false)
+  })
+
+  it('сломанное окно не мешает соседнему исправному: порядок и верхнее окно считаются по живым записям', async () => {
+    const errors: unknown[] = []
+    const { app, present } = mountBroken(errors)
+    let healthy!: ModalStackEntry
+    open((l) => (healthy = l))
+
+    present.value = false
+    await nextTick()
+
+    expect(healthy.depth.value).toBe(0)
+    expect(healthy.isTop()).toBe(true)
+    app.unmount()
   })
 })
