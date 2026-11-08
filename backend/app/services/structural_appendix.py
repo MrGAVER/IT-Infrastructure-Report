@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session
 from ..models import DeviceStackMember
 from ..reporting import _load_report_data
 from .computed import device_management_ports_and_ips
+from .device_label import clean_system_name, device_label
 
 PURPOSE_MANAGEMENT = "управление активами"
 PURPOSE_DATA = "передача данных"
@@ -136,7 +137,7 @@ def equipment_name(dev: Any, d: SimpleNamespace) -> str:
 
 
 def _device_label(dev: Any) -> str:
-    return (dev.system_name or "").strip() or dev.serial_number
+    return device_label(dev)
 
 
 def _port_roles(iface: Any, d: SimpleNamespace) -> set[str]:
@@ -229,7 +230,7 @@ def _vlan_groups(devices: list[Any], stack_of: dict[str, str], d: SimpleNamespac
             continue
         first = members[0]
         device_type = d.device_types.get(first.device_type_id)
-        names = list(dict.fromkeys(_device_label(m) for m in members if (m.system_name or "").strip()))
+        names = list(dict.fromkeys(_device_label(m) for m in members if clean_system_name(m.system_name)))
         serials = ", ".join(dict.fromkeys(m.serial_number for m in members))
         base_name = equipment_name(first, d)
         type_name = device_type.name if device_type else ""
@@ -273,7 +274,7 @@ def _equipment_rows(devices: list[Any], d: SimpleNamespace) -> list[EquipmentRow
     for dev in grouped:
         label, key = placement_of(dev)
         rows.append(EquipmentRow(
-            name=equipment_name(dev, d), serial_number=dev.serial_number, system_name=(dev.system_name or "").strip(),
+            name=equipment_name(dev, d), serial_number=dev.serial_number, system_name=clean_system_name(dev.system_name),
             management_ips=_management_ips(dev, d), placement=label, placement_key=key,
         ))
     return rows

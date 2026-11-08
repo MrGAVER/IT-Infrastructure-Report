@@ -59,8 +59,9 @@ from ..models import (
 )
 from ..constants import OwnerType
 from .timeutil import utcnow_naive
-from ..reporting import _expand_structural_unit_ids, device_label
+from ..reporting import _expand_structural_unit_ids
 from ..services.computed import ip_label
+from .device_label import device_label
 from .diagram_icons import MAX_PORT_TICKS, IconLookups, build_device_icon
 from .port_config import DEFAULT_VLAN_MODE, VLAN_MODE_TRUNK
 from .port_vlans import carries_all_vlans, effective_vlan_ids

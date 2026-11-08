@@ -59,6 +59,7 @@ from sqlalchemy.orm import Session
 from ..constants import AuditAction
 from ..models import Connection, DeviceInterface, InterfaceGroup, InterfaceGroupVLAN, InterfaceVLAN, PhysicalDevice, VLAN
 from .crud import audit
+from .device_label import device_label
 from .port_edit import PreparedPortChange, parse_port_change, prepare_port_change, write_port_change
 from .port_vlans import effective_group_vlan_ids, effective_vlan_ids
 from .serialization import enrich_interfaces
@@ -324,10 +325,6 @@ def _vlan_ref(vlan_id: str, vlans: dict[str, VLAN]) -> dict[str, Any]:
     return {"id": vlan_id, "vlan_id": vlan.vlan_id if vlan else None, "name": vlan.name if vlan else ""}
 
 
-def _device_name(device: PhysicalDevice | None) -> str:
-    return (device.system_name or device.serial_number) if device else ""
-
-
 def _short_list(names: list[str]) -> str:
     shown = ", ".join(names[:_MAX_LISTED])
     return shown + (f" и ещё {len(names) - _MAX_LISTED}" if len(names) > _MAX_LISTED else "")
@@ -414,7 +411,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
         before = change.group_vlans.get(key, [])
         after, dropped = _split_vlans(before, change.vlans, target)
         groups_out.append({
-            "id": key, "name": info.name, "device_id": info.device_id, "device_name": _device_name(change.devices.get(info.device_id)),
+            "id": key, "name": info.name, "device_id": info.device_id, "device_name": device_label(change.devices.get(info.device_id)),
             "deferred": info.deferred, "from_mode": from_mode, "to_mode": target,
             "ports": [{"id": m, "name": edited.port_name(loader.ports[m])} for m in loader.members[key]],
             "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
@@ -428,7 +425,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
         before = change.port_vlans.get(pid, [])
         after, dropped = _split_vlans(before, change.vlans, target)
         ports_out.append({
-            "id": pid, "name": edited.port_name(port), "device_id": port.physical_device_id, "device_name": _device_name(change.devices.get(port.physical_device_id)),
+            "id": pid, "name": edited.port_name(port), "device_id": port.physical_device_id, "device_name": device_label(change.devices.get(port.physical_device_id)),
             "deferred": edited.owns(port), "from_mode": from_mode, "to_mode": target,
             "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
             "vlans_after": [_vlan_ref(v, change.vlans) for v in after], "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
@@ -439,7 +436,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
     for pid in change.changed_ports:
         port = loader.ports[pid]
         entry = devices_out.setdefault(port.physical_device_id, {
-            "id": port.physical_device_id, "name": _device_name(change.devices.get(port.physical_device_id)),
+            "id": port.physical_device_id, "name": device_label(change.devices.get(port.physical_device_id)),
             "deferred": edited.owns(port), "port_count": 0, "group_count": 0,
         })
         entry["port_count"] += 1
@@ -712,7 +709,7 @@ def _audit_cascade(change: _Change, session: Session) -> None:
     """По записи аудита на каждое устройство, которое записано сейчас (отложенные пишет форма)."""
     plan, loader = change.plan, change.loader
     start = loader.ports[change.start_id]
-    start_label = f"порт «{change.edited.port_name(start)}» устройства «{_device_name(change.devices.get(start.physical_device_id))}»"
+    start_label = f"порт «{change.edited.port_name(start)}» устройства «{device_label(change.devices.get(start.physical_device_id))}»"
     for device in plan["devices"]:
         if not device["deferred"]:
             audit(session, "interfaces", device["id"], AuditAction.UPDATE, _audit_text(plan, device["id"], start_label))

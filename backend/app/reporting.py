@@ -18,6 +18,7 @@ from .models import (
 )
 from .constants import OwnerType
 from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
+from .services.device_label import device_label
 from .services.excel_layout import apply_sheet_layout, fit_sheet_size, style_header
 from .services.excel_safety import append_safe_row
 from .services.port_vlans import carries_all_vlans, effective_vlan_ids
@@ -54,9 +55,6 @@ def os_label(obj):
     if name and version:
         return f"{name} {version}"
     return name or version
-
-def device_label(d):
-    return (d.system_name or d.serial_number) if d else ""
 
 def _open_port_label(p, d: SimpleNamespace) -> str:
     """Текст одного открытого порта для отчёта: 'TCP/443 HTTPS Описание порта'. port/protocol_type

@@ -43,6 +43,7 @@ from ..models import (
 )
 from ..registry import DISPLAY_NAMES
 from .port_vlans import allowed_vlan_ids_by_device, effective_group_vlan_ids, effective_vlan_ids
+from .device_label import device_label
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +297,7 @@ def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> li
         {
             'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
             'port_id': r.port_id, 'port_name': r.port_name,
-            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
             'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
         }
         for r in rows
@@ -335,7 +336,7 @@ def find_off_port_subinterfaces(session: Session) -> list[dict[str, Any]]:
         {
             'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
             'port_id': r.port_id, 'port_name': r.port_name,
-            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
             'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
         }
         for r in rows
@@ -377,7 +378,7 @@ def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None)
     stale = [
         {
             'subinterface_id': r.subinterface_id, 'group_id': r.group_id, 'group_name': r.group_name,
-            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
             'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
         }
         for r in rows
@@ -392,9 +393,6 @@ def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[s
     for owner_type, owner_id in owners:
         ids_by_type.setdefault(owner_type, set()).add(owner_id)
 
-    def device_label(device: PhysicalDevice) -> str:
-        return device.system_name or device.serial_number or device.id
-
     names: dict[tuple[str, str], str] = {}
     for owner_type, ids in ids_by_type.items():
         if owner_type == OwnerType.VIRTUAL_MACHINE:
@@ -404,13 +402,13 @@ def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[s
         elif owner_type == INFORMATION_SYSTEM_OWNER:
             names.update({(owner_type, r.id): r.name for r in session.execute(select(InformationSystem.id, InformationSystem.name).where(InformationSystem.id.in_(ids)))})
         elif owner_type == OwnerType.PHYSICAL_DEVICE:
-            names.update({(owner_type, d.id): device_label(d) for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(ids)))})
+            names.update({(owner_type, d.id): device_label(d, fallback=d.id) for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(ids)))})
         elif owner_type == OwnerType.DEVICE_INTERFACE:
             interfaces = session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(ids))).all()
             devices = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_({i.physical_device_id for i in interfaces})))}
             for iface in interfaces:
                 device = devices.get(iface.physical_device_id)
-                names[(owner_type, iface.id)] = f'{device_label(device)} / {iface.name}' if device else iface.name
+                names[(owner_type, iface.id)] = f'{device_label(device, fallback=device.id)} / {iface.name}' if device else iface.name
         elif owner_type == OwnerType.DEVICE_SUBINTERFACE:
             subinterfaces = session.scalars(select(DeviceSubinterface).where(DeviceSubinterface.id.in_(ids))).all()
             parents = {i.id: i for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_({s.parent_interface_id for s in subinterfaces})))}
@@ -418,5 +416,5 @@ def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[s
             for sub in subinterfaces:
                 parent = parents.get(sub.parent_interface_id)
                 device = devices.get(parent.physical_device_id) if parent else None
-                names[(owner_type, sub.id)] = f'{device_label(device)} / {sub.name}' if device else sub.name
+                names[(owner_type, sub.id)] = f'{device_label(device, fallback=device.id)} / {sub.name}' if device else sub.name
     return names
