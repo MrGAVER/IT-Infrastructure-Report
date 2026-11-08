@@ -1,5 +1,6 @@
 import { config, enableAutoUnmount } from '@vue/test-utils'
 import { afterEach } from 'vitest'
+import { assertNoOpenModals } from './modalLeakGuard'
 import type { ComponentPublicInstance } from 'vue'
 import { MODAL_TELEPORT_DISABLED } from '../components/baseModalKeys'
 
@@ -47,4 +48,13 @@ config.global.mixins = [
 // оставались в общем стеке модуля modalLayer и влияли на следующие тесты файла. Вызывать enableAutoUnmount в самих спеках больше
 // не нужно (VTU разрешает один вызов на процесс — второй бросает ошибку); тест, которому нужен unmount посреди теста, по-прежнему
 // вызывает wrapper.unmount() сам.
-enableAutoUnmount(afterEach)
+//
+// Сразу после размонтирования — страж стека окон (modalLeakGuard.ts): окно, оставшееся в общем стеке, ломает тест, который его оставил,
+// а не случайный следующий. Размонтирование и проверка — один хук: enableAutoUnmount отдаёт переданному «хуку» функцию размонтирования, и
+// порядок «сначала unmount, потом проверка» не зависит от порядка выполнения afterEach (в vitest он обратный порядку регистрации).
+enableAutoUnmount((unmountAll) =>
+  afterEach(() => {
+    unmountAll()
+    assertNoOpenModals()
+  }),
+)
