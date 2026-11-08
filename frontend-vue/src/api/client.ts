@@ -78,12 +78,49 @@ export class ApiError extends Error {
   /** Через сколько секунд повторить запрос — из заголовка Retry-After (429 TOO_MANY_ATTEMPTS при переборе пароля).
    * null — заголовка нет или он не распознан. */
   retryAfter: number | null
-  constructor(status: number, message: string, code: string | null = null, retryAfter: number | null = null) {
+  /** Тело ответа как пришло (до MAX_ERROR_BODY_LENGTH символов) — для диагностики. Пользователю показывается `message`:
+   * у не-JSON ответа (HTML страницы 502/504 от прокси) `message` — «502 Bad Gateway», а разметка остаётся только здесь. */
+  body: string | null
+  constructor(status: number, message: string, code: string | null = null, retryAfter: number | null = null, body: string | null = null) {
     super(message)
     this.status = status
     this.code = code
     this.retryAfter = retryAfter
+    this.body = body
   }
+}
+
+/** Сколько символов тела ошибки хранить в ApiError.body: страница ошибки прокси может быть большой, а нужна она только для диагностики. */
+const MAX_ERROR_BODY_LENGTH = 4096
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Строка состояния для сообщения, когда сервер не прислал читаемый текст: «502 Bad Gateway» (у HTTP/2 statusText пуст — тогда «502»). */
+function statusLine(res: Response): string {
+  return `${res.status} ${res.statusText}`.trim()
+}
+
+/** Сообщение и код из тела ответа с ошибкой. Контракт сервера — JSON `{detail: "текст"}` или `{detail: {message, code}}`.
+ * JSON без читаемого detail (например, список ошибок валидации FastAPI) показывается текстом целиком, как и раньше — из него видно, какое поле
+ * не прошло. Не-JSON тело (HTML страницы 502/504 от прокси, пустой ответ) пользователю не показывается: вместо него строка состояния. */
+function parseErrorBody(text: string, res: Response): { message: string; code: string | null } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { message: statusLine(res), code: null }
+  }
+  const detail = isRecord(parsed) ? parsed.detail : undefined
+  if (typeof detail === 'string') return { message: detail, code: null }
+  if (isRecord(detail)) {
+    return {
+      message: typeof detail.message === 'string' ? detail.message : text,
+      code: typeof detail.code === 'string' ? detail.code : null,
+    }
+  }
+  return { message: text, code: null }
 }
 
 /** Retry-After: целое число секунд либо HTTP-дата (RFC 9110). Возвращает секунды (≥ 0, округление вверх) или null. */
@@ -151,7 +188,9 @@ export async function request<T>(path: string, init: RequestInit = {}, options: 
   // Заголовки вызывающего кода дополняются, а не заменяются: служебные (Content-Type, Authorization, X-Setup-Token)
   // выставляются только если вызывающий не задал их сам. Раньше `{ headers, ...init }` целиком подменял набор.
   const headers = new Headers(init.headers)
-  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  // Content-Type описывает тело, поэтому ставится только когда оно есть: у GET/DELETE без тела лишний заголовок делал запрос
+  // «непростым» для CORS (лишний preflight при отдельном dev-сервере).
+  if (init.body !== undefined && init.body !== null && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getStoredToken()
   if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
   // Токен установки уходит только на /auth/*: остальным эндпоинтам он ни к чему.
@@ -163,29 +202,21 @@ export async function request<T>(path: string, init: RequestInit = {}, options: 
     const res = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: guard.signal })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      let message = text || res.statusText
-      let code: string | null = null
-      try {
-        const parsed = JSON.parse(text)
-        if (typeof parsed.detail === 'string') {
-          message = parsed.detail
-        } else if (parsed.detail && typeof parsed.detail === 'object') {
-          message = parsed.detail.message ?? message
-          code = parsed.detail.code ?? null
-        }
-      } catch {
-        /* тело не JSON — оставляем текст как есть */
-      }
+      const { message, code } = parseErrorBody(text, res)
       // Не для путей из SESSION_NEUTRAL_401_PATHS: там 401 — это ожидаемая ошибка в форме
       // ("неверный пароль" при входе, "неверный текущий пароль" при смене), а не признак того,
       // что сессия уже вошедшего пользователя недействительна.
       if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
       }
-      throw new ApiError(res.status, message, code, parseRetryAfter(res.headers.get('Retry-After')))
+      throw new ApiError(res.status, message, code, parseRetryAfter(res.headers.get('Retry-After')), text ? text.slice(0, MAX_ERROR_BODY_LENGTH) : null)
     }
     if (res.status === 204) return null as T
-    return (await res.json()) as T
+    // Пустое тело при 200 (прокси или сервер обрезали ответ) — не SyntaxError из res.json(), а null, как у 204. Чтение тела остаётся
+    // внутри guard: таймаут по-прежнему относится к ответу целиком.
+    const text = await res.text()
+    if (!text) return null as T
+    return JSON.parse(text) as T
   } catch (e) {
     if (guard.wasTimeout()) {
       throw new ApiError(0, 'Сервер не отвечает. Проверьте соединение и повторите попытку.', ClientErrorCode.REQUEST_TIMEOUT)

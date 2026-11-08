@@ -276,14 +276,26 @@ describe('api/client: заголовки запроса (B-11)', () => {
   }
   const sent = (fetchMock: ReturnType<typeof stubOk>) => new Headers(fetchMock.mock.calls[0][1]?.headers)
 
-  it('по умолчанию отправляет Content-Type: application/json и Bearer-токен', async () => {
+  it('запрос с телом отправляет Content-Type: application/json, и Bearer-токен', async () => {
     setStoredToken('tok-1')
     const fetchMock = stubOk()
 
-    await api.get('/resources/devices')
+    await api.post('/resources/devices', { name: 'sw-01' })
 
     expect(sent(fetchMock).get('Content-Type')).toBe('application/json')
     expect(sent(fetchMock).get('Authorization')).toBe('Bearer tok-1')
+  })
+
+  it('R2-04: запрос без тела (GET, DELETE) не отправляет Content-Type, но Bearer-токен отправляет', async () => {
+    setStoredToken('tok-1')
+    for (const call of [() => api.get('/resources/devices'), () => api.delete('/resources/devices/d1')]) {
+      const fetchMock = stubOk()
+
+      await call()
+
+      expect(sent(fetchMock).has('Content-Type')).toBe(false)
+      expect(sent(fetchMock).get('Authorization')).toBe('Bearer tok-1')
+    }
   })
 
   it('без сохранённого токена заголовка Authorization нет', async () => {
@@ -346,13 +358,76 @@ describe('api/client: разбор ответа (B-11)', () => {
     expect(error).toMatchObject({ status: 409, message: 'Позиция занята', code: 'RACK_POSITION_OCCUPIED' })
   })
 
-  it('ошибка с телом не в JSON: текст ответа становится сообщением, code = null', async () => {
+  it('R2-04: 502 от прокси с HTML-страницей: сообщение — «502 Bad Gateway», а разметка не показывается и лежит только в ApiError.body', async () => {
+    const page = '<html><head><title>502</title></head><body><h1>Bad Gateway</h1><p>nginx</p></body></html>'
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response('Bad Gateway', { status: 502 })),
+      vi.fn(async () => new Response(page, { status: 502, statusText: 'Bad Gateway' })),
     )
 
-    await expect(api.get('/devices')).rejects.toMatchObject({ status: 502, message: 'Bad Gateway', code: null })
+    const error = (await api.get('/devices').catch((e: unknown) => e)) as ApiError
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: 502, message: '502 Bad Gateway', code: null, body: page })
+    expect(error.message).not.toContain('<')
+  })
+
+  it('R2-04: у HTTP/2 statusText пуст — сообщение «502»; пустое тело ошибки не даёт пустого сообщения', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 502 })),
+    )
+
+    await expect(api.get('/devices')).rejects.toMatchObject({ status: 502, message: '502', code: null, body: null })
+  })
+
+  it('R2-04: тело не-JSON хранится в ApiError.body не длиннее предела', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('x'.repeat(10_000), { status: 504, statusText: 'Gateway Timeout' })),
+    )
+
+    const error = (await api.get('/devices').catch((e: unknown) => e)) as ApiError
+
+    expect(error.message).toBe('504 Gateway Timeout')
+    expect(error.body).toHaveLength(4096)
+  })
+
+  it('R2-04: JSON без читаемого detail (ошибки валидации FastAPI) по-прежнему показывается текстом целиком — видно, какое поле не прошло', async () => {
+    const validation = [{ loc: ['body', 'name'], msg: 'Field required', type: 'missing' }]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: validation }, 422)),
+    )
+
+    const error = (await api.post('/resources/devices', {}).catch((e: unknown) => e)) as ApiError
+
+    expect(error.status).toBe(422)
+    expect(error.message).toBe(JSON.stringify({ detail: validation }))
+    expect(error.code).toBeNull()
+  })
+
+  it('R2-04: 200 с пустым телом возвращает null (как 204), а не SyntaxError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 200 })),
+    )
+
+    await expect(api.get('/devices')).resolves.toBeNull()
+  })
+
+  it('R2-04: 200 с JSON разбирается как раньше, а с обрезанным JSON — по-прежнему SyntaxError (повреждённый ответ не маскируется под null)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ items: [1, 2], total: 2 })),
+    )
+    await expect(api.get('/devices')).resolves.toEqual({ items: [1, 2], total: 2 })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"items": [1,', { status: 200 })),
+    )
+    await expect(api.get('/devices')).rejects.toBeInstanceOf(SyntaxError)
   })
 })
 
