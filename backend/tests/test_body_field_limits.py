@@ -120,6 +120,30 @@ def _has_max_length(field) -> bool:
     return any(getattr(item, "max_length", None) is not None for item in field.metadata)
 
 
+def _is_plain_number(annotation: object) -> bool:
+    """``int`` / ``float`` и их необязательные варианты — поля, в которые клиент может прислать число любой величины."""
+    if annotation in (int, float):
+        return True
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+        return any(_is_plain_number(arg) for arg in typing.get_args(annotation))
+    return False
+
+
+def _bound_kinds(field) -> set[str]:
+    """Какие границы заданы у поля: ``lower`` (ge/gt) и ``upper`` (le/lt)."""
+    kinds = set()
+    for item in field.metadata:
+        if hasattr(item, "ge") or hasattr(item, "gt"):
+            kinds.add("lower")
+        if hasattr(item, "le") or hasattr(item, "lt"):
+            kinds.add("upper")
+    return kinds
+
+
+# Числовые поля, которым не нужны обе границы, — и почему. Сейчас таких нет: все три числовых поля тел ограничены с обеих сторон.
+NUMBER_BOUNDS_OPTIONAL: dict[str, str] = {}
+
+
 def test_the_walk_finds_request_models():
     assert len(_request_models()) >= 15  # иначе охранный тест ниже ничего не проверял бы
 
@@ -134,3 +158,32 @@ def test_every_string_field_is_bounded_or_listed(model):
         f"{model.__qualname__}: строковые поля без max_length: {unbounded}. Ограничьте длину по колонке БД "
         "или внесите поле в UNBOUNDED_ON_PURPOSE с причиной."
     )
+
+
+@pytest.mark.parametrize("model", _request_models(), ids=lambda cls: cls.__qualname__)
+def test_every_number_field_has_both_bounds_or_is_listed(model):
+    """Число вне диапазона колонки БД — это 500 (BE-01: ``10**30`` в пороге диаграммы). Новое числовое поле без ``ge``/``le``
+    ломает этот тест, пока его не ограничат (по колонке БД или по смыслу) или не внесут в список исключений с причиной."""
+    unbounded = [
+        name
+        for name, field in model.model_fields.items()
+        if _is_plain_number(field.annotation)
+        and _bound_kinds(field) != {"lower", "upper"}
+        and f"{model.__qualname__}.{name}" not in NUMBER_BOUNDS_OPTIONAL
+    ]
+    assert not unbounded, (
+        f"{model.__qualname__}: числовые поля без обеих границ: {unbounded}. Задайте ge/le по колонке БД "
+        "или внесите поле в NUMBER_BOUNDS_OPTIONAL с причиной."
+    )
+
+
+def test_number_guard_sees_the_known_bounded_fields():
+    # Охрана самого теста: обход находит числовые поля и распознаёт у них границы (иначе проверка выше ничего бы не проверяла).
+    found = {
+        f"{model.__qualname__}.{name}": _bound_kinds(field)
+        for model in _request_models()
+        for name, field in model.model_fields.items()
+        if _is_plain_number(field.annotation)
+    }
+    assert {"DiagramCreate.collapse_threshold", "DiagramGroupStateUpdate.custom_threshold", "ReportPreviewRequest.limit"} <= set(found)
+    assert all(kinds == {"lower", "upper"} for kinds in found.values())
