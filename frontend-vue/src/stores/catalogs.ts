@@ -97,7 +97,7 @@ export const useCatalogsStore = defineStore('catalogs', {
     resourceNames: {} as Record<string, string>,
     // Отдельно от items/CATALOGS: у ProtocolPortCatalogEntry нет поля name, поэтому
     // он не подходит под общий Record<CatalogKey, CatalogItem[]> (см. комментарий
-    // к типу в api/types.ts). Используется в OpenPortListEditor.vue.
+    // к типу в api/types). Используется в OpenPortListEditor.vue.
     protocolPortCatalog: [] as ProtocolPortCatalogEntry[],
     loaded: false,
     loading: false,

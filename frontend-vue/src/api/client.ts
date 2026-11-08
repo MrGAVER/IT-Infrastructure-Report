@@ -239,7 +239,7 @@ export const api = {
  * Важно: эндпоинт всегда отдаёт {items, total, offset, limit} (см.
  * backend/app/services/crud/generic.py:list_resource), а НЕ голый массив — легко перепутать
  * с /api/v1/devices, у которого total есть, но offset/limit нет (там нет пагинации
- * на бэкенде, см. api/types.ts:DevicesResponse).
+ * на бэкенде, см. api/types/devices.ts:DevicesResponse).
  */
 export interface PagedResponse<T> {
   items: T[]

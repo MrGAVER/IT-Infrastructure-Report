@@ -1,5 +1,5 @@
 // Стор для экрана "Виртуальные машины" (Лист 4).
-// GET /api/v1/vms -> {items,total}, как /devices (см. api/types.ts:VMsResponse).
+// GET /api/v1/vms -> {items,total}, как /devices (см. api/types/workloads.ts:VMsResponse).
 import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import type { VirtualMachine, VMsResponse } from '../api/types'

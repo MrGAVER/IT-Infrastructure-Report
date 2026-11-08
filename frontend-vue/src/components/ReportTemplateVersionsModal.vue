@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // История версий шаблона отчёта: снимок сохраняется на каждое сохранение/восстановление (см.
 // _snapshot_version в backend/app/api/report_builder.py) — сам config снимка наружу не
-// отдаётся (см. ReportTemplateVersion в api/types.ts), просмотреть содержимое прошлой версии
+// отдаётся (см. ReportTemplateVersion в api/types/reports.ts), просмотреть содержимое прошлой версии
 // нельзя, только восстановить целиком. Текущее состояние тоже сохраняется как версия перед
 // восстановлением — откат обратим.
 import { onMounted, ref, useId } from 'vue'

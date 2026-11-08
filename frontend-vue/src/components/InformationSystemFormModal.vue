@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Форма покрывает собственные поля InformationSystem, а также вложенные связи — подразделения,
 // протоколы, источники размещения/IP, места размещения — через отдельный атомарный ресурс
-// /resources/information-systems/{id}/details (см. InformationSystemDetails в api/types.ts).
+// /resources/information-systems/{id}/details (см. InformationSystemDetails в api/types/informationSystems.ts).
 // Портировано с openInformationSystemForm/saveInformationSystemForm в
 // прежнем vanilla-фронтенде (до 2.60.0). Устаревшие связанные таблицы (ips/devices/vms/
 // containers) удалены вместе со всей их поддержкой (миграция b7f2c1e5a904, см. models.py) —
@@ -232,7 +232,7 @@ function buildDetailsPayload() {
         id: x.id,
         source_type: x.source_type,
         // vmHostHint сюда намеренно не попадает — это чисто клиентское UX-состояние выбора ВМ по
-        // хосту (см. api/types.ts), backend про него не знает.
+        // хосту (см. api/types), backend про него не знает.
         owner_id: x.owner_id || null,
         ips: x.ips.filter((ip) => ip.ip_address.trim()).map((ip) => ({ id: ip.id, ip_address: ip.ip_address.trim() })),
         purpose: x.purpose || null,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Редактор вложенного списка открытых портов/протоколов (OpenPort — полиморфная
-// таблица, см. api/types.ts). Сознательно не знает про owner_type/owner_id и не
+// таблица, см. api/types). Сознательно не знает про owner_type/owner_id и не
 // обращается к API сам — те же причины, что в VmIpListEditor.vue. Благодаря этому
 // один и тот же компонент уже сегодня закрывает ВМ (VMFormModal.vue) и без
 // изменений годится для физических устройств, когда до них дойдёт очередь (см.
@@ -17,7 +17,7 @@
 // stores/catalogs.ts:sortProtocolPortCatalog), а порт/протокол сервер берёт из
 // справочника сам: join при каждом чтении (backend/app/services/serialization.py:enrich_open_port), а при
 // сохранении проверяет лишь существование записи (services/crud/owned_rows.py:_validate_open_port_catalog) —
-// хранить их в черновике смысла больше нет, см. OpenPortDraftRow в api/types.ts.
+// хранить их в черновике смысла больше нет, см. OpenPortDraftRow в api/types/workloads.ts.
 import { computed } from 'vue'
 import type { OpenPortDraftRow, ProtocolPortCatalogEntry, CatalogItem } from '../api/types'
 import { useUniquePortRows } from '../composables/useUniquePortRows'

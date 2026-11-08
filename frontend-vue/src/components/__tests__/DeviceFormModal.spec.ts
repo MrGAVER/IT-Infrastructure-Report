@@ -183,7 +183,7 @@ describe('DeviceFormModal.vue', () => {
 
   it('при редактировании подгружает существующие открытые порты интерфейса устройства', async () => {
     // Фикс п.1.4 (батч4): открытые порты — свойство интерфейса, а не всего устройства (см.
-    // InterfaceDraftRow.open_ports в types.ts) — блок раскрывается вместе с VLAN/IP интерфейса.
+    // InterfaceDraftRow.open_ports в api/types/interfaces.ts) — блок раскрывается вместе с VLAN/IP интерфейса.
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()
@@ -678,7 +678,7 @@ describe('DeviceFormModal.vue', () => {
     // Регрессия: backend/app/services/crud.py:_sync_single_interface полностью пересоздаёт
     // InterfaceVLAN из payload['vlan_ids'] при каждом PUT — отправка [] стёрла бы VLAN,
     // назначенные через /legacy, хотя редактор их даже не показывает (см. InterfaceDraftRow
-    // в api/types.ts). Загруженные vlan_ids должны уйти обратно без изменений.
+    // в api/types). Загруженные vlan_ids должны уйти обратно без изменений.
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()

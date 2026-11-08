@@ -25,7 +25,7 @@ export function useDeviceDraft(device: () => Device | null) {
 
   // Фикс п.1.4 (батч4): открытые порты больше не самостоятельный список уровня устройства — теперь
   // это InterfaceDraftRow.open_ports внутри каждой строки interfaces (см. её комментарий в
-  // types.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
+  // api/types/interfaces.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
   const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
   const interfaces = ref<InterfaceDraftRow[]>([])
   // Группы портов (InterfaceGroupsPanel.vue внутри DeviceInterfacesEditor.vue): общие режим порта/VLAN,
@@ -56,7 +56,7 @@ export function useDeviceDraft(device: () => Device | null) {
   // Не зависит ни от общего списка подключений, ни от каталога интерфейсов (оба с потолком 1000 записей).
   const savedConnections = shallowRef<DeviceInterfaceConnection[]>([])
 
-  // Расхождения конфигурации портов с соседними (PortConflictInfo, см. api/types.ts) — с фактическими значениями соседа:
+  // Расхождения конфигурации портов с соседними (PortConflictInfo, см. api/types) — с фактическими значениями соседа:
   // DeviceInterfacesEditor.vue сам решает, как их показать и что применить по каждой из двух кнопок.
   const interfaceConflicts = computed<Record<string, PortConflictInfo>>(() => computePortConflicts(interfaces.value, savedConnections.value))
 
