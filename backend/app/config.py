@@ -88,6 +88,11 @@ def _csv_env(name: str, default: str = '') -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(',') if item.strip()]
 
 
+def _flag_env(name: str) -> bool:
+    """Булев переключатель из переменной окружения: «1», «true», «yes», «on» (регистр и пробелы не важны) — включено, всё остальное и пусто — выключено."""
+    return os.getenv(name, '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 # Интерфейс отдаётся с того же origin (StaticFiles ниже), а API читает токен из заголовка
 # Authorization — поэтому по умолчанию CORS ВЫКЛЮЧЕН (пустой список: ни одного чужого origin не
 # разрешено). Раньше дефолтом было '*', и любая веб-страница в браузере владельца могла читать и
@@ -102,9 +107,15 @@ FORWARDED_ALLOW_IPS = _csv_env('FORWARDED_ALLOW_IPS')
 # Допустимые значения заголовка Host (защита от DNS-rebinding: страница чужого домена, перенацеленная
 # на 127.0.0.1, приходит с чужим Host). По умолчанию — только локальные имена, что верно для
 # EXE-режима (слушает 127.0.0.1) и разработки. Для серверного развёртывания добавьте реальное имя
-# хоста, например INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local,10.0.0.5; '*' отключает проверку
-# (так по умолчанию задано в docker-compose.yml, чтобы обновление не ломало доступ по IP).
+# хоста, например INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local; '*' отключает проверку целиком (при выключенной
+# аутентификации это открывает реестр чужим веб-страницам через DNS-rebinding, при старте пишется предупреждение).
 ALLOWED_HOSTS = _csv_env('INFRA_REGISTRY_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+# Принимать заголовок Host в виде IP-адреса (http://10.0.0.5:8000) независимо от списка ALLOWED_HOSTS. При DNS-rebinding в Host всегда
+# стоит имя домена злоумышленника — IP-адрес подменить через DNS нельзя, поэтому такой доступ безопасен и не требует перечислять адрес
+# сервера в настройках. Включено в docker-compose.yml (там сервер открывают по адресу компьютера); вне compose по умолчанию выключено:
+# запуск из исходников и EXE слушают только 127.0.0.1, а при клиентах из сети IP-адрес принимается и без этого флага (см. main.install_http_security).
+ACCEPT_IP_HOSTS = _flag_env('INFRA_REGISTRY_ACCEPT_IP_HOSTS')
 
 # Адреса и подсети клиентов, которым разрешено подключаться (через запятую: 192.168.1.15,10.0.5.0/24).
 # Пусто — фильтра нет и пускаются все (Docker, запуск из исходников: доступ там ограничивает сетевая
@@ -179,4 +190,4 @@ AUTH_KNOWN_CLIENT_DAYS = int(os.getenv('INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS', 
 # Интерактивная документация API (/docs, /redoc, /openapi.json) по умолчанию выключена: она раскрывает полную карту API и
 # моделей данных любому посетителю (проверка входа касается только /api/*), а Swagger UI/ReDoc подгружают скрипты с внешнего CDN —
 # в закрытом контуре страницы всё равно не работают. Для разработки: INFRA_REGISTRY_ENABLE_DOCS=1 (страницы открыты без входа).
-ENABLE_DOCS = os.getenv('INFRA_REGISTRY_ENABLE_DOCS', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+ENABLE_DOCS = _flag_env('INFRA_REGISTRY_ENABLE_DOCS')

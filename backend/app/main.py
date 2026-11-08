@@ -12,6 +12,7 @@ from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .config import (
+    ACCEPT_IP_HOSTS,
     ALLOWED_CLIENTS,
     ALLOWED_HOSTS,
     APP_VERSION,
@@ -93,15 +94,17 @@ def install_http_security(
     allowed_clients: list[IPNetwork] | None = None,
     trust_forwarded_host: bool = False,
     max_body_bytes: int | None = None,
+    accept_ip_hosts: bool = False,
 ) -> None:
     """CORS, проверка заголовка Host, проверка origin, предел размера тела и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
 
     - Пустой cors_origins — CORS не включается вовсе: чужие origin'ы не получают ни заголовков
       Access-Control-*, ни ответа на preflight, то есть браузер не даст стороннему сайту читать API.
     - allowed_hosts — TrustedHostMiddleware отвечает 400 на любой Host вне списка (защита от
-      DNS-rebinding); '*' в списке разрешает любой Host. Если разрешены клиенты не только с этого компьютера,
-      Host в виде IP-адреса принимается всегда (http://192.168.1.10:8000): подменить его через DNS нельзя,
-      а перечислять в настройках адрес сервера было бы лишним шагом.
+      DNS-rebinding); '*' в списке разрешает любой Host. Если разрешены клиенты не только с этого компьютера
+      либо включён accept_ip_hosts (INFRA_REGISTRY_ACCEPT_IP_HOSTS), Host в виде IP-адреса принимается всегда
+      (http://192.168.1.10:8000): подменить его через DNS нельзя, а перечислять в настройках адрес сервера
+      было бы лишним шагом. Имена по-прежнему проверяются по списку.
     - allowed_clients — подсети, с которых принимаются подключения (403 всем остальным). Пустой или None —
       без ограничений по адресу. Фильтр — САМЫЙ внешний слой: чужой адрес не доходит ни до проверки
       Host, ни до аутентификации.
@@ -121,7 +124,7 @@ def install_http_security(
     if cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
     trusted_hosts = allowed_hosts or ['localhost', '127.0.0.1']
-    if allowed_clients and has_remote_clients(allowed_clients):
+    if accept_ip_hosts or (allowed_clients and has_remote_clients(allowed_clients)):
         app.add_middleware(IpLiteralTrustedHostMiddleware, allowed_hosts=trusted_hosts)
     else:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
@@ -136,6 +139,7 @@ install_http_security(
     allowed_clients=ALLOWED_CLIENT_NETWORKS,
     trust_forwarded_host=forwarded_host_trusted(FORWARDED_ALLOW_IPS),
     max_body_bytes=MAX_REQUEST_BODY_BYTES,
+    accept_ip_hosts=ACCEPT_IP_HOSTS,
 )
 app.include_router(auth_router)
 app.include_router(preferences_router)
@@ -212,6 +216,7 @@ def seed_catalogs_on_startup():
         auth_settings = get_or_create_auth_settings(session)
         _warn_if_insecure_server_config(auth_settings.enabled)
         _warn_if_remote_access_without_auth(auth_settings.enabled)
+        _warn_if_host_check_disabled(auth_settings.enabled)
         _warn_if_weak_secrets()
     finally:
         session.close()
@@ -248,6 +253,21 @@ def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
         "Доступ по сети открыт, но аутентификация выключена: любой компьютер из списка разрешённых клиентов "
         "может читать и менять реестр без входа. Включите её на этом компьютере: "
         "«Настройки → Аутентификация» (создайте администратора и включите вход)."
+    )
+
+def _warn_if_host_check_disabled(auth_enabled: bool) -> None:
+    """Проверка заголовка Host выключена ('*' в INFRA_REGISTRY_ALLOWED_HOSTS), а аутентификация выключена (код-ревью, R1-01).
+
+    Охранник same-origin сравнивает Origin с Host: при DNS-rebinding браузер жертвы шлёт Host: evil.example и Origin: http://evil.example,
+    оба заголовка совпадают и запрос проходит — страница в браузере пользователя читает и меняет весь реестр. Предупреждение зависит
+    только от самой опасной настройки, а не от типа БД (в отличие от _warn_if_insecure_server_config, которая выходит на SQLite).
+    Запуск НЕ блокируется: администратор мог выбрать '*' осознанно, например за прокси, который сам проверяет Host."""
+    if auth_enabled or "*" not in ALLOWED_HOSTS:
+        return
+    logger.warning(
+        "Проверка заголовка Host отключена (INFRA_REGISTRY_ALLOWED_HOSTS=*) при выключенной аутентификации: "
+        "веб-страница в браузере пользователя может обратиться к реестру через DNS-rebinding. "
+        "Перечислите реальные имена сервера в INFRA_REGISTRY_ALLOWED_HOSTS или включите аутентификацию."
     )
 
 def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
