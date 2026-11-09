@@ -7,6 +7,7 @@
 finalize_sheet обходит все ячейки готового листа, а при потоковой записи он недоступен.
 """
 from __future__ import annotations
+import unicodedata
 from pathlib import Path
 from typing import Iterator
 from openpyxl import Workbook
@@ -44,6 +45,21 @@ def _audit_rows(session: Session, filters: dict | None, date_from: str | None, d
         if len(items) < limit:
             return
         offset += limit
+
+
+# Имя файла отчёта журнала аудита начинается с этого префикса. Его читает и скачивание (api/reports.py: файл только для администратора), поэтому
+# генератор имени и проверка обязаны брать одну константу — иначе переименование префикса молча сняло бы защиту (R1-05 код-ревью).
+AUDIT_REPORT_PREFIX = "Журнал_аудита_"
+
+
+def _comparable(text: str) -> str:
+    return unicodedata.normalize("NFC", text).casefold()
+
+
+def is_audit_report_name(name: str) -> bool:
+    """Это имя файла отчёта журнала аудита? Регистр и форма Unicode не важны: файловые системы Windows и macOS находят файл по имени без
+    учёта регистра, и проверка по точному префиксу обходилась бы именем `журнал_аудита_…`."""
+    return _comparable(name).startswith(_comparable(AUDIT_REPORT_PREFIX))
 
 
 def build_audit_log_report(session: Session, report_dir: Path, date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None) -> Path:
@@ -96,6 +112,6 @@ def build_audit_log_report(session: Session, report_dir: Path, date_from: str | 
         ws.auto_filter.ref = f"A1:{get_column_letter(len(AUDIT_HEADERS))}{count + 1}"
 
     report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / f"Журнал_аудита_{local_timestamp_suffix()}.xlsx"
+    path = report_dir / f"{AUDIT_REPORT_PREFIX}{local_timestamp_suffix()}.xlsx"
     wb.save(path)
     return path

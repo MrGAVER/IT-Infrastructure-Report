@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import Topbar from '../Topbar.vue'
 import { useAuthStore } from '../../stores/auth'
-import { declaration, mediaBlock, readStyles, ruleBody } from '../../__tests__/cssSource'
+import { declaration, mediaBlock, readSource, readStyles, ruleBody } from '../../__tests__/cssSource'
 
 const replaceMock = vi.fn()
 vi.mock('vue-router', () => ({
@@ -90,13 +90,18 @@ describe('Topbar.vue — вёрстка (UI-5, UI-7)', () => {
     }
   })
 
-  // UI-5: топбар прокручивался вместе со страницей; z-index ниже подложки мобильного меню (25), самого меню (30) и модалок (60+).
+  // UI-5: топбар прокручивался вместе со страницей; слой ниже подложки мобильного меню, самого меню и модалок. Слой задан токеном
+  // (хвост F-03), поэтому число берём из шкалы в theme.css, а не из правила компонента.
   it('UI-5: топбар закреплён вверху окна под подложкой меню и модалками', () => {
+    const theme = readSource('src/styles/theme.css')
+    const layer = (name: string): number => Number(new RegExp(`--${name}:\\s*(\\d+)`).exec(theme)?.[1])
     const body = ruleBody(styles, '.topbar')
     expect(declaration(body, 'position')).toBe('sticky')
     expect(declaration(body, 'top')).toBe('0')
-    expect(Number(declaration(body, 'z-index'))).toBeLessThan(25)
-    expect(Number(declaration(body, 'z-index'))).toBeGreaterThan(0)
+    expect(declaration(body, 'z-index')).toBe('var(--z-raised)')
+    expect(layer('z-raised')).toBeGreaterThan(0)
+    expect(layer('z-raised')).toBeLessThan(layer('z-sidebar-backdrop'))
+    expect(layer('z-raised')).toBeLessThan(layer('z-modal'))
   })
 })
 

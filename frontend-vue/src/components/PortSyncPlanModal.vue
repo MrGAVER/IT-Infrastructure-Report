@@ -13,7 +13,7 @@ import { ApiError } from '../api/client'
 import { applyPortSync, previewPortSync, type PortSyncScope } from '../api/portSync'
 import type { PortSyncApplyResult, PortSyncPlan, PortSyncPlanItem } from '../api/types'
 import { useAuthStore } from '../stores/auth'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import { OUTCOME_LABELS, changeLines, optionLine, plannedTargets, summaryLine } from '../utils/portSyncRules'
 
@@ -21,7 +21,6 @@ const props = defineProps<{ scope: PortSyncScope; title?: string }>()
 // Предпросмотр плана доступен и роли «только чтение» (ничего не записывает); применить план может только тот, кто меняет данные.
 const canWrite = computed(() => useAuthStore().canWrite)
 const emit = defineEmits<{ close: []; applied: [result: PortSyncApplyResult] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 const { notify } = useToast()
 
 const plan = ref<PortSyncPlan | null>(null)
@@ -98,7 +97,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-label="title ?? 'Согласование портов по правилам'">
       <div class="modal-head">
         <h2>{{ title ?? 'Согласование портов по правилам' }}</h2>
@@ -176,21 +175,10 @@ onMounted(load)
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 760px;

@@ -20,13 +20,12 @@ import type { Device, DeviceInterface, InterfaceDraftRow, InterfaceGroupDraft, V
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig } from '../utils/portConflicts'
 
 const props = defineProps<{ deviceId: string; deviceLabel: string }>()
 const emit = defineEmits<{ close: []; saved: [deviceId: string, items: DeviceInterface[]] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -107,60 +106,43 @@ async function submit() {
 </script>
 
 <template>
-  <!-- Teleport в body: эта модалка может открываться поверх ConnectionFormModal.vue (сама тоже
-       модалка) — без Teleport получился бы вложенный position:fixed оверлей внутри оверлея
-       (двойное затемнение фона) вместо чистой замены поверх экрана. Тот же приём, что
-       QuickAddModal.vue, хоть и по другой причине (там — во избежание вложенного <form>). -->
-  <Teleport to="body">
-    <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
-        <div class="modal-head">
-          <h2 :id="titleId">Порты устройства «{{ deviceLabel }}»</h2>
-          <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
-            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
-          </button>
-        </div>
+  <BaseModal @close="emit('close')">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+      <div class="modal-head">
+        <h2 :id="titleId">Порты устройства «{{ deviceLabel }}»</h2>
+        <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
+      </div>
 
-        <div v-if="errorMessage" class="form-error">
-          <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-          {{ errorMessage }}
-        </div>
+      <div v-if="errorMessage" class="form-error">
+        <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+        {{ errorMessage }}
+      </div>
 
-        <p v-if="loading" class="loading-hint">Загрузка портов устройства…</p>
-        <DeviceInterfacesEditor
-          v-else
-          v-model="interfaces"
-          v-model:groups="interfaceGroups"
-          :type-options="catalogs.items['interface-types'] ?? []"
-          :speed-options="catalogs.items['interface-speeds'] ?? []"
-          :vlan-options="portVlanOptions"
-          :protocol-port-catalog="catalogs.protocolPortCatalog"
-          :device-id="props.deviceId"
-        />
+      <p v-if="loading" class="loading-hint">Загрузка портов устройства…</p>
+      <DeviceInterfacesEditor
+        v-else
+        v-model="interfaces"
+        v-model:groups="interfaceGroups"
+        :type-options="catalogs.items['interface-types'] ?? []"
+        :speed-options="catalogs.items['interface-speeds'] ?? []"
+        :vlan-options="portVlanOptions"
+        :protocol-port-catalog="catalogs.protocolPortCatalog"
+        :device-id="props.deviceId"
+      />
 
-        <div class="modal-foot">
-          <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-          <button type="button" class="btn btn-primary" :disabled="saving || loading" @click="submit">
-            {{ saving ? 'Сохранение…' : 'Сохранить порты' }}
-          </button>
-        </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
+        <button type="button" class="btn btn-primary" :disabled="saving || loading" @click="submit">
+          {{ saving ? 'Сохранение…' : 'Сохранить порты' }}
+        </button>
       </div>
     </div>
-  </Teleport>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* Фикс п.3.2: было 640px фиксированных — та же ширина, что DeviceFormModal.vue до её

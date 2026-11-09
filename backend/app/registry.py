@@ -35,7 +35,7 @@ MODEL_MAP = {
 
 DISPLAY_NAMES = {
     'support-organizations':'Организации технической поддержки', 'support-methods':'Способы оказания технической поддержки', 'crypto-protection-means':'Средства криптографической защиты информации (СКЗИ)', 'departments':'Подразделения', 'structural-units':'Структурные единицы', 'buildings':'Здания', 'rooms':'Помещения', 'racks':'Стойки',
-    'device-categories':'Категории устройств (диаграмма топологии сети)', 'device-types':'Типы устройств', 'manufacturers':'Производители', 'device-models':'Каталог оборудования (Производитель → Тип → Модель)', 'diagram-icons':'Пользовательские иконки диаграммы', 'diagrams':'Диаграммы топологии сети',
+    'device-categories':'Категории устройств (диаграмма топологии сети)', 'device-types':'Типы устройств', 'manufacturers':'Производители', 'device-models':'Каталог оборудования (Производитель → Тип → Модель)', 'diagram-icons':'Пользовательские иконки диаграммы', 'diagrams':'Диаграммы топологии сети',  # нет в MODEL_MAP, но это entity_type записей аудита api/diagrams.py — подпись нужна журналу (test_registry_display_names.py)
     'os-categories':'Категории ОС', 'operating-systems':'ОС и гипервизоры', 'embedded-os':'Встроенные ОС', 'device-type-vlans':'VLAN типов устройств', 'device-vlans':'VLAN физических устройств', 'devices':'Физические устройства',
     'information-systems':'Информационные системы', 'is-departments':'ИС ↔ подразделения', 'is-protocols':'Протоколы ИС', 'protocol-port-catalog':'Справочник протоколов и портов',
     'placement-assets':'Оборудование, ПО, интерфейс на которых размещается ИС', 'is-placement-assets':'ИС ↔ оборудование/ПО/интерфейс размещения',

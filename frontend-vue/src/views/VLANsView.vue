@@ -10,6 +10,7 @@ import { usePagedList } from '../composables/usePagedList'
 import type { Device, VLANDefinition } from '../api/types'
 import StatCard from '../components/StatCard.vue'
 import PagedListFooter from '../components/PagedListFooter.vue'
+import ListEmptyState from '../components/ListEmptyState.vue'
 import VLANFormModal from '../components/VLANFormModal.vue'
 import VLANDomainsPanel from '../components/VLANDomainsPanel.vue'
 import StaleSubinterfacesPanel from '../components/StaleSubinterfacesPanel.vue'
@@ -63,7 +64,7 @@ async function reloadAll() {
 // Постранично выводятся группы по номеру VLAN (карточка «VLAN 10» со всеми определениями по доменам остаётся целой).
 const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
   () => vlans.filtered,
-  { listId: 'vlans', defaultPageSize: 10 },
+  { listId: 'vlans' },
 )
 // Без сброса страницы поиск оставлял бы пустой экран: список после фильтра короче, а номер страницы прежний.
 watch(
@@ -242,7 +243,15 @@ async function removeDefinition(d: VLANDefinition) {
       {{ vlans.error }}
     </div>
     <div v-else-if="vlans.loading && !vlans.loaded" class="loading-banner">Загрузка VLAN…</div>
-    <div v-else-if="!vlans.filtered.length" class="empty-banner card">Ничего не найдено по заданным фильтрам.</div>
+    <div v-else-if="!vlans.filtered.length" class="empty-banner card">
+      <ListEmptyState
+        :registry-empty="!vlans.groups.length"
+        empty-text="VLAN пока нет."
+        :action-label="auth.canWrite ? 'Добавить VLAN' : undefined"
+        @action="openCreate"
+        @reset="vlans.resetFilters()"
+      />
+    </div>
 
     <template v-else>
       <div class="groups">
@@ -366,6 +375,7 @@ async function removeDefinition(d: VLANDefinition) {
   padding: 20px;
   color: var(--ink-muted);
   font-size: 12.5px;
+  text-align: center;
 }
 .error-banner {
   color: var(--status-crit);

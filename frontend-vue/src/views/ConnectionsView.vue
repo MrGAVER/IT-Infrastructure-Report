@@ -15,6 +15,7 @@ import PagerNav from '../components/PagerNav.vue'
 import PortSyncPlanModal from '../components/PortSyncPlanModal.vue'
 import StatCard from '../components/StatCard.vue'
 import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
+import ListEmptyRow from '../components/ListEmptyRow.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
 import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
@@ -379,9 +380,16 @@ async function removeConnection(c: Connection) {
                 </div>
               </td>
             </tr>
-            <tr v-if="!dashboard.items.length">
-              <td colspan="7" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
-            </tr>
+            <!-- «Реестр пуст» — по итогам всего реестра (summary), а не по текущей странице: на ней пусто и тогда, когда фильтр ничего не оставил. -->
+            <ListEmptyRow
+              v-if="!dashboard.items.length"
+              :colspan="7"
+              :registry-empty="!dashboard.summary.total"
+              empty-text="Подключений пока нет."
+              :action-label="auth.canWrite ? 'Добавить подключение' : undefined"
+              @action="openCreate"
+              @reset="dashboard.resetFilters()"
+            />
           </tbody>
         </table>
       </ScrollableTableWrap>
@@ -564,11 +572,6 @@ tr:hover .port-manage-btn {
 .port-badge:hover {
   border-color: var(--brand);
   color: var(--brand);
-}
-.empty-row {
-  text-align: center;
-  color: var(--ink-muted);
-  padding: 26px 14px;
 }
 .error-banner {
   display: flex;

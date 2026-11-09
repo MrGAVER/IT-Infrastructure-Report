@@ -125,7 +125,8 @@ def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
 # on*, любые ссылки не на элемент внутри самого документа (#id) и url(...) не на #id.
 #
 # Цена: иконки из внешних редакторов с метаданными (inkscape:/sodipodi:), <style>, <image> и <a> не
-# проходят — их нужно очистить перед загрузкой; сообщение об ошибке называет проблемный тег.
+# проходят — их нужно очистить перед загрузкой; сообщение об ошибке называет проблемный тег. Атрибут style тоже
+# не принимается (клиент вырезает его при отрисовке — цвет задаётся fill/stroke), см. _check_attribute.
 _SVG_NS = "http://www.w3.org/2000/svg"
 _XLINK_NS = "http://www.w3.org/1999/xlink"
 _ALLOWED_SVG_TAGS = frozenset({
@@ -150,6 +151,11 @@ def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
     lowered = value.strip().lower()
     if name.startswith("on"):
         raise _reject(f"обработчик событий «{name}» в теге «{tag}» запрещён")
+    if name == "style":
+        # Клиент (frontend-vue/src/utils/sanitizeSvg.ts) вырезает style целиком; без этой проверки иконка со style сохранялась бы и
+        # отрисовывалась иначе, чем ожидал автор (R1-06). Проверка выполняется только при записи (validate_svg_markup вызывается
+        # валидатором создания/изменения иконки): уже сохранённые иконки при чтении и экспорте не отвергаются.
+        raise _reject(f"атрибут «style» в теге «{tag}» не поддерживается — задайте цвет отдельными атрибутами fill и stroke")
     if name == "href" and not lowered.startswith("#"):
         raise _reject(f"ссылка «{name}» в теге «{tag}» может указывать только на элемент документа (#id)")
     if "script" in lowered or "expression(" in lowered:

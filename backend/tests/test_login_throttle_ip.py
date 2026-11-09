@@ -2,7 +2,7 @@
 
 Ключ троттлинга (IP, логин) обходился сменой логина: каждая выдуманная пара получала «первую» попытку, и ни одна не
 задерживалась, при том что попытка с несуществующим логином стоит одного PBKDF2 (≈0,5 с CPU), а /login — синхронный
-эндпоинт в ограниченном пуле потоков. Теперь есть второй счётчик на адрес (services/auth.ip_throttle), число одновременных
+эндпоинт в ограниченном пуле потоков. Теперь есть второй счётчик на адрес (services/auth/login.ip_throttle), число одновременных
 проверок пароля ограничено (_HASH_SLOTS → 503), а длина паролей — 256 символов.
 
 Время в счётчике по адресу — управляемые часы: задержки проверяются точно и не зависят от скорости машины.
@@ -16,7 +16,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.schemas import MAX_PASSWORD_LENGTH
-from app.services import auth as auth_module
+from app.services.auth import login as login_module
 from app.services.login_throttle import LoginThrottle
 
 LOGIN_URL = "/api/v1/auth/login"
@@ -38,9 +38,9 @@ class FakeClock:
 def ip_clock(monkeypatch) -> FakeClock:
     """Счётчик по адресу с теми же параметрами, что у боевого, но на управляемых часах."""
     clock = FakeClock()
-    prod = auth_module.ip_throttle
+    prod = login_module.ip_throttle
     monkeypatch.setattr(
-        auth_module, "ip_throttle",
+        login_module, "ip_throttle",
         LoginThrottle(free_attempts=prod.free_attempts, base_delay=prod.base_delay, max_delay=prod.max_delay, window=prod.window, clock=clock),
     )
     return clock
@@ -63,7 +63,7 @@ def _admin_login(client):
 
 def _spend_free_attempts(client) -> None:
     """Исчерпывает бесплатные попытки адреса разными выдуманными логинами: 401 на каждой, ни одной задержки."""
-    free = auth_module.ip_throttle.free_attempts
+    free = login_module.ip_throttle.free_attempts
     for i in range(free):
         assert _fail_login(client, f"ghost-{i}").status_code == 401
 
@@ -71,12 +71,12 @@ def _spend_free_attempts(client) -> None:
 class TestProductionSettings:
     def test_ip_throttle_is_more_lenient_than_the_pair_throttle(self):
         """За одним адресом бывает много честных пользователей (NAT офиса): порог по адресу выше, чем по паре."""
-        assert auth_module.ip_throttle.free_attempts == 20
-        assert auth_module.ip_throttle.free_attempts > auth_module.login_throttle.free_attempts
-        assert auth_module.ip_throttle.max_delay == 300.0
+        assert login_module.ip_throttle.free_attempts == 20
+        assert login_module.ip_throttle.free_attempts > login_module.login_throttle.free_attempts
+        assert login_module.ip_throttle.max_delay == 300.0
 
     def test_hash_slot_count_is_small(self):
-        assert auth_module._HASH_SLOT_COUNT == 4
+        assert login_module._HASH_SLOT_COUNT == 4
 
 
 class TestThrottleByAddress:
@@ -134,8 +134,8 @@ class TestThrottleByAddress:
         def _forbidden(*_args, **_kwargs):
             raise AssertionError("PBKDF2 не должен вызываться для заблокированного адреса")
 
-        monkeypatch.setattr(auth_module, "hash_password", _forbidden)
-        monkeypatch.setattr(auth_module, "verify_password", _forbidden)
+        monkeypatch.setattr(login_module, "hash_password", _forbidden)
+        monkeypatch.setattr(login_module, "verify_password", _forbidden)
         assert _fail_login(client, "ghost-b").status_code == 429
         assert _admin_login(client).status_code == 429
 
@@ -151,7 +151,7 @@ class TestThrottleByAddress:
         _bootstrap_admin(client)
         _spend_free_attempts(client)
         assert _fail_login(client, "ghost-a").status_code == 401
-        ip_clock.advance(auth_module.ip_throttle.window + 1)
+        ip_clock.advance(login_module.ip_throttle.window + 1)
         assert _fail_login(client, "ghost-b").status_code == 401  # окно истекло: счёт неудач начался заново
         assert _fail_login(client, "ghost-c").status_code == 401
 
@@ -161,7 +161,7 @@ class TestHashSlots:
         _bootstrap_admin(client)
         slots = threading.BoundedSemaphore(1)
         assert slots.acquire(blocking=False)
-        monkeypatch.setattr(auth_module, "_HASH_SLOTS", slots)
+        monkeypatch.setattr(login_module, "_HASH_SLOTS", slots)
         for username in ("admin", "ghost"):
             r = client.post(LOGIN_URL, json={"username": username, "password": ADMIN_PASSWORD})
             assert r.status_code == 503, r.text
@@ -174,16 +174,16 @@ class TestHashSlots:
         _bootstrap_admin(client)
         slots = threading.BoundedSemaphore(1)
         slots.acquire()
-        monkeypatch.setattr(auth_module, "_HASH_SLOTS", slots)
+        monkeypatch.setattr(login_module, "_HASH_SLOTS", slots)
         for i in range(5):
             assert client.post(LOGIN_URL, json={"username": "admin" if i % 2 else f"ghost-{i}", "password": "x1"}).status_code == 503
-        assert len(auth_module.ip_throttle) == 0
-        assert len(auth_module.login_throttle) == 0
+        assert len(login_module.ip_throttle) == 0
+        assert len(login_module.login_throttle) == 0
 
     def test_slots_are_released_after_every_outcome(self, client):
         """Утечка слота хоть на одном пути (успех, неверный пароль, неизвестный логин) через пару входов вернула бы 503 всем."""
         _bootstrap_admin(client)
-        for i in range(auth_module._HASH_SLOT_COUNT + 2):
+        for i in range(login_module._HASH_SLOT_COUNT + 2):
             assert _admin_login(client).status_code == 200
             assert client.post(LOGIN_URL, json={"username": "admin", "password": "wrong-pass1"}).status_code == 401
             assert _fail_login(client, f"ghost-{i}").status_code == 401
@@ -191,22 +191,22 @@ class TestHashSlots:
 
     def test_slot_is_released_when_the_block_raises(self, monkeypatch):
         slots = threading.BoundedSemaphore(1)
-        monkeypatch.setattr(auth_module, "_HASH_SLOTS", slots)
+        monkeypatch.setattr(login_module, "_HASH_SLOTS", slots)
         with pytest.raises(RuntimeError):
-            with auth_module._password_hash_slot():
+            with login_module._password_hash_slot():
                 raise RuntimeError("сбой внутри хеширования")
         assert slots.acquire(blocking=False), "слот должен освободиться даже при исключении"
 
     def test_parallel_holders_never_exceed_the_slot_count(self, monkeypatch):
         """12 потоков одновременно: четверо удерживают слот, остальные восемь сразу получают 503 и не ждут в очереди."""
-        monkeypatch.setattr(auth_module, "_HASH_SLOTS", threading.BoundedSemaphore(4))
+        monkeypatch.setattr(login_module, "_HASH_SLOTS", threading.BoundedSemaphore(4))
         gate = threading.Event()
         lock = threading.Lock()
         state = {"inside": 0, "peak": 0, "rejected": []}
 
         def worker() -> None:
             try:
-                with auth_module._password_hash_slot():
+                with login_module._password_hash_slot():
                     with lock:
                         state["inside"] += 1
                         state["peak"] = max(state["peak"], state["inside"])
@@ -247,11 +247,11 @@ class TestPasswordLengthLimit:
         def _forbidden(*_args, **_kwargs):
             raise AssertionError("PBKDF2 не должен вызываться для слишком длинного пароля")
 
-        monkeypatch.setattr(auth_module, "hash_password", _forbidden)
-        monkeypatch.setattr(auth_module, "verify_password", _forbidden)
+        monkeypatch.setattr(login_module, "hash_password", _forbidden)
+        monkeypatch.setattr(login_module, "verify_password", _forbidden)
         r = client.post(LOGIN_URL, json={"username": "admin", "password": self.TOO_LONG})
         assert r.status_code == 422
-        assert len(auth_module.ip_throttle) == 0  # отказ валидации — не неудачная попытка входа
+        assert len(login_module.ip_throttle) == 0  # отказ валидации — не неудачная попытка входа
 
     def test_a_256_character_password_can_be_set_and_used_to_log_in(self, client):
         """Предел одинаков на создании и на входе: принятый при создании пароль должно быть возможно ввести."""

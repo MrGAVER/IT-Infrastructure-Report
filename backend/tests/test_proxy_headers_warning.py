@@ -1,4 +1,4 @@
-"""Предупреждение о прокси, которому не доверяет uvicorn (services/auth.py, ревью 2.158.0, П-3).
+"""Предупреждение о прокси, которому не доверяет uvicorn (services/auth/proxy_headers.py, ревью 2.158.0, П-3).
 
 Если обратный прокси не перечислен в FORWARDED_ALLOW_IPS, адрес клиента у всех — адрес прокси: троттлинг входа и «знакомые
 адреса» становятся общими. Сервер один раз за процесс пишет предупреждение, когда приходит заголовок прокси от адреса,
@@ -15,16 +15,16 @@ import logging
 import pytest
 from starlette.requests import Request
 
-from app.services import auth as auth_module
+from app.services.auth import proxy_headers as proxy_module
 
-LOGGER_NAME = auth_module.__name__
+LOGGER_NAME = "app.services.auth"  # прежнее имя логгера: фильтры и настройки журнала по нему продолжают работать
 HEALTH_URL = "/api/v1/health"
 
 
 @pytest.fixture(autouse=True)
 def _fresh_warning_flag(monkeypatch):
     """Флаг «уже предупредили» живёт в процессе: каждый тест начинает с невыданного предупреждения и не оставляет следа."""
-    monkeypatch.setattr(auth_module, "_proxy_headers_warned", False)
+    monkeypatch.setattr(proxy_module, "_proxy_headers_warned", False)
 
 
 def _warnings(caplog) -> list[logging.LogRecord]:
@@ -129,16 +129,16 @@ class TestUntrustedProxyHeaderHelper:
         ({"X-Forwarded-For": "203.0.113.5"}, None, None),
     ])
     def test_detection(self, headers, client, expected):
-        assert auth_module._untrusted_proxy_header(_request(headers, client)) == expected
+        assert proxy_module._untrusted_proxy_header(_request(headers, client)) == expected
 
     @pytest.mark.parametrize("raw, expected", [
         ("1.2.3.4", "1.2.3.4"), (" 1.2.3.4 ", "1.2.3.4"), ("1.2.3.4:80", "1.2.3.4"),
         ("[::1]:8080", "::1"), ("[::1]", "::1"), ("2001:db8::7", "2001:db8::7"), ("", ""),
     ])
     def test_normalize_host_matches_uvicorn_parsing(self, raw, expected):
-        assert auth_module._normalize_host(raw) == expected
+        assert proxy_module._normalize_host(raw) == expected
 
     def test_equivalent_ipv6_spellings_are_the_same_host(self):
-        assert auth_module._same_host("2001:db8::7", "2001:DB8:0:0:0:0:0:7")
-        assert not auth_module._same_host("2001:db8::7", "2001:db8::8")
-        assert auth_module._same_host("Proxy.Local", "proxy.local")  # не IP-литерал: сравнение строк без регистра
+        assert proxy_module._same_host("2001:db8::7", "2001:DB8:0:0:0:0:0:7")
+        assert not proxy_module._same_host("2001:db8::7", "2001:db8::8")
+        assert proxy_module._same_host("Proxy.Local", "proxy.local")  # не IP-литерал: сравнение строк без регистра

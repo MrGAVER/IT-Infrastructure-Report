@@ -26,8 +26,6 @@ PUBLIC_API = [
     "get_interface_groups", "list_interface_groups", "sync_interfaces", "sync_device_vlans",
     "sync_device_deployed_software", "sync_vm_open_ports", "sync_vm_ip_addresses", "sync_vm_deployed_software",
     "sync_owner_open_ports", "sync_owner_ip_addresses", "sync_owner_deployed_software",
-    # приватные имена, на которые ссылаются тесты
-    "_RESOURCE_VALIDATORS", "_find_referencing_counts", "_POLYMORPHIC_OWNER_CLEANUP",
 ]
 
 
@@ -93,6 +91,15 @@ def test_all_lists_every_public_definition_and_every_name_resolves():
     assert public <= set(crud.__all__), f"публичные имена вне __all__: {sorted(public - set(crud.__all__))}"
     for name in crud.__all__:
         assert hasattr(crud, name), f"{name} есть в __all__, но не импортируется из пакета"
+
+
+def test_facade_exports_no_private_names():
+    """R1-08 код-ревью: фасад отдаёт только публичный API. Раньше он реэкспортировал около сотни имён с «_» ради тестов и стирал границу между
+    публичным и внутренним API пакета. Тесту нужен помощник — пусть импортирует его из подмодуля (`app.services.crud.validators`)."""
+    private_in_all = [name for name in crud.__all__ if name.startswith("_")]
+    assert private_in_all == [], f"приватные имена в __all__: {private_in_all}"
+    leaked = [name for name in vars(crud) if name.startswith("_") and not (name.startswith("__") and name.endswith("__"))]
+    assert leaked == [], f"приватные имена в пространстве имён пакета (реэкспорт из подмодуля?): {leaked}"
 
 
 def test_every_name_in_all_resolves_to_its_defining_module():

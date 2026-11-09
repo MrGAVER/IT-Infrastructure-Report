@@ -1,4 +1,4 @@
-"""Тесты аутентификации/авторизации (app/services/auth.py, app/api/auth.py).
+"""Тесты аутентификации/авторизации (пакет app/services/auth, app/api/auth.py).
 
 Каждый тест получает изолированную in-memory БД (фикстура client/db_session из conftest.py),
 поэтому AuthSettings всегда стартует в состоянии по умолчанию: enabled=False.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 def _bootstrap_admin(client, username: str = "admin", password: str = "Admin1234") -> dict:
     """Заводит первого администратора, пока аутентификация ещё выключена (открытый bootstrap,
-    см. docstring services/auth.set_auth_enabled) и включает переключатель."""
+    см. docstring services/auth/settings.set_auth_enabled) и включает переключатель."""
     r = client.post("/api/v1/auth/users", json={"username": username, "password": password, "role": "admin"})
     assert r.status_code == 201, r.text
     r = client.put("/api/v1/auth/settings", json={"enabled": True})
@@ -95,11 +95,12 @@ class TestLoginFlow:
     def test_account_locks_after_max_failed_attempts(self, client, monkeypatch):
         # Порог — настраиваемая константа (по умолчанию 10), а троттлинг входа по IP (см.
         # services/login_throttle.py) здесь отключён: тест проверяет именно блокировку аккаунта.
-        from app.services import auth as auth_module
+        from app.services.auth import lockout as lockout_module
+        from app.services.auth import login as login_module
         from app.services.login_throttle import LoginThrottle
 
-        monkeypatch.setattr(auth_module, "AUTH_MAX_FAILED_ATTEMPTS", 5)
-        monkeypatch.setattr(auth_module, "login_throttle", LoginThrottle(free_attempts=1000))
+        monkeypatch.setattr(lockout_module, "AUTH_MAX_FAILED_ATTEMPTS", 5)  # порог читает модуль блокировки
+        monkeypatch.setattr(login_module, "login_throttle", LoginThrottle(free_attempts=1000))  # authenticate читает троттлинг из модуля входа
         _bootstrap_admin(client)
         for _ in range(5):
             r = client.post("/api/v1/auth/login", json={"username": "admin", "password": "wrong-pass1"})
@@ -365,7 +366,8 @@ class TestConcurrencySafety:
         реальный параллелизм), но зафиксирует, что _increment_failed_attempts всё ещё существует
         и действительно выполняет UPDATE на уровне БД, а не полагается на объект user из другой
         сессии — та же ошибка класса, что была найдена и исправлена в change_own_password."""
-        from app.services.auth import _increment_failed_attempts, create_user
+        from app.services.auth import create_user
+        from app.services.auth.lockout import _increment_failed_attempts
 
         user = create_user(db_session, username="admin", password="Admin1234", role="admin")
         assert user.failed_attempts == 0

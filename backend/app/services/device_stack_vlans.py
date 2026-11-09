@@ -29,9 +29,10 @@ from ..models import (
 )
 from .crud import audit, validate_resource
 from .crud.stack_vlan_settings import (
-    Values, device_label, domain_members, link_values, member_devices, normalize_ip, outside_domain, plan_member_settings, setting_values,
+    Values, domain_members, link_values, member_devices, normalize_ip, outside_domain, plan_member_settings, setting_values,
     stack_settings, vlan_sort_key, write_link,
 )
+from .device_label import device_label
 from .integrity import integrity_error_response
 from .validation import validate_ipv4_field
 

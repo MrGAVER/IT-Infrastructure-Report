@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ConnectionResolutionPanel from '../ConnectionResolutionPanel.vue'
 import type { ConfigView } from '../../utils/connectionPortView'
@@ -86,10 +86,14 @@ describe('ConnectionResolutionPanel', () => {
     expect(wrapper.emitted('resolve')).toBeUndefined()
   })
 
-  it('это окно оповещения с подписью для скринридера', () => {
-    const root = mountPanel(view(['role'])).find('.resolution')
-    expect(root.attributes('role')).toBe('alertdialog')
+  // FE-08 (ревью ветки fix/code-review-main-f06-stage2-f05): панель лежит внутри уже открытого модального окна, поэтому это не
+  // alertdialog (вложенный «диалог» без ловушки фокуса и без возврата фокуса), а подписанная группа; сам вопрос — role="alert".
+  it('это подписанная группа внутри окна, а текст вопроса объявляется как оповещение', () => {
+    const wrapper = mountPanel(view(['role']))
+    const root = wrapper.find('.resolution')
+    expect(root.attributes('role')).toBe('group')
     expect(root.attributes('aria-label')).toBe('Расхождение конфигурации портов')
+    expect(wrapper.find('.warning-text').attributes('role')).toBe('alert')
   })
 
   it('пока панель показана, набор кнопок следует за изменением расхождения (пользователь сменил порт)', async () => {
@@ -99,5 +103,44 @@ describe('ConnectionResolutionPanel', () => {
     expect(actions(wrapper)).toEqual(['mode-keep-source', 'mode-keep-destination', 'approve', 'back'])
     expect(wrapper.find('[data-hint="port-setup"]').exists()).toBe(true)
     expect(wrapper.find('.warning-text').text()).toContain('(режим, VLAN)')
+  })
+})
+
+// FE-08: панель показывается вместо кнопок «Отмена / Сохранить» — нажатая кнопка «Сохранить» уходит из DOM, и фокус терялся на <body>
+// (проверено в Chromium). При появлении панель сама берёт фокус на первое действие.
+describe('ConnectionResolutionPanel: фокус при появлении (FE-08)', () => {
+  const mountAttached = (mismatch: ConfigView) => mount(ConnectionResolutionPanel, { props: { mismatch }, attachTo: document.body })
+  const mountedWrappers: Array<ReturnType<typeof mountAttached>> = []
+  const attach = (mismatch: ConfigView) => {
+    const wrapper = mountAttached(mismatch)
+    mountedWrappers.push(wrapper)
+    return wrapper
+  }
+  afterEach(() => {
+    while (mountedWrappers.length) mountedWrappers.pop()!.unmount()
+  })
+
+  it('роль различается — фокус на первой кнопке решения, а не на <body>', () => {
+    attach(view(['role']))
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement?.getAttribute('data-resolution')).toBe('keep-source')
+  })
+
+  it('различается только режим — фокус на первой кнопке, которая реально есть в панели', () => {
+    attach(view(['mode']))
+    expect(document.activeElement?.getAttribute('data-resolution')).toBe('mode-keep-source')
+  })
+
+  it('различаются только VLAN (выравнивать нечего) — фокус на «Оставить как есть», первом доступном действии', () => {
+    attach(view(['vlans']))
+    expect(document.activeElement?.getAttribute('data-resolution')).toBe('approve')
+  })
+
+  it('фокус внутри панели, и она не перехватывает его повторно, когда набор расхождений меняется', async () => {
+    const wrapper = attach(view(['role']))
+    const approve = wrapper.get('[data-resolution="approve"]').element as HTMLButtonElement
+    approve.focus() // пользователь перешёл к другой кнопке
+    await wrapper.setProps({ mismatch: view(['mode', 'vlans']) })
+    expect(document.activeElement).toBe(approve)
   })
 })

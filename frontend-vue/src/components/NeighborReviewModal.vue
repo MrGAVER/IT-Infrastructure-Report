@@ -3,7 +3,7 @@
 // «Все VLAN» отличаются от порта на другом конце подключения. Можно привести их к одному виду сейчас или сохранить как есть.
 // Состояние окна и применение — usePreSaveReview; окно показывает пункты и сообщает о выборе. Стоит ДО окна последствий каскада
 // режима порта (VlanModeCascadeModal): оно открывается из этого диалога и должно быть выше него.
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import type { ReviewItem } from '../utils/neighborReview'
 
 defineProps<{
@@ -17,12 +17,10 @@ const emit = defineEmits<{
   'apply-neighbor': [item: ReviewItem]
   'apply-current': [item: ReviewItem]
 }>()
-
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('finish', false))
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal :offset="60" @close="emit('finish', false)">
     <div class="conflict-modal review-modal card" role="alertdialog" aria-modal="true" aria-labelledby="neighbor-review-title">
       <div class="conflict-modal-head">
         <h3 id="neighbor-review-title">Настройки порта расходятся с соседним портом</h3>
@@ -72,7 +70,7 @@ const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('f
         <button type="button" class="btn btn-primary" @click="emit('finish', true)">{{ items.length ? 'Сохранить как есть' : 'Сохранить' }}</button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped src="../styles/interfaceModal.css"></style>

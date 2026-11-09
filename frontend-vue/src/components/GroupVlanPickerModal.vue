@@ -4,7 +4,7 @@
 // а не только на найденные поиском. Состояние выбора принадлежит окну группы: окно только показывает его и сообщает о кликах.
 import { computed, ref } from 'vue'
 import type { VLANDefinition } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { countSelectedVlans } from '../utils/groupDraftEdit'
 import { filterVlansByQuery, vlanLabel } from '../utils/vlan'
 
@@ -15,7 +15,6 @@ const props = defineProps<{
   allVlans: boolean
 }>()
 const emit = defineEmits<{ close: []; toggle: [vlanId: string, checked: boolean]; 'toggle-all': [checked: boolean] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 // Поиск не переживает закрытие окна: окно создаётся заново при каждом открытии, при повторном открытии список полный.
 const search = ref('')
@@ -24,7 +23,7 @@ const selectedCount = computed(() => countSelectedVlans(props.vlanIds, props.vla
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="vlan-picker-modal card" role="dialog" aria-modal="true" aria-label="Выбор VLAN группы">
       <div class="modal-head">
         <h2>Выбор VLAN группы</h2>
@@ -53,7 +52,7 @@ const selectedCount = computed(() => countSelectedVlans(props.vlanIds, props.vla
         <button type="button" class="btn btn-primary" @click="emit('close')">Готово</button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped src="../styles/groupModal.css"></style>

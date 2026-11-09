@@ -106,7 +106,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
   border: 1px solid var(--border-muted);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  z-index: 20;
+  z-index: var(--z-raised);
   overflow: hidden;
 }
 .split-btn-menu-item {

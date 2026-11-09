@@ -78,7 +78,8 @@ def test_final_message_names_the_real_data_location():
 
 class TestReadmeExe:
     @pytest.fixture(scope="class")
-    def text(self) -> str:
+    @classmethod
+    def text(cls) -> str:
         return README_EXE.read_text(encoding="utf-8")
 
     def test_covers_start_data_backup_and_network_access(self, text):

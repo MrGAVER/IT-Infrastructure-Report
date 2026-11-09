@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import InterfaceSubinterfacesEditor from '../InterfaceSubinterfacesEditor.vue'
+import ScrollableTableWrap from '../ScrollableTableWrap.vue'
 import SearchableSelect from '../SearchableSelect.vue'
 import { emptySubinterface } from '../../utils/subinterfaces'
 import type { ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../../api/types'
@@ -46,6 +47,13 @@ describe('InterfaceSubinterfacesEditor.vue', () => {
     const [added] = lastEmitted(wrapper)
     expect(added).toMatchObject({ name: '', vlan_id: '', ips: [], open_ports: [], is_management: false, is_data_transfer: false })
     expect(added.id).toBeUndefined()
+  })
+
+  it('F-05: таблица подинтерфейсов стоит в ScrollableTableWrap — на телефоне видна подсказка о прокрутке', () => {
+    const wrapper = mountEditor([emptySubinterface('Gi0/0', vlans[1])])
+    const wrap = wrapper.getComponent(ScrollableTableWrap)
+    expect(wrap.attributes('aria-label')).toBe('Подинтерфейсы')
+    expect(wrap.find('table.sub-table').exists()).toBe(true)
   })
 
   it('если на порту не выбраны VLAN — добавить подинтерфейс нельзя, подсказка объясняет почему', () => {

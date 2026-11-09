@@ -8,7 +8,7 @@ import { ref, useId } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useFormPreferencesStore } from '../stores/formPreferences'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 import { useDeviceDomains } from '../composables/useDeviceDomains'
 import { useDeviceDraft } from '../composables/useDeviceDraft'
@@ -28,7 +28,6 @@ const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -65,7 +64,7 @@ const { saving, submit } = useDeviceSave(draft, {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать устройство' : 'Добавить устройство' }}</h2>
@@ -136,21 +135,10 @@ const { saving, submit } = useDeviceSave(draft, {
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* Список интерфейсов (DeviceInterfacesEditor.vue) — таблица из 10 колонок; на типичных
@@ -158,7 +146,7 @@ const { saving, submit } = useDeviceSave(draft, {
      "Применить к выбранным" в последней колонке приходится прокручивать таблицу горизонтально.
      Увеличенные 70vw/1400px дают заметно больше места именно на таких окнах (напр. 1440px
      окно: было 720px, стало ~1008px), а нижняя граница 640px не меняется — на узких экранах
-     ничего не задевает, и там же по-прежнему работает .iface-table-wrap { overflow-x: auto }
+     ничего не задевает, и там же таблицу листают вбок (ScrollableTableWrap в DeviceInterfacesEditor.vue)
      как запасной вариант. */
   max-width: clamp(640px, 70vw, 1400px);
   padding: 20px 22px 18px;
@@ -187,7 +175,8 @@ const { saving, submit } = useDeviceSave(draft, {
 }
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr): таблица интерфейсов во всю ширину формы не должна растягивать колонки шире окна и на планшете. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 14px;
 }
 /* Свой экземпляр правила (а не из DeviceMainFields): им пользуются строка загрузки и корень DeviceStackVlanIpEditor — scoped-стиль
@@ -211,7 +200,9 @@ const { saving, submit } = useDeviceSave(draft, {
 
 @media (max-width: 640px) {
   .form-grid {
-    grid-template-columns: 1fr;
+    /* Не «1fr»: у него минимум — ширина содержимого, и 10-колонная таблица интерфейсов растягивала форму шире окна (до 1100 px
+       при 390). minmax(0, 1fr) держит дорожку в ширине окна, а таблица листается внутри своей обёртки. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

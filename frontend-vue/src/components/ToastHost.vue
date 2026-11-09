@@ -1,7 +1,24 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useToast, type Toast } from '../composables/useToast'
 
 const { toasts, dismiss } = useToast()
+
+interface ToastGroup {
+  key: string
+  role: 'status' | 'alert'
+  live: 'polite' | 'assertive'
+  items: Toast[]
+}
+
+// Уведомления озвучиваются скринридером (WCAG 2.2, 4.1.3 «Status Messages»). Живая область должна существовать в DOM ДО появления
+// сообщения, иначе часть скринридеров его не объявит, поэтому обе области рисуются всегда, даже пустыми. Ошибки — в «настойчивой»
+// области (role="alert" прерывает чтение), остальное — в вежливой (role="status" ждёт паузы). aria-atomic="false": объявляется только
+// добавленное уведомление, а не весь список заново.
+const groups = computed<ToastGroup[]>(() => [
+  { key: 'status', role: 'status', live: 'polite', items: toasts.filter((t) => t.type !== 'error') },
+  { key: 'alert', role: 'alert', live: 'assertive', items: toasts.filter((t) => t.type === 'error') },
+])
 
 function runAction(toast: Toast) {
   dismiss(toast.id)
@@ -11,13 +28,15 @@ function runAction(toast: Toast) {
 
 <template>
   <div class="toast-host">
-    <TransitionGroup name="toast">
-      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">
-        <span>{{ t.message }}</span>
-        <button v-if="t.action" type="button" class="toast-action" @click="runAction(t)">{{ t.action.label }}</button>
-        <button type="button" aria-label="Закрыть" @click="dismiss(t.id)">×</button>
-      </div>
-    </TransitionGroup>
+    <div v-for="group in groups" :key="group.key" class="toast-list" :role="group.role" :aria-live="group.live" aria-atomic="false">
+      <TransitionGroup name="toast">
+        <div v-for="t in group.items" :key="t.id" class="toast" :class="t.type">
+          <span>{{ t.message }}</span>
+          <button v-if="t.action" type="button" class="toast-action" @click="runAction(t)">{{ t.action.label }}</button>
+          <button type="button" aria-label="Закрыть" @click="dismiss(t.id)">×</button>
+        </div>
+      </TransitionGroup>
+    </div>
   </div>
 </template>
 
@@ -26,11 +45,20 @@ function runAction(toast: Toast) {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 100;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  max-width: 360px;
+}
+/* Зазор между уведомлениями — внутри каждой области; между самими областями он нужен, только когда в верхней есть карточки, поэтому
+   не `gap` у .toast-host: он оставлял бы 8 px пустоты рядом с пустой областью. */
+.toast-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 360px;
+}
+.toast-list + .toast-list > .toast:first-child {
+  margin-top: 8px;
 }
 .toast {
   display: flex;

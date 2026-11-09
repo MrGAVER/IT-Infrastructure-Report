@@ -11,6 +11,7 @@ import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@vue
 import type { DiagramEdge } from '../../api/diagrams'
 import { edgeAngleDeg, offsetAlongHandle } from '../../utils/diagramFlow'
 import { EDGE_LABEL_LAYOUT_KEY, edgeLabelTexts, portLabelDistance } from '../../utils/diagramEdgeLabels'
+import { EDGE_ROUTES_KEY, roundedPolylinePath, routeLabelAnchor, routeMatchesEnds } from '../../utils/diagramEdgeRouting'
 
 const props = defineProps<EdgeProps<DiagramEdge>>()
 
@@ -24,9 +25,19 @@ const bezier = computed(() =>
     targetPosition: props.targetPosition,
   }),
 )
-const path = computed(() => bezier.value[0])
-const midX = computed(() => bezier.value[1])
-const midY = computed(() => bezier.value[2])
+
+// F-07: ортогональный маршрут в обход узлов считает DiagramView сразу для всех рёбер (utils/diagramEdgeRouting.ts). Он годен, только
+// пока его концы лежат на текущих хэндлах: пока узел тащат мышью или маршруты ещё не пересчитаны, ребро рисуется прежней кривой.
+const routesMap = inject(EDGE_ROUTES_KEY, undefined)
+const route = computed(() => {
+  const found = routesMap?.value.get(props.id)
+  const ends = { source: { x: props.sourceX, y: props.sourceY }, target: { x: props.targetX, y: props.targetY } }
+  return found && routeMatchesEnds(found, ends.source, ends.target) ? found : undefined
+})
+const path = computed(() => (route.value ? roundedPolylinePath(route.value) : bezier.value[0]))
+const mid = computed(() => (route.value ? routeLabelAnchor(route.value) : { x: bezier.value[1], y: bezier.value[2] }))
+const midX = computed(() => mid.value.x)
+const midY = computed(() => mid.value.y)
 
 // UI-22: какие подписи у ребра (группировка параллельных связей в «×N») и на каком расстоянии от узла их класть (угол линии и слот
 // среди соседних портов) решают чистые функции diagramEdgeLabels.ts; раскладку всей диаграммы даёт DiagramView через provide.
@@ -39,7 +50,9 @@ const targetPortLabel = computed(() => texts.value.target)
 // Пункт 3 правки "диаграмма топологии сети": один угол на все три подписи этого ребра, а не
 // горизонтальный текст независимо от направления линии (см. edgeAngleDeg — нормализован, чтобы
 // подпись никогда не оказывалась вверх ногами).
-const angle = computed(() => edgeAngleDeg(props.sourceX, props.sourceY, props.targetX, props.targetY))
+// У ортогонального маршрута звенья горизонтальны или вертикальны, а выход из хэндла всегда прямой, поэтому подписи не поворачиваются:
+// горизонтальный текст читается лучше, чем вертикальный, а «вдоль линии» у ломаной смысла не имеет.
+const angle = computed(() => (route.value ? 0 : edgeAngleDeg(props.sourceX, props.sourceY, props.targetX, props.targetY)))
 const sourceLabelPos = computed(() =>
   offsetAlongHandle(
     props.sourceX,

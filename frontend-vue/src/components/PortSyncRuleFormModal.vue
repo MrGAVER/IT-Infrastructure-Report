@@ -8,7 +8,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import type { PortSyncRule } from '../api/types'
 import { usePortSyncRulesStore } from '../stores/portSyncRules'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 import {
   ACTION_OPTIONS,
@@ -26,7 +26,6 @@ import {
 
 const props = defineProps<{ rule: PortSyncRule | null }>()
 const emit = defineEmits<{ close: []; saved: [rule: PortSyncRule] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const store = usePortSyncRulesStore()
 const isEdit = computed(() => props.rule !== null)
@@ -72,7 +71,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-label="isEdit ? 'Редактировать правило' : 'Новое правило'">
       <div class="modal-head">
         <h2>{{ isEdit ? 'Редактировать правило согласования' : 'Новое правило согласования' }}</h2>
@@ -233,21 +232,10 @@ async function submit() {
         </div>
       </form>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 680px;
@@ -306,7 +294,7 @@ async function submit() {
 }
 .row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: end;
 }
@@ -353,12 +341,12 @@ async function submit() {
 }
 .triple {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .apply-row {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto auto minmax(0, 1fr);
   gap: 16px;
   align-items: end;
 }
@@ -392,7 +380,8 @@ async function submit() {
   .triple,
   .apply-row,
   .row {
-    grid-template-columns: 1fr;
+    /* minmax(0, …), а не «1fr»: минимум у «1fr» — ширина самого длинного пункта списка, и окно на телефоне выходило за экран. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

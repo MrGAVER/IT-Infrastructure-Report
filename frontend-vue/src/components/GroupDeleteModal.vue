@@ -3,7 +3,7 @@
 // оставить их или стереть. Само ничего не удаляет: выбор отдаётся родителю событием confirm.
 import { computed } from 'vue'
 import type { InterfaceGroupDraft } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { managedFields } from '../utils/interfaceGroups'
 
 const props = defineProps<{
@@ -12,7 +12,6 @@ const props = defineProps<{
   membersCount: number
 }>()
 const emit = defineEmits<{ close: []; confirm: [choice: 'keep' | 'erase'] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 /** Чем управляла группа — списком через запятую («режим порта и VLAN, IP-адрес, …»). */
 const managedText = computed(() => {
@@ -22,7 +21,7 @@ const managedText = computed(() => {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="delete-modal card" role="dialog" aria-modal="true" aria-label="Удаление группы портов">
       <div class="modal-head">
         <h2>Удалить группу «{{ group.name }}»?</h2>
@@ -37,7 +36,7 @@ const managedText = computed(() => {
         <button type="button" class="btn btn-secondary" @click="emit('close')">Отмена</button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped src="../styles/groupModal.css"></style>

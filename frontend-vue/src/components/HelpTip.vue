@@ -64,7 +64,7 @@ onBeforeUnmount(() => {
 }
 .help-tip-panel {
   position: absolute;
-  z-index: 80;
+  z-index: var(--z-help-tip);
   top: calc(100% + 6px);
   left: 0;
   width: max-content;

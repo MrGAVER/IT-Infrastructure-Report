@@ -42,6 +42,23 @@ describe('Sidebar.vue', () => {
     const link = wrapper.findAll('a').find((a) => a.text().includes('Другие справочники'))
     expect(link?.attributes('href')).toBe('/other-catalogs')
   })
+
+  // F-08 (код-ревью main): первая группа называлась «Регламентный отчёт», хотя в Excel-отчёт входят не все её экраны
+  // (дашборд, стеки и диаграмма — нет); теперь она называется «Реестр», как продукт.
+  it('F-08: группы меню — «Реестр», «Справочники», «Система»; «Регламентный отчёт» названием группы не служит', () => {
+    const wrapper = mount(Sidebar, {
+      props: { open: false },
+      global: { stubs: { 'router-link': { template: '<a :href="to"><slot /></a>', props: ['to'] } } },
+    })
+    const groups = wrapper.findAll('.nav-group-label').map((el) => el.text())
+    expect(groups).toEqual(['Реестр', 'Справочники', 'Система'])
+    // «Реестр» открывает список экранов реестра, а не отчётов: отчёты — в группе «Система».
+    const registry = wrapper
+      .findAll('ul.nav')[0]
+      .findAll('a')
+      .map((a) => a.attributes('href'))
+    expect(registry).toEqual(['/dashboard', '/information-systems', '/devices', '/device-stacks', '/connections', '/diagrams', '/vms', '/containers'])
+  })
 })
 
 // A-23: журнал аудита содержит имена, IP-адреса и неудачные входы — сервер отдаёт его только администратору (viewer получил бы 403).

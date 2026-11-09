@@ -4,7 +4,9 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
 
-const props = defineProps<{ open: boolean }>()
+// inert — над страницей открыто модальное окно (AppShell): меню недоступно ни указателю, ни клавиатуре, ни скринридеру.
+// Атрибутом он не проваливается сам: у компонента два корня (<aside> и подложка), поэтому проп ставится на <aside> явно.
+const props = defineProps<{ open: boolean; inert?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const organization = useOrganizationStore()
@@ -17,7 +19,7 @@ const visibleSystemNav = computed(() => systemNav.filter((item) => !item.adminOn
 // самом меню: фокус после открытия остаётся на кнопке-гамбургере в топбаре, то есть вне <aside>.
 function onKeydown(event: KeyboardEvent) {
   if (!props.open || event.key !== 'Escape' || event.defaultPrevented) return
-  // Забираем Esc себе (UI-04): иначе он дойдёт до useEscapeClose и закроет ещё и окно, если оно оказалось открытым.
+  // Забираем Esc себе (UI-04): иначе он дойдёт до useEscapeKey окна и закроет ещё и окно, если оно оказалось открытым.
   event.preventDefault()
   emit('close')
 }
@@ -69,7 +71,7 @@ const systemNav = [
 </script>
 
 <template>
-  <aside id="app-sidebar" ref="asideEl" class="sidebar" :class="{ open }">
+  <aside id="app-sidebar" ref="asideEl" class="sidebar" :class="{ open }" :inert="inert || undefined">
     <div class="brand">
       <div class="brand-mark">ITR</div>
       <div class="brand-text">
@@ -78,7 +80,7 @@ const systemNav = [
       </div>
     </div>
 
-    <div class="nav-group-label">Регламентный отчёт</div>
+    <div class="nav-group-label">Реестр</div>
     <ul class="nav">
       <li v-for="item in primaryNav" :key="item.to">
         <router-link :to="item.to" @click="$emit('close')">
@@ -287,7 +289,7 @@ const systemNav = [
     top: 0;
     left: 0;
     bottom: 0;
-    z-index: 30;
+    z-index: var(--z-sidebar);
     transform: translateX(-104%);
     box-shadow: 20px 0 40px rgba(0, 0, 0, 0.35);
     transition: transform 0.2s ease;
@@ -312,7 +314,7 @@ const systemNav = [
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.45);
-    z-index: 25;
+    z-index: var(--z-sidebar-backdrop);
   }
 }
 </style>

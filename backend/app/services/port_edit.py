@@ -140,6 +140,22 @@ def parse_port_change(raw: Any, *, allow_mode: bool = False) -> tuple[PortChange
     return PortChange(role, vlan_ids, all_vlans), expected_mode
 
 
+@dataclass(frozen=True)
+class PortConfigRequest:
+    """Разобранное тело PUT /interfaces/{id}/port-config: правка и режим, под который выбран набор VLAN (None — не проверять)."""
+
+    change: PortChange
+    expected_mode: str | None = None
+
+
+def parse_port_config_request(raw: Any) -> PortConfigRequest:
+    """Разбор тела PUT /interfaces/{id}/port-config: {role?, vlan_ids?, all_vlans?, mode?} (см. `parse_port_change`).
+    Модель тела (api/port_config_schemas.PortConfigUpdate) вызывает его ОДИН раз, а обработчик передаёт результат в
+    `apply_port_config` — без повторного разбора того же словаря."""
+    change, expected_mode = parse_port_change(raw, allow_mode=True)
+    return PortConfigRequest(change, expected_mode)
+
+
 def prepare_port_change(iface: DeviceInterface, mode: str, change: PortChange, session: Session) -> PreparedPortChange:
     """Вся проверка правки порта — ничего не пишет. `mode` — режим, в котором порт окажется после операции
     (для обычной правки — текущий, для правки вместе со сменой режима — целевой): под него проверяется
@@ -204,21 +220,26 @@ def write_port_change(prepared: PreparedPortChange, session: Session, *, context
     return bool(parts)
 
 
-def set_port_config(interface_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
-    """Меняет роль и/или набор VLAN порта. Тело: {role?, vlan_ids?, all_vlans?, mode?} — хотя бы одно из role,
-    vlan_ids и all_vlans; `vlan_ids` — ПОЛНЫЙ набор (id записей справочника VLAN), не изменение; `all_vlans: true` —
-    «Все VLAN» устройства порта (хранится признак). Возвращает порт
-    в том же виде, что и GET /resources/interfaces (клиент заменяет им запись в кэше)."""
-    change, expected_mode = parse_port_change(payload, allow_mode=True)
+def apply_port_config(interface_id: str, request: PortConfigRequest, session: Session) -> dict[str, Any]:
+    """Меняет роль и/или набор VLAN порта по уже разобранному телу (`parse_port_config_request`): `vlan_ids` — ПОЛНЫЙ набор
+    (id записей справочника VLAN), не изменение; `all_vlans: true` — «Все VLAN» устройства порта (хранится признак).
+    Возвращает порт в том же виде, что и GET /resources/interfaces (клиент заменяет им запись в кэше)."""
     iface = session.get(DeviceInterface, interface_id)
     if iface is None:
         raise HTTPException(404, "Порт не найден")
     mode = iface.vlan_mode or DEFAULT_VLAN_MODE
-    if expected_mode is not None and expected_mode != mode:
+    if request.expected_mode is not None and request.expected_mode != mode:
         raise HTTPException(409, f"Режим порта «{iface.name}» изменился (сейчас {mode}) — обновите данные и повторите")
     # Сначала вся проверка, потом запись: ошибка валидации не должна оставить в сессии половину правки.
-    prepared = prepare_port_change(iface, mode, change, session)
+    prepared = prepare_port_change(iface, mode, request.change, session)
     if write_port_change(prepared, session):
         session.commit()
         session.refresh(iface)
     return enrich_interfaces([iface], session)[0]
+
+
+def set_port_config(interface_id: str, payload: dict[str, Any], session: Session) -> dict[str, Any]:
+    """То же, что `apply_port_config`, но из «сырого» тела {role?, vlan_ids?, all_vlans?, mode?} — хотя бы одно из role, vlan_ids и
+    all_vlans. Для вызовов вне HTTP-обработчика (тесты, другие сервисы): тело разбирается здесь, один раз. Обработчик маршрута тело
+    уже разобрал в модели запроса и зовёт `apply_port_config` напрямую."""
+    return apply_port_config(interface_id, parse_port_config_request(payload), session)

@@ -6,23 +6,18 @@
 // Страница всегда в пределах [1, pageCount]: если список стал короче (поиск, удаление записи, другой справочник),
 // показывается последняя существующая страница, а не пустая таблица.
 import { computed, ref, toValue, type MaybeRefOrGetter } from 'vue'
-import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
+import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 
 export interface PagedListOptions {
   /** Идентификатор списка, под которым запоминается выбранный размер страницы (preferences.page_sizes). */
   listId: string
-  /** Размер страницы по умолчанию; варианты выбора — x1, x2, x4, x8 от него. */
-  defaultPageSize: number
 }
 
 export function usePagedList<T>(source: MaybeRefOrGetter<readonly T[]>, options: PagedListOptions) {
-  const { listId, defaultPageSize } = options
-  if (!Number.isInteger(defaultPageSize) || defaultPageSize < 1) {
-    throw new RangeError(`usePagedList(${listId}): defaultPageSize должен быть целым числом ≥ 1, получено ${defaultPageSize}`)
-  }
+  const { listId } = options
 
   const requestedPage = ref(1)
-  const pageSize = ref(loadPageSize(listId, defaultPageSize))
+  const pageSize = ref(loadPageSize(listId))
 
   const total = computed(() => toValue(source).length)
   const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -34,7 +29,7 @@ export function usePagedList<T>(source: MaybeRefOrGetter<readonly T[]>, options:
   /** Номера первой и последней записи на странице (1-based) для подписи «Показано 11–20 из 47»; на пустом списке — 0–0. */
   const rangeFrom = computed(() => (pageItems.value.length ? (page.value - 1) * pageSize.value + 1 : 0))
   const rangeTo = computed(() => (pageItems.value.length ? (page.value - 1) * pageSize.value + pageItems.value.length : 0))
-  const pageSizeOptions = computed(() => pageSizeOptionsFor(defaultPageSize))
+  const pageSizeOptions = computed(() => [...PAGE_SIZE_OPTIONS])
 
   function setPage(next: number) {
     requestedPage.value = Math.min(Math.max(1, Math.trunc(next) || 1), pageCount.value)
@@ -42,7 +37,7 @@ export function usePagedList<T>(source: MaybeRefOrGetter<readonly T[]>, options:
 
   /** Смена размера: остаёмся на странице с тем же первым видимым элементом, выбор запоминается; недопустимое значение игнорируется. */
   function setPageSize(size: number) {
-    if (size === pageSize.value || !isAllowedPageSize(size, defaultPageSize)) return
+    if (size === pageSize.value || !isAllowedPageSize(size)) return
     requestedPage.value = pageAfterSizeChange(page.value, pageSize.value, size)
     pageSize.value = size
     savePageSize(listId, size)

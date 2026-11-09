@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import command
 
 import app.config as app_config
-from test_migrations_match_models import _alembic_config
+from migration_support import alembic_config as _alembic_config
 from migration_support import insert_row as _insert
 from test_migrations_postgres import ScratchDatabase
 

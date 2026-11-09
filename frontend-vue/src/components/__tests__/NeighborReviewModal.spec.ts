@@ -69,7 +69,7 @@ describe('NeighborReviewModal', () => {
     await wrapper.get('.review-footer .btn-primary').trigger('click')
     await wrapper.get('.review-footer .btn-secondary').trigger('click')
     await wrapper.get('button[aria-label="Вернуться к форме"]').trigger('click')
-    const overlay = wrapper.get('.overlay')
+    const overlay = wrapper.get('.modal-overlay')
     await overlay.trigger('mousedown')
     await overlay.trigger('click')
 

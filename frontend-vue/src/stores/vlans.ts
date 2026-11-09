@@ -47,6 +47,10 @@ export const useVLANsStore = defineStore('vlans', {
     },
   },
   actions: {
+    /** Кнопка «Сбросить фильтры» пустого списка: единственный фильтр экрана — поиск. */
+    resetFilters() {
+      this.search = ''
+    },
     async ensureLoaded() {
       if (this.loaded || this.loading) return
       await this.reload()

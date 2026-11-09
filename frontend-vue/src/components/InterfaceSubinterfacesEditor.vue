@@ -22,6 +22,7 @@
 // своего имени у шаблона нет (в столбце «Имя» — образец). readonly — подинтерфейсы заданы группой портов, здесь только просмотр.
 import { computed, ref } from 'vue'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
+import ScrollableTableWrap from './ScrollableTableWrap.vue'
 import type { InterfaceIpDraftRow, OpenPortDraftRow, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
 import { emptySubinterface, reassignSubinterfaceVlan } from '../utils/subinterfaces'
 import { vlanLabel } from '../utils/vlan'
@@ -236,7 +237,7 @@ const addTitle = computed(() => {
 
     <div v-if="!modelValue.length" class="empty">{{ emptyText }}</div>
 
-    <div v-else class="sub-table-wrap">
+    <ScrollableTableWrap v-else label="Подинтерфейсы">
       <table class="sub-table">
         <thead>
           <tr>
@@ -416,7 +417,7 @@ const addTitle = computed(() => {
           </template>
         </tbody>
       </table>
-    </div>
+    </ScrollableTableWrap>
   </div>
 </template>
 
@@ -457,9 +458,6 @@ const addTitle = computed(() => {
   padding: 2px 0;
 }
 /* Таблица подинтерфейсов — тот же вид, что у «Списка интерфейсов» (DeviceInterfacesEditor.vue). */
-.sub-table-wrap {
-  overflow-x: auto;
-}
 .sub-table {
   width: 100%;
   border-collapse: collapse;

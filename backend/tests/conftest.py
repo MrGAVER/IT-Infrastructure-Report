@@ -213,9 +213,9 @@ def _fast_password_hashing(request, monkeypatch):
     Тесты, которым нужно именно боевое значение, помечаются @pytest.mark.real_password_hashing."""
     if request.node.get_closest_marker("real_password_hashing"):
         return
-    from app.services import auth as auth_module
+    from app.services.auth import passwords as passwords_module
 
-    monkeypatch.setattr(auth_module, "PBKDF2_ITERATIONS", 1_000)
+    monkeypatch.setattr(passwords_module, "PBKDF2_ITERATIONS", 1_000)  # читает hash_password/needs_rehash — патч на модуле паролей
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -272,29 +272,29 @@ def _reset_login_throttle():
     """Троттлинг входа (services/login_throttle.py) держит состояние в памяти процесса — без сброса
     неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один).
     Счётчик по адресу (ip_throttle) без сброса накапливал бы неудачи всех тестов и после порога давал бы 429."""
-    from app.services import auth as auth_module
+    from app.services.auth import login as login_module
 
-    auth_module.login_throttle.clear()
-    auth_module.ip_throttle.clear()
+    login_module.login_throttle.clear()
+    login_module.ip_throttle.clear()
     yield
-    auth_module.login_throttle.clear()
-    auth_module.ip_throttle.clear()
+    login_module.login_throttle.clear()
+    login_module.ip_throttle.clear()
 
 
 @pytest.fixture(autouse=True)
 def _reset_auth_flag_cache(monkeypatch):
-    """Кэш флага «аутентификация включена» (services/auth._auth_enabled_cached) общий для процесса, а БД у каждого теста
+    """Кэш флага «аутентификация включена» (services/auth/settings.auth_enabled_cached) общий для процесса, а БД у каждого теста
     своя: без сброса значение из предыдущего теста (скажем, «включена») действовало бы до двух секунд и в следующем.
 
     Часы кэша заморожены: иначе тесты, сравнивающие число SQL-запросов двух соседних запросов (test_connection_query,
     test_code_review_correctness), зависели бы от того, истёк ли TTL между ними, — на медленном прогоне с покрытием
     нерегулярно получали бы лишний SELECT настроек. Срок действия и сброс проверяет test_auth_flag_cache.py на своих часах."""
-    from app.services import auth as auth_module
+    from app.services.auth import settings as settings_module
 
-    monkeypatch.setattr(auth_module, "_flag_clock", lambda: 0.0)
-    auth_module.reset_auth_enabled_cache()
+    monkeypatch.setattr(settings_module, "_flag_clock", lambda: 0.0)  # кэш и его часы живут в модуле настроек
+    settings_module.reset_auth_enabled_cache()
     yield
-    auth_module.reset_auth_enabled_cache()
+    settings_module.reset_auth_enabled_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -317,13 +317,13 @@ def client_factory(db_session, monkeypatch):
     get_db (это не FastAPI-зависимость) — поэтому его тоже подменяем на фабрику, привязанную
     к тому же engine, что и db_session, иначе стартовый seed уйдёт в другую БД.
 
-    app.services.auth.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
+    app.services.auth.gate.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
     FastAPI Depends, поэтому dependency_overrides её не касается; она открывает сессии через
-    app.db.SessionLocal() (см. комментарий в services/auth.py про `from X import Y`), которую
+    app.db.SessionLocal() (см. комментарий в services/auth/gate.py про `from X import Y`), которую
     подменяем здесь же на ту же тестовую фабрику.
 
     Адрес клиента задаётся параметром: первичная настройка аутентификации (см.
-    services/auth.require_admin) доступна только с localhost, поэтому по умолчанию — 127.0.0.1, а
+    services/auth/guards.require_admin) доступна только с localhost, поэтому по умолчанию — 127.0.0.1, а
     тесты «удалённого» доступа просят другой адрес."""
     from fastapi.testclient import TestClient
 

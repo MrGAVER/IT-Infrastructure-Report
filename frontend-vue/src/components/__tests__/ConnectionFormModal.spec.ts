@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ConnectionFormModal from '../ConnectionFormModal.vue'
@@ -423,6 +423,61 @@ describe('ConnectionFormModal.vue — роли портов и обязател�
     expect(wrapper.find('.resolution').exists()).toBe(false)
     expect(wrapper.find('.modal-foot').exists()).toBe(true)
     expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+  })
+
+  // FE-08 (ревью ветки fix/code-review-main-f06-stage2-f05): вместо кнопок «Отмена / Сохранить» показывается панель; нажатая кнопка
+  // «Сохранить» уходит из DOM, и фокус терялся на <body>. Панель забирает фокус, а «Вернуться к правке» возвращает его на «Сохранить».
+  describe('фокус при расхождении (FE-08)', () => {
+    const attached: Array<ReturnType<typeof mount>> = []
+    afterEach(() => {
+      while (attached.length) attached.pop()!.unmount()
+    })
+    function mountAttached() {
+      const wrapper = mount(ConnectionFormModal, { props: { connection: null }, attachTo: document.body })
+      attached.push(wrapper)
+      return wrapper
+    }
+
+    it('после «Сохранить» фокус переходит на первое действие панели расхождения, а не остаётся на <body>', async () => {
+      setupInterfaces({ is_management: true }, { is_data_transfer: true })
+      stubApi()
+      const wrapper = mountAttached()
+
+      await fillAndSubmit(wrapper)
+
+      expect(wrapper.find('.resolution').exists()).toBe(true)
+      expect(document.activeElement).not.toBe(document.body)
+      expect(wrapper.find('.resolution').element.contains(document.activeElement)).toBe(true)
+      expect(document.activeElement?.getAttribute('data-resolution')).toBe('keep-source')
+    })
+
+    it('«Вернуться к правке» возвращает фокус на кнопку «Сохранить»', async () => {
+      setupInterfaces({ is_management: true }, { is_data_transfer: true })
+      stubApi()
+      const wrapper = mountAttached()
+      await fillAndSubmit(wrapper)
+
+      await wrapper.find('[data-resolution="back"]').trigger('click')
+      await flushPromises()
+
+      const save = wrapper.find('.modal-foot .btn-primary').element
+      expect(document.activeElement).toBe(save)
+    })
+
+    it('роли совпадают — панели нет, и фокус без необходимости никуда не переносится', async () => {
+      setupInterfaces({ is_management: true }, { is_management: true })
+      stubApi()
+      const wrapper = mountAttached()
+      await selectBothEndpoints(wrapper)
+      await fillCableType(wrapper)
+      const save = wrapper.find('.modal-foot .btn-primary').element as HTMLButtonElement
+      save.focus()
+
+      await wrapper.find('.modal-foot .btn-primary').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.resolution').exists()).toBe(false)
+    })
   })
 
   it('«Порту назначения задать роль как у источника»: сначала меняется роль порта, затем сохраняется подключение', async () => {

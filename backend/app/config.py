@@ -88,6 +88,11 @@ def _csv_env(name: str, default: str = '') -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(',') if item.strip()]
 
 
+def _flag_env(name: str) -> bool:
+    """Булев переключатель из переменной окружения: «1», «true», «yes», «on» (регистр и пробелы не важны) — включено, всё остальное и пусто — выключено."""
+    return os.getenv(name, '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 # Интерфейс отдаётся с того же origin (StaticFiles ниже), а API читает токен из заголовка
 # Authorization — поэтому по умолчанию CORS ВЫКЛЮЧЕН (пустой список: ни одного чужого origin не
 # разрешено). Раньше дефолтом было '*', и любая веб-страница в браузере владельца могла читать и
@@ -102,9 +107,15 @@ FORWARDED_ALLOW_IPS = _csv_env('FORWARDED_ALLOW_IPS')
 # Допустимые значения заголовка Host (защита от DNS-rebinding: страница чужого домена, перенацеленная
 # на 127.0.0.1, приходит с чужим Host). По умолчанию — только локальные имена, что верно для
 # EXE-режима (слушает 127.0.0.1) и разработки. Для серверного развёртывания добавьте реальное имя
-# хоста, например INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local,10.0.0.5; '*' отключает проверку
-# (так по умолчанию задано в docker-compose.yml, чтобы обновление не ломало доступ по IP).
+# хоста, например INFRA_REGISTRY_ALLOWED_HOSTS=reestr.corp.local; '*' отключает проверку целиком (при выключенной
+# аутентификации это открывает реестр чужим веб-страницам через DNS-rebinding, при старте пишется предупреждение).
 ALLOWED_HOSTS = _csv_env('INFRA_REGISTRY_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+# Принимать заголовок Host в виде IP-адреса (http://10.0.0.5:8000) независимо от списка ALLOWED_HOSTS. При DNS-rebinding в Host всегда
+# стоит имя домена злоумышленника — IP-адрес подменить через DNS нельзя, поэтому такой доступ безопасен и не требует перечислять адрес
+# сервера в настройках. Включено в docker-compose.yml (там сервер открывают по адресу компьютера); вне compose по умолчанию выключено:
+# запуск из исходников и EXE слушают только 127.0.0.1, а при клиентах из сети IP-адрес принимается и без этого флага (см. main.install_http_security).
+ACCEPT_IP_HOSTS = _flag_env('INFRA_REGISTRY_ACCEPT_IP_HOSTS')
 
 # Адреса и подсети клиентов, которым разрешено подключаться (через запятую: 192.168.1.15,10.0.5.0/24).
 # Пусто — фильтра нет и пускаются все (Docker, запуск из исходников: доступ там ограничивает сетевая
@@ -112,11 +123,43 @@ ALLOWED_HOSTS = _csv_env('INFRA_REGISTRY_ALLOWED_HOSTS', 'localhost,127.0.0.1')
 # по умолчанию разрешена только петля 127.0.0.0/8, то есть доступ только с того же компьютера.
 ALLOWED_CLIENTS = _csv_env('INFRA_REGISTRY_ALLOWED_CLIENTS')
 
+# Наибольший размер тела запроса, байт (services/body_limit.py): больше — 413 REQUEST_BODY_TOO_LARGE, тело не разбирается. Все тела
+# приложения — JSON; самый тяжёлый легитимный запрос — SVG-иконка (длиннее 256 К символов её всё равно пропускает экспорт диаграммы,
+# а в JSON с экранированием это до 1,5 МБ) — укладывается с запасом. Если реальный сценарий не проходит, поднимите предел;
+# 0 — проверка выключена (тогда защиту должен давать обратный прокси).
+MAX_REQUEST_BODY_BYTES = int(os.getenv('INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES', str(2 * 1024 * 1024)))
+
 # Токен первичной настройки аутентификации. Пока аутентификация выключена (это значение по
 # умолчанию), создавать пользователей и включать её можно только с localhost без прокси-заголовков
 # либо — если токен задан — с заголовком X-Setup-Token. Задайте токен, когда приложение стоит за
 # обратным прокси или в Docker, где адрес клиента не localhost.
 SETUP_TOKEN = os.getenv('INFRA_REGISTRY_SETUP_TOKEN', '')
+
+# Значения-заглушки из .env.example и самые ходовые слабые пароли. docker-compose.yml требует лишь непустое значение, поэтому
+# скопированный и не отредактированный .env запускался без возражений, а публичная заглушка вместо токена даёт право с любого адреса
+# создать администратора и включить аутентификацию (код-ревью, BE-03). Запуск не блокируется (существующие установки продолжают
+# работать) — при старте в журнал пишется предупреждение (main._warn_if_weak_secrets).
+PLACEHOLDER_SECRETS = frozenset({'change_me', 'change_me_long_random_string', 'changeme', 'password', 'secret'})
+# Токен из `openssl rand -hex 24` — 48 символов; 16 — нижняя граница, ниже которой перебор по сети уже реалистичен.
+MIN_SETUP_TOKEN_LENGTH = 16
+# Пароль БД только предупреждается как заведомо слабый: порт БД в compose наружу не публикуется, поэтому планка ниже.
+MIN_DB_PASSWORD_LENGTH = 8
+
+
+def weak_secret(value: str, min_length: int) -> bool:
+    """Секрет задан, но это заглушка из .env.example (без учёта регистра и пробелов по краям) или он короче ``min_length``.
+    Пустое значение слабым не считается: «не задан» — другой случай, его обрабатывает вызывающий код (токен выключен и т. п.)."""
+    return bool(value) and (value.strip().lower() in PLACEHOLDER_SECRETS or len(value) < min_length)
+
+
+def weak_setup_token(token: str) -> bool:
+    """Токен первичной настройки (INFRA_REGISTRY_SETUP_TOKEN) — заглушка или короче MIN_SETUP_TOKEN_LENGTH."""
+    return weak_secret(token, MIN_SETUP_TOKEN_LENGTH)
+
+
+def weak_db_password(password: str) -> bool:
+    """Пароль БД (POSTGRES_PASSWORD или пароль из DATABASE_URL) — заглушка или короче MIN_DB_PASSWORD_LENGTH."""
+    return weak_secret(password, MIN_DB_PASSWORD_LENGTH)
 
 # Content-Security-Policy для интерфейса и API. Пустая строка отключает заголовок целиком (например,
 # если политику выставляет обратный прокси); любое другое значение заменяет политику по умолчанию.
@@ -127,7 +170,7 @@ CSP_POLICY = os.getenv(
     "form-action 'self'; frame-ancestors 'none'",
 )
 
-# Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth.py) —
+# Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth/settings.py) —
 # переменные ниже настраивают её поведение, когда она включена, а не сам факт включения.
 AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12'))
 # 10, а не 5: от перебора с одного адреса защищает троттлинг входа (services/login_throttle.py), а
@@ -147,4 +190,4 @@ AUTH_KNOWN_CLIENT_DAYS = int(os.getenv('INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS', 
 # Интерактивная документация API (/docs, /redoc, /openapi.json) по умолчанию выключена: она раскрывает полную карту API и
 # моделей данных любому посетителю (проверка входа касается только /api/*), а Swagger UI/ReDoc подгружают скрипты с внешнего CDN —
 # в закрытом контуре страницы всё равно не работают. Для разработки: INFRA_REGISTRY_ENABLE_DOCS=1 (страницы открыты без входа).
-ENABLE_DOCS = os.getenv('INFRA_REGISTRY_ENABLE_DOCS', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+ENABLE_DOCS = _flag_env('INFRA_REGISTRY_ENABLE_DOCS')

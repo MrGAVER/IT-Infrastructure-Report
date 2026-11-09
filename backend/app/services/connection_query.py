@@ -21,6 +21,7 @@ from sqlalchemy import BigInteger, ColumnElement, String, and_, case, cast, func
 from sqlalchemy.orm import Session, aliased
 
 from ..models import Connection, ConnectionType, DeviceInterface, DeviceTypeVLAN, InterfaceVLAN, PhysicalDevice, PhysicalDeviceVLAN, VLAN
+from .device_label import device_label_expr
 from .port_config import (
     DEFAULT_VLAN_MODE,
     FINGERPRINT_AFFINE,
@@ -164,11 +165,6 @@ class _Joined:
             .outerjoin(ConnectionType, ConnectionType.id == Connection.connection_type_id)
         )
 
-    @staticmethod
-    def _device_label(device: Any) -> ColumnElement[str]:
-        # Как в enrich_connections(): «системное имя, а если не задано — серийный номер».
-        return func.coalesce(func.nullif(device.system_name, ""), device.serial_number)
-
     def conditions(self, query: ConnectionQuery) -> list[ColumnElement[bool]]:
         result: list[ColumnElement[bool]] = []
         needle = (query.q or "").strip().lower()
@@ -180,8 +176,8 @@ class _Joined:
             # тип линии, режим порта (trunk / access) и подпись роли порта («управление»,
             # «передача данных»).
             matches = [
-                contains(self._device_label(self.src_device)), contains(self.src.name),
-                contains(self._device_label(self.dst_device)), contains(self.dst.name),
+                contains(device_label_expr(self.src_device)), contains(self.src.name),
+                contains(device_label_expr(self.dst_device)), contains(self.dst.name),
                 contains(ConnectionType.name), contains(self.src_mode), contains(self.dst_mode),
             ]
             roles = [role.value for role in PortRole if needle in PORT_ROLE_LABELS[role].lower()]

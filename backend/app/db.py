@@ -1,10 +1,25 @@
 from __future__ import annotations
+import sqlite3
+from datetime import date, datetime
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from .config import DATABASE_URL, DB_POOL_OPTIONS
 
 def _unicode_lower(value):
     return value.lower() if isinstance(value, str) else value
+
+
+def register_sqlite_adapters() -> None:
+    """Явные адаптеры date/datetime для драйвера sqlite3 (код-ревью, раздел 5: предупреждения тестового прогона).
+
+    Python 3.12 объявил адаптеры по умолчанию устаревшими: каждый параметр date/datetime, переданный драйверу напрямую, мимо типов
+    SQLAlchemy (`text()`, `op.execute()` и `bulk_insert` в миграциях), давал DeprecationWarning — тысячи за прогон тестов, — а в
+    будущих версиях Python адаптеров по умолчанию не будет. Здесь регистрируются ровно те преобразования, что делали адаптеры по
+    умолчанию (ISO 8601; у datetime — пробел между датой и временем), поэтому значения в БД и их сравнение не меняются.
+    Регистрация действует на весь процесс и идемпотентна; вызывается при импорте модуля и из alembic/env.py (миграции из командной
+    строки приложение не импортируют). Колонки DateTime/Date через типы SQLAlchemy адаптеров не используют и не затронуты."""
+    sqlite3.register_adapter(date, date.isoformat)
+    sqlite3.register_adapter(datetime, lambda value: value.isoformat(' '))
 
 
 def configure_sqlite_connection(dbapi_connection) -> None:
@@ -35,6 +50,7 @@ def engine_connect_args(database_url: str) -> dict:
     return {}
 
 
+register_sqlite_adapters()
 connect_args = engine_connect_args(DATABASE_URL)
 # Размер пула — только для серверных СУБД: у SQLite (файл или память) свои классы пула, и параметры QueuePool
 # для них недопустимы.

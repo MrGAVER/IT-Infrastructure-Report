@@ -12,6 +12,19 @@ export const GROUP_BY_OPTIONS: { value: DiagramGroupBy; label: string }[] = [
   { value: 'device_category', label: 'По категории устройства' },
 ]
 
+/**
+ * Границы порога сворачивания узлов в группу. Верхняя — контракт с backend (MAX_COLLAPSE_THRESHOLD в api/diagram_schemas.py): заведомо
+ * больше предела раскладки (5000 узлов) и помещается в INTEGER и SQLite, и PostgreSQL. Больше — сервер ответит 422 (до BE-01 — 500),
+ * поэтому форма не даёт такое значение отправить (FE-04 ревью ветки fix/code-review-main-f06-stage2-f05).
+ */
+export const MIN_COLLAPSE_THRESHOLD = 1
+export const MAX_COLLAPSE_THRESHOLD = 1_000_000
+
+/** Целое число в допустимых границах; пустое поле (v-model.number отдаёт '') и дроби не проходят. */
+export function isValidCollapseThreshold(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= MIN_COLLAPSE_THRESHOLD && value <= MAX_COLLAPSE_THRESHOLD
+}
+
 export type DiagramIconShape = 'server' | 'switch' | 'switch_l2' | 'switch_l3' | 'router' | 'firewall' | 'workstation' | 'peripheral' | 'generic'
 
 export interface DiagramIconGenerated {

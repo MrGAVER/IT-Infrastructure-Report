@@ -1,6 +1,6 @@
 """Троттлинг попыток входа по паре «адрес клиента + логин» с экспоненциальной задержкой.
 
-Зачем. Блокировка учётной записи после серии неудачных паролей (services/auth.py) защищает от
+Зачем. Блокировка учётной записи после серии неудачных паролей (services/auth/lockout.py) защищает от
 подбора, но сама становится оружием: любой, кто достаёт до /api/v1/auth/login, может держать
 учётную запись администратора заблокированной, посылая неверные пароли. Троттлинг по паре
 (IP, логин) гасит такой перебор на стороне нападающего: после нескольких неудач каждая следующая
@@ -8,14 +8,16 @@
 настоящего владельца. Блокировка аккаунта остаётся запасным рубежом против распределённого подбора.
 
 Ключ (IP, логин) сам по себе обходится сменой логина: у каждой выдуманной пары своя «первая» попытка, и задержка не
-наступает никогда. Поэтому services/auth.py держит второй экземпляр с ключом (IP, None) — счётчик на адрес целиком, с
+наступает никогда. Поэтому services/auth/login.py держит второй экземпляр с ключом (IP, None) — счётчик на адрес целиком, с
 более высоким порогом бесплатных попыток; запрос блокируется, если задержка назначена любому из двух ключей.
 
 Состояние — в памяти процесса. При нескольких процессах backend счётчики независимы (каждый
 процесс считает свои попытки), то есть реальный предел — число процессов × свой лимит; для
 серверного развёртывания этого достаточно как первого рубежа, а общий для процессов счётчик
 потребовал бы внешнего хранилища. Память ограничена: устаревшие записи вытесняются, а при
-переполнении удаляются самые старые.
+переполнении удаляются самые старые. Записи лежат в OrderedDict в порядке последней неудачи (при каждой
+неудаче запись переносится в конец), поэтому самые старые всегда в начале и вытеснение стоит O(1), а не
+O(n log n) под общей блокировкой на каждую неудачную попытку (R1-07 код-ревью).
 
 Пример:
     throttle = LoginThrottle()
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Hashable
 
@@ -59,7 +62,8 @@ class LoginThrottle:
         self.window = window
         self.max_keys = max_keys
         self._clock = clock
-        self._entries: dict[Hashable, _Entry] = {}
+        # Порядок записей = порядок последней неудачи (старые — в начале): на нём держится O(1)-вытеснение в _evict.
+        self._entries: OrderedDict[Hashable, _Entry] = OrderedDict()
         self._lock = threading.Lock()
 
     def retry_after(self, key: Hashable) -> float:
@@ -86,6 +90,7 @@ class LoginThrottle:
                 delay = min(self.base_delay * (2 ** min(exponent, 30)), self.max_delay)
             entry.blocked_until = now + delay
             self._entries[key] = entry
+            self._entries.move_to_end(key)  # свежая неудача — запись становится самой новой
             if len(self._entries) > self.max_keys:
                 self._evict(now)
             return delay
@@ -103,10 +108,15 @@ class LoginThrottle:
             return len(self._entries)
 
     def _evict(self, now: float) -> None:
-        """Сначала убираем записи, у которых окно давно истекло, затем — самые старые, пока не влезем."""
-        for stale_key in [k for k, e in self._entries.items() if now - e.last_failure > self.window]:
-            del self._entries[stale_key]
-        overflow = len(self._entries) - self.max_keys
-        if overflow > 0:
-            for oldest_key in sorted(self._entries, key=lambda k: self._entries[k].last_failure)[:overflow]:
-                del self._entries[oldest_key]
+        """Сначала убираем записи, у которых окно давно истекло, затем — самые старые, пока не влезем.
+
+        Записи упорядочены по последней неудаче, поэтому и просроченные, и самые старые — в начале: снимаем их оттуда, не обходя и не
+        сортируя всю таблицу (раньше каждое вытеснение при полной таблице стоило O(n log n) под блокировкой)."""
+        entries = self._entries
+        while entries:
+            oldest = next(iter(entries.values()))
+            if now - oldest.last_failure <= self.window:
+                break
+            entries.popitem(last=False)
+        while len(entries) > self.max_keys:
+            entries.popitem(last=False)

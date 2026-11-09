@@ -10,6 +10,8 @@ import type { Container } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ContainerFormModal from '../components/ContainerFormModal.vue'
+import ListEmptyRow from '../components/ListEmptyRow.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 
 const containers = useContainersStore()
 const devices = useDevicesStore()
@@ -119,7 +121,7 @@ function hostLabel(c: Container): string {
         {{ containers.error }}
       </div>
       <div v-else-if="containers.loading && !containers.loaded" class="loading-banner">Загрузка контейнеров…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Список контейнеров">
         <table>
           <thead>
             <tr>
@@ -150,12 +152,18 @@ function hostLabel(c: Container): string {
                 </div>
               </td>
             </tr>
-            <tr v-if="!containers.filtered.length">
-              <td colspan="5" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
-            </tr>
+            <ListEmptyRow
+              v-if="!containers.filtered.length"
+              :colspan="5"
+              :registry-empty="!containers.all.length"
+              empty-text="Контейнеров пока нет."
+              :action-label="auth.canWrite ? 'Добавить контейнер' : undefined"
+              @action="openCreate"
+              @reset="containers.resetFilters()"
+            />
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ containers.pageItems.length ? (containers.page - 1) * containers.pageSize + 1 : 0 }}–{{
@@ -218,9 +226,6 @@ function hostLabel(c: Container): string {
 .spacer {
   flex: 1;
 }
-.table-wrap {
-  overflow-x: auto;
-}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -256,11 +261,6 @@ tbody tr:hover td {
 .purpose-cell {
   color: var(--ink-muted);
   max-width: 260px;
-}
-.empty-row {
-  text-align: center;
-  color: var(--ink-muted);
-  padding: 26px 14px;
 }
 .error-banner {
   display: flex;

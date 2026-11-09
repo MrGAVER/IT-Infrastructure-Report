@@ -2,6 +2,10 @@
 line-length = 400
 extend-exclude = ["frontend"]
 
+# Форматтер (`ruff format`) к backend целиком не применяется: код написан плотно сознательно (line-length = 400). Он проверяется только для
+# модулей границы API, написанных после код-ревью (шаг CI «ruff format --check»): backend/app/api/*_schemas.py, api/schema_base.py,
+# services/body_limit.py, services/request_errors.py. Новый модуль такого рода — добавьте в список шага в .github/workflows/ci.yml.
+
 [tool.ruff.lint]
 # Только реальные ошибки: pyflakes (неиспользуемые/неопределённые имена и т.п.) + синтаксис.
 # Полный дефолтный набор ruff (стиль импортов, длина строк, пробелы) конфликтует с сознательным
@@ -28,7 +32,6 @@ max-returns = 6
 "backend/alembic/versions/*.py" = ["C901", "PLR0911", "PLR0912", "PLR0915"]  # исторические миграции не переписываем
 "backend/tests/*" = ["PLR0911", "PLR0912", "PLR0915"]      # тесты — длинные линейные сценарии; пороги нужны коду приложения
 # Долг на 2.158.0: функции, превышающие пороги выше. Список только сокращается — новые файлы не добавляйте, разбирайте функцию на шаги.
-"backend/app/services/diagram_export.py" = ["PLR0912", "PLR0915"]
 "backend/app/services/crud/payload.py" = ["PLR0911"]
 "backend/app/services/report_engine.py" = ["PLR0911"]
 

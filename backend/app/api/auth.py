@@ -1,7 +1,7 @@
 """Роутер аутентификации: /api/v1/auth/*.
 
-Публичные без токена (см. services/auth.PUBLIC_API_PATHS): status, login.
-Всё остальное защищено ASGI-middleware (services/auth.py:auth_gate_middleware) при AuthSettings.enabled=True;
+Публичные без токена (см. services/auth/gate.PUBLIC_API_PATHS): status, login.
+Всё остальное защищено ASGI-middleware (services/auth/gate.py:auth_gate_middleware) при AuthSettings.enabled=True;
 при enabled=False реестр открыт целиком, как и весь остальной /api/*, это и есть однопользовательский
 режим. /users и /settings дополнительно проверяют доступ явно (require_admin): при включённой
 аутентификации — роль admin (middleware пропускает viewer'а на безопасные GET-запросы, а список учётных
@@ -22,6 +22,7 @@ from ..services.auth import (
     change_own_password,
     create_user,
     delete_user,
+    extract_bearer,
     get_or_create_auth_settings,
     list_active_sessions,
     require_admin,
@@ -37,8 +38,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
 
 def _bearer_token(request: Request) -> str | None:
-    header = request.headers.get("authorization", "")
-    return header[len("Bearer "):].strip() or None if header.startswith("Bearer ") else None
+    return extract_bearer(request.headers.get("authorization"))
 
 
 def _current_user(request: Request) -> User | None:
@@ -92,7 +92,7 @@ def my_sessions(request: Request, session: Session = Depends(get_db)) -> list[di
 @router.delete("/sessions/{session_id}", status_code=204)
 def revoke_my_session(session_id: str, request: Request, session: Session = Depends(get_db)) -> None:
     """Отзыв ОДНОЙ из своих сессий (например, «выйти на телефоне» из списка на компьютере).
-    Не требует роли admin (см. ROLE_CHECK_EXEMPT_PREFIXES в services/auth.py) — но revoke_session_by_id
+    Не требует роли admin (см. ROLE_CHECK_EXEMPT_PREFIXES в services/auth/gate.py) — но revoke_session_by_id
     сам ограничивает действие сессиями ТЕКУЩЕГО пользователя, так что отозвать чужую нельзя."""
     user = _current_user(request)
     if user is None:

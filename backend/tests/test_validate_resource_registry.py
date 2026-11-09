@@ -6,7 +6,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import Connection, DeviceType, PhysicalDevice
-from app.services.crud import _RESOURCE_VALIDATORS, validate_resource
+from app.services.crud import validate_resource
+from app.services.crud.validators import _RESOURCE_VALIDATORS
 
 
 def test_unregistered_model_is_a_no_op(db_session):

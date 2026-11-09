@@ -74,7 +74,8 @@ def _sheet(title: str, entity_key: str, headers: list[str], widths: list[int]) -
     fields = VIRTUAL_ENTITIES[entity_key].fields
     numbered = len(headers) == len(fields) + 1
     n_cols = len(headers)
-    assert len(widths) == n_cols, (title, len(widths), n_cols)
+    if len(widths) != n_cols:  # явная проверка, а не assert: при `python -O` assert исчезал, и лист получал сдвинутые колонки
+        raise ValueError(f"Лист «{title}»: ширин колонок {len(widths)}, а заголовков {n_cols}")
     # Заданная ширина — минимум под данные колонки. Заголовки регламентированной формы — жирные, до 300
     # символов: в колонке шириной 20-30 они занимали 15-25 строк и обрезались. Колонка расширяется
     # ровно настолько, чтобы заголовок уложился в лимит строк шапки и ни одно слово не рвалось

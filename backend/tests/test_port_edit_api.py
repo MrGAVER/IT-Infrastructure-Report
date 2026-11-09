@@ -358,3 +358,93 @@ def test_a_failure_while_writing_the_port_rolls_back_the_whole_cascade(lab, monk
     lab.db.rollback()
 
     assert lab.state(port) == {"role": (False, True), "mode": "trunk", "vlans": [10], "link_modes": {"trunk"}}  # режим тоже откатился
+
+
+# --- Тело разбирается один раз (код-ревью, BE-04) ---------------------------------------------------------------------------
+# Раньше модель PortConfigUpdate разбирала тело, а set_port_config разбирал тот же словарь (model_dump) второй раз: двойная работа и два
+# места, где приведение типов Pydantic и ручной разбор могли разойтись. Теперь модель отдаёт разобранное тело (`body.request`), а
+# обработчик зовёт apply_port_config.
+
+
+@pytest.fixture()
+def parse_calls(monkeypatch) -> list[dict]:
+    """Тела, которые разобрал parse_port_change — по одной записи на вызов, откуда бы его ни звали.
+
+    Подменяются обе точки вызова: сам сервис (services/port_edit) и имя, импортированное в модуль моделей запросов (раньше модель
+    звала его напрямую; сейчас этого имени там нет — `raising=False`). Иначе тест не заметил бы вызова из модели."""
+    from app.api import port_config_schemas
+    from app.services import port_edit
+
+    calls: list[dict] = []
+    original = port_edit.parse_port_change
+
+    def counting(raw, **kwargs):
+        calls.append(raw)
+        return original(raw, **kwargs)
+
+    monkeypatch.setattr(port_edit, "parse_port_change", counting)
+    monkeypatch.setattr(port_config_schemas, "parse_port_change", counting, raising=False)
+    return calls
+
+
+def test_the_body_is_parsed_exactly_once_per_request(lab, parse_calls):
+    port = lab.port()
+
+    response = lab.edit(port, {"role": "data", "vlan_ids": [lab.vlan(10).id], "mode": "trunk"})
+
+    assert response.status_code == 200, response.text
+    assert len(parse_calls) == 1  # раньше — 2: в модели и в сервисе
+
+
+def test_a_rejected_body_is_parsed_once_and_keeps_its_message(lab, parse_calls):
+    port = lab.port()
+
+    response = lab.edit(port, {"role": "data", "лишнее": 1})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Неизвестные поля: лишнее"}
+    assert len(parse_calls) == 1
+
+
+def test_body_checks_still_come_before_the_port_lookup(lab):
+    # Порядок прежний: неверное тело — 422 даже у несуществующего порта, верное тело у несуществующего порта — 404.
+    assert lab.edit("нет-такого", {}).status_code == 422
+    missing = lab.edit("нет-такого", {"role": "data"})
+    assert (missing.status_code, missing.json()) == (404, {"detail": "Порт не найден"})
+
+
+def test_the_model_exposes_the_parsed_request_and_keeps_it_on_revalidation():
+    from app.api.port_config_schemas import PortConfigUpdate
+
+    model = PortConfigUpdate.model_validate({"role": "data", "mode": "trunk"})
+
+    assert model.request.expected_mode == "trunk"
+    assert model.request.change.vlan_ids is None and model.request.change.all_vlans is None
+    assert PortConfigUpdate.model_validate(model).request is model.request  # готовый экземпляр заново не разбирается
+
+
+def test_apply_port_config_works_from_a_parsed_request_without_parsing(lab, monkeypatch):
+    from app.services import port_edit
+
+    port = lab.port()
+    request = port_edit.parse_port_config_request({"role": "management"})
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("apply_port_config не должен разбирать тело")
+
+    monkeypatch.setattr(port_edit, "parse_port_change", forbidden)
+    result = port_edit.apply_port_config(port, request, lab.db)
+
+    assert (result["is_management"], result["is_data_transfer"]) == (True, False)
+    assert lab.state(port)["role"] == (True, False)
+
+
+def test_set_port_config_still_accepts_a_raw_body_and_parses_it_once(lab, parse_calls):
+    from app.services.port_edit import set_port_config
+
+    port = lab.port()
+
+    result = set_port_config(port, {"role": "management"}, lab.db)
+
+    assert (result["is_management"], result["is_data_transfer"]) == (True, False)
+    assert len(parse_calls) == 1

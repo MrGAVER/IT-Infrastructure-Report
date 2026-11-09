@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ReportDocxEditorView from '../ReportDocxEditorView.vue'
+import ScrollableTableWrap from '../../components/ScrollableTableWrap.vue'
 import type { DocxConfig, ReportEntityMeta, ReportTemplate } from '../../api/types'
 
 const pushMock = vi.fn()
@@ -255,6 +256,27 @@ describe('ReportDocxEditorView.vue — предпросмотр', () => {
     expect(calls[0].body).toMatchObject({ format: 'docx' })
     expect(wrapper.text()).toContain('srv-01')
     expect(wrapper.text()).toContain('показано записей: 1')
+  })
+
+  it('F-05: таблица предпросмотра стоит в ScrollableTableWrap с названием секции', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/report-builder/preview'))
+          return jsonResponse({ sections: [{ title: 'Устройства', headers: ['Имя'], rows: [['srv-01']], total: 1 }] })
+        return stubFetch()(url)
+      }),
+    )
+    const wrapper = mount(ReportDocxEditorView)
+    await flushPromises()
+
+    await wrapper.find('.preview-trigger').trigger('click')
+    await flushPromises()
+
+    const wrap = wrapper.getComponent(ScrollableTableWrap)
+    expect(wrap.attributes('aria-label')).toBe('Предпросмотр: Устройства')
+    expect(wrap.find('table.preview-table').exists()).toBe(true)
+    expect(wrapper.find('.preview-table-wrap').exists()).toBe(false)
   })
 
   it('без блоков-таблиц показывает пояснение вместо пустого списка секций', async () => {

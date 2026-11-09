@@ -48,4 +48,16 @@ describe('useVLANsStore', () => {
     store.search = 'такого точно нет'
     expect(store.filtered).toHaveLength(0)
   })
+
+  it('resetFilters очищает поиск и возвращает все группы (кнопка «Сбросить фильтры» пустого списка)', async () => {
+    const store = useVLANsStore()
+    await store.ensureLoaded()
+    store.search = 'такого точно нет'
+    expect(store.filtered).toHaveLength(0)
+
+    store.resetFilters()
+
+    expect(store.search).toBe('')
+    expect(store.filtered).toHaveLength(store.groups.length)
+  })
 })

@@ -25,6 +25,25 @@ describe('pageTitles — заголовки верхней панели', () => 
     expect(resolvePageHeading(routeName).title).toBe(title)
   })
 
+  // F-08 (код-ревью main): в крошках стояло «Лист 1 · …» — номер листа Excel-отчёта, который в интерфейсе никому ничего не говорит, а у
+  // экранов одной группы префиксы расходились («Инвентаризация ›» у устройств и стеков, «Лист N ·» у остальных).
+  it('F-08: в крошках нет номеров листов отчёта', () => {
+    for (const [name, heading] of Object.entries(PAGE_TITLES)) {
+      expect(heading.crumb, `крошка маршрута «${name}»`).not.toMatch(/Лист\s*\d/i)
+    }
+  })
+
+  it.each([
+    ['information-systems', 'Информационные системы'],
+    ['devices', 'Физические устройства'],
+    ['device-stacks', 'Стеки устройств'],
+    ['connections', 'Подключения'],
+    ['vms', 'Виртуальные машины'],
+    ['containers', 'Контейнеры'],
+  ])('F-08: крошка экрана «%s» — «Реестр › %s», как название группы меню', (routeName, screen) => {
+    expect(PAGE_TITLES[routeName].crumb).toBe(`Реестр › ${screen}`)
+  })
+
   it('для неизвестного маршрута берётся meta.title, а без него — само имя (панель не остаётся пустой)', () => {
     expect(resolvePageHeading('unknown-route', 'Свой заголовок')).toEqual({ title: 'Свой заголовок', crumb: '' })
     expect(resolvePageHeading('unknown-route')).toEqual({ title: 'unknown-route', crumb: '' })

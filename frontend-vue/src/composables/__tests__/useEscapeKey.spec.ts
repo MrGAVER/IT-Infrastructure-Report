@@ -1,20 +1,27 @@
 // UI-04 (ревью 2.158.0): Esc закрывает верхнее из открытых окон — одно, а не все сразу.
+// FE-06 (ревью ветки fix/code-review-main-f06-stage2-f05): «верхнее» определяет единый стек окон (modalLayer.ts), а не второй, независимый
+// стек Esc, согласованность которого с первым держалась на одинаковом порядке вызовов в setup().
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
-import { useEscapeClose } from '../useEscapeClose'
-import { useOverlayDismiss } from '../useOverlayDismiss'
+import { useEscapeKey } from '../modalLayer'
+import { useModalStack } from '../modalLayer'
 
 const mounted: VueWrapper[] = []
 
-/** Окно, которое закрывается по Esc; child — вложенное окно, рисуемое внутри (как «+» быстрого добавления внутри формы). */
+/** Окно по образцу BaseModal: стоит в общем стеке и по Esc закрывается, если оно верхнее; child — вложенное окно внутри. */
 const Modal = defineComponent({
   props: {
     onClose: { type: Function as PropType<() => void>, required: true },
     child: { type: Object as PropType<ReturnType<typeof defineComponent>>, default: null },
   },
   setup(props) {
-    useEscapeClose(() => props.onClose())
+    const { isTop } = useModalStack()
+    useEscapeKey((event) => {
+      if (!isTop()) return
+      event.preventDefault()
+      props.onClose()
+    })
     return () => h('div', { class: 'modal' }, props.child ? [h(props.child)] : [])
   },
 })
@@ -35,8 +42,8 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount()
 })
 
-describe('UI-04: useEscapeClose', () => {
-  it('Esc закрывает окно и помечает событие обработанным', () => {
+describe('useEscapeKey', () => {
+  it('Esc вызывает обработчик с событием; закрывшее окно помечает событие обработанным', () => {
     const close = vi.fn()
     open(close)
     const event = press()
@@ -59,7 +66,12 @@ describe('UI-04: useEscapeClose', () => {
     const inner = vi.fn()
     const Inner = defineComponent({
       setup() {
-        useEscapeClose(inner)
+        const { isTop } = useModalStack()
+        useEscapeKey((event) => {
+          if (!isTop()) return
+          event.preventDefault()
+          inner()
+        })
         return () => h('div', { class: 'inner' })
       },
     })
@@ -91,7 +103,7 @@ describe('UI-04: useEscapeClose', () => {
     expect(close).not.toHaveBeenCalled()
   })
 
-  it('другие клавиши и Esc во время IME-ввода окно не закрывают', () => {
+  it('другие клавиши и Esc во время IME-ввода обработчик не вызывают', () => {
     const close = vi.fn()
     open(close)
     press({ key: 'Enter' })
@@ -100,36 +112,27 @@ describe('UI-04: useEscapeClose', () => {
     expect(close).not.toHaveBeenCalled()
   })
 
-  it('после размонтирования слушатель снят: Esc больше ничего не вызывает', () => {
+  it('после размонтирования слушатель снят с window: Esc больше ничего не вызывает', () => {
     const close = vi.fn()
+    const remove = vi.spyOn(window, 'removeEventListener')
     const wrapper = open(close)
     wrapper.unmount()
     mounted.pop()
-    const remove = vi.spyOn(window, 'removeEventListener')
+    expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function))
+    remove.mockRestore()
     const event = press()
     expect(close).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
-    remove.mockRestore()
   })
-})
 
-describe('UI-04: useOverlayDismiss — Esc закрывает окно тем же действием, что клик по подложке', () => {
-  it('Esc вызывает onDismiss; клик по подложке по-прежнему тоже', async () => {
-    const dismiss = vi.fn()
-    const Dialog = defineComponent({
-      setup() {
-        const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(dismiss)
-        return () => h('div', { class: 'overlay', onMousedown: onOverlayPointerDown, onClick: onOverlayClick })
-      },
-    })
-    const wrapper = mount(Dialog, { attachTo: document.body })
-    mounted.push(wrapper)
-
+  it('слушатель висит на window, а не на document: обработчики на document успевают забрать свой Esc первыми', () => {
+    const order: string[] = []
+    const close = vi.fn(() => order.push('window'))
+    open(close)
+    const onDocument = () => order.push('document')
+    document.addEventListener('keydown', onDocument)
     press()
-    expect(dismiss).toHaveBeenCalledTimes(1)
-
-    await wrapper.trigger('mousedown')
-    await wrapper.trigger('click')
-    expect(dismiss).toHaveBeenCalledTimes(2)
+    document.removeEventListener('keydown', onDocument)
+    expect(order).toEqual(['document', 'window'])
   })
 })

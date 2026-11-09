@@ -28,6 +28,7 @@ services/crud/deletion.py:delete_resource(). Любой новый путь уд
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException
@@ -43,6 +44,7 @@ from ..models import (
 )
 from ..registry import DISPLAY_NAMES
 from .port_vlans import allowed_vlan_ids_by_device, effective_group_vlan_ids, effective_vlan_ids
+from .device_label import device_label
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +298,7 @@ def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> li
         {
             'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
             'port_id': r.port_id, 'port_name': r.port_name,
-            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
             'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
         }
         for r in rows
@@ -335,7 +337,7 @@ def find_off_port_subinterfaces(session: Session) -> list[dict[str, Any]]:
         {
             'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
             'port_id': r.port_id, 'port_name': r.port_name,
-            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
             'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
         }
         for r in rows
@@ -377,7 +379,7 @@ def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None)
     stale = [
         {
             'subinterface_id': r.subinterface_id, 'group_id': r.group_id, 'group_name': r.group_name,
-            'device_id': r.device_id, 'device_name': r.system_name or r.serial_number or r.device_id,
+            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
             'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
         }
         for r in rows
@@ -386,37 +388,74 @@ def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None)
     return sorted(stale, key=lambda d: (d['device_name'], d['group_name'], d['vlan_number']))
 
 
+_NameLoader = Callable[[Session, set[str]], dict[str, str]]
+"""Загрузчик имён владельцев ОДНОГО типа: (сессия, id владельцев) → {id: читаемое имя}. Владельцев, которых больше нет, в ответе нет."""
+
+
+def _simple_name_loader(model: Any) -> _NameLoader:
+    """Загрузчик для владельцев, у которых имя — колонка `name` самой строки (ВМ, группа портов, ИС): один запрос."""
+
+    def load(session: Session, ids: set[str]) -> dict[str, str]:
+        return {row.id: row.name for row in session.execute(select(model.id, model.name).where(model.id.in_(ids)))}
+
+    return load
+
+
+def _devices_by_id(session: Session, ids: set[str]) -> dict[str, PhysicalDevice]:
+    return {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(ids)))}
+
+
+def _device_names(session: Session, ids: set[str]) -> dict[str, str]:
+    """Физическое устройство: подпись по единому правилу (R1-03) с запасным id — диагностика должна показывать и «грязные» строки. Один запрос."""
+    return {device_id: device_label(device, fallback=device_id) for device_id, device in _devices_by_id(session, ids).items()}
+
+
+def _with_device(device: PhysicalDevice | None, name: str) -> str:
+    """«устройство / порт»; если устройства нет — просто имя порта."""
+    return f"{device_label(device, fallback=device.id)} / {name}" if device else name
+
+
+def _interface_names(session: Session, ids: set[str]) -> dict[str, str]:
+    """Порт устройства: «устройство / порт». Два запроса: порты и их устройства."""
+    interfaces = session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(ids))).all()
+    devices = _devices_by_id(session, {i.physical_device_id for i in interfaces})
+    return {i.id: _with_device(devices.get(i.physical_device_id), i.name) for i in interfaces}
+
+
+def _subinterface_names(session: Session, ids: set[str]) -> dict[str, str]:
+    """Подинтерфейс: «устройство / подинтерфейс». Три запроса: подинтерфейсы, их порты, устройства."""
+    subinterfaces = session.scalars(select(DeviceSubinterface).where(DeviceSubinterface.id.in_(ids))).all()
+    parents = {i.id: i for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_({s.parent_interface_id for s in subinterfaces})))}
+    devices = _devices_by_id(session, {p.physical_device_id for p in parents.values()})
+    names: dict[str, str] = {}
+    for sub in subinterfaces:
+        parent = parents.get(sub.parent_interface_id)
+        names[sub.id] = _with_device(devices.get(parent.physical_device_id) if parent else None, sub.name)
+    return names
+
+
+# Реестр: тип владельца → загрузчик его имён. Новый тип владельца добавляется строкой здесь, а не правкой `_owner_names`
+# (принцип открытости/закрытости); тест `test_every_open_port_owner_type_has_a_name_loader` не даёт забыть тип. Тип, которого в
+# реестре нет, остаётся в отчёте без имени (owner_name = None), как и раньше.
+OWNER_NAME_LOADERS: dict[str, _NameLoader] = {
+    OwnerType.VIRTUAL_MACHINE: _simple_name_loader(VirtualMachine),
+    INTERFACE_GROUP_OWNER: _simple_name_loader(InterfaceGroup),
+    INFORMATION_SYSTEM_OWNER: _simple_name_loader(InformationSystem),
+    OwnerType.PHYSICAL_DEVICE: _device_names,
+    OwnerType.DEVICE_INTERFACE: _interface_names,
+    OwnerType.DEVICE_SUBINTERFACE: _subinterface_names,
+}
+
+
 def _owner_names(session: Session, owners: set[tuple[str, str]]) -> dict[tuple[str, str], str]:
-    """Читаемые имена владельцев для отчёта о дублях — по одному запросу на тип владельца."""
+    """Читаемые имена владельцев для отчёта о дублях — по одному запросу на тип владельца (интерфейс — 2, подинтерфейс — 3)."""
     ids_by_type: dict[str, set[str]] = {}
     for owner_type, owner_id in owners:
         ids_by_type.setdefault(owner_type, set()).add(owner_id)
 
-    def device_label(device: PhysicalDevice) -> str:
-        return device.system_name or device.serial_number or device.id
-
     names: dict[tuple[str, str], str] = {}
     for owner_type, ids in ids_by_type.items():
-        if owner_type == OwnerType.VIRTUAL_MACHINE:
-            names.update({(owner_type, r.id): r.name for r in session.execute(select(VirtualMachine.id, VirtualMachine.name).where(VirtualMachine.id.in_(ids)))})
-        elif owner_type == INTERFACE_GROUP_OWNER:
-            names.update({(owner_type, r.id): r.name for r in session.execute(select(InterfaceGroup.id, InterfaceGroup.name).where(InterfaceGroup.id.in_(ids)))})
-        elif owner_type == INFORMATION_SYSTEM_OWNER:
-            names.update({(owner_type, r.id): r.name for r in session.execute(select(InformationSystem.id, InformationSystem.name).where(InformationSystem.id.in_(ids)))})
-        elif owner_type == OwnerType.PHYSICAL_DEVICE:
-            names.update({(owner_type, d.id): device_label(d) for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(ids)))})
-        elif owner_type == OwnerType.DEVICE_INTERFACE:
-            interfaces = session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(ids))).all()
-            devices = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_({i.physical_device_id for i in interfaces})))}
-            for iface in interfaces:
-                device = devices.get(iface.physical_device_id)
-                names[(owner_type, iface.id)] = f'{device_label(device)} / {iface.name}' if device else iface.name
-        elif owner_type == OwnerType.DEVICE_SUBINTERFACE:
-            subinterfaces = session.scalars(select(DeviceSubinterface).where(DeviceSubinterface.id.in_(ids))).all()
-            parents = {i.id: i for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_({s.parent_interface_id for s in subinterfaces})))}
-            devices = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_({p.physical_device_id for p in parents.values()})))}
-            for sub in subinterfaces:
-                parent = parents.get(sub.parent_interface_id)
-                device = devices.get(parent.physical_device_id) if parent else None
-                names[(owner_type, sub.id)] = f'{device_label(device)} / {sub.name}' if device else sub.name
+        loader = OWNER_NAME_LOADERS.get(owner_type)
+        if loader is not None:
+            names.update({(owner_type, owner_id): name for owner_id, name in loader(session, ids).items()})
     return names

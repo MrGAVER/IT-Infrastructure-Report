@@ -16,8 +16,9 @@ import type { Connection, Device, DeviceStack, DeviceStackDetail, DeviceStackMem
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsStore } from '../stores/connections'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import SearchableSelect from './SearchableSelect.vue'
+import ScrollableTableWrap from './ScrollableTableWrap.vue'
 import DeviceStackVlanIpEditor from './DeviceStackVlanIpEditor.vue'
 import StackMemberAddConfirmModal from './StackMemberAddConfirmModal.vue'
 import DeviceFormModal from './DeviceFormModal.vue'
@@ -29,7 +30,6 @@ const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ stack: DeviceStack | null }>()
 const emit = defineEmits<{ close: []; saved: [stack: DeviceStack] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -205,7 +205,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать стек устройств' : 'Добавить стек устройств' }}</h2>
@@ -240,37 +240,38 @@ async function submit() {
                 </div>
 
                 <div v-if="!detail.members.length" class="empty">Устройства не добавлены</div>
-                <table v-else class="member-table">
-                  <thead>
-                    <tr>
-                      <th class="col-pos">#</th>
-                      <th>Устройство</th>
-                      <th>Тип</th>
-                      <th class="col-actions"><span class="sr-only">Действия</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="m in detail.members" :key="m.id">
-                      <td class="col-pos">{{ m.stack_position }}</td>
-                      <td>{{ deviceLabel(m) }}</td>
-                      <td>{{ catalogs.label('device-types', m.device_type_id) }}</td>
-                      <td class="col-actions">
-                        <div class="row-actions">
-                          <button type="button" class="btn btn-secondary btn-sm" @click="viewingDevice = m">Просмотреть</button>
-                          <button
-                            type="button"
-                            class="icon-btn danger"
-                            :disabled="memberBusyId === m.stack_member_id"
-                            aria-label="Убрать из стека"
-                            @click="removeMember(m)"
-                          >
-                            <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                <ScrollableTableWrap v-else label="Устройства в стеке"
+                  ><table class="member-table">
+                    <thead>
+                      <tr>
+                        <th class="col-pos">#</th>
+                        <th>Устройство</th>
+                        <th>Тип</th>
+                        <th class="col-actions"><span class="sr-only">Действия</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="m in detail.members" :key="m.id">
+                        <td class="col-pos">{{ m.stack_position }}</td>
+                        <td>{{ deviceLabel(m) }}</td>
+                        <td>{{ catalogs.label('device-types', m.device_type_id) }}</td>
+                        <td class="col-actions">
+                          <div class="row-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" @click="viewingDevice = m">Просмотреть</button>
+                            <button
+                              type="button"
+                              class="icon-btn danger"
+                              :disabled="memberBusyId === m.stack_member_id"
+                              aria-label="Убрать из стека"
+                              @click="removeMember(m)"
+                            >
+                              <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody></table
+                ></ScrollableTableWrap>
 
                 <div class="add-member-row">
                   <SearchableSelect
@@ -296,22 +297,24 @@ async function submit() {
                 </div>
 
                 <div v-if="!detail.connections.length" class="empty">Соединения между участниками стека не заданы</div>
-                <table v-else class="member-table">
-                  <thead>
-                    <tr>
-                      <th>Откуда</th>
-                      <th>Куда</th>
-                      <th>Тип</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="c in detail.connections" :key="c.id">
-                      <td>{{ c.source_device_name }} · {{ c.source_interface_name }}</td>
-                      <td>{{ c.destination_device_name }} · {{ c.destination_interface_name }}</td>
-                      <td>{{ c.connection_type_name }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <ScrollableTableWrap v-else label="Соединения стека"
+                  ><table class="member-table">
+                    <thead>
+                      <tr>
+                        <th>Откуда</th>
+                        <th>Куда</th>
+                        <th>Тип</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="c in detail.connections" :key="c.id">
+                        <td>{{ c.source_device_name }} · {{ c.source_interface_name }}</td>
+                        <td>{{ c.destination_device_name }} · {{ c.destination_interface_name }}</td>
+                        <td>{{ c.connection_type_name }}</td>
+                      </tr>
+                    </tbody>
+                  </table></ScrollableTableWrap
+                >
 
                 <button type="button" class="btn btn-secondary" :disabled="detail.members.length < 2" @click="addingConnection = true">
                   <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
@@ -343,21 +346,10 @@ async function submit() {
     <DeviceFormModal v-if="viewingDevice" :device="viewingDevice" @close="viewingDevice = null" @saved="onDeviceSaved" />
     <StackMemberAddConfirmModal v-if="pendingAdd" :preview="pendingAdd" :busy="addBusy" @confirm="commitAddMember" @cancel="pendingAdd = null" />
     <ConnectionFormModal v-if="addingConnection" :connection="null" @close="addingConnection = false" @saved="onConnectionSaved" />
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 720px;
@@ -416,7 +408,10 @@ async function submit() {
   color: var(--ink-muted);
   margin: 0;
 }
+/* Элемент сетки формы (1fr = minmax(auto, 1fr)) по умолчанию не уже своего содержимого: широкая таблица раздвигала окно за край экрана
+   вместо того, чтобы листаться внутри ScrollableTableWrap (F-10). min-width: 0 даёт ему сжиматься. */
 .nested-editor {
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--r-m);
   padding: 12px;

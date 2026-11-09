@@ -11,6 +11,7 @@ import { useAuditLogStore } from '../auditLog'
 import { useVMsStore } from '../vms'
 import { useContainersStore } from '../containers'
 import { useInformationSystemsStore } from '../informationSystems'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../../utils/pageSize'
 
 interface PagedStore {
   page: number
@@ -24,11 +25,10 @@ interface PagedStore {
 
 const range = (n: number) => Array.from({ length: n }, (_, i) => i)
 
-const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: () => PagedStore }> = [
+const LISTS: Array<{ name: string; listId: string; make: () => PagedStore }> = [
   {
     name: 'устройства',
     listId: 'devices',
-    defaultSize: 6,
     make: () => {
       const s = useDevicesStore()
       s.all = range(200).map((i) => ({ id: `d${i}`, system_name: `dev-${i}`, serial_number: `SN-${i}`, stack_id: null })) as never
@@ -38,7 +38,6 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
   {
     name: 'виртуальные машины',
     listId: 'vms',
-    defaultSize: 8,
     make: () => {
       const s = useVMsStore()
       s.all = range(200).map((i) => ({ id: `v${i}`, name: `vm-${i}` })) as never
@@ -48,7 +47,6 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
   {
     name: 'контейнеры',
     listId: 'containers',
-    defaultSize: 8,
     make: () => {
       const s = useContainersStore()
       s.all = range(200).map((i) => ({ id: `c${i}`, name: `ct-${i}` })) as never
@@ -58,7 +56,6 @@ const LISTS: Array<{ name: string; listId: string; defaultSize: number; make: ()
   {
     name: 'информационные системы',
     listId: 'informationSystems',
-    defaultSize: 8,
     make: () => {
       const s = useInformationSystemsStore()
       s.all = range(200).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never
@@ -76,42 +73,42 @@ beforeEach(() => {
   api = stubPreferencesApi()
 })
 
-describe.each(LISTS)('количество строк на странице — $name', ({ listId, defaultSize, make }) => {
-  it('по умолчанию сохраняется прежний размер страницы; варианты — x1, x2, x4, x8', () => {
+describe.each(LISTS)('количество строк на странице — $name', ({ listId, make }) => {
+  it('по умолчанию 10 строк; варианты — 10 / 25 / 50 / 100, как у всех списков', () => {
     const store = make()
-    expect(store.pageSize).toBe(defaultSize)
-    expect(store.pageSizeOptions).toEqual([1, 2, 4, 8].map((m) => defaultSize * m))
-    expect(store.pageItems).toHaveLength(defaultSize)
-    expect(store.pageCount).toBe(Math.ceil(200 / defaultSize))
+    expect(store.pageSize).toBe(DEFAULT_PAGE_SIZE)
+    expect(store.pageSize).toBe(10)
+    expect(store.pageSizeOptions).toEqual([10, 25, 50, 100])
+    expect(store.pageItems).toHaveLength(10)
+    expect(store.pageCount).toBe(20)
   })
 
   it('смена размера меняет число строк на странице и число страниц', () => {
     const store = make()
 
-    store.setPageSize(defaultSize * 4)
+    store.setPageSize(50)
 
-    expect(store.pageSize).toBe(defaultSize * 4)
-    expect(store.pageItems).toHaveLength(defaultSize * 4)
-    expect(store.pageCount).toBe(Math.ceil(200 / (defaultSize * 4)))
+    expect(store.pageSize).toBe(50)
+    expect(store.pageItems).toHaveLength(50)
+    expect(store.pageCount).toBe(4)
   })
 
   it('остаётся на странице с тем же первым видимым элементом', () => {
     const store = make()
-    store.setPage(3)
+    store.setPage(6) // записи 51–60; индекс первой — 50
     const firstBefore = store.pageItems[0]
 
-    store.setPageSize(defaultSize * 2)
+    store.setPageSize(25)
 
-    expect(store.page).toBe(2)
-    expect(store.pageItems).toContain(firstBefore)
-    expect(store.pageItems[0]).toBe(firstBefore) // 3-я страница по N = 2-я по 2N со сдвигом 0
+    expect(store.page).toBe(3) // по 25 запись с индексом 50 — первая на странице 3
+    expect(store.pageItems[0]).toBe(firstBefore)
   })
 
-  it('страница никогда не выходит за пределы после уменьшения списка вариантов', () => {
+  it('страница никогда не выходит за пределы после увеличения размера', () => {
     const store = make()
     store.setPage(store.pageCount)
 
-    store.setPageSize(defaultSize * 8)
+    store.setPageSize(100)
 
     expect(store.page).toBeGreaterThanOrEqual(1)
     expect(store.page).toBeLessThanOrEqual(store.pageCount)
@@ -119,24 +116,24 @@ describe.each(LISTS)('количество строк на странице — 
   })
 
   it('выбор запоминается на сервере для этого списка и восстанавливается новым стором после загрузки настроек', async () => {
-    make().setPageSize(defaultSize * 2)
+    make().setPageSize(25)
     await flushPromises()
-    expect(api.server.user.page_sizes).toEqual({ [listId]: defaultSize * 2 })
+    expect(api.server.user.page_sizes).toEqual({ [listId]: 25 })
     expect(localStorage.getItem(`itr.pageSize.${listId}`)).toBeNull()
 
     // «Перезагрузка страницы»: новое приложение, настройки подтягиваются с сервера до создания стора списка.
     setActivePinia(createPinia())
     await usePreferencesStore().load({ userId: 'user-1', canWriteGlobal: false })
-    expect(make().pageSize).toBe(defaultSize * 2)
+    expect(make().pageSize).toBe(25)
   })
 
-  it.each([0, -1, 7, 1000, Number.NaN])('недопустимое значение %s игнорируется', (bad) => {
+  it.each([0, -1, 7, 12, 20, 1000, Number.NaN])('недопустимое значение %s игнорируется', (bad) => {
     const store = make()
     store.setPage(2)
 
     store.setPageSize(bad)
 
-    expect(store.pageSize).toBe(defaultSize)
+    expect(store.pageSize).toBe(DEFAULT_PAGE_SIZE)
     expect(store.page).toBe(2)
     expect(api.userPuts).toEqual([])
   })
@@ -144,14 +141,26 @@ describe.each(LISTS)('количество строк на странице — 
   it('то же значение — ничего не меняет (страница остаётся)', () => {
     const store = make()
     store.setPage(4)
-    store.setPageSize(defaultSize)
+    store.setPageSize(DEFAULT_PAGE_SIZE)
     expect(store.page).toBe(4)
+  })
+
+  it('прежний сохранённый размер (6/12/24/48 и т. п.) не применяется: список открывается с 10 строками', async () => {
+    await usePreferencesStore().load({ userId: 'user-1', canWriteGlobal: false })
+    usePreferencesStore().user = { page_sizes: { [listId]: 24 } }
+    expect(make().pageSize).toBe(DEFAULT_PAGE_SIZE)
   })
 })
 
 it('размер страницы одного списка не влияет на остальные', () => {
-  useVMsStore().setPageSize(32)
-  expect(useVMsStore().pageSize).toBe(32)
-  expect(useContainersStore().pageSize).toBe(8)
-  expect(useAuditLogStore().pageSize).toBe(12)
+  useVMsStore().setPageSize(50)
+  expect(useVMsStore().pageSize).toBe(50)
+  expect(useContainersStore().pageSize).toBe(DEFAULT_PAGE_SIZE)
+  expect(useAuditLogStore().pageSize).toBe(DEFAULT_PAGE_SIZE)
+})
+
+it('клиентские списки и журнал аудита берут шкалу из одного места', () => {
+  for (const store of [useDevicesStore(), useVMsStore(), useContainersStore(), useInformationSystemsStore(), useAuditLogStore()]) {
+    expect(store.pageSizeOptions).toEqual([...PAGE_SIZE_OPTIONS])
+  }
 })

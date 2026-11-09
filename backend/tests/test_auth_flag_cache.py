@@ -1,4 +1,4 @@
-"""Кэш флага «аутентификация включена» в middleware (services/auth._auth_enabled_cached, ревью 2.158.0, П-5).
+"""Кэш флага «аутентификация включена» в middleware (services/auth/settings.auth_enabled_cached, ревью 2.158.0, П-5).
 
 _authorize на каждый запрос к /api/* читал настройки из БД — даже при выключенной аутентификации (режим по умолчанию), где
 больше ничего из БД не нужно. Теперь флаг кэшируется на _FLAG_TTL секунд; set_auth_enabled сбрасывает кэш сразу. Кэшируется
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from app.models import AuthSettings
-from app.services import auth as auth_module
+from app.services.auth import settings as settings_module
 
 HEALTH_URL = "/api/v1/health"
 ADMIN_PASSWORD = "Admin1234"
@@ -32,7 +32,7 @@ class FakeClock:
 @pytest.fixture()
 def clock(monkeypatch) -> FakeClock:
     fake = FakeClock()
-    monkeypatch.setattr(auth_module, "_flag_clock", fake)
+    monkeypatch.setattr(settings_module, "_flag_clock", fake)
     return fake
 
 
@@ -60,7 +60,7 @@ class TestFlagIsReadOncePerTtl:
     def test_flag_is_read_again_after_the_ttl(self, client, sql_log, clock):
         sql_log.clear()
         assert client.get(HEALTH_URL).status_code == 200
-        clock.advance(auth_module._FLAG_TTL - 0.1)
+        clock.advance(settings_module._FLAG_TTL - 0.1)
         assert client.get(HEALTH_URL).status_code == 200
         assert _settings_selects(sql_log) == 1  # ещё в пределах TTL
         clock.advance(0.2)
@@ -69,7 +69,7 @@ class TestFlagIsReadOncePerTtl:
 
     def test_ttl_is_short(self):
         """Задержка видимости переключателя в других процессах равна TTL — он должен оставаться порядка секунд."""
-        assert 0 < auth_module._FLAG_TTL <= 5
+        assert 0 < settings_module._FLAG_TTL <= 5
 
 
 class TestSwitchTakesEffectImmediately:
@@ -89,9 +89,9 @@ class TestSwitchTakesEffectImmediately:
 
     def test_enabling_never_leaves_the_old_flag_in_the_cache(self, client, clock):
         client.get(HEALTH_URL)
-        assert auth_module._flag_cache is not None and auth_module._flag_cache[1] is False
+        assert settings_module._flag_cache is not None and settings_module._flag_cache[1] is False
         _enable_auth(client)
-        assert auth_module._flag_cache is None or auth_module._flag_cache[1] is True
+        assert settings_module._flag_cache is None or settings_module._flag_cache[1] is True
 
 
 class TestOnlyTheFlagIsCached:
@@ -119,7 +119,7 @@ class TestOtherProcessesSeeTheSwitchAfterTheTtl:
         row.enabled = True
         db_session.commit()
         assert client.get("/api/v1/resources/manufacturers").status_code == 200  # TTL не истёк — ещё по кэшу
-        clock.advance(auth_module._FLAG_TTL + 0.1)
+        clock.advance(settings_module._FLAG_TTL + 0.1)
         assert client.get("/api/v1/resources/manufacturers").status_code == 401
 
 
@@ -132,13 +132,13 @@ class TestResetRace:
         def racing_read(session):
             reads.append(1)
             value = AuthSettings(id="singleton", enabled=False)
-            auth_module.reset_auth_enabled_cache()  # «параллельный» set_auth_enabled закоммитил и сбросил кэш
+            settings_module.reset_auth_enabled_cache()  # «параллельный» set_auth_enabled закоммитил и сбросил кэш
             return value
 
-        monkeypatch.setattr(auth_module, "get_or_create_auth_settings", racing_read)
-        assert auth_module._auth_enabled_cached(db_session) is False  # этот запрос начался до переключения
-        assert auth_module._flag_cache is None
-        assert auth_module._auth_enabled_cached(db_session) is False
+        monkeypatch.setattr(settings_module, "get_or_create_auth_settings", racing_read)
+        assert settings_module.auth_enabled_cached(db_session) is False  # этот запрос начался до переключения
+        assert settings_module._flag_cache is None
+        assert settings_module.auth_enabled_cached(db_session) is False
         assert len(reads) == 2  # второй запрос перечитал БД, а не взял устаревшее из кэша
 
     def test_value_is_cached_when_nobody_switched_during_the_read(self, db_session, monkeypatch, clock):
@@ -148,9 +148,9 @@ class TestResetRace:
             reads.append(1)
             return AuthSettings(id="singleton", enabled=True)
 
-        monkeypatch.setattr(auth_module, "get_or_create_auth_settings", plain_read)
-        assert auth_module._auth_enabled_cached(db_session) is True
-        assert auth_module._auth_enabled_cached(db_session) is True
+        monkeypatch.setattr(settings_module, "get_or_create_auth_settings", plain_read)
+        assert settings_module.auth_enabled_cached(db_session) is True
+        assert settings_module.auth_enabled_cached(db_session) is True
         assert len(reads) == 1
 
     def test_reset_makes_the_next_call_read_the_database(self, db_session, monkeypatch, clock):
@@ -160,8 +160,8 @@ class TestResetRace:
             reads.append(1)
             return AuthSettings(id="singleton", enabled=False)
 
-        monkeypatch.setattr(auth_module, "get_or_create_auth_settings", plain_read)
-        auth_module._auth_enabled_cached(db_session)
-        auth_module.reset_auth_enabled_cache()
-        auth_module._auth_enabled_cached(db_session)
+        monkeypatch.setattr(settings_module, "get_or_create_auth_settings", plain_read)
+        settings_module.auth_enabled_cached(db_session)
+        settings_module.reset_auth_enabled_cache()
+        settings_module.auth_enabled_cached(db_session)
         assert len(reads) == 2

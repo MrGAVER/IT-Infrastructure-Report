@@ -80,7 +80,7 @@ describe('GroupVlanPickerModal', () => {
     await wrapper.get('.modal-foot .btn-primary').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(2)
 
-    const overlay = wrapper.get('.overlay')
+    const overlay = wrapper.get('.modal-overlay')
     await overlay.trigger('mousedown')
     await overlay.trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(3)

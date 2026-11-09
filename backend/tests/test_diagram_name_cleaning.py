@@ -13,7 +13,8 @@ from urllib.parse import unquote
 import h11
 import pytest
 
-from app.api.diagrams import COPY_SUFFIX, MAX_DIAGRAM_NAME_LENGTH, _clean_name
+from app.api.diagram_schemas import MAX_DIAGRAM_NAME_LENGTH, clean_name
+from app.api.diagrams import COPY_SUFFIX
 from app.models import SavedDiagram
 
 API = "/api/v1/diagrams"
@@ -52,7 +53,7 @@ def _assert_header_is_safe(response) -> None:
     ],
 )
 def test_clean_name(raw, expected):
-    assert _clean_name(raw) == expected
+    assert clean_name(raw) == expected
 
 
 class TestCreateAndRename:

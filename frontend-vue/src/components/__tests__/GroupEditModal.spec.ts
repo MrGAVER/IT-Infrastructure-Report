@@ -304,7 +304,7 @@ describe('GroupEditModal', () => {
     await wrapper.get('.group-modal-actions .btn-secondary').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(2)
 
-    const overlay = wrapper.get('.overlay')
+    const overlay = wrapper.get('.modal-overlay')
     await overlay.trigger('mousedown')
     await overlay.trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(3)

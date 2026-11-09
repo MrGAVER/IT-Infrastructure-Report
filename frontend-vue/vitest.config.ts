@@ -15,7 +15,12 @@ export default mergeConfig(
       // Europe/Minsk и при случайном порядке (--sequence.shuffle). Если тест начнёт вести себя странно из-за общих
       // встроенных объектов между контекстами (instanceof, Date), вернуть `pool: 'forks'`.
       pool: 'vmThreads',
+      // Теги тестов. `slow` — замер времени или нагрузочная проверка (как маркер `slow` у pytest): выполняется по умолчанию, исключить
+      // можно ключом `--tags-filter '!slow'` (npm run test:fast). Незнакомый тег в тесте — ошибка (strictTags), опечатка не пройдёт молча.
+      tags: [{ name: 'slow', description: 'Замер времени или нагрузочная проверка; npm run test:fast их пропускает.' }],
       globals: true,
+      // Teleport окон (BaseModal) заменён заглушкой — см. комментарий в файле.
+      setupFiles: ['./src/__tests__/setup.ts'],
       css: false,
       // Стабы vi.stubGlobal (fetch, confirm и т.п.) не должны переживать границу
       // теста по умолчанию — иначе тест может случайно пройти на стабе, оставшемся
