@@ -4116,3 +4116,97 @@ describe('DeviceFormModal.vue — общие настройки VLAN стека 
     expect(removed.vlanEditor.text()).not.toContain('10 — Сеть 10')
   })
 })
+
+// Пункт 3 предложений по улучшению (ревью merge/review-f06-stage2-f05-executors): ПО, VLAN и порты устройства сохраняются PUT-ом ЦЕЛИКОМ.
+// Пустой черновик из-за сбоя или незавершённой загрузки нельзя отправлять — он стёр бы эти данные на сервере.
+describe('DeviceFormModal.vue — незагруженные вложенные данные не затираются при сохранении', () => {
+  const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+  const savedSoftware = { id: 'sw-1', owner_type: 'physical_device', owner_id: 'dev-1', software_asset_id: 'sa-1', version: '1' }
+  type Call = { method: string; url: string; body: unknown }
+  const NESTED_PUT = /\/devices\/dev-1\/(deployed-software|vlans|interfaces)$/
+  const page = (items: unknown[] = []) => new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
+  const nestedPuts = (calls: Call[]) => calls.filter((c) => c.method === 'PUT' && NESTED_PUT.test(c.url)).map((c) => c.url.replace(/^.*\/devices\/dev-1/, ''))
+  const saveButton = () => document.body.querySelector('.btn-primary') as HTMLButtonElement
+  const notice = () => document.body.querySelector('.load-notice')
+
+  /** Мокает API; onSoftwareList решает ответ на GET ПО (по номеру запроса) — остальные списки пусты, PUT успешны. */
+  async function stubApi(onSoftwareList: (attempt: number) => Response | Promise<Response>) {
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    const calls: Call[] = []
+    let softwareGets = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'GET' && url.includes('/resources/deployed-software')) return onSoftwareList(++softwareGets)
+        if (method === 'PUT' && /\/resources\/devices\/dev-1$/.test(url)) return new Response(JSON.stringify({ id: 'dev-1', serial_number: 'SN-1' }))
+        if (method === 'PUT') return new Response(JSON.stringify({ items: [], groups: [] }))
+        return page()
+      }),
+    )
+    return calls
+  }
+
+  it('загрузка упала: редакторы скрыты, показано сообщение; сохранение не отправляет ПО, VLAN и порты, но сохраняет устройство', async () => {
+    const calls = await stubApi(() => new Response(JSON.stringify({ detail: 'сервер недоступен' }), { status: 503 }))
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(notice()?.getAttribute('data-kind')).toBe('failed')
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'DeviceInterfacesEditor' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'DeviceVlanListEditor' }).exists()).toBe(false)
+
+    saveButton().click()
+    await flushPromises()
+
+    expect(nestedPuts(calls)).toEqual([])
+    expect(calls.some((c) => c.method === 'PUT' && /\/resources\/devices\/dev-1$/.test(c.url))).toBe(true)
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('«Повторить загрузку»: данные приходят, сообщение исчезает, редакторы возвращаются, и ПО сохраняется с id записи из БД', async () => {
+    const calls = await stubApi((attempt) => (attempt === 1 ? new Response(JSON.stringify({ detail: 'сбой' }), { status: 503 }) : page([savedSoftware])))
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    ;(document.body.querySelector('[data-action="retry-load"]') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(notice()).toBeNull()
+    expect(document.body.querySelector('.form-error')).toBeNull()
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(true)
+
+    saveButton().click()
+    await flushPromises()
+    const softwarePut = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-1/deployed-software'))
+    expect(softwarePut?.body).toEqual({ deployed_software: [{ id: 'sw-1', software_asset_id: 'sa-1', version: '1' }] })
+    expect(nestedPuts(calls)).toEqual(['/deployed-software', '/vlans', '/interfaces'])
+    wrapper.unmount()
+  })
+
+  it('«Сохранить» неактивна, пока данные грузятся; отправка формы в этот момент ничего не пишет на сервер', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const calls = await stubApi(async () => {
+      await gate
+      return page([savedSoftware])
+    })
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(document.body.querySelector('.loading-hint')).not.toBeNull()
+    expect(saveButton().disabled).toBe(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+
+    release()
+    await flushPromises()
+    expect(saveButton().disabled).toBe(false)
+    wrapper.unmount()
+  })
+})

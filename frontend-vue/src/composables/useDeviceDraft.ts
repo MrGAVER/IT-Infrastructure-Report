@@ -40,6 +40,10 @@ export function useDeviceDraft(device: () => Device | null) {
   const pendingSourceDomainIds = ref<Set<string>>(new Set())
   const deviceTypeVlanIds = ref<Set<string>>(new Set())
   const loadingNested = ref(false)
+  // Вложенные данные устройства (ПО, порты и группы, VLAN) не загрузились. Они сохраняются целиком (PUT заменяет список), поэтому
+  // пустой черновик после сбоя — это «нет данных», а не «пользователь всё убрал»: редакторы скрыты, а useDeviceSave не отправляет
+  // эти списки, иначе удалил бы ПО, VLAN и порты устройства на сервере.
+  const nestedLoadFailed = ref(false)
 
   // Пункт 5: конфигурация (Управление/Передача данных/режим порта) уже сохранённых портов на момент
   // открытия формы — по ней при сохранении определяется, что конфигурация порта с расхождением
@@ -67,6 +71,7 @@ export function useDeviceDraft(device: () => Device | null) {
     softwareAssets.value = []
     interfaces.value = []
     deviceVlans.value = []
+    nestedLoadFailed.value = false
     memberDomainIds.value = new Set()
     pendingDomainMemberships.value = new Set()
     pendingSourceDomainIds.value = new Set()
@@ -92,6 +97,7 @@ export function useDeviceDraft(device: () => Device | null) {
     pendingSourceDomainIds,
     deviceTypeVlanIds,
     loadingNested,
+    nestedLoadFailed,
     snapshot,
     initialConnections,
     savedConnections,

@@ -4,7 +4,7 @@
 // Состояние формы — useDeviceDraft; загрузка (редактирование или копия донора) — useDeviceLoader; сохранение с подтверждением
 // конфликтов 409 — useDeviceSave; домены VLAN, VLAN портов и общие настройки VLAN стека — useDeviceDomains, useDevicePortVlans,
 // useDeviceStackVlans. Основные поля формы и их справочники — DeviceMainFields (useDeviceFormFields).
-import { ref, useId } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useFormPreferencesStore } from '../stores/formPreferences'
@@ -22,6 +22,7 @@ import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
 import DeviceStackVlanIpEditor from './DeviceStackVlanIpEditor.vue'
 import DeviceMainFields from './DeviceMainFields.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
 const { readOnly } = useReadOnlyForm()
@@ -36,12 +37,27 @@ const vlansStore = useVLANsStore()
 const formPreferences = useFormPreferencesStore()
 
 const draft = useDeviceDraft(() => props.device)
-const { errorMessage, isEdit, form, softwareAssets, interfaces, interfaceGroups, deviceVlans, loadingNested, initialConnections, interfaceConflicts } = draft
+const {
+  errorMessage,
+  isEdit,
+  form,
+  softwareAssets,
+  interfaces,
+  interfaceGroups,
+  deviceVlans,
+  loadingNested,
+  nestedLoadFailed,
+  initialConnections,
+  interfaceConflicts,
+} = draft
 
 // Редактор портов: перед записью проверяет расхождения с соседями (reviewNeighborMismatches).
 const interfacesEditor = ref<InstanceType<typeof DeviceInterfacesEditor> | null>(null)
 // Блок «VLAN устройства»: форма раскрывает его, когда ошибка сохранения относится к строке, скрытой сворачиванием.
 const vlanEditor = ref<InstanceType<typeof DeviceVlanListEditor> | null>(null)
+
+// Редакторы вложенных данных показываются, только когда те загружены: ни во время загрузки, ни после сбоя (там пустой черновик — не «пусто»).
+const nestedReady = computed(() => !loadingNested.value && !nestedLoadFailed.value)
 
 const domains = useDeviceDomains(draft)
 const { availableVlans, singleDeviceDomainId, joinableDomains, memberDomains, onVlanCreated, onVlanDomainCreated, onJoinDomainRequested, onCancelJoinDomain } =
@@ -50,7 +66,7 @@ const { deviceStackId, lockedStackVlans, onStackVlanState, onStackVlanApplied, o
 // Порядок вызова важен: подписки (watch) создаются в этом порядке — VLAN портов, затем загрузка источника (она же следит за
 // типом устройства); каскад полей формы создаёт DeviceMainFields при монтировании, то есть последним.
 const { portVlanOptions } = useDevicePortVlans(draft, { revealStaleSubinterfaces: () => void interfacesEditor.value?.revealStaleSubinterfaces() })
-const { reloadNeighborConfigs } = useDeviceLoader(draft, { device: () => props.device, copyFrom: () => props.copyFrom })
+const { reloadNeighborConfigs, retryNested } = useDeviceLoader(draft, { device: () => props.device, copyFrom: () => props.copyFrom })
 
 const { saving, submit } = useDeviceSave(draft, {
   device: () => props.device,
@@ -83,9 +99,11 @@ const { saving, submit } = useDeviceSave(draft, {
           <DeviceMainFields :model-value="form" />
 
           <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
-          <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
+          <!-- Сбой загрузки: редакторы скрыты, а их списки при сохранении не отправляются (иначе пустой черновик стёр бы данные на сервере). -->
+          <DataLoadNotice v-else-if="nestedLoadFailed" class="field-wide" kind="failed" what="портов, ПО и VLAN устройства" @retry="retryNested" />
+          <SoftwareAssetListEditor v-if="nestedReady" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
           <DeviceInterfacesEditor
-            v-if="!loadingNested"
+            v-if="nestedReady"
             ref="interfacesEditor"
             v-model="interfaces"
             v-model:groups="interfaceGroups"
@@ -102,7 +120,7 @@ const { saving, submit } = useDeviceSave(draft, {
             @neighbors-changed="reloadNeighborConfigs"
           />
           <DeviceVlanListEditor
-            v-if="!loadingNested"
+            v-if="nestedReady"
             ref="vlanEditor"
             v-model="deviceVlans"
             :collapse-after="formPreferences.collapseRows"
@@ -118,7 +136,7 @@ const { saving, submit } = useDeviceSave(draft, {
             @join-domain="onJoinDomainRequested"
           />
           <DeviceStackVlanIpEditor
-            v-if="deviceStackId && !loadingNested"
+            v-if="deviceStackId && nestedReady"
             :stack-id="deviceStackId"
             :reload-token="0"
             @update:state="onStackVlanState"
@@ -130,7 +148,7 @@ const { saving, submit } = useDeviceSave(draft, {
 
       <div class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
-        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving || loadingNested" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>
