@@ -16,7 +16,7 @@ import pytest
 from migration_support import insert_row
 
 from app.constants import OwnerType
-from app.services.crud import _OPEN_PORT_OWNER_LABELS
+from app.services.crud.owned_rows import _OPEN_PORT_OWNER_LABELS
 from app.services.integrity import INFORMATION_SYSTEM_OWNER, INTERFACE_GROUP_OWNER, _owner_names
 
 

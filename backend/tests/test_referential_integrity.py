@@ -22,7 +22,8 @@ try:
     from sqlalchemy import create_engine, event
     from sqlalchemy.orm import sessionmaker
     from app.models import Base, DeviceCategory, DeviceType, PhysicalDevice, InformationSystem
-    from app.services.crud import _find_referencing_counts, delete_resource, sync_information_system_details
+    from app.services.crud import delete_resource, sync_information_system_details
+    from app.services.crud.deletion import _find_referencing_counts
     from fastapi import HTTPException
     DEPS_AVAILABLE = True
 except ImportError:
