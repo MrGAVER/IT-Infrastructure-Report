@@ -8,6 +8,10 @@ import type { VLANDomain } from '../api/types'
 export const useVLANDomainsStore = defineStore('vlanDomains', {
   state: () => ({
     all: [] as VLANDomain[],
+    total: 0,
+    truncated: false,
+    // Загружено не всё (потолок listAllResource): экраны, показывающие этот список целиком, выводят постоянное DataLoadNotice,
+    // а не только исчезающее через 10 с предупреждение warnIfTruncated.
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -23,6 +27,8 @@ export const useVLANDomainsStore = defineStore('vlanDomains', {
       try {
         const res = await listAllResource<VLANDomain>('vlan-domains')
         this.all = res.items
+        this.total = res.total
+        this.truncated = res.truncated === true
         this.loaded = true
         warnIfTruncated(res, 'VLAN-доменов')
       } catch (e) {

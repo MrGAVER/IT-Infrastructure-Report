@@ -13,6 +13,7 @@ import { warnIfTruncated } from '../composables/useTruncationWarning'
 import { useToast } from '../composables/useToast'
 import type { VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import VLANDomainFormModal from './VLANDomainFormModal.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 
 const domains = useVLANDomainsStore()
 const devicesStore = useDevicesStore()
@@ -102,6 +103,7 @@ async function syncDomain(d: VLANDomain) {
       </button>
     </div>
 
+    <DataLoadNotice v-if="domains.truncated" kind="incomplete" what="VLAN-доменов" :loaded="domains.all.length" :total="domains.total" />
     <div v-if="domains.error" class="error-banner">{{ domains.error }}</div>
     <div v-else-if="domains.loading && !domains.loaded" class="empty">Загрузка доменов…</div>
     <div v-else-if="!domains.all.length" class="empty">VLAN-домены не созданы.</div>

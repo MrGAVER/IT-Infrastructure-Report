@@ -21,6 +21,7 @@ import BaseModal from './BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import SearchableSelect from './SearchableSelect.vue'
 import ConnectionFormModal from './ConnectionFormModal.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 
 const emit = defineEmits<{ close: [] }>()
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
@@ -288,6 +289,14 @@ const dragLinePath = computed(() => {
         </button>
       </div>
 
+      <DataLoadNotice
+        v-if="connectionsStore.truncated"
+        kind="incomplete"
+        what="подключений"
+        :loaded="connectionsStore.all.length"
+        :total="connectionsStore.total"
+        hint="На схеме нарисованы только они."
+      />
       <div class="canvas-toolbar">
         <SearchableSelect v-model="addDeviceId" :options="availableDeviceOptions" placeholder="Добавить устройство на схему…" />
         <button type="button" class="btn btn-secondary" :disabled="!addDeviceId" @click="addDevice">

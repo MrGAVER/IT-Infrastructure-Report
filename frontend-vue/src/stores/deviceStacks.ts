@@ -10,6 +10,10 @@ import type { DeviceStack } from '../api/types'
 export const useDeviceStacksStore = defineStore('deviceStacks', {
   state: () => ({
     all: [] as DeviceStack[],
+    total: 0,
+    truncated: false,
+    // Загружено не всё (потолок listAllResource): экраны, показывающие этот список целиком, выводят постоянное DataLoadNotice,
+    // а не только исчезающее через 10 с предупреждение warnIfTruncated.
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -25,6 +29,8 @@ export const useDeviceStacksStore = defineStore('deviceStacks', {
       try {
         const res = await listAllResource<DeviceStack>('device-stacks')
         this.all = res.items
+        this.total = res.total
+        this.truncated = res.truncated === true
         this.loaded = true
         warnIfTruncated(res, 'стеков устройств')
       } catch (e) {

@@ -12,6 +12,10 @@ const LIST_ID = 'containers'
 export const useContainersStore = defineStore('containers', {
   state: () => ({
     all: [] as Container[],
+    total: 0,
+    truncated: false,
+    // Загружено не всё (потолок listAllResource): экраны, показывающие этот список целиком, выводят постоянное DataLoadNotice,
+    // а не только исчезающее через 10 с предупреждение warnIfTruncated.
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -47,6 +51,8 @@ export const useContainersStore = defineStore('containers', {
       try {
         const res = await listAllResource<Container>('containers')
         this.all = res.items
+        this.total = res.total
+        this.truncated = res.truncated === true
         this.loaded = true
         warnIfTruncated(res, 'контейнеров')
       } catch (e) {
