@@ -32,7 +32,6 @@ max-returns = 6
 "backend/alembic/versions/*.py" = ["C901", "PLR0911", "PLR0912", "PLR0915"]  # исторические миграции не переписываем
 "backend/tests/*" = ["PLR0911", "PLR0912", "PLR0915"]      # тесты — длинные линейные сценарии; пороги нужны коду приложения
 # Долг на 2.158.0: функции, превышающие пороги выше. Список только сокращается — новые файлы не добавляйте, разбирайте функцию на шаги.
-"backend/app/services/diagram_export.py" = ["PLR0912", "PLR0915"]
 "backend/app/services/crud/payload.py" = ["PLR0911"]
 "backend/app/services/report_engine.py" = ["PLR0911"]
 

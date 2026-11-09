@@ -5492,3 +5492,9 @@ F-08 и F-09 выполнены по решению владельца. Не в�
   `_OPEN_PORT_OWNER_LABELS`); остальные 66 не использовались нигде. Тесты переведены на импорт из подмодулей (`crud.validators`, `crud.deletion`, `crud.owned_rows`),
   приватные имена убраны из импортов и `__all__` (`grep -c "^    _" backend/app/services/crud/__init__.py` → 0), docstring фасада обновлён. Логика не менялась.
   Тест `test_facade_exports_no_private_names` не даёт реэкспорту вернуться.
+- **R1-08 (п. 2) — `diagram_export.export_drawio` разбита на шаги, исключение ruff снято.** Функция в 112 строк (13 ветвей > 12, 63 оператора > 50) держала файл в списке
+  исключений ruff (`PLR0912`, `PLR0915`), который по `pyproject.toml` «только сокращается». Теперь `export_drawio` — десяток строк поверх `_drawio_add_node` (объект узла и иконка
+  поверх него), `_drawio_add_generated_icon` / `_drawio_add_custom_icon` / `_drawio_add_port_ticks` / `_drawio_image_object`, `_drawio_edge_anchors` и `_drawio_add_edge`; запись
+  `backend/app/services/diagram_export.py` удалена из `per-file-ignores`, `ruff check .` чист. Вывод не изменился: порядок создания объектов сохранён, результат на четырёх графах
+  (все виды узлов и рёбер) сверен побайтово до и после разбиения (случайные id drawpyo нормализованы). Остальные функции файла из отчёта (`_finalize_vsdx_package`, `_svg_node`,
+  `_embed_vsdx_category_icons`) в пороги ruff укладываются и не менялись. Тесты: `test_diagram_export_drawio_steps.py` (шаги и страж «долг по сложности только сокращается»).
