@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Источники размещения/IP ИС — унифицированная замена устаревших отдельных таблиц
-// ISDevice/ISVM/ISContainer/ISIP (см. комментарий к InformationSystemDetails в api/types.ts).
+// ISDevice/ISVM/ISContainer/ISIP (см. комментарий к InformationSystemDetails в api/types/informationSystems.ts).
 // Портировано с renderISDetails()/onISSourceTypeChanged()/onISSourceDeviceChanged()/
 // onISSourceVMChanged() прежнего vanilla-фронтенда (до 2.60.0) — включая не самую очевидную,
 // но сознательную деталь исходной реализации: при типе "ВМ" оба селекта (физический сервер И
@@ -11,7 +11,7 @@
 // Модель данных строки (миграция 944bd490d967): единое owner_id вместо прежних трёх отдельных
 // FK-полей — при source_type='vm' оно хранит id самой ВМ, а не её хоста, поэтому для описанного
 // выше "выбрали сервер, ещё не выбрали ВМ" состояния используется отдельное, НЕ отправляемое на
-// backend поле vmHostHint (см. api/types.ts и deviceSelectValue ниже).
+// backend поле vmHostHint (см. api/types и deviceSelectValue ниже).
 //
 // IP "ручного" источника — список отдельных полей (ips), а не одно текстовое поле через запятую
 // (миграция d8e35a1c7f60, вопрос 3/5 отчёта по анализу БД, согласовано с заказчиком). Список
@@ -70,7 +70,7 @@ function containerSelectOptionsFor(row: ISSourceDraftRow): SearchableSelectOptio
 // Значение, показываемое в селекте "физический сервер". При source_type='device' owner_id и есть
 // выбранный сервер. При source_type='vm' owner_id хранит id самой ВМ (не её хоста) — если ВМ уже
 // выбрана, хост выводится из vmOptions; если ещё нет, используется чисто клиентский vmHostHint
-// (см. комментарий у него в api/types.ts) — тот же приём, что раньше давало отдельное поле
+// (см. комментарий у него в api/types) — тот же приём, что раньше давало отдельное поле
 // physical_device_id на самой строке, просто теперь это состояние не отправляется на backend.
 function deviceSelectValue(row: ISSourceDraftRow): string {
   if (row.source_type === 'device') return row.owner_id

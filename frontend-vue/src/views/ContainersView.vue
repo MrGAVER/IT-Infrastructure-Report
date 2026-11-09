@@ -9,6 +9,7 @@ import { useToast } from '../composables/useToast'
 import type { Container } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
+import DataLoadNotice from '../components/DataLoadNotice.vue'
 import ContainerFormModal from '../components/ContainerFormModal.vue'
 import ListEmptyRow from '../components/ListEmptyRow.vue'
 import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
@@ -92,6 +93,15 @@ function hostLabel(c: Container): string {
 
 <template>
   <div class="containers-view">
+    <!-- Карточки считаются на клиенте по загруженному списку: при усечённой загрузке они занижены, и предупреждение-toast к тому моменту уже исчезло. -->
+    <DataLoadNotice
+      v-if="containers.truncated"
+      kind="incomplete"
+      what="контейнеров"
+      :loaded="containers.all.length"
+      :total="containers.total"
+      hint="Карточки ниже посчитаны только по загруженной части."
+    />
     <div class="stat-row">
       <StatCard :value="containers.all.length" label="Всего контейнеров" />
       <StatCard :value="containers.all.filter((c) => c.virtual_machine_id).length" label="На ВМ" />

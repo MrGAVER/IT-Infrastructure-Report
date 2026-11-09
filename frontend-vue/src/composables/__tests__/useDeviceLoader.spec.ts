@@ -174,6 +174,58 @@ describe('редактирование устройства', () => {
   })
 })
 
+describe('сбой загрузки вложенных данных и повтор (пункт 3 предложений по улучшению)', () => {
+  const source = () => deviceOf({ id: 'dev-1', device_type_id: 't-sw', serial_number: 'SN-1', system_name: 'sw-01' } as Partial<Device>)
+
+  it('сбой помечает вложенные данные незагруженными: по этому признаку форма не показывает редакторы и не отправляет их списки', async () => {
+    loadDeviceNestedData.mockRejectedValue(new Error('сервер недоступен'))
+    const { draft } = setup({ device: source() })
+    await settle()
+    expect(draft.nestedLoadFailed.value).toBe(true)
+    expect(draft.loadingNested.value).toBe(false)
+  })
+
+  it('успешная загрузка признак сбоя не ставит', async () => {
+    const { draft } = setup({ device: source() })
+    await settle()
+    expect(draft.nestedLoadFailed.value).toBe(false)
+  })
+
+  it('«Повторить загрузку» после сбоя заполняет данные, снимает признак и очищает ошибку; поля формы, которые правил пользователь, не сбрасываются', async () => {
+    loadDeviceNestedData.mockRejectedValueOnce(new Error('сервер недоступен'))
+    const { draft, loader } = setup({ device: source() })
+    await settle()
+    expect(draft.nestedLoadFailed.value).toBe(true)
+    draft.form.description = 'правка пользователя'
+
+    await loader.retryNested()
+
+    expect(draft.nestedLoadFailed.value).toBe(false)
+    expect(draft.errorMessage.value).toBeNull()
+    expect(draft.softwareAssets.value).toHaveLength(1)
+    expect(draft.interfaces.value).toHaveLength(1)
+    expect(draft.form.description).toBe('правка пользователя')
+  })
+
+  it('повторный сбой оставляет признак и показывает причину', async () => {
+    loadDeviceNestedData.mockRejectedValue(new Error('всё ещё недоступен'))
+    const { draft, loader } = setup({ device: source() })
+    await settle()
+
+    await loader.retryNested()
+
+    expect(draft.nestedLoadFailed.value).toBe(true)
+    expect(draft.errorMessage.value).toBe('всё ещё недоступен')
+  })
+
+  it('у нового устройства повторять нечего: запросов нет', async () => {
+    const { loader } = setup()
+    await settle()
+    await loader.retryNested()
+    expect(loadDeviceNestedData).not.toHaveBeenCalled()
+  })
+})
+
 describe('копирование', () => {
   const donor = () => deviceOf({ id: 'dev-donor', device_type_id: 't-sw', serial_number: 'SN-DONOR', system_name: 'sw-donor' } as Partial<Device>)
 

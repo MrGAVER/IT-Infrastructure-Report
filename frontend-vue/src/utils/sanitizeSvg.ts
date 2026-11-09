@@ -83,3 +83,65 @@ export function sanitizeSvg(svgMarkup: string | null | undefined): string {
     FORBID_ATTR: ['style', 'onload', 'onerror', 'onclick', 'onmouseover'],
   })
 }
+
+/** Ссылка на элемент вида `url(#id)` в значении атрибута (кавычки и пробелы внутри скобок допустимы). */
+const URL_REF = /(url\(\s*['"]?\s*)#([^)'"\s]+)/gi
+/** Атрибуты со списком id через пробел (подпись и описание элемента ссылаются на <title>/<desc> по id). */
+const ID_LIST_ATTRS = new Set(['aria-labelledby', 'aria-describedby'])
+
+/**
+ * R2-03 (ревью merge/review-f06-stage2-f05-executors): делает `id` внутри встроенной SVG-иконки уникальными в документе.
+ *
+ * Иконки вставляются в страницу как разметка (v-html), а `id` в документе глобальны: если две разные иконки на одной диаграмме
+ * объявляют `<linearGradient id="g">` с разными цветами, обе ссылки `url(#g)` разрешатся на ПЕРВЫЙ элемент с таким id, и вторая
+ * иконка нарисуется чужим градиентом. Тот же id мог совпасть и с id элемента самого приложения. Здесь каждый id получает
+ * префикс экземпляра (`prefix-id`), а все ссылки на него внутри иконки — `href`/`xlink:href="#id"`, `url(#id)` в любом атрибуте
+ * (fill, stroke, mask, clip-path, filter, marker-*) и `aria-labelledby`/`aria-describedby` — переписываются следом.
+ *
+ * Вызывать ПОСЛЕ `sanitizeSvg` (сначала очистка, потом переименование); результат повторно через DOMPurify не пропускать:
+ * префикс гарантирует, что имена не совпадут со свойствами `document` (DOM clobbering), а значения атрибутов остаются теми же,
+ * что уже прошли очистку. Ссылки на несуществующие id (в том числе внешние) не трогаются. Иконка без id возвращается как есть.
+ *
+ * Разбор — HTML-парсером, а не XML: вывод DOMPurify — HTML-сериализация, и в XML-парсере `xlink:href` без объявленного
+ * `xmlns:xlink` дал бы parsererror (иконка молча осталась бы без изоляции). Так же разметку потом разберёт и v-html.
+ *
+ * @param prefix — уникальный для экземпляра компонента (`useId()`); недопустимые для id символы заменяются на «_».
+ *
+ * @example
+ *   const uid = useId()
+ *   const svg = computed(() => namespaceSvgIds(sanitizeSvg(markup.value), `ic${uid}`))
+ *   // '<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/></svg>'
+ *   //   → '<svg><defs><linearGradient id="icv-0-g"></linearGradient></defs><rect fill="url(#icv-0-g)"></rect></svg>'
+ */
+export function namespaceSvgIds(svgMarkup: string, prefix: string): string {
+  // Быстрый выход без разбора: у большинства иконок id нет (проверка с запасом — «data-id=» тоже подходит, ниже это отсеется).
+  if (!svgMarkup || !/\bid\s*=/i.test(svgMarkup)) return svgMarkup
+  const safePrefix = prefix.replace(/[^A-Za-z0-9_-]/g, '_')
+  const root = new DOMParser().parseFromString(svgMarkup, 'text/html').body
+
+  const renamed = new Map<string, string>()
+  for (const el of Array.from(root.querySelectorAll('[id]'))) {
+    const id = el.getAttribute('id') ?? ''
+    if (!id) continue
+    const next = `${safePrefix}-${id}`
+    renamed.set(id, next)
+    el.setAttribute('id', next)
+  }
+  if (!renamed.size) return svgMarkup
+
+  const mapped = (id: string) => renamed.get(id) ?? id
+  for (const el of Array.from(root.querySelectorAll('*'))) {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase()
+      if (name === 'id') continue
+      if (name === 'href' || name === 'xlink:href') {
+        if (attr.value.startsWith('#')) attr.value = `#${mapped(attr.value.slice(1))}`
+      } else if (ID_LIST_ATTRS.has(name)) {
+        attr.value = attr.value.split(/\s+/).filter(Boolean).map(mapped).join(' ')
+      } else if (attr.value.includes('(')) {
+        attr.value = attr.value.replace(URL_REF, (_match, head: string, id: string) => `${head}#${mapped(id)}`)
+      }
+    }
+  }
+  return root.innerHTML
+}

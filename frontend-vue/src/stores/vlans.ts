@@ -1,6 +1,6 @@
 // Стор для экрана "VLAN". Отображение группирует по vlan_id через специализированный
 // /api/v1/vlan-dashboard (один и тот же VLAN ID может иметь разные определения в
-// разных доменах — см. api/types.ts:VLANDashboardGroup). CRUD отдельных определений —
+// разных доменах — см. api/types/vlans.ts:VLANDashboardGroup). CRUD отдельных определений —
 // через общий /resources/vlans, как везде.
 import { defineStore } from 'pinia'
 import { api } from '../api/client'

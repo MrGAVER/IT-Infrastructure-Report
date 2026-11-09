@@ -3,6 +3,7 @@
 // как в vlanDomains.ts.
 import { defineStore } from 'pinia'
 import { listAllResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { Container } from '../api/types'
 import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 
@@ -11,6 +12,10 @@ const LIST_ID = 'containers'
 export const useContainersStore = defineStore('containers', {
   state: () => ({
     all: [] as Container[],
+    total: 0,
+    truncated: false,
+    // Загружено не всё (потолок listAllResource): экраны, показывающие этот список целиком, выводят постоянное DataLoadNotice,
+    // а не только исчезающее через 10 с предупреждение warnIfTruncated.
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -46,7 +51,10 @@ export const useContainersStore = defineStore('containers', {
       try {
         const res = await listAllResource<Container>('containers')
         this.all = res.items
+        this.total = res.total
+        this.truncated = res.truncated === true
         this.loaded = true
+        warnIfTruncated(res, 'контейнеров')
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить контейнеры'
       } finally {

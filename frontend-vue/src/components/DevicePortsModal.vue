@@ -20,6 +20,7 @@ import type { Device, DeviceInterface, InterfaceDraftRow, InterfaceGroupDraft, V
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 import BaseModal from './BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import { buildPortConflictNotice, computePortConflicts, snapshotPortConfigs, type PortConfig } from '../utils/portConflicts'
@@ -49,6 +50,10 @@ const interfaceGroups = ref<InterfaceGroupDraft[]>([])
 // БД на момент открытия, без реактивного пересчёта. См. api/portVlans.ts.
 const portVlanOptions = ref<VLANDefinition[]>([])
 const loading = ref(true)
+// Порты не загрузились. Они сохраняются целиком (PUT заменяет список портов и групп), поэтому пустой редактор после сбоя — это
+// «нет данных», а не «пользователь всё убрал»: он скрыт, а «Сохранить» неактивна (у модалки нет <form>, кнопка — единственный
+// путь в submit), иначе устройство потеряло бы все порты.
+const loadFailed = ref(false)
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 
@@ -57,6 +62,14 @@ onMounted(async () => {
   // (ConnectionsView.vue вызывает ensureLoaded() при монтировании), но модалка не должна на это
   // полагаться — ensureLoaded() сама не делает лишний запрос, если уже загружено или грузится.
   await Promise.all([catalogs.ensureLoaded(), vlansStore.ensureLoaded()])
+  await loadPorts()
+})
+
+/** Загрузка портов устройства; она же — «Повторить загрузку» после сбоя. */
+async function loadPorts() {
+  loading.value = true
+  loadFailed.value = false
+  errorMessage.value = null
   try {
     const [rows, groups, device, connections] = await Promise.all([
       loadDeviceInterfaceDraftRows(props.deviceId),
@@ -71,11 +84,12 @@ onMounted(async () => {
     const [typeVlanIds, assignedVlanIds] = await Promise.all([loadDeviceTypeVlanIds(device.device_type_id), loadAssignedDeviceVlanIds(props.deviceId)])
     portVlanOptions.value = computePortVlanOptions(vlansStore.allDefinitions, typeVlanIds, assignedVlanIds)
   } catch (err) {
+    loadFailed.value = true
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить порты устройства'
   } finally {
     loading.value = false
   }
-})
+}
 
 async function submit() {
   errorMessage.value = null
@@ -121,6 +135,7 @@ async function submit() {
       </div>
 
       <p v-if="loading" class="loading-hint">Загрузка портов устройства…</p>
+      <DataLoadNotice v-else-if="loadFailed" kind="failed" what="портов устройства" @retry="loadPorts" />
       <DeviceInterfacesEditor
         v-else
         v-model="interfaces"
@@ -134,7 +149,7 @@ async function submit() {
 
       <div class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="saving || loading" @click="submit">
+        <button type="button" class="btn btn-primary" :disabled="saving || loading || loadFailed" @click="submit">
           {{ saving ? 'Сохранение…' : 'Сохранить порты' }}
         </button>
       </div>

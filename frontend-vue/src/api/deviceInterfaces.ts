@@ -45,7 +45,7 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
     api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${deviceId}/interface-vlans`),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
     // 'device_interface', owner_id=id интерфейса), не всего устройства, см. комментарий к
-    // InterfaceDraftRow.open_ports в types.ts и backend/app/services/crud/interfaces.py:
+    // InterfaceDraftRow.open_ports в api/types/interfaces.ts и backend/app/services/crud/interfaces.py:
     // _sync_interface_open_ports. Читаются по устройству, как IP и VLAN выше.
     api.get<{ items: OpenPort[] }>(`/devices/${deviceId}/interface-open-ports`),
     // Подинтерфейсы портов — тоже одним запросом по устройству, уже с их IP и открытыми портами: подинтерфейс
@@ -190,7 +190,7 @@ export function validateInterfaceDraftRows(
 
 /**
  * Сохраняет набор интерфейсов устройства через атомарный PUT. vlan_ids и all_vlans каждого ряда отправляются
- * как пришли из loadDeviceInterfaceDraftRows (см. комментарий к InterfaceDraftRow в types.ts) —
+ * как пришли из loadDeviceInterfaceDraftRows (см. комментарий к InterfaceDraftRow в api/types/interfaces.ts) —
  * если вызывающий компонент их не редактирует (как DevicePortsModal.vue), они просто
  * round-trip'ятся туда-обратно неизменными и НЕ стираются молча. vlan_mode round-trip'ится по
  * тому же принципу (п.1.4.3.2).

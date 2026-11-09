@@ -25,7 +25,7 @@ export function useDeviceDraft(device: () => Device | null) {
 
   // Фикс п.1.4 (батч4): открытые порты больше не самостоятельный список уровня устройства — теперь
   // это InterfaceDraftRow.open_ports внутри каждой строки interfaces (см. её комментарий в
-  // types.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
+  // api/types/interfaces.ts) и персистятся атомарно вместе с интерфейсом через persistDeviceInterfaces().
   const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
   const interfaces = ref<InterfaceDraftRow[]>([])
   // Группы портов (InterfaceGroupsPanel.vue внутри DeviceInterfacesEditor.vue): общие режим порта/VLAN,
@@ -40,6 +40,10 @@ export function useDeviceDraft(device: () => Device | null) {
   const pendingSourceDomainIds = ref<Set<string>>(new Set())
   const deviceTypeVlanIds = ref<Set<string>>(new Set())
   const loadingNested = ref(false)
+  // Вложенные данные устройства (ПО, порты и группы, VLAN) не загрузились. Они сохраняются целиком (PUT заменяет список), поэтому
+  // пустой черновик после сбоя — это «нет данных», а не «пользователь всё убрал»: редакторы скрыты, а useDeviceSave не отправляет
+  // эти списки, иначе удалил бы ПО, VLAN и порты устройства на сервере.
+  const nestedLoadFailed = ref(false)
 
   // Пункт 5: конфигурация (Управление/Передача данных/режим порта) уже сохранённых портов на момент
   // открытия формы — по ней при сохранении определяется, что конфигурация порта с расхождением
@@ -56,7 +60,7 @@ export function useDeviceDraft(device: () => Device | null) {
   // Не зависит ни от общего списка подключений, ни от каталога интерфейсов (оба с потолком 1000 записей).
   const savedConnections = shallowRef<DeviceInterfaceConnection[]>([])
 
-  // Расхождения конфигурации портов с соседними (PortConflictInfo, см. api/types.ts) — с фактическими значениями соседа:
+  // Расхождения конфигурации портов с соседними (PortConflictInfo, см. api/types) — с фактическими значениями соседа:
   // DeviceInterfacesEditor.vue сам решает, как их показать и что применить по каждой из двух кнопок.
   const interfaceConflicts = computed<Record<string, PortConflictInfo>>(() => computePortConflicts(interfaces.value, savedConnections.value))
 
@@ -67,6 +71,7 @@ export function useDeviceDraft(device: () => Device | null) {
     softwareAssets.value = []
     interfaces.value = []
     deviceVlans.value = []
+    nestedLoadFailed.value = false
     memberDomainIds.value = new Set()
     pendingDomainMemberships.value = new Set()
     pendingSourceDomainIds.value = new Set()
@@ -92,6 +97,7 @@ export function useDeviceDraft(device: () => Device | null) {
     pendingSourceDomainIds,
     deviceTypeVlanIds,
     loadingNested,
+    nestedLoadFailed,
     snapshot,
     initialConnections,
     savedConnections,

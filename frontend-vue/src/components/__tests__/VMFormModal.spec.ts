@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import VMFormModal from '../VMFormModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { usePreferencesStore } from '../../stores/preferences'
+import { useToast } from '../../composables/useToast'
 import { useDevicesStore } from '../../stores/devices'
 import type { Device, VirtualMachine } from '../../api/types'
 
@@ -21,9 +22,54 @@ function body(): DOMWrapper<HTMLElement> {
 beforeEach(() => {
   setActivePinia(createPinia())
   document.body.innerHTML = ''
+  useToast().toasts.splice(0)
 })
 
 describe('VMFormModal.vue', () => {
+  it('R2-01: усечённая загрузка вложенного списка ВМ не молчит — предупреждение о неполных данных', async () => {
+    const vm: VirtualMachine = {
+      id: 'vm-1',
+      name: 'app-server-01',
+      operating_system_id: null,
+      physical_device_id: null,
+      hypervisor_os_id: null,
+      purpose: null,
+      description: null,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        // у ВМ «2000» IP-адресов, но сервер отдаёт только первую страницу, а на следующие отвечает пустыми
+        if (url.includes('/resources/ip-addresses')) {
+          const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+          const items =
+            offset === 0
+              ? [
+                  {
+                    id: 'ip-1',
+                    owner_type: 'virtual_machine',
+                    owner_id: 'vm-1',
+                    ip_address: '10.0.0.1',
+                    prefix_length: 24,
+                    purpose: null,
+                    is_management: false,
+                  },
+                ]
+              : []
+          return jsonResponse({ items, total: 2000, offset, limit: 1000 })
+        }
+        return jsonResponse(EMPTY_PAGE)
+      }),
+    )
+
+    mount(VMFormModal, { props: { vm } })
+    await flushPromises()
+
+    const warnings = useToast().toasts.filter((t) => t.type === 'warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].message).toContain('IP-адресов ВМ')
+  })
+
   it('при редактировании подгружает существующие IP-адреса и открытые порты ВМ', async () => {
     const vm: VirtualMachine = {
       id: 'vm-1',
@@ -890,5 +936,155 @@ describe('VMFormModal.vue — «Операционная система» и «�
     useDevicesStore().all = [serverDevice('d-sw', 'sw-core-01', 'SN-SW', 'dt-switch')]
     const wrapper = mount(VMFormModal, { props: { vm: null } })
     expect(wrapper.text()).toContain('Нет доступных серверов/СХД в реестре устройств.')
+  })
+})
+
+// Пункт 3 предложений по улучшению (ревью merge/review-f06-stage2-f05-executors): вложенные списки ВМ сохраняются PUT-ом ЦЕЛИКОМ —
+// сервер удаляет записи, которых нет в списке. Пока список не получен целиком, «пусто» — это «нет данных», а не «пользователь всё убрал».
+describe('VMFormModal.vue — список, который не загрузился или загружен не целиком, не затирается при сохранении', () => {
+  const vm: VirtualMachine = {
+    id: 'vm-1',
+    name: 'app-server-01',
+    operating_system_id: null,
+    physical_device_id: null,
+    hypervisor_os_id: null,
+    purpose: null,
+    description: null,
+  }
+  const savedIp = {
+    id: 'ip-1',
+    owner_type: 'virtual_machine',
+    owner_id: 'vm-1',
+    ip_address: '10.0.0.1',
+    prefix_length: 24,
+    purpose: null,
+    is_management: false,
+  }
+  type Call = { method: string; url: string; body: unknown }
+  const NESTED_PUT = /\/vms\/vm-1\/(ip-addresses|open-ports|deployed-software)$/
+
+  /** Мокает API: onList решает ответ на GET списка (по ресурсу и номеру запроса), остальное — пустые страницы и успешные PUT. */
+  function stubApi(onList: (resource: string, attempt: number, url: string) => Response | Promise<Response>) {
+    const calls: Call[] = []
+    const attempts = new Map<string, number>()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'PUT' && url.endsWith('/resources/vms/vm-1')) return jsonResponse(vm)
+        if (method === 'PUT') return jsonResponse({ items: [] })
+        const resource = /\/resources\/(ip-addresses|open-ports|deployed-software)\b/.exec(url)?.[1]
+        if (!resource) return jsonResponse(EMPTY_PAGE)
+        const attempt = (attempts.get(resource) ?? 0) + 1
+        attempts.set(resource, attempt)
+        return onList(resource, attempt, url)
+      }),
+    )
+    return calls
+  }
+  const nestedPuts = (calls: Call[]) => calls.filter((c) => c.method === 'PUT' && NESTED_PUT.test(c.url))
+  const saveButton = () => document.body.querySelector('.btn-primary') as HTMLButtonElement
+  const notices = () => [...document.body.querySelectorAll('.load-notice')]
+
+  async function mountEdit() {
+    const wrapper = mount(VMFormModal, { props: { vm }, attachTo: document.body })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('загрузка IP упала: редактор IP заменён сообщением, PUT IP не уходит, остальные списки и сама ВМ сохраняются', async () => {
+    const calls = stubApi((resource) => (resource === 'ip-addresses' ? jsonResponse({ detail: 'сервер недоступен' }, 503) : jsonResponse(EMPTY_PAGE)))
+    const wrapper = await mountEdit()
+
+    expect(notices()).toHaveLength(1)
+    expect(notices()[0].getAttribute('data-kind')).toBe('failed')
+    expect(notices()[0].textContent).toContain('IP-адресов ВМ')
+    expect(wrapper.findComponent({ name: 'VmIpListEditor' }).exists()).toBe(false)
+    expect(document.body.querySelector('.form-error')?.textContent).toContain('сервер недоступен')
+
+    saveButton().click()
+    await flushPromises()
+
+    expect(nestedPuts(calls).map((c) => c.url.replace(/^.*\/vms\/vm-1/, ''))).toEqual(['/open-ports', '/deployed-software'])
+    expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/resources/vms/vm-1'))).toBe(true)
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('«Повторить загрузку» перечитывает только упавший список и возвращает редактор; затем сохраняется то, что было в БД', async () => {
+    const calls = stubApi((resource, attempt) => {
+      if (resource !== 'ip-addresses') return jsonResponse(EMPTY_PAGE)
+      return attempt === 1 ? jsonResponse({ detail: 'сбой' }, 503) : jsonResponse({ items: [savedIp], total: 1, offset: 0, limit: 1000 })
+    })
+    const wrapper = await mountEdit()
+    const getsBeforeRetry = calls.filter((c) => c.method === 'GET' && c.url.includes('/resources/open-ports')).length
+
+    ;(document.body.querySelector('[data-action="retry-load"]') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(notices()).toHaveLength(0)
+    expect(document.body.querySelector('.form-error')).toBeNull()
+    expect(wrapper.findComponent({ name: 'VmIpListEditor' }).exists()).toBe(true)
+    expect([...document.body.querySelectorAll('input')].map((i) => i.value)).toContain('10.0.0.1')
+    // порты, загруженные с первого раза, повторно не запрашивались
+    expect(calls.filter((c) => c.method === 'GET' && c.url.includes('/resources/open-ports'))).toHaveLength(getsBeforeRetry)
+
+    saveButton().click()
+    await flushPromises()
+    const ipPut = nestedPuts(calls).find((c) => c.url.endsWith('/ip-addresses'))
+    expect(ipPut?.body).toMatchObject({ ip_addresses: [{ id: 'ip-1', ip_address: '10.0.0.1' }] })
+    wrapper.unmount()
+  })
+
+  it('«Сохранить» неактивна, пока списки грузятся; отправка формы в этот момент ничего не пишет на сервер', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const calls = stubApi(async (resource) => {
+      if (resource === 'ip-addresses') await gate
+      return jsonResponse(resource === 'ip-addresses' ? { items: [savedIp], total: 1, offset: 0, limit: 1000 } : EMPTY_PAGE)
+    })
+    const wrapper = mount(VMFormModal, { props: { vm }, attachTo: document.body })
+    await flushPromises()
+
+    expect(document.body.querySelector('.loading-hint')).not.toBeNull()
+    expect(saveButton().disabled).toBe(true)
+    await wrapper.find('form').trigger('submit') // не через кнопку: Enter в поле формы
+    await flushPromises()
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+
+    release()
+    await flushPromises()
+    expect(saveButton().disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('усечённый список IP: сообщение с «n из N», PUT IP не уходит (невидимые записи не удаляются)', async () => {
+    const calls = stubApi((resource, _attempt, url) => {
+      if (resource !== 'ip-addresses') return jsonResponse(EMPTY_PAGE)
+      const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+      return jsonResponse({ items: offset === 0 ? [savedIp] : [], total: 2000, offset, limit: 1000 })
+    })
+    const wrapper = await mountEdit()
+
+    const partial = notices().find((n) => n.getAttribute('data-kind') === 'partial')
+    expect(partial?.textContent).toContain('1 из 2')
+    expect(partial?.querySelector('[data-action="retry-load"]')).toBeNull() // повтор дал бы то же самое
+
+    saveButton().click()
+    await flushPromises()
+    expect(nestedPuts(calls).some((c) => c.url.endsWith('/ip-addresses'))).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('без проблем загрузки поведение прежнее: пустой список существующей ВМ по-прежнему отправляется (пользователь всё убрал)', async () => {
+    const calls = stubApi(() => jsonResponse(EMPTY_PAGE))
+    const wrapper = await mountEdit()
+
+    expect(notices()).toHaveLength(0)
+    saveButton().click()
+    await flushPromises()
+    expect(nestedPuts(calls)).toHaveLength(3)
+    wrapper.unmount()
   })
 })

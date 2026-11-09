@@ -108,7 +108,7 @@ async function submit() {
     if (props.resource === 'protocol-port-catalog') {
       // Особый случай: у ProtocolPortCatalogEntry нет поля name, поэтому он живёт не в
       // общем catalogs.items, а в отдельном catalogs.protocolPortCatalog — см. комментарий
-      // к типу в api/types.ts. sortProtocolPortCatalog() — общая с catalogs.ts:reload()
+      // к типу в api/types. sortProtocolPortCatalog() — общая с catalogs.ts:reload()
       // точка сортировки по (port, protocol_type), фикс п.4.2.
       const entry = created as unknown as ProtocolPortCatalogEntry
       catalogs.protocolPortCatalog = sortProtocolPortCatalog([...catalogs.protocolPortCatalog, entry])

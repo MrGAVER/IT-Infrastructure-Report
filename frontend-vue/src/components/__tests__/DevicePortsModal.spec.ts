@@ -347,4 +347,59 @@ describe('DevicePortsModal.vue', () => {
     expect(puts).toEqual([])
     expect(body().text()).toContain('VLAN подинтерфейса «eth0.10»')
   })
+
+  // Пункт 3 предложений по улучшению (ревью merge/review-f06-stage2-f05-executors): порты сохраняются PUT-ом ЦЕЛИКОМ, поэтому пустой
+  // редактор после сбоя загрузки нельзя сохранять — устройство потеряло бы все порты.
+  describe('сбой загрузки портов', () => {
+    const saveButton = () => document.body.querySelector('.btn-primary') as HTMLButtonElement
+
+    /** Первый GET портов падает (503), затем отвечает как обычно; calls — все запросы. */
+    function stubFlakyPorts() {
+      const calls: Array<{ url: string; method: string }> = []
+      let portGets = 0
+      const ok = stubFetch()
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push({ url, method: init?.method ?? 'GET' })
+          if (url.includes('/resources/interfaces') && url.includes('physical_device_id=dev-1') && (init?.method ?? 'GET') === 'GET' && ++portGets === 1) {
+            return jsonResponse({ detail: 'сервер недоступен' }, 503)
+          }
+          return ok(url, init)
+        }),
+      )
+      return calls
+    }
+
+    it('редактор скрыт, показано сообщение с причиной и «Повторить загрузку»; «Сохранить» неактивна и PUT не уходит', async () => {
+      const calls = stubFlakyPorts()
+      const wrapper = mount(DevicePortsModal, { props: { deviceId: 'dev-1', deviceLabel: 'srv-01' }, attachTo: document.body })
+      await flushPromises()
+
+      expect(document.body.querySelector('.load-notice')?.getAttribute('data-kind')).toBe('failed')
+      expect(document.body.querySelector('.form-error')?.textContent).toContain('сервер недоступен')
+      expect(document.body.querySelector('.iface-table')).toBeNull()
+      expect(saveButton().disabled).toBe(true)
+
+      saveButton().click()
+      await flushPromises()
+      expect(calls.filter((c) => c.method === 'PUT')).toEqual([])
+      wrapper.unmount()
+    })
+
+    it('«Повторить загрузку»: порты появляются, сообщение и ошибка исчезают, «Сохранить» снова доступна', async () => {
+      stubFlakyPorts()
+      const wrapper = mount(DevicePortsModal, { props: { deviceId: 'dev-1', deviceLabel: 'srv-01' }, attachTo: document.body })
+      await flushPromises()
+
+      ;(document.body.querySelector('[data-action="retry-load"]') as HTMLButtonElement).click()
+      await flushPromises()
+
+      expect(document.body.querySelector('.load-notice')).toBeNull()
+      expect(document.body.querySelector('.form-error')).toBeNull()
+      expect((document.body.querySelector('.iface-table input.cell-input') as HTMLInputElement).value).toBe('eth0')
+      expect(saveButton().disabled).toBe(false)
+      wrapper.unmount()
+    })
+  })
 })

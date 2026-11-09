@@ -9,9 +9,11 @@ import { useVLANDomainsStore } from '../stores/vlanDomains'
 import { useDevicesStore } from '../stores/devices'
 import { useAuthStore } from '../stores/auth'
 import { api, deleteResource, listAllResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import { useToast } from '../composables/useToast'
 import type { VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import VLANDomainFormModal from './VLANDomainFormModal.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 
 const domains = useVLANDomainsStore()
 const devicesStore = useDevicesStore()
@@ -26,6 +28,7 @@ const deletingId = ref<string | null>(null)
 
 async function loadMemberCounts() {
   const links = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices')
+  warnIfTruncated(links, 'устройств VLAN-доменов')
   const counts: Record<string, number> = {}
   for (const l of links.items) counts[l.domain_id] = (counts[l.domain_id] ?? 0) + 1
   memberCounts.value = counts
@@ -100,6 +103,7 @@ async function syncDomain(d: VLANDomain) {
       </button>
     </div>
 
+    <DataLoadNotice v-if="domains.truncated" kind="incomplete" what="VLAN-доменов" :loaded="domains.all.length" :total="domains.total" />
     <div v-if="domains.error" class="error-banner">{{ domains.error }}</div>
     <div v-else-if="domains.loading && !domains.loaded" class="empty">Загрузка доменов…</div>
     <div v-else-if="!domains.all.length" class="empty">VLAN-домены не созданы.</div>

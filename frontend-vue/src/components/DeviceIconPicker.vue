@@ -9,11 +9,11 @@
 // этой логики в JS рисковало бы разойтись с бэкендом при будущих правках одной из двух копий —
 // вместо этого пункт "Автоматически" в списке просто нейтрально это называет, без попытки
 // предсказать итоговые форму/цвет прямо в форме устройства/модели.
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { createResource } from '../api/client'
 import { useToast } from '../composables/useToast'
-import { sanitizeSvg } from '../utils/sanitizeSvg'
+import { namespaceSvgIds, sanitizeSvg } from '../utils/sanitizeSvg'
 import type { CatalogItem } from '../api/types'
 
 const props = defineProps<{ modelValue: string | null }>()
@@ -31,7 +31,11 @@ const icons = computed(() => catalogs.items['diagram-icons'] ?? [])
 const selectedIcon = computed(() => icons.value.find((i) => i.id === props.modelValue))
 // Код-ревью п.3.1: предпросмотр — тот же пользовательский svg_markup, что и на канвасе
 // диаграммы (см. DiagramDeviceNode.vue), санитизация нужна здесь по той же причине.
-const sanitizedSelectedIconSvg = computed(() => sanitizeSvg((selectedIcon.value as (CatalogItem & { svg_markup: string }) | undefined)?.svg_markup))
+// R2-03: предпросмотр может оказаться на одной странице с диаграммой или другим предпросмотром — id внутри иконки получают свой префикс.
+const previewUid = useId()
+const sanitizedSelectedIconSvg = computed(() =>
+  namespaceSvgIds(sanitizeSvg((selectedIcon.value as (CatalogItem & { svg_markup: string }) | undefined)?.svg_markup), `ic${previewUid}`),
+)
 
 function onSelect(event: Event) {
   const value = (event.target as HTMLSelectElement).value

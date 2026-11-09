@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeSvg } from '../sanitizeSvg'
+import { namespaceSvgIds, sanitizeSvg } from '../sanitizeSvg'
 
 describe('sanitizeSvg', () => {
   it('пустое значение', () => {
@@ -138,5 +138,117 @@ describe('sanitizeSvg — белый список как на сервере (B-
       '<rect fill="url(#g)" clip-path="url(#c)" mask="url(#m)" width="9" height="9"/><use href="#s"/></svg>'
 
     expect(canon(sanitizeSvg(markup))).toBe(canon(markup))
+  })
+})
+
+// R2-03: id внутри встроенных иконок глобальны в документе — каждому экземпляру иконки нужен свой префикс.
+describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
+  const gradientIcon = (color: string) =>
+    `<svg viewBox="0 0 24 24"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#000"/></linearGradient></defs><rect width="24" height="24" fill="url(#g)"/></svg>`
+
+  /** Разбирает разметку так же, как это сделает v-html (HTML-парсер) — чтобы проверять итоговое дерево, а не строку. */
+  function parse(markup: string): HTMLElement {
+    const host = document.createElement('div')
+    host.innerHTML = markup
+    return host
+  }
+
+  it('иконка без id возвращается без изменений (та же строка, без разбора)', () => {
+    const markup = sanitizeSvg('<svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#4f7cff"/></svg>')
+
+    expect(namespaceSvgIds(markup, 'ic1')).toBe(markup)
+  })
+
+  it('пустое значение возвращается как есть', () => {
+    expect(namespaceSvgIds('', 'ic1')).toBe('')
+  })
+
+  it('id получает префикс, url(#id) в fill следует за переименованием', () => {
+    const result = namespaceSvgIds(sanitizeSvg(gradientIcon('#f00')), 'ic1')
+    const doc = parse(result)
+
+    expect(doc.querySelector('linearGradient')?.getAttribute('id')).toBe('ic1-g')
+    expect(doc.querySelector('rect')?.getAttribute('fill')).toBe('url(#ic1-g)')
+    expect(result).not.toMatch(/id="g"/)
+    expect(result).not.toContain('url(#g)')
+  })
+
+  it('две иконки с одним id="g" и разными цветами на одной странице: все id уникальны, ссылки ведут на свою иконку', () => {
+    const first = namespaceSvgIds(sanitizeSvg(gradientIcon('#f00')), 'ic1')
+    const second = namespaceSvgIds(sanitizeSvg(gradientIcon('#00f')), 'ic2')
+    const page = parse(first + second)
+
+    const ids = Array.from(page.querySelectorAll('[id]')).map((el) => el.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const svg of Array.from(page.querySelectorAll('svg'))) {
+      const target = svg
+        .querySelector('rect')!
+        .getAttribute('fill')!
+        .match(/url\(#([^)]+)\)/)![1]
+      expect(svg.querySelector(`[id="${target}"]`)).not.toBeNull() // ссылка указывает внутрь той же иконки
+    }
+    const colors = Array.from(page.querySelectorAll('stop[offset="0"]')).map((el) => el.getAttribute('stop-color'))
+    expect(colors).toEqual(['#f00', '#00f'])
+  })
+
+  it('<use href="#a"> и xlink:href внутри той же иконки следуют за переименованием (в том числе без xmlns:xlink)', () => {
+    const markup = sanitizeSvg('<svg><defs><symbol id="a"><circle r="2"/></symbol></defs><use href="#a"/><use xlink:href="#a"/></svg>')
+
+    const result = namespaceSvgIds(markup, 'ic1')
+
+    expect(result.match(/href="#ic1-a"/g)).toHaveLength(2)
+    expect(result).toContain('id="ic1-a"')
+    expect(result).not.toMatch(/href="#a"/)
+  })
+
+  it('url(#id) переписывается в любых атрибутах (mask, clip-path, stroke) и во всех формах записи', () => {
+    const result = namespaceSvgIds(
+      '<svg><defs><clipPath id="c"><rect/></clipPath><mask id="m"><rect/></mask><linearGradient id="g"/></defs>' +
+        '<rect clip-path="url(#c)" mask="url( #m )" stroke="url(\'#g\')" fill="url(&quot;#g&quot;)"/></svg>',
+      'p',
+    )
+    const rect = parse(result).querySelector('rect[clip-path]')!
+
+    expect(rect.getAttribute('clip-path')).toBe('url(#p-c)')
+    expect(rect.getAttribute('mask')).toBe('url( #p-m )')
+    expect(rect.getAttribute('stroke')).toBe("url('#p-g')")
+    expect(rect.getAttribute('fill')).toBe('url("#p-g")')
+  })
+
+  it('aria-labelledby/aria-describedby: список id переписывается целиком', () => {
+    const result = namespaceSvgIds('<svg aria-labelledby="t d" aria-describedby="d"><title id="t">Имя</title><desc id="d">Описание</desc></svg>', 'p')
+    const svg = parse(result).querySelector('svg')!
+
+    expect(svg.getAttribute('aria-labelledby')).toBe('p-t p-d')
+    expect(svg.getAttribute('aria-describedby')).toBe('p-d')
+  })
+
+  it('ссылки на несуществующие id (в том числе внешние) не трогаются', () => {
+    const result = namespaceSvgIds('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)" stroke="url(#other)"/><use href="#other"/></svg>', 'p')
+    const doc = parse(result)
+
+    expect(doc.querySelector('rect')?.getAttribute('stroke')).toBe('url(#other)')
+    expect(doc.querySelector('use')?.getAttribute('href')).toBe('#other')
+    expect(doc.querySelector('rect')?.getAttribute('fill')).toBe('url(#p-g)')
+  })
+
+  it('префикс очищается от символов, недопустимых в id, и не может подменить имя свойства document', () => {
+    const result = namespaceSvgIds('<svg><rect id="cookie"/><rect id="body"/></svg>', 'v:0 x')
+
+    expect(parse(result).querySelector('rect')?.getAttribute('id')).toBe('v_0_x-cookie')
+    expect(result).toContain('id="v_0_x-body"')
+  })
+
+  it('результат после sanitizeSvg не содержит ничего, чего очистка не пропустила бы: без префикса вывод совпадает с очищенным', () => {
+    const sanitized = sanitizeSvg(gradientIcon('#f00'))
+    const result = namespaceSvgIds(sanitized, 'ic1')
+
+    expect(result.replaceAll('ic1-', '')).toBe(sanitized)
+  })
+
+  it('«data-id=» вместо id: разбор не меняет разметку', () => {
+    const markup = '<svg><rect data-id="x"></rect></svg>'
+
+    expect(namespaceSvgIds(markup, 'p')).toBe(markup)
   })
 })

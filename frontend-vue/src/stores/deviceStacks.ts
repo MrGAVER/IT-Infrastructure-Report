@@ -4,11 +4,16 @@
 // (см. DeviceStackFormModal.vue), а не хранится в общем сторе всех стеков разом.
 import { defineStore } from 'pinia'
 import { listAllResource } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { DeviceStack } from '../api/types'
 
 export const useDeviceStacksStore = defineStore('deviceStacks', {
   state: () => ({
     all: [] as DeviceStack[],
+    total: 0,
+    truncated: false,
+    // Загружено не всё (потолок listAllResource): экраны, показывающие этот список целиком, выводят постоянное DataLoadNotice,
+    // а не только исчезающее через 10 с предупреждение warnIfTruncated.
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -24,7 +29,10 @@ export const useDeviceStacksStore = defineStore('deviceStacks', {
       try {
         const res = await listAllResource<DeviceStack>('device-stacks')
         this.all = res.items
+        this.total = res.total
+        this.truncated = res.truncated === true
         this.loaded = true
+        warnIfTruncated(res, 'стеков устройств')
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Не удалось загрузить стеки устройств'
       } finally {
