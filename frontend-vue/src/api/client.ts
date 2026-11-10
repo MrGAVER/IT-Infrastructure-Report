@@ -149,7 +149,12 @@ export const LONG_REQUEST_TIMEOUT_MS = 180_000
 export const ClientErrorCode = {
   /** Сервер не ответил за отведённое время (см. RequestOptions.timeoutMs). */
   REQUEST_TIMEOUT: 'REQUEST_TIMEOUT',
+  /** Ответ 2xx пришёл не в JSON (HTML страницы прокси или «captive portal», SPA-фолбэк при неверном адресе API, обрезанное тело). */
+  INVALID_RESPONSE: 'INVALID_RESPONSE',
 } as const
+
+/** Сообщение пользователю, когда успешный ответ не удалось разобрать как JSON: техническую фразу `JSON.parse` показывать нельзя. */
+const INVALID_RESPONSE_MESSAGE = 'Сервер вернул ответ в неожиданном формате. Проверьте адрес сервера и настройки прокси.'
 
 /** Необязательные параметры запроса для методов `api.*`. */
 export interface RequestOptions {
@@ -211,12 +216,20 @@ export async function request<T>(path: string, init: RequestInit = {}, options: 
       }
       throw new ApiError(res.status, message, code, parseRetryAfter(res.headers.get('Retry-After')), text ? text.slice(0, MAX_ERROR_BODY_LENGTH) : null)
     }
+    // 204 и пустое тело при 200 дают null: тип `T` это не отражает, поэтому вызывающий код, которому нужно тело (список, объект),
+    // обязан сам учитывать null; методы, у которых тела нет (delete), его просто не читают.
     if (res.status === 204) return null as T
     // Пустое тело при 200 (прокси или сервер обрезали ответ) — не SyntaxError из res.json(), а null, как у 204. Чтение тела остаётся
     // внутри guard: таймаут по-прежнему относится к ответу целиком.
     const text = await res.text()
     if (!text) return null as T
-    return JSON.parse(text) as T
+    try {
+      return JSON.parse(text) as T
+    } catch {
+      // B-01: не-JSON при успешном статусе — это ошибка ответа, а не «голый» SyntaxError, который не распознают проверки
+      // `instanceof ApiError` / `code`. Разметка остаётся только в body (для диагностики), пользователю — понятная фраза.
+      throw new ApiError(res.status, INVALID_RESPONSE_MESSAGE, ClientErrorCode.INVALID_RESPONSE, null, text.slice(0, MAX_ERROR_BODY_LENGTH))
+    }
   } catch (e) {
     if (guard.wasTimeout()) {
       throw new ApiError(0, 'Сервер не отвечает. Проверьте соединение и повторите попытку.', ClientErrorCode.REQUEST_TIMEOUT)

@@ -416,7 +416,7 @@ describe('api/client: разбор ответа (B-11)', () => {
     await expect(api.get('/devices')).resolves.toBeNull()
   })
 
-  it('R2-04: 200 с JSON разбирается как раньше, а с обрезанным JSON — по-прежнему SyntaxError (повреждённый ответ не маскируется под null)', async () => {
+  it('R2-04: 200 с JSON разбирается как раньше, а повреждённый (обрезанный) JSON не маскируется под null', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => jsonResponse({ items: [1, 2], total: 2 })),
@@ -427,7 +427,52 @@ describe('api/client: разбор ответа (B-11)', () => {
       'fetch',
       vi.fn(async () => new Response('{"items": [1,', { status: 200 })),
     )
-    await expect(api.get('/devices')).rejects.toBeInstanceOf(SyntaxError)
+    // B-01: раньше здесь был «голый» SyntaxError; теперь — ApiError, который распознают проверки instanceof ApiError / code.
+    await expect(api.get('/devices')).rejects.toMatchObject({ code: ClientErrorCode.INVALID_RESPONSE })
+  })
+
+  it('B-01: 200 с HTML вместо JSON (прокси, captive portal, SPA-фолбэк) — ApiError INVALID_RESPONSE с понятным сообщением, а не SyntaxError', async () => {
+    const page = '<!doctype html><html><head><title>Вход в сеть</title></head><body>Войдите</body></html>'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(page, { status: 200, headers: { 'Content-Type': 'text/html' } })),
+    )
+
+    const error = (await api.get('/devices').catch((e: unknown) => e)) as ApiError
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).not.toBeInstanceOf(SyntaxError)
+    expect(error).toMatchObject({ status: 200, code: ClientErrorCode.INVALID_RESPONSE, retryAfter: null, body: page })
+    expect(error.message).toBe('Сервер вернул ответ в неожиданном формате. Проверьте адрес сервера и настройки прокси.')
+    // техническая фраза JSON.parse и разметка пользователю не показываются
+    expect(error.message).not.toMatch(/JSON|Unexpected token|</)
+  })
+
+  it('B-01: тело неожиданного ответа хранится в ApiError.body не длиннее предела; код INVALID_RESPONSE отличается от REQUEST_TIMEOUT', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<'.repeat(10_000), { status: 200 })),
+    )
+
+    const error = (await api.get('/devices').catch((e: unknown) => e)) as ApiError
+
+    expect(error.body).toHaveLength(4096)
+    expect(ClientErrorCode.INVALID_RESPONSE).not.toBe(ClientErrorCode.REQUEST_TIMEOUT)
+  })
+
+  it('B-01: не-JSON при 200 не отправляет UNAUTHORIZED_EVENT и не превращается в таймаут', async () => {
+    const onUnauthorized = vi.fn()
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('<html></html>', { status: 200 })),
+      )
+      await expect(api.get('/devices')).rejects.toMatchObject({ code: ClientErrorCode.INVALID_RESPONSE })
+      expect(onUnauthorized).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    }
   })
 })
 
