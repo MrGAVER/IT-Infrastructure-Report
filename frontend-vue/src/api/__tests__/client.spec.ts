@@ -155,7 +155,11 @@ describe('api/client: listAllResource — дочитывание страниц 
   })
 
   it('число запросов ограничено предохранителем MAX_PAGES (50), даже если сервер врёт про total', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ items: makeItems(1000), total: 10_000_000, offset: 0, limit: 1000 }))
+    // страницы с разными записями (по offset): одинаковые id на каждой странице были бы повторами, которые B-03 убирает
+    const fetchMock = vi.fn(async (url: string) => {
+      const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset') ?? 0)
+      return jsonResponse({ items: Array.from({ length: 1000 }, (_, i) => ({ id: offset + i })), total: 10_000_000, offset, limit: 1000 })
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     const res = await listAllResource('connections')
@@ -244,6 +248,85 @@ describe('api/client: listAllResource — дочитывание страниц 
       expect(qs.get('limit')).toBe('1000')
     }
     expect(offsetsOf(fetchMock)).toEqual([0, 1000])
+  })
+
+  /** Сервер, у которого набор данных меняется между запросами страниц: `pages[n]` — что отдаётся на n-й странице. */
+  function stubShiftingServer(pages: Array<Array<{ id: string }>>, total: number) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset') ?? 0)
+        return jsonResponse({ items: pages[offset / 1000] ?? [], total, offset, limit: 1000 })
+      }),
+    )
+  }
+
+  const idRange = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => ({ id: `r${from + i}` }))
+
+  it('B-03: строка, пришедшая на стыке страниц дважды (запись добавили во время загрузки), остаётся в результате один раз', async () => {
+    // вставка в начало сдвинула данные: r999 попала и в конец страницы 0, и в начало страницы 1; r1999 при этом не пришла
+    stubShiftingServer([idRange(0, 1000), idRange(999, 1999)], 2000)
+
+    const res = await listAllResource<{ id: string }>('connections')
+
+    const ids = res.items.map((i) => i.id)
+    expect(ids.filter((id) => id === 'r999')).toHaveLength(1)
+    expect(new Set(ids).size).toBe(ids.length)
+    // потеря соседней строки не скрыта: записей меньше total → экран, которому нужна полнота, не примет набор за целый
+    expect(res.items).toHaveLength(1999)
+    expect(res.limit).toBe(1999)
+    expect(res.truncated).toBe(true)
+  })
+
+  it('B-03: при повторе первое вхождение (меньший offset) сохраняется, порядок остальных строк не меняется', async () => {
+    // PAGE_LIMIT = 1000: чтобы вторая страница вообще запросилась, total должен требовать двух страниц
+    stubShiftingServer(
+      [
+        [...idRange(0, 998), { id: 'dup' }],
+        [{ id: 'dup' }, ...idRange(998, 999)],
+      ],
+      1001,
+    )
+
+    const res = await listAllResource<{ id: string }>('connections')
+
+    const ids = res.items.map((i) => i.id)
+    expect(ids.indexOf('dup')).toBe(998) // первое вхождение — на странице 0
+    expect(ids.filter((id) => id === 'dup')).toHaveLength(1)
+    expect(ids.at(-1)).toBe('r998')
+  })
+
+  it('B-03: без повторов результат не меняется — truncated=false при полном наборе', async () => {
+    stubShiftingServer([idRange(0, 1000), idRange(1000, 1500)], 1500)
+
+    const res = await listAllResource<{ id: string }>('connections')
+
+    expect(res.items).toHaveLength(1500)
+    expect(res.truncated).toBe(false)
+  })
+
+  it('B-03: строки без id (нестандартный ресурс) не отбрасываются и не считаются повторами друг друга', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ items: [{ name: 'x' }, { name: 'x' }, { id: null, name: 'y' }], total: 3, offset: 0, limit: 1000 })),
+    )
+
+    const res = await listAllResource<{ name: string }>('connections')
+
+    expect(res.items).toHaveLength(3)
+    expect(res.truncated).toBe(false)
+  })
+
+  it('B-03: числовые и строковые id различаются (1 и "1" — разные записи)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ items: [{ id: 1 }, { id: '1' }, { id: 1 }], total: 3, offset: 0, limit: 1000 })),
+    )
+
+    const res = await listAllResource<{ id: number | string }>('connections')
+
+    expect(res.items).toEqual([{ id: 1 }, { id: '1' }])
+    expect(res.truncated).toBe(true) // 2 записи из заявленных 3: повтор убран, и это честно видно как неполнота
   })
 })
 

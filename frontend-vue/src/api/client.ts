@@ -273,6 +273,28 @@ const MAX_PAGES = 50
 /** Сколько страниц читается одновременно: быстрее последовательной загрузки, но без шквала запросов к однопроцессному серверу. */
 const PAGE_CONCURRENCY = 4
 
+/**
+ * Убирает повторы по `id`, оставляя первое вхождение (страница с меньшим `offset`).
+ *
+ * Зачем: страницы читаются по `offset`, и если между запросами кто-то добавил или удалил запись, строка на стыке страниц может прийти
+ * дважды (а соседняя — не прийти вовсе). Дубль в списке опаснее пропуска: форма вложенного списка сохранила бы его обратно. Строки без
+ * строкового/числового `id` не трогаются: у всех ресурсов универсального CRUD `id` есть, но проверка не должна терять данные, если
+ * когда-нибудь появится ресурс без него.
+ */
+function dedupeById<T>(items: readonly T[]): T[] {
+  const seen = new Set<string | number>()
+  const unique: T[] = []
+  for (const row of items) {
+    const id = (row as { id?: unknown } | null)?.id
+    if (typeof id === 'string' || typeof id === 'number') {
+      if (seen.has(id)) continue
+      seen.add(id)
+    }
+    unique.push(row)
+  }
+  return unique
+}
+
 /** Ответ полной загрузки: обычная страница плюс признак того, что записей получено меньше, чем есть на сервере. */
 export type AllPagesResponse<T> = PagedResponse<T> & {
   /** true — загружена только часть записей (упёрлись в MAX_PAGES или сервер отдал пустую страницу при неполном `total`).
@@ -286,7 +308,9 @@ export type AllPagesResponse<T> = PagedResponse<T> & {
  * Зачем: сервер отдаёт не более 1000 записей за запрос, а `listResource(..., { limit: 1000 })`
  * молча обрезал бы всё сверх этого (таблицы, счётчики и проверки занятости работали бы по
  * неполным данным без какой-либо ошибки). Порядок на сервере детерминирован (created_at, id,
- * см. services/crud/hooks.py:_default_ordering), поэтому постраничное дочитывание не даёт ни дублей, ни пропусков.
+ * см. services/crud/hooks.py:_default_ordering), поэтому при неизменных данных постраничное дочитывание не даёт ни дублей, ни пропусков.
+ * Если данные меняются во время загрузки (другой пользователь добавил или удалил запись), строка на стыке страниц может прийти дважды:
+ * повторы по `id` убираются, а потеря соседней строки видна как `truncated` (записей меньше, чем `total`).
  *
  * Первая страница читается одна (из неё известен `total`), остальные — пакетами по PAGE_CONCURRENCY страниц одновременно;
  * порядок записей в результате — по `offset`, независимо от того, какая страница пришла раньше.
@@ -326,7 +350,10 @@ export async function listAllResource<T>(
       items.push(...next.items)
     }
   }
-  return { items, total: first.total, offset: 0, limit: items.length, truncated: items.length < first.total }
+  // B-03: повтор на стыке страниц (запись добавили/удалили во время загрузки) убирается ДО подсчёта признака: потеря соседней строки
+  // тогда видна как `items.length < total`, и экран, которому нужна полнота, не примет такой набор за целый.
+  const unique = dedupeById(items)
+  return { items: unique, total: first.total, offset: 0, limit: unique.length, truncated: unique.length < first.total }
 }
 
 export function createResource<T>(resource: string, payload: Record<string, unknown>) {
