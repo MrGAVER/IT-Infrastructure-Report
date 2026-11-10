@@ -5650,3 +5650,19 @@ F-08 и F-09 выполнены по решению владельца. Не в�
   по корню и `audit/` вместе (сам `audit/` и посторонние файлы в нём не трогаются). Тесты — `test_report_download_access.py` (расположение
   файла, права admin/viewer/без входа, 404 общего адреса для семи написаний имени, отчёт прежней версии в корне, обход каталога на новом
   адресе) и `TestAuditSubdirectory` в `test_report_cleanup.py`; четыре прежних теста обновлены под новое расположение файла.
+- **A-10 — цепочка поставок: образы по digest, Dependabot, bandit в CI.**
+  - `backend/Dockerfile`: оба базовых образа закреплены по digest индекса (`node:22-slim@sha256:5ec23b7c…`,
+    `python:3.12-slim@sha256:5e2bdb1b…`), тег сохранён. **Digest взяты из `docker-library/repo-info`** (образы от 04–05.11.2026), а не из
+    самого реестра: из среды разработки реестр Docker недоступен, `docker build` здесь не запускался — сборку образа и smoke-тест
+    проверяет CI; перед слиянием дождитесь зелёных шагов «Проверка сборки Docker-образа» и «Smoke-тест образа». Digest индекса (а не
+    платформенного манифеста) выбран, чтобы сборка работала и на arm64.
+  - `.github/dependabot.yml`: еженедельные обновления pip (`/backend`), npm (`/frontend-vue`), docker (`/backend`) и github-actions;
+    минорные и патч-обновления pip/npm сгруппированы, не более 5 открытых PR на экосистему. Для pip Dependabot правит только
+    `requirements*.txt`, поэтому его PR будет красным на шаге «Lock-файлы backend актуальны», пока lock не пересобран вручную (README).
+  - CI: шаг `bandit -r backend/app -ll` (gate); `bandit` добавлен в `requirements-dev.txt` и пересобран `requirements-dev.lock`
+    (`bandit==1.9.4`, `stevedore`; `requirements.lock` и `requirements-build.lock` не изменились). Четыре срабатывания низкого и среднего
+    уровня были неактуальны и помечены `# nosec Bxxx # пояснение`: B105 на именах кодов ошибок `WEAK_PASSWORD`, `WRONG_CURRENT_PASSWORD`,
+    B406 на импорте `escape`, B104 на константе `0.0.0.0` в `exe_settings.py`. Пояснение вынесено после второго `#`: иначе bandit читает его
+    слова как имена тестов и засоряет журнал предупреждениями (так выглядел и прежний `# nosec B405`, он исправлен). Теперь `bandit -r
+    backend/app` чист и на всех уровнях.
+  - Тесты — `test_supply_chain_config.py` (статические: digest у каждого `FROM`, Dependabot, шаг bandit, `bandit` в lock с хешами).

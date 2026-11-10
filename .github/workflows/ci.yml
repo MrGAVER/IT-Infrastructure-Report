@@ -65,6 +65,11 @@ jobs:
         # границы API форматтер каноничен: расхождение блокирует слияние. Новый файл такого рода добавляйте в список ниже.
         run: ruff format --check backend/app/api/*_schemas.py backend/app/api/schema_base.py backend/app/services/body_limit.py backend/app/services/request_errors.py
 
+      - name: bandit (статический анализ безопасности backend, уровень medium и выше) — gate
+        # Дополняет pip-audit (уязвимости в зависимостях): здесь ищутся небезопасные приёмы в собственном коде. Сейчас чисто; неактуальные
+        # срабатывания помечены `# nosec Bxxx` с пояснением прямо в коде. Низкий уровень (B105 на именах кодов ошибок и т. п.) не блокирует.
+        run: bandit -r backend/app -ll
+
       - name: Lock-файлы backend актуальны (requirements*.lock соответствуют requirements*.txt, включая набор для сборки EXE)
         # Правили requirements.txt, но не пересобрали lock — Docker, CI и сборка EXE поставили бы старые версии. Пересборка идёт
         # с учётом уже закреплённых версий, поэтому при актуальном lock diff пуст. Как обновить — README, «Зависимости backend».

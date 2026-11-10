@@ -40,9 +40,9 @@ import re
 import shutil
 import tempfile
 import zipfile
-import xml.etree.ElementTree as ET  # nosec B405 — только запись и сборка (ElementTree.write, SubElement, register_namespace); разбор — через SafeET
+import xml.etree.ElementTree as ET  # nosec B405 # только запись и сборка (ElementTree.write, SubElement, register_namespace); разбор — через SafeET
 from urllib.parse import quote
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape  # nosec B406 # escape только экранирует исходящий текст, XML не разбирает; разбор — через SafeET
 
 from defusedxml import ElementTree as SafeET
 

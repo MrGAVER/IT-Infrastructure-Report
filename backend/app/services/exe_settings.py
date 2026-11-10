@@ -19,7 +19,7 @@ from .network_access import parse_client_networks
 SETTINGS_FILENAME = "infra_registry.toml"
 DEFAULT_PORT = 8000
 LOCAL_ONLY_HOST = "127.0.0.1"
-ALL_INTERFACES_HOST = "0.0.0.0"
+ALL_INTERFACES_HOST = "0.0.0.0"  # nosec B104 # значение для сравнения с настройкой «слушать на всех адресах», сокет здесь не открывается
 # Петля всегда разрешена: администратор не должен потерять доступ с собственного компьютера из-за записи в файле.
 LOOPBACK_NETWORK = "127.0.0.0/8"
 

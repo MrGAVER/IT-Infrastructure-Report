@@ -882,6 +882,14 @@ uv pip compile requirements-build.txt --universal --generate-hashes --python-ver
 
 CI проверяет, что lock-файлы актуальны (пересборка не даёт diff), запускает `pip-audit` по `requirements.lock` (блокирует сборку)
 и по `requirements-build.lock` (только сообщает: PyInstaller и его хуки иногда дают замечания, не относящиеся к рантайму).
+Кроме того, CI запускает `bandit -r backend/app -ll` — статический анализ безопасности собственного кода (срабатывания среднего и
+высокого уровня блокируют слияние; неактуальные помечены в коде `# nosec Bxxx # пояснение`).
+
+**Цепочка поставок.** Базовые образы `backend/Dockerfile` закреплены по digest (`python:3.12-slim@sha256:…`), поэтому образ,
+собранный завтра, состоит из тех же слоёв, что проверенный сегодня. Тег оставлен для читателя и Dependabot: файл
+`.github/dependabot.yml` включает еженедельные PR на обновление pip, npm, базовых образов (тег и digest вместе) и действий GitHub
+Actions (они закреплены по SHA). PR с обновлением Python-зависимости покажет красный шаг «Lock-файлы backend актуальны», пока
+lock не пересобран командами выше. Digest вручную: `docker buildx imagetools inspect python:3.12-slim` (строка `Digest`).
 
 ### Пакет `backend/app/services/crud/`
 
