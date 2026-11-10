@@ -122,7 +122,8 @@ def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
 # <s:script> с префиксом пространства имён, javascript: через HTML-сущность (&#106;avascript:), SMIL-
 # анимация href. Теперь — белый список: разметка разбирается как XML (defusedxml: DTD и сущности
 # запрещены), допускаются только перечисленные графические теги, а из атрибутов отвергаются обработчики
-# on*, любые ссылки не на элемент внутри самого документа (#id) и url(...) не на #id.
+# on*, любые ссылки не на элемент внутри самого документа (#id), url(...) не на #id и исполняемые схемы javascript:/vbscript:/expression(
+# (после удаления служебных символов — см. _has_script_scheme; слово «script» само по себе, как в id="description", допустимо).
 #
 # Цена: иконки из внешних редакторов с метаданными (inkscape:/sodipodi:), <style>, <image> и <a> не
 # проходят — их нужно очистить перед загрузкой; сообщение об ошибке называет проблемный тег. Атрибут style тоже
@@ -136,6 +137,9 @@ _ALLOWED_SVG_TAGS = frozenset({
 })
 _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
 _CSS_URL = re.compile(r"url\s*\(\s*(['\"]?)\s*([^)'\"]*)", re.IGNORECASE)
+# Служебные символы и пробелы, которые браузер выбрасывает внутри схемы URL: `java\nscript:` и `JaVa\tScRiPt:` — это `javascript:`.
+_URL_IGNORED_CHARS = re.compile(r"[\x00-\x20]+")
+_EXECUTABLE_MARKERS = ("javascript:", "vbscript:", "expression(")
 
 
 def _local_name(qualified: str) -> str:
@@ -144,6 +148,16 @@ def _local_name(qualified: str) -> str:
 
 def _reject(message: str) -> HTTPException:
     return HTTPException(422, f"Недопустимое содержимое SVG: {message}")
+
+
+def _has_script_scheme(value: str) -> bool:
+    """Значение содержит исполняемую схему (javascript:, vbscript:) или CSS-выражение expression(…) (A-03 код-ревью r3).
+
+    Сравнение идёт после удаления служебных символов и пробелов и без учёта регистра: так схему не спрятать переводом строки или
+    табуляцией внутри слова. Просто слово «script» (`id="description"`, `aria-label="Transcript"`) — не схема и не отвергается: опасные
+    места закрыты отдельно (белый список тегов, запрет on*, style, href только на #id, url() только на #id)."""
+    compact = _URL_IGNORED_CHARS.sub("", value).lower()
+    return any(marker in compact for marker in _EXECUTABLE_MARKERS)
 
 
 def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
@@ -158,8 +172,8 @@ def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
         raise _reject(f"атрибут «style» в теге «{tag}» не поддерживается — задайте цвет отдельными атрибутами fill и stroke")
     if name == "href" and not lowered.startswith("#"):
         raise _reject(f"ссылка «{name}» в теге «{tag}» может указывать только на элемент документа (#id)")
-    if "script" in lowered or "expression(" in lowered:
-        raise _reject(f"атрибут «{name}» тега «{tag}» содержит исполняемый код")
+    if _has_script_scheme(value):
+        raise _reject(f"атрибут «{name}» тега «{tag}» содержит ссылку с исполняемой схемой (javascript:, vbscript:) или выражение expression()")
     for _quote, target in _CSS_URL.findall(value):
         if not target.strip().startswith("#"):
             raise _reject(f"url() в атрибуте «{name}» тега «{tag}» может указывать только на #id")
