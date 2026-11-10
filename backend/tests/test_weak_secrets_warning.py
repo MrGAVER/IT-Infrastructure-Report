@@ -76,6 +76,17 @@ def test_a_placeholder_token_produces_a_warning_without_the_value(secrets_config
     assert "change_me_long_random_string" not in messages[0]  # значение секрета в журнал не попадает
 
 
+def test_the_token_warning_says_the_weak_value_is_rejected_not_merely_discouraged(secrets_config, caplog):
+    # A-02 код-ревью r3: слабый токен не просто «нежелателен» — сервер его не принимает (services/auth/guards.require_setup_access).
+    # Предупреждение должно говорить именно это, иначе администратор не поймёт, почему «верный» токен даёт 403.
+    secrets_config(token="change_me_long_random_string")
+    with caplog.at_level(logging.WARNING):
+        _warn_if_weak_secrets()
+    message = _warnings(caplog)[0]
+    assert "не принимает" in message and "localhost" in message
+    assert "любой, кто достаёт до порта, может создать администратора" not in message  # прежняя формулировка про «принимаемую заглушку»
+
+
 def test_a_short_token_produces_a_warning(secrets_config, caplog):
     secrets_config(token="abc123")
     with caplog.at_level(logging.WARNING):

@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
-from ...config import SETUP_TOKEN
+from ...config import MIN_SETUP_TOKEN_LENGTH, SETUP_TOKEN, weak_setup_token
 from ...constants import ErrorCode, UserRole
 from ...models import User
 
@@ -34,6 +34,26 @@ def _is_direct_localhost(request: Request) -> bool:
     return not any(header in request.headers for header in _PROXY_HEADERS)
 
 
+def _effective_setup_token() -> str:
+    """Токен, который сервер действительно принимает. Слабый (заглушка из .env.example или короче MIN_SETUP_TOKEN_LENGTH) — это
+    публично известное значение, а не секрет, поэтому он приравнен к незаданному (A-02): пустая строка."""
+    return "" if weak_setup_token(SETUP_TOKEN) else SETUP_TOKEN
+
+
+def _setup_denied_message() -> str:
+    message = (
+        "Первичная настройка аутентификации доступна только с localhost или по токену установки "
+        "(заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN)."
+    )
+    if weak_setup_token(SETUP_TOKEN):
+        # Само значение не называем — только причину: администратор по сообщению поймёт, почему верный на вид токен не принят.
+        message += (
+            f" Токен установки на сервере слишком слабый (совпадает с заглушкой из .env.example или короче {MIN_SETUP_TOKEN_LENGTH} символов) "
+            "и не принимается: замените его на длинную случайную строку, например openssl rand -hex 24, и перезапустите сервер."
+        )
+    return message
+
+
 def require_setup_access(request: Request) -> None:
     """Первичная настройка аутентификации (пока она выключена): создание пользователей и сам
     переключатель. Без этой проверки любой, кто достаёт до порта, мог создать администратора, включить
@@ -42,16 +62,19 @@ def require_setup_access(request: Request) -> None:
     Пускаем либо по токену установки (INFRA_REGISTRY_SETUP_TOKEN, заголовок X-Setup-Token) — если он
     задан, то он нужен всем, включая localhost, — либо, если токена нет, только прямое соединение с
     localhost без прокси-заголовков. Остальной реестр при выключенной аутентификации по-прежнему открыт.
-    """
-    if SETUP_TOKEN:
+
+    Слабый токен (заглушка из .env.example, короче MIN_SETUP_TOKEN_LENGTH) считается незаданным (A-02): его знает любой, кто видел
+    .env.example, поэтому «принимать, но предупреждать» значило бы отдать первичную настройку первому, кто достанет до порта. Запуск
+    при этом не блокируется, а в Docker, где прямого localhost нет, первичная настройка недоступна, пока токен не заменят."""
+    token = _effective_setup_token()
+    if token:
         supplied = request.headers.get("x-setup-token", "")
-        if hmac.compare_digest(supplied.encode("utf-8"), SETUP_TOKEN.encode("utf-8")):
+        if hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
             return
     elif _is_direct_localhost(request):
         return
     raise HTTPException(403, {
-        "message": "Первичная настройка аутентификации доступна только с localhost или по токену установки "
-                   "(заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN).",
+        "message": _setup_denied_message(),
         "code": ErrorCode.SETUP_ACCESS_DENIED,
     })
 
