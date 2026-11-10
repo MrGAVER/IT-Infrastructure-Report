@@ -6,7 +6,7 @@
 import { computed, useId } from 'vue'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import type { DiagramDeviceNode as DiagramDeviceNodeData } from '../../api/diagrams'
-import { namespaceSvgIds, sanitizeSvg } from '../../utils/sanitizeSvg'
+import { sanitizeSvg, sanitizeSvgIsolated } from '../../utils/sanitizeSvg'
 
 // backend/app/services/diagram_icons.py:MAX_PORT_TICKS — интерфейсы за этим пределом всё ещё
 // существуют (см. port_overflow), но отдельной засечки/Handle для них не рисуется.
@@ -84,7 +84,7 @@ const identityLabel = computed(() => [props.data.serial_number, primaryIp.value]
 // Санитизация — второй, независимый от бэкенда рубеж защиты (см. utils/sanitizeSvg.ts).
 // R2-03: id внутри иконки глобальны в документе — у каждого узла свой префикс, чтобы градиенты и <use> разных иконок не путались.
 const iconUid = useId()
-const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? namespaceSvgIds(sanitizeSvg(icon.value.svg_markup), `ic${iconUid}`) : ''))
+const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? sanitizeSvgIsolated(icon.value.svg_markup, `ic${iconUid}`) : ''))
 </script>
 
 <template>

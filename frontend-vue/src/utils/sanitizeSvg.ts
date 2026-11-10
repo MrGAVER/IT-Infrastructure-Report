@@ -28,6 +28,13 @@ const ALLOWED_TAGS = [
 /** url(...) в значении атрибута: захватывает адрес, чтобы проверить, что он указывает на #id (как _CSS_URL на сервере). */
 const CSS_URL = /url\s*\(\s*(['"]?)\s*([^)'"]*)/gi
 
+/** Единые правила очистки: и строковый режим (sanitizeSvg), и режим с изоляцией id (sanitizeSvgIsolated) обязаны пропускать одно и то же. */
+const SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [...ALLOWED_TAGS],
+  FORBID_TAGS: ['script', 'foreignObject', 'style', 'image'],
+  FORBID_ATTR: ['style', 'onload', 'onerror', 'onclick', 'onmouseover'],
+}
+
 // Отдельный экземпляр DOMPurify: хук ниже не должен влиять на другие вызовы библиотеки в приложении.
 const purify = DOMPurify(window)
 
@@ -77,11 +84,7 @@ purify.addHook('uponSanitizeAttribute', (_node, data) => {
  */
 export function sanitizeSvg(svgMarkup: string | null | undefined): string {
   if (!svgMarkup) return ''
-  return purify.sanitize(svgMarkup, {
-    ALLOWED_TAGS: [...ALLOWED_TAGS],
-    FORBID_TAGS: ['script', 'foreignObject', 'style', 'image'],
-    FORBID_ATTR: ['style', 'onload', 'onerror', 'onclick', 'onmouseover'],
-  })
+  return purify.sanitize(svgMarkup, SANITIZE_CONFIG)
 }
 
 /** Ссылка на элемент вида `url(#id)` в значении атрибута (кавычки и пробелы внутри скобок допустимы). */
@@ -90,44 +93,23 @@ const URL_REF = /(url\(\s*['"]?\s*)#([^)'"\s]+)/gi
 const ID_LIST_ATTRS = new Set(['aria-labelledby', 'aria-describedby'])
 
 /**
- * R2-03 (ревью merge/review-f06-stage2-f05-executors): делает `id` внутри встроенной SVG-иконки уникальными в документе.
+ * Дописывает `prefix-` ко всем `id` внутри уже очищенного дерева и переписывает ссылки на них: `href`/`xlink:href="#id"`,
+ * `url(#id)` в любом атрибуте (fill, stroke, mask, clip-path, filter, marker-*) и `aria-labelledby`/`aria-describedby`.
+ * Меняет дерево на месте. Ссылки на id, которых в дереве нет (в том числе внешние), не трогаются.
  *
- * Иконки вставляются в страницу как разметка (v-html), а `id` в документе глобальны: если две разные иконки на одной диаграмме
- * объявляют `<linearGradient id="g">` с разными цветами, обе ссылки `url(#g)` разрешатся на ПЕРВЫЙ элемент с таким id, и вторая
- * иконка нарисуется чужим градиентом. Тот же id мог совпасть и с id элемента самого приложения. Здесь каждый id получает
- * префикс экземпляра (`prefix-id`), а все ссылки на него внутри иконки — `href`/`xlink:href="#id"`, `url(#id)` в любом атрибуте
- * (fill, stroke, mask, clip-path, filter, marker-*) и `aria-labelledby`/`aria-describedby` — переписываются следом.
- *
- * Вызывать ПОСЛЕ `sanitizeSvg` (сначала очистка, потом переименование); результат повторно через DOMPurify не пропускать:
- * префикс гарантирует, что имена не совпадут со свойствами `document` (DOM clobbering), а значения атрибутов остаются теми же,
- * что уже прошли очистку. Ссылки на несуществующие id (в том числе внешние) не трогаются. Иконка без id возвращается как есть.
- *
- * Разбор — HTML-парсером, а не XML: вывод DOMPurify — HTML-сериализация, и в XML-парсере `xlink:href` без объявленного
- * `xmlns:xlink` дал бы parsererror (иконка молча осталась бы без изоляции). Так же разметку потом разберёт и v-html.
- *
- * @param prefix — уникальный для экземпляра компонента (`useId()`); недопустимые для id символы заменяются на «_».
- *
- * @example
- *   const uid = useId()
- *   const svg = computed(() => namespaceSvgIds(sanitizeSvg(markup.value), `ic${uid}`))
- *   // '<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/></svg>'
- *   //   → '<svg><defs><linearGradient id="icv-0-g"></linearGradient></defs><rect fill="url(#icv-0-g)"></rect></svg>'
+ * Два прохода по узлам нужны намеренно: ссылка может стоять в документе раньше, чем элемент, на который она ведёт
+ * (`<rect fill="url(#g)">` до `<linearGradient id="g">`), поэтому сначала собираются все id, потом переписываются ссылки.
  */
-export function namespaceSvgIds(svgMarkup: string, prefix: string): string {
-  // Быстрый выход без разбора: у большинства иконок id нет (проверка с запасом — «data-id=» тоже подходит, ниже это отсеется).
-  if (!svgMarkup || !/\bid\s*=/i.test(svgMarkup)) return svgMarkup
-  const safePrefix = prefix.replace(/[^A-Za-z0-9_-]/g, '_')
-  const root = new DOMParser().parseFromString(svgMarkup, 'text/html').body
-
+function prefixIdsInPlace(root: ParentNode, prefix: string): void {
   const renamed = new Map<string, string>()
   for (const el of Array.from(root.querySelectorAll('[id]'))) {
     const id = el.getAttribute('id') ?? ''
     if (!id) continue
-    const next = `${safePrefix}-${id}`
+    const next = `${prefix}-${id}`
     renamed.set(id, next)
     el.setAttribute('id', next)
   }
-  if (!renamed.size) return svgMarkup
+  if (!renamed.size) return
 
   const mapped = (id: string) => renamed.get(id) ?? id
   for (const el of Array.from(root.querySelectorAll('*'))) {
@@ -143,5 +125,40 @@ export function namespaceSvgIds(svgMarkup: string, prefix: string): string {
       }
     }
   }
-  return root.innerHTML
+}
+
+/**
+ * Очищает пользовательский SVG (те же правила, что у `sanitizeSvg`) и делает `id` внутри него уникальными в документе —
+ * за ОДИН проход: разметка разбирается один раз (внутри DOMPurify), очищается, `id` и ссылки на них переименовываются прямо в
+ * очищенном дереве, и только потом оно один раз сериализуется в строку.
+ *
+ * B-04 (ревью merge/review-r1-r2-executors): раньше это были две отдельные функции — `sanitizeSvg(...)` возвращала СТРОКУ, а
+ * `namespaceSvgIds(...)` заново разбирала её через DOMParser и снова сериализовала через innerHTML. Каждый такой цикл «разбор →
+ * сериализация» после очистки — классический вектор mXSS: разные контексты разбирают одну и ту же строку по-разному, и то, что
+ * DOMPurify проверил как безобидное дерево, может превратиться в другое при повторном разборе. Теперь после очистки в строку
+ * дерево превращается ровно один раз — так же, как это делает сам DOMPurify, — а до этого мы меняем только значения `id` и ссылок
+ * на них (дописываем префикс), ничего нового в разметку не вносим.
+ *
+ * Зачем изоляция id: иконки вставляются в страницу как разметка (v-html), а `id` в документе глобальны. Если две разные иконки на
+ * одной диаграмме объявляют `<linearGradient id="g">` с разными цветами, обе ссылки `url(#g)` разрешатся на ПЕРВЫЙ элемент с таким
+ * id, и вторая иконка нарисуется чужим градиентом; тот же id мог совпасть и с id элемента самого приложения (R2-03). Префикс также
+ * не даёт id совпасть со свойствами `document` (DOM clobbering): DOMPurify и так убирает такие id, а префикс страхует остальное.
+ *
+ * Иконка без id возвращается в том виде, в каком её отдала бы `sanitizeSvg`.
+ *
+ * @param idPrefix — уникальный для экземпляра компонента (`useId()`); недопустимые для id символы заменяются на «_».
+ *
+ * @example
+ *   const uid = useId()
+ *   const svg = computed(() => sanitizeSvgIsolated(markup.value, `ic${uid}`))
+ *   // '<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/></svg>'
+ *   //   → '<svg><defs><linearGradient id="ic0-g"></linearGradient></defs><rect fill="url(#ic0-g)"></rect></svg>'
+ */
+export function sanitizeSvgIsolated(svgMarkup: string | null | undefined, idPrefix: string): string {
+  if (!svgMarkup) return ''
+  // RETURN_DOM: DOMPurify отдаёт очищенное дерево (body inert-документа), не превращая его в строку — переименование идёт по нему.
+  const body = purify.sanitize(svgMarkup, { ...SANITIZE_CONFIG, RETURN_DOM: true })
+  if (!(body instanceof Element)) return '' // DOMPurify вернул null: разметку не удалось разобрать
+  prefixIdsInPlace(body, idPrefix.replace(/[^A-Za-z0-9_-]/g, '_'))
+  return body.innerHTML
 }
