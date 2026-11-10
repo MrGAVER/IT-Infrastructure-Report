@@ -18,6 +18,15 @@ _PROXY_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip")
 _LOCALHOST_ADDRESSES = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 
 
+def _auth_enabled(request: Request) -> bool:
+    """Включена ли аутентификация, по флагу, который выставил шлюз (gate.py). Нет флага — считаем, что включена (A-01).
+
+    Для проверки прав безопасное значение по умолчанию — «включено»: отсутствие флага означает, что шлюз запрос не обслужил (новый маршрут
+    вне /api/*, изменённая очерёдность middleware, прямой вызов зависимости), а не что аутентификацию выключили. Тогда без пользователя в
+    request.state проверки ниже отказывают (403), а не пропускают запрос."""
+    return bool(getattr(request.state, "auth_enabled", True))
+
+
 def _is_direct_localhost(request: Request) -> bool:
     client = request.client
     if client is None or client.host not in _LOCALHOST_ADDRESSES:
@@ -52,7 +61,7 @@ def require_admin_if_auth_enabled(request: Request) -> None:
 
     В отличие от `require_admin`, при выключенной аутентификации ничего не требует: однопользовательский режим по умолчанию
     открыт, как и весь остальной API (иначе журнал пропал бы у владельца локальной установки)."""
-    if not getattr(request.state, "auth_enabled", False):
+    if not _auth_enabled(request):
         return
     user: Optional[User] = getattr(request.state, "user", None)
     if user is None or user.role != UserRole.ADMIN:
@@ -66,7 +75,7 @@ def require_admin(request: Request) -> None:
     запись). Не проверяет заново токен — переиспользует request.state, выставленный middleware.
 
     Пока аутентификация выключена, администраторов ещё нет — доступ определяет require_setup_access."""
-    if not getattr(request.state, "auth_enabled", False):
+    if not _auth_enabled(request):
         require_setup_access(request)
         return
     user: Optional[User] = getattr(request.state, "user", None)
