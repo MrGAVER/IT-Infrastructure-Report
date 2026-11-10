@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from contextlib import contextmanager
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -47,6 +49,39 @@ EXPORT_FORMATS = {
     "drawio": ("application/xml", lambda graph: export_drawio(graph).encode("utf-8")),
     "vsdx": ("application/vnd.ms-visio.drawing", export_vsdx),
 }
+
+# Тяжёлые для процессора форматы экспорта (A-06 код-ревью r3). Замер на 120 устройствах: .svg ≈ 16 мс, .drawio ≈ 60 мс, .vsdx ≈ 18 с —
+# библиотека vsdx при каждом копировании шаблонной фигуры заново обходит все фигуры страницы (copy_shape → set_max_ids), рост квадратичный.
+# Эндпоинт синхронный и работает в пуле потоков (по умолчанию ~40): десяток параллельных запросов .vsdx занял бы весь пул, и API перестало бы
+# отвечать всем, включая вход. Поэтому одновременно выполняется не больше HEAVY_EXPORT_MAX_CONCURRENT таких экспортов; лишний запрос сразу
+# получает 503 с Retry-After (как проверка паролей на входе, services/auth/login._password_hash_slot), а не ждёт в очереди и не держит поток.
+# Новый формат с заметным временем работы добавляют сюда же; тест контракта проверяет, что имена в этом наборе — настоящие форматы экспорта.
+HEAVY_EXPORT_FORMATS = frozenset({"vsdx"})
+HEAVY_EXPORT_MAX_CONCURRENT = 2
+HEAVY_EXPORT_RETRY_AFTER_SECONDS = 10  # порядок времени одного тяжёлого экспорта: раньше слот вряд ли освободится
+_HEAVY_EXPORT_SLOTS = threading.BoundedSemaphore(HEAVY_EXPORT_MAX_CONCURRENT)
+
+
+@contextmanager
+def _heavy_export_slot(export_format: str):
+    """Занимает слот тяжёлого экспорта на время построения и сериализации; свободных нет — 503 с Retry-After.
+
+    Лёгкие форматы слот не занимают. Слот освобождается всегда, в том числе при исключении внутри блока.
+    Пример: `with _heavy_export_slot("vsdx"): data = export_vsdx(graph)`."""
+    if export_format not in HEAVY_EXPORT_FORMATS:
+        yield
+        return
+    slots = _HEAVY_EXPORT_SLOTS  # тот же объект и на release, даже если модульное имя подменили посреди запроса
+    if not slots.acquire(blocking=False):
+        raise HTTPException(
+            503,
+            f"Сервер занят формированием других тяжёлых экспортов диаграмм, повторите через {HEAVY_EXPORT_RETRY_AFTER_SECONDS} с.",
+            headers={"Retry-After": str(HEAVY_EXPORT_RETRY_AFTER_SECONDS)},
+        )
+    try:
+        yield
+    finally:
+        slots.release()
 
 
 def _diagram_out(d: SavedDiagram) -> dict:
@@ -281,19 +316,20 @@ def export_diagram(
     diagram = _get_diagram_or_404(session, diagram_id)
     if format not in EXPORT_FORMATS:
         raise HTTPException(422, f"format должен быть одним из: {', '.join(EXPORT_FORMATS)}")
-    _, positions = _load_layout(session, diagram_id)
-    graph = build_graph(session, diagram, node_positions=positions, persist=False)
     media_type, serialize = EXPORT_FORMATS[format]
-    try:
-        data = serialize(graph)
-    except Exception:
-        # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
-        # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
-        # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
-        # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
-        # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
-        logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
-        raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
+    with _heavy_export_slot(format):  # проверки 404/422 выше слота не требуют; построение графа и сериализация — внутри него
+        _, positions = _load_layout(session, diagram_id)
+        graph = build_graph(session, diagram, node_positions=positions, persist=False)
+        try:
+            data = serialize(graph)
+        except Exception:
+            # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
+            # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
+            # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
+            # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
+            # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
+            logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
+            raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
     if persist_export:  # безопасный метод GET по умолчанию не пишет: запись — только по явной просьбе клиента
         diagram.last_export_format = format
         session.commit()
