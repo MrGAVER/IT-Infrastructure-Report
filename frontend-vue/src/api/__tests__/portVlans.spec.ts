@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { IncompleteDataError } from '../assertComplete'
 import { computePortVlanOptions, loadAssignedDeviceVlanIds, loadDeviceTypeVlanIds } from '../portVlans'
 import type { VLANDefinition } from '../types'
 
@@ -70,5 +71,41 @@ describe('loadAssignedDeviceVlanIds', () => {
       ),
     )
     expect(await loadAssignedDeviceVlanIds('dev-1')).toEqual(new Set(['v-guest', 'v-mgmt']))
+  })
+})
+
+describe('усечённая загрузка VLAN (B-02)', () => {
+  /** Сервер обещает 2000 записей, но на вторую страницу отвечает пустой — listAllResource вернёт truncated=true. */
+  function stubTruncatedServer() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+        return jsonResponse({ items: offset === 0 ? [{ id: 'l-1', vlan_id: 'v-1' }] : [], total: 2000, offset, limit: 1000 })
+      }),
+    )
+  }
+
+  it('loadDeviceTypeVlanIds: усечённый список — IncompleteDataError, а не неполный набор допустимых VLAN', async () => {
+    stubTruncatedServer()
+
+    const error = await loadDeviceTypeVlanIds('dt-server').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(IncompleteDataError)
+    expect(error).toMatchObject({ what: 'Допустимые VLAN типа устройства', loaded: 1, total: 2000 })
+  })
+
+  it('loadAssignedDeviceVlanIds: усечённый список — IncompleteDataError', async () => {
+    stubTruncatedServer()
+
+    await expect(loadAssignedDeviceVlanIds('dev-1')).rejects.toBeInstanceOf(IncompleteDataError)
+  })
+
+  it('пустой deviceTypeId по-прежнему не делает запроса и не падает', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(loadDeviceTypeVlanIds('')).resolves.toEqual(new Set())
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

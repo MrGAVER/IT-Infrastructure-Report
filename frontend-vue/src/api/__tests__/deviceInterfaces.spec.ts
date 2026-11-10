@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { IncompleteDataError } from '../assertComplete'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups, persistDeviceInterfaces, validateInterfaceDraftRows } from '../deviceInterfaces'
 import type { InterfaceDraftRow, InterfaceGroupDraft } from '../types'
 
@@ -361,6 +362,26 @@ describe('loadDeviceInterfaceDraftRows', () => {
       ])
       expect(row.vlan_mode).toBe('trunk')
     })
+  })
+})
+
+describe('loadDeviceInterfaceDraftRows: усечённый список портов (B-02)', () => {
+  it('порты устройства загружены не целиком — IncompleteDataError: PUT /devices/{id}/interfaces удалил бы невидимые порты', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/resources/interfaces')) {
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+        const items =
+          offset === 0 ? [{ id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', is_management: false, is_data_transfer: false, vlan_mode: 'trunk' }] : []
+        return jsonResponse({ items, total: 2000, offset, limit: 1000 })
+      }
+      return jsonResponse({ items: [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const error = await loadDeviceInterfaceDraftRows('dev-1').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(IncompleteDataError)
+    expect(error).toMatchObject({ what: 'Порты устройства', loaded: 1, total: 2000 })
   })
 })
 

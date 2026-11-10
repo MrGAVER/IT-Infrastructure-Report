@@ -272,3 +272,95 @@ describe('VLANDomainFormModal.vue', () => {
     expect(wrapper.emitted('saved')).toBeTruthy()
   })
 })
+
+// B-02 (ревью merge/review-r1-r2-executors): состав домена загружен не целиком — об этом сказано постоянным сообщением, а добавление
+// устройств отключено (по неполному составу нельзя исключить повторное добавление). Убирать видимых участников по-прежнему можно.
+describe('VLANDomainFormModal.vue — усечённый состав домена (B-02)', () => {
+  const domain: VLANDomain = { id: 'dom-1', name: 'Ядро', description: null, source_device_id: null, auto_sync: false } as VLANDomain
+  const link = { id: 'l-1', domain_id: 'dom-1', physical_device_id: 'dev-1' }
+
+  /** total больше, чем отдано: на вторую страницу сервер отвечает пустой, и listAllResource возвращает truncated=true. */
+  function stubMembers(total: number) {
+    const calls: Array<{ method: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url })
+        if (method === 'GET' && url.includes('/resources/vlan-domain-devices')) {
+          const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+          return jsonResponse({ items: offset === 0 ? [link] : [], total, offset, limit: 1000 })
+        }
+        return jsonResponse({ status: 'ok' })
+      }),
+    )
+    return calls
+  }
+
+  it('усечённый состав: сообщение «загружено 1 из 2 000», выбор устройства и кнопка «Добавить» отключены', async () => {
+    seedDevices()
+    stubMembers(2000)
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+
+    const notice = wrapper.find('.load-notice')
+    expect(notice.exists()).toBe(true)
+    expect(notice.attributes('data-kind')).toBe('incomplete')
+    expect(notice.text().replace(/\s+/g, ' ')).toContain('загружено 1 из 2 000')
+    expect(notice.text()).toContain('Добавление устройств отключено')
+    expect((wrapper.find('.add-member-row select').element as HTMLSelectElement).disabled).toBe(true)
+    expect((wrapper.find('.add-member-row button').element as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('усечённый состав: попытка добавить участника (в обход disabled) не отправляет запрос', async () => {
+    seedDevices()
+    const calls = stubMembers(2000)
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+
+    const select = wrapper.find('.add-member-row select')
+    ;(select.element as HTMLSelectElement).disabled = false
+    await select.setValue('dev-2')
+    ;(wrapper.find('.add-member-row button').element as HTMLButtonElement).disabled = false
+    await wrapper.find('.add-member-row button').trigger('click')
+    await flushPromises()
+
+    expect(calls.some((c) => c.method === 'POST' && c.url.includes('/members'))).toBe(false)
+  })
+
+  it('усечённый состав: видимого участника по-прежнему можно убрать', async () => {
+    seedDevices()
+    const calls = stubMembers(2000)
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+
+    await wrapper.find('.member-row button').trigger('click')
+    await flushPromises()
+
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/resources/vlan-domain-devices/l-1'))).toBe(true)
+  })
+
+  it('полный состав: сообщения нет, добавление доступно', async () => {
+    seedDevices()
+    stubMembers(1)
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+
+    expect(wrapper.find('.load-notice').exists()).toBe(false)
+    expect((wrapper.find('.add-member-row select').element as HTMLSelectElement).disabled).toBe(false)
+  })
+
+  it('смена домена сбрасывает признак усечения предыдущего', async () => {
+    seedDevices()
+    stubMembers(2000)
+    const wrapper = mount(VLANDomainFormModal, { props: { domain } })
+    await flushPromises()
+    expect(wrapper.find('.load-notice').exists()).toBe(true)
+
+    stubMembers(1)
+    await wrapper.setProps({ domain: { ...domain, id: 'dom-2', name: 'Периметр' } as VLANDomain })
+    await flushPromises()
+
+    expect(wrapper.find('.load-notice').exists()).toBe(false)
+  })
+})

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useCatalogsStore, type StructuralUnitNode } from '../stores/catalogs'
 import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
@@ -7,12 +7,16 @@ import { useToast } from '../composables/useToast'
 import type { StructuralUnit } from '../api/types'
 import StructuralUnitFormModal from '../components/StructuralUnitFormModal.vue'
 import StructuralUnitCrudNode from '../components/StructuralUnitCrudNode.vue'
+import DataLoadNotice from '../components/DataLoadNotice.vue'
 
 const catalogs = useCatalogsStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 onMounted(() => catalogs.ensureLoaded())
+
+// B-02: дерево строится из стора справочников; при усечённой загрузке (потолок listAllResource) часть узлов на экране не видна.
+const incomplete = computed(() => catalogs.incompleteCatalogs['structural-units'] ?? null)
 
 const modal = ref<{ open: boolean; unit: StructuralUnit | null; defaultParentId: string | null }>({
   open: false,
@@ -65,6 +69,7 @@ async function removeUnit(node: StructuralUnitNode) {
       </button>
     </div>
 
+    <DataLoadNotice v-if="incomplete" kind="incomplete" what="структурных единиц" :loaded="incomplete.loaded" :total="incomplete.total" />
     <div v-if="catalogs.error" class="error-banner card">{{ catalogs.error }}</div>
     <div v-else-if="catalogs.loading && !catalogs.loaded" class="loading-banner">Загрузка…</div>
     <div v-else-if="!catalogs.structuralUnitTree.length" class="empty-banner card">Структурные единицы ещё не заведены.</div>

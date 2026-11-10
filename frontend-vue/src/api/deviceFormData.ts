@@ -1,5 +1,6 @@
 // Загрузка вложенных данных устройства для формы (DeviceFormModal.vue): ПО, порты и их группы, VLAN устройства, членство в
 // доменах VLAN, допустимые VLAN типа и подключения портов. Для копии строки донора превращаются в «новые» — без id.
+import { assertComplete } from './assertComplete'
 import { listAllResource } from './client'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups } from './deviceInterfaces'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from './deviceConnectivity'
@@ -40,6 +41,11 @@ export interface DeviceNestedData {
  * Всё грузится атомарно, одним Promise.all (а не отдельным watch на тип устройства), чтобы список допустимых VLAN порта не
  * пересчитывался с неполными данными между двумя разными по времени загрузками. Ошибка любого запроса не глотается — её
  * показывает форма.
+ *
+ * B-02: ПО, VLAN устройства и членство в доменах читаются через listAllResource, у которого есть потолок (50 000 записей). ПО и VLAN форма
+ * сохраняет целиком, а членство в доменах определяет, какие VLAN считать уже доступными, — усечённый список нельзя отдавать форме как
+ * полный, иначе сохранение удалило бы невидимые записи. Усечение превращается в ошибку (`IncompleteDataError`), и форма помечает вложенные
+ * данные как не загруженные (useDeviceLoader: nestedLoadFailed) — так же, как при сетевом сбое.
  */
 export async function loadDeviceNestedData(source: Device, isCopy: boolean, ensureVlansLoaded: () => Promise<unknown>): Promise<DeviceNestedData> {
   const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds, deviceConnections] = await Promise.all([
@@ -56,6 +62,10 @@ export async function loadDeviceNestedData(source: Device, isCopy: boolean, ensu
     isCopy ? Promise.resolve([] as DeviceInterfaceConnection[]) : fetchDeviceInterfaceConnections(source.id),
     ensureVlansLoaded(),
   ])
+
+  assertComplete(software, 'Установленное ПО')
+  assertComplete(vlans, 'VLAN устройства')
+  assertComplete(domainLinks, 'Домены VLAN устройства')
 
   const softwareRows = software.items.map(toSoftwareDraftRow)
   const vlanRows = vlans.items.map(toDeviceVlanDraftRow)

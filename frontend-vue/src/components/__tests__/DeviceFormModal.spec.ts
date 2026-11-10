@@ -4168,6 +4168,26 @@ describe('DeviceFormModal.vue — незагруженные вложенные 
     wrapper.unmount()
   })
 
+  it('B-02: ПО загружено не целиком (потолок listAllResource) — то же, что сбой: редакторы скрыты, сообщение показано, PUT ПО/VLAN/портов не уходят', async () => {
+    // сервер обещает 2000 записей ПО, но на вторую страницу отвечает пустой → listAllResource вернёт truncated=true
+    const calls = await stubApi((attempt) =>
+      attempt === 1 ? new Response(JSON.stringify({ items: [savedSoftware], total: 2000, offset: 0, limit: 1000 })) : page(),
+    )
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(notice()?.getAttribute('data-kind')).toBe('failed')
+    expect(document.body.querySelector('.form-error')?.textContent).toContain('загружен не полностью')
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(false)
+
+    saveButton().click()
+    await flushPromises()
+
+    expect(nestedPuts(calls)).toEqual([]) // неполный список ПО не превращается в PUT, который стёр бы невидимые записи
+    expect(calls.some((c) => c.method === 'PUT' && /\/resources\/devices\/dev-1$/.test(c.url))).toBe(true)
+    wrapper.unmount()
+  })
+
   it('«Повторить загрузку»: данные приходят, сообщение исчезает, редакторы возвращаются, и ПО сохраняется с id записи из БД', async () => {
     const calls = await stubApi((attempt) => (attempt === 1 ? new Response(JSON.stringify({ detail: 'сбой' }), { status: 503 }) : page([savedSoftware])))
     const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })

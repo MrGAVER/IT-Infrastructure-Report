@@ -18,6 +18,7 @@ vi.mock('../deviceConnectivity', () => ({ fetchDeviceInterfaceConnections: (...a
 vi.mock('../portVlans', () => ({ loadDeviceTypeVlanIds: (...args: unknown[]) => loadDeviceTypeVlanIds(...args) }))
 
 const { loadDeviceNestedData } = await import('../deviceFormData')
+const { IncompleteDataError } = await import('../assertComplete')
 
 const device = { id: 'dev-1', device_type_id: 't-sw' } as Device
 
@@ -114,6 +115,46 @@ describe('loadDeviceNestedData: редактирование', () => {
         throw new Error('VLAN недоступны')
       }),
     ).rejects.toThrow('VLAN недоступны')
+  })
+})
+
+describe('loadDeviceNestedData: усечённая загрузка (B-02)', () => {
+  /** Переопределяет ответ одного ресурса: усечённый (серверу есть что отдать сверх потолка), остальные — как в beforeEach. */
+  function truncate(resource: string) {
+    const original = listAllResource.getMockImplementation()!
+    listAllResource.mockImplementation(async (name: string, ...rest: unknown[]) => {
+      const res = (await original(name, ...rest)) as { items: unknown[] }
+      return name === resource ? { ...res, total: 60_000, truncated: true } : { ...res, total: res.items.length, truncated: false }
+    })
+  }
+
+  it.each([
+    ['deployed-software', 'Установленное ПО'],
+    ['device-vlans', 'VLAN устройства'],
+    ['vlan-domain-devices', 'Домены VLAN устройства'],
+  ])('%s усечён → ошибка IncompleteDataError, а не неполный список для формы', async (resource, what) => {
+    truncate(resource)
+
+    const error = await loadDeviceNestedData(device, false, async () => undefined).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(IncompleteDataError)
+    expect(error).toMatchObject({ what, total: 60_000 })
+  })
+
+  it('то же при копировании: донор с усечённым списком не превращается в «полную» копию', async () => {
+    truncate('deployed-software')
+
+    await expect(loadDeviceNestedData(device, true, async () => undefined)).rejects.toBeInstanceOf(IncompleteDataError)
+  })
+
+  it('полные списки (truncated=false) загружаются как раньше', async () => {
+    truncate('нет-такого-ресурса')
+
+    const data = await loadDeviceNestedData(device, false, async () => undefined)
+
+    expect(data.softwareAssets).toHaveLength(1)
+    expect(data.vlanRows).toHaveLength(1)
+    expect(data.domainIds).toEqual(['dom-1', 'dom-2'])
   })
 })
 

@@ -15,6 +15,7 @@ import { api, createResource, deleteResource, listAllResource, updateResource } 
 import type { Device, VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
 import BaseModal from './BaseModal.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
@@ -37,6 +38,9 @@ const form = reactive(emptyForm())
 
 const members = ref<VLANDomainDeviceLink[]>([])
 const loadingMembers = ref(false)
+// B-02: состав домена загружен не целиком (потолок listAllResource). Участники добавляются и убираются отдельными запросами, поэтому
+// сохранение формы ничего не стирает, но список «можно добавить» строится от состава: по неполному нельзя исключить повторное добавление.
+const membersIncomplete = ref<{ loaded: number; total: number } | null>(null)
 const addMemberDeviceId = ref('')
 const memberBusyId = ref<string | null>(null)
 
@@ -56,6 +60,7 @@ watch(
   async (d) => {
     Object.assign(form, emptyForm())
     members.value = []
+    membersIncomplete.value = null
     if (d) {
       form.name = d.name
       form.description = d.description ?? ''
@@ -65,6 +70,7 @@ watch(
       try {
         const res = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id: d.id })
         members.value = res.items
+        membersIncomplete.value = res.truncated ? { loaded: res.items.length, total: res.total } : null
       } catch (err) {
         errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить состав домена'
       } finally {
@@ -76,7 +82,7 @@ watch(
 )
 
 async function addMember() {
-  if (!props.domain || !addMemberDeviceId.value) return
+  if (!props.domain || !addMemberDeviceId.value || membersIncomplete.value) return
   const deviceId = addMemberDeviceId.value
   try {
     const link = await api.post<VLANDomainDeviceLink>(`/vlan-domains/${props.domain.id}/members`, { physical_device_id: deviceId })
@@ -194,6 +200,14 @@ async function submit() {
 
             <p v-if="loadingMembers" class="loading-hint">Загрузка состава домена…</p>
             <template v-else>
+              <DataLoadNotice
+                v-if="membersIncomplete"
+                kind="incomplete"
+                what="устройств домена"
+                :loaded="membersIncomplete.loaded"
+                :total="membersIncomplete.total"
+                hint="Добавление устройств отключено: по неполному списку нельзя исключить повторное добавление."
+              />
               <div v-if="!members.length" class="empty">Устройства не добавлены</div>
               <div v-for="m in members" :key="m.id" class="member-row">
                 <span>{{ memberDeviceLabel(m.physical_device_id) }}</span>
@@ -202,11 +216,11 @@ async function submit() {
                 </button>
               </div>
               <div class="add-member-row">
-                <select v-model="addMemberDeviceId">
+                <select v-model="addMemberDeviceId" :disabled="!!membersIncomplete">
                   <option value="">— выберите устройство —</option>
                   <option v-for="d in availableToAdd" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
                 </select>
-                <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId" @click="addMember">
+                <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId || !!membersIncomplete" @click="addMember">
                   <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
                   Добавить
                 </button>

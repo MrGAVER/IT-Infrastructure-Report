@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
@@ -8,12 +8,27 @@ import type { Building, Room, Rack } from '../api/types'
 import BuildingFormModal from '../components/BuildingFormModal.vue'
 import RoomFormModal from '../components/RoomFormModal.vue'
 import RackFormModal from '../components/RackFormModal.vue'
+import DataLoadNotice from '../components/DataLoadNotice.vue'
 
 const catalogs = useCatalogsStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
 onMounted(() => catalogs.ensureLoaded())
+
+// B-02: экран показывает здания, помещения и стойки целиком из стора справочников; если какой-то из них загружен не целиком
+// (потолок listAllResource), это видно постоянным сообщением, а не только исчезающим предупреждением.
+const INCOMPLETE_CATALOGS = [
+  { key: 'buildings', what: 'зданий' },
+  { key: 'rooms', what: 'помещений' },
+  { key: 'racks', what: 'стоек' },
+] as const
+const incompleteNotices = computed(() =>
+  INCOMPLETE_CATALOGS.flatMap(({ key, what }) => {
+    const info = catalogs.incompleteCatalogs[key]
+    return info ? [{ key, what, loaded: info.loaded, total: info.total }] : []
+  }),
+)
 
 const expandedBuildings = ref(new Set<string>())
 const expandedRooms = ref(new Set<string>())
@@ -108,6 +123,7 @@ async function removeRack(r: Rack) {
       </button>
     </div>
 
+    <DataLoadNotice v-for="n in incompleteNotices" :key="n.key" kind="incomplete" :what="n.what" :loaded="n.loaded" :total="n.total" />
     <div v-if="catalogs.error" class="error-banner card">{{ catalogs.error }}</div>
     <div v-else-if="catalogs.loading && !catalogs.loaded" class="loading-banner">Загрузка…</div>
     <div v-else-if="!(catalogs.items['buildings'] ?? []).length" class="empty-banner card">Зданий пока нет в справочнике.</div>
