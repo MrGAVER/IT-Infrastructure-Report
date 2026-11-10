@@ -5,26 +5,12 @@
 //
 // Как и проверка ErrorCode в api/__tests__/client.spec.ts, тест пропускается, если рядом нет каталога backend (frontend собирают отдельно).
 import { describe, expect, it } from 'vitest'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { relativeToSrc, sourceFiles, srcDir } from './sourceFiles'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const srcDir = resolve(here, '..')
 const repoRoot = resolve(srcDir, '../..')
 const backendApp = join(repoRoot, 'backend', 'app')
-
-/** Файлы исходников frontend (ts, vue), кроме зависимостей. */
-function* sourceFiles(dir: string): Generator<string> {
-  for (const name of readdirSync(dir)) {
-    const path = join(dir, name)
-    if (statSync(path).isDirectory()) {
-      if (name !== 'node_modules') yield* sourceFiles(path)
-    } else if (/\.(ts|vue)$/.test(name)) {
-      yield path
-    }
-  }
-}
 
 // Путь `backend/app/<каталоги>/<модуль>.py`; символ после двоеточия (`:require_setup_access`) в путь не входит.
 const BACKEND_PATH = /backend\/app\/[A-Za-z0-9_/]+\.py/g
@@ -46,7 +32,7 @@ describe.skipIf(!existsSync(backendApp))('B-06: ссылки frontend на фа�
   it('каждый упомянутый путь backend/app/….py существует', () => {
     const missing = [...references]
       .filter(([path]) => !existsSync(join(repoRoot, path)))
-      .map(([path, files]) => `${path} ← ${files.map((f) => f.slice(srcDir.length + 1)).join(', ')}`)
+      .map(([path, files]) => `${path} ← ${files.map(relativeToSrc).join(', ')}`)
 
     expect(missing).toEqual([])
   })

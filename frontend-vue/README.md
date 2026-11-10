@@ -297,7 +297,7 @@ npx playwright show-report          # HTML-отчёт после прогона 
 ## Архитектурные решения, важные для продолжения работы
 
 - **Формы ответов API.** `/api/v1/resources/{resource}` всегда отдаёт
-  `{items, total, offset, limit}` (см. `backend/app/services/crud.py:list_resource`),
+  `{items, total, offset, limit}` (см. `backend/app/services/crud/generic.py:list_resource`),
   а специализированный `/api/v1/devices` — `{items, total}` без `offset/limit`
   (без серверной пагинации). Это разные формы — см. `PagedResponse<T>` vs
   `DevicesResponse` в `src/api/types.ts` / `src/api/client.ts`.
@@ -332,13 +332,26 @@ npx playwright show-report          # HTML-отчёт после прогона 
   (`PUT /api/v1/resources/information-systems/{id}/details`) представляют собой
   атомарные "пересобери всё целиком" эндпоинты: одним запросом
   создают/обновляют/удаляют набор дочерних записей по diff'у с тем, что уже
-  в БД (см. `sync_interfaces`/`sync_information_system_details` в
-  `backend/app/services/crud.py`). Оба используют `api.put()` напрямую
+  в БД (см. `sync_interfaces` в `backend/app/services/crud/interfaces.py` и
+  `sync_information_system_details` в `backend/app/services/crud/information_system.py`). Оба используют `api.put()` напрямую
   (`src/api/client.ts`), а не `createResource`/`updateResource`/`deleteResource`.
   Загрузка/валидация/сохранение интерфейсов вынесены в `api/deviceInterfaces.ts`
   (не дублируются между `DeviceFormModal.vue` и `DevicePortsModal.vue`) —
   если понадобится третья точка входа для управления портами, использовать
   этот модуль, а не копировать логику снова.
+
+- **Токен сессии лежит в `localStorage` (`itr:auth-token`) — принятый риск** (ревью B-05). Скрипт страницы может прочитать токен, поэтому
+  XSS даёт его кражу. Риск принят осознанно и смягчён тремя вещами: (1) CSP бэкенда (`default-src 'self'`, `object-src 'none'`,
+  `frame-ancestors 'none'`; `backend/app/config.py:CSP_POLICY`, заголовки — `backend/app/services/auth/security_headers.py`) не пускает
+  чужие и встроенные скрипты; (2) пользовательский HTML попадает в страницу одним путём — SVG-иконки устройств через `v-html` после
+  очистки DOMPurify (`utils/sanitizeSvg.ts`, один проход, без повторного разбора — B-04); (3) от кросс-сайтовых запросов бэкенд
+  защищён сам. Обоснование держится на двух допущениях — «`v-html` только у SVG-иконок» и «токеном занимается один модуль,
+  `api/client.ts`»: их проверяет `src/__tests__/securityPolicy.spec.ts`, и если он падает, нужно пересматривать риск, а не править тест.
+  Токен первичной настройки (`itr:setup-token`) — в `sessionStorage` и гаснет вместе с вкладкой.
+  **На будущее** — перейти на cookie `HttpOnly; SameSite=Strict` (токен станет недоступен скриптам) и добавить CSRF-токен для запросов,
+  меняющих данные; затрагивает `api/client.ts` (заголовок `Authorization` → `credentials: 'include'`), `stores/auth.ts`, вход/выход и
+  бэкенд (выдача cookie, проверка CSRF) — делается вместе с бэкендом, отдельной задачей. Вернуться к вопросу раньше стоит, если
+  появится пользовательский HTML вне SVG, ослабится CSP (`INFRA_REGISTRY_CSP`) или приложение выставят за пределы доверенной сети.
 
 ## Ещё не сделано
 
