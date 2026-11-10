@@ -15,6 +15,7 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
+from ..config import AUDIT_REPORT_SUBDIR
 from ..registry import DISPLAY_NAMES
 from .computed import local_timestamp_suffix
 from .crud import list_resource
@@ -49,7 +50,14 @@ def _audit_rows(session: Session, filters: dict | None, date_from: str | None, d
 
 # Имя файла отчёта журнала аудита начинается с этого префикса. Его читает и скачивание (api/reports.py: файл только для администратора), поэтому
 # генератор имени и проверка обязаны брать одну константу — иначе переименование префикса молча сняло бы защиту (R1-05 код-ревью).
+# Проверка по имени — второй слой: основной — подкаталог (audit_report_dir), до которого общий эндпоинт скачивания не дотягивается (A-05).
 AUDIT_REPORT_PREFIX = "Журнал_аудита_"
+
+
+def audit_report_dir(report_dir: Path) -> Path:
+    """Каталог отчётов журнала аудита внутри каталога отчётов. Единственное место, где он вычисляется: туда пишет генератор, оттуда
+    отдаёт отдельный эндпоинт скачивания (только администратору), его же учитывает очистка (services/report_cleanup.py)."""
+    return report_dir / AUDIT_REPORT_SUBDIR
 
 
 def _comparable(text: str) -> str:
@@ -67,8 +75,10 @@ def build_audit_log_report(session: Session, report_dir: Path, date_from: str | 
     записей. Оформление то же, что у остальных отчётов (жирная центрированная шапка, закреплённая первая
     строка, автофильтр), кроме подбора ширины по содержимому — она фиксирована (_COLUMN_WIDTHS).
 
+    Файл создаётся в подкаталоге audit_report_dir(report_dir), а не в самом report_dir (A-05).
+
     Пример вызова:
-        path = build_audit_log_report(session, REPORT_DIR, date_from="2026-10-01", entity_type="devices")
+        path = build_audit_log_report(session, REPORT_DIR, date_from="2026-10-01", entity_type="devices")  # REPORT_DIR/audit/Журнал_аудита_….xlsx
     """
     filters = {"entity_type": entity_type} if entity_type else None
 
@@ -111,7 +121,8 @@ def build_audit_log_report(session: Session, report_dir: Path, date_from: str | 
     if count:
         ws.auto_filter.ref = f"A1:{get_column_letter(len(AUDIT_HEADERS))}{count + 1}"
 
-    report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / f"{AUDIT_REPORT_PREFIX}{local_timestamp_suffix()}.xlsx"
+    audit_dir = audit_report_dir(report_dir)
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    path = audit_dir / f"{AUDIT_REPORT_PREFIX}{local_timestamp_suffix()}.xlsx"
     wb.save(path)
     return path

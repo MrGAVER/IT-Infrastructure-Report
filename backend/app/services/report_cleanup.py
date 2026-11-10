@@ -4,7 +4,8 @@
 чистился никогда и рос бесконечно (код-ревью, п. 11). Очистка ленивая — вызывается при формировании
 нового отчёта, без фонового планировщика (его в приложении нет, а для EXE-режима он был бы лишним).
 
-Два правила, оба касаются только файлов отчётов (.xlsx/.docx), остальное в каталоге не трогается:
+Два правила, оба касаются только файлов отчётов (.xlsx/.docx) — в корне каталога и в подкаталоге audit/ с отчётами журнала аудита
+(A-05), остальное не трогается:
 
 * возраст — файлы старше `INFRA_REGISTRY_REPORT_RETENTION_DAYS` (по умолчанию 30 дней) удаляются;
 * количество (A-10) — остаются не более `INFRA_REGISTRY_REPORT_MAX_FILES` (по умолчанию 200) самых новых файлов, остальные
@@ -21,7 +22,7 @@ import threading
 import time
 from pathlib import Path
 
-from ..config import REPORT_MAX_FILES, REPORT_RETENTION_DAYS
+from ..config import AUDIT_REPORT_SUBDIR, REPORT_MAX_FILES, REPORT_RETENTION_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,13 @@ _scan_lock = threading.Lock()
 
 
 def _report_files(report_dir: Path) -> list[Path]:
-    return [path for path in report_dir.iterdir() if path.suffix.lower() in REPORT_SUFFIXES and path.is_file()]
+    """Файлы отчётов в корне каталога и в подкаталоге отчётов аудита (A-05): квота и возраст считаются по обоим вместе, иначе
+    отчёты аудита копились бы мимо REPORT_MAX_FILES. Прочие подкаталоги и сам `audit/` не трогаются."""
+    files = [path for path in report_dir.iterdir() if path.suffix.lower() in REPORT_SUFFIXES and path.is_file()]
+    audit_dir = report_dir / AUDIT_REPORT_SUBDIR
+    if audit_dir.is_dir():
+        files.extend(path for path in audit_dir.iterdir() if path.suffix.lower() in REPORT_SUFFIXES and path.is_file())
+    return files
 
 
 def _remove(path: Path) -> bool:

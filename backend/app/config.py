@@ -7,6 +7,9 @@ APP_DATA_DIR = Path(os.getenv('INFRA_REGISTRY_DATA_DIR', str(BASE_DIR))).expandu
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR = APP_DATA_DIR / 'reports'
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
+# Подкаталог REPORT_DIR для отчётов журнала аудита (A-05 код-ревью r3): в них логины, адреса и неудачные входы, поэтому их скачивает только
+# администратор, а общий эндпоинт скачивания ищет файлы лишь в корне REPORT_DIR и до этого подкаталога не дотянется. Создаётся при первом отчёте.
+AUDIT_REPORT_SUBDIR = 'audit'
 # Сколько дней хранятся сгенерированные отчёты: файл нужен только пока его скачивают, а каталог без
 # очистки рос бы бесконечно. 0 — не удалять никогда.
 REPORT_RETENTION_DAYS = int(os.getenv('INFRA_REGISTRY_REPORT_RETENTION_DAYS', '30'))
