@@ -499,7 +499,7 @@ describe('persistDeviceInterfaces', () => {
 
   // Правка "убрать текстовые поля Порт/Протокол": port/protocol больше не приходят от клиента —
   // единственный вход теперь protocol_catalog_id, сервер сам выводит порт/протокол из него (см.
-  // backend/app/services/crud.py:_apply_open_port_catalog). Раньше здесь же жили правила
+  // backend/app/services/crud/owned_rows.py:_validate_open_port_catalog). Раньше здесь же жили правила
   // приведения типов/фильтрации пустых строк из DeviceFormModal.vue:persistOpenPorts (удалена).
   it('фикс "убрать текстовые поля Порт/Протокол": пропускает строки без protocol_catalog_id, сохраняет id для обновления существующих', async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse({ items: [] }))

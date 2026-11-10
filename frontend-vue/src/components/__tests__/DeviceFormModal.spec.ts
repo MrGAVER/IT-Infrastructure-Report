@@ -675,7 +675,7 @@ describe('DeviceFormModal.vue', () => {
   })
 
   it('не стирает VLAN интерфейса, назначенные через /legacy, при сохранении без их редактирования', async () => {
-    // Регрессия: backend/app/services/crud.py:_sync_single_interface полностью пересоздаёт
+    // Регрессия: backend/app/services/crud/interfaces.py:_sync_single_interface полностью пересоздаёт
     // InterfaceVLAN из payload['vlan_ids'] при каждом PUT — отправка [] стёрла бы VLAN,
     // назначенные через /legacy, хотя редактор их даже не показывает (см. InterfaceDraftRow
     // в api/types). Загруженные vlan_ids должны уйти обратно без изменений.
@@ -885,7 +885,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     // Фикс п.1.3.8, часть 2: устройство реально закреплено за доменом на бэкенде — иначе
-    // backend/app/services/crud.py:_validate_physical_device_vlan откатил бы PUT /devices/{id}/vlans
+    // backend/app/services/crud/validators.py:_validate_physical_device_vlan откатил бы PUT /devices/{id}/vlans
     // с 422 "Устройство не включено в домен этого VLAN".
     const membershipIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
     const deviceVlanIdx = calls.findIndex((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-8/vlans'))

@@ -35,7 +35,7 @@ export function setStoredToken(token: string | null): void {
 
 // --- Токен первичной настройки (INFRA_REGISTRY_SETUP_TOKEN на сервере) --------------------------
 // Пока аутентификация выключена, создавать пользователей и включать её можно только с localhost либо
-// с этим токеном в заголовке X-Setup-Token (backend/app/services/auth.py:require_setup_access). Нужен
+// с этим токеном в заголовке X-Setup-Token (backend/app/services/auth/guards.py:require_setup_access). Нужен
 // он только при удалённой настройке (Docker, обратный прокси). sessionStorage, а не localStorage:
 // токен установки одноразовый по смыслу и не должен переживать закрытие вкладки.
 const SETUP_TOKEN_STORAGE_KEY = 'itr:setup-token'
@@ -64,7 +64,7 @@ export const UNAUTHORIZED_EVENT = 'itr:unauthorized'
 
 /** Пути, на которых ответ 401 означает «неверные данные в форме», а не «сессия недействительна»:
  * вход (`/auth/login`) и смена собственного пароля (`/auth/me/password`). Сервер отвечает на неверный ТЕКУЩИЙ пароль кодом
- * 422 WRONG_CURRENT_PASSWORD (backend/app/services/auth.py:change_own_password, A-22), а не 401 — запись оставлена на случай старого
+ * 422 WRONG_CURRENT_PASSWORD (backend/app/services/auth/users.py:change_own_password, A-22), а не 401 — запись оставлена на случай старого
  * сервера. Для этих путей UNAUTHORIZED_EVENT не отправляется, иначе опечатка в форме завершила бы сессию. */
 const SESSION_NEUTRAL_401_PATHS: ReadonlySet<string> = new Set(['/auth/login', '/auth/me/password'])
 
