@@ -2,7 +2,7 @@
 // FE-06 (ревью ветки fix/code-review-main-f06-stage2-f05): «верхнее» определяет единый стек окон (modalLayer.ts), а не второй, независимый
 // стек Esc, согласованность которого с первым держалась на одинаковом порядке вызовов в setup().
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, h, type PropType } from 'vue'
+import { defineComponent, h, toRaw, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { useEscapeKey } from '../modalLayer'
 import { useModalStack } from '../modalLayer'
@@ -22,7 +22,7 @@ const Modal = defineComponent({
       event.preventDefault()
       props.onClose()
     })
-    return () => h('div', { class: 'modal' }, props.child ? [h(props.child)] : [])
+    return () => h('div', { class: 'modal' }, props.child ? [h(toRaw(props.child))] : [])
   },
 })
 

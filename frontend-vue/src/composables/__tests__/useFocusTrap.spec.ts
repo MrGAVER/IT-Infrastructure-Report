@@ -3,7 +3,7 @@
 // jsdom не двигает фокус по Tab сам, поэтому проверяется то, что делает ловушка: перехваченное событие (defaultPrevented) и
 // элемент, на который она переставила фокус.
 import { afterEach, describe, expect, it } from 'vitest'
-import { defineComponent, h, ref, type PropType, type VNode } from 'vue'
+import { defineComponent, h, ref, toRaw, type PropType, type VNode } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { useModalStack } from '../modalLayer'
 import { useFocusTrap } from '../useFocusTrap'
@@ -29,7 +29,7 @@ const Win = defineComponent({
           h('input', { id: `${props.name}-field` }),
           ...props.extra(),
           h('button', { id: `${props.name}-last` }, 'Сохранить'),
-          props.child ? h(props.child) : null,
+          props.child ? h(toRaw(props.child)) : null,
         ]),
       ])
   },

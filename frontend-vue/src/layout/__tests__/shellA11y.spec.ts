@@ -16,7 +16,7 @@ import AppShell from '../AppShell.vue'
 import Sidebar from '../Sidebar.vue'
 import Topbar from '../Topbar.vue'
 
-const stubs = { 'router-link': { template: '<a href="#"><slot /></a>' }, 'router-view': true, ToastHost: true, PortSyncPlanHost: true }
+const stubs = { ToastHost: true, PortSyncPlanHost: true }
 
 beforeEach(() => {
   setActivePinia(createPinia())

@@ -2,7 +2,7 @@
 // закрытие по подложке) проверены каждая своим спеком; здесь — то, чего по отдельности не видно: они подключены вместе и в нужном
 // порядке, и окну достаточно одного вызова.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, h, ref, type PropType } from 'vue'
+import { defineComponent, h, ref, toRaw, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { hasOpenModal, useModalLayer, type ModalLayer } from '../modalLayer'
 
@@ -24,7 +24,7 @@ const Layer = defineComponent({
     props.onLayer(layer)
     return () =>
       h('div', { ref: overlay, class: 'overlay', onMousedown: layer.onOverlayPointerDown, onClick: layer.onOverlayClick }, [
-        h('div', { role: 'dialog', 'aria-label': 'окно' }, [h('button', { type: 'button' }, 'Кнопка'), props.child ? h(props.child) : null]),
+        h('div', { role: 'dialog', 'aria-label': 'окно' }, [h('button', { type: 'button' }, 'Кнопка'), props.child ? h(toRaw(props.child)) : null]),
       ])
   },
 })

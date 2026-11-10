@@ -6,7 +6,11 @@ import StatCard from '../StatCard.vue'
 function makeRouter() {
   return createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/devices', component: { template: '<div/>' } }],
+    // Память-история стартует с пустого пути; без маршрута на него vue-router печатает VUE_ROUTER_R0004 при каждой установке плагина.
+    routes: [
+      { path: '/', component: { template: '<div/>' } },
+      { path: '/devices', component: { template: '<div/>' } },
+    ],
   })
 }
 

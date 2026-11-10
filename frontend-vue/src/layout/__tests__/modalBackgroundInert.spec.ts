@@ -17,7 +17,7 @@ vi.mock('vue-router', () => ({
 import AppShell from '../AppShell.vue'
 import BaseModal from '../../components/BaseModal.vue'
 
-const stubs = { 'router-link': { template: '<a href="#"><slot /></a>' }, 'router-view': true, PortSyncPlanHost: true }
+const stubs = { PortSyncPlanHost: true }
 
 const phone = (matches: boolean) =>
   vi.stubGlobal(
