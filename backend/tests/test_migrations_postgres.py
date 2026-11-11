@@ -10,7 +10,7 @@ INFRA_REGISTRY_TEST_DATABASE_URL (маркер postgres_only), каждый — 
   • схема из миграций пригодна для приложения: все таблицы и колонки моделей на месте, уникальность и внешние ключи моделей
     действуют, остатки старых колонок не мешают вставкам, даты без часового пояса, как в моделях;
   • VLAN уникален в пределах домена, а не глобально (смысл миграции c9a4e7d2f610);
-  • ветки миграций, которые работают с **данными** (на пустой базе они не выполняются), — на строках старой схемы.
+  • ветки миграций, которые работают с **данными** (на пустой базе они не выполняются), — на строках старой схемы (TestMigrationsThatMoveData).
 
 Запуск: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest backend/tests/test_migrations_postgres.py
 """
@@ -309,3 +309,27 @@ class TestMigrationsThatMoveData:
         assert by_kind[("vm", "приложение")] == (False, None)
         assert by_kind[("container", "сервис")] == (False, None)
         assert any(r.ip_address == "203.0.113.7" and r.external_interaction is True for r in rows)
+
+    def test_free_text_os_moves_into_the_catalog_and_repeats_share_one_entry(self, scratch):
+        """c4e8a7d91b20: свободный текст ОС устройств и ВМ → каталог operating_systems («Другое»), платформа виртуализации → «Гипервизор».
+        Повтор без версии (version IS NULL) находит прежнюю запись, а не плодит дубль: на PostgreSQL сравнение `version IS :version`
+        было синтаксической ошибкой, и миграция падала на первой же базе с данными."""
+        revision = "c4e8a7d91b20"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            platform = insert_row(connection, "virtualization_platforms", name="VMware ESXi", vendor="VMware", version="8")
+            windows_a = insert_row(connection, "physical_devices", os_name="Windows Server", os_version="2019")
+            debian_a = insert_row(connection, "physical_devices", os_name="Debian", os_version=None)
+            windows_b = insert_row(connection, "physical_devices", os_name="Windows Server", os_version="2019")
+            debian_b = insert_row(connection, "physical_devices", os_name="Debian", os_version=None)
+            vm = insert_row(connection, "virtual_machines", os_name="Ubuntu", os_version="22.04", virtualization_platform_id=platform)
+        scratch.upgrade(revision)
+        with scratch.engine.connect() as connection:
+            devices = {r.id: r.operating_system_id for r in connection.execute(sa.text("SELECT id, operating_system_id FROM physical_devices"))}
+            vm_row = connection.execute(sa.text("SELECT operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :i"), {"i": vm}).one()
+            debian_entries = connection.execute(sa.text("SELECT COUNT(*) FROM operating_systems WHERE name = 'Debian'")).scalar_one()
+            hypervisor = connection.execute(sa.text("SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id WHERE o.id = :i AND c.name = 'Гипервизор'"), {"i": vm_row.hypervisor_os_id}).one()
+        assert all(devices.values())
+        assert devices[windows_a] == devices[windows_b] and devices[debian_a] == devices[debian_b] and devices[windows_a] != devices[debian_a]
+        assert debian_entries == 1
+        assert vm_row.operating_system_id is not None and tuple(hypervisor) == ("VMware ESXi", "8")
