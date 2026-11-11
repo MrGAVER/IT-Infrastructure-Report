@@ -46,7 +46,7 @@ function interfaceName(ref: DiagramInterfaceRef | null): string | undefined {
 }
 
 /** Подпись trunk-подключения вместо списка VLAN. Совпадает с TRUNK_EDGE_LABEL в
- * backend/app/services/diagram_export.py (экспорт .svg/.drawio/.vsdx подписывает линии так же). */
+ * backend/app/services/diagram_export/_common.py (экспорт .svg/.drawio/.vsdx подписывает линии так же). */
 export const TRUNK_EDGE_LABEL = 'trunk'
 
 function vlanSummary(edge: DiagramEdge): string | undefined {

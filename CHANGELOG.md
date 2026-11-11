@@ -5763,6 +5763,10 @@ F-08 и F-09 выполнены по решению владельца. Не в�
   помощником): `exportDiagram` бросает `ApiError` с сообщением из `detail`, кодом и `retryAfter`; у не-JSON ответа (страница прокси)
   сообщение — «502 Bad Gateway», разметка остаётся в `body`. Тесты `diagramExport.spec.ts`: 404 с `detail`, 503 с `Retry-After` в форме
   ответа `_heavy_export_slot`, не-JSON 502; прежний тест, закреплявший сырое тело, заменён.
+- **Стык пакетов А и Б при слиянии: ссылки на `diagram_export.py`.** A-07 превратил `services/diagram_export.py` в пакет `diagram_export/`,
+  а страж B-06 (`backendPathReferences.spec.ts`) требует, чтобы упомянутые во frontend пути backend существовали: в слитой ветви он падал на
+  трёх комментариях (`DiagramDeviceNode.vue` ×2, `utils/diagramFlow.ts`). Комментарии указывают на пакет и на `diagram_export/svg.py`,
+  `diagram_export/_common.py`; код не менялся.
 
 **Проверки.** `vue-tsc -b`, ESLint, `prettier --check .`, `npm audit --omit=dev` (0 уязвимостей) и `npm run build` — чисто; `vitest run` —
 265 файлов, 3 827 тестов, код возврата 0, в том числе со случайным порядком (`--sequence.shuffle`, seed 11 и 2026); `[Vue warn]` в журнале

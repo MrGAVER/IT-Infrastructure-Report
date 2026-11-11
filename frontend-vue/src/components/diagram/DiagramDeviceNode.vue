@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Компонент узла-устройства на канвасе диаграммы топологии сети (раздел 11 ТЗ, задача 3 Агента
 // B: "компонент узла по дескриптору иконки"). Та же геометрия (форма/цвет/засечки портов/
-// подписи), что и бэкендовые экспортёры (backend/app/services/diagram_export.py) — единый
+// подписи), что и бэкендовые экспортёры (пакет backend/app/services/diagram_export/) — единый
 // визуальный словарь, разные языки реализации по разные стороны API (раздел 11 ТЗ).
 import { computed, useId } from 'vue'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
@@ -56,7 +56,7 @@ const portTicks = computed(() => (icon.value.mode === 'generated' ? Math.max(0, 
 const portOverflow = computed(() => (icon.value.mode === 'generated' ? (icon.value.port_overflow ?? 0) : 0))
 
 /** x-координата i-й засечки вдоль нижнего края — тот же расчёт, что
- * backend/app/services/diagram_export.py:_svg_port_ticks (spacing = width / (ticks + 1)). */
+ * backend/app/services/diagram_export/svg.py:_svg_port_ticks (spacing = width / (ticks + 1)). */
 function tickX(index: number): number {
   const spacing = NODE_WIDTH / (portTicks.value + 1)
   return spacing * (index + 1)
