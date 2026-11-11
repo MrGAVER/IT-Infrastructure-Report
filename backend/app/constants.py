@@ -5,11 +5,13 @@
 разделяемой Python/JS-константы тут нет и быть не может — но именование на каждой стороне снижает
 риск опечатки на месте использования и документирует набор допустимых значений в одном месте.
 """
+
 from __future__ import annotations
 
 
 class ErrorCode:
     """Коды в detail.code структурированных ошибок API (см. parseApiError() во фронтенде)."""
+
     DUPLICATE_SYSTEM_NAME = "DUPLICATE_SYSTEM_NAME"
     RACK_POSITION_OCCUPIED = "RACK_POSITION_OCCUPIED"
     REFERENCED_BY_OTHER_RECORDS = "REFERENCED_BY_OTHER_RECORDS"
@@ -29,6 +31,7 @@ class ErrorCode:
 
 class AuditAction:
     """Значения поля action в audit_log (см. actionLabels во фронтенде для их русских подписей)."""
+
     CREATE = "CREATE"
     UPDATE = "UPDATE"
     DELETE = "DELETE"
@@ -43,6 +46,7 @@ class UserRole:
     разделения «может смотреть реестр» / «может его менять и администрировать учётные записи»;
     более гранулярные права (per-resource) не запрашивались и добавили бы сложность без текущей
     потребности."""
+
     ADMIN = "admin"
     VIEWER = "viewer"
     ALL = {ADMIN, VIEWER}
@@ -50,6 +54,7 @@ class UserRole:
 
 class SourceType:
     """Допустимые значения InformationSystemSource.source_type."""
+
     MANUAL = "manual"
     DEVICE = "device"
     VM = "vm"
@@ -63,6 +68,7 @@ class OwnerType:
     DeployedSoftware, IPAddress (см. их докстринги в models.py) — общий набор владельцев, но не
     каждая модель использует все значения (например, у DeployedSoftware нет DEVICE_INTERFACE —
     ПО разворачивается на устройстве целиком, а не на конкретном порту)."""
+
     PHYSICAL_DEVICE = "physical_device"
     VIRTUAL_MACHINE = "virtual_machine"
     # п.1.4 (батч4): открытые порты физического устройства переехали с уровня устройства на

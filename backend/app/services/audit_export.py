@@ -6,6 +6,7 @@
 потоковая (write_only), поэтому setup_sheet/finalize_sheet из reporting.py здесь не применяются:
 finalize_sheet обходит все ячейки готового листа, а при потоковой записи он недоступен.
 """
+
 from __future__ import annotations
 import unicodedata
 from pathlib import Path

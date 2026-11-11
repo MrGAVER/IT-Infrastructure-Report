@@ -1,4 +1,5 @@
 """Экспорт графа диаграммы в .drawio (XML draw.io) через объектную модель drawpyo (см. docstring пакета)."""
+
 from __future__ import annotations
 
 from ._common import (
@@ -25,6 +26,7 @@ from ._icons import (
 # --------------------------------------------------------------------------------------
 # .drawio (drawpyo)
 # --------------------------------------------------------------------------------------
+
 
 def _drawio_image_object(page, position: tuple[float, float], width: float, height: float, data_uri: str):
     """Отдельный объект shape=image поверх узла (глиф категории, плитка custom-иконки).

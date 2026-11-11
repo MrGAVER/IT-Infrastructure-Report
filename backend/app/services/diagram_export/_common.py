@@ -3,6 +3,7 @@
 
 Ничего не знает ни об одном формате: зависимости идут только вниз (`_common` → `_icons` → `svg`/`drawio`/`vsdx`), циклов нет.
 """
+
 from __future__ import annotations
 
 import re

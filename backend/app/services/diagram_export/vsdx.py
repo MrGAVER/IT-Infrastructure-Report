@@ -1,5 +1,6 @@
 """Экспорт графа диаграммы в .vsdx: копирование шаблонных фигур media.vsdx библиотекой vsdx и обязательная постобработка пакета
 (см. docstring пакета: «Готча .vsdx», _finalize_vsdx_package, _strip_dangling_glue_formulas)."""
+
 from __future__ import annotations
 
 import io

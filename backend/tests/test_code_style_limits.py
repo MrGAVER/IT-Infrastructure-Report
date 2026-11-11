@@ -35,3 +35,60 @@ def test_no_application_line_is_longer_than_the_declared_line_length():
 def test_the_limit_is_not_silently_raised():
     # Объявленный предел только снижается (план — 140). Поднять его, чтобы тест позеленел, нельзя: сначала нужно осознанно поменять число здесь.
     assert _line_length_limit() <= 400
+
+
+# --- Состав шага CI «ruff format --check» --------------------------------------------------------------------------------------------------
+# Модули, переведённые на форматтер в A-09: список в CI только растёт, исключить отсюда модуль можно лишь осознанно (меняя этот тест).
+FORMATTED_MODULES = {
+    "backend/app/api/diagrams.py",
+    "backend/app/api/reports.py",
+    "backend/app/constants.py",
+    "backend/app/services/audit_export.py",
+    "backend/app/services/report_cleanup.py",
+    "backend/app/services/exe_settings.py",
+    "backend/app/services/diagram_icons.py",
+    "backend/app/services/auth/_common.py",
+    "backend/app/services/auth/guards.py",
+    "backend/app/services/auth/login.py",
+    "backend/app/services/crud/__init__.py",
+    "backend/app/services/diagram_export/__init__.py",
+    "backend/app/services/diagram_export/_common.py",
+    "backend/app/services/diagram_export/_icons.py",
+    "backend/app/services/diagram_export/drawio.py",
+    "backend/app/services/diagram_export/svg.py",
+    "backend/app/services/diagram_export/vsdx.py",
+    "backend/app/services/body_limit.py",
+    "backend/app/services/request_errors.py",
+    "backend/app/api/schema_base.py",
+}
+
+
+def _ci_format_check_paths() -> list[str]:
+    import yaml
+
+    steps = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))["jobs"]["test"]["steps"]
+    command = next(step["run"] for step in steps if step.get("run", "").lstrip().startswith("ruff format --check"))
+    return command.split()[3:]  # ruff format --check <пути…>
+
+
+def _expand(patterns: list[str]) -> set[str]:
+    return {str(path.relative_to(ROOT)) for pattern in patterns for path in ROOT.glob(pattern)}
+
+
+def test_ci_format_check_covers_the_modules_formatted_in_this_review():
+    covered = _expand(_ci_format_check_paths())
+    assert FORMATTED_MODULES <= covered, f"в шаге CI нет модулей: {sorted(FORMATTED_MODULES - covered)}"
+
+
+def test_every_path_in_the_ci_format_check_exists():
+    # Опечатка в списке или glob без совпадений: ruff упал бы в CI, а здесь это видно сразу при обычном pytest.
+    for pattern in _ci_format_check_paths():
+        assert list(ROOT.glob(pattern)), f"в шаге CI путь без совпадений: {pattern}"
+
+
+def test_every_module_in_the_ci_format_check_is_really_formatted():
+    import subprocess
+    import sys
+
+    result = subprocess.run([sys.executable, "-m", "ruff", "format", "--check", *sorted(_expand(_ci_format_check_paths()))], cwd=ROOT, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr

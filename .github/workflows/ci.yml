@@ -60,10 +60,29 @@ jobs:
       - name: ruff (реальные ошибки — pyflakes F + синтаксис E9 — и сложность функций C901 ≤ 12, см. pyproject.toml)
         run: ruff check backend
 
-      - name: ruff format --check (только модули границы API, написанные после код-ревью — схемы тел запросов, лимит тела, формат 422)
-        # Остальной backend написан плотным стилем автора (pyproject.toml: line-length = 400) и не форматируется целиком. Для новых модулей
-        # границы API форматтер каноничен: расхождение блокирует слияние. Новый файл такого рода добавляйте в список ниже.
-        run: ruff format --check backend/app/api/*_schemas.py backend/app/api/schema_base.py backend/app/services/body_limit.py backend/app/services/request_errors.py
+      - name: ruff format --check (модули границы API и модули, переведённые на форматтер при код-ревью)
+        # Остальной backend написан плотным стилем автора (pyproject.toml: line-length = 400) и форматируется постепенно: при каждом
+        # изменении модуля его форматируют целиком ОТДЕЛЬНЫМ коммитом (без логики) и добавляют в список ниже; расхождение блокирует слияние.
+        # Список только растёт. Ещё не переведены «горячие» файлы app/config.py и app/main.py (их правят почти все изменения — перевод
+        # даст конфликты слияния) и модули без правок в этом цикле.
+        run: >
+          ruff format --check
+          backend/app/api/*_schemas.py
+          backend/app/api/schema_base.py
+          backend/app/api/diagrams.py
+          backend/app/api/reports.py
+          backend/app/constants.py
+          backend/app/services/body_limit.py
+          backend/app/services/request_errors.py
+          backend/app/services/audit_export.py
+          backend/app/services/report_cleanup.py
+          backend/app/services/exe_settings.py
+          backend/app/services/diagram_icons.py
+          backend/app/services/auth/_common.py
+          backend/app/services/auth/guards.py
+          backend/app/services/auth/login.py
+          backend/app/services/crud/__init__.py
+          backend/app/services/diagram_export/*.py
 
       - name: bandit (статический анализ безопасности backend, уровень medium и выше) — gate
         # Дополняет pip-audit (уязвимости в зависимостях): здесь ищутся небезопасные приёмы в собственном коде. Сейчас чисто; неактуальные

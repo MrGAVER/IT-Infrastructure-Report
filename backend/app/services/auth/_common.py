@@ -1,4 +1,5 @@
 """Мелкие помощники, общие для модулей пакета auth: текущее время, адрес клиента запроса и разбор заголовка Authorization."""
+
 from __future__ import annotations
 
 import math
@@ -9,6 +10,7 @@ from fastapi import HTTPException, Request
 
 from ...constants import ErrorCode
 from ..timeutil import utcnow_naive
+
 
 # ---------------------------------------------------------------------------
 # Время: SQLite/SQLAlchemy отбрасывают tzinfo при round-trip через DateTime без
