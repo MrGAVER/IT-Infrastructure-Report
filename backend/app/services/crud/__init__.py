@@ -1,6 +1,9 @@
 """Generic CRUD и синхронизация вложенных коллекций (бывший services/crud/, разрезанный по ответственностям).
 
-Фасад отдаёт только ПУБЛИЧНЫЙ API пакета (имена без «_»; он же перечислен в `__all__`). Приватные помощники подмодулей
+Фасад оставлен для совместимости с существующим кодом (`crud.list_resource(...)`, `from app.services.crud import audit`). НОВЫЙ код
+импортирует из подмодулей (`from app.services.crud.generic import list_resource`): тогда зависимость видна в самом импорте, а не прячется за
+общим входом, через который доступны все имена сразу (A-08 код-ревью r3). Фасад отдаёт только ПУБЛИЧНЫЙ API пакета (имена без «_»; он же перечислен в `__all__`;
+тест `test_crud_package.py` следит, чтобы `__all__` совпадал с импортами фасада, был отсортирован и без дублей). Приватные помощники подмодулей
 (`_RESOURCE_VALIDATORS`, `_find_referencing_counts`…) здесь не реэкспортируются: тесту, которому они нужны, следует импортировать их из
 подмодуля, где они определены (`from app.services.crud.validators import _RESOURCE_VALIDATORS`) — так граница между публичным и внутренним
 API пакета видна в самом импорте (R1-08 код-ревью). Модули:
@@ -19,29 +22,30 @@ API пакета видна в самом импорте (R1-08 код-ревь�
   - interface_group_subinterfaces: Подинтерфейсы групп портов: проверка, шаблоны группы, запись в порты.
   - device_vlans: Синхронизация VLAN физического устройства.
   - information_system: Детали информационной системы: связанные таблицы и источники.
+  - stack_vlan_settings: Общие IP и маски VLAN кластерных устройств (стеки): значения, связи, план и применение к устройствам.
 
 Зависимости между модулями направлены в одну сторону (generic -> hooks -> validators/vlan_domains/owned_rows -> audit_log/columns/payload);
 циклов нет. Если тест подменяет функцию (monkeypatch), патчить нужно модуль, который её ВЫЗЫВАЕТ, а не этот пакет.
 """
 from __future__ import annotations
 
-from .columns import (  # noqa: F401
+from .columns import (
     model_for,
     columns_for,
     allowed_columns,
 )
-from .payload import (  # noqa: F401
+from .payload import (
     ensure_writable,
     validate_column_types,
     validate_payload_schema,
 )
-from .audit_log import (  # noqa: F401
+from .audit_log import (
     audit,
 )
-from .validators import (  # noqa: F401
+from .validators import (
     validate_resource,
 )
-from .stack_vlan_settings import (  # noqa: F401
+from .stack_vlan_settings import (
     Values,
     apply_stack_settings_to_device,
     assert_device_vlan_editable,
@@ -57,24 +61,24 @@ from .stack_vlan_settings import (  # noqa: F401
     vlan_sort_key,
     write_link,
 )
-from .vlan_domains import (  # noqa: F401
+from .vlan_domains import (
     assign_domain_vlans_to_device,
 )
-from .hooks import (  # noqa: F401
+from .hooks import (
     HOOKS,
     ResourceHooks,
     hooks_for,
 )
-from .generic import (  # noqa: F401
+from .generic import (
     list_resource,
     create_resource,
     update_resource,
 )
-from .deletion import (  # noqa: F401
+from .deletion import (
     assert_deletable,
     delete_resource,
 )
-from .owned_rows import (  # noqa: F401
+from .owned_rows import (
     sync_owner_open_ports,
     sync_owner_ip_addresses,
     sync_owner_deployed_software,
@@ -83,17 +87,17 @@ from .owned_rows import (  # noqa: F401
     sync_vm_deployed_software,
     sync_device_deployed_software,
 )
-from .interfaces import (  # noqa: F401
+from .interfaces import (
     sync_interfaces,
     get_device_interface_ips,
     get_device_interface_open_ports,
     get_device_interface_vlans,
 )
-from .interface_groups import (  # noqa: F401
+from .interface_groups import (
     list_interface_groups,
     get_interface_groups,
 )
-from .subinterfaces import (  # noqa: F401
+from .subinterfaces import (
     sync_subinterfaces,
     validate_device_subinterfaces,
     delete_subinterfaces,
@@ -103,7 +107,7 @@ from .subinterfaces import (  # noqa: F401
     subinterfaces_by_parent,
     get_device_subinterfaces,
 )
-from .interface_group_subinterfaces import (  # noqa: F401
+from .interface_group_subinterfaces import (
     apply_group_subinterfaces,
     delete_group_subinterfaces,
     group_subinterfaces_by_group,
@@ -113,10 +117,10 @@ from .interface_group_subinterfaces import (  # noqa: F401
     sync_group_subinterfaces,
     with_reused_ids,
 )
-from .device_vlans import (  # noqa: F401
+from .device_vlans import (
     sync_device_vlans,
 )
-from .information_system import (  # noqa: F401
+from .information_system import (
     get_information_system_details,
     sync_information_system_details,
 )
@@ -124,33 +128,45 @@ from .information_system import (  # noqa: F401
 __all__ = [
     'HOOKS',
     'ResourceHooks',
+    'Values',
     'allowed_columns',
-    'assert_deletable',
-    'assign_domain_vlans_to_device',
     'apply_group_subinterfaces',
+    'apply_stack_settings_to_device',
+    'assert_deletable',
+    'assert_device_vlan_editable',
+    'assign_domain_vlans_to_device',
     'audit',
     'columns_for',
     'create_resource',
     'delete_group_subinterfaces',
     'delete_resource',
     'delete_subinterfaces',
+    'domain_members',
     'enrich_subinterfaces',
     'ensure_writable',
-    'get_device_subinterfaces',
-    'group_subinterfaces_by_group',
-    'hooks_for',
-    'get_information_system_details',
-    'get_interface_groups',
     'get_device_interface_ips',
     'get_device_interface_open_ports',
     'get_device_interface_vlans',
+    'get_device_subinterfaces',
+    'get_information_system_details',
+    'get_interface_groups',
+    'group_subinterfaces_by_group',
+    'hooks_for',
+    'link_values',
     'list_interface_groups',
     'list_resource',
+    'locked_vlan_ids',
+    'member_devices',
     'model_for',
     'normalize_group_subinterfaces',
+    'normalize_ip',
     'normalize_ips',
+    'outside_domain',
+    'plan_member_settings',
     'purge_subinterfaces_of_groups',
     'purge_subinterfaces_of_interfaces',
+    'setting_values',
+    'stack_settings',
     'subinterface_references',
     'subinterfaces_by_parent',
     'sync_device_deployed_software',
@@ -170,18 +186,6 @@ __all__ = [
     'validate_device_subinterfaces',
     'validate_payload_schema',
     'validate_resource',
-    'Values',
-    'apply_stack_settings_to_device',
-    'assert_device_vlan_editable',
-    'domain_members',
-    'link_values',
-    'locked_vlan_ids',
-    'member_devices',
-    'normalize_ip',
-    'outside_domain',
-    'plan_member_settings',
-    'setting_values',
-    'stack_settings',
     'vlan_sort_key',
     'with_reused_ids',
     'write_link',
