@@ -5,7 +5,36 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, DeviceSubinterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupIP, InterfaceGroupOpenPort, InterfaceGroupVLAN)
+from ..models import (
+    Connection,
+    ConnectionType,
+    DeviceInterface,
+    DeviceSubinterface,
+    IPAddress,
+    OpenPort,
+    PhysicalDevice,
+    SupportOrganization,
+    SupportMethod,
+    PlacementAsset,
+    ISPlacementAsset,
+    VirtualMachine,
+    InformationSystem,
+    ISDepartment,
+    ISProtocol,
+    InformationSystemSource,
+    Department,
+    Container,
+    ProtocolPortCatalog,
+    EmbeddedOperatingSystem,
+    PhysicalDeviceVLAN,
+    VLAN,
+    DeviceStack,
+    DeviceStackMember,
+    InterfaceGroup,
+    InterfaceGroupIP,
+    InterfaceGroupOpenPort,
+    InterfaceGroupVLAN,
+)
 from .port_config import PortConfigStatus, evaluate_port_config, config_differences
 from .port_config_db import load_port_configs
 from .port_vlans import carries_all_vlans, effective_group_vlan_ids
