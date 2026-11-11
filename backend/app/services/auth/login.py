@@ -2,6 +2,7 @@
 
 Порядок защит в authenticate: троттлинг (429) → поиск пользователя → блокировка учётной записи (423, см. auth/lockout.py) →
 проверка пароля под ограничением параллелизма (503). Состояние троттлинга живёт в памяти процесса."""
+
 from __future__ import annotations
 
 import threading
@@ -98,9 +99,7 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         raise _invalid_credentials()
 
     now = naive_utc_now()
-    if user.locked_until and user.locked_until > now and not (
-        AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and is_known_client(session, user.id, client_ip, now)
-    ):
+    if user.locked_until and user.locked_until > now and not (AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and is_known_client(session, user.id, client_ip, now)):
         # С «знакомого» адреса пароль проверяется и во время блокировки (см. config.AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS): иначе
         # посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг выше и счётчик ниже действуют.
         raise account_locked(user.locked_until, now)
@@ -112,7 +111,10 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
     if not verified:
         _record_login_failure(throttle_key, ip_key)
         register_failed_password(
-            session, user, details=f"Неудачная попытка входа «{user.username}»", now=now,
+            session,
+            user,
+            details=f"Неудачная попытка входа «{user.username}»",
+            now=now,
             actor=Actor(user.id, user.username, client_ip),
         )
         raise _invalid_credentials()

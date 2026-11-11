@@ -1,4 +1,5 @@
 """Экспорт графа диаграммы в .svg — строковый шаблон, без внешних зависимостей (см. docstring пакета)."""
+
 from __future__ import annotations
 
 import base64
@@ -26,6 +27,7 @@ from ._icons import (
 # .svg
 # --------------------------------------------------------------------------------------
 
+
 def _esc(value) -> str:
     return escape(str(value)) if value not in (None, "") else ""
 
@@ -34,10 +36,7 @@ def _svg_port_ticks(x: float, y: float, width: float, height: float, ticks: int)
     if ticks <= 0:
         return ""
     spacing = width / (ticks + 1)
-    return "".join(
-        f'<rect class="port-tick" x="{x + spacing * (i + 1) - 2:.1f}" y="{y + height - 6:.1f}" width="4" height="6" fill="#222222"/>'
-        for i in range(ticks)
-    )
+    return "".join(f'<rect class="port-tick" x="{x + spacing * (i + 1) - 2:.1f}" y="{y + height - 6:.1f}" width="4" height="6" fill="#222222"/>' for i in range(ticks))
 
 
 def _svg_node(node: dict, x: float, y: float) -> str:
@@ -60,10 +59,7 @@ def _svg_node(node: dict, x: float, y: float) -> str:
         # без внешних запросов, поэтому открытый в браузере .svg не выполняет код из каталога иконок
         # (код-ревью, п. 4, остаточный риск .svg-экспорта).
         encoded = base64.b64encode(custom_svg.encode("utf-8")).decode("ascii")
-        parts.append(
-            f'<image x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" preserveAspectRatio="xMidYMid meet" '
-            f'xlink:href="data:image/svg+xml;base64,{encoded}"/>'
-        )
+        parts.append(f'<image x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" preserveAspectRatio="xMidYMid meet" xlink:href="data:image/svg+xml;base64,{encoded}"/>')
     else:
         # Два слоя: _icon_color — значение должно быть HEX-цветом, _esc — разметка не собирается из данных ни при каких
         # обстоятельствах.
@@ -79,10 +75,7 @@ def _svg_node(node: dict, x: float, y: float) -> str:
         glyph = icon.get("glyph")
         if glyph:
             glyph_x = x + (NODE_WIDTH - GLYPH_DISPLAY_SIZE) / 2
-            parts.append(
-                f'<svg x="{glyph_x}" y="{y + GLYPH_TOP_MARGIN}" width="{GLYPH_DISPLAY_SIZE}" height="{GLYPH_DISPLAY_SIZE}" viewBox="0 0 24 24">'
-                f'<g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
-            )
+            parts.append(f'<svg x="{glyph_x}" y="{y + GLYPH_TOP_MARGIN}" width="{GLYPH_DISPLAY_SIZE}" height="{GLYPH_DISPLAY_SIZE}" viewBox="0 0 24 24"><g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>')
         # Раньше засечки рисовались только при icon["shape"].startswith("switch"): backend уже
         # считает port_ticks для ЛЮБОЙ сгенерированной иконки (см. diagram_graph.py, п.5 —
         # раньше это тоже было ограничено только switch), а видимость в canvas (см.
@@ -93,10 +86,7 @@ def _svg_node(node: dict, x: float, y: float) -> str:
         # теперь, когда ребро реально целится в конкретную засечку, рисовать её нужно везде, где
         # она есть, иначе привязка у остальных форм будет указывать в пустое место.
         parts.append(_svg_port_ticks(x, y, NODE_WIDTH, NODE_HEIGHT, icon.get("port_ticks", 0)))
-    parts.append(
-        f'<text x="{x + NODE_WIDTH / 2}" y="{y + NODE_HEIGHT - 8}" text-anchor="middle" '
-        f'font-size="{DIAGRAM_NODE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#ffffff">{_esc(node["label"])}</text>'
-    )
+    parts.append(f'<text x="{x + NODE_WIDTH / 2}" y="{y + NODE_HEIGHT - 8}" text-anchor="middle" font-size="{DIAGRAM_NODE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#ffffff">{_esc(node["label"])}</text>')
     parts.append("</g>")
     return "".join(parts)
 
@@ -117,16 +107,8 @@ def _svg_edge(edge: dict, nodes_by_id: dict) -> str:
     x2, y2 = _svg_edge_anchor(nodes_by_id[edge["target_node_id"]], edge.get("target_interface"))
     dash = "" if edge.get("is_active", True) else ' stroke-dasharray="6,4"'
     label_text = _vlan_label(edge)
-    label = (
-        f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" text-anchor="middle" font-size="{DIAGRAM_EDGE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#555555">{_esc(label_text)}</text>'
-        if label_text
-        else ""
-    )
-    return (
-        f'<g class="diagram-edge" data-edge-id="{_esc(edge["id"])}">'
-        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#666666" stroke-width="1.5"{dash}/>'
-        f"{label}</g>"
-    )
+    label = f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" text-anchor="middle" font-size="{DIAGRAM_EDGE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#555555">{_esc(label_text)}</text>' if label_text else ""
+    return f'<g class="diagram-edge" data-edge-id="{_esc(edge["id"])}"><line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#666666" stroke-width="1.5"{dash}/>{label}</g>'
 
 
 def export_svg(graph: dict) -> str:
@@ -140,7 +122,4 @@ def export_svg(graph: dict) -> str:
     max_x = max((n["x"] for n in graph["nodes"]), default=0) + NODE_WIDTH + 40
     max_y = max((n["y"] for n in graph["nodes"]), default=0) + NODE_HEIGHT + 40
     body = "".join(edges_svg) + "".join(nodes_svg)
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 {max_x} {max_y}" width="{max_x}" height="{max_y}">'
-        f'<rect width="100%" height="100%" fill="#ffffff"/>{body}</svg>'
-    )
+    return f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 {max_x} {max_y}" width="{max_x}" height="{max_y}"><rect width="100%" height="100%" fill="#ffffff"/>{body}</svg>'

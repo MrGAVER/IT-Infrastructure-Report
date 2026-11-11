@@ -11,6 +11,7 @@ duplicate создаёт полный снимок диаграммы на мо�
 конфигурацией фильтра. report_builder.py копирует только config шаблона, т.к. версии шаблона —
 отдельная история, а у диаграммы раскладка и состояния групп своей истории версий не имеют.
 """
+
 from __future__ import annotations
 
 import json
@@ -115,7 +116,7 @@ def _unique_diagram_name(session: Session, base_name: str) -> str:
     n = 2
     while session.scalar(select(SavedDiagram).where(SavedDiagram.name == name)):
         suffix = f" {n}"
-        name = f"{base_name[:MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
+        name = f"{base_name[: MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
         n += 1
     return name
 
@@ -243,9 +244,7 @@ def update_group_state(diagram_id: str, group_key: str, body: DiagramGroupStateU
     diagram = _get_diagram_or_404(session, diagram_id)
     if len(group_key) > MAX_LAYOUT_KEY_LENGTH:
         raise HTTPException(422, f"group_key не должен быть длиннее {MAX_LAYOUT_KEY_LENGTH} символов")
-    state = session.scalar(
-        select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key)
-    )
+    state = session.scalar(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key))
     if state is None:
         state = DiagramGroupState(saved_diagram_id=diagram.id, group_key=group_key, device_count=0)
         session.add(state)
@@ -283,23 +282,35 @@ def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
     base = clean_name(src.name)[: MAX_DIAGRAM_NAME_LENGTH - len(COPY_SUFFIX)] or "Диаграмма"
     name = _unique_diagram_name(session, f"{base}{COPY_SUFFIX}")
     dup = SavedDiagram(
-        name=name, description=src.description, scope_filter=src.scope_filter,
-        group_by=src.group_by, collapse_threshold=src.collapse_threshold,
+        name=name,
+        description=src.description,
+        scope_filter=src.scope_filter,
+        group_by=src.group_by,
+        collapse_threshold=src.collapse_threshold,
     )
     session.add(dup)
     session.flush()
 
     src_layout = session.scalar(select(DiagramLayout).where(DiagramLayout.saved_diagram_id == src.id))
     if src_layout:
-        session.add(DiagramLayout(
-            saved_diagram_id=dup.id, node_positions=src_layout.node_positions,
-            viewport=src_layout.viewport, auto_layout_algorithm=src_layout.auto_layout_algorithm,
-        ))
+        session.add(
+            DiagramLayout(
+                saved_diagram_id=dup.id,
+                node_positions=src_layout.node_positions,
+                viewport=src_layout.viewport,
+                auto_layout_algorithm=src_layout.auto_layout_algorithm,
+            )
+        )
     for state in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == src.id)).all():
-        session.add(DiagramGroupState(
-            saved_diagram_id=dup.id, group_key=state.group_key, is_collapsed=state.is_collapsed,
-            device_count=state.device_count, custom_threshold=state.custom_threshold,
-        ))
+        session.add(
+            DiagramGroupState(
+                saved_diagram_id=dup.id,
+                group_key=state.group_key,
+                is_collapsed=state.is_collapsed,
+                device_count=state.device_count,
+                custom_threshold=state.custom_threshold,
+            )
+        )
     audit(session, "diagrams", dup.id, AuditAction.CREATE, f"Дублирована из диаграммы «{src.name}»")
     session.commit()
     session.refresh(dup)
@@ -339,7 +350,7 @@ def export_diagram(
     # запасной вариант, а настоящее имя — RFC 6266 filename* с percent-encoded UTF-8.
     # isprintable() отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не должно ломать заголовок.
     ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or f"diagram.{format}"
-    content_disposition = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(filename)}'
+    content_disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
     return Response(content=data, media_type=media_type, headers={"Content-Disposition": content_disposition})
 
 

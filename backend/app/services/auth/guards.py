@@ -1,6 +1,7 @@
 """Проверки доступа внутри эндпоинтов (зависимости FastAPI): первичная настройка и права администратора.
 
 Работают вторым слоем поверх шлюза (auth/gate.py): не проверяют токен заново, а читают request.state, выставленный шлюзом."""
+
 from __future__ import annotations
 
 import hmac
@@ -56,16 +57,10 @@ def _effective_setup_token() -> str:
 
 
 def _setup_denied_message() -> str:
-    message = (
-        "Первичная настройка аутентификации доступна только с localhost или по токену установки "
-        "(заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN)."
-    )
+    message = "Первичная настройка аутентификации доступна только с localhost или по токену установки (заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN)."
     if weak_setup_token(SETUP_TOKEN):
         # Само значение не называем — только причину: администратор по сообщению поймёт, почему верный на вид токен не принят.
-        message += (
-            f" Токен установки на сервере слишком слабый (совпадает с заглушкой из .env.example или короче {MIN_SETUP_TOKEN_LENGTH} символов) "
-            "и не принимается: замените его на длинную случайную строку, например openssl rand -hex 24, и перезапустите сервер."
-        )
+        message += f" Токен установки на сервере слишком слабый (совпадает с заглушкой из .env.example или короче {MIN_SETUP_TOKEN_LENGTH} символов) и не принимается: замените его на длинную случайную строку, например openssl rand -hex 24, и перезапустите сервер."
     return message
 
 
@@ -110,10 +105,13 @@ def require_setup_access(request: Request) -> None:
             return
     elif _is_direct_localhost(request):
         return
-    raise HTTPException(403, {
-        "message": _setup_denied_message(),
-        "code": ErrorCode.SETUP_ACCESS_DENIED,
-    })
+    raise HTTPException(
+        403,
+        {
+            "message": _setup_denied_message(),
+            "code": ErrorCode.SETUP_ACCESS_DENIED,
+        },
+    )
 
 
 def require_admin_if_auth_enabled(request: Request) -> None:

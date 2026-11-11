@@ -1,6 +1,7 @@
 """Иконки узлов для экспортёров: SVG-глиф категории и пользовательская (custom) иконка — нормализация разметки, data URI для .svg/.drawio
 и растеризация в PNG (resvg_py) для .vsdx. Все функции чистые: на входе дескриптор иконки, на выходе строка/байты либо None.
 """
+
 from __future__ import annotations
 
 import base64
@@ -38,10 +39,7 @@ def _glyph_data_uri(glyph: str) -> str:
     glyph — фрагмент разметки (rect/circle/path), а не готовый <path d=...> — те же элементы без
     жёсткого fill/stroke, что и в _svg_node; fill+color на обёртке ниже дают им обоим по цепочке
     наследования один и тот же белый цвет."""
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-        f'<g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
-    )
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
     return f"data:image/svg+xml,{quote(svg)}"
 
 
@@ -59,10 +57,7 @@ def _rasterize_glyph_png(glyph: str) -> bytes:
     ни cairo, ни librsvg на хосте не нужны)."""
     import resvg_py
 
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-        f'<g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
-    )
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="rgba(255,255,255,0.9)" color="rgba(255,255,255,0.9)">{glyph}</g></svg>'
     return bytes(resvg_py.svg_to_bytes(svg_string=svg, width=128, height=128))
 
 

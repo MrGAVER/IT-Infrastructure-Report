@@ -8,6 +8,7 @@
 Реальные товарные знаки/логотипы не воспроизводятся — только текстовая подпись производителя/
 модели и цвет категории (см. manufacturer_label/model_label ниже).
 """
+
 from __future__ import annotations
 
 import re
@@ -36,12 +37,7 @@ DEFAULT_COLOR = "#9aa0a6"  # "default нейтральный серый" (раз
 # системе viewBox "0 0 24 24" (см. GLYPH_VIEWBOX); фронтенд отрисовывает эту же разметку без
 # изменений (см. DiagramDeviceNode.vue).
 SHAPE_GLYPHS: dict[str, str] = {
-    "server": (
-        '<rect x="4" y="2" width="16" height="20" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
-        '<path d="M4 9h16M4 16h16" stroke="currentColor" stroke-width="1.4"/>'
-        '<circle cx="7.2" cy="5.5" r="1"/><circle cx="7.2" cy="12.5" r="1"/><circle cx="7.2" cy="19.2" r="1"/>'
-        '<path d="M11 5.5h6M11 12.5h6M11 19.2h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
-    ),
+    "server": ('<rect x="4" y="2" width="16" height="20" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 9h16M4 16h16" stroke="currentColor" stroke-width="1.4"/><circle cx="7.2" cy="5.5" r="1"/><circle cx="7.2" cy="12.5" r="1"/><circle cx="7.2" cy="19.2" r="1"/><path d="M11 5.5h6M11 12.5h6M11 19.2h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'),
     # switch_l2/switch_l3/router появились позже (см. диаграмма-графа "Пункт 5 правки"): до этого
     # L2/L3-коммутаторы получали общий 'switch' (три порта), маршрутизатор — 'generic' (ромб)
     # вместе с точками Wi-Fi/GSM-модемами. 'switch' — общий сейчас неиспользуемый (не назначается
@@ -64,25 +60,10 @@ SHAPE_GLYPHS: dict[str, str] = {
         '<path d="M17.5 13.5h-4.5M14.5 11.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
         '<path d="M12 1.5 15 6.5H9z"/>'
     ),
-    "router": (
-        '<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/>'
-        '<path d="M12 2.2v3.3M12 18.5v3.3M2.2 12h3.3M18.5 12h3.3" stroke="currentColor" stroke-width="1.6" fill="none"/>'
-        '<path d="M12 1.2 10.6 4h2.8zM12 22.8 10.6 20h2.8zM1.2 12 4 10.6v2.8zM22.8 12 20 10.6v2.8z"/>'
-    ),
-    "firewall": (
-        '<rect x="2" y="3" width="20" height="18" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/>'
-        '<path d="M2 8h20M2 13h20M2 18h20M7 3v5M12 8v5M17 3v5M7 13v5M17 13v5M12 18v3" stroke="currentColor" stroke-width="1.3"/>'
-    ),
-    "workstation": (
-        '<rect x="2" y="3" width="20" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
-        '<path d="M9 20.5h6M12 16v4.5M6 19.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
-    ),
-    "peripheral": (
-        '<rect x="3" y="8" width="18" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
-        '<path d="M6 8V4h12v4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
-        '<rect x="7" y="17" width="10" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/>'
-        '<circle cx="17.5" cy="11" r="0.9"/>'
-    ),
+    "router": ('<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.2v3.3M12 18.5v3.3M2.2 12h3.3M18.5 12h3.3" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M12 1.2 10.6 4h2.8zM12 22.8 10.6 20h2.8zM1.2 12 4 10.6v2.8zM22.8 12 20 10.6v2.8z"/>'),
+    "firewall": ('<rect x="2" y="3" width="20" height="18" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M2 8h20M2 13h20M2 18h20M7 3v5M12 8v5M17 3v5M7 13v5M17 13v5M12 18v3" stroke="currentColor" stroke-width="1.3"/>'),
+    "workstation": ('<rect x="2" y="3" width="20" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 20.5h6M12 16v4.5M6 19.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>'),
+    "peripheral": ('<rect x="3" y="8" width="18" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 8V4h12v4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="7" y="17" width="10" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="17.5" cy="11" r="0.9"/>'),
     "generic": '<path d="M12 2 22 12 12 22 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/>',
 }
 # "switch" (без L2/L3) — для обратной совместимости со старыми записями категорий (тип
@@ -111,6 +92,7 @@ def safe_color(value, default: str = DEFAULT_COLOR) -> str:
 def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
     return value if isinstance(value, str) and value in SHAPE_GLYPHS else default
 
+
 # DiagramIcon.svg_markup попадает и в экспортируемый .svg (services/diagram_export/), и во фронтенд
 # через v-html (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
 # <foreignObject> (произвольный HTML), обработчики событий (onload, onerror…), анимация атрибутов
@@ -130,11 +112,31 @@ def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
 # не принимается (клиент вырезает его при отрисовке — цвет задаётся fill/stroke), см. _check_attribute.
 _SVG_NS = "http://www.w3.org/2000/svg"
 _XLINK_NS = "http://www.w3.org/1999/xlink"
-_ALLOWED_SVG_TAGS = frozenset({
-    "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
-    "defs", "lineargradient", "radialgradient", "stop", "clippath", "mask", "symbol", "use",
-    "text", "tspan", "title", "desc",
-})
+_ALLOWED_SVG_TAGS = frozenset(
+    {
+        "svg",
+        "g",
+        "path",
+        "rect",
+        "circle",
+        "ellipse",
+        "line",
+        "polyline",
+        "polygon",
+        "defs",
+        "lineargradient",
+        "radialgradient",
+        "stop",
+        "clippath",
+        "mask",
+        "symbol",
+        "use",
+        "text",
+        "tspan",
+        "title",
+        "desc",
+    }
+)
 _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
 _CSS_URL = re.compile(r"url\s*\(\s*(['\"]?)\s*([^)'\"]*)", re.IGNORECASE)
 # Служебные символы и пробелы, которые браузер выбрасывает внутри схемы URL: `java\nscript:` и `JaVa\tScRiPt:` — это `javascript:`.
@@ -218,6 +220,7 @@ class IconLookups:
     """Общие словари подстановки id -> объект, единожды собранные вызывающим кодом (сервис
     построения графа, см. services/diagram_graph.py) для ВСЕХ узлов диаграммы разом — без
     N+1 запроса на каждое устройство при построении графа."""
+
     device_types_by_id: dict[str, DeviceType] = field(default_factory=dict)
     categories_by_id: dict[str, DeviceCategory] = field(default_factory=dict)
     manufacturers_by_id: dict[str, Manufacturer] = field(default_factory=dict)
