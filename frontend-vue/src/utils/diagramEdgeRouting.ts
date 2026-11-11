@@ -19,43 +19,31 @@
 // трассировка отключается, а общий расчёт укладывается в бюджет времени ROUTING_BUDGET_MS: что не успело, рисуется прежней кривой
 // Безье — лучше прежний вид, чем зависший интерфейс (код-ревью, FE-01). Узел, который пользователь тащит мышью, не пересчитывается на каждом кадре: маршруты
 // считает DiagramView после остановки, а пока маршрут не совпадает с положением хэндлов, ребро рисуется кривой Безье.
-import type { Position } from '@vue-flow/core'
-import type { InjectionKey, Ref } from 'vue'
+//
+// Устройство модуля (B-08). Файл содержит только «выбор маршрута» — сетку трассировки, поиск пути и порядок прокладки рёбер. Остальное
+// вынесено, а наружу всё осталось доступно отсюда же, поэтому потребители (DiagramView, DiagramConnectionEdge, тесты) не менялись:
+//  - diagramEdgeGeometry.ts — типы маршрута и геометрия готовых ломаных (stubPoint, simplifyPolyline, roundedPolylinePath, …);
+//  - diagramEdgeFlow.ts — ключ provide/inject и перевод состояния канваса Vue Flow во входные данные трассировки;
+//  - minHeap.ts — двоичная куча, на которой работает A*.
+import {
+  EPS,
+  ROUTE_CLEARANCE,
+  sideAxis,
+  simplifyPolyline,
+  stubPoint,
+  type EdgeRoute,
+  type Point,
+  type RouteEnd,
+  type RouteNode,
+  type RouteRequest,
+} from './diagramEdgeGeometry'
+import { MinHeap } from './minHeap'
 
-export interface Point {
-  x: number
-  y: number
-}
+export { ROUTE_CLEARANCE, roundedPolylinePath, routeLabelAnchor, routeMatchesEnds, sideOfPosition, simplifyPolyline, stubPoint } from './diagramEdgeGeometry'
+export type { EdgeRoute, EdgeRouteMap, Point, RouteEnd, RouteNode, RouteRequest, Side } from './diagramEdgeGeometry'
+export { EDGE_ROUTES_KEY, routeInputsFromFlow } from './diagramEdgeFlow'
+export type { FlowEdgeLike, FlowHandleLike, FlowNodeLike } from './diagramEdgeFlow'
 
-export interface RouteNode {
-  id: string
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-/** Сторона узла, из которой ребро выходит: совпадает со значениями Position из Vue Flow. */
-export type Side = 'top' | 'right' | 'bottom' | 'left'
-
-export interface RouteEnd {
-  /** Точка хэндла — там, где ребро касается узла. */
-  point: Point
-  side: Side
-}
-
-export interface RouteRequest {
-  id: string
-  source: RouteEnd
-  target: RouteEnd
-}
-
-/** Ломаная от точки хэндла источника до точки хэндла приёмника; соседние звенья перпендикулярны. */
-export type EdgeRoute = readonly Point[]
-export type EdgeRouteMap = ReadonlyMap<string, EdgeRoute>
-
-/** Зазор между узлом и линиями, которые его огибают, px канваса. Он же длина прямого выхода из хэндла. */
-export const ROUTE_CLEARANCE = 12
 /** Желаемое расстояние между соседними дорожками в свободном промежутке, px. */
 export const ROUTE_LANE_STEP = 8
 /** Сколько дорожек максимум добавляется в один промежуток: широкий промежуток не должен раздувать сетку. */
@@ -81,31 +69,11 @@ export const MAX_ROUTED_EDGES = 400
 /** Как часто A* сверяется с часами, в раскрытиях вершин (степень двойки минус один — маска): чтение времени на каждом шаге дороже самого шага. */
 const CLOCK_CHECK_MASK = 0xfff
 
-const EPS = 1e-6
-
 interface Rect {
   left: number
   top: number
   right: number
   bottom: number
-}
-
-const OUTWARD: Record<Side, Point> = {
-  top: { x: 0, y: -1 },
-  right: { x: 1, y: 0 },
-  bottom: { x: 0, y: 1 },
-  left: { x: -1, y: 0 },
-}
-
-/** Ось, по которой идёт прямой выход из хэндла: 0 — горизонталь (слева/справа), 1 — вертикаль (сверху/снизу). */
-function sideAxis(side: Side): 0 | 1 {
-  return side === 'left' || side === 'right' ? 0 : 1
-}
-
-/** Точка в `ROUTE_CLEARANCE` от хэндла наружу: отсюда начинается поиск пути. */
-export function stubPoint(end: RouteEnd): Point {
-  const out = OUTWARD[end.side]
-  return { x: end.point.x + out.x * ROUTE_CLEARANCE, y: end.point.y + out.y * ROUTE_CLEARANCE }
 }
 
 function sortedUnique(values: number[]): number[] {
@@ -150,57 +118,6 @@ function indexOfValue(lines: readonly number[], value: number): number {
     else hi = mid
   }
   return lo
-}
-
-/** Двоичная куча по ключу: A* держит в ней тысячи состояний, а сортировка массива на каждом шаге была бы квадратичной. */
-class MinHeap {
-  private keys: number[] = []
-  private values: number[] = []
-
-  get size(): number {
-    return this.keys.length
-  }
-
-  push(key: number, value: number): void {
-    const keys = this.keys
-    const values = this.values
-    let i = keys.length
-    keys.push(key)
-    values.push(value)
-    while (i > 0) {
-      const parent = (i - 1) >> 1
-      if (keys[parent] <= key) break
-      keys[i] = keys[parent]
-      values[i] = values[parent]
-      i = parent
-    }
-    keys[i] = key
-    values[i] = value
-  }
-
-  pop(): number {
-    const keys = this.keys
-    const values = this.values
-    const top = values[0]
-    const lastKey = keys.pop() as number
-    const lastValue = values.pop() as number
-    const n = keys.length
-    if (n > 0) {
-      let i = 0
-      for (;;) {
-        let child = 2 * i + 1
-        if (child >= n) break
-        if (child + 1 < n && keys[child + 1] < keys[child]) child++
-        if (keys[child] >= lastKey) break
-        keys[i] = keys[child]
-        values[i] = values[child]
-        i = child
-      }
-      keys[i] = lastKey
-      values[i] = lastValue
-    }
-    return top
-  }
 }
 
 interface Grid {
@@ -412,25 +329,6 @@ function reserveCorridor(grid: Grid, end: RouteEnd, stub: Point): void {
   }
 }
 
-/** Убирает промежуточные точки на прямой и повторы: у ломаной остаются только настоящие углы. */
-export function simplifyPolyline(points: readonly Point[]): Point[] {
-  const result: Point[] = []
-  for (const point of points) {
-    const last = result[result.length - 1]
-    if (last && Math.abs(last.x - point.x) < EPS && Math.abs(last.y - point.y) < EPS) continue
-    result.push({ x: point.x, y: point.y })
-  }
-  for (let i = result.length - 2; i > 0; i--) {
-    const a = result[i - 1]
-    const b = result[i]
-    const c = result[i + 1]
-    const sameX = Math.abs(a.x - b.x) < EPS && Math.abs(b.x - c.x) < EPS
-    const sameY = Math.abs(a.y - b.y) < EPS && Math.abs(b.y - c.y) < EPS
-    if (sameX || sameY) result.splice(i, 1)
-  }
-  return result
-}
-
 function nearestLine(lines: readonly number[], value: number): number {
   return indexOfValue(lines, value)
 }
@@ -518,145 +416,4 @@ function routeEndsKey(request: RouteRequest): string {
 
 function manhattan(request: RouteRequest): number {
   return Math.abs(request.source.point.x - request.target.point.x) + Math.abs(request.source.point.y - request.target.point.y)
-}
-
-/** Совпадает ли маршрут с текущим положением хэндлов (допуск `tolerance` px): после сдвига узла старый маршрут недействителен. */
-export function routeMatchesEnds(route: EdgeRoute, source: Point, target: Point, tolerance = 0.5): boolean {
-  if (route.length < 2) return false
-  const first = route[0]
-  const last = route[route.length - 1]
-  return (
-    Math.abs(first.x - source.x) <= tolerance &&
-    Math.abs(first.y - source.y) <= tolerance &&
-    Math.abs(last.x - target.x) <= tolerance &&
-    Math.abs(last.y - target.y) <= tolerance
-  )
-}
-
-/**
- * SVG-путь по ломаной со скруглёнными углами. Радиус не больше половины каждого из соседних звеньев, иначе дуги соседних углов
- * налезали бы друг на друга; у совсем коротких звеньев угол остаётся острым.
- */
-export function roundedPolylinePath(points: readonly Point[], radius = 8): string {
-  if (points.length === 0) return ''
-  const fmt = (n: number): string => String(Math.round(n * 100) / 100)
-  let d = `M ${fmt(points[0].x)} ${fmt(points[0].y)}`
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = points[i - 1]
-    const corner = points[i]
-    const next = points[i + 1]
-    const lenIn = Math.hypot(corner.x - prev.x, corner.y - prev.y)
-    const lenOut = Math.hypot(next.x - corner.x, next.y - corner.y)
-    const r = Math.min(radius, lenIn / 2, lenOut / 2)
-    if (r < EPS) {
-      d += ` L ${fmt(corner.x)} ${fmt(corner.y)}`
-      continue
-    }
-    const inX = (corner.x - prev.x) / lenIn
-    const inY = (corner.y - prev.y) / lenIn
-    const outX = (next.x - corner.x) / lenOut
-    const outY = (next.y - corner.y) / lenOut
-    d += ` L ${fmt(corner.x - inX * r)} ${fmt(corner.y - inY * r)} Q ${fmt(corner.x)} ${fmt(corner.y)} ${fmt(corner.x + outX * r)} ${fmt(corner.y + outY * r)}`
-  }
-  const last = points[points.length - 1]
-  if (points.length > 1) d += ` L ${fmt(last.x)} ${fmt(last.y)}`
-  return d
-}
-
-/** Середина самого длинного звена: туда кладётся центральная подпись ребра. Самое длинное звено — чтобы подпись не села в излом. */
-export function routeLabelAnchor(points: readonly Point[]): Point {
-  let best: Point = points[0] ?? { x: 0, y: 0 }
-  let bestLength = -1
-  for (let i = 0; i + 1 < points.length; i++) {
-    const a = points[i]
-    const b = points[i + 1]
-    const length = Math.hypot(b.x - a.x, b.y - a.y)
-    if (length > bestLength + EPS) {
-      bestLength = length
-      best = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-    }
-  }
-  return best
-}
-
-/** Сторона узла из Position Vue Flow (значения enum — те же строки). */
-export function sideOfPosition(position: Position | string): Side {
-  switch (position) {
-    case 'top':
-    case 'right':
-    case 'left':
-      return position
-    default:
-      return 'bottom'
-  }
-}
-
-/** Маршруты всех рёбер диаграммы передаются компонентам рёбер через provide/inject: это результат совместного расчёта, одному ребру он не виден. */
-export const EDGE_ROUTES_KEY: InjectionKey<Ref<EdgeRouteMap>> = Symbol('diagram-edge-routes')
-
-// Структурные типы вместо GraphNode/GraphEdge Vue Flow: функции ниже проверяются юнит-тестами на простых объектах, а сам GraphNode им
-// удовлетворяет (computedPosition, dimensions и handleBounds — поля, которые Vue Flow заполняет после измерения узла в DOM).
-export interface FlowHandleLike {
-  id?: string | null
-  position: Position | string
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-export interface FlowNodeLike {
-  id: string
-  computedPosition: Point
-  dimensions: { width: number; height: number }
-  handleBounds?: { source?: readonly FlowHandleLike[] | null; target?: readonly FlowHandleLike[] | null }
-}
-
-export interface FlowEdgeLike {
-  id: string
-  source: string
-  target: string
-  sourceHandle?: string | null
-  targetHandle?: string | null
-}
-
-/**
- * Точка и сторона, где ребро подключается к узлу, — по тем же правилам, что у Vue Flow (getEdgeHandle + getHandlePosition): хэндл по
- * id, а без id или без такого хэндла — середина нижней (источник) либо верхней (приёмник) стороны узла. Совпадать с Vue Flow нужно
- * до пикселя: DiagramConnectionEdge принимает маршрут, только если его концы лежат на тех же точках, что sourceX/targetX ребра.
- */
-function endOf(node: FlowNodeLike, role: 'source' | 'target', handleId: string | null | undefined): RouteEnd {
-  const bounds = node.handleBounds?.[role] ?? null
-  const handle = (bounds ? (handleId ? bounds.find((h) => h.id === handleId) : bounds[0]) : undefined) ?? null
-  const side = sideOfPosition(handle?.position ?? (role === 'source' ? 'bottom' : 'top'))
-  const x = (handle?.x ?? 0) + node.computedPosition.x
-  const y = (handle?.y ?? 0) + node.computedPosition.y
-  const { width, height } = handle ?? node.dimensions
-  switch (side) {
-    case 'top':
-      return { point: { x: x + width / 2, y }, side }
-    case 'right':
-      return { point: { x: x + width, y: y + height / 2 }, side }
-    case 'left':
-      return { point: { x, y: y + height / 2 }, side }
-    default:
-      return { point: { x: x + width / 2, y: y + height }, side }
-  }
-}
-
-/** Узлы-препятствия и запросы на маршруты по состоянию канваса. Рёбра без измеренных узлов пропускаются: их нарисует прежняя кривая. */
-export function routeInputsFromFlow(nodes: readonly FlowNodeLike[], edges: readonly FlowEdgeLike[]): { nodes: RouteNode[]; requests: RouteRequest[] } {
-  const measured = nodes.filter((n) => n.dimensions.width > 0 && n.dimensions.height > 0)
-  const byId = new Map(measured.map((n) => [n.id, n]))
-  const requests: RouteRequest[] = []
-  for (const edge of edges) {
-    const source = byId.get(edge.source)
-    const target = byId.get(edge.target)
-    if (!source || !target) continue
-    requests.push({ id: edge.id, source: endOf(source, 'source', edge.sourceHandle), target: endOf(target, 'target', edge.targetHandle) })
-  }
-  return {
-    nodes: measured.map((n) => ({ id: n.id, x: n.computedPosition.x, y: n.computedPosition.y, width: n.dimensions.width, height: n.dimensions.height })),
-    requests,
-  }
 }
