@@ -1,6 +1,6 @@
 // F-01/F-03 (код-ревью main): порядок вложенных окон задаёт стек, а не числа z-index и не порядок в DOM.
 import { afterEach, describe, expect, it } from 'vitest'
-import { createApp, defineComponent, h, nextTick, ref, type PropType } from 'vue'
+import { createApp, defineComponent, h, nextTick, ref, toRaw, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { hasOpenModal, useModalStack, type ModalStackEntry } from '../modalLayer'
 
@@ -14,7 +14,7 @@ const Win = defineComponent({
   },
   setup(props) {
     props.onLayer(useModalStack())
-    return () => h('div', props.child ? [h(props.child)] : [])
+    return () => h('div', props.child ? [h(toRaw(props.child))] : [])
   },
 })
 

@@ -675,7 +675,7 @@ describe('DeviceFormModal.vue', () => {
   })
 
   it('не стирает VLAN интерфейса, назначенные через /legacy, при сохранении без их редактирования', async () => {
-    // Регрессия: backend/app/services/crud.py:_sync_single_interface полностью пересоздаёт
+    // Регрессия: backend/app/services/crud/interfaces.py:_sync_single_interface полностью пересоздаёт
     // InterfaceVLAN из payload['vlan_ids'] при каждом PUT — отправка [] стёрла бы VLAN,
     // назначенные через /legacy, хотя редактор их даже не показывает (см. InterfaceDraftRow
     // в api/types). Загруженные vlan_ids должны уйти обратно без изменений.
@@ -885,7 +885,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     // Фикс п.1.3.8, часть 2: устройство реально закреплено за доменом на бэкенде — иначе
-    // backend/app/services/crud.py:_validate_physical_device_vlan откатил бы PUT /devices/{id}/vlans
+    // backend/app/services/crud/validators.py:_validate_physical_device_vlan откатил бы PUT /devices/{id}/vlans
     // с 422 "Устройство не включено в домен этого VLAN".
     const membershipIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
     const deviceVlanIdx = calls.findIndex((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-8/vlans'))
@@ -4165,6 +4165,26 @@ describe('DeviceFormModal.vue — незагруженные вложенные 
     expect(nestedPuts(calls)).toEqual([])
     expect(calls.some((c) => c.method === 'PUT' && /\/resources\/devices\/dev-1$/.test(c.url))).toBe(true)
     expect(wrapper.emitted('saved')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('B-02: ПО загружено не целиком (потолок listAllResource) — то же, что сбой: редакторы скрыты, сообщение показано, PUT ПО/VLAN/портов не уходят', async () => {
+    // сервер обещает 2000 записей ПО, но на вторую страницу отвечает пустой → listAllResource вернёт truncated=true
+    const calls = await stubApi((attempt) =>
+      attempt === 1 ? new Response(JSON.stringify({ items: [savedSoftware], total: 2000, offset: 0, limit: 1000 })) : page(),
+    )
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(notice()?.getAttribute('data-kind')).toBe('failed')
+    expect(document.body.querySelector('.form-error')?.textContent).toContain('загружен не полностью')
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(false)
+
+    saveButton().click()
+    await flushPromises()
+
+    expect(nestedPuts(calls)).toEqual([]) // неполный список ПО не превращается в PUT, который стёр бы невидимые записи
+    expect(calls.some((c) => c.method === 'PUT' && /\/resources\/devices\/dev-1$/.test(c.url))).toBe(true)
     wrapper.unmount()
   })
 

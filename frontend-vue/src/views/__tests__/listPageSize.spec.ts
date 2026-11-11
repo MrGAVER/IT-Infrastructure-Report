@@ -48,6 +48,7 @@ const LISTS = [
         serial_number: `SN-${i}`,
         stack_id: null,
         management_ips: '',
+        siem_enabled: false, // YesNoStatus требует boolean: без поля Vue предупреждает о типе пропса на каждой строке (B-07)
       })) as never
     },
   },
@@ -69,7 +70,12 @@ const LISTS = [
     name: 'информационные системы',
     component: InformationSystemsView,
     seed: () => {
-      useInformationSystemsStore().all = range(TOTAL).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never
+      useInformationSystemsStore().all = range(TOTAL).map((i) => ({
+        id: `s${i}`,
+        name: `is-${i}`,
+        siem_enabled: false,
+        crypto_protection_enabled: false,
+      })) as never
     },
   },
 ]

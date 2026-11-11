@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { namespaceSvgIds, sanitizeSvg } from '../sanitizeSvg'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { sanitizeSvg, sanitizeSvgIsolated } from '../sanitizeSvg'
 
 describe('sanitizeSvg', () => {
   it('пустое значение', () => {
@@ -142,7 +142,8 @@ describe('sanitizeSvg — белый список как на сервере (B-
 })
 
 // R2-03: id внутри встроенных иконок глобальны в документе — каждому экземпляру иконки нужен свой префикс.
-describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
+// B-04: очистка и переименование — один проход (sanitizeSvgIsolated), а не «очистка → строка → разбор → строка».
+describe('sanitizeSvgIsolated — очистка и изоляция id за один проход (R2-03, B-04)', () => {
   const gradientIcon = (color: string) =>
     `<svg viewBox="0 0 24 24"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="#000"/></linearGradient></defs><rect width="24" height="24" fill="url(#g)"/></svg>`
 
@@ -153,18 +154,20 @@ describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
     return host
   }
 
-  it('иконка без id возвращается без изменений (та же строка, без разбора)', () => {
-    const markup = sanitizeSvg('<svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#4f7cff"/></svg>')
-
-    expect(namespaceSvgIds(markup, 'ic1')).toBe(markup)
+  it('пустое значение: пустая строка', () => {
+    expect(sanitizeSvgIsolated('', 'ic1')).toBe('')
+    expect(sanitizeSvgIsolated(null, 'ic1')).toBe('')
+    expect(sanitizeSvgIsolated(undefined, 'ic1')).toBe('')
   })
 
-  it('пустое значение возвращается как есть', () => {
-    expect(namespaceSvgIds('', 'ic1')).toBe('')
+  it('иконка без id: результат совпадает с тем, что отдаёт sanitizeSvg', () => {
+    const markup = '<svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#4f7cff"/></svg>'
+
+    expect(sanitizeSvgIsolated(markup, 'ic1')).toBe(sanitizeSvg(markup))
   })
 
   it('id получает префикс, url(#id) в fill следует за переименованием', () => {
-    const result = namespaceSvgIds(sanitizeSvg(gradientIcon('#f00')), 'ic1')
+    const result = sanitizeSvgIsolated(gradientIcon('#f00'), 'ic1')
     const doc = parse(result)
 
     expect(doc.querySelector('linearGradient')?.getAttribute('id')).toBe('ic1-g')
@@ -173,9 +176,17 @@ describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
     expect(result).not.toContain('url(#g)')
   })
 
+  it('ссылка раньше определения (fill="url(#g)" стоит в документе до <linearGradient id="g">) тоже переписывается', () => {
+    const result = sanitizeSvgIsolated('<svg><rect fill="url(#g)" width="1" height="1"/><defs><linearGradient id="g"/></defs></svg>', 'p')
+    const doc = parse(result)
+
+    expect(doc.querySelector('rect')?.getAttribute('fill')).toBe('url(#p-g)')
+    expect(doc.querySelector('linearGradient')?.getAttribute('id')).toBe('p-g')
+  })
+
   it('две иконки с одним id="g" и разными цветами на одной странице: все id уникальны, ссылки ведут на свою иконку', () => {
-    const first = namespaceSvgIds(sanitizeSvg(gradientIcon('#f00')), 'ic1')
-    const second = namespaceSvgIds(sanitizeSvg(gradientIcon('#00f')), 'ic2')
+    const first = sanitizeSvgIsolated(gradientIcon('#f00'), 'ic1')
+    const second = sanitizeSvgIsolated(gradientIcon('#00f'), 'ic2')
     const page = parse(first + second)
 
     const ids = Array.from(page.querySelectorAll('[id]')).map((el) => el.id)
@@ -192,9 +203,7 @@ describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
   })
 
   it('<use href="#a"> и xlink:href внутри той же иконки следуют за переименованием (в том числе без xmlns:xlink)', () => {
-    const markup = sanitizeSvg('<svg><defs><symbol id="a"><circle r="2"/></symbol></defs><use href="#a"/><use xlink:href="#a"/></svg>')
-
-    const result = namespaceSvgIds(markup, 'ic1')
+    const result = sanitizeSvgIsolated('<svg><defs><symbol id="a"><circle r="2"/></symbol></defs><use href="#a"/><use xlink:href="#a"/></svg>', 'ic1')
 
     expect(result.match(/href="#ic1-a"/g)).toHaveLength(2)
     expect(result).toContain('id="ic1-a"')
@@ -202,7 +211,7 @@ describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
   })
 
   it('url(#id) переписывается в любых атрибутах (mask, clip-path, stroke) и во всех формах записи', () => {
-    const result = namespaceSvgIds(
+    const result = sanitizeSvgIsolated(
       '<svg><defs><clipPath id="c"><rect/></clipPath><mask id="m"><rect/></mask><linearGradient id="g"/></defs>' +
         '<rect clip-path="url(#c)" mask="url( #m )" stroke="url(\'#g\')" fill="url(&quot;#g&quot;)"/></svg>',
       'p',
@@ -216,7 +225,7 @@ describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
   })
 
   it('aria-labelledby/aria-describedby: список id переписывается целиком', () => {
-    const result = namespaceSvgIds('<svg aria-labelledby="t d" aria-describedby="d"><title id="t">Имя</title><desc id="d">Описание</desc></svg>', 'p')
+    const result = sanitizeSvgIsolated('<svg aria-labelledby="t d" aria-describedby="d"><title id="t">Имя</title><desc id="d">Описание</desc></svg>', 'p')
     const svg = parse(result).querySelector('svg')!
 
     expect(svg.getAttribute('aria-labelledby')).toBe('p-t p-d')
@@ -224,7 +233,7 @@ describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
   })
 
   it('ссылки на несуществующие id (в том числе внешние) не трогаются', () => {
-    const result = namespaceSvgIds('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)" stroke="url(#other)"/><use href="#other"/></svg>', 'p')
+    const result = sanitizeSvgIsolated('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)" stroke="url(#other)"/><use href="#other"/></svg>', 'p')
     const doc = parse(result)
 
     expect(doc.querySelector('rect')?.getAttribute('stroke')).toBe('url(#other)')
@@ -232,23 +241,109 @@ describe('namespaceSvgIds — изоляция id иконки (R2-03)', () => {
     expect(doc.querySelector('rect')?.getAttribute('fill')).toBe('url(#p-g)')
   })
 
-  it('префикс очищается от символов, недопустимых в id, и не может подменить имя свойства document', () => {
-    const result = namespaceSvgIds('<svg><rect id="cookie"/><rect id="body"/></svg>', 'v:0 x')
+  it('префикс очищается от символов, недопустимых в id', () => {
+    const result = sanitizeSvgIsolated('<svg><rect id="a"/><rect id="b"/></svg>', 'v:0 x')
 
-    expect(parse(result).querySelector('rect')?.getAttribute('id')).toBe('v_0_x-cookie')
-    expect(result).toContain('id="v_0_x-body"')
+    expect(parse(result).querySelector('rect')?.getAttribute('id')).toBe('v_0_x-a')
+    expect(result).toContain('id="v_0_x-b"')
   })
 
-  it('результат после sanitizeSvg не содержит ничего, чего очистка не пропустила бы: без префикса вывод совпадает с очищенным', () => {
-    const sanitized = sanitizeSvg(gradientIcon('#f00'))
-    const result = namespaceSvgIds(sanitized, 'ic1')
+  it('id, совпадающие со свойствами document (DOM clobbering), DOMPurify убирает ещё до переименования', () => {
+    const result = sanitizeSvgIsolated('<svg><rect id="cookie"/><rect id="body"/><rect id="ok"/></svg>', 'p')
 
-    expect(result.replaceAll('ic1-', '')).toBe(sanitized)
+    expect(result).not.toContain('cookie')
+    expect(result).not.toMatch(/id="p-body"/)
+    expect(result).toContain('id="p-ok"')
   })
 
-  it('«data-id=» вместо id: разбор не меняет разметку', () => {
+  it('без префикса вывод совпадает с очищенным: изоляция ничего не добавляет, кроме самого префикса', () => {
+    const result = sanitizeSvgIsolated(gradientIcon('#f00'), 'ic1')
+
+    expect(result.replaceAll('ic1-', '')).toBe(sanitizeSvg(gradientIcon('#f00')))
+  })
+
+  it('«data-id=» вместо id: разметка не меняется', () => {
     const markup = '<svg><rect data-id="x"></rect></svg>'
 
-    expect(namespaceSvgIds(markup, 'p')).toBe(markup)
+    expect(sanitizeSvgIsolated(markup, 'p')).toBe(sanitizeSvg(markup))
+  })
+
+  it('правила очистки те же, что у sanitizeSvg: опасное вырезается и в режиме с изоляцией', () => {
+    for (const [, markup] of PROBES) {
+      const result = sanitizeSvgIsolated(markup, 'p')
+
+      expect(result).not.toMatch(/<style|<image|<script|foreignobject|javascript:|data:|evil\.example|\bon\w+\s*=|\bstyle\s*=/i)
+      expect(result).toMatch(/^<svg/)
+    }
+  })
+})
+
+// B-04: после очистки разметка превращается в строку ровно один раз. Повторный «разбор → сериализация» (прежний namespaceSvgIds)
+// — классический вектор mXSS, поэтому лишних разборов в конвейере быть не должно.
+describe('sanitizeSvgIsolated — один проход и устойчивость к mXSS (B-04)', () => {
+  const SVG_NS = 'http://www.w3.org/2000/svg'
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('разметка разбирается ровно один раз (внутри DOMPurify): повторного DOMParser после очистки нет', () => {
+    const parse = vi.spyOn(DOMParser.prototype, 'parseFromString')
+
+    sanitizeSvgIsolated('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/><use href="#g"/></svg>', 'ic1')
+
+    expect(parse).toHaveBeenCalledTimes(1)
+  })
+
+  it('идемпотентность: повторная очистка результата ничего не меняет (строка стабильна)', () => {
+    const inputs = [
+      '<svg viewBox="0 0 24 24"><defs><linearGradient id="g"><stop offset="0" stop-color="#f00"/></linearGradient></defs><rect fill="url(#g)" width="9" height="9"/></svg>',
+      '<svg><defs><symbol id="a"><circle r="2"/></symbol></defs><use href="#a"/><use xlink:href="#a"/></svg>',
+      '<svg aria-labelledby="t d"><title id="t">Имя</title><desc id="d">Описание &amp; детали</desc></svg>',
+      '<svg><text id="x">a &lt; b &amp;&amp; c</text></svg>',
+    ]
+    for (const markup of inputs) {
+      const once = sanitizeSvgIsolated(markup, 'ic1')
+
+      expect(sanitizeSvg(once)).toBe(once)
+    }
+  })
+
+  // Известные векторы mXSS (различия HTML- и SVG/MathML-разбора при повторной сериализации) плюс разметка с id, чтобы переименование
+  // выполнялось на «подозрительном» дереве. Результат не должен ни содержать исполняемого, ни меняться при повторном разборе.
+  const MXSS_VECTORS: Array<[string, string]> = [
+    ['<style> внутри значения атрибута', '<svg></p><style><a id="</style><img src=1 onerror=alert(1)>">'],
+    ['MathML + mglyph + style с комментарием', '<math><mtext><table><mglyph><style><!--</style><img title="--&gt;&lt;img src=1 onerror=alert(1)&gt;">'],
+    ['CDATA в <desc>', '<svg><desc id="d"><![CDATA[</desc><script>alert(1)</script>]]></desc></svg>'],
+    ['<style> внутри <title>', '<svg><title id="t"><style><img src=x onerror=alert(1)></style></title></svg>'],
+    ['<foreignObject> с HTML внутри <a>', '<svg><a><foreignObject><p><img src=x onerror=alert(1)></p></foreignObject></a></svg>'],
+    ['вложенные <form> и MathML (обход DOMPurify 2.0.0)', '<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>'],
+    ['<style> в <tspan> с id', '<svg><text id="a"><tspan id="b"><style><img src=x onerror=alert(1)></style></tspan></text></svg>'],
+    [
+      '<noscript> с закрывающим тегом в атрибуте',
+      '<svg><g id="x" aria-labelledby="x"><noscript><p title="</noscript><img src=x onerror=alert(1)>"></noscript></g></svg>',
+    ],
+    ['<textarea> в <desc>', '<svg><desc id="d"><textarea><img src=x onerror=alert(1)></textarea></desc></svg>'],
+    ['разметка внутри значения id', '<svg><rect id=\'"><img src=x onerror=alert(1)>\' width="1" height="1"/></svg>'],
+    ['обработчик на <use> внутри symbol с id', '<svg id="s"><symbol id="y"><use href="#y" onclick="alert(1)"/></symbol></svg>'],
+  ]
+
+  it.each(MXSS_VECTORS)('%s: ничего исполняемого, и повторный разбор даёт то же самое', (_name, vector) => {
+    const result = sanitizeSvgIsolated(vector, 'ic1')
+
+    // то, что получит v-html: разбираем строку HTML-парсером браузера
+    const host = document.createElement('div')
+    host.innerHTML = result
+
+    // Проверяется дерево, а не строка: опасный текст может остаться в результате инертным — экранированным текстом
+    // (`&lt;img … onerror=…&gt;` в <desc>) или значением атрибута в кавычках, и это безопасно. Значим только состав элементов.
+    const elements = Array.from(host.querySelectorAll('*'))
+    const foreign = elements.filter((el) => el.namespaceURI !== SVG_NS).map((el) => el.tagName)
+    expect(foreign).toEqual([]) // ни одного HTML/MathML-элемента (img, script, style, form, textarea…) — только SVG
+    expect(elements.map((el) => el.tagName.toLowerCase())).not.toContain('foreignobject')
+    const withHandlers = elements.filter((el) => Array.from(el.attributes).some((a) => /^on/i.test(a.name)))
+    expect(withHandlers).toEqual([])
+    // устойчивость: строка → дерево → строка не меняет результат (иначе разбор в другом контексте мог бы дать другое дерево)
+    expect(host.innerHTML).toBe(result)
   })
 })

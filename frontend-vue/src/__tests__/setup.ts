@@ -1,8 +1,10 @@
 import { config, enableAutoUnmount } from '@vue/test-utils'
 import { afterEach } from 'vitest'
 import { assertNoOpenModals } from './modalLeakGuard'
+import { assertNoVueWarnings, installVueWarningCollector } from './vueWarnings'
 import type { ComponentPublicInstance } from 'vue'
 import { MODAL_TELEPORT_DISABLED } from '../components/baseModalKeys'
+import { RouterLinkTestStub, RouterViewTestStub } from './routerLinkStub'
 
 // F-03 (код-ревью main): BaseModal выносит каждое окно в <body> через Teleport. Тесты большинства окон ищут их внутри обёртки
 // (wrapper.find / findComponent), поэтому по умолчанию Teleport окон отключён: содержимое рисуется на месте, а дерево компонентов
@@ -30,6 +32,16 @@ config.global.provide = { ...config.global.provide, [MODAL_TELEPORT_DISABLED]: t
 config.global.mixins = [
   ...(config.global.mixins ?? []),
   {
+    // B-07: тестовые <router-link> и <router-view> для приложений без vue-router. Статически (config.global.components) нельзя: VTU регистрирует глобальные
+    // компоненты ПОСЛЕ плагинов и затёр бы настоящий RouterLink в спеках с createRouter(). Поэтому — лениво, при создании первого
+    // компонента, когда все плагины уже установлены: если роутер свой RouterLink зарегистрировал, заглушка не нужна.
+    beforeCreate(this: ComponentPublicInstance) {
+      const { app, components } = this.$.appContext
+      if (!components.RouterLink) app.component('RouterLink', RouterLinkTestStub)
+      if (!components.RouterView) app.component('RouterView', RouterViewTestStub)
+    },
+  },
+  {
     // Каждый компонент передаёт потомкам значение ключа: окно из списка — «Teleport настоящий» (false), остальные — то, что задано на
     // уровне приложения (по умолчанию true, а `realModalTeleport` в mount() даёт false). BaseModal берёт ближайшее значение, то есть
     // значение компонента-владельца, как и раньше.
@@ -52,9 +64,14 @@ config.global.mixins = [
 // Сразу после размонтирования — страж стека окон (modalLeakGuard.ts): окно, оставшееся в общем стеке, ломает тест, который его оставил,
 // а не случайный следующий. Размонтирование и проверка — один хук: enableAutoUnmount отдаёт переданному «хуку» функцию размонтирования, и
 // порядок «сначала unmount, потом проверка» не зависит от порядка выполнения afterEach (в vitest он обратный порядку регистрации).
+//
+// B-07: следом за стражем окон — страж предупреждений Vue (vueWarnings.ts): `[Vue warn]` в тесте ломает этот тест. Проверка тоже после
+// размонтирования: Vue предупреждает и при размонтировании.
+installVueWarningCollector()
 enableAutoUnmount((unmountAll) =>
   afterEach(() => {
     unmountAll()
     assertNoOpenModals()
+    assertNoVueWarnings()
   }),
 )

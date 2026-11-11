@@ -15,7 +15,9 @@ defineProps<{
 const emit = defineEmits<{
   generate: []
 }>()
-// Число портов хранится строкой (поле type="number" отдаёт число, пустое поле — ''), разбор — в usePortGenerator.
+// Число портов хранится строкой (пустое поле — ''), разбор — в usePortGenerator. Поле type="number" с обычным v-model отдавало бы
+// число (Vue приводит значение сам) вопреки типу модели — Vue ругался на тип пропса при каждом вводе (B-07), поэтому значение читается
+// как строка напрямую (`inputValue`), без приведения.
 const count = defineModel<string>('count', { required: true })
 // Пусто — «не задано» (1 при замене, продолжение от числа строк при добавлении), а не 0.
 const startAt = defineModel<string>('startAt', { required: true })
@@ -24,19 +26,22 @@ const nameTemplate = defineModel<string>('nameTemplate', { required: true })
 const typeId = defineModel<string>('typeId', { required: true })
 const speedId = defineModel<string>('speedId', { required: true })
 const replaceAll = defineModel<boolean>('replaceAll', { required: true })
+
+const inputValue = (event: Event): string => (event.target as HTMLInputElement).value
 </script>
 
 <template>
   <div class="generator">
     <label>
       <span>Количество</span>
-      <input type="number" min="0" v-model="count" />
+      <input type="number" min="0" :value="count" @input="count = inputValue($event)" />
     </label>
     <label>
       <span>Начать нумерацию с</span>
       <input
         type="number"
-        v-model="startAt"
+        :value="startAt"
+        @input="startAt = inputValue($event)"
         placeholder="авто"
         title="Например, 'Количество: 20' и 'Начать с: 5' сгенерируют порты с номерами 5-24. Пусто — прежнее поведение: 1 при замене, продолжение от количества уже добавленных портов при дополнении."
       />

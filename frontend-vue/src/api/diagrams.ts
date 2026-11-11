@@ -200,7 +200,7 @@ export function deleteDiagram(id: string) {
 /**
  * Скачивание файла экспорта — НЕ через api.get() (тот всегда делает res.json()) и НЕ через
  * простую навигацию `<a href>` (как /reports/download в reports.ts): тот путь не прикладывает
- * заголовок Authorization и работает только пока auth выключен (см. backend/app/services/auth.py
+ * заголовок Authorization и работает только пока auth выключен (см. backend/app/services/auth/settings.py
  * — переключаемая опция). Экспорт диаграммы всегда идёт через fetch() с явным заголовком, чтобы
  * скачивание не ломалось молча, как только администратор включит вход по паролю.
  */

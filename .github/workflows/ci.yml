@@ -140,6 +140,8 @@ jobs:
         working-directory: frontend-vue
 
       - name: Тесты frontend-vue (vitest, сторы catalogs/devices/theme + компоненты)
+        # Любое `[Vue warn]` в тесте — ошибка этого теста (страж в src/__tests__/vueWarnings.ts, подключён в setup.ts), поэтому отдельного
+        # порога по числу предупреждений здесь нет: планка нулевая. Нужное предупреждение тест забирает сам через takeVueWarnings().
         run: npm test
         working-directory: frontend-vue
 

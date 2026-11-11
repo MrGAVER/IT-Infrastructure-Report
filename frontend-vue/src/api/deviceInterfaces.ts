@@ -7,6 +7,7 @@
 // backend/app/services/crud/interfaces.py:sync_interfaces) — он одним запросом создаёт/обновляет/удаляет
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
+import { assertComplete } from './assertComplete'
 import { api, listAllResource } from './client'
 import type {
   DeviceInterface,
@@ -35,6 +36,10 @@ import type {
  * их из БД. Запрос устройства возвращает и признак «Все VLAN» (all_vlans), и VLAN порта с его учётом:
  * у порта с признаком связей в БД нет, набор — все VLAN устройства.
  *
+ * B-02: список портов сохраняется целиком (PUT /devices/{id}/interfaces удаляет порты, которых в запросе нет), поэтому усечённая
+ * загрузка listAllResource (потолок 50 000 записей) — ошибка (`IncompleteDataError`), а не обрезанный список: форма пометит порты как
+ * не загруженные и не позволит сохранить.
+ *
  * @example
  * const rows = await loadDeviceInterfaceDraftRows('dev-123')
  */
@@ -52,6 +57,7 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
     // не физический порт и в generic-списке портов его нет.
     api.get<{ items: DeviceSubinterface[] }>(`/devices/${deviceId}/subinterfaces`),
   ])
+  assertComplete(ifaces, 'Порты устройства')
   const subinterfacesByParent = groupSubinterfacesByParent(subinterfaces.items)
   const vlansByPort = new Map(portVlans.items.map((entry) => [entry.interface_id, entry]))
   return ifaces.items.map((x): InterfaceDraftRow => {

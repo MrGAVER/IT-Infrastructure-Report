@@ -13,7 +13,7 @@ import { computed, ref, useId } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { createResource } from '../api/client'
 import { useToast } from '../composables/useToast'
-import { namespaceSvgIds, sanitizeSvg } from '../utils/sanitizeSvg'
+import { sanitizeSvgIsolated } from '../utils/sanitizeSvg'
 import type { CatalogItem } from '../api/types'
 
 const props = defineProps<{ modelValue: string | null }>()
@@ -34,7 +34,7 @@ const selectedIcon = computed(() => icons.value.find((i) => i.id === props.model
 // R2-03: предпросмотр может оказаться на одной странице с диаграммой или другим предпросмотром — id внутри иконки получают свой префикс.
 const previewUid = useId()
 const sanitizedSelectedIconSvg = computed(() =>
-  namespaceSvgIds(sanitizeSvg((selectedIcon.value as (CatalogItem & { svg_markup: string }) | undefined)?.svg_markup), `ic${previewUid}`),
+  sanitizeSvgIsolated((selectedIcon.value as (CatalogItem & { svg_markup: string }) | undefined)?.svg_markup, `ic${previewUid}`),
 )
 
 function onSelect(event: Event) {
