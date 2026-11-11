@@ -7,7 +7,7 @@
 
 PyInstaller находит Python-код обоих пакетов обычным анализом импортов (как любой другой
 hiddenimport), но НЕ видит обращений к файлам ДАННЫХ (не .py), которые пакеты читают в рантайме
-через путь относительно собственного __file__ (media.vsdx — services/diagram_export.py;
+через путь относительно собственного __file__ (media.vsdx — services/diagram_export/vsdx.py;
 formatting_database/*.toml — уже при самом импорте drawpyo, см. drawpyo/diagram/base_diagram.py:
 import_shape_database). Статический анализ импортов такие обращения принципиально не видит —
 нужен явный collect_data_files(...) в infra_registry.spec (см. комментарий там же).

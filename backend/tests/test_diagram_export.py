@@ -1,5 +1,5 @@
 """
-Тесты на backend/app/services/diagram_export.py — раздел 13 ТЗ диаграммы топологии сети:
+Тесты на backend/app/services/diagram_export/ (пакет, A-07) — раздел 13 ТЗ диаграммы топологии сети:
 ".drawio/.vsdx — файл парсится обратно соответствующей библиотекой, число узлов совпадает с
 ответом API; .svg — валидный XML, число узловых элементов совпадает с числом узлов графа, число
 засечек порта на коммутаторе — с port_ticks дескриптора."
@@ -771,7 +771,7 @@ def test_export_vsdx_survives_glyph_rasterization_failure(tmp_path, monkeypatch)
     """Как и для custom-иконки: глиф, который не удалось растрировать, не роняет экспорт — узел остаётся с заливкой
     без картинки, а повторно растрировать тот же глиф для других узлов не пытаются (None запоминается в кэше)."""
     vsdx = pytest.importorskip("vsdx")
-    from app.services import diagram_export
+    from app.services.diagram_export import vsdx as vsdx_exporter
 
     calls = []
 
@@ -779,7 +779,8 @@ def test_export_vsdx_survives_glyph_rasterization_failure(tmp_path, monkeypatch)
         calls.append(glyph)
         return None
 
-    monkeypatch.setattr(diagram_export, "_rasterize_glyph_png", _fail)
+    # Имя подменяется в модуле, который его вызывает (пакет diagram_export с A-07 — лишь фасад: подмена на нём ничего бы не изменила).
+    monkeypatch.setattr(vsdx_exporter, "_rasterize_glyph_png", _fail)
     graph = _sample_graph()
     graph["nodes"].append({**graph["nodes"][0], "id": "dev-switch-2", "label": "sw-02", "x": 0, "y": 200})  # тот же глиф у второго узла
     data = export_vsdx(graph)

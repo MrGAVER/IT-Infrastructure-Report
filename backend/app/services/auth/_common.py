@@ -1,12 +1,16 @@
 """Мелкие помощники, общие для модулей пакета auth: текущее время, адрес клиента запроса и разбор заголовка Authorization."""
+
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
+from ...constants import ErrorCode
 from ..timeutil import utcnow_naive
+
 
 # ---------------------------------------------------------------------------
 # Время: SQLite/SQLAlchemy отбрасывают tzinfo при round-trip через DateTime без
@@ -39,3 +43,16 @@ def extract_bearer(header: Optional[str]) -> Optional[str]:
         return None
     scheme, _, token = header.partition(" ")
     return (token.strip() or None) if scheme.lower() == "bearer" else None
+
+
+def too_many_attempts(message_template: str, wait: float) -> HTTPException:
+    """429 TOO_MANY_ATTEMPTS с Retry-After для троттлинга подбора (вход, токен установки).
+
+    `message_template` содержит `{seconds}` — число секунд ожидания, округлённое вверх (не меньше одной): то же значение уходит в
+    заголовок Retry-After. Общий для всех троттлингов, чтобы формат ответа не расходился."""
+    retry_after = max(1, math.ceil(wait))
+    return HTTPException(
+        429,
+        {"message": message_template.format(seconds=retry_after), "code": ErrorCode.TOO_MANY_ATTEMPTS},
+        headers={"Retry-After": str(retry_after)},
+    )

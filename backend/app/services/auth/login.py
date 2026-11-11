@@ -2,9 +2,9 @@
 
 Порядок защит в authenticate: троттлинг (429) → поиск пользователя → блокировка учётной записи (423, см. auth/lockout.py) →
 проверка пароля под ограничением параллелизма (503). Состояние троттлинга живёт в памяти процесса."""
+
 from __future__ import annotations
 
-import math
 import threading
 from contextlib import contextmanager
 from typing import Optional
@@ -13,12 +13,12 @@ from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ...config import AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS
-from ...constants import AuditAction, ErrorCode
+from ...constants import AuditAction
 from ...models import User
 from ..actor_context import Actor
 from ..crud import audit
 from ..login_throttle import LoginThrottle
-from ._common import naive_utc_now, request_client_ip
+from ._common import naive_utc_now, request_client_ip, too_many_attempts
 from .lockout import account_locked, is_known_client, register_failed_password
 from .passwords import hash_password, needs_rehash, verify_password
 from .sessions import create_session
@@ -68,15 +68,7 @@ def _reject_if_throttled(pair_key: tuple, ip_key: tuple) -> None:
     wait = max(login_throttle.retry_after(pair_key), ip_throttle.retry_after(ip_key))
     if wait <= 0:
         return
-    retry_after = max(1, math.ceil(wait))
-    raise HTTPException(
-        429,
-        {
-            "message": f"Слишком много неудачных попыток входа. Повторите через {retry_after} с.",
-            "code": ErrorCode.TOO_MANY_ATTEMPTS,
-        },
-        headers={"Retry-After": str(retry_after)},
-    )
+    raise too_many_attempts("Слишком много неудачных попыток входа. Повторите через {seconds} с.", wait)
 
 
 def _record_login_failure(pair_key: tuple, ip_key: tuple) -> None:
@@ -107,9 +99,7 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         raise _invalid_credentials()
 
     now = naive_utc_now()
-    if user.locked_until and user.locked_until > now and not (
-        AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and is_known_client(session, user.id, client_ip, now)
-    ):
+    if user.locked_until and user.locked_until > now and not (AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and is_known_client(session, user.id, client_ip, now)):
         # С «знакомого» адреса пароль проверяется и во время блокировки (см. config.AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS): иначе
         # посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг выше и счётчик ниже действуют.
         raise account_locked(user.locked_until, now)
@@ -121,7 +111,10 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
     if not verified:
         _record_login_failure(throttle_key, ip_key)
         register_failed_password(
-            session, user, details=f"Неудачная попытка входа «{user.username}»", now=now,
+            session,
+            user,
+            details=f"Неудачная попытка входа «{user.username}»",
+            now=now,
             actor=Actor(user.id, user.username, client_ip),
         )
         raise _invalid_credentials()

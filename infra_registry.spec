@@ -30,14 +30,14 @@ a = Analysis(
         (str(ROOT / 'backend' / 'alembic'), 'alembic'),
         (str(ROOT / 'backend' / 'alembic.ini'), '.'),
     ]
-    # Экспорт диаграммы топологии сети в .drawio/.vsdx (backend/app/services/diagram_export.py)
+    # Экспорт диаграммы топологии сети в .drawio/.vsdx (backend/app/services/diagram_export/)
     # падал в EXE-сборке с FileNotFoundError на media/media.vsdx (пакет vsdx) и
     # formatting_database/edge_styles.toml (пакет drawpyo, читается уже при самом импорте —
     # drawpyo/diagram/base_diagram.py:import_shape_database) — в .py-модуль сборка. Analysis
     # находит оба пакета обходом графа импортов (как и любой другой hiddenimport), но эти два
     # файла — не Python-код, а ресурсы данных, к которым каждый пакет обращается в рантайме
     # через путь относительно собственного __file__ (см. os.path.dirname(vsdx.__file__)/media/
-    # media.vsdx в diagram_export.py). Статический анализ импортов такие обращения принципиально
+    # media.vsdx в diagram_export/vsdx.py). Статический анализ импортов такие обращения принципиально
     # не видит — то же самое несоответствие "видно по коду" vs "видно PyInstaller", что уже
     # объяснено про alembic/versions/*.py в комментарии к hiddenimports ниже. collect_data_files
     # копирует ВСЕ файлы пакета, что не .py/.pyc, сохраняя относительную структуру каталогов —

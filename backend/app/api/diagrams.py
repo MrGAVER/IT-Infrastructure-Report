@@ -11,10 +11,13 @@ duplicate создаёт полный снимок диаграммы на мо�
 конфигурацией фильтра. report_builder.py копирует только config шаблона, т.к. версии шаблона —
 отдельная история, а у диаграммы раскладка и состояния групп своей истории версий не имеют.
 """
+
 from __future__ import annotations
 
 import json
 import logging
+import threading
+from contextlib import contextmanager
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -48,6 +51,39 @@ EXPORT_FORMATS = {
     "vsdx": ("application/vnd.ms-visio.drawing", export_vsdx),
 }
 
+# Тяжёлые для процессора форматы экспорта (A-06 код-ревью r3). Замер на 120 устройствах: .svg ≈ 16 мс, .drawio ≈ 60 мс, .vsdx ≈ 18 с —
+# библиотека vsdx при каждом копировании шаблонной фигуры заново обходит все фигуры страницы (copy_shape → set_max_ids), рост квадратичный.
+# Эндпоинт синхронный и работает в пуле потоков (по умолчанию ~40): десяток параллельных запросов .vsdx занял бы весь пул, и API перестало бы
+# отвечать всем, включая вход. Поэтому одновременно выполняется не больше HEAVY_EXPORT_MAX_CONCURRENT таких экспортов; лишний запрос сразу
+# получает 503 с Retry-After (как проверка паролей на входе, services/auth/login._password_hash_slot), а не ждёт в очереди и не держит поток.
+# Новый формат с заметным временем работы добавляют сюда же; тест контракта проверяет, что имена в этом наборе — настоящие форматы экспорта.
+HEAVY_EXPORT_FORMATS = frozenset({"vsdx"})
+HEAVY_EXPORT_MAX_CONCURRENT = 2
+HEAVY_EXPORT_RETRY_AFTER_SECONDS = 10  # порядок времени одного тяжёлого экспорта: раньше слот вряд ли освободится
+_HEAVY_EXPORT_SLOTS = threading.BoundedSemaphore(HEAVY_EXPORT_MAX_CONCURRENT)
+
+
+@contextmanager
+def _heavy_export_slot(export_format: str):
+    """Занимает слот тяжёлого экспорта на время построения и сериализации; свободных нет — 503 с Retry-After.
+
+    Лёгкие форматы слот не занимают. Слот освобождается всегда, в том числе при исключении внутри блока.
+    Пример: `with _heavy_export_slot("vsdx"): data = export_vsdx(graph)`."""
+    if export_format not in HEAVY_EXPORT_FORMATS:
+        yield
+        return
+    slots = _HEAVY_EXPORT_SLOTS  # тот же объект и на release, даже если модульное имя подменили посреди запроса
+    if not slots.acquire(blocking=False):
+        raise HTTPException(
+            503,
+            f"Сервер занят формированием других тяжёлых экспортов диаграмм, повторите через {HEAVY_EXPORT_RETRY_AFTER_SECONDS} с.",
+            headers={"Retry-After": str(HEAVY_EXPORT_RETRY_AFTER_SECONDS)},
+        )
+    try:
+        yield
+    finally:
+        slots.release()
+
 
 def _diagram_out(d: SavedDiagram) -> dict:
     return {
@@ -80,7 +116,7 @@ def _unique_diagram_name(session: Session, base_name: str) -> str:
     n = 2
     while session.scalar(select(SavedDiagram).where(SavedDiagram.name == name)):
         suffix = f" {n}"
-        name = f"{base_name[:MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
+        name = f"{base_name[: MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
         n += 1
     return name
 
@@ -208,9 +244,7 @@ def update_group_state(diagram_id: str, group_key: str, body: DiagramGroupStateU
     diagram = _get_diagram_or_404(session, diagram_id)
     if len(group_key) > MAX_LAYOUT_KEY_LENGTH:
         raise HTTPException(422, f"group_key не должен быть длиннее {MAX_LAYOUT_KEY_LENGTH} символов")
-    state = session.scalar(
-        select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key)
-    )
+    state = session.scalar(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key))
     if state is None:
         state = DiagramGroupState(saved_diagram_id=diagram.id, group_key=group_key, device_count=0)
         session.add(state)
@@ -248,23 +282,35 @@ def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
     base = clean_name(src.name)[: MAX_DIAGRAM_NAME_LENGTH - len(COPY_SUFFIX)] or "Диаграмма"
     name = _unique_diagram_name(session, f"{base}{COPY_SUFFIX}")
     dup = SavedDiagram(
-        name=name, description=src.description, scope_filter=src.scope_filter,
-        group_by=src.group_by, collapse_threshold=src.collapse_threshold,
+        name=name,
+        description=src.description,
+        scope_filter=src.scope_filter,
+        group_by=src.group_by,
+        collapse_threshold=src.collapse_threshold,
     )
     session.add(dup)
     session.flush()
 
     src_layout = session.scalar(select(DiagramLayout).where(DiagramLayout.saved_diagram_id == src.id))
     if src_layout:
-        session.add(DiagramLayout(
-            saved_diagram_id=dup.id, node_positions=src_layout.node_positions,
-            viewport=src_layout.viewport, auto_layout_algorithm=src_layout.auto_layout_algorithm,
-        ))
+        session.add(
+            DiagramLayout(
+                saved_diagram_id=dup.id,
+                node_positions=src_layout.node_positions,
+                viewport=src_layout.viewport,
+                auto_layout_algorithm=src_layout.auto_layout_algorithm,
+            )
+        )
     for state in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == src.id)).all():
-        session.add(DiagramGroupState(
-            saved_diagram_id=dup.id, group_key=state.group_key, is_collapsed=state.is_collapsed,
-            device_count=state.device_count, custom_threshold=state.custom_threshold,
-        ))
+        session.add(
+            DiagramGroupState(
+                saved_diagram_id=dup.id,
+                group_key=state.group_key,
+                is_collapsed=state.is_collapsed,
+                device_count=state.device_count,
+                custom_threshold=state.custom_threshold,
+            )
+        )
     audit(session, "diagrams", dup.id, AuditAction.CREATE, f"Дублирована из диаграммы «{src.name}»")
     session.commit()
     session.refresh(dup)
@@ -281,19 +327,20 @@ def export_diagram(
     diagram = _get_diagram_or_404(session, diagram_id)
     if format not in EXPORT_FORMATS:
         raise HTTPException(422, f"format должен быть одним из: {', '.join(EXPORT_FORMATS)}")
-    _, positions = _load_layout(session, diagram_id)
-    graph = build_graph(session, diagram, node_positions=positions, persist=False)
     media_type, serialize = EXPORT_FORMATS[format]
-    try:
-        data = serialize(graph)
-    except Exception:
-        # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
-        # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
-        # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
-        # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
-        # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
-        logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
-        raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
+    with _heavy_export_slot(format):  # проверки 404/422 выше слота не требуют; построение графа и сериализация — внутри него
+        _, positions = _load_layout(session, diagram_id)
+        graph = build_graph(session, diagram, node_positions=positions, persist=False)
+        try:
+            data = serialize(graph)
+        except Exception:
+            # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
+            # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
+            # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
+            # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
+            # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
+            logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
+            raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
     if persist_export:  # безопасный метод GET по умолчанию не пишет: запись — только по явной просьбе клиента
         diagram.last_export_format = format
         session.commit()
@@ -303,7 +350,7 @@ def export_diagram(
     # запасной вариант, а настоящее имя — RFC 6266 filename* с percent-encoded UTF-8.
     # isprintable() отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не должно ломать заголовок.
     ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or f"diagram.{format}"
-    content_disposition = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(filename)}'
+    content_disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
     return Response(content=data, media_type=media_type, headers={"Content-Disposition": content_disposition})
 
 

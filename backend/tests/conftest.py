@@ -272,13 +272,17 @@ def _reset_login_throttle():
     """Троттлинг входа (services/login_throttle.py) держит состояние в памяти процесса — без сброса
     неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один).
     Счётчик по адресу (ip_throttle) без сброса накапливал бы неудачи всех тестов и после порога давал бы 429."""
+    from app.services.auth import guards as guards_module
     from app.services.auth import login as login_module
 
-    login_module.login_throttle.clear()
-    login_module.ip_throttle.clear()
+    # Счётчик неверных токенов установки (guards.setup_token_throttle, A-04) — тоже общий для процесса и ключуется адресом клиента.
+    # Тест, подменивший его экземпляр (monkeypatch), возвращает исходный сам; здесь чистится тот, что назначен на момент вызова.
+    throttles = (login_module.login_throttle, login_module.ip_throttle, guards_module.setup_token_throttle)
+    for throttle in throttles:
+        throttle.clear()
     yield
-    login_module.login_throttle.clear()
-    login_module.ip_throttle.clear()
+    for throttle in throttles:
+        throttle.clear()
 
 
 @pytest.fixture(autouse=True)
