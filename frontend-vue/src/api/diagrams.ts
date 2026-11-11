@@ -1,7 +1,7 @@
 // Диаграмма топологии сети — контракт узла/ребра и API-эндпоинты раздела 4.4/7 ТЗ
 // (backend/app/api/diagrams.py, backend/app/services/diagram_graph.py). Типы зафиксированы по
 // ТЗ независимо от того, готов ли в моменте бэкенд (см. раздел 12 ТЗ, "Точка 1 (старт)").
-import { api, getStoredToken } from './client'
+import { api, apiErrorFromResponse, getStoredToken } from './client'
 
 export type DiagramGroupBy = 'structural_unit' | 'vlan' | 'building' | 'device_category'
 
@@ -209,10 +209,9 @@ export async function exportDiagram(id: string, format: DiagramExportFormat): Pr
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`/api/v1/diagrams/${id}/export?format=${format}&persist_export=true`, { headers })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(text || res.statusText)
-  }
+  // Текст ошибки берётся из JSON-тела `{detail}` (в том числе 503 «Сервер занят…» с Retry-After при ограничении тяжёлых экспортов),
+  // а не выводится сырым телом ответа: `apiErrorFromResponse` — тот же разбор, что у `request()`.
+  if (!res.ok) throw await apiErrorFromResponse(res)
   const disposition = res.headers.get('Content-Disposition') ?? ''
   const asciiMatch = disposition.match(/filename="([^"]+)"/)
   const filename = asciiMatch?.[1] ?? `diagram.${format}`

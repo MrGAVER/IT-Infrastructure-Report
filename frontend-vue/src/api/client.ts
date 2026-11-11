@@ -140,6 +140,16 @@ export function parseRetryAfter(value: string | null | undefined, now: number = 
   return Math.max(0, Math.ceil((at - now) / 1000))
 }
 
+/** `ApiError` из неуспешного ответа: сообщение и код — из JSON-тела `{detail}` (parseErrorBody), задержка — из Retry-After, начало тела —
+ * для диагностики. `request()` строит ошибки этим же помощником; сюда же идут вызовы, которым нужен `fetch` напрямую, потому что в
+ * ответ они ждут не JSON, а файл (скачивание), и через `request()` пройти не могут. Без него пользователь видел бы сырое тело —
+ * `{"detail":"Сервер занят…"}` — вместо текста сообщения. */
+export async function apiErrorFromResponse(res: Response): Promise<ApiError> {
+  const text = await res.text().catch(() => '')
+  const { message, code } = parseErrorBody(text, res)
+  return new ApiError(res.status, message, code, parseRetryAfter(res.headers.get('Retry-After')), text ? text.slice(0, MAX_ERROR_BODY_LENGTH) : null)
+}
+
 /** Ожидание ответа по умолчанию: зависший запрос не должен блокировать экран бесконечно. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 /** Для заведомо долгих операций (формирование отчётов, расчёт и применение синхронизации портов). */
@@ -206,15 +216,14 @@ export async function request<T>(path: string, init: RequestInit = {}, options: 
   try {
     const res = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: guard.signal })
     if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      const { message, code } = parseErrorBody(text, res)
+      const error = await apiErrorFromResponse(res)
       // Не для путей из SESSION_NEUTRAL_401_PATHS: там 401 — это ожидаемая ошибка в форме
       // ("неверный пароль" при входе, "неверный текущий пароль" при смене), а не признак того,
       // что сессия уже вошедшего пользователя недействительна.
       if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
       }
-      throw new ApiError(res.status, message, code, parseRetryAfter(res.headers.get('Retry-After')), text ? text.slice(0, MAX_ERROR_BODY_LENGTH) : null)
+      throw error
     }
     // 204 и пустое тело при 200 дают null: тип `T` это не отражает, поэтому вызывающий код, которому нужно тело (список, объект),
     // обязан сам учитывать null; методы, у которых тела нет (delete), его просто не читают.
