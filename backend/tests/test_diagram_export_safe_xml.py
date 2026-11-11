@@ -1,4 +1,4 @@
-"""Безопасный разбор XML при сборке .vsdx (services/diagram_export.py, ревью 2.158.0, П-6).
+"""Безопасный разбор XML при сборке .vsdx (services/diagram_export/, ревью 2.158.0, П-6).
 
 Bandit B314: xml.etree.ElementTree.fromstring разбирал части пакета VSDX (строки 604, 657, 658) без защиты от
 DTD-сущностей. Части формирует само приложение, поэтому эксплуатация маловероятна, но defusedxml уже в зависимостях и
@@ -20,7 +20,9 @@ from defusedxml.common import DefusedXmlException
 
 from app.services import diagram_export
 
-MODULE_PATH = Path(diagram_export.__file__)
+# Модуль стал пакетом (A-07 код-ревью r3): `diagram_export.__file__` — это `__init__.py` с одними реэкспортами, и проверки исходника по нему
+# молча стали бы бессмысленными (разбора там нет, значит «нарушений нет»). Поэтому сканируются все файлы пакета.
+PACKAGE_FILES = sorted(Path(diagram_export.__file__).parent.glob("*.py"))
 VISIO_NS = "http://schemas.microsoft.com/office/visio/2012/main"
 
 # Взрыв сущностей («billion laughs» в миниатюре) и внешняя сущность (XXE): обе объявляют сущность в DTD.
@@ -133,12 +135,21 @@ class TestNoUnsafeParsingInModule:
     UNSAFE_PARSERS = {"fromstring", "XML", "parse", "iterparse", "XMLParser", "XMLPullParser", "fromstringlist"}
 
     def _calls(self) -> list[tuple[str, str, int]]:
-        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
-        return [
-            (node.func.value.id, node.func.attr, node.lineno)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
-        ]
+        """Вызовы вида `имя.метод(...)` во всех файлах пакета; номер строки — внутри своего файла."""
+        calls = []
+        for path in PACKAGE_FILES:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            calls.extend(
+                (node.func.value.id, node.func.attr, node.lineno)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+            )
+        return calls
+
+    def test_the_scan_really_covers_the_package(self):
+        """Страж стража: без этого перенос кода в другой файл снова сделал бы остальные проверки класса пустыми."""
+        assert {path.name for path in PACKAGE_FILES} >= {"__init__.py", "_common.py", "_icons.py", "svg.py", "drawio.py", "vsdx.py"}
+        assert any(name == "SafeET" for name, _attr, _line in self._calls()), "в просканированном коде нет ни одного вызова SafeET"
 
     def test_standard_library_etree_does_not_parse(self):
         offenders = [(name, attr, line) for name, attr, line in self._calls() if name == "ET" and attr in self.UNSAFE_PARSERS]
@@ -154,5 +165,8 @@ class TestNoUnsafeParsingInModule:
         assert {"ElementTree", "SubElement", "register_namespace"} <= used
 
     def test_import_is_annotated_for_bandit(self):
-        source = MODULE_PATH.read_text(encoding="utf-8")
-        assert re.search(r"^import xml\.etree\.ElementTree as ET\s+# nosec B405", source, re.MULTILINE)
+        importing = [path for path in PACKAGE_FILES if re.search(r"^import xml\.etree\.ElementTree as ET\b", path.read_text(encoding="utf-8"), re.MULTILINE)]
+        assert importing, "стандартный xml.etree больше нигде не импортируется — проверка записи/разбора устарела"
+        for path in importing:
+            source = path.read_text(encoding="utf-8")
+            assert re.search(r"^import xml\.etree\.ElementTree as ET\s+# nosec B405", source, re.MULTILINE), path.name

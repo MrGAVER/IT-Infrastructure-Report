@@ -111,7 +111,7 @@ def safe_color(value, default: str = DEFAULT_COLOR) -> str:
 def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
     return value if isinstance(value, str) and value in SHAPE_GLYPHS else default
 
-# DiagramIcon.svg_markup попадает и в экспортируемый .svg (services/diagram_export.py), и во фронтенд
+# DiagramIcon.svg_markup попадает и в экспортируемый .svg (services/diagram_export/), и во фронтенд
 # через v-html (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
 # <foreignObject> (произвольный HTML), обработчики событий (onload, onerror…), анимация атрибутов
 # (<set>/<animate> подставляют javascript:-ссылку) и внешние ссылки выполняются или грузятся в браузере
