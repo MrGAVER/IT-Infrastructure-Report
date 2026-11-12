@@ -95,10 +95,18 @@ const ID_LIST_ATTRS = new Set(['aria-labelledby', 'aria-describedby'])
 /**
  * Дописывает `prefix-` ко всем `id` внутри уже очищенного дерева и переписывает ссылки на них: `href`/`xlink:href="#id"`,
  * `url(#id)` в любом атрибуте (fill, stroke, mask, clip-path, filter, marker-*) и `aria-labelledby`/`aria-describedby`.
- * Меняет дерево на месте. Ссылки на id, которых в дереве нет (в том числе внешние), не трогаются.
+ * Меняет дерево на месте.
+ *
+ * ИБ-03 (ревью merge/review-r3-executors): ссылки на id, которых внутри иконки нет (то есть на элементы страницы), СНИМАЮТ. Раньше они
+ * оставались как есть, и `<use href="#чужой-id">` или `fill="url(#чужой-градиент)"` тянули в иконку элементы самого приложения или
+ * соседней иконки — изоляция была неполной: переименовывались только свои id, а чужие оставались доступны по предсказуемому имени.
+ * Снимается атрибут целиком (`href`, а не только значение; `fill="url(#нет)"` — весь `fill`, вместе с запасным цветом после url(): так
+ * иконка не меняет вид в зависимости от того, что оказалось на странице). В `aria-labelledby`/`aria-describedby` убираются только
+ * чужие id из списка, а если своих не осталось — весь атрибут.
  *
  * Два прохода по узлам нужны намеренно: ссылка может стоять в документе раньше, чем элемент, на который она ведёт
  * (`<rect fill="url(#g)">` до `<linearGradient id="g">`), поэтому сначала собираются все id, потом переписываются ссылки.
+ * Второй проход выполняется и для иконки вовсе без id: ссылки на чужие id нужно снять и в ней.
  */
 function prefixIdsInPlace(root: ParentNode, prefix: string): void {
   const renamed = new Map<string, string>()
@@ -109,19 +117,35 @@ function prefixIdsInPlace(root: ParentNode, prefix: string): void {
     renamed.set(id, next)
     el.setAttribute('id', next)
   }
-  if (!renamed.size) return
 
-  const mapped = (id: string) => renamed.get(id) ?? id
   for (const el of Array.from(root.querySelectorAll('*'))) {
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase()
       if (name === 'id') continue
       if (name === 'href' || name === 'xlink:href') {
-        if (attr.value.startsWith('#')) attr.value = `#${mapped(attr.value.slice(1))}`
+        if (!attr.value.startsWith('#')) continue
+        const next = renamed.get(attr.value.slice(1))
+        if (next === undefined) el.removeAttributeNode(attr)
+        else attr.value = `#${next}`
       } else if (ID_LIST_ATTRS.has(name)) {
-        attr.value = attr.value.split(/\s+/).filter(Boolean).map(mapped).join(' ')
+        const own = attr.value.split(/\s+/).flatMap((id) => {
+          const next = renamed.get(id)
+          return next === undefined ? [] : [next]
+        })
+        if (own.length) attr.value = own.join(' ')
+        else el.removeAttributeNode(attr)
       } else if (attr.value.includes('(')) {
-        attr.value = attr.value.replace(URL_REF, (_match, head: string, id: string) => `${head}#${mapped(id)}`)
+        let dangling = false
+        const rewritten = attr.value.replace(URL_REF, (match, head: string, id: string) => {
+          const next = renamed.get(id)
+          if (next === undefined) {
+            dangling = true
+            return match
+          }
+          return `${head}#${next}`
+        })
+        if (dangling) el.removeAttributeNode(attr)
+        else attr.value = rewritten
       }
     }
   }
@@ -144,7 +168,7 @@ function prefixIdsInPlace(root: ParentNode, prefix: string): void {
  * id, и вторая иконка нарисуется чужим градиентом; тот же id мог совпасть и с id элемента самого приложения (R2-03). Префикс также
  * не даёт id совпасть со свойствами `document` (DOM clobbering): DOMPurify и так убирает такие id, а префикс страхует остальное.
  *
- * Иконка без id возвращается в том виде, в каком её отдала бы `sanitizeSvg`.
+ * Иконка без id и без ссылок на чужие id возвращается в том виде, в каком её отдала бы `sanitizeSvg`; ссылки на id вне иконки снимаются (ИБ-03).
  *
  * @param idPrefix — уникальный для экземпляра компонента (`useId()`); недопустимые для id символы заменяются на «_».
  *
