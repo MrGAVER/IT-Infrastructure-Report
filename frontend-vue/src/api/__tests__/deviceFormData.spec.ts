@@ -147,6 +147,29 @@ describe('loadDeviceNestedData: усечённая загрузка (B-02)', () 
     await expect(loadDeviceNestedData(device, true, async () => undefined)).rejects.toBeInstanceOf(IncompleteDataError)
   })
 
+  // ИБ-05: запись удалили, пока читались страницы, — total устарел и признак усечения ложный; повторное чтение даёт полный список.
+  it('ИБ-05: ложное усечение (первое чтение усечено, повторное полное) — форма открывается, а не получает IncompleteDataError', async () => {
+    const original = listAllResource.getMockImplementation()!
+    let softwareReads = 0
+    listAllResource.mockImplementation(async (name: string, ...rest: unknown[]) => {
+      const res = (await original(name, ...rest)) as { items: unknown[] }
+      const staleRead = name === 'deployed-software' && ++softwareReads === 1
+      return { ...res, total: staleRead ? res.items.length + 1 : res.items.length, truncated: staleRead }
+    })
+
+    const data = await loadDeviceNestedData(device, false, async () => undefined)
+
+    expect(softwareReads).toBe(2)
+    expect(data.softwareAssets).toHaveLength(1)
+  })
+
+  it('ИБ-05: усечение, которое не проходит и при повторном чтении, остаётся ошибкой (обе попытки сделаны)', async () => {
+    truncate('device-vlans')
+
+    await expect(loadDeviceNestedData(device, false, async () => undefined)).rejects.toBeInstanceOf(IncompleteDataError)
+    expect(listAllResource.mock.calls.filter(([name]) => name === 'device-vlans')).toHaveLength(2)
+  })
+
   it('полные списки (truncated=false) загружаются как раньше', async () => {
     truncate('нет-такого-ресурса')
 

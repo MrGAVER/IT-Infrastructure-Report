@@ -383,6 +383,28 @@ describe('loadDeviceInterfaceDraftRows: усечённый список порт
     expect(error).toBeInstanceOf(IncompleteDataError)
     expect(error).toMatchObject({ what: 'Порты устройства', loaded: 1, total: 2000 })
   })
+
+  // ИБ-05: порт удалили, пока читались страницы, — первое чтение усечено ложно; повторное полное, форма портов открывается.
+  it('ИБ-05: ложное усечение списка портов (при повторном чтении он целый) — порты загружаются, а не IncompleteDataError', async () => {
+    let firstPassDone = false
+    const port = { id: 'if-1', physical_device_id: 'dev-1', name: 'eth0', is_management: false, is_data_transfer: false, vlan_mode: 'trunk' }
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/resources/interfaces')) {
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+        if (!firstPassDone) {
+          if (offset !== 0) firstPassDone = true
+          return jsonResponse({ items: offset === 0 ? [port] : [], total: 2000, offset, limit: 1000 })
+        }
+        return jsonResponse({ items: [port], total: 1, offset, limit: 1000 })
+      }
+      return jsonResponse({ items: [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const rows = await loadDeviceInterfaceDraftRows('dev-1')
+
+    expect(rows.map((r) => r.name)).toEqual(['eth0'])
+  })
 })
 
 describe('validateInterfaceDraftRows', () => {

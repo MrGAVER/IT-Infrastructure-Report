@@ -4130,7 +4130,12 @@ describe('DeviceFormModal.vue — незагруженные вложенные 
   const notice = () => document.body.querySelector('.load-notice')
 
   /** Мокает API; onSoftwareList решает ответ на GET ПО (по номеру запроса) — остальные списки пусты, PUT успешны. */
-  async function stubApi(onSoftwareList: (attempt: number) => Response | Promise<Response>) {
+  /** Запрос первой страницы списка (offset=0 или параметра нет) — в отличие от дочитывания следующих страниц. */
+  function isFirstPage(url: string): boolean {
+    return Number(new URL(url, 'http://localhost').searchParams.get('offset') ?? 0) === 0
+  }
+
+  async function stubApi(onSoftwareList: (attempt: number, url: string) => Response | Promise<Response>) {
     stubCatalogsFetch()
     await useCatalogsStore().ensureLoaded()
     const calls: Call[] = []
@@ -4140,7 +4145,7 @@ describe('DeviceFormModal.vue — незагруженные вложенные 
       vi.fn(async (url: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
-        if (method === 'GET' && url.includes('/resources/deployed-software')) return onSoftwareList(++softwareGets)
+        if (method === 'GET' && url.includes('/resources/deployed-software')) return onSoftwareList(++softwareGets, url)
         if (method === 'PUT' && /\/resources\/devices\/dev-1$/.test(url)) return new Response(JSON.stringify({ id: 'dev-1', serial_number: 'SN-1' }))
         if (method === 'PUT') return new Response(JSON.stringify({ items: [], groups: [] }))
         return page()
@@ -4169,9 +4174,10 @@ describe('DeviceFormModal.vue — незагруженные вложенные 
   })
 
   it('B-02: ПО загружено не целиком (потолок listAllResource) — то же, что сбой: редакторы скрыты, сообщение показано, PUT ПО/VLAN/портов не уходят', async () => {
-    // сервер обещает 2000 записей ПО, но на вторую страницу отвечает пустой → listAllResource вернёт truncated=true
-    const calls = await stubApi((attempt) =>
-      attempt === 1 ? new Response(JSON.stringify({ items: [savedSoftware], total: 2000, offset: 0, limit: 1000 })) : page(),
+    // сервер обещает 2000 записей ПО, но на вторую страницу отвечает пустой → listAllResource вернёт truncated=true.
+    // ИБ-05: усечённый список перечитывается один раз, поэтому усечение должно быть устойчивым — каждое чтение первой страницы обещает 2000.
+    const calls = await stubApi((_attempt, url) =>
+      isFirstPage(url) ? new Response(JSON.stringify({ items: [savedSoftware], total: 2000, offset: 0, limit: 1000 })) : page(),
     )
     const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
     await flushPromises()
@@ -4185,6 +4191,23 @@ describe('DeviceFormModal.vue — незагруженные вложенные 
 
     expect(nestedPuts(calls)).toEqual([]) // неполный список ПО не превращается в PUT, который стёр бы невидимые записи
     expect(calls.some((c) => c.method === 'PUT' && /\/resources\/devices\/dev-1$/.test(c.url))).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('ИБ-05: ПО усечено только при первом чтении (запись удалили во время загрузки) — повторное чтение полное, форма открывается без сообщения', async () => {
+    // чтение 1: первая страница обещает 2000, вторая пуста (attempt 1–2) → усечение; повторное чтение (attempt 3+) — целый список
+    const calls = await stubApi((attempt, url) =>
+      attempt <= 2 && isFirstPage(url)
+        ? new Response(JSON.stringify({ items: [savedSoftware], total: 2000, offset: 0, limit: 1000 }))
+        : page(attempt <= 2 ? [] : [savedSoftware]),
+    )
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(notice()).toBeNull()
+    expect(document.body.querySelector('.form-error')).toBeNull()
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(true)
+    expect(calls.filter((c) => c.method === 'GET' && c.url.includes('/resources/deployed-software')).length).toBeGreaterThanOrEqual(3)
     wrapper.unmount()
   })
 

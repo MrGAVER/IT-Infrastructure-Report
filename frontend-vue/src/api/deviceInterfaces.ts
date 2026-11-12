@@ -7,7 +7,7 @@
 // backend/app/services/crud/interfaces.py:sync_interfaces) — он одним запросом создаёт/обновляет/удаляет
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
-import { assertComplete } from './assertComplete'
+import { loadAllComplete } from './assertComplete'
 import { api, listAllResource } from './client'
 import type {
   DeviceInterface,
@@ -38,14 +38,15 @@ import type {
  *
  * B-02: список портов сохраняется целиком (PUT /devices/{id}/interfaces удаляет порты, которых в запросе нет), поэтому усечённая
  * загрузка listAllResource (потолок 50 000 записей) — ошибка (`IncompleteDataError`), а не обрезанный список: форма пометит порты как
- * не загруженные и не позволит сохранить.
+ * не загруженные и не позволит сохранить. ИБ-05: усечённый список сначала перечитывается один раз (`loadAllComplete`) — порт, удалённый
+ * во время загрузки, ложно давал «загружено не полностью».
  *
  * @example
  * const rows = await loadDeviceInterfaceDraftRows('dev-123')
  */
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
   const [ifaces, allIps, portVlans, allOpenPorts, subinterfaces] = await Promise.all([
-    listAllResource<DeviceInterface>('interfaces', { physical_device_id: deviceId }),
+    loadAllComplete(() => listAllResource<DeviceInterface>('interfaces', { physical_device_id: deviceId }), 'Порты устройства'),
     api.get<{ items: IPAddress[] }>(`/devices/${deviceId}/interface-ips`),
     api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${deviceId}/interface-vlans`),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
@@ -57,7 +58,6 @@ export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<In
     // не физический порт и в generic-списке портов его нет.
     api.get<{ items: DeviceSubinterface[] }>(`/devices/${deviceId}/subinterfaces`),
   ])
-  assertComplete(ifaces, 'Порты устройства')
   const subinterfacesByParent = groupSubinterfacesByParent(subinterfaces.items)
   const vlansByPort = new Map(portVlans.items.map((entry) => [entry.interface_id, entry]))
   return ifaces.items.map((x): InterfaceDraftRow => {
