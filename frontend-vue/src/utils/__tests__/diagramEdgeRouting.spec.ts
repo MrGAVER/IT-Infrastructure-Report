@@ -9,6 +9,7 @@ import {
   ROUTING_BUDGET_MS,
   roundedPolylinePath,
   routeEdges,
+  routeEdgesWithStatus,
   routeInputsFromFlow,
   routeLabelAnchor,
   routeMatchesEnds,
@@ -385,6 +386,83 @@ describe('routeEdges: бюджет времени и предел числа р�
     const expired = () => (++readsWhenExpired <= 2 ? 0 : 1_000_000)
     expect(routeEdges(nodes, [sealed], { budgetMs: 10, now: expired }).size).toBe(0)
     expect(readsWhenExpired).toBe(3) // первая же сверка внутри поиска увидела «время вышло» и прервала его
+  })
+
+  // ИБ-04 (ревью merge/review-r3-executors): признак `degraded` честно говорит, что результат обрезал именно бюджет времени.
+  describe('routeEdgesWithStatus: признак degraded (ИБ-04)', () => {
+    /** Кольцо из четырёх узлов с узлом внутри и поле из 60 узлов: путь из поля внутрь кольца не существует, A* перебирает всю сетку. */
+    function sealedScene(): { nodes: RouteNode[]; sealed: RouteRequest } {
+      const ring: RouteNode[] = [
+        { id: 'top', x: 80, y: 60, width: 240, height: 40 },
+        { id: 'bottom', x: 80, y: 300, width: 240, height: 40 },
+        { id: 'left', x: 80, y: 60, width: 40, height: 280 },
+        { id: 'right', x: 280, y: 60, width: 40, height: 280 },
+      ]
+      const inner: RouteNode = { id: 'inner', x: 160, y: 150, width: 80, height: 60 }
+      const field: RouteNode[] = Array.from({ length: 60 }, (_, i) => ({
+        id: `f${i}`,
+        x: 600 + (i % 6) * 220,
+        y: Math.floor(i / 6) * 160,
+        width: NODE_W,
+        height: NODE_H,
+      }))
+      const sealed: RouteRequest = {
+        id: 'sealed',
+        source: { point: { x: field[0].x + NODE_W / 2, y: field[0].y + NODE_H + 3 }, side: 'bottom' },
+        target: { point: { x: inner.x + inner.width / 2, y: inner.y + inner.height + 3 }, side: 'bottom' },
+      }
+      return { nodes: [...ring, inner, ...field], sealed }
+    }
+
+    it('без ограничения времени все рёбра проложены и degraded = false; routeEdges отдаёт те же маршруты', () => {
+      const { nodes, requests } = scene(40)
+      const result = routeEdgesWithStatus(nodes, requests, { budgetMs: Number.POSITIVE_INFINITY })
+      expect(result.degraded).toBe(false)
+      expect(result.routes.size).toBe(requests.length)
+      expect(routeEdges(nodes, requests, { budgetMs: Number.POSITIVE_INFINITY })).toEqual(result.routes)
+    })
+
+    it('бюджет вышел между рёбрами: часть рёбер без маршрута и degraded = true', () => {
+      const { nodes, requests } = scene(40)
+      let tick = 0
+      const result = routeEdgesWithStatus(nodes, requests, { budgetMs: 6, now: () => tick++ })
+      expect(result.routes.size).toBeGreaterThan(0)
+      expect(result.routes.size).toBeLessThan(requests.length)
+      expect(result.degraded).toBe(true)
+    })
+
+    it('бюджет исчерпан до первого ребра: пустой результат и degraded = true', () => {
+      const { nodes, requests } = scene(10)
+      let tick = 0
+      const result = routeEdgesWithStatus(nodes, requests, { budgetMs: 0, now: () => tick++ })
+      expect(result.routes.size).toBe(0)
+      expect(result.degraded).toBe(true)
+    })
+
+    it('срок вышел посреди поиска одного ребра: degraded = true', () => {
+      const { nodes, sealed } = sealedScene()
+      let reads = 0
+      const result = routeEdgesWithStatus(nodes, [sealed], { budgetMs: 10, now: () => (++reads <= 2 ? 0 : 1_000_000) })
+      expect(result.routes.size).toBe(0)
+      expect(result.degraded).toBe(true)
+    })
+
+    it('ребро без пути при нормальных часах — не деградация: результат детерминирован и от скорости машины не зависит', () => {
+      const { nodes, sealed } = sealedScene()
+      const result = routeEdgesWithStatus(nodes, [sealed], { budgetMs: 10, now: () => 0 })
+      expect(result.routes.size).toBe(0)
+      expect(result.degraded).toBe(false)
+    })
+
+    it('пустой вход и схема сверх MAX_ROUTED_EDGES — это не бюджет времени: degraded = false', () => {
+      const nodes = gridNodes(2)
+      expect(routeEdgesWithStatus(nodes, []).degraded).toBe(false)
+      const request = link('a', nodes, 0, 0, 1, 0)
+      const many = Array.from({ length: MAX_ROUTED_EDGES + 1 }, (_, i) => ({ ...request, id: `e${i}` }))
+      const result = routeEdgesWithStatus(nodes, many)
+      expect(result.routes.size).toBe(0)
+      expect(result.degraded).toBe(false)
+    })
   })
 
   it(`схема с числом рёбер больше MAX_ROUTED_EDGES (${MAX_ROUTED_EDGES}) не трассируется: результат пуст`, () => {

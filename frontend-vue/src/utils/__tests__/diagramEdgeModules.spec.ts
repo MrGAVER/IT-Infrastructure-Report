@@ -24,6 +24,7 @@ describe('B-08: публичный вход diagramEdgeRouting.ts', () => {
         'ROUTING_BUDGET_MS',
         'roundedPolylinePath',
         'routeEdges',
+        'routeEdgesWithStatus',
         'routeInputsFromFlow',
         'routeLabelAnchor',
         'routeMatchesEnds',

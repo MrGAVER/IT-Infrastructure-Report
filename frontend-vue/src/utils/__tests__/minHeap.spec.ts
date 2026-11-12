@@ -14,7 +14,7 @@ function lcg(seed: number): () => number {
 
 function drain(heap: MinHeap): number[] {
   const result: number[] = []
-  while (heap.size > 0) result.push(heap.pop())
+  for (let value = heap.pop(); value !== undefined; value = heap.pop()) result.push(value)
   return result
 }
 
@@ -45,6 +45,32 @@ describe('MinHeap', () => {
     expect(heap.size).toBe(1)
     expect(heap.pop()).toBe(7)
     expect(heap.size).toBe(0)
+  })
+
+  it('ИБ-04: пустая куча отдаёт undefined на pop и peekKey и не портит внутреннее состояние', () => {
+    const heap = new MinHeap()
+    expect(heap.pop()).toBeUndefined()
+    expect(heap.peekKey()).toBeUndefined()
+    expect(heap.size).toBe(0)
+
+    // После лишнего pop куча работает как новая: раньше keys.pop() на пустом массиве и values[0] оставляли её в неопределённом состоянии.
+    heap.push(5, 50)
+    heap.push(1, 10)
+    expect(heap.size).toBe(2)
+    expect(drain(heap)).toEqual([10, 50])
+    expect(heap.pop()).toBeUndefined()
+    expect(heap.size).toBe(0)
+  })
+
+  it('ИБ-04: peekKey показывает наименьший ключ, не извлекая элемент', () => {
+    const heap = new MinHeap()
+    heap.push(7, 70)
+    heap.push(3, 30)
+    heap.push(9, 90)
+    expect(heap.peekKey()).toBe(3)
+    expect(heap.size).toBe(3)
+    expect(heap.pop()).toBe(30)
+    expect(heap.peekKey()).toBe(7)
   })
 
   it('равные ключи не теряются: каждое значение выдаётся ровно один раз', () => {

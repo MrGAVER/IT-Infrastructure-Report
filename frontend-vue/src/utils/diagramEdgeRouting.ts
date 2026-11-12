@@ -202,10 +202,15 @@ function createScratch(grid: Grid): Scratch {
   return { best: new Float64Array(total), cameFrom: new Int32Array(total), seen: new Uint32Array(total), run: 0 }
 }
 
-/** Часы расчёта: `now` подменяется в тестах, `deadline` — момент, после которого новые рёбра не начинаются, а начатый поиск прерывается. */
+/**
+ * Часы расчёта: `now` подменяется в тестах, `deadline` — момент, после которого новые рёбра не начинаются, а начатый поиск прерывается.
+ * `expired` (ИБ-04) выставляет сам поиск, когда его прервал срок, — именно срок, а не предел раскрытий и не «пути нет»: от срока результат
+ * зависит от скорости машины, и routeEdgesWithStatus сообщает об этом как о `degraded`.
+ */
 interface Clock {
   now: () => number
   deadline: number
+  expired: boolean
 }
 
 /** Состояние поиска: вершина сетки и ось последнего звена (0 — горизонталь, 1 — вертикаль). Поворот — отдельный переход со штрафом. */
@@ -246,12 +251,16 @@ function findPath(
     }
   }
 
-  while (heap.size > 0) {
+  for (;;) {
     const state = heap.pop()
+    if (state === undefined) break // куча пуста: достижимая часть сетки исчерпана, цель среди неё не нашлась
     if (state === goalState) break
     if (++expansions > MAX_EXPANSIONS) return null
     // Время сверяется не на каждом шаге: поиск, не уложившийся в срок, отдаёт ребро кривой Безье, а не держит интерфейс.
-    if ((expansions & CLOCK_CHECK_MASK) === 0 && clock.now() > clock.deadline) return null
+    if ((expansions & CLOCK_CHECK_MASK) === 0 && clock.now() > clock.deadline) {
+      clock.expired = true
+      return null
+    }
     const axis = (state & 1) as 0 | 1
     const vertex = state >> 1
     const i = vertex % width
@@ -345,6 +354,19 @@ function compareIds(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
+/** Результат расчёта маршрутов (ИБ-04): сами маршруты и признак того, что на них повлияло время. */
+export interface RouteResult {
+  /** Маршруты по id связи; связи без маршрута рисуются прежней кривой. */
+  routes: Map<string, EdgeRoute>
+  /**
+   * `true`, если бюджет времени вышел раньше, чем расчёт закончился: часть связей, которым маршрут мог бы найтись, осталась без него.
+   * Это единственная причина, от которой результат зависит от скорости машины и вкладки (фон, медленный процессор): та же схема на другой
+   * машине могла бы проложиться иначе. Остальные случаи без маршрута — зажатый хэндл, предел раскрытий, слишком большая схема — детерминированы
+   * и `degraded` не поднимают.
+   */
+  degraded: boolean
+}
+
 /**
  * Прокладывает маршруты для всех запросов. Ребро, для которого путь не нашёлся (хэндл зажат между узлами, исчерпан предел поиска),
  * в результат не попадает — вызывающий код рисует его прежней кривой. Если сетка слишком велика (MAX_GRID_VERTICES) или рёбер больше
@@ -352,13 +374,23 @@ function compareIds(a: string, b: string): number {
  * остаются без маршрута: короткие связи важнее для читаемости, а длинным кривая и так привычна.
  */
 export function routeEdges(nodes: readonly RouteNode[], requests: readonly RouteRequest[], options: RouteOptions = {}): Map<string, EdgeRoute> {
+  return routeEdgesWithStatus(nodes, requests, options).routes
+}
+
+/**
+ * То же, что `routeEdges`, но дополнительно сообщает, не обрезал ли расчёт бюджет времени (`degraded`, см. RouteResult), — чтобы интерфейс
+ * мог честно сказать, что часть связей проложена упрощённо. ИБ-04 (ревью merge/review-r3-executors): бюджет считается по настенным часам
+ * (`ROUTING_BUDGET_MS`), поэтому на медленной машине или в фоновой вкладке та же диаграмма может проложиться иначе, и раньше об этом
+ * нигде не говорилось.
+ */
+export function routeEdgesWithStatus(nodes: readonly RouteNode[], requests: readonly RouteRequest[], options: RouteOptions = {}): RouteResult {
   const { budgetMs = ROUTING_BUDGET_MS, now = () => performance.now() } = options
   const routes = new Map<string, EdgeRoute>()
-  if (requests.length === 0 || requests.length > MAX_ROUTED_EDGES) return routes
-  const clock: Clock = { now, deadline: now() + budgetMs }
+  if (requests.length === 0 || requests.length > MAX_ROUTED_EDGES) return { routes, degraded: false }
+  const clock: Clock = { now, deadline: now() + budgetMs, expired: false }
   const stubs = requests.flatMap((request) => [stubPoint(request.source), stubPoint(request.target)])
   const grid = buildGrid(nodes, stubs)
-  if (!grid) return routes
+  if (!grid) return { routes, degraded: false }
   const scratch = createScratch(grid)
   for (const request of requests) {
     reserveCorridor(grid, request.source, stubPoint(request.source))
@@ -372,6 +404,7 @@ export function routeEdges(nodes: readonly RouteNode[], requests: readonly Route
   // таких связей показывает подпись «×N» (diagramEdgeLabels.ts).
   const byEnds = new Map<string, EdgeRoute | null>()
   let outOfTime = false
+  let skippedForTime = false
   for (const request of ordered) {
     const endsKey = routeEndsKey(request)
     const shared = byEnds.get(endsKey)
@@ -381,7 +414,10 @@ export function routeEdges(nodes: readonly RouteNode[], requests: readonly Route
     }
     // Копии уже проложенного маршрута ничего не стоят и берутся даже после срока; новый поиск после срока не начинается.
     if (!outOfTime && now() > clock.deadline) outOfTime = true
-    if (outOfTime) continue
+    if (outOfTime) {
+      skippedForTime = true // сюда доходит только связь, которой нужен новый поиск: она осталась без маршрута из-за срока
+      continue
+    }
     const sourceStub = stubPoint(request.source)
     const targetStub = stubPoint(request.target)
     const start = { i: nearestLine(grid.xs, sourceStub.x), j: nearestLine(grid.ys, sourceStub.y), axis: sideAxis(request.source.side) }
@@ -404,7 +440,8 @@ export function routeEdges(nodes: readonly RouteNode[], requests: readonly Route
     byEnds.set(endsKey, route)
     routes.set(request.id, route)
   }
-  return routes
+  // clock.expired — поиск последнего ребра прервал срок; skippedForTime — после срока остались рёбра, которым поиск даже не начался.
+  return { routes, degraded: skippedForTime || clock.expired }
 }
 
 function routeEndsKey(request: RouteRequest): string {

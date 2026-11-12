@@ -29,9 +29,22 @@ export class MinHeap {
     values[i] = value
   }
 
-  pop(): number {
+  /** Ключ ближайшего элемента, не извлекая его; `undefined`, если куча пуста. */
+  peekKey(): number | undefined {
+    return this.keys[0]
+  }
+
+  /**
+   * Извлекает значение с наименьшим ключом; `undefined`, если куча пуста — как у `Array.prototype.pop`.
+   *
+   * ИБ-04 (ревью merge/review-r3-executors): раньше тип возврата был `number`, а на пустой куче метод молча отдавал `undefined` (`values[0]`) и
+   * портил массивы (`keys.pop()` на пустом массиве). Цикл A* проверял `size`, поэтому на деле это не проявлялось, но класс вынесен как
+   * самостоятельный, и любой другой вызывающий получил бы `undefined` под видом числа. Теперь тип честный, и компилятор требует проверки.
+   */
+  pop(): number | undefined {
     const keys = this.keys
     const values = this.values
+    if (keys.length === 0) return undefined
     const top = values[0]
     const lastKey = keys.pop() as number
     const lastValue = values.pop() as number
