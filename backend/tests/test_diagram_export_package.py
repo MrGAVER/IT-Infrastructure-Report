@@ -16,6 +16,7 @@ import pytest
 
 from app.api import diagrams as diagrams_module
 from app.services import diagram_export
+from app.services import vsdx_process
 from app.services.diagram_export import drawio, svg, vsdx
 
 PACKAGE_DIR = Path(diagram_export.__file__).parent
@@ -53,13 +54,13 @@ def test_public_exporters_are_the_functions_of_their_modules():
 
 
 def test_the_export_registry_serves_what_the_package_functions_produce():
-    """Реестр форматов (api/diagrams.py) подключён к функциям пакета: svg и drawio обёрнуты в encode (функции возвращают str), vsdx — та же функция."""
+    """Реестр форматов (api/diagrams.py) подключён к функциям пакета: svg и drawio обёрнуты в encode (функции возвращают str), vsdx идёт через рендер в дочернем процессе (services/vsdx_process.py), который вызывает export_vsdx."""
     graph = {"nodes": [], "edges": []}
     registry = diagrams_module.EXPORT_FORMATS
     assert registry["svg"][1](graph) == diagram_export.export_svg(graph).encode("utf-8")
     drawio_bytes = registry["drawio"][1](graph)  # побайтно не сравнить: drawpyo ставит в <mxfile> отметку времени
     assert isinstance(drawio_bytes, bytes) and drawio_bytes.startswith(b"<mxfile")
-    assert registry["vsdx"][1] is diagram_export.export_vsdx
+    assert registry["vsdx"][1] is vsdx_process.export_vsdx_isolated
 
 
 def test_dunder_all_lists_only_importable_names_and_all_three_exporters():

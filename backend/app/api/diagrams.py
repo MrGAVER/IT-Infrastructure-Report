@@ -28,8 +28,9 @@ from ..constants import AuditAction
 from ..db import get_db
 from ..models import DiagramGroupState, DiagramLayout, SavedDiagram
 from ..services.crud import audit
-from ..services.diagram_export import export_drawio, export_svg, export_vsdx
+from ..services.diagram_export import export_drawio, export_svg
 from ..services.export_cache import export_cache, graph_fingerprint
+from ..services.vsdx_process import VSDX_RENDER_TIMEOUT_SECONDS, VsdxRenderTimeout, export_vsdx_isolated
 from ..services.timeutil import iso_utc
 from ..services.diagram_graph import MAX_LAYOUT_KEY_LENGTH, build_graph, clean_positions_lenient, parse_scope_filter
 from .diagram_schemas import (
@@ -49,7 +50,7 @@ router = APIRouter(prefix="/api/v1/diagrams", tags=["Diagrams"])
 EXPORT_FORMATS = {
     "svg": ("image/svg+xml", lambda graph: export_svg(graph).encode("utf-8")),
     "drawio": ("application/xml", lambda graph: export_drawio(graph).encode("utf-8")),
-    "vsdx": ("application/vnd.ms-visio.drawing", export_vsdx),
+    "vsdx": ("application/vnd.ms-visio.drawing", export_vsdx_isolated),  # в дочернем процессе с таймаутом, см. services/vsdx_process.py
 }
 
 # Тяжёлые для процессора форматы экспорта (A-06 код-ревью r3). Замер на 120 устройствах: .svg — единицы мс, .drawio — до 0,2 с, .vsdx — от 0,5 до
@@ -59,6 +60,7 @@ EXPORT_FORMATS = {
 # Эндпоинт синхронный и работает в пуле потоков (по умолчанию ~40): десяток параллельных запросов .vsdx занял бы весь пул, и API перестало бы
 # отвечать всем, включая вход. Поэтому одновременно выполняется не больше HEAVY_EXPORT_MAX_CONCURRENT таких экспортов; лишний запрос сразу
 # получает 503 с Retry-After (как проверка паролей на входе, services/auth/login._password_hash_slot), а не ждёт в очереди и не держит поток.
+# Слот освобождается и по таймауту: .vsdx рендерится в дочернем процессе, который убивается через VSDX_RENDER_TIMEOUT_SECONDS (ИА-01, уровень 3).
 # Новый формат с заметным временем работы добавляют сюда же; тест контракта проверяет, что имена в этом наборе — настоящие форматы экспорта.
 HEAVY_EXPORT_FORMATS = frozenset({"vsdx"})
 HEAVY_EXPORT_MAX_CONCURRENT = 2
@@ -348,6 +350,12 @@ def _serialize_graph(export_format: str, serialize, graph: dict, diagram_id: str
     with _heavy_export_slot(export_format):
         try:
             data = serialize(graph)
+        except VsdxRenderTimeout:
+            logger.warning("Экспорт диаграммы %s в формате %s прерван по таймауту (%g с)", diagram_id, export_format, VSDX_RENDER_TIMEOUT_SECONDS)
+            raise HTTPException(
+                504,
+                f"Формирование .{export_format} заняло больше {VSDX_RENDER_TIMEOUT_SECONDS:g} с и прервано. Скачайте .svg или .drawio либо сузьте фильтр диаграммы.",
+            ) from None
         except Exception:
             # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
             # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
