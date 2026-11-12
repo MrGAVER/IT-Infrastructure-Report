@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import os
 import re
@@ -296,6 +297,35 @@ def _fit_vsdx_page_to_content(page, graph: dict) -> float:
     return page.height
 
 
+class _ShapeTemplate:
+    """Шаблонная фигура, копии которой делаются за постоянное время (A-06: .vsdx стал быстрым).
+
+    Shape.copy() библиотеки vsdx перед каждым копированием вызывает page.set_max_ids() — обход ВСЕХ фигур страницы ради «наибольшего ID»,
+    то есть n копий стоят n² обходов (120 устройств — около 18 с). Но page.max_id только растёт: каждая копия получает max_id + 1 и
+    больше ничего не меняет. Поэтому достаточно одного обхода до первой копии, а дальше — те же шаги, что в VisioFile.copy_shape
+    (копия XML, новые ID, подстановка ID в формулы, вставка в тег Shapes), без повторного обхода. Результат тот же байт в байт:
+    сверка с Shape.copy() — тест test_shape_template_copy_is_identical_to_library_copy (он же страж при обновлении vsdx: метод опирается
+    на VisioFile.increment_shape_ids/update_ids и Page.set_max_ids).
+    """
+
+    def __init__(self, shape) -> None:
+        self._shape = shape
+        self._page = shape.page
+        self._page.set_max_ids()
+
+    def copy(self):
+        from vsdx import Shape
+        from vsdx import namespace as visio_ns
+
+        page = self._page
+        new_xml = copy.deepcopy(self._shape.xml)  # то же, что у библиотеки (tostring → разбор), но без разбора XML: см. test_diagram_export_safe_xml
+        shapes_tag = page.xml.find(f"{visio_ns}Shapes")
+        id_map = page.vis.increment_shape_ids(new_xml, page)
+        page.vis.update_ids(new_xml, id_map)
+        shapes_tag.append(new_xml)
+        return Shape(xml=new_xml, parent=self._shape.parent, page=page)
+
+
 class _VsdxImages:
     """Растровые иконки .vsdx.
 
@@ -441,8 +471,8 @@ def export_vsdx(graph: dict) -> bytes:
             page_height = _fit_vsdx_page_to_content(page, graph)  # дюймы; см. target_y в _place_vsdx_node
             template_shapes = list(page.child_shapes)
             template_ids = {s.ID for s in template_shapes}
-            rect_template = next(s for s in template_shapes if "RECTANGLE" in (s.text or ""))
-            connector_template = next(s for s in template_shapes if "STRAIGHT_CONNECTOR" in (s.text or ""))
+            rect_template = _ShapeTemplate(next(s for s in template_shapes if "RECTANGLE" in (s.text or "")))
+            connector_template = _ShapeTemplate(next(s for s in template_shapes if "STRAIGHT_CONNECTOR" in (s.text or "")))
 
             shapes_by_node_id = {}
             for node in graph["nodes"]:
