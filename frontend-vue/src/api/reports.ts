@@ -1,7 +1,8 @@
 // Генерация отчётов — не CRUD-ресурс: POST возвращает {file_name, download_url},
 // сам файл читается отдельным GET (см. backend/app/api/reports.py:
 // generate_report/generate_audit_log_report/download_report).
-import { api, getStoredToken, LONG_REQUEST_TIMEOUT_MS } from './client'
+import { api, apiErrorFromResponse, getStoredToken, LONG_REQUEST_TIMEOUT_MS, notifyUnauthorizedIfNeeded } from './client'
+import { saveBlob } from './saveBlob'
 
 export interface ReportResult {
   file_name: string
@@ -55,7 +56,11 @@ export function generateAuditLogReport(dateFrom: string | null, dateTo: string |
  * аутентификации такой клик просто получал 401 без единого заголовка Authorization, и браузер
  * показывал общее "файл недоступен на сайте" — вообще без объяснения причины. Теперь файл
  * читается через fetch с тем же заголовком, что и остальные запросы API, и скачивается уже как
- * blob-URL. */
+ * blob-URL.
+ *
+ * ИБ-02: ошибка разбирается так же, как у `request()` (`apiErrorFromResponse`): при 403/503 пользователь видит сообщение сервера из
+ * `{detail}`, а не безликое «Не удалось скачать файл (403)», а при 401 приложению уходит `UNAUTHORIZED_EVENT` — как у любого запроса с
+ * просроченным токеном (раньше скачивание показывало текст, но не возвращало на экран входа). */
 export async function downloadReport(result: ReportResult): Promise<void> {
   const token = getStoredToken()
   const headers: Record<string, string> = {}
@@ -63,18 +68,9 @@ export async function downloadReport(result: ReportResult): Promise<void> {
 
   const res = await fetch(result.download_url, { headers })
   if (!res.ok) {
-    throw new Error(res.status === 401 ? 'Сессия истекла — войдите заново и повторите скачивание' : `Не удалось скачать файл (${res.status})`)
+    const error = await apiErrorFromResponse(res)
+    notifyUnauthorizedIfNeeded(res.status, result.download_url)
+    throw error
   }
-  const blob = await res.blob()
-  const objectUrl = URL.createObjectURL(blob)
-  try {
-    const a = document.createElement('a')
-    a.href = objectUrl
-    a.download = result.file_name
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
+  saveBlob(await res.blob(), result.file_name)
 }
