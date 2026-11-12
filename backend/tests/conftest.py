@@ -312,6 +312,17 @@ def _reset_port_sync_plan_cache():
     plan_cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_export_cache():
+    """Кэш готовых экспортов (services/export_cache.py) живёт в памяти процесса: тест, подменивший сериализатор и закэшировавший его
+    ответ, не должен подсовывать этот ответ следующему тесту с таким же графом."""
+    from app.services.export_cache import export_cache
+
+    export_cache.clear()
+    yield
+    export_cache.clear()
+
+
 @pytest.fixture()
 def client_factory(db_session, monkeypatch):
     """Фабрика TestClient с app.db.get_db, подменённым на фикстурную сессию/движок выше, чтобы

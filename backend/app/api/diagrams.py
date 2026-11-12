@@ -29,6 +29,7 @@ from ..db import get_db
 from ..models import DiagramGroupState, DiagramLayout, SavedDiagram
 from ..services.crud import audit
 from ..services.diagram_export import export_drawio, export_svg, export_vsdx
+from ..services.export_cache import export_cache, graph_fingerprint
 from ..services.timeutil import iso_utc
 from ..services.diagram_graph import MAX_LAYOUT_KEY_LENGTH, build_graph, clean_positions_lenient, parse_scope_filter
 from .diagram_schemas import (
@@ -61,13 +62,19 @@ EXPORT_FORMATS = {
 # Новый формат с заметным временем работы добавляют сюда же; тест контракта проверяет, что имена в этом наборе — настоящие форматы экспорта.
 HEAVY_EXPORT_FORMATS = frozenset({"vsdx"})
 HEAVY_EXPORT_MAX_CONCURRENT = 2
+# Потолок размера для .vsdx (ИА-01 код-ревью r3). Замер на синтетической цепочке из коммутаторов с 24 засечками портов, один процессорный
+# поток, после ускорения копирования (_ShapeTemplate): 120 узлов — 2,3 с, 300 — 7,3 с, 600 — 13,4 с, 1000 — 19 с (рост линейный, ≈19 мс на
+# узел). Тысяча узлов с запасом укладывается в таймаут рендера (services/vsdx_process.py, 60 с) даже на машине втрое медленнее замерной;
+# диаграмма больше — чаще ошибка в фильтре, чем осознанный выбор: она получает понятный 422 ДО захвата слота и не держит его.
+# (В отчёте ревью стояло 300 — число считалось по квадратичному росту, которого после A-06 уже нет.)
+MAX_VSDX_NODES = 1000
 HEAVY_EXPORT_RETRY_AFTER_SECONDS = 10  # с запасом (экспорт .vsdx занимал десятки секунд, теперь — секунды); при желании можно уменьшить
 _HEAVY_EXPORT_SLOTS = threading.BoundedSemaphore(HEAVY_EXPORT_MAX_CONCURRENT)
 
 
 @contextmanager
 def _heavy_export_slot(export_format: str):
-    """Занимает слот тяжёлого экспорта на время построения и сериализации; свободных нет — 503 с Retry-After.
+    """Занимает слот тяжёлого экспорта на время сериализации; свободных нет — 503 с Retry-After.
 
     Лёгкие форматы слот не занимают. Слот освобождается всегда, в том числе при исключении внутри блока.
     Пример: `with _heavy_export_slot("vsdx"): data = export_vsdx(graph)`."""
@@ -319,6 +326,41 @@ def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
     return _diagram_out(dup)
 
 
+def _check_export_size(export_format: str, graph: dict) -> None:
+    """422 для диаграммы, которая не поместится в .vsdx (MAX_VSDX_NODES); остальные форматы размер не ограничивает."""
+    nodes = len(graph["nodes"])
+    if export_format == "vsdx" and nodes > MAX_VSDX_NODES:
+        raise HTTPException(
+            422,
+            f"Диаграмма слишком велика для .vsdx ({nodes} узлов, максимум {MAX_VSDX_NODES}). Скачайте .svg или .drawio либо сузьте фильтр диаграммы.",
+        )
+
+
+def _serialize_graph(export_format: str, serialize, graph: dict, diagram_id: str) -> bytes:
+    """Готовый файл: у тяжёлых форматов — из кэша (services/export_cache.py; без слота и рендера), иначе сериализация внутри слота.
+
+    Любой сбой сериализации — понятный 500 и полный traceback в лог сервера; сбойный результат в кэш не попадает."""
+    cache_key = graph_fingerprint(export_format, graph) if export_format in HEAVY_EXPORT_FORMATS else None
+    if cache_key is not None:
+        cached = export_cache.get(cache_key)
+        if cached is not None:
+            return cached
+    with _heavy_export_slot(export_format):
+        try:
+            data = serialize(graph)
+        except Exception:
+            # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
+            # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
+            # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
+            # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
+            # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
+            logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, export_format)
+            raise HTTPException(500, f"Не удалось сформировать файл .{export_format} — подробности в логе сервера") from None
+    if cache_key is not None:
+        export_cache.put(cache_key, data)
+    return data
+
+
 @router.get("/{diagram_id}/export")
 def export_diagram(
     diagram_id: str,
@@ -330,19 +372,10 @@ def export_diagram(
     if format not in EXPORT_FORMATS:
         raise HTTPException(422, f"format должен быть одним из: {', '.join(EXPORT_FORMATS)}")
     media_type, serialize = EXPORT_FORMATS[format]
-    with _heavy_export_slot(format):  # проверки 404/422 выше слота не требуют; построение графа и сериализация — внутри него
-        _, positions = _load_layout(session, diagram_id)
-        graph = build_graph(session, diagram, node_positions=positions, persist=False)
-        try:
-            data = serialize(graph)
-        except Exception:
-            # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
-            # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
-            # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
-            # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
-            # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
-            logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
-            raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
+    _, positions = _load_layout(session, diagram_id)
+    graph = build_graph(session, diagram, node_positions=positions, persist=False)
+    _check_export_size(format, graph)  # до слота: слишком большая диаграмма не занимает его и не ждёт таймаута
+    data = _serialize_graph(format, serialize, graph, diagram_id)
     if persist_export:  # безопасный метод GET по умолчанию не пишет: запись — только по явной просьбе клиента
         diagram.last_export_format = format
         session.commit()
