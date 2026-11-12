@@ -328,6 +328,21 @@ def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
     return _diagram_out(dup)
 
 
+_CONTENT_DISPOSITION_TEMPLATE = """attachment; filename="{ascii_fallback}"; filename*=UTF-8''{encoded}"""
+
+
+def _content_disposition(filename: str, default_name: str) -> str:
+    """Заголовок скачивания (RFC 6266): ASCII-запасной `filename` для старых клиентов и настоящее имя в `filename*` (percent-кодированный UTF-8).
+
+    В запасном имени кавычка, обратная косая, «;» и «/» заменяются на «_», в `filename*` кодируется всё, включая «/» (`safe=""`; у `quote` по
+    умолчанию `safe="/"` — ИА-03 код-ревью r3). HTTP-заголовки должны быть latin-1-совместимы (RFC 7230), а названия диаграмм обычно на русском —
+    поэтому ASCII-вариант идёт запасным. `isprintable()` отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не
+    должно ломать заголовок. Пример: `План/А.svg` → `filename="______.svg"; filename*=UTF-8''%D0%9F…%2F….svg`.
+    """
+    ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or default_name
+    return _CONTENT_DISPOSITION_TEMPLATE.format(ascii_fallback=ascii_fallback, encoded=quote(filename, safe=""))
+
+
 def _check_export_size(export_format: str, graph: dict) -> None:
     """422 для диаграммы, которая не поместится в .vsdx (MAX_VSDX_NODES); остальные форматы размер не ограничивает."""
     nodes = len(graph["nodes"])
@@ -388,12 +403,7 @@ def export_diagram(
         diagram.last_export_format = format
         session.commit()
     filename = f"{diagram.name}.{format}"
-    # HTTP-заголовки должны быть latin-1-совместимы (RFC 7230) — название диаграммы, как и
-    # почти все данные в этом проекте, обычно на русском, поэтому ASCII-safe filename идёт как
-    # запасной вариант, а настоящее имя — RFC 6266 filename* с percent-encoded UTF-8.
-    # isprintable() отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не должно ломать заголовок.
-    ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or f"diagram.{format}"
-    content_disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+    content_disposition = _content_disposition(filename, f"diagram.{format}")
     return Response(content=data, media_type=media_type, headers={"Content-Disposition": content_disposition})
 
 

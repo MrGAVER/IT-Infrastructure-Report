@@ -36,8 +36,18 @@ DEFAULT_COLOR = "#9aa0a6"  # "default нейтральный серый" (раз
 # белым по цветной заливке узла, и тёмным на светлом фоне легенды (Фаза 3, п.1). Координаты — в
 # системе viewBox "0 0 24 24" (см. GLYPH_VIEWBOX); фронтенд отрисовывает эту же разметку без
 # изменений (см. DiagramDeviceNode.vue).
+# fmt: off
+# Разметка разбита по элементам SVG и не пересобирается форматтером: при line-length = 400 `ruff format` склеивал её в строки до 397
+# символов (ИА-06 код-ревью r3). Склейка кусков даёт ту же строку, что и раньше — это проверяет test_diagram_icon_glyph_source.py.
 SHAPE_GLYPHS: dict[str, str] = {
-    "server": ('<rect x="4" y="2" width="16" height="20" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 9h16M4 16h16" stroke="currentColor" stroke-width="1.4"/><circle cx="7.2" cy="5.5" r="1"/><circle cx="7.2" cy="12.5" r="1"/><circle cx="7.2" cy="19.2" r="1"/><path d="M11 5.5h6M11 12.5h6M11 19.2h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'),
+    "server": (
+        '<rect x="4" y="2" width="16" height="20" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M4 9h16M4 16h16" stroke="currentColor" stroke-width="1.4"/>'
+        '<circle cx="7.2" cy="5.5" r="1"/>'
+        '<circle cx="7.2" cy="12.5" r="1"/>'
+        '<circle cx="7.2" cy="19.2" r="1"/>'
+        '<path d="M11 5.5h6M11 12.5h6M11 19.2h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
+    ),
     # switch_l2/switch_l3/router появились позже (см. диаграмма-графа "Пункт 5 правки"): до этого
     # L2/L3-коммутаторы получали общий 'switch' (три порта), маршрутизатор — 'generic' (ромб)
     # вместе с точками Wi-Fi/GSM-модемами. 'switch' — общий сейчас неиспользуемый (не назначается
@@ -50,22 +60,43 @@ SHAPE_GLYPHS: dict[str, str] = {
     "switch_l2": (
         '<rect x="2" y="6" width="20" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
         '<path d="M5.5 15v3.2M9.5 15v3.2M14.5 15v3.2M18.5 15v3.2" stroke="currentColor" stroke-width="1.4"/>'
-        '<path d="M6.5 10.5h4.5M9.5 8.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-        '<path d="M17.5 10.5h-4.5M14.5 8.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M6.5 10.5h4.5M9.5 8.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M17.5 10.5h-4.5M14.5 8.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
     ),
     "switch_l3": (
         '<rect x="2" y="9" width="20" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
         '<path d="M5.5 18v3.2M9.5 18v3.2M14.5 18v3.2M18.5 18v3.2" stroke="currentColor" stroke-width="1.4"/>'
-        '<path d="M6.5 13.5h4.5M9.5 11.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-        '<path d="M17.5 13.5h-4.5M14.5 11.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M6.5 13.5h4.5M9.5 11.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M17.5 13.5h-4.5M14.5 11.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
         '<path d="M12 1.5 15 6.5H9z"/>'
     ),
-    "router": ('<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.2v3.3M12 18.5v3.3M2.2 12h3.3M18.5 12h3.3" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M12 1.2 10.6 4h2.8zM12 22.8 10.6 20h2.8zM1.2 12 4 10.6v2.8zM22.8 12 20 10.6v2.8z"/>'),
-    "firewall": ('<rect x="2" y="3" width="20" height="18" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M2 8h20M2 13h20M2 18h20M7 3v5M12 8v5M17 3v5M7 13v5M17 13v5M12 18v3" stroke="currentColor" stroke-width="1.3"/>'),
-    "workstation": ('<rect x="2" y="3" width="20" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 20.5h6M12 16v4.5M6 19.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>'),
-    "peripheral": ('<rect x="3" y="8" width="18" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 8V4h12v4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="7" y="17" width="10" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="17.5" cy="11" r="0.9"/>'),
+    "router": (
+        '<circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M12 2.2v3.3M12 18.5v3.3M2.2 12h3.3M18.5 12h3.3" stroke="currentColor" stroke-width="1.6" fill="none"/>'
+        '<path d="M12 1.2 10.6 4h2.8zM12 22.8 10.6 20h2.8zM1.2 12 4 10.6v2.8zM22.8 12 20 10.6v2.8z"/>'
+    ),
+    "firewall": (
+        '<rect x="2" y="3" width="20" height="18" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M2 8h20M2 13h20M2 18h20M7 3v5M12 8v5M17 3v5M7 13v5M17 13v5M12 18v3" stroke="currentColor" '
+        'stroke-width="1.3"/>'
+    ),
+    "workstation": (
+        '<rect x="2" y="3" width="20" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M9 20.5h6M12 16v4.5M6 19.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>'
+    ),
+    "peripheral": (
+        '<rect x="3" y="8" width="18" height="9" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M6 8V4h12v4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
+        '<rect x="7" y="17" width="10" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+        '<circle cx="17.5" cy="11" r="0.9"/>'
+    ),
     "generic": '<path d="M12 2 22 12 12 22 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/>',
 }
+# fmt: on
 # "switch" (без L2/L3) — для обратной совместимости со старыми записями категорий (тип
 # DiagramIconShape на фронтенде до сих пор допускает это значение) — тот же символ, что и у
 # switch_l2, см. комментарий выше про происхождение switch_l2/switch_l3/router.
@@ -175,7 +206,8 @@ def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
     if name == "href" and not lowered.startswith("#"):
         raise _reject(f"ссылка «{name}» в теге «{tag}» может указывать только на элемент документа (#id)")
     if _has_script_scheme(value):
-        raise _reject(f"атрибут «{name}» тега «{tag}» содержит ссылку с исполняемой схемой (javascript:, vbscript:) или выражение expression()")
+        problem = "содержит ссылку с исполняемой схемой (javascript:, vbscript:) или выражение expression()"
+        raise _reject(f"атрибут «{name}» тега «{tag}» {problem}")
     for _quote, target in _CSS_URL.findall(value):
         if not target.strip().startswith("#"):
             raise _reject(f"url() в атрибуте «{name}» тега «{tag}» может указывать только на #id")
