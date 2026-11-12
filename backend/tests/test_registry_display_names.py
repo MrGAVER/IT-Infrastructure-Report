@@ -33,3 +33,18 @@ def test_each_audit_only_entity_type_is_really_written_to_the_audit_log():
     sources = "\n".join(path.read_text(encoding="utf-8") for path in APP_DIR.rglob("*.py"))
     for entity_type in AUDIT_ONLY_ENTITY_TYPES:
         assert re.search(rf"audit\(\s*session\s*,\s*[\"']{re.escape(entity_type)}[\"']", sources), f"{entity_type}: в журнал не пишется — удалите ключ из DISPLAY_NAMES и из исключений"
+
+
+# --- ИА-04 код-ревью r3: подпись — для людей, пояснение для разработчика — в комментарии --------------------------------------------------
+DEVELOPER_NOTE_MARKERS = re.compile(r"[a-z]+_[a-z]+|models\.|\bсм\.\s")  # snake_case-идентификаторы, ссылки на модели, «см. …»
+
+
+def test_display_names_are_labels_for_people_not_developer_notes():
+    """Подписи возвращает `GET /resources`, их видно в колонке «Раздел» журнала аудита и в сообщениях «используется в: …»."""
+    notes = {key: name for key, name in DISPLAY_NAMES.items() if DEVELOPER_NOTE_MARKERS.search(name)}
+    assert notes == {}, f"в подписях заметки для разработчика (вынесите их в комментарий): {notes}"
+
+
+def test_the_two_polymorphic_resources_have_short_labels():
+    assert DISPLAY_NAMES["ip-addresses"] == "IP-адреса"
+    assert DISPLAY_NAMES["deployed-software"] == "ПО, развёрнутое на устройствах и ВМ"

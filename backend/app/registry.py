@@ -70,10 +70,10 @@ DISPLAY_NAMES = {
     "connection-types": "Типы подключений",
     "connections": "Подключения",
     "vms": "Виртуальные машины",
-    "ip-addresses": "IP-адреса (интерфейсов устройств, ВМ и источников ИС — owner_type/owner_id, см. models.IPAddress)",
+    "ip-addresses": "IP-адреса",  # owner_type/owner_id: интерфейсы устройств, ВМ и источники ИС, см. models.IPAddress
     "containers": "Контейнеры",
     "software-assets": "Программные активы",
-    "deployed-software": "ПО, развёрнутое на устройствах и ВМ (owner_type/owner_id — см. models.DeployedSoftware)",
+    "deployed-software": "ПО, развёрнутое на устройствах и ВМ",  # owner_type/owner_id, см. models.DeployedSoftware
     "is-sources": "ИС ↔ источники размещения",
     "open-ports": "Открытые порты",
     "audit-log": "Аудит",
