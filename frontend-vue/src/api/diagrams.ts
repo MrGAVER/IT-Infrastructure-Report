@@ -212,8 +212,35 @@ export async function exportDiagram(id: string, format: DiagramExportFormat): Pr
   // Текст ошибки берётся из JSON-тела `{detail}` (в том числе 503 «Сервер занят…» с Retry-After при ограничении тяжёлых экспортов),
   // а не выводится сырым телом ответа: `apiErrorFromResponse` — тот же разбор, что у `request()`.
   if (!res.ok) throw await apiErrorFromResponse(res)
-  const disposition = res.headers.get('Content-Disposition') ?? ''
-  const asciiMatch = disposition.match(/filename="([^"]+)"/)
-  const filename = asciiMatch?.[1] ?? `diagram.${format}`
+  const filename = filenameFromDisposition(res.headers.get('Content-Disposition') ?? '', `diagram.${format}`)
   return { blob: await res.blob(), filename }
+}
+
+/**
+ * Имя файла из заголовка Content-Disposition: сначала `filename*` (RFC 6266 / RFC 8187, UTF-8 в %-кодировке), затем ASCII-вариант `filename="…"`.
+ *
+ * Зачем два варианта: сервер (backend/app/api/diagrams.py) отдаёт оба. В ASCII-запасном каждая кириллическая буква заменена на «_»
+ * («Диаграмма_сети_ЦОД.vsdx» → «__________________.vsdx»), и разные диаграммы становятся неразличимы; настоящее название лежит только в `filename*`.
+ * Разделители пути (`/`, `\`) в декодированном имени заменяются на «_»: это часть названия диаграммы, а не путь, и в имени файла им не место.
+ * Битая %-последовательность (`URIError` при декодировании) не ошибка запроса: файл всё равно скачивается, под ASCII-именем.
+ *
+ * @param disposition значение заголовка (пустая строка, если заголовка нет)
+ * @param fallback имя, если в заголовке нет ни одного пригодного
+ *
+ * @example
+ *   filenameFromDisposition(`attachment; filename="____.svg"; filename*=UTF-8''%D0%94.svg`, 'diagram.svg') // 'Д.svg'
+ */
+export function filenameFromDisposition(disposition: string, fallback: string): string {
+  // `UTF-8'<язык>'<значение>`: язык по RFC 8187 необязателен и на практике пуст, но допустим.
+  const utf8 = disposition.match(/filename\*\s*=\s*UTF-8'[^']*'([^;]+)/i)
+  if (utf8) {
+    try {
+      const decoded = decodeURIComponent(utf8[1].trim()).replace(/[\\/]/g, '_')
+      if (decoded) return decoded
+    } catch {
+      // Битая %-последовательность: используем ASCII-вариант ниже.
+    }
+  }
+  // Не совпадёт с `filename*=`: между «filename» и «=» стоит «*».
+  return disposition.match(/filename\s*=\s*"([^"]+)"/i)?.[1] ?? fallback
 }
