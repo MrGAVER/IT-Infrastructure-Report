@@ -213,6 +213,50 @@ jobs:
             frontend-vue/test-results/
           retention-days: 7
 
+  # Серверный режим, каким его получают пользователи: `docker compose up` — приложение в контейнере поверх PostgreSQL 16 из
+  # docker-compose.yml. Шаг «Smoke-тест образа» в job `test` проверяет контейнер на SQLite, а job `test-postgres-migrations` —
+  # PostgreSQL и цепочку миграций, но не сам compose: переменные окружения, зависимость app от здоровья db, сборку адреса БД из частей
+  # (app/config.py) и запуск `alembic upgrade head` ИЗ контейнера против PostgreSQL проверяет только этот job. Значения ниже — тестовые,
+  # на настоящий сервер не попадают (разовая виртуальная машина раннера).
+  compose-postgres:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-compose-smoke-pg-password
+      INFRA_REGISTRY_SETUP_TOKEN: ci-compose-smoke-setup-token-0123456789abcdef
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: docker compose up (приложение + PostgreSQL) — стартует, применяет миграции и отвечает
+        run: |
+          docker compose up -d --build
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health && curl -fsS -o /dev/null http://127.0.0.1:8000/; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" = 1
+
+      - name: Миграции действительно прошли на PostgreSQL (а не на SQLite внутри контейнера)
+        # Без этой проверки приложение, молча упавшее на файловую SQLite, тоже ответило бы на /health.
+        run: |
+          rev=$(docker compose exec -T db psql -U infra -d infra_registry -tAc "SELECT version_num FROM alembic_version")
+          echo "alembic_version в PostgreSQL: $rev"
+          test -n "$rev"
+          tables=$(docker compose exec -T db psql -U infra -d infra_registry -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+          echo "таблиц в схеме public: $tables"
+          test "$tables" -gt 10
+
+      - name: Журналы контейнеров (при падении)
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Остановить и удалить контейнеры и тома
+        if: always()
+        run: docker compose down -v
+
   # Серверный режим приложения работает на PostgreSQL (docker-compose.yml), а job `test` выше идёт на SQLite.
   # Здесь тот же набор тестов backend выполняется на PostgreSQL 16: порядок строк, блокировки FOR UPDATE, частичные
   # индексы и типы ведут себя иначе, чем в SQLite. Схема создаётся из моделей (см. tests/conftest.py,
