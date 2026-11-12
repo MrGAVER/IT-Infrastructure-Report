@@ -31,8 +31,15 @@ from ._icons import (
 # --------------------------------------------------------------------------------------
 
 
+_ATTR_ENTITIES = {'"': "&quot;", "'": "&apos;"}
+
+
 def _esc(value) -> str:
-    return escape(str(value)) if value not in (None, "") else ""
+    """Экранирование для текста И для значений атрибутов (data-node-id, fill…): в отличие от saxutils.escape по умолчанию, кавычки тоже.
+
+    Без кавычек значение с `"` выходило бы из атрибута, и первый же id или цвет из пользовательского ввода дал бы XSS в скачанном .svg
+    (ИА-02 код-ревью r3). Пустое значение (None, "") — пустая строка."""
+    return escape(str(value), _ATTR_ENTITIES) if value not in (None, "") else ""
 
 
 def _svg_port_ticks(x: float, y: float, width: float, height: float, ticks: int) -> str:
