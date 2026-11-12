@@ -14,6 +14,9 @@ from ._common import (
     GROUP_FILL_COLOR,
     NODE_HEIGHT,
     NODE_WIDTH,
+    PORT_TICK_COLOR,
+    PORT_TICK_HEIGHT,
+    PORT_TICK_WIDTH,
     _icon_color,
     _port_anchor_fraction,
     _port_ticks_of,
@@ -36,7 +39,7 @@ def _svg_port_ticks(x: float, y: float, width: float, height: float, ticks: int)
     if ticks <= 0:
         return ""
     spacing = width / (ticks + 1)
-    return "".join(f'<rect class="port-tick" x="{x + spacing * (i + 1) - 2:.1f}" y="{y + height - 6:.1f}" width="4" height="6" fill="#222222"/>' for i in range(ticks))
+    return "".join(f'<rect class="port-tick" x="{x + spacing * (i + 1) - PORT_TICK_WIDTH / 2:.1f}" y="{y + height - PORT_TICK_HEIGHT:.1f}" width="{PORT_TICK_WIDTH}" height="{PORT_TICK_HEIGHT}" fill="{PORT_TICK_COLOR}"/>' for i in range(ticks))
 
 
 def _svg_node(node: dict, x: float, y: float) -> str:

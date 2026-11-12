@@ -12,6 +12,9 @@ from ._common import (
     GROUP_FILL_COLOR,
     NODE_HEIGHT,
     NODE_WIDTH,
+    PORT_TICK_COLOR,
+    PORT_TICK_HEIGHT,
+    PORT_TICK_WIDTH,
     _device_fill_color,
     _port_anchor_fraction,
     _port_ticks_of,
@@ -45,16 +48,16 @@ def _drawio_image_object(page, position: tuple[float, float], width: float, heig
 
 
 def _drawio_add_port_ticks(page, node: dict, ticks: int) -> None:
-    """Засечки портов вдоль нижнего края узла: чёрные штрихи 4x6, равномерно по ширине (как port-tick в .svg)."""
+    """Засечки портов вдоль нижнего края узла: штрихи PORT_TICK_WIDTH x PORT_TICK_HEIGHT, равномерно по ширине (как port-tick в .svg)."""
     import drawpyo
 
     spacing = NODE_WIDTH / (ticks + 1)
     for i in range(ticks):
         tick = drawpyo.diagram.Object(page=page, value="")
-        tick.position = (node["x"] + spacing * (i + 1) - 2, node["y"] + NODE_HEIGHT - 6)
-        tick.width = 4
-        tick.height = 6
-        tick.fillColor = "#222222"
+        tick.position = (node["x"] + spacing * (i + 1) - PORT_TICK_WIDTH / 2, node["y"] + NODE_HEIGHT - PORT_TICK_HEIGHT)
+        tick.width = PORT_TICK_WIDTH
+        tick.height = PORT_TICK_HEIGHT
+        tick.fillColor = PORT_TICK_COLOR
 
 
 def _drawio_add_generated_icon(page, node: dict, icon: dict) -> None:

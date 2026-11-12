@@ -16,11 +16,16 @@ from defusedxml import ElementTree as SafeET
 
 from ._common import (
     CUSTOM_ICON_TILE_HEIGHT,
+    DIAGRAM_EDGE_FONT_SIZE,
+    DIAGRAM_NODE_FONT_SIZE,
     GLYPH_DISPLAY_SIZE,
     GLYPH_TOP_MARGIN,
     GROUP_FILL_COLOR,
     NODE_HEIGHT,
     NODE_WIDTH,
+    PORT_TICK_COLOR,
+    PORT_TICK_HEIGHT,
+    PORT_TICK_WIDTH,
     VSDX_SCALE,
     _device_fill_color,
     _port_anchor_fraction,
@@ -253,6 +258,51 @@ def _set_vsdx_shape_size(shape, width: float, height: float) -> None:
     shape.set_cell_value("LocPinY", str(height / 2))
 
 
+def _set_vsdx_font_size(shape, size: float) -> None:
+    """Размер шрифта подписи фигуры: `size` в единицах графа (как DIAGRAM_*_FONT_SIZE), в Visio — дюймы через тот же VSDX_SCALE,
+    что и размеры фигур, то есть подпись занимает ту же долю узла, что в .svg/.drawio.
+
+    У шаблонных фигур секции Character нет, а vsdx создавать секции не умеет (точечные сеттеры вроде text_color молча ничего не
+    делают, пока секции нет), поэтому секция добавляется прямо в XML фигуры. Только ячейка Size: остальное (шрифт, цвет) наследуется
+    от стиля текста, как и раньше. Порядок среди секций фигуры схема MS-VSDX не задаёт; ставим перед Geometry, как пишет сам Visio.
+    """
+    from vsdx import namespace as visio_ns
+
+    section = ET.Element(f"{visio_ns}Section", {"N": "Character"})
+    row = ET.SubElement(section, f"{visio_ns}Row", {"IX": "0"})
+    ET.SubElement(row, f"{visio_ns}Cell", {"N": "Size", "V": repr(size / VSDX_SCALE)})
+    geometry = shape.xml.find(f"{visio_ns}Section[@N='Geometry']")
+    if geometry is not None:
+        shape.xml.insert(list(shape.xml).index(geometry), section)
+    else:
+        shape.xml.append(section)
+
+
+def _add_vsdx_port_ticks(rect_template, node_shape, ticks: int) -> None:
+    """Засечки портов вдоль нижней грани узла — отдельные фигуры PORT_TICK_WIDTH x PORT_TICK_HEIGHT, равномерно по ширине (как port-tick
+    в .svg и штрихи в .drawio); коннектор целится в их центр по горизонтали (_vsdx_port_anchor). Копии делает _ShapeTemplate — без
+    него сотни засечек вернули бы квадратичный обход страницы (A-06). Шаблонная секция Property (демонстрационные «property value»)
+    засечке не нужна и в файл не попадает."""
+    if ticks <= 0:
+        return
+    from vsdx import namespace as visio_ns
+
+    width, height = PORT_TICK_WIDTH / VSDX_SCALE, PORT_TICK_HEIGHT / VSDX_SCALE
+    left = node_shape.x - node_shape.width / 2
+    bottom = node_shape.y - node_shape.height / 2  # «низ» графа — меньший Y в осях Visio (см. _vsdx_port_anchor)
+    spacing = node_shape.width / (ticks + 1)
+    for i in range(ticks):
+        tick = rect_template.copy()
+        tick.text = ""
+        tick.fill_color = PORT_TICK_COLOR
+        tick.line_color = PORT_TICK_COLOR
+        _set_vsdx_shape_size(tick, width, height)
+        tick.move(left + spacing * (i + 1) - tick.x, bottom + height / 2 - tick.y)
+        properties = tick.xml.find(f"{visio_ns}Section[@N='Property']")
+        if properties is not None:
+            tick.xml.remove(properties)
+
+
 def _add_vsdx_image_overlay(rect_template, node_shape, rel_id: str, width: float, height: float, top_margin: float) -> None:
     """Добавляет на страницу фигуру-оверлей с растровой картинкой (ForeignData/Rel на rId) размера
     width x height (дюймы), по центру верхней части node_shape, с отступом top_margin от её верха.
@@ -378,6 +428,7 @@ def _place_vsdx_node(rect_template, node: dict, page_height: float):
 
 
 def _style_vsdx_node(shape, node: dict) -> None:
+    _set_vsdx_font_size(shape, DIAGRAM_NODE_FONT_SIZE)
     if node["type"] == "group":
         # Раздел 4.4 ТЗ: группа должна визуально отличаться от устройства так же,
         # как в .svg/.drawio (светло-серая заливка + пунктирная рамка), а не только
@@ -424,7 +475,10 @@ def _add_vsdx_edges(graph: dict, shapes_by_node_id: dict, connector_template) ->
         target_fraction = _port_anchor_fraction(edge.get("target_interface"), _port_ticks_of(nodes_by_id[edge["target_node_id"]]))
         connector.set_start_and_finish(_vsdx_port_anchor(source, source_fraction), _vsdx_port_anchor(target, target_fraction))
         _strip_dangling_glue_formulas(connector)
-        connector.text = _vlan_label(edge)
+        label = _vlan_label(edge)
+        connector.text = label
+        if label:
+            _set_vsdx_font_size(connector, DIAGRAM_EDGE_FONT_SIZE)
         if not edge.get("is_active", True):
             # Тот же LinePattern=2 (пунктир), что и у рамки группы выше — параллель с
             # stroke-dasharray в .svg и pattern="dashed_medium" в .drawio для
@@ -480,6 +534,8 @@ def export_vsdx(graph: dict) -> bytes:
                 _style_vsdx_node(shape, node)
                 if node["type"] != "group":
                     _overlay_vsdx_icon(rect_template, shape, node["icon"], images)
+                    if not _standalone_custom_svg(node["icon"]):  # у плитки custom-иконки засечек нет — как в .svg
+                        _add_vsdx_port_ticks(rect_template, shape, _port_ticks_of(node))
                 shapes_by_node_id[node["id"]] = shape
 
             _add_vsdx_edges(graph, shapes_by_node_id, connector_template)
