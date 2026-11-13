@@ -6000,3 +6000,15 @@ make_include_object` → `ModuleNotFoundError: No module named 'app.alembic_filt
 
 **Не проверялось** (нет среды): запуск `.exe` и рендер `.vsdx` в дочернем процессе под Windows; e2e Playwright (Chromium недоступен); тесты на PostgreSQL и job `compose-postgres`
 (нужны PostgreSQL и Docker; в CI они выполняются); поведение в реальных браузерах (скачивание файлов, подсказка об упрощённых маршрутах диаграммы).
+
+### Не выпущено — `opentelemetry-api` 1.45.1 → 1.45.2 (CVE-2026-126360): pip-audit блокировал job `test`
+
+Ветка `fix/lock-opentelemetry-api-1.45.2` (от `main` @ `d22ef87`). Номер версии не менялся; менялись только lock-файлы.
+
+**Симптом.** Блокирующий шаг `pip-audit` (job `test`, `requirements.lock`) стал падать на любом коммите: `opentelemetry-api 1.45.1` получил CVE-2026-126360, исправление — 1.45.2.
+Зависимость транзитивная (её тянет `fastapi`), закреплена в lock-файлах, поэтому сама не обновлялась; ни один из открытых PR Dependabot её не затрагивает.
+Уязвимость опубликовали после зелёного CI на слиянии код-ревью, к самому слиянию это отношения не имеет.
+
+- **`backend/requirements.lock`, `requirements-dev.lock`, `requirements-build.lock`:** обновлена одна зависимость (версия и хеши), больше ничего. Команда — как в README, «Зависимости backend», с флагом точечного обновления:
+  `uv pip compile requirements.txt --universal --generate-hashes --python-version 3.12 -o requirements.lock --no-header --upgrade-package opentelemetry-api` (так же для `requirements-dev` и `requirements-build`).
+- **Проверено:** `pip-audit` по `requirements.lock` и `requirements-build.lock` — уязвимостей нет; повторная пересборка всех трёх lock-файлов без флага не меняет их (шаг CI «Lock-файлы backend актуальны»); тесты, читающие lock-файлы, проходят.
