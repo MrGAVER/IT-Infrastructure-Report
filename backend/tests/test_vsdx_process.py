@@ -19,6 +19,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from pyinstaller_spec_eval import evaluate_spec
 
 from app.api import diagrams as diagrams_module
 from app.models import DeviceType, PhysicalDevice
@@ -178,7 +179,6 @@ def test_launcher_calls_freeze_support_before_main():
     assert calls[:2] == ["multiprocessing.freeze_support", "main"], f"вызовы под __main__: {calls}"
 
 
-def test_the_render_module_is_picked_up_by_the_pyinstaller_spec_automatically():
-    """Спецификация собирает пакет `app` через collect_submodules, поэтому новый модуль не нужно перечислять в hiddenimports."""
-    spec = (ROOT / "infra_registry.spec").read_text(encoding="utf-8")
-    assert "collect_submodules('app')" in spec
+def test_the_render_module_is_picked_up_by_the_pyinstaller_spec_automatically(monkeypatch):
+    """Спецификация находит модули пакета `app` сама, поэтому новый модуль не нужно перечислять в hiddenimports вручную."""
+    assert "app.services.vsdx_process" in evaluate_spec(monkeypatch)["hiddenimports"]
