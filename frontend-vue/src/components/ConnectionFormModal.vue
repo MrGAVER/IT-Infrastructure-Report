@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useId } from 'vue'
+import { nextTick, ref, useId } from 'vue'
 // Форма создания/редактирования подключения. Источник и назначение выбираются в два шага (устройство -> порт), т.к. интерфейсы
 // принадлежат конкретному устройству.
 //
@@ -21,7 +21,7 @@ import { useConnectionDraft } from '../composables/useConnectionDraft'
 import { useConnectionPortConfig } from '../composables/useConnectionPortConfig'
 import { useConnectionPortsDialog } from '../composables/useConnectionPortsDialog'
 import { useConnectionSave } from '../composables/useConnectionSave'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
@@ -37,9 +37,13 @@ const props = defineProps<{
   prefill?: ConnectionPrefill | null
 }>()
 const emit = defineEmits<{ close: []; saved: [connection: Connection] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
+
+// FE-08: панель расхождения занимает место кнопок, поэтому «Сохранить» при показе панели нет в DOM; по «Вернуться к правке» фокус
+// возвращается на неё (иначе он остался бы на <body>). Только по явному возврату, а не по любому сбросу `resolving`: после выбора
+// решения может открыться окно каскада, и фокус у него отнимать нельзя.
+const saveButton = ref<HTMLButtonElement | null>(null)
 
 const draft = useConnectionDraft({ connection: () => props.connection, prefill: () => props.prefill })
 const {
@@ -72,10 +76,16 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
   readOnly,
   onSaved: (connection) => emit('saved', connection),
 })
+
+async function backToEdit(): Promise<void> {
+  resolving.value = false
+  await nextTick() // кнопка «Сохранить» появляется в DOM только после перерисовки
+  saveButton.value?.focus()
+}
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать подключение' : 'Добавить подключение' }}</h2>
@@ -156,11 +166,11 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
         </form>
       </fieldset>
 
-      <ConnectionResolutionPanel v-if="resolving && portMismatch" :mismatch="portMismatch" @resolve="resolveAndSave" @back="resolving = false" />
+      <ConnectionResolutionPanel v-if="resolving && portMismatch" :mismatch="portMismatch" @resolve="resolveAndSave" @back="backToEdit" />
 
       <div v-else class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
-        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button v-if="!readOnly" ref="saveButton" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>
@@ -182,21 +192,10 @@ const { submit, resolveAndSave, cancelCascade, cascadePending, cascadeApplying, 
       @confirm="cascadeConfirm"
       @cancel="cancelCascade"
     />
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 680px;

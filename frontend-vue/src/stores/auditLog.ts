@@ -10,9 +10,8 @@
 import { defineStore } from 'pinia'
 import { fetchAuditLogPage } from '../api/auditLogPage'
 import type { AuditLogEntry, AuditLogSummary } from '../api/types'
-import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
+import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 
-export const DEFAULT_PAGE_SIZE = 12
 const LIST_ID = 'auditLog'
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -45,10 +44,10 @@ export const useAuditLogStore = defineStore('auditLog', {
     actionFilter: 'all' as 'all' | keyof typeof ACTION_LABELS,
     entityTypeFilter: '',
     page: 1,
-    pageSize: loadPageSize(LIST_ID, DEFAULT_PAGE_SIZE),
+    pageSize: loadPageSize(LIST_ID),
   }),
   getters: {
-    pageSizeOptions: (): number[] => pageSizeOptionsFor(DEFAULT_PAGE_SIZE),
+    pageSizeOptions: (): number[] => [...PAGE_SIZE_OPTIONS],
     pageCount: (state): number => Math.max(1, Math.ceil(state.total / state.pageSize)),
     /** Число записей журнала с данным действием — по всему журналу. */
     countByAction:
@@ -92,6 +91,13 @@ export const useAuditLogStore = defineStore('auditLog', {
     reload(): Promise<void> {
       return this.load()
     },
+    /** Кнопка «Сбросить фильтры» пустого списка: поиск и оба фильтра — в исходное. Загрузку не запускает: экран следит за этими полями
+     * (поиск — с задержкой, фильтры — сразу) и перечитывает страницу сам. */
+    resetFilters(): void {
+      this.search = ''
+      this.actionFilter = 'all'
+      this.entityTypeFilter = ''
+    },
     /** Смена поиска или фильтра — всегда с первой страницы. */
     applyFilters(): Promise<void> {
       this.page = 1
@@ -104,7 +110,7 @@ export const useAuditLogStore = defineStore('auditLog', {
     /** Смена количества строк: остаёмся на странице с тем же первым видимым элементом, выбор
      * запоминается для этого списка. Недопустимое значение игнорируется. */
     setPageSize(size: number): Promise<void> {
-      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return Promise.resolve()
+      if (size === this.pageSize || !isAllowedPageSize(size)) return Promise.resolve()
       this.page = pageAfterSizeChange(this.page, this.pageSize, size)
       this.pageSize = size
       savePageSize(LIST_ID, size)

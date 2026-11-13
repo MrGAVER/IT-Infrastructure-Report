@@ -21,7 +21,7 @@ beforeEach(() => {
 describe('QuickAddButton.vue', () => {
   it('модалка не отрендерена, пока кнопка не нажата', () => {
     mount(QuickAddButton, { props: { resource: 'manufacturers' } })
-    expect(body().find('.overlay').exists()).toBe(false)
+    expect(body().find('.modal-overlay').exists()).toBe(false)
   })
 
   it('открывает модалку по клику', async () => {
@@ -48,7 +48,7 @@ describe('QuickAddButton.vue', () => {
     await body().find('form').trigger('submit')
     await flushPromises()
 
-    expect(body().find('.overlay').exists()).toBe(false)
+    expect(body().find('.modal-overlay').exists()).toBe(false)
     expect(wrapper.emitted('created')?.[0][0]).toEqual({ id: 'mfr-new', name: 'Cisco' })
   })
 })

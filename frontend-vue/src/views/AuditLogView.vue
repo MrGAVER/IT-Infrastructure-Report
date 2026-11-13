@@ -5,6 +5,8 @@ import { useCatalogsStore } from '../stores/catalogs'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
+import ListEmptyRow from '../components/ListEmptyRow.vue'
 import { debounce } from '../utils/debounce'
 import { formatServerDateTime } from '../utils/dateTime'
 
@@ -76,7 +78,7 @@ onBeforeUnmount(() => searchDebounced.cancel())
         {{ log.error }}
       </div>
       <div v-else-if="log.loading && !log.loaded" class="loading-banner">Загрузка журнала аудита…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Журнал аудита">
         <table>
           <thead>
             <tr>
@@ -99,12 +101,17 @@ onBeforeUnmount(() => searchDebounced.cancel())
               <td class="mono id-cell" :title="e.entity_id">{{ e.entity_id.slice(0, 8) }}…</td>
               <td class="details-cell">{{ e.details || '—' }}</td>
             </tr>
-            <tr v-if="!log.items.length">
-              <td colspan="6" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
-            </tr>
+            <!-- Журнал пишет само приложение, поэтому у пустого журнала нет кнопки создания записи. summary — по всему журналу. -->
+            <ListEmptyRow
+              v-if="!log.items.length"
+              :colspan="6"
+              :registry-empty="log.summary.total === 0"
+              empty-text="В журнале аудита пока нет записей."
+              @reset="log.resetFilters()"
+            />
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
       <div class="table-foot">
         <span
           >Показано {{ log.items.length ? (log.page - 1) * log.pageSize + 1 : 0 }}–{{ (log.page - 1) * log.pageSize + log.items.length }} из
@@ -195,9 +202,6 @@ onBeforeUnmount(() => searchDebounced.cancel())
 .spacer {
   flex: 1;
 }
-.table-wrap {
-  overflow-x: auto;
-}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -264,11 +268,6 @@ tbody tr:hover td {
 .action-badge.sync {
   background: var(--status-warn-soft, rgba(232, 163, 61, 0.15));
   color: var(--status-warn);
-}
-.empty-row {
-  text-align: center;
-  color: var(--ink-muted);
-  padding: 26px 14px;
 }
 .error-banner {
   display: flex;

@@ -7,7 +7,7 @@ import { stubPreferencesApi, type PreferencesApiStub } from '../../stores/__test
 import { usePagedList } from '../usePagedList'
 
 const range = (n: number) => Array.from({ length: n }, (_, i) => i + 1)
-const OPTIONS = { listId: 'testList', defaultPageSize: 10 }
+const OPTIONS = { listId: 'testList' }
 
 let api: PreferencesApiStub
 
@@ -19,12 +19,12 @@ beforeEach(() => {
 })
 
 describe('usePagedList', () => {
-  it('по умолчанию — первая страница из defaultPageSize записей; варианты размера — x1, x2, x4, x8', () => {
+  it('по умолчанию — первая страница из 10 записей; варианты размера — 10 / 25 / 50 / 100 (F-09)', () => {
     const list = usePagedList(range(25), OPTIONS)
 
     expect(list.page.value).toBe(1)
     expect(list.pageSize.value).toBe(10)
-    expect(list.pageSizeOptions.value).toEqual([10, 20, 40, 80])
+    expect(list.pageSizeOptions.value).toEqual([10, 25, 50, 100])
     expect(list.pageCount.value).toBe(3)
     expect(list.pageItems.value).toEqual(range(10))
     expect([list.rangeFrom.value, list.rangeTo.value, list.total.value]).toEqual([1, 10, 25])
@@ -81,27 +81,27 @@ describe('usePagedList', () => {
 
   it('смена размера оставляет на странице с тем же первым видимым элементом', () => {
     const list = usePagedList(range(100), OPTIONS)
-    list.setPage(3) // записи 21–30
+    list.setPage(6) // записи 51–60
 
-    list.setPageSize(20)
+    list.setPageSize(25)
 
-    expect(list.page.value).toBe(2) // 21-я — первая на второй странице по 20
-    expect(list.pageItems.value[0]).toBe(21)
-    expect(list.pageItems.value).toHaveLength(20)
+    expect(list.page.value).toBe(3) // 51-я — первая на третьей странице по 25
+    expect(list.pageItems.value[0]).toBe(51)
+    expect(list.pageItems.value).toHaveLength(25)
   })
 
   it('выбранный размер запоминается на сервере для этого списка и восстанавливается новым экземпляром', async () => {
-    usePagedList(range(100), OPTIONS).setPageSize(40)
+    usePagedList(range(100), OPTIONS).setPageSize(50)
     await flushPromises()
-    expect(api.server.user.page_sizes).toEqual({ testList: 40 })
+    expect(api.server.user.page_sizes).toEqual({ testList: 50 })
 
     // «Перезагрузка страницы»: настройки подтягиваются с сервера до создания списка.
     setActivePinia(createPinia())
     await usePreferencesStore().load({ userId: 'user-1', canWriteGlobal: false })
-    expect(usePagedList(range(100), OPTIONS).pageSize.value).toBe(40)
+    expect(usePagedList(range(100), OPTIONS).pageSize.value).toBe(50)
   })
 
-  it.each([0, -1, 7, 1000, Number.NaN])('недопустимый размер %s игнорируется: страница и настройки не меняются', (bad) => {
+  it.each([0, -1, 7, 20, 1000, Number.NaN])('недопустимый размер %s игнорируется: страница и настройки не меняются', (bad) => {
     const list = usePagedList(range(100), OPTIONS)
     list.setPage(2)
 
@@ -120,9 +120,5 @@ describe('usePagedList', () => {
 
     expect(list.page.value).toBe(4)
     expect(api.userPuts).toEqual([])
-  })
-
-  it.each([0, -5, 2.5, Number.NaN])('недопустимый defaultPageSize %s — понятная ошибка при создании', (bad) => {
-    expect(() => usePagedList(range(3), { listId: 'x', defaultPageSize: bad })).toThrow(RangeError)
   })
 })

@@ -68,6 +68,7 @@ from ..models import (
 )
 from .connection_query import ConnectionQuery, select_connection_ids
 from .crud import audit
+from .device_label import device_label
 from .port_config import (
     DEFAULT_VLAN_MODE,
     PORT_ROLE_LABELS,
@@ -254,7 +255,7 @@ def _port_view(port: _Port | None, interface_id: str) -> dict[str, Any]:
         "interface_id": port.iface.id,
         "name": port.iface.name,
         "device_id": port.iface.physical_device_id,
-        "device_name": (device.system_name or device.serial_number) if device else "",
+        "device_name": device_label(device),
         "role": port.facts.role.value,
         "mode": port.facts.mode,
         "vlans": sorted(port.facts.vlans),
@@ -431,7 +432,7 @@ def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: 
 
 
 def _port_label(port: _Port) -> str:
-    device = port.device.system_name or port.device.serial_number if port.device else ""
+    device = device_label(port.device)
     return f"«{port.iface.name}» ({device})" if device else f"«{port.iface.name}»"
 
 

@@ -301,7 +301,7 @@ test.describe('десктоп 1440×900: заполненные данные', (
     await openApp(page, '/devices')
 
     // 13 одиночных устройств + стек из двух = 14 строк и 15 устройств
-    await expect(page.locator('.table-foot span').first()).toHaveText('Показано 1–6 из 14 строк (устройств: 15)')
+    await expect(page.locator('.table-foot span').first()).toHaveText('Показано 1–10 из 14 строк (устройств: 15)')
   })
 })
 

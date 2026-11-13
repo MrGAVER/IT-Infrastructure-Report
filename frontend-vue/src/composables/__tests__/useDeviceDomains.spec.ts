@@ -22,6 +22,10 @@ function setup() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // clearAllMocks сбрасывает только историю вызовов, но не реализации: без mockReset
+  // `mockRejectedValue` одного теста протекает в следующий (виден при --sequence.shuffle).
+  createResource.mockReset()
+  updateResource.mockReset()
   stores = setupStores()
   stores.domains.all = [domain('dom-1'), domain('dom-2'), domain('dom-3')]
   setVlanDefinitions(stores.vlans, [vlanDef('free-5', 5), vlanDef('a-10', 10, 'dom-1'), vlanDef('a-11', 11, 'dom-1'), vlanDef('b-20', 20, 'dom-2')])

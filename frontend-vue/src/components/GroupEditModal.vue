@@ -7,7 +7,7 @@
 // (копирование с порта, окно выбора VLAN) не переживает закрытие.
 import { computed, ref } from 'vue'
 import type { InterfaceDraftRow, InterfaceGroupDraft, ProtocolPortCatalogEntry, SubinterfaceDraftRow, VLANDefinition } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import {
   cloneGroupForEdit,
   countSelectedVlans,
@@ -39,7 +39,6 @@ const props = defineProps<{
   collapseAfter?: number
 }>()
 const emit = defineEmits<{ close: []; save: [payload: { group: InterfaceGroupDraft; members: Set<number> }] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 // draft — рабочая копия группы; members — индексы её портов (чисто UI-состояние окна до «Сохранить»).
 const draft = ref<InterfaceGroupDraft>(cloneGroupForEdit(props.group))
@@ -91,7 +90,7 @@ function setDraftSubinterfaces(rows: SubinterfaceDraftRow[]) {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="group-modal card" role="dialog" aria-modal="true" :aria-label="isNew ? 'Новая группа портов' : 'Группа портов'">
       <div class="modal-head">
         <h2>{{ isNew ? 'Новая группа портов' : 'Группа портов' }}</h2>
@@ -212,7 +211,7 @@ function setDraftSubinterfaces(rows: SubinterfaceDraftRow[]) {
         <button type="button" class="btn btn-primary" @click="emit('save', { group: draft, members })">{{ isNew ? 'Создать группу' : 'Применить' }}</button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 
   <GroupVlanPickerModal
     v-if="vlanPickerOpen"

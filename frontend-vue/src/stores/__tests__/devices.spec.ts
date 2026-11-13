@@ -102,7 +102,7 @@ describe('useDevicesStore', () => {
     expect(store.filtered.map((d) => d.id).sort()).toEqual(['dev-1', 'dev-2'])
   })
 
-  it('пагинирует по 6 записей на страницу и сбрасывает страницу', async () => {
+  it('страница не выходит за pageCount: на трёх устройствах она одна', async () => {
     const store = useDevicesStore()
     await store.ensureLoaded()
     expect(store.pageCount).toBe(1) // всего 3 устройства — 1 страница

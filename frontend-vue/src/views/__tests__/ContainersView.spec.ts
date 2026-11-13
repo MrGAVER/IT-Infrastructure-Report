@@ -36,9 +36,15 @@ function seedStores(containers: Container[]) {
 }
 
 describe('ContainersView.vue', () => {
-  it('показывает подсказку, если ничего не найдено по фильтру', async () => {
-    seedStores([])
+  // До F-04 здесь стоял пустой реестр: тест закреплял именно дефект — «не найдено по фильтрам» при нуле записей и нуле фильтров.
+  // Пустой реестр и его текст проверяет listEmptyState.spec.ts.
+  it('показывает подсказку, если по фильтру ничего не найдено', async () => {
+    const store = seedStores([
+      { id: 'ct-1', name: 'nginx', virtual_machine_id: null, physical_device_id: null, runtime: null, runtime_version: null, purpose: null },
+    ])
     const wrapper = mount(ContainersView)
+    await flushPromises()
+    store.search = 'нет такого'
     await flushPromises()
 
     expect(wrapper.text()).toContain('Ничего не найдено')

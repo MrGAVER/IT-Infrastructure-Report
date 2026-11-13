@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models import DeviceStack, DeviceStackMember, DeviceStackVLAN, PhysicalDevice, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
+from ..device_label import device_label
 
 class Values(NamedTuple):
     """То, что общая настройка задаёт каждому участнику: IP-адрес, префикс, «Управление». Это обычный кортеж по
@@ -36,10 +37,6 @@ def setting_values(setting: DeviceStackVLAN) -> Values:
 
 def link_values(link: PhysicalDeviceVLAN) -> Values:
     return Values(normalize_ip(link.ip_address), link.prefix_length, bool(link.is_management))
-
-
-def device_label(device: PhysicalDevice) -> str:
-    return device.system_name or device.serial_number
 
 
 def vlan_sort_key(vlan: VLAN) -> tuple[int, str, str]:

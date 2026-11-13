@@ -2184,7 +2184,7 @@ class TestReports:
         assert r.status_code == 200, r.text
 
         import openpyxl
-        path = REPORT_DIR / r.json()["file_name"]
+        path = REPORT_DIR / "audit" / r.json()["file_name"]  # отчёты аудита лежат в подкаталоге (A-05)
         wb = openpyxl.load_workbook(path)
         ws = wb.active
         # Только заголовок — ни одна запись не попадает в диапазон дат из будущего.

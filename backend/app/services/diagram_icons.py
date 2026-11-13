@@ -8,6 +8,7 @@
 Реальные товарные знаки/логотипы не воспроизводятся — только текстовая подпись производителя/
 модели и цвет категории (см. manufacturer_label/model_label ниже).
 """
+
 from __future__ import annotations
 
 import re
@@ -35,11 +36,16 @@ DEFAULT_COLOR = "#9aa0a6"  # "default нейтральный серый" (раз
 # белым по цветной заливке узла, и тёмным на светлом фоне легенды (Фаза 3, п.1). Координаты — в
 # системе viewBox "0 0 24 24" (см. GLYPH_VIEWBOX); фронтенд отрисовывает эту же разметку без
 # изменений (см. DiagramDeviceNode.vue).
+# fmt: off
+# Разметка разбита по элементам SVG и не пересобирается форматтером: при line-length = 400 `ruff format` склеивал её в строки до 397
+# символов (ИА-06 код-ревью r3). Склейка кусков даёт ту же строку, что и раньше — это проверяет test_diagram_icon_glyph_source.py.
 SHAPE_GLYPHS: dict[str, str] = {
     "server": (
         '<rect x="4" y="2" width="16" height="20" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
         '<path d="M4 9h16M4 16h16" stroke="currentColor" stroke-width="1.4"/>'
-        '<circle cx="7.2" cy="5.5" r="1"/><circle cx="7.2" cy="12.5" r="1"/><circle cx="7.2" cy="19.2" r="1"/>'
+        '<circle cx="7.2" cy="5.5" r="1"/>'
+        '<circle cx="7.2" cy="12.5" r="1"/>'
+        '<circle cx="7.2" cy="19.2" r="1"/>'
         '<path d="M11 5.5h6M11 12.5h6M11 19.2h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
     ),
     # switch_l2/switch_l3/router появились позже (см. диаграмма-графа "Пункт 5 правки"): до этого
@@ -54,14 +60,18 @@ SHAPE_GLYPHS: dict[str, str] = {
     "switch_l2": (
         '<rect x="2" y="6" width="20" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
         '<path d="M5.5 15v3.2M9.5 15v3.2M14.5 15v3.2M18.5 15v3.2" stroke="currentColor" stroke-width="1.4"/>'
-        '<path d="M6.5 10.5h4.5M9.5 8.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-        '<path d="M17.5 10.5h-4.5M14.5 8.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M6.5 10.5h4.5M9.5 8.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M17.5 10.5h-4.5M14.5 8.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
     ),
     "switch_l3": (
         '<rect x="2" y="9" width="20" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
         '<path d="M5.5 18v3.2M9.5 18v3.2M14.5 18v3.2M18.5 18v3.2" stroke="currentColor" stroke-width="1.4"/>'
-        '<path d="M6.5 13.5h4.5M9.5 11.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-        '<path d="M17.5 13.5h-4.5M14.5 11.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M6.5 13.5h4.5M9.5 11.8l1.7 1.7-1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M17.5 13.5h-4.5M14.5 11.8l-1.7 1.7 1.7 1.7" stroke="currentColor" stroke-width="1.2" fill="none" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
         '<path d="M12 1.5 15 6.5H9z"/>'
     ),
     "router": (
@@ -71,7 +81,8 @@ SHAPE_GLYPHS: dict[str, str] = {
     ),
     "firewall": (
         '<rect x="2" y="3" width="20" height="18" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/>'
-        '<path d="M2 8h20M2 13h20M2 18h20M7 3v5M12 8v5M17 3v5M7 13v5M17 13v5M12 18v3" stroke="currentColor" stroke-width="1.3"/>'
+        '<path d="M2 8h20M2 13h20M2 18h20M7 3v5M12 8v5M17 3v5M7 13v5M17 13v5M12 18v3" stroke="currentColor" '
+        'stroke-width="1.3"/>'
     ),
     "workstation": (
         '<rect x="2" y="3" width="20" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>'
@@ -85,6 +96,7 @@ SHAPE_GLYPHS: dict[str, str] = {
     ),
     "generic": '<path d="M12 2 22 12 12 22 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/>',
 }
+# fmt: on
 # "switch" (без L2/L3) — для обратной совместимости со старыми записями категорий (тип
 # DiagramIconShape на фронтенде до сих пор допускает это значение) — тот же символ, что и у
 # switch_l2, см. комментарий выше про происхождение switch_l2/switch_l3/router.
@@ -111,7 +123,8 @@ def safe_color(value, default: str = DEFAULT_COLOR) -> str:
 def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
     return value if isinstance(value, str) and value in SHAPE_GLYPHS else default
 
-# DiagramIcon.svg_markup попадает и в экспортируемый .svg (services/diagram_export.py), и во фронтенд
+
+# DiagramIcon.svg_markup попадает и в экспортируемый .svg (services/diagram_export/), и во фронтенд
 # через v-html (DiagramDeviceNode.vue, DeviceIconPicker.vue). SVG — исполняемый формат: <script>,
 # <foreignObject> (произвольный HTML), обработчики событий (onload, onerror…), анимация атрибутов
 # (<set>/<animate> подставляют javascript:-ссылку) и внешние ссылки выполняются или грузятся в браузере
@@ -122,19 +135,44 @@ def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
 # <s:script> с префиксом пространства имён, javascript: через HTML-сущность (&#106;avascript:), SMIL-
 # анимация href. Теперь — белый список: разметка разбирается как XML (defusedxml: DTD и сущности
 # запрещены), допускаются только перечисленные графические теги, а из атрибутов отвергаются обработчики
-# on*, любые ссылки не на элемент внутри самого документа (#id) и url(...) не на #id.
+# on*, любые ссылки не на элемент внутри самого документа (#id), url(...) не на #id и исполняемые схемы javascript:/vbscript:/expression(
+# (после удаления служебных символов — см. _has_script_scheme; слово «script» само по себе, как в id="description", допустимо).
 #
 # Цена: иконки из внешних редакторов с метаданными (inkscape:/sodipodi:), <style>, <image> и <a> не
-# проходят — их нужно очистить перед загрузкой; сообщение об ошибке называет проблемный тег.
+# проходят — их нужно очистить перед загрузкой; сообщение об ошибке называет проблемный тег. Атрибут style тоже
+# не принимается (клиент вырезает его при отрисовке — цвет задаётся fill/stroke), см. _check_attribute.
 _SVG_NS = "http://www.w3.org/2000/svg"
 _XLINK_NS = "http://www.w3.org/1999/xlink"
-_ALLOWED_SVG_TAGS = frozenset({
-    "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
-    "defs", "lineargradient", "radialgradient", "stop", "clippath", "mask", "symbol", "use",
-    "text", "tspan", "title", "desc",
-})
+_ALLOWED_SVG_TAGS = frozenset(
+    {
+        "svg",
+        "g",
+        "path",
+        "rect",
+        "circle",
+        "ellipse",
+        "line",
+        "polyline",
+        "polygon",
+        "defs",
+        "lineargradient",
+        "radialgradient",
+        "stop",
+        "clippath",
+        "mask",
+        "symbol",
+        "use",
+        "text",
+        "tspan",
+        "title",
+        "desc",
+    }
+)
 _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>", re.IGNORECASE)
 _CSS_URL = re.compile(r"url\s*\(\s*(['\"]?)\s*([^)'\"]*)", re.IGNORECASE)
+# Служебные символы и пробелы, которые браузер выбрасывает внутри схемы URL: `java\nscript:` и `JaVa\tScRiPt:` — это `javascript:`.
+_URL_IGNORED_CHARS = re.compile(r"[\x00-\x20]+")
+_EXECUTABLE_MARKERS = ("javascript:", "vbscript:", "expression(")
 
 
 def _local_name(qualified: str) -> str:
@@ -145,15 +183,31 @@ def _reject(message: str) -> HTTPException:
     return HTTPException(422, f"Недопустимое содержимое SVG: {message}")
 
 
+def _has_script_scheme(value: str) -> bool:
+    """Значение содержит исполняемую схему (javascript:, vbscript:) или CSS-выражение expression(…) (A-03 код-ревью r3).
+
+    Сравнение идёт после удаления служебных символов и пробелов и без учёта регистра: так схему не спрятать переводом строки или
+    табуляцией внутри слова. Просто слово «script» (`id="description"`, `aria-label="Transcript"`) — не схема и не отвергается: опасные
+    места закрыты отдельно (белый список тегов, запрет on*, style, href только на #id, url() только на #id)."""
+    compact = _URL_IGNORED_CHARS.sub("", value).lower()
+    return any(marker in compact for marker in _EXECUTABLE_MARKERS)
+
+
 def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
     name = _local_name(qualified_name)
     lowered = value.strip().lower()
     if name.startswith("on"):
         raise _reject(f"обработчик событий «{name}» в теге «{tag}» запрещён")
+    if name == "style":
+        # Клиент (frontend-vue/src/utils/sanitizeSvg.ts) вырезает style целиком; без этой проверки иконка со style сохранялась бы и
+        # отрисовывалась иначе, чем ожидал автор (R1-06). Проверка выполняется только при записи (validate_svg_markup вызывается
+        # валидатором создания/изменения иконки): уже сохранённые иконки при чтении и экспорте не отвергаются.
+        raise _reject(f"атрибут «style» в теге «{tag}» не поддерживается — задайте цвет отдельными атрибутами fill и stroke")
     if name == "href" and not lowered.startswith("#"):
         raise _reject(f"ссылка «{name}» в теге «{tag}» может указывать только на элемент документа (#id)")
-    if "script" in lowered or "expression(" in lowered:
-        raise _reject(f"атрибут «{name}» тега «{tag}» содержит исполняемый код")
+    if _has_script_scheme(value):
+        problem = "содержит ссылку с исполняемой схемой (javascript:, vbscript:) или выражение expression()"
+        raise _reject(f"атрибут «{name}» тега «{tag}» {problem}")
     for _quote, target in _CSS_URL.findall(value):
         if not target.strip().startswith("#"):
             raise _reject(f"url() в атрибуте «{name}» тега «{tag}» может указывать только на #id")
@@ -198,6 +252,7 @@ class IconLookups:
     """Общие словари подстановки id -> объект, единожды собранные вызывающим кодом (сервис
     построения графа, см. services/diagram_graph.py) для ВСЕХ узлов диаграммы разом — без
     N+1 запроса на каждое устройство при построении графа."""
+
     device_types_by_id: dict[str, DeviceType] = field(default_factory=dict)
     categories_by_id: dict[str, DeviceCategory] = field(default_factory=dict)
     manufacturers_by_id: dict[str, Manufacturer] = field(default_factory=dict)

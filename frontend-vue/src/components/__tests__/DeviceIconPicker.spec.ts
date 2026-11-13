@@ -37,6 +37,19 @@ describe('DeviceIconPicker.vue', () => {
     expect(wrapper.find('.preview .mark').exists()).toBe(true)
   })
 
+  it('R2-03: id внутри предпросмотра получают префикс, ссылки на них следуют за переименованием', () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['diagram-icons'] = [
+      { id: 'icon-1', name: 'Градиент', svg_markup: '<svg><defs><linearGradient id="g"/></defs><rect class="mark" fill="url(#g)"/></svg>' },
+    ]
+    const wrapper = mount(DeviceIconPicker, { props: { modelValue: 'icon-1' } })
+
+    const gradient = wrapper.find('.preview linearGradient')
+    expect(gradient.attributes('id')).toMatch(/-g$/)
+    expect(gradient.attributes('id')).not.toBe('g')
+    expect(wrapper.find('.preview .mark').attributes('fill')).toBe(`url(#${gradient.attributes('id')})`)
+  })
+
   it('вырезает исполняемое содержимое SVG в предпросмотре (код-ревью п.3.1, XSS)', () => {
     const catalogs = useCatalogsStore()
     catalogs.items['diagram-icons'] = [{ id: 'icon-1', name: 'Вредоносная', svg_markup: '<svg onload="alert(1)"><script>alert(1)</script></svg>' }]

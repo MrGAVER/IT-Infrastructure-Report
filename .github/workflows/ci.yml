@@ -37,6 +37,18 @@ jobs:
         run: npm ci
         working-directory: frontend-vue
 
+      - name: npm audit frontend-vue (runtime-зависимости, уровень high и выше) — gate
+        # Аналог pip-audit для frontend: известная уязвимость уровня high и выше в зависимости, которая попадает в сборку, блокирует слияние.
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend-vue
+
+      - name: npm audit frontend-vue (вместе с dev-зависимостями) — не блокирует
+        # Цепочка dev-инструментов (eslint, prettier, vitest и их зависимости) в сборку не входит: шаг сообщает о замечаниях в журнале, но
+        # не валит сборку — как pip-audit набора для EXE ниже.
+        continue-on-error: true
+        run: npm audit --audit-level=high
+        working-directory: frontend-vue
+
       - name: ESLint frontend-vue (npm run lint)
         run: npm run lint
         working-directory: frontend-vue
@@ -48,6 +60,16 @@ jobs:
       - name: ruff (реальные ошибки — pyflakes F + синтаксис E9 — и сложность функций C901 ≤ 12, см. pyproject.toml)
         run: ruff check backend
 
+      - name: ruff format --check (весь backend, кроме списка исключений в pyproject.toml)
+        # Форматируется всё; исключения — модули, ещё не переведённые на форматтер ([tool.ruff.format] exclude в pyproject.toml, единственное
+        # место списка). Новый модуль или тест форматируйте сразу; список только сокращается (тест test_code_style_limits.py не даёт ему расти).
+        run: ruff format --check backend
+
+      - name: bandit (статический анализ безопасности backend, уровень medium и выше) — gate
+        # Дополняет pip-audit (уязвимости в зависимостях): здесь ищутся небезопасные приёмы в собственном коде. Сейчас чисто; неактуальные
+        # срабатывания помечены `# nosec Bxxx` с пояснением прямо в коде. Низкий уровень (B105 на именах кодов ошибок и т. п.) не блокирует.
+        run: bandit -r backend/app -ll
+
       - name: Lock-файлы backend актуальны (requirements*.lock соответствуют requirements*.txt, включая набор для сборки EXE)
         # Правили requirements.txt, но не пересобрали lock — Docker, CI и сборка EXE поставили бы старые версии. Пересборка идёт
         # с учётом уже закреплённых версий, поэтому при актуальном lock diff пуст. Как обновить — README, «Зависимости backend».
@@ -58,6 +80,16 @@ jobs:
           uv pip compile requirements-dev.txt --universal --generate-hashes --python-version 3.12 -o requirements-dev.lock --no-header
           uv pip compile requirements-build.txt --universal --generate-hashes --python-version 3.12 -o requirements-build.lock --no-header
           git diff --exit-code -- requirements.lock requirements-dev.lock requirements-build.lock
+
+      - name: alembic check (SQLite) — схема из миграций совпадает с моделями
+        # Изменили models.py и забыли миграцию (или наоборот) — «No new upgrade operations detected» не выйдет, слияние блокируется.
+        # Строится пустая база цепочкой миграций, затем сравнивается с Base.metadata (compare_type и фильтр SQLite — alembic/env.py).
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:///${{ runner.temp }}/alembic_check.db
+        run: |
+          alembic upgrade head
+          alembic check
 
       - name: pip-audit (известные уязвимости в закреплённых зависимостях runtime, requirements.lock) — gate
         run: pip-audit -r backend/requirements.lock --require-hashes
@@ -77,10 +109,16 @@ jobs:
         # Тесты с меткой slow (test_report_layout_performance.py) проверяют время работы и на 2-ядерном раннере в паре со вторым
         # процессом и измерением покрытия выходят за лимит (3,8–4,0 с при лимите 3,0 с), поэтому идут отдельным шагом без -n,
         # а покрытие дописывается (--cov-append). Порог покрытия проверяет только второй шаг — по сумме обоих.
+        # Бюджет «неожиданных» пропусков (ИА-08 код-ревью r3, backend/tests/skip_budget.py): отбор по базе SQLite/PostgreSQL не считается, остальное —
+        # да. Сейчас их не больше двух: test_pyinstaller_spec.py (PyInstaller нет в requirements-dev.lock) и дымовой тест LibreOffice (`soffice` может
+        # отсутствовать на раннере). Новый пропуск роняет сборку: поднимать число можно только осознанно, объяснив в коммите, зачем тест пропускается.
+        # `-rs` печатает причины всех пропусков в сводке.
+        env:
+          INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "2"
         run: |
           status=0
-          pytest -n auto -m "not slow" -v --cov --cov-fail-under=0 --cov-report= || status=$?
-          pytest -m slow -v --cov --cov-append --cov-report=term:skip-covered || status=$?
+          pytest -n auto -m "not slow" -v -rs --cov --cov-fail-under=0 --cov-report= || status=$?
+          pytest -m slow -v -rs --cov --cov-append --cov-report=term:skip-covered || status=$?
           { echo "### Покрытие тестами backend"; echo; coverage report --format=markdown --skip-covered --fail-under=0 || true; } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
@@ -89,6 +127,8 @@ jobs:
         working-directory: frontend-vue
 
       - name: Тесты frontend-vue (vitest, сторы catalogs/devices/theme + компоненты)
+        # Любое `[Vue warn]` в тесте — ошибка этого теста (страж в src/__tests__/vueWarnings.ts, подключён в setup.ts), поэтому отдельного
+        # порога по числу предупреждений здесь нет: планка нулевая. Нужное предупреждение тест забирает сам через takeVueWarnings().
         run: npm test
         working-directory: frontend-vue
 
@@ -160,6 +200,50 @@ jobs:
             frontend-vue/test-results/
           retention-days: 7
 
+  # Серверный режим, каким его получают пользователи: `docker compose up` — приложение в контейнере поверх PostgreSQL 16 из
+  # docker-compose.yml. Шаг «Smoke-тест образа» в job `test` проверяет контейнер на SQLite, а job `test-postgres-migrations` —
+  # PostgreSQL и цепочку миграций, но не сам compose: переменные окружения, зависимость app от здоровья db, сборку адреса БД из частей
+  # (app/config.py) и запуск `alembic upgrade head` ИЗ контейнера против PostgreSQL проверяет только этот job. Значения ниже — тестовые,
+  # на настоящий сервер не попадают (разовая виртуальная машина раннера).
+  compose-postgres:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-compose-smoke-pg-password
+      INFRA_REGISTRY_SETUP_TOKEN: ci-compose-smoke-setup-token-0123456789abcdef
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: docker compose up (приложение + PostgreSQL) — стартует, применяет миграции и отвечает
+        run: |
+          docker compose up -d --build
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health && curl -fsS -o /dev/null http://127.0.0.1:8000/; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" = 1
+
+      - name: Миграции действительно прошли на PostgreSQL (а не на SQLite внутри контейнера)
+        # Без этой проверки приложение, молча упавшее на файловую SQLite, тоже ответило бы на /health.
+        run: |
+          rev=$(docker compose exec -T db psql -U infra -d infra_registry -tAc "SELECT version_num FROM alembic_version")
+          echo "alembic_version в PostgreSQL: $rev"
+          test -n "$rev"
+          tables=$(docker compose exec -T db psql -U infra -d infra_registry -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+          echo "таблиц в схеме public: $tables"
+          test "$tables" -gt 10
+
+      - name: Журналы контейнеров (при падении)
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Остановить и удалить контейнеры и тома
+        if: always()
+        run: docker compose down -v
+
   # Серверный режим приложения работает на PostgreSQL (docker-compose.yml), а job `test` выше идёт на SQLite.
   # Здесь тот же набор тестов backend выполняется на PostgreSQL 16: порядок строк, блокировки FOR UPDATE, частичные
   # индексы и типы ведут себя иначе, чем в SQLite. Схема создаётся из моделей (см. tests/conftest.py,
@@ -197,7 +281,10 @@ jobs:
         run: pip install --require-hashes -r backend/requirements-dev.lock
 
       - name: Тесты backend на PostgreSQL
-        run: pytest -v
+        # Бюджет неожиданных пропусков — как в job `test` (там же объяснение).
+        env:
+          INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "2"
+        run: pytest -v -rs
 
   # Тот же набор тестов на PostgreSQL, но схема собрана цепочкой миграций Alembic (`alembic upgrade head`), как при
   # первом запуске docker-compose, а не из моделей: так проверяется схема, которую получат реальные установки.
@@ -234,8 +321,25 @@ jobs:
       - name: Установить зависимости backend (runtime + dev)
         run: pip install --require-hashes -r backend/requirements-dev.lock
 
+      - name: alembic check (PostgreSQL) — схема из миграций совпадает с моделями
+        # Отдельная чистая база: на PostgreSQL сравниваются и имена ограничений (на SQLite безымянные UNIQUE пропускаются).
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://infra:infra_test@localhost:5432/infra_alembic_check
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://infra:infra_test@localhost:5432/infra_test", autocommit=True) as connection:
+              connection.execute("CREATE DATABASE infra_alembic_check")
+          PY
+          alembic upgrade head
+          alembic check
+
       - name: Тесты backend на PostgreSQL (схема из миграций)
-        run: pytest -v
+        # Бюджет неожиданных пропусков — как в job `test` (там же объяснение).
+        env:
+          INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "2"
+        run: pytest -v -rs
 
       - name: Живой запуск приложения на PostgreSQL
         working-directory: backend

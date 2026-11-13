@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ...models import Connection, Container, DeviceCategory, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, InterfaceVLAN, PhysicalDevice, VirtualMachine, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
 from ...constants import ErrorCode
 from ..diagram_icons import SHAPE_GLYPHS, is_hex_color, validate_svg_markup
+from ..device_label import device_label
 from ..port_config import DEFAULT_VLAN_MODE, VLAN_MODE_ACCESS, VLAN_MODE_TRUNK
 from .stack_vlan_settings import assert_device_vlan_editable, locked_vlan_ids, normalize_ip
 from ..validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
@@ -19,7 +20,7 @@ def _validate_physical_device(data: dict[str, Any], session: Session, item_id: s
         raise HTTPException(409, detail={'code': ErrorCode.DUPLICATE_SYSTEM_NAME, 'message': 'Системное имя уже используется другим устройством. Сохранить дубликат?'})
     occupant = _find_rack_slot_occupant(data, session, item_id)
     if occupant and not confirm_rack_reassign:
-        raise HTTPException(409, detail={'code': ErrorCode.RACK_POSITION_OCCUPIED, 'message': f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{occupant.system_name or occupant.serial_number}". Переназначить позицию на текущее устройство?'})
+        raise HTTPException(409, detail={'code': ErrorCode.RACK_POSITION_OCCUPIED, 'message': f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?'})
 
 
 def _find_rack_slot_occupant(data: dict[str, Any], session: Session, item_id: str | None) -> PhysicalDevice | None:

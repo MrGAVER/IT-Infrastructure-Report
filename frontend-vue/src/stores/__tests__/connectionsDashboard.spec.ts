@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { DEFAULT_PAGE_SIZE, useConnectionsDashboardStore } from '../connectionsDashboard'
+import { useConnectionsDashboardStore } from '../connectionsDashboard'
+import { DEFAULT_PAGE_SIZE } from '../../utils/pageSize'
 import type { Connection, ConnectionsPage } from '../../api/types'
 import { usePreferencesStore } from '../preferences'
 import { reloadPinia } from './preferencesApi'
@@ -111,7 +112,7 @@ describe('useConnectionsDashboardStore — серверная страница',
   })
 
   it('setPage() запрашивает нужное смещение; страница ограничивается диапазоном 1..pageCount', async () => {
-    stubApi(() => page([row('c-9')], 20))
+    stubApi(() => page([row('c-9')], 30))
     const store = useConnectionsDashboardStore()
     await store.load()
 
@@ -140,9 +141,8 @@ describe('useConnectionsDashboardStore — серверная страница',
     let call = 0
     stubApi(() => {
       call += 1
-      // Первый ответ: на странице 3 пусто, но всего записей 17 (3 страницы по 8 → последняя — 3-я? нет: 17/8 → 3).
-      // Пусть страниц стало 2: total = 9.
-      return call === 1 ? page([], 9) : page([row('c-last')], 9)
+      // Первый ответ: на странице 3 пусто (записей стало меньше): всего 11 — две страницы по 10, последняя — 2-я.
+      return call === 1 ? page([], 11) : page([row('c-last')], 11)
     })
     const store = useConnectionsDashboardStore()
     store.page = 3
@@ -240,49 +240,49 @@ describe('useConnectionsDashboardStore — действия', () => {
 })
 
 describe('useConnectionsDashboardStore — количество строк на странице', () => {
-  it('по умолчанию 8; варианты — 8, 16, 32, 64', () => {
+  it('по умолчанию 10; варианты — 10, 25, 50, 100', () => {
     const store = useConnectionsDashboardStore()
     expect(store.pageSize).toBe(DEFAULT_PAGE_SIZE)
-    expect(store.pageSizeOptions).toEqual([8, 16, 32, 64])
+    expect(store.pageSizeOptions).toEqual([10, 25, 50, 100])
   })
 
   it('смена размера запрашивает у сервера новый limit и пересчитывает число страниц', async () => {
     stubApi(() => page([row('c-1')], 100))
     const store = useConnectionsDashboardStore()
     await store.load()
-    expect(store.pageCount).toBe(13)
+    expect(store.pageCount).toBe(10)
 
-    await store.setPageSize(32)
+    await store.setPageSize(25)
 
     const p = params(pageCalls().at(-1)!)
-    expect(p.get('limit')).toBe('32')
+    expect(p.get('limit')).toBe('25')
     expect(p.get('offset')).toBe('0')
     expect(store.pageCount).toBe(4)
   })
 
-  it('остаётся на странице с тем же первым подключением: 3-я страница по 8 (с 17-го) → 2-я по 16', async () => {
+  it('остаётся на странице с тем же первым подключением: 6-я страница по 10 (с 51-го) → 2-я по 50', async () => {
     stubApi(() => page([row('c-1')], 100))
     const store = useConnectionsDashboardStore()
     await store.load()
-    await store.setPage(3)
+    await store.setPage(6)
 
-    await store.setPageSize(16)
+    await store.setPageSize(50)
 
     expect(store.page).toBe(2)
     const p = params(pageCalls().at(-1)!)
-    expect(p.get('offset')).toBe('16')
-    expect(p.get('limit')).toBe('16')
+    expect(p.get('offset')).toBe('50')
+    expect(p.get('limit')).toBe('50')
   })
 
   it('выбор запоминается и восстанавливается новым стором', async () => {
-    await useConnectionsDashboardStore().setPageSize(64)
-    expect(usePreferencesStore().user.page_sizes).toEqual({ connections: 64 })
+    await useConnectionsDashboardStore().setPageSize(50)
+    expect(usePreferencesStore().user.page_sizes).toEqual({ connections: 50 })
 
     reloadPinia() // «перезагрузка»: настройки подтянуты с сервера
-    expect(useConnectionsDashboardStore().pageSize).toBe(64)
+    expect(useConnectionsDashboardStore().pageSize).toBe(50)
   })
 
-  it.each([0, 7, 100])('недопустимое значение %s не меняет размер и не делает запрос', async (bad) => {
+  it.each([0, 7, 8, 16, 64])('недопустимое значение %s не меняет размер и не делает запрос', async (bad) => {
     const store = useConnectionsDashboardStore()
     await store.load()
     const before = pageCalls().length

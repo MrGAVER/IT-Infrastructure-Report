@@ -79,7 +79,8 @@ class TestDockerfile:
 
 class TestCompose:
     @pytest.fixture(scope="class")
-    def compose(self) -> dict:
+    @classmethod
+    def compose(cls) -> dict:
         return yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
 
     def test_application_data_directory_is_a_named_volume(self, compose):

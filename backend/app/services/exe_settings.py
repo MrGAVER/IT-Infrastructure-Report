@@ -7,6 +7,7 @@
 Модуль намеренно не импортирует ``app.config``: тот при импорте создаёт каталоги и читает переменные
 окружения, а лаунчер должен сначала прочитать настройки и только потом выставить окружение.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -19,7 +20,7 @@ from .network_access import parse_client_networks
 SETTINGS_FILENAME = "infra_registry.toml"
 DEFAULT_PORT = 8000
 LOCAL_ONLY_HOST = "127.0.0.1"
-ALL_INTERFACES_HOST = "0.0.0.0"
+ALL_INTERFACES_HOST = "0.0.0.0"  # nosec B104 # значение для сравнения с настройкой «слушать на всех адресах», сокет здесь не открывается
 # Петля всегда разрешена: администратор не должен потерять доступ с собственного компьютера из-за записи в файле.
 LOOPBACK_NETWORK = "127.0.0.0/8"
 
@@ -131,10 +132,7 @@ def _section(data: dict, name: str) -> dict:
         raise SettingsError(f"Раздел [{name}] должен быть таблицей, а не значением.")
     unknown = sorted(set(section) - _KNOWN_KEYS[name])
     if unknown:
-        raise SettingsError(
-            f"Неизвестный параметр в разделе [{name}]: {', '.join(unknown)}. "
-            f"Допустимые параметры: {', '.join(sorted(_KNOWN_KEYS[name]))}."
-        )
+        raise SettingsError(f"Неизвестный параметр в разделе [{name}]: {', '.join(unknown)}. Допустимые параметры: {', '.join(sorted(_KNOWN_KEYS[name]))}.")
     return section
 
 
@@ -152,9 +150,7 @@ def _parse_clients(entries: list[str]) -> tuple[str, ...]:
         raise SettingsError(f"[access] allowed_clients: {exc}") from exc
     for network in networks:
         if network.version != 4:
-            raise SettingsError(
-                f"[access] allowed_clients: адрес {network} — не IPv4. В EXE-версии поддерживаются только адреса IPv4."
-            )
+            raise SettingsError(f"[access] allowed_clients: адрес {network} — не IPv4. В EXE-версии поддерживаются только адреса IPv4.")
     # Без дубликатов и без петли (она разрешена всегда), порядок как в файле.
     result: list[str] = []
     for network in networks:
@@ -167,18 +163,12 @@ def _parse_clients(entries: list[str]) -> tuple[str, ...]:
 def _parse_hosts(entries: list[str]) -> tuple[str, ...]:
     for entry in entries:
         if any(ch in entry for ch in ":/ \t"):
-            raise SettingsError(
-                f"[access] allowed_hosts: некорректное имя {entry!r} — нужно только имя без порта и адреса страницы "
-                f"(например, reestr-pc или *.corp.local)."
-            )
+            raise SettingsError(f"[access] allowed_hosts: некорректное имя {entry!r} — нужно только имя без порта и адреса страницы (например, reestr-pc или *.corp.local).")
         try:
             ipaddress.ip_address(entry)
         except ValueError:
             continue
-        raise SettingsError(
-            f"[access] allowed_hosts: {entry!r} — это IP-адрес. Здесь перечисляются имена; по IP-адресу "
-            f"приложение открывается без дополнительных настроек, а список клиентов задаётся в allowed_clients."
-        )
+        raise SettingsError(f"[access] allowed_hosts: {entry!r} — это IP-адрес. Здесь перечисляются имена; по IP-адресу приложение открывается без дополнительных настроек, а список клиентов задаётся в allowed_clients.")
     return tuple(dict.fromkeys(entries))
 
 
@@ -192,10 +182,7 @@ def parse_settings(text: str) -> ExeSettings:
         raise SettingsError(f"Файл настроек повреждён или записан неверно: {exc}") from exc
     unknown_sections = sorted(set(data) - set(_KNOWN_KEYS))
     if unknown_sections:
-        raise SettingsError(
-            f"Неизвестный раздел в файле настроек: {', '.join(unknown_sections)}. "
-            f"Допустимые разделы: {', '.join(_KNOWN_KEYS)}."
-        )
+        raise SettingsError(f"Неизвестный раздел в файле настроек: {', '.join(unknown_sections)}. Допустимые разделы: {', '.join(_KNOWN_KEYS)}.")
     server = _section(data, "server")
     access = _section(data, "access")
 

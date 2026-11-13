@@ -125,3 +125,111 @@ export async function seedParallelLinks(request: APIRequestContext, options: { l
   })
   return diagram.id
 }
+
+/**
+ * Диаграмма «сетка узлов со связями» для проверки рёбер (код-ревью main, F-07): `devices` устройств по 8 интерфейсов, «хребет» от первого
+ * ко всем, связи между соседями и несколько связей «через ряд» — так рёбра идут и вдоль рядов, и между рядами, и через чужие узлы.
+ * Узлов 18 по умолчанию: на такой схеме рёбра до правки проходили сквозь 16 узлов из 22. Каждый интерфейс занят не более одной связью.
+ * Устройства лежат в отдельном здании, чтобы фильтр диаграммы не захватил данные других тестов. Возвращает id диаграммы и число связей.
+ */
+export async function seedTopology(request: APIRequestContext, options: { devices?: number } = {}): Promise<{ diagramId: string; links: number }> {
+  const count = options.devices ?? 18
+  const types = await deviceTypeIds(request)
+  const run = `${Date.now().toString(36)}-${counter++}`
+  const building = await postJson<{ id: string }>(request, '/resources/buildings', { name: `e2e-здание-${run}`, address: 'e2e' })
+  const devices: Array<{ id: string }> = []
+  for (let index = 0; index < count; index++) {
+    const device = await postJson<{ id: string }>(request, '/resources/devices', {
+      device_type_id: types[index % types.length],
+      system_name: `e2e-topology-${run}-${String(index).padStart(2, '0')}`,
+      serial_number: `E2E-TOPOLOGY-${run}-${index}`,
+      building_id: building.id,
+    })
+    const interfaces = Array.from({ length: 8 }, (_, port) => ({ name: `Gi1/0/${port + 1}`, is_management: false, ips: [] }))
+    const put = await request.put(`${API}/devices/${device.id}/interfaces`, { data: { interfaces }, headers: { Origin: ORIGIN } })
+    if (!put.ok()) throw new Error(`PUT interfaces → ${put.status()}`)
+    devices.push(device)
+  }
+
+  const connectionTypes = (await (await request.get(`${API}/resources/connection-types`)).json()) as Catalog | Array<{ id: string }>
+  const connectionTypeId = (Array.isArray(connectionTypes) ? connectionTypes : (connectionTypes.items ?? []))[0]?.id
+  const all = await request.get(`${API}/resources/interfaces?limit=1000`)
+  const interfaces = (await all.json()) as
+    { items?: Array<{ id: string; name: string; physical_device_id: string }> } | Array<{ id: string; name: string; physical_device_id: string }>
+  const rows = Array.isArray(interfaces) ? interfaces : (interfaces.items ?? [])
+  const free = new Map<string, string[]>()
+  for (const device of devices) {
+    free.set(
+      device.id,
+      rows
+        .filter((row) => row.physical_device_id === device.id)
+        .sort((x, y) => x.name.localeCompare(y.name, 'en', { numeric: true }))
+        .map((row) => row.id),
+    )
+  }
+
+  const pairs: Array<[number, number]> = []
+  for (let i = 1; i < count; i++) pairs.push([0, i])
+  for (let i = 1; i < count - 1; i += 2) pairs.push([i, i + 1])
+  pairs.push([2, 8], [3, 9], [4, 13], [5, 12], [6, 15], [7, 16])
+  let links = 0
+  for (const [a, b] of pairs) {
+    if (a === b || b >= count) continue
+    const source = free.get(devices[a].id)?.shift()
+    const destination = free.get(devices[b].id)?.shift()
+    if (!source || !destination) continue
+    await postJson(request, '/resources/connections', {
+      source_interface_id: source,
+      destination_interface_id: destination,
+      connection_type_id: connectionTypeId,
+    })
+    links++
+  }
+
+  const diagram = await postJson<{ id: string }>(request, '/diagrams', {
+    name: `e2e-топология-${run}`,
+    scope_filter: { building_ids: [building.id] },
+    group_by: 'device_category',
+    collapse_threshold: 500,
+  })
+  return { diagramId: diagram.id, links }
+}
+
+/**
+ * Подключение между двумя устройствами, у портов которого разные роли (источник — «Передача данных», приёмник — «Управление
+ * активами»): при его сохранении форма показывает блок «Расхождение конфигурации портов» (ConnectionResolutionPanel). Устройства лежат
+ * в отдельном здании. Возвращает системное имя устройства-источника: по нему строка находится в таблице подключений.
+ */
+export async function seedMismatchedConnection(request: APIRequestContext): Promise<{ sourceName: string }> {
+  const [typeId] = await deviceTypeIds(request)
+  const run = `${Date.now().toString(36)}-${counter++}`
+  const building = await postJson<{ id: string }>(request, '/resources/buildings', { name: `e2e-здание-${run}`, address: 'e2e' })
+  const devices: Array<{ id: string; system_name: string }> = []
+  for (const side of ['a', 'b']) {
+    const device = await postJson<{ id: string; system_name: string }>(request, '/resources/devices', {
+      device_type_id: typeId,
+      system_name: `e2e-resol-${run}-${side}`,
+      serial_number: `E2E-RESOL-${run}-${side}`,
+      building_id: building.id,
+    })
+    // Роль порта — единственное различие: у устройства «a» порт передаёт данные, у «b» — управляет активами.
+    const interfaces = [{ name: 'Gi1/0/1', is_management: side === 'b', ips: [] }]
+    const put = await request.put(`${API}/devices/${device.id}/interfaces`, { data: { interfaces }, headers: { Origin: ORIGIN } })
+    if (!put.ok()) throw new Error(`PUT interfaces → ${put.status()}`)
+    devices.push(device)
+  }
+
+  const connectionTypes = (await (await request.get(`${API}/resources/connection-types`)).json()) as Catalog | Array<{ id: string }>
+  const connectionTypeId = (Array.isArray(connectionTypes) ? connectionTypes : (connectionTypes.items ?? []))[0]?.id
+  const all = await request.get(`${API}/resources/interfaces?limit=1000`)
+  const body = (await all.json()) as { items?: Array<{ id: string; physical_device_id: string }> } | Array<{ id: string; physical_device_id: string }>
+  const rows = Array.isArray(body) ? body : (body.items ?? [])
+  const [source, destination] = devices.map((device) => rows.find((row) => row.physical_device_id === device.id))
+  if (!source || !destination) throw new Error('интерфейсы засеянных устройств не найдены')
+  await postJson(request, '/resources/connections', {
+    source_interface_id: source.id,
+    destination_interface_id: destination.id,
+    connection_type_id: connectionTypeId,
+  })
+  return { sourceName: devices[0].system_name }
+}

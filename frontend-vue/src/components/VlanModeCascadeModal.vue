@@ -6,7 +6,7 @@
 import { computed, ref, watch } from 'vue'
 import type { CascadeGroupChange, CascadePortChange, VlanModeCascadePlan } from '../api/vlanModeCascade'
 import { modeLabel } from '../utils/vlanModeCascade'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 
 const props = defineProps<{
   plan: VlanModeCascadePlan
@@ -23,9 +23,9 @@ watch(
   () => (acknowledged.value = false),
 )
 
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => {
+function dismiss() {
   if (!props.applying) emit('cancel')
-})
+}
 
 const target = computed(() => modeLabel(props.plan.target_mode))
 
@@ -62,7 +62,7 @@ const portsText = (count: number) => plural(count, 'порт', 'порта', 'п
 </script>
 
 <template>
-  <div class="overlay cascade-overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="dismiss">
     <div class="cascade-modal card" role="dialog" aria-modal="true" aria-labelledby="cascade-title">
       <div class="cascade-head">
         <h3 id="cascade-title">Сменить режим порта на {{ target }} у связанных портов</h3>
@@ -127,22 +127,10 @@ const portsText = (count: number) => plural(count, 'порт', 'порта', 'п
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-/* Выше окна расхождения (.overlay там z-index 70), поверх которого открывается это окно. */
-.cascade-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 80;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .cascade-modal {
   width: 100%;
   max-width: 640px;

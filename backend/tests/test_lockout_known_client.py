@@ -16,6 +16,8 @@ from sqlalchemy import select
 
 from app.models import AuditLog, AuthSession, User
 from app.services import auth as auth_module
+from app.services.auth import lockout as lockout_module
+from app.services.auth import login as login_module
 from app.services.login_throttle import LoginThrottle
 from app.services.timeutil import utcnow_naive
 
@@ -29,8 +31,8 @@ NEW_ADDRESS = "192.0.2.77"  # адрес, с которого владелец �
 @pytest.fixture()
 def setup(client, client_factory, monkeypatch):
     """Администратор создан, аутентификация включена, порог блокировки — THRESHOLD, троттлинг входа не мешает."""
-    monkeypatch.setattr(auth_module, "AUTH_MAX_FAILED_ATTEMPTS", THRESHOLD)
-    monkeypatch.setattr(auth_module, "login_throttle", LoginThrottle(free_attempts=1000))
+    monkeypatch.setattr(lockout_module, "AUTH_MAX_FAILED_ATTEMPTS", THRESHOLD)
+    monkeypatch.setattr(login_module, "login_throttle", LoginThrottle(free_attempts=1000))
     assert client.post("/api/v1/auth/users", json={"username": "admin", "password": "Admin1234", "role": "admin"}).status_code == 201
     assert client.put("/api/v1/auth/settings", json={"enabled": True}).status_code == 200
     return client_factory
@@ -90,7 +92,7 @@ def test_d_wrong_password_from_a_known_address_still_counts_and_is_throttled(set
     failed = [r for r in db_session.scalars(select(AuditLog).where(AuditLog.action == "LOGIN_FAILED"))]
     assert failed and failed[-1].actor_ip == OWNER_ADDRESS
 
-    monkeypatch.setattr(auth_module, "login_throttle", LoginThrottle(free_attempts=1))  # настоящий троттлинг
+    monkeypatch.setattr(login_module, "login_throttle", LoginThrottle(free_attempts=1))  # настоящий троттлинг
     assert _attempt(owner, "wrong-pass1").status_code == 401  # бесплатная попытка
     assert _attempt(owner, "wrong-pass1").status_code == 401  # вторая неудача назначает задержку
     throttled = _attempt(owner, "wrong-pass1")
@@ -115,11 +117,11 @@ class TestWhatMakesAnAddressKnown:
         row = db_session.scalars(select(AuditLog).where(AuditLog.action == "LOGIN")).one()
         _lock_from(attacker)
 
-        row.created_at = utcnow_naive() - timedelta(days=auth_module.AUTH_KNOWN_CLIENT_DAYS + 1)
+        row.created_at = utcnow_naive() - timedelta(days=lockout_module.AUTH_KNOWN_CLIENT_DAYS + 1)
         db_session.commit()
         assert _attempt(owner, "Admin1234").status_code == 423
 
-        row.created_at = utcnow_naive() - timedelta(days=auth_module.AUTH_KNOWN_CLIENT_DAYS - 1)
+        row.created_at = utcnow_naive() - timedelta(days=lockout_module.AUTH_KNOWN_CLIENT_DAYS - 1)
         db_session.commit()
         assert _attempt(owner, "Admin1234").status_code == 200
 
@@ -151,12 +153,12 @@ class TestWhatMakesAnAddressKnown:
         assert _attempt(attacker, "Admin1234").status_code == 423
 
     def test_unknown_client_address_is_never_known(self, db_session):
-        assert auth_module._is_known_client(db_session, "any-user", None, utcnow_naive()) is False
-        assert auth_module._is_known_client(db_session, "any-user", "", utcnow_naive()) is False
+        assert lockout_module.is_known_client(db_session, "any-user", None, utcnow_naive()) is False
+        assert lockout_module.is_known_client(db_session, "any-user", "", utcnow_naive()) is False
 
 
 def test_the_bypass_can_be_switched_off(setup, db_session, monkeypatch):
-    monkeypatch.setattr(auth_module, "AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS", False)
+    monkeypatch.setattr(login_module, "AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS", False)
     owner, attacker = setup(OWNER_ADDRESS), setup(ATTACKER_ADDRESS)
     assert _attempt(owner, "Admin1234").status_code == 200
     _lock_from(attacker)

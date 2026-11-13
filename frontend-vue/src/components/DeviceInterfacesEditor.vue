@@ -53,6 +53,7 @@ import InterfaceBulkBar from './InterfaceBulkBar.vue'
 import InterfaceGeneratorPanel from './InterfaceGeneratorPanel.vue'
 import InterfaceRow from './InterfaceRow.vue'
 import InterfaceStaleBar from './InterfaceStaleBar.vue'
+import ScrollableTableWrap from './ScrollableTableWrap.vue'
 import NeighborReviewModal from './NeighborReviewModal.vue'
 import PortConflictModal from './PortConflictModal.vue'
 import PortVlanPickerModal from './PortVlanPickerModal.vue'
@@ -316,7 +317,7 @@ defineExpose({ reviewNeighborMismatches, revealStaleSubinterfaces })
            редко нужные при первом взгляде поля (VLAN на порту, IP-адреса, описание) убраны под
            toggle в развёрнутую строку, чтобы таблица помещалась на экран без прокрутки даже при
            десятке портов. -->
-      <div class="iface-table-wrap">
+      <ScrollableTableWrap label="Список интерфейсов">
         <table class="iface-table">
           <thead>
             <tr>
@@ -396,7 +397,7 @@ defineExpose({ reviewNeighborMismatches, revealStaleSubinterfaces })
             />
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
     </div>
 
     <div v-else class="empty">
@@ -522,9 +523,6 @@ defineExpose({ reviewNeighborMismatches, revealStaleSubinterfaces })
 /* п.3.4/3.5: компактная таблица интерфейсов вместо карточки на каждый порт; кнопка
    "+ Интерфейс" (п.3.5) теперь стоит в шапке этого же блока, а не среди полей генератора
    выше — она относится к списку, а не к настройкам массовой генерации. */
-.iface-table-wrap {
-  overflow-x: auto;
-}
 .iface-table {
   width: 100%;
   border-collapse: collapse;

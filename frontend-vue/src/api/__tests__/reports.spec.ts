@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { ApiError, UNAUTHORIZED_EVENT } from '../client'
+import { BLOB_URL_REVOKE_DELAY_MS } from '../saveBlob'
 import { generateInventoryReport, generateStructuralAppendixReport, generateAuditLogReport, downloadReport } from '../reports'
 
 describe('reports API', () => {
@@ -52,12 +54,26 @@ describe('reports API', () => {
   })
 
   describe('downloadReport (фикс п.5: скачивание должно нести токен авторизации)', () => {
-    function mockBlobResponse(status = 200) {
+    // ИБ-02: blob-ссылка освобождается по таймеру (saveBlob), а реальный таймер на 30 с пережил бы тест.
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Успешный ответ с файлом. */
+    function mockBlobResponse() {
       return {
-        ok: status >= 200 && status < 300,
-        status,
+        ok: true,
+        status: 200,
         blob: vi.fn(async () => new Blob(['fake-file-content'])),
       } as unknown as Response
+    }
+
+    /** Неуспешный ответ — настоящий Response: ошибка разбирается тем же apiErrorFromResponse, что и у request(). */
+    function errorResponse(status: number, detail: string, headers: Record<string, string> = {}) {
+      return new Response(JSON.stringify({ detail }), { status, headers })
     }
 
     it('запрашивает файл через fetch с заголовком Authorization — не голым <a href> (без заголовков)', async () => {
@@ -94,16 +110,62 @@ describe('reports API', () => {
       expect(init!.headers).toEqual({})
     })
 
-    it('401 (просроченная сессия) выбрасывает понятную ошибку вместо тихого "файл недоступен"', async () => {
+    // ИБ-02: раньше при любой ошибке показывалось «Не удалось скачать файл (403)»; текст сервера пользователь не видел.
+    it.each([
+      [403, 'Недостаточно прав для скачивания отчёта.'],
+      [503, 'Сервер занят формированием отчётов, повторите через 10 с.'],
+    ])('ИБ-02: %i — пользователь видит сообщение сервера из {detail}, а не общий текст со статусом', async (status, detail) => {
       vi.stubGlobal(
         'fetch',
-        vi.fn(async (_url: string, _init?: RequestInit) => mockBlobResponse(401)),
+        vi.fn(async (_url: string, _init?: RequestInit) => errorResponse(status, detail)),
       )
 
-      await expect(downloadReport({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' })).rejects.toThrow(/сессия истекла/i)
+      const error = (await downloadReport({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' }).catch((e: unknown) => e)) as ApiError
+
+      expect(error).toBeInstanceOf(ApiError)
+      expect(error.status).toBe(status)
+      expect(error.message).toBe(detail)
+      expect(error.message).not.toContain('Не удалось скачать файл')
     })
 
-    it('освобождает object URL после скачивания', async () => {
+    it('ИБ-02: 401 (просроченная сессия) — сообщение сервера и UNAUTHORIZED_EVENT, как у любого запроса к API', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, _init?: RequestInit) => errorResponse(401, 'Требуется аутентификация.')),
+      )
+      const onUnauthorized = vi.fn()
+      window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+
+      try {
+        const error = (await downloadReport({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' }).catch((e: unknown) => e)) as ApiError
+
+        expect(error).toBeInstanceOf(ApiError)
+        expect(error.status).toBe(401)
+        expect(error.message).toBe('Требуется аутентификация.')
+        expect(onUnauthorized).toHaveBeenCalledTimes(1)
+      } finally {
+        window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+      }
+    })
+
+    it('ИБ-02: ошибка не 401 событие UNAUTHORIZED_EVENT не отправляет', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, _init?: RequestInit) => errorResponse(403, 'Недостаточно прав.')),
+      )
+      const onUnauthorized = vi.fn()
+      window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+
+      try {
+        await downloadReport({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' }).catch(() => undefined)
+
+        expect(onUnauthorized).not.toHaveBeenCalled()
+      } finally {
+        window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+      }
+    })
+
+    it('ИБ-02: освобождает object URL по таймеру, а не сразу после клика (иначе часть браузеров обрывает загрузку)', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async (_url: string, _init?: RequestInit) => mockBlobResponse()),
@@ -113,6 +175,8 @@ describe('reports API', () => {
 
       await downloadReport({ file_name: 'a.xlsx', download_url: '/api/v1/reports/download/a.xlsx' })
 
+      expect(revokeSpy).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(BLOB_URL_REVOKE_DELAY_MS)
       expect(revokeSpy).toHaveBeenCalledWith('blob:fake')
     })
   })

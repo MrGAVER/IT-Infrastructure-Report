@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Connection, DeviceInterface, PhysicalDevice
 from .port_vlans import carries_all_vlans
+from .device_label import device_label, device_label_from_parts
 
 _DIGITS = re.compile(r'(\d+)')
 
@@ -49,10 +50,6 @@ def _require_device(device_id: str, session: Session) -> PhysicalDevice:
     if device is None:
         raise HTTPException(404, 'Физическое устройство не найдено')
     return device
-
-
-def _device_label(device: PhysicalDevice) -> str:
-    return device.system_name or device.serial_number
 
 
 def _active_connections_of_device(device_id: str, session: Session) -> list[Connection]:
@@ -139,7 +136,7 @@ def list_interface_connections(device_id: str, session: Session) -> dict[str, An
                 'peer_interface_id': peer.id,
                 'peer_interface_name': peer.name,
                 'peer_device_id': peer.physical_device_id,
-                'peer_device_name': _device_label(peer_device) if peer_device else '',
+                'peer_device_name': device_label(peer_device) if peer_device else '',
                 'peer_is_management': peer.is_management,
                 'peer_is_data_transfer': peer.is_data_transfer,
                 'peer_vlan_mode': peer.vlan_mode,
@@ -177,7 +174,7 @@ def list_device_options(session: Session, *, q: str | None = None, include: Iter
         return not needle or needle in (system_name or '').casefold() or needle in (serial_number or '').casefold()
 
     selected = [
-        {'id': device_id, 'label': system_name or serial_number or device_id, 'system_name': system_name, 'serial_number': serial_number}
+        {'id': device_id, 'label': device_label_from_parts(system_name, serial_number, fallback=device_id), 'system_name': system_name, 'serial_number': serial_number}
         for device_id, system_name, serial_number in rows
         if device_id not in excluded and (device_id in forced or matches(system_name, serial_number))
     ]

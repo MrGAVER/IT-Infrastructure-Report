@@ -183,7 +183,7 @@ describe('DeviceFormModal.vue', () => {
 
   it('при редактировании подгружает существующие открытые порты интерфейса устройства', async () => {
     // Фикс п.1.4 (батч4): открытые порты — свойство интерфейса, а не всего устройства (см.
-    // InterfaceDraftRow.open_ports в types.ts) — блок раскрывается вместе с VLAN/IP интерфейса.
+    // InterfaceDraftRow.open_ports в api/types/interfaces.ts) — блок раскрывается вместе с VLAN/IP интерфейса.
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()
@@ -675,10 +675,10 @@ describe('DeviceFormModal.vue', () => {
   })
 
   it('не стирает VLAN интерфейса, назначенные через /legacy, при сохранении без их редактирования', async () => {
-    // Регрессия: backend/app/services/crud.py:_sync_single_interface полностью пересоздаёт
+    // Регрессия: backend/app/services/crud/interfaces.py:_sync_single_interface полностью пересоздаёт
     // InterfaceVLAN из payload['vlan_ids'] при каждом PUT — отправка [] стёрла бы VLAN,
     // назначенные через /legacy, хотя редактор их даже не показывает (см. InterfaceDraftRow
-    // в api/types.ts). Загруженные vlan_ids должны уйти обратно без изменений.
+    // в api/types). Загруженные vlan_ids должны уйти обратно без изменений.
     stubCatalogsFetch()
     const catalogs = useCatalogsStore()
     await catalogs.ensureLoaded()
@@ -867,7 +867,7 @@ describe('DeviceFormModal.vue', () => {
     await body.findAll('input[type="text"]')[0].setValue('Гостевой-X')
     await body.find('.fk-row .searchable-select input').trigger('focus')
     await body.find('.fk-row .ss-option').trigger('mousedown') // единственная опция — "Домен X"
-    await body.find('.overlay form').trigger('submit')
+    await body.find('.modal-overlay form').trigger('submit')
     await flushPromises()
 
     // Фикс п.1.3.8, часть 1: VLAN не выпал из опций сразу после создания — он подставился в
@@ -885,7 +885,7 @@ describe('DeviceFormModal.vue', () => {
     await flushPromises()
 
     // Фикс п.1.3.8, часть 2: устройство реально закреплено за доменом на бэкенде — иначе
-    // backend/app/services/crud.py:_validate_physical_device_vlan откатил бы PUT /devices/{id}/vlans
+    // backend/app/services/crud/validators.py:_validate_physical_device_vlan откатил бы PUT /devices/{id}/vlans
     // с 422 "Устройство не включено в домен этого VLAN".
     const membershipIdx = calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/resources/vlan-domain-devices'))
     const deviceVlanIdx = calls.findIndex((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-8/vlans'))
@@ -957,7 +957,7 @@ describe('DeviceFormModal.vue', () => {
 
     await body.find('input[type="number"]').setValue(66)
     await body.findAll('input[type="text"]')[0].setValue('Новый VLAN')
-    await body.find('.overlay form').trigger('submit')
+    await body.find('.modal-overlay form').trigger('submit')
     await flushPromises()
 
     await wrapper.find('form').trigger('submit')
@@ -1405,21 +1405,21 @@ describe('DeviceFormModal.vue', () => {
     const body = new DOMWrapper(document.body)
     // п.4: device_type_id/manufacturer_id внутри вложенной квик-модалки — SearchableSelect, а не
     // нативный select; открываем каждый кликом по полю и выбираем нужный вариант из списка.
-    const typeSearch = body.findAll('.overlay .searchable-select input')[0]
+    const typeSearch = body.findAll('.modal-overlay .searchable-select input')[0]
     await typeSearch.trigger('focus')
-    const typeOptions = body.findAll('.overlay .searchable-select')[0].findAll('.ss-option')
+    const typeOptions = body.findAll('.modal-overlay .searchable-select')[0].findAll('.ss-option')
     await typeOptions.find((o) => o.text() === 'Сетевое оборудование')!.trigger('mousedown') // dt-net — из deviceTypesFixture
 
-    const mfSearch = body.findAll('.overlay .searchable-select input')[1]
+    const mfSearch = body.findAll('.modal-overlay .searchable-select input')[1]
     await mfSearch.trigger('focus')
-    await body.findAll('.overlay .searchable-select')[1].find('.ss-option').trigger('mousedown') // Dell — единственный производитель в тесте
+    await body.findAll('.modal-overlay .searchable-select')[1].find('.ss-option').trigger('mousedown') // Dell — единственный производитель в тесте
 
     // device-models: после двух SearchableSelect (Тип/Производитель) в DOM идёт обычный input
     // поля "Модель" — он последний среди input[type="text"], а не первый (первые два теперь
     // принадлежат поисковым полям SearchableSelect).
-    const overlayTextInputs = body.findAll('.overlay input[type="text"]')
+    const overlayTextInputs = body.findAll('.modal-overlay input[type="text"]')
     await overlayTextInputs[overlayTextInputs.length - 1].setValue('PowerVault')
-    await body.find('.overlay form').trigger('submit')
+    await body.find('.modal-overlay form').trigger('submit')
     await flushPromises()
 
     // Объединённое поле отражает выбранную модель, а не "сырой" device_type_id.
@@ -1479,8 +1479,8 @@ describe('DeviceFormModal.vue', () => {
     const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
     await buildingRow.find('button').trigger('click')
     const body = new DOMWrapper(document.body)
-    await body.find('.overlay input[type="text"]').setValue('Корпус Б')
-    await body.find('.overlay form').trigger('submit')
+    await body.find('.modal-overlay input[type="text"]').setValue('Корпус Б')
+    await body.find('.modal-overlay form').trigger('submit')
     await flushPromises()
 
     // Фикс п.1.1: поле теперь SearchableSelect, не нативный <select> — читаем отображённую
@@ -1508,11 +1508,11 @@ describe('DeviceFormModal.vue', () => {
     // rooms: [building_id (fk, SearchableSelect), name (text)] — Здание в квик-модалке; после
     // поискового поля SearchableSelect'а в DOM идёт обычный input поля "Наименование" — он
     // последний среди input[type="text"], не первый.
-    await body.find('.overlay .searchable-select input').trigger('focus')
-    await body.find('.overlay .ss-option').trigger('mousedown') // единственный вариант — b-1 "Корпус А"
-    const roomTextInputs = body.findAll('.overlay input[type="text"]')
+    await body.find('.modal-overlay .searchable-select input').trigger('focus')
+    await body.find('.modal-overlay .ss-option').trigger('mousedown') // единственный вариант — b-1 "Корпус А"
+    const roomTextInputs = body.findAll('.modal-overlay input[type="text"]')
     await roomTextInputs[roomTextInputs.length - 1].setValue('204')
-    await body.find('.overlay form').trigger('submit')
+    await body.find('.modal-overlay form').trigger('submit')
     await flushPromises()
 
     const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
@@ -1540,11 +1540,11 @@ describe('DeviceFormModal.vue', () => {
     const body = new DOMWrapper(document.body)
     // racks: [room_id (fk, SearchableSelect), name (text), height_u (number)] — Помещение;
     // "Наименование" — последний среди input[type="text"], не первый (первый — поиск SearchableSelect).
-    await body.find('.overlay .searchable-select input').trigger('focus')
-    await body.find('.overlay .ss-option').trigger('mousedown') // единственный вариант — room-1 "204"
-    const rackTextInputs = body.findAll('.overlay input[type="text"]')
+    await body.find('.modal-overlay .searchable-select input').trigger('focus')
+    await body.find('.modal-overlay .ss-option').trigger('mousedown') // единственный вариант — room-1 "204"
+    const rackTextInputs = body.findAll('.modal-overlay input[type="text"]')
     await rackTextInputs[rackTextInputs.length - 1].setValue('R-1')
-    await body.find('.overlay form').trigger('submit')
+    await body.find('.modal-overlay form').trigger('submit')
     await flushPromises()
 
     const buildingRow = wrapper.findAll('.field').find((f) => f.find('span').text() === 'Здание')!
@@ -1584,8 +1584,8 @@ describe('DeviceFormModal.vue', () => {
       return wrapper
     }
     async function roomChoicesInRackModal(body: DOMWrapper<HTMLElement>): Promise<string[]> {
-      await body.find('.overlay .searchable-select input').trigger('focus')
-      return body.findAll('.overlay .ss-option').map((o) => o.text())
+      await body.find('.modal-overlay .searchable-select input').trigger('focus')
+      return body.findAll('.modal-overlay .ss-option').map((o) => o.text())
     }
 
     it('со зданием в форме в окне стойки только помещения этого здания', async () => {
@@ -1612,7 +1612,7 @@ describe('DeviceFormModal.vue', () => {
 
       const body = await openRackModal(wrapper)
 
-      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('305')
+      expect((body.find('.modal-overlay .searchable-select input').element as HTMLInputElement).value).toBe('305')
     })
 
     it('если помещение в форме не выбрано, в окне стойки оно не заполнено', async () => {
@@ -1621,7 +1621,7 @@ describe('DeviceFormModal.vue', () => {
 
       const body = await openRackModal(wrapper)
 
-      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('')
+      expect((body.find('.modal-overlay .searchable-select input').element as HTMLInputElement).value).toBe('')
     })
   })
 
@@ -1658,7 +1658,7 @@ describe('DeviceFormModal.vue', () => {
       const body = await openRoomModal(wrapper)
 
       // rooms: [building_id (fk, SearchableSelect), name (text)] — первый SearchableSelect окна — «Здание».
-      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
+      expect((body.find('.modal-overlay .searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
     })
 
     it('если здание в форме не выбрано, в окне помещения оно не заполнено', async () => {
@@ -1666,7 +1666,7 @@ describe('DeviceFormModal.vue', () => {
 
       const body = await openRoomModal(wrapper)
 
-      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('')
+      expect((body.find('.modal-overlay .searchable-select input').element as HTMLInputElement).value).toBe('')
     })
 
     it('предзаполненное здание можно сменить в окне — это только стартовое значение', async () => {
@@ -1674,13 +1674,13 @@ describe('DeviceFormModal.vue', () => {
       await pickInField(wrapper, 'Здание', 'Корпус А')
 
       const body = await openRoomModal(wrapper)
-      await body.find('.overlay .searchable-select input').trigger('focus')
+      await body.find('.modal-overlay .searchable-select input').trigger('focus')
       await body
-        .findAll('.overlay .ss-option')
+        .findAll('.modal-overlay .ss-option')
         .find((o) => o.text() === 'Корпус Б')!
         .trigger('mousedown')
 
-      expect((body.find('.overlay .searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
+      expect((body.find('.modal-overlay .searchable-select input').element as HTMLInputElement).value).toBe('Корпус Б')
     })
   })
 
@@ -1689,15 +1689,15 @@ describe('DeviceFormModal.vue', () => {
   describe('закрытие по клику на подложку (п.3.8)', () => {
     it('закрывает форму по обычному клику на подложку', async () => {
       const wrapper = await mountWithLoadedCatalogs()
-      await wrapper.find('.overlay').trigger('mousedown')
-      await wrapper.find('.overlay').trigger('click')
+      await wrapper.find('.modal-overlay').trigger('mousedown')
+      await wrapper.find('.modal-overlay').trigger('click')
       expect(wrapper.emitted('close')).toBeTruthy()
     })
 
     it('НЕ закрывает форму, если mousedown начался внутри карточки (типичная попытка выделить текст)', async () => {
       const wrapper = await mountWithLoadedCatalogs()
       await wrapper.find('.modal-head h2').trigger('mousedown') // mousedown на заголовке ВНУТРИ карточки
-      await wrapper.find('.overlay').trigger('click') // click "долетел" до подложки (mouseup был за пределами карточки)
+      await wrapper.find('.modal-overlay').trigger('click') // click "долетел" до подложки (mouseup был за пределами карточки)
       expect(wrapper.emitted('close')).toBeFalsy()
     })
 
@@ -2225,7 +2225,7 @@ describe('DeviceFormModal.vue', () => {
       const body = new DOMWrapper(document.body)
       await body.find('input[type="number"]').setValue(20)
       await body.findAll('input[type="text"]')[0].setValue('New')
-      await body.find('.overlay form').trigger('submit')
+      await body.find('.modal-overlay form').trigger('submit')
       await flushPromises()
 
       await wrapper.find('form').trigger('submit')
@@ -4114,5 +4114,142 @@ describe('DeviceFormModal.vue — общие настройки VLAN стека 
     await flushPromises()
     expect(removed.vlanEditor.findAll('.nested-row')).toHaveLength(1) // осталась только собственная строка VLAN 20
     expect(removed.vlanEditor.text()).not.toContain('10 — Сеть 10')
+  })
+})
+
+// Пункт 3 предложений по улучшению (ревью merge/review-f06-stage2-f05-executors): ПО, VLAN и порты устройства сохраняются PUT-ом ЦЕЛИКОМ.
+// Пустой черновик из-за сбоя или незавершённой загрузки нельзя отправлять — он стёр бы эти данные на сервере.
+describe('DeviceFormModal.vue — незагруженные вложенные данные не затираются при сохранении', () => {
+  const device = { id: 'dev-1', device_type_id: 'dt-server', serial_number: 'SN-1' } as never
+  const savedSoftware = { id: 'sw-1', owner_type: 'physical_device', owner_id: 'dev-1', software_asset_id: 'sa-1', version: '1' }
+  type Call = { method: string; url: string; body: unknown }
+  const NESTED_PUT = /\/devices\/dev-1\/(deployed-software|vlans|interfaces)$/
+  const page = (items: unknown[] = []) => new Response(JSON.stringify({ items, total: items.length, offset: 0, limit: 1000 }))
+  const nestedPuts = (calls: Call[]) => calls.filter((c) => c.method === 'PUT' && NESTED_PUT.test(c.url)).map((c) => c.url.replace(/^.*\/devices\/dev-1/, ''))
+  const saveButton = () => document.body.querySelector('.btn-primary') as HTMLButtonElement
+  const notice = () => document.body.querySelector('.load-notice')
+
+  /** Мокает API; onSoftwareList решает ответ на GET ПО (по номеру запроса) — остальные списки пусты, PUT успешны. */
+  /** Запрос первой страницы списка (offset=0 или параметра нет) — в отличие от дочитывания следующих страниц. */
+  function isFirstPage(url: string): boolean {
+    return Number(new URL(url, 'http://localhost').searchParams.get('offset') ?? 0) === 0
+  }
+
+  async function stubApi(onSoftwareList: (attempt: number, url: string) => Response | Promise<Response>) {
+    stubCatalogsFetch()
+    await useCatalogsStore().ensureLoaded()
+    const calls: Call[] = []
+    let softwareGets = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+        if (method === 'GET' && url.includes('/resources/deployed-software')) return onSoftwareList(++softwareGets, url)
+        if (method === 'PUT' && /\/resources\/devices\/dev-1$/.test(url)) return new Response(JSON.stringify({ id: 'dev-1', serial_number: 'SN-1' }))
+        if (method === 'PUT') return new Response(JSON.stringify({ items: [], groups: [] }))
+        return page()
+      }),
+    )
+    return calls
+  }
+
+  it('загрузка упала: редакторы скрыты, показано сообщение; сохранение не отправляет ПО, VLAN и порты, но сохраняет устройство', async () => {
+    const calls = await stubApi(() => new Response(JSON.stringify({ detail: 'сервер недоступен' }), { status: 503 }))
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(notice()?.getAttribute('data-kind')).toBe('failed')
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'DeviceInterfacesEditor' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'DeviceVlanListEditor' }).exists()).toBe(false)
+
+    saveButton().click()
+    await flushPromises()
+
+    expect(nestedPuts(calls)).toEqual([])
+    expect(calls.some((c) => c.method === 'PUT' && /\/resources\/devices\/dev-1$/.test(c.url))).toBe(true)
+    expect(wrapper.emitted('saved')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('B-02: ПО загружено не целиком (потолок listAllResource) — то же, что сбой: редакторы скрыты, сообщение показано, PUT ПО/VLAN/портов не уходят', async () => {
+    // сервер обещает 2000 записей ПО, но на вторую страницу отвечает пустой → listAllResource вернёт truncated=true.
+    // ИБ-05: усечённый список перечитывается один раз, поэтому усечение должно быть устойчивым — каждое чтение первой страницы обещает 2000.
+    const calls = await stubApi((_attempt, url) =>
+      isFirstPage(url) ? new Response(JSON.stringify({ items: [savedSoftware], total: 2000, offset: 0, limit: 1000 })) : page(),
+    )
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(notice()?.getAttribute('data-kind')).toBe('failed')
+    expect(document.body.querySelector('.form-error')?.textContent).toContain('загружен не полностью')
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(false)
+
+    saveButton().click()
+    await flushPromises()
+
+    expect(nestedPuts(calls)).toEqual([]) // неполный список ПО не превращается в PUT, который стёр бы невидимые записи
+    expect(calls.some((c) => c.method === 'PUT' && /\/resources\/devices\/dev-1$/.test(c.url))).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('ИБ-05: ПО усечено только при первом чтении (запись удалили во время загрузки) — повторное чтение полное, форма открывается без сообщения', async () => {
+    // чтение 1: первая страница обещает 2000, вторая пуста (attempt 1–2) → усечение; повторное чтение (attempt 3+) — целый список
+    const calls = await stubApi((attempt, url) =>
+      attempt <= 2 && isFirstPage(url)
+        ? new Response(JSON.stringify({ items: [savedSoftware], total: 2000, offset: 0, limit: 1000 }))
+        : page(attempt <= 2 ? [] : [savedSoftware]),
+    )
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(notice()).toBeNull()
+    expect(document.body.querySelector('.form-error')).toBeNull()
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(true)
+    expect(calls.filter((c) => c.method === 'GET' && c.url.includes('/resources/deployed-software')).length).toBeGreaterThanOrEqual(3)
+    wrapper.unmount()
+  })
+
+  it('«Повторить загрузку»: данные приходят, сообщение исчезает, редакторы возвращаются, и ПО сохраняется с id записи из БД', async () => {
+    const calls = await stubApi((attempt) => (attempt === 1 ? new Response(JSON.stringify({ detail: 'сбой' }), { status: 503 }) : page([savedSoftware])))
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    ;(document.body.querySelector('[data-action="retry-load"]') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(notice()).toBeNull()
+    expect(document.body.querySelector('.form-error')).toBeNull()
+    expect(wrapper.findComponent({ name: 'SoftwareAssetListEditor' }).exists()).toBe(true)
+
+    saveButton().click()
+    await flushPromises()
+    const softwarePut = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/devices/dev-1/deployed-software'))
+    expect(softwarePut?.body).toEqual({ deployed_software: [{ id: 'sw-1', software_asset_id: 'sa-1', version: '1' }] })
+    expect(nestedPuts(calls)).toEqual(['/deployed-software', '/vlans', '/interfaces'])
+    wrapper.unmount()
+  })
+
+  it('«Сохранить» неактивна, пока данные грузятся; отправка формы в этот момент ничего не пишет на сервер', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const calls = await stubApi(async () => {
+      await gate
+      return page([savedSoftware])
+    })
+    const wrapper = mount(DeviceFormModal, { props: { device }, attachTo: document.body })
+    await flushPromises()
+
+    expect(document.body.querySelector('.loading-hint')).not.toBeNull()
+    expect(saveButton().disabled).toBe(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([])
+
+    release()
+    await flushPromises()
+    expect(saveButton().disabled).toBe(false)
+    wrapper.unmount()
   })
 })

@@ -1,29 +1,29 @@
 import { ref } from 'vue'
-import { useEscapeClose } from './useEscapeClose'
 
 /**
- * Клик по подложке модалки закрывает её — общий паттерн во всех *FormModal.vue этого приложения
- * (обычно реализован наивно, через `@click.self="$emit('close')"` прямо на .overlay). У наивной
+ * Клик по подложке модалки закрывает её. Подключается один раз — через useModalLayer (modalLayer.ts) в BaseModal.vue, основе всех модальных окон приложения
+ * (F-03 кода-ревью main); сами окна этот композабл не вызывают. Обычно такое закрытие реализуют наивно, через
+ * `@click.self="$emit('close')"` прямо на подложке. У наивной
  * версии есть баг: пользователь начинает выделять текст ВНУТРИ карточки модалки (mousedown на
  * каком-нибудь <span>/<label>) и утаскивает курсор за пределы карточки, на подложку, ДО того как
  * отпустить кнопку мыши. Браузер в этом случае диспатчит click с target, равным ближайшему
- * ОБЩЕМУ предку mousedown- и mouseup-целей — им оказывается сама подложка (.overlay,
+ * ОБЩЕМУ предку mousedown- и mouseup-целей — им оказывается сама подложка (.modal-overlay,
  * currentTarget), и `click.self` (проверяющий только event.target === event.currentTarget у
  * самого click) срабатывает, закрывая форму и обрывая попытку выделения текста на середине.
  *
  * Фикс: закрываем только если подложка была целью И mousedown, И click — то есть весь клик,
  * от нажатия до отпускания, целиком произошёл на подложке, а не просто "закончился" на ней.
  *
- * Esc закрывает окно тем же действием (UI-04, ревью 2.158.0): «закрыть окно» одно, а способов — два. Подписку на Esc
- * делает useEscapeClose, поэтому она есть во всех модалках, которые уже вызывают этот композабл (верхнее окно из вложенных).
+ * Esc закрывает окно тем же действием (UI-04, ревью 2.158.0): «закрыть окно» одно, а способов — два. Подписку на Esc делает
+ * BaseModal через useModalLayer (modalLayer.ts, FE-06): «верхнее» из вложенных окон определяет единый стек окон, — поэтому здесь Esc
+ * не обрабатывается.
  *
  * @example
  * const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
- * // <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+ * // <div class="modal-overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
  */
 export function useOverlayDismiss(onDismiss: () => void) {
   const pointerDownOnOverlay = ref(false)
-  useEscapeClose(onDismiss)
 
   function onOverlayPointerDown(event: MouseEvent) {
     pointerDownOnOverlay.value = event.target === event.currentTarget

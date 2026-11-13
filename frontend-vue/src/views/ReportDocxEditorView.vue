@@ -14,6 +14,7 @@ import { getReportTemplate, saveReportTemplate } from '../api/reportTemplates'
 import type { DocxBlock, DocxConfig, DocxPreviewResponse, ReportEntityMeta, ReportTemplate } from '../api/types'
 import { useToast } from '../composables/useToast'
 import DocxTableBlockEditor from '../components/DocxTableBlockEditor.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -256,7 +257,7 @@ function previewCellText(value: unknown): string {
               <span v-if="section.total !== undefined" class="preview-note">показано записей: {{ section.total }}</span>
             </div>
             <p v-if="section.error" class="preview-error">{{ section.error }}</p>
-            <div v-else class="preview-table-wrap">
+            <ScrollableTableWrap v-else :label="`Предпросмотр: ${section.title || `Таблица ${si + 1}`}`">
               <table class="preview-table">
                 <thead>
                   <tr>
@@ -269,7 +270,7 @@ function previewCellText(value: unknown): string {
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </ScrollableTableWrap>
           </div>
         </div>
       </div>
@@ -447,9 +448,6 @@ function previewCellText(value: unknown): string {
   font-size: 12px;
   color: var(--status-crit);
   margin: 0;
-}
-.preview-table-wrap {
-  overflow-x: auto;
 }
 .preview-table {
   border-collapse: collapse;

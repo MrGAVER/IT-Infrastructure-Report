@@ -42,13 +42,23 @@ describe('InterfaceGeneratorPanel', () => {
     await field(wrapper, 'Скорость по умолчанию').get('select').setValue('s-1g')
     await wrapper.get('.replace-all-check input').setValue(true)
 
-    // поле type="number" отдаёт число — разбор строки/числа делает usePortGenerator
-    expect(Number(wrapper.emitted('update:count')![0][0])).toBe(8)
-    expect(Number(wrapper.emitted('update:startAt')![0][0])).toBe(3)
+    // B-07: модель — строка (defineModel<string>), поэтому поля type="number" отдают именно строку, а не число; разбор — в usePortGenerator
+    expect(wrapper.emitted('update:count')![0]).toEqual(['8'])
+    expect(wrapper.emitted('update:startAt')![0]).toEqual(['3'])
     expect(wrapper.emitted('update:nameTemplate')![0]).toEqual(['port{n}'])
     expect(wrapper.emitted('update:typeId')![0]).toEqual(['t-eth'])
     expect(wrapper.emitted('update:speedId')![0]).toEqual(['s-1g'])
     expect(wrapper.emitted('update:replaceAll')![0]).toEqual([true])
+  })
+
+  it('B-07: очищенное поле отдаёт пустую строку (а не 0 и не NaN) — «не задано» для usePortGenerator', async () => {
+    const wrapper = mountPanel({ count: '4', startAt: '7' })
+
+    await field(wrapper, 'Количество').get('input').setValue('')
+    await field(wrapper, 'Начать нумерацию с').get('input').setValue('')
+
+    expect(wrapper.emitted('update:count')![0]).toEqual([''])
+    expect(wrapper.emitted('update:startAt')![0]).toEqual([''])
   })
 
   it('тип и скорость выбираются из справочников; «не выбрано» — пустое значение', () => {

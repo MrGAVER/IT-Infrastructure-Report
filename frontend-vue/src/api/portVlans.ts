@@ -8,23 +8,31 @@
 // PhysicalDeviceVLAN (уже назначенные устройству VLAN). Портировано из
 // loadInterfaceEditor()/deviceVlanOptions/sortedVlanOptions() в
 // прежнем vanilla-фронтенде (до 2.60.0).
+import { loadAllComplete } from './assertComplete'
 import { api, listAllResource } from './client'
 import type { Device, DeviceInterface, DeviceTypeVLAN, DeviceVLAN, InterfaceVlansEntry, VLANDefinition, VlanMode } from './types'
 
 /** VLAN id'ы (vlans.id), разрешённые для типа устройства через /resources/device-type-vlans.
- * Пустой deviceTypeId (устройство ещё создаётся, тип не выбран) -> пустой набор. */
+ * Пустой deviceTypeId (устройство ещё создаётся, тип не выбран) -> пустой набор.
+ * B-02: усечённая загрузка — ошибка (`IncompleteDataError`), а не неполный набор: по нему строится список допустимых VLAN порта, и
+ * недостающие VLAN тихо выпали бы из выбора (а при сверке соседнего порта — из «допустимых» устройству). ИБ-05: ошибкой усечение
+ * становится только после одного повторного чтения (`loadAllComplete`). */
 export async function loadDeviceTypeVlanIds(deviceTypeId: string): Promise<Set<string>> {
   if (!deviceTypeId) return new Set()
-  const res = await listAllResource<DeviceTypeVLAN>('device-type-vlans', { device_type_id: deviceTypeId })
+  const res = await loadAllComplete(
+    () => listAllResource<DeviceTypeVLAN>('device-type-vlans', { device_type_id: deviceTypeId }),
+    'Допустимые VLAN типа устройства',
+  )
   return new Set(res.items.map((x) => x.vlan_id))
 }
 
 /** VLAN id'ы, уже назначенные устройству в БД через /resources/device-vlans. Для формы
  * устройства, где "VLAN устройства" ещё редактируется как черновик, вместо этого источника
  * нужно брать текущий черновик (deviceVlans.value), а не перезапрашивать БД — см.
- * DeviceFormModal.vue:portVlanOptions. */
+ * DeviceFormModal.vue:portVlanOptions.
+ * B-02: усечённая загрузка — ошибка (`IncompleteDataError`), см. loadDeviceTypeVlanIds. */
 export async function loadAssignedDeviceVlanIds(deviceId: string): Promise<Set<string>> {
-  const res = await listAllResource<DeviceVLAN>('device-vlans', { physical_device_id: deviceId })
+  const res = await loadAllComplete(() => listAllResource<DeviceVLAN>('device-vlans', { physical_device_id: deviceId }), 'VLAN устройства')
   return new Set(res.items.map((x) => x.vlan_id))
 }
 

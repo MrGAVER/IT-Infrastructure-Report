@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { enableAutoUnmount, mount } from '@vue/test-utils'
+import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ConnectionCanvasModal from '../ConnectionCanvasModal.vue'
 import ConnectionFormModal from '../ConnectionFormModal.vue'
@@ -73,10 +73,6 @@ beforeEach(() => {
     { id: 'dev-c', system_name: '', serial_number: 'SN-C' } as never,
   ]
 })
-
-// Смонтированные компоненты, не размонтированные тестом, оставляли бы слушатели mousemove/mouseup на window и
-// влияли бы на следующие тесты (результат зависел от порядка запуска).
-enableAutoUnmount(afterEach)
 
 afterEach(() => {
   vi.restoreAllMocks()

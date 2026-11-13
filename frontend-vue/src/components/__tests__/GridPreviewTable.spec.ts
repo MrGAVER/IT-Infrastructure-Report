@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import GridPreviewTable from '../GridPreviewTable.vue'
+import ScrollableTableWrap from '../ScrollableTableWrap.vue'
 import type { GridPreviewSection } from '../../api/types'
 
 describe('GridPreviewTable.vue', () => {
@@ -67,5 +68,18 @@ describe('GridPreviewTable.vue', () => {
     const section: GridPreviewSection = { title: '', n_cols: 0, rows: [] }
     const wrapper = mount(GridPreviewTable, { props: { section } })
     expect(wrapper.find('.preview-head b').text()).toBe('(без названия)')
+  })
+
+  it('F-05: таблица стоит в ScrollableTableWrap — на телефоне у широкого листа есть подсказка о прокрутке', () => {
+    const section: GridPreviewSection = {
+      title: 'Лист 1',
+      n_cols: 1,
+      rows: [{ height: 20, cells: [{ col: 0, colspan: 1, rowspan: 1, value: 'x', is_datetime: false, style: {} }] }],
+    }
+    const wrapper = mount(GridPreviewTable, { props: { section } })
+    const wrap = wrapper.getComponent(ScrollableTableWrap)
+    expect(wrap.attributes('aria-label')).toBe('Предпросмотр: Лист 1')
+    expect(wrap.find('table').exists()).toBe(true)
+    expect(wrapper.find('.preview-table-wrap').exists()).toBe(false)
   })
 })

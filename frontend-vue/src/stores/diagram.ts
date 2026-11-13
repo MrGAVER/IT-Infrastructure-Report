@@ -19,6 +19,7 @@ import {
   type DiagramNode,
   type SavedDiagramDetail,
 } from '../api/diagrams'
+import { saveBlob } from '../api/saveBlob'
 
 // Раздел 12 ТЗ: "дебounced-сохранение раскладки" — не на каждый пиксель drag, а после паузы;
 // 600мс — тот же порядок величины, что и debounce поиска в других списковых экранах проекта.
@@ -200,14 +201,7 @@ export const useDiagramStore = defineStore('diagram', {
       this.exporting = format
       try {
         const { blob, filename } = await apiExportDiagram(this.diagram.id, format)
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        URL.revokeObjectURL(url)
+        saveBlob(blob, filename)
         // Сервер уже сохранил last_export_format (см. backend/app/api/diagrams.py) — отражаем
         // это в локальном состоянии сразу, без перезапроса всей диаграммы, чтобы сплит-кнопка
         // экспорта (DiagramExportPanel.vue) сменила основной формат немедленно.

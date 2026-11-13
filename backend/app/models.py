@@ -526,6 +526,8 @@ class IPAddress(TimestampMixin, Base):
     один UI (см. комментарий в ContainerFormModal.vue "у контейнера нет своего IP на уровне
     отчёта") — мёртвая колонка, удалена той же миграцией, а не активирована задним числом."""
     __tablename__ = "ip_addresses"
+    # Индекс по владельцу создаёт миграция d8e35a1c7f60; описан здесь, чтобы схема из миграций и модель совпадали (R1-02).
+    __table_args__ = (Index("ix_ip_addresses_owner", "owner_type", "owner_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
     owner_id: Mapped[str] = mapped_column(String(36))
@@ -567,9 +569,13 @@ class DeviceTypeVLAN(TimestampMixin, Base):
 
 class PhysicalDeviceVLAN(TimestampMixin, Base):
     __tablename__ = "physical_device_vlans"
-    __table_args__ = (UniqueConstraint("physical_device_id", "vlan_id", name="uq_physical_device_vlan"),)
+    __table_args__ = (
+        UniqueConstraint("physical_device_id", "vlan_id", name="uq_physical_device_vlan"),
+        # Имя индекса — как в миграциях (`index=True` дало бы ix_physical_device_vlans_physical_device_id): так схема совпадает (R1-02).
+        Index("ix_physical_device_vlans_device_id", "physical_device_id"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
+    physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"))
     vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
@@ -664,6 +670,11 @@ class DeployedSoftware(TimestampMixin, Base):
     двух разных формах и хранились в двух отдельных таблицах, отличавшихся только именем FK-
     колонки владельца."""
     __tablename__ = "deployed_software"
+    # Индексы создаёт миграция c4a91e6f2b83 (поиск по владельцу и по записи каталога); описаны здесь, чтобы схема совпадала (R1-02).
+    __table_args__ = (
+        Index("ix_deployed_software_owner", "owner_type", "owner_id"),
+        Index("ix_deployed_software_software_asset_id", "software_asset_id"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
     owner_id: Mapped[str] = mapped_column(String(36))
@@ -824,13 +835,13 @@ class AuditLog(TimestampMixin, Base):
 
 class User(TimestampMixin, Base):
     """Учётная запись приложения. Существует независимо от AuthSettings.enabled — учётные записи
-    можно завести заранее, пока переключатель ещё выключен (см. services/auth.py), а не только
+    можно завести заранее, пока переключатель ещё выключен (см. services/auth/settings.py), а не только
     после включения аутентификации. password_hash — самоописывающийся формат
-    'pbkdf2_sha256$<итерации>$<соль-b64>$<хеш-b64>' (см. services/auth.hash_password), это
+    'pbkdf2_sha256$<итерации>$<соль-b64>$<хеш-b64>' (см. services/auth/passwords.hash_password), это
     позволяет поднять число итераций в будущем, не инвалидируя уже существующие пароли (старые
-    хеши перевычисляются на следующий успешный вход — services/auth.authenticate).
+    хеши перевычисляются на следующий успешный вход — services/auth/login.authenticate).
 
-    failed_attempts/locked_until — защита от подбора пароля (см. services/auth.MAX_FAILED_ATTEMPTS):
+    failed_attempts/locked_until — защита от подбора пароля (см. services/auth/lockout.py и config.AUTH_MAX_FAILED_ATTEMPTS):
     после серии неудачных попыток учётная запись временно блокируется независимо от того, был ли
     следующий пароль верным."""
     __tablename__ = "users"
@@ -850,8 +861,11 @@ class AuthSession(Base):
     только для отображения администратору списка активных входов (см. GET /auth/sessions), не
     участвуют в проверке подлинности запроса."""
     __tablename__ = "auth_sessions"
+    # Уникальность хеша — именованное ограничение, как в миграциях (раньше `unique=True, index=True` давало unique-индекс под другим
+    # именем и вечное расхождение схемы из миграций с моделью, R1-02). Поиск по хешу идёт по индексу этого ограничения.
+    __table_args__ = (UniqueConstraint("token_hash", name="uq_auth_sessions_token_hash"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -862,7 +876,7 @@ class AuthSettings(Base):
     """Синглтон (id зафиксирован строкой 'singleton', ровно одна строка в таблице) — глобальный
     тумблер аутентификации. По умолчанию enabled=False: однопользовательский локальный режим,
     все /api/* открыты без токена, поведение идентично состоянию приложения до этой фичи (см.
-    services/auth.py:auth_gate_middleware). Отдельная таблица, а не запись в каком-то общем
+    services/auth/gate.py:auth_gate_middleware). Отдельная таблица, а не запись в каком-то общем
     key-value справочнике настроек — на момент написания это единственная серверная настройка,
     заводить ради неё общий механизм преждевременно."""
     __tablename__ = "auth_settings"
@@ -919,8 +933,11 @@ class DiagramLayout(TimestampMixin, Base):
     SavedDiagram), т.к. это часть контракта "перегенерировать граф, сохранив раскладку"
     (POST /diagrams/{id}/regenerate) — раскладка переживает пересборку графа из реестра."""
     __tablename__ = "diagram_layouts"
+    # В базе из миграций — UNIQUE-ограничение и отдельный обычный индекс (не один unique-индекс, как давало `unique=True, index=True`);
+    # модель описывает ровно это, чтобы схема из миграций и модели совпадали (R1-02).
+    __table_args__ = (Index("ix_diagram_layouts_saved_diagram_id", "saved_diagram_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), unique=True, index=True)
+    saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), unique=True)
     node_positions: Mapped[str] = mapped_column(Text)  # JSON: {"<device_id|'group:'+group_key>": {"x":..,"y":..}}
     viewport: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {"zoom":..,"pan_x":..,"pan_y":..}
     auto_layout_algorithm: Mapped[str] = mapped_column(String(30), default="hierarchical")

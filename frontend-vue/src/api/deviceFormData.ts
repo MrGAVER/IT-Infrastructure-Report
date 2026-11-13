@@ -1,5 +1,6 @@
 // Загрузка вложенных данных устройства для формы (DeviceFormModal.vue): ПО, порты и их группы, VLAN устройства, членство в
 // доменах VLAN, допустимые VLAN типа и подключения портов. Для копии строки донора превращаются в «новые» — без id.
+import { loadAllComplete } from './assertComplete'
 import { listAllResource } from './client'
 import { loadDeviceInterfaceDraftRows, loadDeviceInterfaceGroups } from './deviceInterfaces'
 import { fetchDeviceInterfaceConnections, type DeviceInterfaceConnection } from './deviceConnectivity'
@@ -40,16 +41,22 @@ export interface DeviceNestedData {
  * Всё грузится атомарно, одним Promise.all (а не отдельным watch на тип устройства), чтобы список допустимых VLAN порта не
  * пересчитывался с неполными данными между двумя разными по времени загрузками. Ошибка любого запроса не глотается — её
  * показывает форма.
+ *
+ * B-02: ПО, VLAN устройства и членство в доменах читаются через listAllResource, у которого есть потолок (50 000 записей). ПО и VLAN форма
+ * сохраняет целиком, а членство в доменах определяет, какие VLAN считать уже доступными, — усечённый список нельзя отдавать форме как
+ * полный, иначе сохранение удалило бы невидимые записи. Усечение превращается в ошибку (`IncompleteDataError`), и форма помечает вложенные
+ * данные как не загруженные (useDeviceLoader: nestedLoadFailed) — так же, как при сетевом сбое. ИБ-05: усечённый список сначала
+ * перечитывается один раз (`loadAllComplete`) — запись, удалённая во время загрузки, ложно давала «загружено не полностью».
  */
 export async function loadDeviceNestedData(source: Device, isCopy: boolean, ensureVlansLoaded: () => Promise<unknown>): Promise<DeviceNestedData> {
   const [software, ifaceRows, ifaceGroups, vlans, domainLinks, typeVlanIds, deviceConnections] = await Promise.all([
-    listAllResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: source.id }),
+    loadAllComplete(() => listAllResource<DeployedSoftware>('deployed-software', { owner_type: 'physical_device', owner_id: source.id }), 'Установленное ПО'),
     // Загрузка + сборка InterfaceDraftRow[] вынесена в api/deviceInterfaces.ts — тот же помощник использует DevicePortsModal.vue
     // (управление портами с экрана «Подключения»). Открытые порты каждого интерфейса приходят уже вложенными в ifaceRows[].open_ports.
     loadDeviceInterfaceDraftRows(source.id),
     loadDeviceInterfaceGroups(source.id),
-    listAllResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id }),
-    listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id }),
+    loadAllComplete(() => listAllResource<DeviceVLAN>('device-vlans', { physical_device_id: source.id }), 'VLAN устройства'),
+    loadAllComplete(() => listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { physical_device_id: source.id }), 'Домены VLAN устройства'),
     loadDeviceTypeVlanIds(source.device_type_id),
     // Действующие подключения портов устройства — с сервера, а не из общего списка подключений (потолок 1000 записей): по ним
     // строятся черновики подключений и снимок для отправки только изменённого. Копия устройства подключений не наследует.

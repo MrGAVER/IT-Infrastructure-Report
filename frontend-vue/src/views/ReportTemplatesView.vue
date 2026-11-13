@@ -13,6 +13,7 @@ import { useToast } from '../composables/useToast'
 import type { ReportTemplate } from '../api/types'
 import ReportTemplateFormModal from '../components/ReportTemplateFormModal.vue'
 import ReportTemplateVersionsModal from '../components/ReportTemplateVersionsModal.vue'
+import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import { formatServerDate } from '../utils/dateTime'
 
 const templates = useReportTemplatesStore()
@@ -134,7 +135,7 @@ async function generate(t: ReportTemplate) {
         {{ templates.error }}
       </div>
       <div v-else-if="templates.loading && !templates.loaded" class="loading-banner">Загрузка шаблонов…</div>
-      <div v-else class="table-wrap">
+      <ScrollableTableWrap v-else label="Шаблоны отчётов">
         <table>
           <thead>
             <tr>
@@ -181,7 +182,7 @@ async function generate(t: ReportTemplate) {
             </tr>
           </tbody>
         </table>
-      </div>
+      </ScrollableTableWrap>
     </div>
 
     <ReportTemplateFormModal v-if="modalOpen" :template="modalTemplate" @close="closeModal" @saved="onSaved" />
@@ -236,9 +237,6 @@ async function generate(t: ReportTemplate) {
 }
 .spacer {
   flex: 1;
-}
-.table-wrap {
-  overflow-x: auto;
 }
 table {
   width: 100%;

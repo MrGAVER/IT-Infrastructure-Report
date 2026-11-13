@@ -1,4 +1,9 @@
-FROM node:22-slim AS frontend-vue-build
+# Базовые образы закреплены по digest (A-10 код-ревью r3): тег переписывается издателем, и образ, собранный завтра, мог бы отличаться от
+# проверенного сегодня. Digest — у индекса образа (мультиархитектурного манифеста), поэтому сборка работает и на arm64. Тег оставлен для
+# читателя и для Dependabot (.github/dependabot.yml, docker): он предлагает обновление тега и digest одним PR. Вручную:
+# `docker buildx imagetools inspect python:3.12-slim` → строка Digest (не digest отдельной платформы). Значения взяты из
+# docker-library/repo-info (образы от 04–05.11.2026); сборку образа проверяет шаг CI «Проверка сборки Docker-образа backend».
+FROM node:22-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS frontend-vue-build
 WORKDIR /frontend-vue
 # Сначала только манифесты — слой с npm ci кешируется, пока package-lock.json не меняется.
 COPY frontend-vue/package.json frontend-vue/package-lock.json ./
@@ -6,7 +11,7 @@ RUN npm ci
 COPY frontend-vue/ ./
 RUN npm run build
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 WORKDIR /app
 # Версии берутся из requirements.lock (с хешами), а не из диапазонов requirements.txt: образ, собранный завтра, получает те
 # же пакеты, что и сегодня. Обновление lock — см. README, раздел «Зависимости backend».

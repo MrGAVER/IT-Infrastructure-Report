@@ -36,6 +36,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from skip_budget import POSTGRES_ONLY_REASON, SQLITE_ONLY_REASON, pytest_sessionfinish  # noqa: F401  (хук бюджета пропусков, ИА-08)
 
 
 # Серверный режим приложения работает на PostgreSQL (docker-compose.yml), а по умолчанию тесты идут на SQLite.
@@ -62,11 +63,12 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
+    # Причины — константы skip_budget: плагин не считает эти пропуски «неожиданными» (ИА-08 код-ревью r3).
     if IS_POSTGRES:
-        skip = pytest.mark.skip(reason="тест только для SQLite (INFRA_REGISTRY_TEST_DATABASE_URL задан)")
+        skip = pytest.mark.skip(reason=SQLITE_ONLY_REASON)
         marker = "sqlite_only"
     else:
-        skip = pytest.mark.skip(reason="тест требует PostgreSQL (задайте INFRA_REGISTRY_TEST_DATABASE_URL)")
+        skip = pytest.mark.skip(reason=POSTGRES_ONLY_REASON)
         marker = "postgres_only"
     for item in items:
         if marker in item.keywords:
@@ -213,9 +215,9 @@ def _fast_password_hashing(request, monkeypatch):
     Тесты, которым нужно именно боевое значение, помечаются @pytest.mark.real_password_hashing."""
     if request.node.get_closest_marker("real_password_hashing"):
         return
-    from app.services import auth as auth_module
+    from app.services.auth import passwords as passwords_module
 
-    monkeypatch.setattr(auth_module, "PBKDF2_ITERATIONS", 1_000)
+    monkeypatch.setattr(passwords_module, "PBKDF2_ITERATIONS", 1_000)  # читает hash_password/needs_rehash — патч на модуле паролей
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -272,29 +274,33 @@ def _reset_login_throttle():
     """Троттлинг входа (services/login_throttle.py) держит состояние в памяти процесса — без сброса
     неудачные входы одного теста влияли бы на следующие (ключ — пара IP + логин, а IP у всех тестов один).
     Счётчик по адресу (ip_throttle) без сброса накапливал бы неудачи всех тестов и после порога давал бы 429."""
-    from app.services import auth as auth_module
+    from app.services.auth import guards as guards_module
+    from app.services.auth import login as login_module
 
-    auth_module.login_throttle.clear()
-    auth_module.ip_throttle.clear()
+    # Счётчик неверных токенов установки (guards.setup_token_throttle, A-04) — тоже общий для процесса и ключуется адресом клиента.
+    # Тест, подменивший его экземпляр (monkeypatch), возвращает исходный сам; здесь чистится тот, что назначен на момент вызова.
+    throttles = (login_module.login_throttle, login_module.ip_throttle, guards_module.setup_token_throttle)
+    for throttle in throttles:
+        throttle.clear()
     yield
-    auth_module.login_throttle.clear()
-    auth_module.ip_throttle.clear()
+    for throttle in throttles:
+        throttle.clear()
 
 
 @pytest.fixture(autouse=True)
 def _reset_auth_flag_cache(monkeypatch):
-    """Кэш флага «аутентификация включена» (services/auth._auth_enabled_cached) общий для процесса, а БД у каждого теста
+    """Кэш флага «аутентификация включена» (services/auth/settings.auth_enabled_cached) общий для процесса, а БД у каждого теста
     своя: без сброса значение из предыдущего теста (скажем, «включена») действовало бы до двух секунд и в следующем.
 
     Часы кэша заморожены: иначе тесты, сравнивающие число SQL-запросов двух соседних запросов (test_connection_query,
     test_code_review_correctness), зависели бы от того, истёк ли TTL между ними, — на медленном прогоне с покрытием
     нерегулярно получали бы лишний SELECT настроек. Срок действия и сброс проверяет test_auth_flag_cache.py на своих часах."""
-    from app.services import auth as auth_module
+    from app.services.auth import settings as settings_module
 
-    monkeypatch.setattr(auth_module, "_flag_clock", lambda: 0.0)
-    auth_module.reset_auth_enabled_cache()
+    monkeypatch.setattr(settings_module, "_flag_clock", lambda: 0.0)  # кэш и его часы живут в модуле настроек
+    settings_module.reset_auth_enabled_cache()
     yield
-    auth_module.reset_auth_enabled_cache()
+    settings_module.reset_auth_enabled_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -308,6 +314,17 @@ def _reset_port_sync_plan_cache():
     plan_cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_export_cache():
+    """Кэш готовых экспортов (services/export_cache.py) живёт в памяти процесса: тест, подменивший сериализатор и закэшировавший его
+    ответ, не должен подсовывать этот ответ следующему тесту с таким же графом."""
+    from app.services.export_cache import export_cache
+
+    export_cache.clear()
+    yield
+    export_cache.clear()
+
+
 @pytest.fixture()
 def client_factory(db_session, monkeypatch):
     """Фабрика TestClient с app.db.get_db, подменённым на фикстурную сессию/движок выше, чтобы
@@ -317,13 +334,13 @@ def client_factory(db_session, monkeypatch):
     get_db (это не FastAPI-зависимость) — поэтому его тоже подменяем на фабрику, привязанную
     к тому же engine, что и db_session, иначе стартовый seed уйдёт в другую БД.
 
-    app.services.auth.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
+    app.services.auth.gate.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
     FastAPI Depends, поэтому dependency_overrides её не касается; она открывает сессии через
-    app.db.SessionLocal() (см. комментарий в services/auth.py про `from X import Y`), которую
+    app.db.SessionLocal() (см. комментарий в services/auth/gate.py про `from X import Y`), которую
     подменяем здесь же на ту же тестовую фабрику.
 
     Адрес клиента задаётся параметром: первичная настройка аутентификации (см.
-    services/auth.require_admin) доступна только с localhost, поэтому по умолчанию — 127.0.0.1, а
+    services/auth/guards.require_admin) доступна только с localhost, поэтому по умолчанию — 127.0.0.1, а
     тесты «удалённого» доступа просят другой адрес."""
     from fastapi.testclient import TestClient
 

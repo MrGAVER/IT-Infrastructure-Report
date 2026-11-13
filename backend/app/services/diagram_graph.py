@@ -59,8 +59,9 @@ from ..models import (
 )
 from ..constants import OwnerType
 from .timeutil import utcnow_naive
-from ..reporting import _expand_structural_unit_ids, device_label
+from ..reporting import _expand_structural_unit_ids
 from ..services.computed import ip_label
+from .device_label import device_label
 from .diagram_icons import MAX_PORT_TICKS, IconLookups, build_device_icon
 from .port_config import DEFAULT_VLAN_MODE, VLAN_MODE_TRUNK
 from .port_vlans import carries_all_vlans, effective_vlan_ids
@@ -75,8 +76,13 @@ MAX_LAYOUT_NODES = 5000
 MAX_LAYOUT_KEY_LENGTH = 200
 
 
-def _finite_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+def finite_number(value) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # целое из сотен цифр не приводится к float: это не «конечное число» раскладки, а некорректное значение
+        return False
 
 
 def clean_position(raw) -> Optional[dict]:
@@ -84,7 +90,7 @@ def clean_position(raw) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
     x, y = raw.get("x"), raw.get("y")
-    return {"x": x, "y": y} if _finite_number(x) and _finite_number(y) else None
+    return {"x": x, "y": y} if finite_number(x) and finite_number(y) else None
 
 
 def clean_positions_lenient(raw) -> dict[str, dict]:

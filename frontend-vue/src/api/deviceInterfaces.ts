@@ -7,6 +7,7 @@
 // backend/app/services/crud/interfaces.py:sync_interfaces) — он одним запросом создаёт/обновляет/удаляет
 // набор интерфейсов и их IP по diff'у с тем, что уже есть в БД, поэтому здесь нет отдельных
 // create/update/delete-функций, только load+persist целиком.
+import { loadAllComplete } from './assertComplete'
 import { api, listAllResource } from './client'
 import type {
   DeviceInterface,
@@ -35,17 +36,22 @@ import type {
  * их из БД. Запрос устройства возвращает и признак «Все VLAN» (all_vlans), и VLAN порта с его учётом:
  * у порта с признаком связей в БД нет, набор — все VLAN устройства.
  *
+ * B-02: список портов сохраняется целиком (PUT /devices/{id}/interfaces удаляет порты, которых в запросе нет), поэтому усечённая
+ * загрузка listAllResource (потолок 50 000 записей) — ошибка (`IncompleteDataError`), а не обрезанный список: форма пометит порты как
+ * не загруженные и не позволит сохранить. ИБ-05: усечённый список сначала перечитывается один раз (`loadAllComplete`) — порт, удалённый
+ * во время загрузки, ложно давал «загружено не полностью».
+ *
  * @example
  * const rows = await loadDeviceInterfaceDraftRows('dev-123')
  */
 export async function loadDeviceInterfaceDraftRows(deviceId: string): Promise<InterfaceDraftRow[]> {
   const [ifaces, allIps, portVlans, allOpenPorts, subinterfaces] = await Promise.all([
-    listAllResource<DeviceInterface>('interfaces', { physical_device_id: deviceId }),
+    loadAllComplete(() => listAllResource<DeviceInterface>('interfaces', { physical_device_id: deviceId }), 'Порты устройства'),
     api.get<{ items: IPAddress[] }>(`/devices/${deviceId}/interface-ips`),
     api.get<{ items: InterfaceVlansEntry[] }>(`/devices/${deviceId}/interface-vlans`),
     // Фикс п.1.4 (батч4): открытые порты — теперь свойство интерфейса (owner_type=
     // 'device_interface', owner_id=id интерфейса), не всего устройства, см. комментарий к
-    // InterfaceDraftRow.open_ports в types.ts и backend/app/services/crud/interfaces.py:
+    // InterfaceDraftRow.open_ports в api/types/interfaces.ts и backend/app/services/crud/interfaces.py:
     // _sync_interface_open_ports. Читаются по устройству, как IP и VLAN выше.
     api.get<{ items: OpenPort[] }>(`/devices/${deviceId}/interface-open-ports`),
     // Подинтерфейсы портов — тоже одним запросом по устройству, уже с их IP и открытыми портами: подинтерфейс
@@ -190,7 +196,7 @@ export function validateInterfaceDraftRows(
 
 /**
  * Сохраняет набор интерфейсов устройства через атомарный PUT. vlan_ids и all_vlans каждого ряда отправляются
- * как пришли из loadDeviceInterfaceDraftRows (см. комментарий к InterfaceDraftRow в types.ts) —
+ * как пришли из loadDeviceInterfaceDraftRows (см. комментарий к InterfaceDraftRow в api/types/interfaces.ts) —
  * если вызывающий компонент их не редактирует (как DevicePortsModal.vue), они просто
  * round-trip'ятся туда-обратно неизменными и НЕ стираются молча. vlan_mode round-trip'ится по
  * тому же принципу (п.1.4.3.2).

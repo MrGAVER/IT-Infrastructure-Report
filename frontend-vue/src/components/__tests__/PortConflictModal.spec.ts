@@ -63,7 +63,7 @@ describe('PortConflictModal', () => {
   it('закрывается крестиком и кликом по подложке, но не выделением текста, закончившимся на подложке', async () => {
     const wrapper = mountModal()
     await wrapper.get('button[aria-label="Закрыть"]').trigger('click')
-    const overlay = wrapper.get('.overlay')
+    const overlay = wrapper.get('.modal-overlay')
     await overlay.trigger('mousedown')
     await overlay.trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(2)

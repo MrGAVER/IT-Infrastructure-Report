@@ -9,10 +9,9 @@ import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import type { Device, DevicesResponse } from '../api/types'
 import { useCatalogsStore } from './catalogs'
-import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
+import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 import { sortNaturally } from '../utils/naturalSort'
 
-const DEFAULT_PAGE_SIZE = 6
 const LIST_ID = 'devices'
 
 /** Пункт 2 правки "инвентаризация физических устройств": строка таблицы — либо одиночное
@@ -33,7 +32,7 @@ export const useDevicesStore = defineStore('devices', {
     siemFilter: 'all' as 'all' | 'yes' | 'no',
     structuralUnitIds: [] as string[],
     page: 1,
-    pageSize: loadPageSize(LIST_ID, DEFAULT_PAGE_SIZE),
+    pageSize: loadPageSize(LIST_ID),
   }),
   getters: {
     filtered(state): Device[] {
@@ -100,7 +99,7 @@ export const useDevicesStore = defineStore('devices', {
       return rows
     },
     pageSizeOptions(): number[] {
-      return pageSizeOptionsFor(DEFAULT_PAGE_SIZE)
+      return [...PAGE_SIZE_OPTIONS]
     },
     pageCount(): number {
       return Math.max(1, Math.ceil(this.groupedFiltered.length / this.pageSize))
@@ -137,12 +136,21 @@ export const useDevicesStore = defineStore('devices', {
     /** Смена количества строк на странице: остаёмся на странице с тем же первым видимым
      * элементом, выбор запоминается для этого списка. Недопустимое значение игнорируется. */
     setPageSize(size: number) {
-      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return
+      if (size === this.pageSize || !isAllowedPageSize(size)) return
       this.page = pageAfterSizeChange(this.page, this.pageSize, size)
       this.pageSize = size
       savePageSize(LIST_ID, size)
     },
     resetPageOnFilterChange() {
+      this.page = 1
+    },
+    /** Снимает поиск и все фильтры (кнопка «Сбросить фильтры» в пустой таблице, F-04). */
+    resetFilters() {
+      this.search = ''
+      this.buildingId = ''
+      this.deviceTypeId = ''
+      this.siemFilter = 'all'
+      this.structuralUnitIds = []
       this.page = 1
     },
   },

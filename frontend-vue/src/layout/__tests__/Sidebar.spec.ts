@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import Sidebar from '../Sidebar.vue'
@@ -6,6 +6,10 @@ import { useOrganizationStore } from '../../stores/organization'
 import { useAuthStore } from '../../stores/auth'
 import type { AuthUser } from '../../api/types'
 import { declaration, mediaBlock, readStyles, ruleBody } from '../../__tests__/cssSource'
+
+// Sidebar берёт роутер через useRouter() ради router.replace при выходе; в спеке роутера нет — без мока Vue предупреждает
+// о ненайденном `Symbol(router)` на каждом монтировании (B-07). Ссылки меню рисует общая заглушка RouterLink из setup.ts.
+vi.mock('vue-router', () => ({ useRouter: () => ({ replace: vi.fn() }) }))
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -16,7 +20,6 @@ describe('Sidebar.vue', () => {
   it('по умолчанию показывает "ООО «Организация»"', () => {
     const wrapper = mount(Sidebar, {
       props: { open: false },
-      global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
     })
     expect(wrapper.find('.brand-text .org').text()).toBe('ООО «Организация»')
   })
@@ -28,7 +31,6 @@ describe('Sidebar.vue', () => {
     organization.setName('ООО «Ромашка»')
     const wrapper = mount(Sidebar, {
       props: { open: false },
-      global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
     })
     expect(wrapper.find('.brand-text .org').text()).toBe('ООО «Ромашка»')
   })
@@ -37,17 +39,31 @@ describe('Sidebar.vue', () => {
   it('содержит пункт меню "Другие справочники"', () => {
     const wrapper = mount(Sidebar, {
       props: { open: false },
-      global: { stubs: { 'router-link': { template: '<a :href="to"><slot /></a>', props: ['to'] } } },
     })
     const link = wrapper.findAll('a').find((a) => a.text().includes('Другие справочники'))
     expect(link?.attributes('href')).toBe('/other-catalogs')
+  })
+
+  // F-08 (код-ревью main): первая группа называлась «Регламентный отчёт», хотя в Excel-отчёт входят не все её экраны
+  // (дашборд, стеки и диаграмма — нет); теперь она называется «Реестр», как продукт.
+  it('F-08: группы меню — «Реестр», «Справочники», «Система»; «Регламентный отчёт» названием группы не служит', () => {
+    const wrapper = mount(Sidebar, {
+      props: { open: false },
+    })
+    const groups = wrapper.findAll('.nav-group-label').map((el) => el.text())
+    expect(groups).toEqual(['Реестр', 'Справочники', 'Система'])
+    // «Реестр» открывает список экранов реестра, а не отчётов: отчёты — в группе «Система».
+    const registry = wrapper
+      .findAll('ul.nav')[0]
+      .findAll('a')
+      .map((a) => a.attributes('href'))
+    expect(registry).toEqual(['/dashboard', '/information-systems', '/devices', '/device-stacks', '/connections', '/diagrams', '/vms', '/containers'])
   })
 })
 
 // A-23: журнал аудита содержит имена, IP-адреса и неудачные входы — сервер отдаёт его только администратору (viewer получил бы 403).
 describe('Sidebar.vue — пункт «Журнал аудита» по роли', () => {
-  const mountSidebar = () =>
-    mount(Sidebar, { props: { open: false }, global: { stubs: { 'router-link': { template: '<a :href="to"><slot /></a>', props: ['to'] } } } })
+  const mountSidebar = () => mount(Sidebar, { props: { open: false } })
   const hasAuditLink = (wrapper: ReturnType<typeof mountSidebar>) => wrapper.findAll('a').some((a) => a.attributes('href') === '/audit-log')
   const signIn = (role: AuthUser['role']) => {
     const auth = useAuthStore()
@@ -117,7 +133,6 @@ describe('Sidebar.vue — закрытие по Esc (UI-10)', () => {
     mount(Sidebar, {
       props: { open },
       attachTo: document.body,
-      global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
     })
   const pressEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
 
@@ -154,7 +169,6 @@ describe('Sidebar.vue — иконки пунктов меню (UI-11)', () => {
   it('у каждого пункта меню своя иконка', () => {
     const wrapper = mount(Sidebar, {
       props: { open: false },
-      global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
     })
     const icons = wrapper.findAll('.nav use').map((use) => use.attributes('href'))
     expect(icons.length).toBeGreaterThanOrEqual(14)
@@ -176,7 +190,6 @@ describe('Sidebar.vue — иконки пунктов меню (UI-11)', () => {
     } as AuthUser
     const wrapper = mount(Sidebar, {
       props: { open: false },
-      global: { stubs: { 'router-link': { template: '<a><slot /></a>' } } },
     })
     const icons = wrapper.findAll('use').map((use) => use.attributes('href'))
     expect(icons.filter((icon, index) => icons.indexOf(icon) !== index)).toEqual([])

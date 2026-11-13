@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // Компонент узла-устройства на канвасе диаграммы топологии сети (раздел 11 ТЗ, задача 3 Агента
 // B: "компонент узла по дескриптору иконки"). Та же геометрия (форма/цвет/засечки портов/
-// подписи), что и бэкендовые экспортёры (backend/app/services/diagram_export.py) — единый
+// подписи), что и бэкендовые экспортёры (пакет backend/app/services/diagram_export/) — единый
 // визуальный словарь, разные языки реализации по разные стороны API (раздел 11 ТЗ).
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import type { DiagramDeviceNode as DiagramDeviceNodeData } from '../../api/diagrams'
-import { sanitizeSvg } from '../../utils/sanitizeSvg'
+import { sanitizeSvg, sanitizeSvgIsolated } from '../../utils/sanitizeSvg'
 
 // backend/app/services/diagram_icons.py:MAX_PORT_TICKS — интерфейсы за этим пределом всё ещё
 // существуют (см. port_overflow), но отдельной засечки/Handle для них не рисуется.
@@ -56,7 +56,7 @@ const portTicks = computed(() => (icon.value.mode === 'generated' ? Math.max(0, 
 const portOverflow = computed(() => (icon.value.mode === 'generated' ? (icon.value.port_overflow ?? 0) : 0))
 
 /** x-координата i-й засечки вдоль нижнего края — тот же расчёт, что
- * backend/app/services/diagram_export.py:_svg_port_ticks (spacing = width / (ticks + 1)). */
+ * backend/app/services/diagram_export/svg.py:_svg_port_ticks (spacing = width / (ticks + 1)). */
 function tickX(index: number): number {
   const spacing = NODE_WIDTH / (portTicks.value + 1)
   return spacing * (index + 1)
@@ -82,7 +82,9 @@ const identityLabel = computed(() => [props.data.serial_number, primaryIp.value]
 
 // Код-ревью п.3.1: DiagramIcon.svg_markup — пользовательский ввод, отрисовывается через v-html.
 // Санитизация — второй, независимый от бэкенда рубеж защиты (см. utils/sanitizeSvg.ts).
-const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? sanitizeSvg(icon.value.svg_markup) : ''))
+// R2-03: id внутри иконки глобальны в документе — у каждого узла свой префикс, чтобы градиенты и <use> разных иконок не путались.
+const iconUid = useId()
+const sanitizedCustomSvg = computed(() => (icon.value.mode === 'custom' ? sanitizeSvgIsolated(icon.value.svg_markup, `ic${iconUid}`) : ''))
 </script>
 
 <template>

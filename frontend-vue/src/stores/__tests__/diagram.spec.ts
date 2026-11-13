@@ -146,12 +146,18 @@ describe('useDiagramStore', () => {
   })
 
   it('exportAs скачивает blob с именем файла из Content-Disposition', async () => {
+    // saveBlob освобождает blob-ссылку по таймеру (ИБ-02): реальный таймер на 30 с пережил бы тест.
+    vi.useFakeTimers()
     vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:mock'), revokeObjectURL: vi.fn() })
     const clickSpy = vi.fn()
+    const anchors: HTMLAnchorElement[] = []
     const originalCreateElement = document.createElement.bind(document)
     vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       const el = originalCreateElement(tag)
-      if (tag === 'a') el.click = clickSpy
+      if (tag === 'a') {
+        el.click = clickSpy
+        anchors.push(el as HTMLAnchorElement)
+      }
       return el
     })
     vi.stubGlobal(
@@ -167,8 +173,14 @@ describe('useDiagramStore', () => {
     const store = useDiagramStore()
     store.diagram = sampleDiagram()
 
-    await store.exportAs('svg')
+    try {
+      await store.exportAs('svg')
+    } finally {
+      vi.useRealTimers()
+    }
     expect(clickSpy).toHaveBeenCalled()
+    // ИБ-01: имя файла — настоящее (из filename*), а не ASCII-запасное «______.svg».
+    expect(anchors[0].download).toBe('Д.svg')
     expect(store.exporting).toBeNull() // сброшено в finally
     // Сервер уже сохранил last_export_format — сплит-кнопка экспорта должна отразить это сразу,
     // без отдельного перезапроса диаграммы (см. DiagramExportPanel.vue).

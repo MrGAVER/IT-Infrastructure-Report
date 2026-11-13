@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import multiprocessing
 import os
 import re
 import sqlite3
@@ -223,4 +224,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Первым делом: экспорт .vsdx рендерится в дочернем процессе (services/vsdx_process.py, запуск spawn). В замороженном EXE дочерний процесс —
+    # тот же InfraRegistry.exe; без freeze_support() он запустил бы main() ещё раз, то есть вторую копию приложения. Вне EXE вызов ничего не делает.
+    multiprocessing.freeze_support()
     main()

@@ -1,12 +1,22 @@
 <script setup lang="ts">
 // Блок «Расхождение конфигурации портов» формы подключения (ConnectionFormModal.vue): показывается вместо кнопок «Отмена/Сохранить»,
 // когда у выбранной пары портов различаются роль, режим или VLAN. Сам ничего не меняет — решение отдаёт событием resolve.
-import { computed } from 'vue'
+//
+// Фокус (FE-08, ревью ветки fix/code-review-main-f06-stage2-f05): панель занимает место кнопок «Отмена / Сохранить», и нажатая «Сохранить»
+// уходит из DOM — браузер оставляет фокус на <body> (проверено в Chromium), а пользователю клавиатуры и скринридера приходится искать
+// новый блок заново. Поэтому при появлении панель берёт фокус на первое доступное действие. Это не alertdialog: панель лежит внутри
+// уже открытого окна, где ловушка фокуса есть, а вложенный «диалог» без своей ловушки и возврата фокуса вводил бы в заблуждение, —
+// поэтому подписанная группа, а сам вопрос — role="alert". Возврат фокуса на «Сохранить» по «Вернуться к правке» делает форма.
+import { computed, onMounted, ref } from 'vue'
 import { canAlignMode as canAlignModeOf, sideLabel, viewDiffers, type ConfigView, type MismatchResolution } from '../utils/connectionPortView'
 import { facetsLabel, modeLabel } from '../utils/portConfig'
 
 const props = defineProps<{ mismatch: ConfigView }>()
 defineEmits<{ resolve: [resolution: MismatchResolution]; back: [] }>()
+
+const root = ref<HTMLElement | null>(null)
+// Один раз, при появлении: когда набор расхождений меняется (пользователь сменил порт), фокус из рук пользователя не забираем.
+onMounted(() => root.value?.querySelector<HTMLButtonElement>('button')?.focus())
 
 // Пока блок показан, пользователь может сменить порт, и набор расхождений изменится, — поэтому всё считается от props.
 const rolesDiffer = computed(() => viewDiffers(props.mismatch, 'role'))
@@ -16,8 +26,8 @@ const hasVlanDiff = computed(() => viewDiffers(props.mismatch, 'vlans'))
 </script>
 
 <template>
-  <div class="resolution" role="alertdialog" aria-label="Расхождение конфигурации портов">
-    <p class="warning-text">
+  <div ref="root" class="resolution" role="group" aria-label="Расхождение конфигурации портов">
+    <p class="warning-text" role="alert">
       ⚠ Конфигурации портов различаются ({{ facetsLabel(mismatch.diff) }}): «{{ mismatch.source.name }}» — {{ sideLabel(mismatch.source) }}, «{{
         mismatch.destination.name
       }}» — {{ sideLabel(mismatch.destination) }}. Что сделать перед сохранением?

@@ -11,12 +11,13 @@ duplicate создаёт полный снимок диаграммы на мо�
 конфигурацией фильтра. report_builder.py копирует только config шаблона, т.к. версии шаблона —
 отдельная история, а у диаграммы раскладка и состояния групп своей истории версий не имеют.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import math
-import re
+import threading
+from contextlib import contextmanager
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -27,20 +28,72 @@ from ..constants import AuditAction
 from ..db import get_db
 from ..models import DiagramGroupState, DiagramLayout, SavedDiagram
 from ..services.crud import audit
-from ..services.diagram_export import export_drawio, export_svg, export_vsdx
+from ..services.diagram_export import export_drawio, export_svg
+from ..services.export_cache import export_cache, graph_fingerprint
+from ..services.vsdx_process import VSDX_RENDER_TIMEOUT_SECONDS, VsdxRenderTimeout, export_vsdx_isolated
 from ..services.timeutil import iso_utc
-from ..services.diagram_graph import GROUP_DIMENSIONS, MAX_LAYOUT_KEY_LENGTH, MAX_LAYOUT_NODES, build_graph, clean_position, clean_positions_lenient, parse_scope_filter
+from ..services.diagram_graph import MAX_LAYOUT_KEY_LENGTH, build_graph, clean_positions_lenient, parse_scope_filter
+from .diagram_schemas import (
+    MAX_DIAGRAM_NAME_LENGTH,
+    DiagramCreate,
+    DiagramGroupStateUpdate,
+    DiagramLayoutUpdate,
+    DiagramRename,
+    checked_viewport,
+    clean_name,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/diagrams", tags=["Diagrams"])
 
-DEFAULT_COLLAPSE_THRESHOLD = 20
 # Раздел 9 ТЗ: три формата экспорта. Значение — (media_type, сериализатор графа в str|bytes).
 EXPORT_FORMATS = {
     "svg": ("image/svg+xml", lambda graph: export_svg(graph).encode("utf-8")),
     "drawio": ("application/xml", lambda graph: export_drawio(graph).encode("utf-8")),
-    "vsdx": ("application/vnd.ms-visio.drawing", export_vsdx),
+    "vsdx": ("application/vnd.ms-visio.drawing", export_vsdx_isolated),  # в дочернем процессе с таймаутом, см. services/vsdx_process.py
 }
+
+# Тяжёлые для процессора форматы экспорта (A-06 код-ревью r3). Замер на 120 устройствах: .svg — единицы мс, .drawio — до 0,2 с, .vsdx — от 0,5 до
+# 2,5 с (с засечками портов). Раньше .vsdx занимал десятки секунд: библиотека vsdx при каждом копировании шаблонной фигуры обходила все фигуры
+# страницы (copy_shape → set_max_ids), рост квадратичный; теперь копирование без повторного обхода (diagram_export/vsdx.py:_ShapeTemplate), но
+# .vsdx по-прежнему самый тяжёлый формат.
+# Эндпоинт синхронный и работает в пуле потоков (по умолчанию ~40): десяток параллельных запросов .vsdx занял бы весь пул, и API перестало бы
+# отвечать всем, включая вход. Поэтому одновременно выполняется не больше HEAVY_EXPORT_MAX_CONCURRENT таких экспортов; лишний запрос сразу
+# получает 503 с Retry-After (как проверка паролей на входе, services/auth/login._password_hash_slot), а не ждёт в очереди и не держит поток.
+# Слот освобождается и по таймауту: .vsdx рендерится в дочернем процессе, который убивается через VSDX_RENDER_TIMEOUT_SECONDS (ИА-01, уровень 3).
+# Новый формат с заметным временем работы добавляют сюда же; тест контракта проверяет, что имена в этом наборе — настоящие форматы экспорта.
+HEAVY_EXPORT_FORMATS = frozenset({"vsdx"})
+HEAVY_EXPORT_MAX_CONCURRENT = 2
+# Потолок размера для .vsdx (ИА-01 код-ревью r3). Замер на синтетической цепочке из коммутаторов с 24 засечками портов, один процессорный
+# поток, после ускорения копирования (_ShapeTemplate): 120 узлов — 2,3 с, 300 — 7,3 с, 600 — 13,4 с, 1000 — 19 с (рост линейный, ≈19 мс на
+# узел). Тысяча узлов с запасом укладывается в таймаут рендера (services/vsdx_process.py, 60 с) даже на машине втрое медленнее замерной;
+# диаграмма больше — чаще ошибка в фильтре, чем осознанный выбор: она получает понятный 422 ДО захвата слота и не держит его.
+# (В отчёте ревью стояло 300 — число считалось по квадратичному росту, которого после A-06 уже нет.)
+MAX_VSDX_NODES = 1000
+HEAVY_EXPORT_RETRY_AFTER_SECONDS = 10  # с запасом (экспорт .vsdx занимал десятки секунд, теперь — секунды); при желании можно уменьшить
+_HEAVY_EXPORT_SLOTS = threading.BoundedSemaphore(HEAVY_EXPORT_MAX_CONCURRENT)
+
+
+@contextmanager
+def _heavy_export_slot(export_format: str):
+    """Занимает слот тяжёлого экспорта на время сериализации; свободных нет — 503 с Retry-After.
+
+    Лёгкие форматы слот не занимают. Слот освобождается всегда, в том числе при исключении внутри блока.
+    Пример: `with _heavy_export_slot("vsdx"): data = export_vsdx(graph)`."""
+    if export_format not in HEAVY_EXPORT_FORMATS:
+        yield
+        return
+    slots = _HEAVY_EXPORT_SLOTS  # тот же объект и на release, даже если модульное имя подменили посреди запроса
+    if not slots.acquire(blocking=False):
+        raise HTTPException(
+            503,
+            f"Сервер занят формированием других тяжёлых экспортов диаграмм, повторите через {HEAVY_EXPORT_RETRY_AFTER_SECONDS} с.",
+            headers={"Retry-After": str(HEAVY_EXPORT_RETRY_AFTER_SECONDS)},
+        )
+    try:
+        yield
+    finally:
+        slots.release()
 
 
 def _diagram_out(d: SavedDiagram) -> dict:
@@ -64,48 +117,7 @@ def _get_diagram_or_404(session: Session, diagram_id: str) -> SavedDiagram:
     return diagram
 
 
-MAX_DIAGRAM_NAME_LENGTH = 255  # длина колонки SavedDiagram.name
 COPY_SUFFIX = " (копия)"
-# Управляющие символы C0/C1 (в том числе CR, LF, табуляция, DEL) и разделители строк/абзацев Unicode.
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
-
-
-def _clean_name(raw) -> str:
-    """Название диаграммы без управляющих символов: они заменяются пробелом, подряд идущие пробельные символы
-    схлопываются, края обрезаются. Нестрока даёт пустое название (его отвергает вызывающий код). Название попадает в
-    имя файла экспорта и в заголовок Content-Disposition, где CR/LF обрывали ответ (RuntimeError: Invalid HTTP header value)."""
-    if not isinstance(raw, str):
-        return ""
-    return " ".join(_CONTROL_CHARS.sub(" ", raw).split())
-
-
-def _checked_name(raw) -> str:
-    name = _clean_name(raw)
-    if not name:
-        raise HTTPException(422, "Укажите название диаграммы")
-    if len(name) > MAX_DIAGRAM_NAME_LENGTH:
-        raise HTTPException(422, f"Название диаграммы не должно быть длиннее {MAX_DIAGRAM_NAME_LENGTH} символов")
-    return name
-
-
-def _validate_diagram_payload(payload: dict) -> dict:
-    name = _checked_name(payload.get("name"))
-    group_by = payload.get("group_by", "structural_unit")
-    if group_by not in GROUP_DIMENSIONS:
-        raise HTTPException(422, f"group_by должен быть одним из: {', '.join(GROUP_DIMENSIONS)}")
-    scope_filter = payload.get("scope_filter") or {}
-    if not isinstance(scope_filter, dict):
-        raise HTTPException(422, "scope_filter должен быть объектом-фильтром охвата")
-    collapse_threshold = payload.get("collapse_threshold", DEFAULT_COLLAPSE_THRESHOLD)
-    if isinstance(collapse_threshold, bool) or not isinstance(collapse_threshold, int) or collapse_threshold < 1:
-        raise HTTPException(422, "collapse_threshold должен быть положительным целым числом")
-    return {
-        "name": name,
-        "group_by": group_by,
-        "scope_filter": scope_filter,
-        "description": payload.get("description"),
-        "collapse_threshold": collapse_threshold,
-    }
 
 
 def _unique_diagram_name(session: Session, base_name: str) -> str:
@@ -115,40 +127,9 @@ def _unique_diagram_name(session: Session, base_name: str) -> str:
     n = 2
     while session.scalar(select(SavedDiagram).where(SavedDiagram.name == name)):
         suffix = f" {n}"
-        name = f"{base_name[:MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
+        name = f"{base_name[: MAX_DIAGRAM_NAME_LENGTH - len(suffix)]}{suffix}"
         n += 1
     return name
-
-
-def _clean_positions(raw) -> dict[str, dict]:
-    """Строгая проверка раскладки из PUT: объект {id: {x, y}} с числами и не более MAX_LAYOUT_NODES узлов. Некорректный
-    элемент — 422 с названием узла, а не молчаливая запись в БД, после которой диаграмма не открывалась."""
-    if not isinstance(raw, dict) or len(raw) > MAX_LAYOUT_NODES:
-        raise HTTPException(422, f"node_positions должен быть объектом {{id: {{x, y}}}} (не более {MAX_LAYOUT_NODES} узлов)")
-    cleaned: dict[str, dict] = {}
-    for key, position in raw.items():
-        clean = clean_position(position)
-        if not isinstance(key, str) or len(key) > MAX_LAYOUT_KEY_LENGTH or clean is None:
-            raise HTTPException(422, f"Некорректная позиция узла «{str(key)[:60]}»: ожидается {{x: число, y: число}}")
-        cleaned[key] = clean
-    return cleaned
-
-
-# Поля viewport: x/y/zoom — как в описании контракта, pan_x/pan_y — как их шлёт и читает frontend (DiagramViewport).
-VIEWPORT_KEYS = frozenset({"x", "y", "zoom", "pan_x", "pan_y"})
-
-
-def _is_finite_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
-def _clean_viewport(raw) -> dict | None:
-    """None либо объект только из VIEWPORT_KEYS с конечными числами; иначе 422."""
-    if raw is None:
-        return None
-    if not isinstance(raw, dict) or not set(raw) <= VIEWPORT_KEYS or not all(_is_finite_number(v) for v in raw.values()):
-        raise HTTPException(422, "viewport должен быть объектом с числовыми полями " + ", ".join(sorted(VIEWPORT_KEYS)) + " или null")
-    return dict(raw)
 
 
 def _parse_viewport(text: str | None) -> dict | None:
@@ -156,8 +137,8 @@ def _parse_viewport(text: str | None) -> dict | None:
     if not text:
         return None
     try:
-        return _clean_viewport(json.loads(text))
-    except (ValueError, HTTPException):
+        return checked_viewport(json.loads(text))
+    except ValueError:
         return None
 
 
@@ -196,16 +177,15 @@ def list_diagrams(session: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-def create_diagram(payload: dict, session: Session = Depends(get_db)):
-    data = _validate_diagram_payload(payload)
-    if session.scalar(select(SavedDiagram).where(SavedDiagram.name == data["name"])):
+def create_diagram(body: DiagramCreate, session: Session = Depends(get_db)):
+    if session.scalar(select(SavedDiagram).where(SavedDiagram.name == body.name)):
         raise HTTPException(409, "Диаграмма с таким названием уже существует")
     diagram = SavedDiagram(
-        name=data["name"],
-        description=data["description"],
-        scope_filter=json.dumps(data["scope_filter"], ensure_ascii=False),
-        group_by=data["group_by"],
-        collapse_threshold=data["collapse_threshold"],
+        name=body.name,
+        description=body.description,
+        scope_filter=json.dumps(body.scope_filter, ensure_ascii=False),
+        group_by=body.group_by,
+        collapse_threshold=body.collapse_threshold,
     )
     session.add(diagram)
     session.flush()
@@ -229,14 +209,14 @@ def get_diagram(diagram_id: str, session: Session = Depends(get_db)):
 
 
 @router.put("/{diagram_id}/rename")
-def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
+def rename_diagram(diagram_id: str, body: DiagramRename, session: Session = Depends(get_db)):
     """Только name — узко специализированный эндпоинт под конкретную операцию (тот же принцип,
     что и у PUT .../layout и PUT .../groups/{group_key} выше: отдельный узкий эндпоинт под
     операцию, а не один "общий" PUT на весь SavedDiagram). Изменение group_by/scope_filter уже
     требует пересборки графа (см. POST /regenerate) — смешивать это с переименованием было бы
     двумя разными по цене и последствиям операциями под одной ручкой."""
     diagram = _get_diagram_or_404(session, diagram_id)
-    name = _checked_name(payload.get("name"))
+    name = body.name
     dup = session.scalar(select(SavedDiagram).where(SavedDiagram.name == name, SavedDiagram.id != diagram_id))
     if dup:
         raise HTTPException(409, "Диаграмма с таким названием уже существует")
@@ -250,10 +230,9 @@ def rename_diagram(diagram_id: str, payload: dict, session: Session = Depends(ge
 
 
 @router.put("/{diagram_id}/layout")
-def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get_db)):
+def update_layout(diagram_id: str, body: DiagramLayoutUpdate, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
-    node_positions = _clean_positions(payload.get("node_positions"))
-    viewport = _clean_viewport(payload.get("viewport"))
+    node_positions, viewport = body.node_positions, body.viewport
     layout = session.scalar(select(DiagramLayout).where(DiagramLayout.saved_diagram_id == diagram_id))
     positions_json = json.dumps(node_positions, ensure_ascii=False)
     if layout is None:
@@ -272,23 +251,19 @@ def update_layout(diagram_id: str, payload: dict, session: Session = Depends(get
 
 
 @router.put("/{diagram_id}/groups/{group_key}")
-def update_group_state(diagram_id: str, group_key: str, payload: dict, session: Session = Depends(get_db)):
+def update_group_state(diagram_id: str, group_key: str, body: DiagramGroupStateUpdate, session: Session = Depends(get_db)):
     diagram = _get_diagram_or_404(session, diagram_id)
     if len(group_key) > MAX_LAYOUT_KEY_LENGTH:
         raise HTTPException(422, f"group_key не должен быть длиннее {MAX_LAYOUT_KEY_LENGTH} символов")
-    state = session.scalar(
-        select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key)
-    )
+    state = session.scalar(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key))
     if state is None:
         state = DiagramGroupState(saved_diagram_id=diagram.id, group_key=group_key, device_count=0)
         session.add(state)
-    if "is_collapsed" in payload:
-        state.is_collapsed = bool(payload["is_collapsed"])
-    if "custom_threshold" in payload:
-        threshold = payload["custom_threshold"]
-        if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1):
-            raise HTTPException(422, "custom_threshold должен быть положительным целым числом или null")
-        state.custom_threshold = threshold
+    # Применяется только присланное: отсутствующее поле состояние не трогает, а custom_threshold: null сбрасывает порог.
+    if "is_collapsed" in body.model_fields_set:
+        state.is_collapsed = body.is_collapsed
+    if "custom_threshold" in body.model_fields_set:
+        state.custom_threshold = body.custom_threshold
     session.commit()
     session.refresh(state)
     return {
@@ -315,30 +290,98 @@ def duplicate_diagram(diagram_id: str, session: Session = Depends(get_db)):
     src = _get_diagram_or_404(session, diagram_id)
     # Имя источника могло быть сохранено до очистки (с управляющими символами) или быть максимальной длины: копия не должна
     # их наследовать и обязана помещаться в колонку вместе с суффиксом.
-    base = _clean_name(src.name)[: MAX_DIAGRAM_NAME_LENGTH - len(COPY_SUFFIX)] or "Диаграмма"
+    base = clean_name(src.name)[: MAX_DIAGRAM_NAME_LENGTH - len(COPY_SUFFIX)] or "Диаграмма"
     name = _unique_diagram_name(session, f"{base}{COPY_SUFFIX}")
     dup = SavedDiagram(
-        name=name, description=src.description, scope_filter=src.scope_filter,
-        group_by=src.group_by, collapse_threshold=src.collapse_threshold,
+        name=name,
+        description=src.description,
+        scope_filter=src.scope_filter,
+        group_by=src.group_by,
+        collapse_threshold=src.collapse_threshold,
     )
     session.add(dup)
     session.flush()
 
     src_layout = session.scalar(select(DiagramLayout).where(DiagramLayout.saved_diagram_id == src.id))
     if src_layout:
-        session.add(DiagramLayout(
-            saved_diagram_id=dup.id, node_positions=src_layout.node_positions,
-            viewport=src_layout.viewport, auto_layout_algorithm=src_layout.auto_layout_algorithm,
-        ))
+        session.add(
+            DiagramLayout(
+                saved_diagram_id=dup.id,
+                node_positions=src_layout.node_positions,
+                viewport=src_layout.viewport,
+                auto_layout_algorithm=src_layout.auto_layout_algorithm,
+            )
+        )
     for state in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == src.id)).all():
-        session.add(DiagramGroupState(
-            saved_diagram_id=dup.id, group_key=state.group_key, is_collapsed=state.is_collapsed,
-            device_count=state.device_count, custom_threshold=state.custom_threshold,
-        ))
+        session.add(
+            DiagramGroupState(
+                saved_diagram_id=dup.id,
+                group_key=state.group_key,
+                is_collapsed=state.is_collapsed,
+                device_count=state.device_count,
+                custom_threshold=state.custom_threshold,
+            )
+        )
     audit(session, "diagrams", dup.id, AuditAction.CREATE, f"Дублирована из диаграммы «{src.name}»")
     session.commit()
     session.refresh(dup)
     return _diagram_out(dup)
+
+
+_CONTENT_DISPOSITION_TEMPLATE = """attachment; filename="{ascii_fallback}"; filename*=UTF-8''{encoded}"""
+
+
+def _content_disposition(filename: str, default_name: str) -> str:
+    """Заголовок скачивания (RFC 6266): ASCII-запасной `filename` для старых клиентов и настоящее имя в `filename*` (percent-кодированный UTF-8).
+
+    В запасном имени кавычка, обратная косая, «;» и «/» заменяются на «_», в `filename*` кодируется всё, включая «/» (`safe=""`; у `quote` по
+    умолчанию `safe="/"` — ИА-03 код-ревью r3). HTTP-заголовки должны быть latin-1-совместимы (RFC 7230), а названия диаграмм обычно на русском —
+    поэтому ASCII-вариант идёт запасным. `isprintable()` отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не
+    должно ломать заголовок. Пример: `План/А.svg` → `filename="______.svg"; filename*=UTF-8''%D0%9F…%2F….svg`.
+    """
+    ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or default_name
+    return _CONTENT_DISPOSITION_TEMPLATE.format(ascii_fallback=ascii_fallback, encoded=quote(filename, safe=""))
+
+
+def _check_export_size(export_format: str, graph: dict) -> None:
+    """422 для диаграммы, которая не поместится в .vsdx (MAX_VSDX_NODES); остальные форматы размер не ограничивает."""
+    nodes = len(graph["nodes"])
+    if export_format == "vsdx" and nodes > MAX_VSDX_NODES:
+        raise HTTPException(
+            422,
+            f"Диаграмма слишком велика для .vsdx ({nodes} узлов, максимум {MAX_VSDX_NODES}). Скачайте .svg или .drawio либо сузьте фильтр диаграммы.",
+        )
+
+
+def _serialize_graph(export_format: str, serialize, graph: dict, diagram_id: str) -> bytes:
+    """Готовый файл: у тяжёлых форматов — из кэша (services/export_cache.py; без слота и рендера), иначе сериализация внутри слота.
+
+    Любой сбой сериализации — понятный 500 и полный traceback в лог сервера; сбойный результат в кэш не попадает."""
+    cache_key = graph_fingerprint(export_format, graph) if export_format in HEAVY_EXPORT_FORMATS else None
+    if cache_key is not None:
+        cached = export_cache.get(cache_key)
+        if cached is not None:
+            return cached
+    with _heavy_export_slot(export_format):
+        try:
+            data = serialize(graph)
+        except VsdxRenderTimeout:
+            logger.warning("Экспорт диаграммы %s в формате %s прерван по таймауту (%g с)", diagram_id, export_format, VSDX_RENDER_TIMEOUT_SECONDS)
+            raise HTTPException(
+                504,
+                f"Формирование .{export_format} заняло больше {VSDX_RENDER_TIMEOUT_SECONDS:g} с и прервано. Скачайте .svg или .drawio либо сузьте фильтр диаграммы.",
+            ) from None
+        except Exception:
+            # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
+            # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
+            # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
+            # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
+            # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
+            logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, export_format)
+            raise HTTPException(500, f"Не удалось сформировать файл .{export_format} — подробности в логе сервера") from None
+    if cache_key is not None:
+        export_cache.put(cache_key, data)
+    return data
 
 
 @router.get("/{diagram_id}/export")
@@ -351,29 +394,16 @@ def export_diagram(
     diagram = _get_diagram_or_404(session, diagram_id)
     if format not in EXPORT_FORMATS:
         raise HTTPException(422, f"format должен быть одним из: {', '.join(EXPORT_FORMATS)}")
+    media_type, serialize = EXPORT_FORMATS[format]
     _, positions = _load_layout(session, diagram_id)
     graph = build_graph(session, diagram, node_positions=positions, persist=False)
-    media_type, serialize = EXPORT_FORMATS[format]
-    try:
-        data = serialize(graph)
-    except Exception:
-        # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась
-        # окружением (EXE-сборка, PyInstaller не паковал файлы данных vsdx/drawpyo — см. фикс в
-        # infra_registry.spec), а не данными диаграммы — но раз голый traceback долетал прямо до
-        # пользователя без единого diagnostика, на будущее (любая другая непредвиденная причина)
-        # заворачиваем в понятную ошибку и полный traceback в лог сервера, а не только код 500.
-        logger.exception("Не удалось сформировать экспорт диаграммы %s в формате %s", diagram_id, format)
-        raise HTTPException(500, f"Не удалось сформировать файл .{format} — подробности в логе сервера") from None
+    _check_export_size(format, graph)  # до слота: слишком большая диаграмма не занимает его и не ждёт таймаута
+    data = _serialize_graph(format, serialize, graph, diagram_id)
     if persist_export:  # безопасный метод GET по умолчанию не пишет: запись — только по явной просьбе клиента
         diagram.last_export_format = format
         session.commit()
     filename = f"{diagram.name}.{format}"
-    # HTTP-заголовки должны быть latin-1-совместимы (RFC 7230) — название диаграммы, как и
-    # почти все данные в этом проекте, обычно на русском, поэтому ASCII-safe filename идёт как
-    # запасной вариант, а настоящее имя — RFC 6266 filename* с percent-encoded UTF-8.
-    # isprintable() отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не должно ломать заголовок.
-    ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or f"diagram.{format}"
-    content_disposition = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{quote(filename)}'
+    content_disposition = _content_disposition(filename, f"diagram.{format}")
     return Response(content=data, media_type=media_type, headers={"Content-Disposition": content_disposition})
 
 

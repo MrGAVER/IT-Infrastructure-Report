@@ -15,7 +15,7 @@ import { useDevicesStore } from '../stores/devices'
 import { QUICK_ADD_FIELDS, QUICK_ADD_LABELS } from '../quickAdd/schema'
 import type { QuickField } from '../quickAdd/schema'
 import type { CatalogItem } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
@@ -32,7 +32,6 @@ const props = defineProps<{
   item: Record<string, unknown> | null
 }>()
 const emit = defineEmits<{ close: []; saved: [record: CatalogItem]; deleted: [id: string] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -134,88 +133,75 @@ async function removeItem() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
-        <div class="modal-head">
-          <h2 :id="titleId">{{ title }}</h2>
-          <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
-            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
-          </button>
-        </div>
+  <BaseModal @close="emit('close')">
+    <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+      <div class="modal-head">
+        <h2 :id="titleId">{{ title }}</h2>
+        <button type="button" class="icon-btn" aria-label="Закрыть" @click="$emit('close')">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
+      </div>
 
-        <div v-if="errorMessage" class="form-error">
-          <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-          {{ errorMessage }}
-        </div>
-        <div v-if="!fields.length" class="form-error">Для «{{ resourceLabel }}» форма не настроена.</div>
+      <div v-if="errorMessage" class="form-error">
+        <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+        {{ errorMessage }}
+      </div>
+      <div v-if="!fields.length" class="form-error">Для «{{ resourceLabel }}» форма не настроена.</div>
 
-        <fieldset v-else class="readonly-fieldset" :disabled="readOnly">
-          <form class="form-grid" @submit.prevent="submit">
-            <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
-              <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
-              <div v-if="f.type === 'fk'" class="fk-row">
-                <SearchableSelect
-                  :model-value="(values[f.name] as string) ?? ''"
-                  :options="fkSelectOptions(f)"
-                  @update:model-value="(v) => (values[f.name] = v)"
-                />
-                <QuickAddButton
-                  v-if="f.nestedQuickAdd && f.fkResource"
-                  :resource="f.fkResource"
-                  :title="QUICK_ADD_LABELS[f.fkResource]"
-                  @created="(record) => onNestedCreated(f.name, record)"
-                />
-              </div>
-              <textarea
-                v-else-if="f.type === 'textarea'"
-                v-model="values[f.name] as string"
-                v-truncate-tooltip="String(values[f.name] ?? '')"
-                rows="2"
-              ></textarea>
-              <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
-                <input type="checkbox" :checked="values[f.name] as boolean" @change="values[f.name] = ($event.target as HTMLInputElement).checked" />
-              </label>
-              <!-- Поле без своей <span>-подписи внутри <label>: DeviceIconPicker уже рендерит
+      <fieldset v-else class="readonly-fieldset" :disabled="readOnly">
+        <form class="form-grid" @submit.prevent="submit">
+          <label v-for="f in fields" :key="f.name" class="field" :class="{ 'field-wide': f.type === 'textarea' || f.type === 'diagram-icon' }">
+            <span v-if="f.type !== 'diagram-icon'">{{ f.label }}{{ f.required ? ' *' : '' }}</span>
+            <div v-if="f.type === 'fk'" class="fk-row">
+              <SearchableSelect
+                :model-value="(values[f.name] as string) ?? ''"
+                :options="fkSelectOptions(f)"
+                @update:model-value="(v) => (values[f.name] = v)"
+              />
+              <QuickAddButton
+                v-if="f.nestedQuickAdd && f.fkResource"
+                :resource="f.fkResource"
+                :title="QUICK_ADD_LABELS[f.fkResource]"
+                @created="(record) => onNestedCreated(f.name, record)"
+              />
+            </div>
+            <textarea
+              v-else-if="f.type === 'textarea'"
+              v-model="values[f.name] as string"
+              v-truncate-tooltip="String(values[f.name] ?? '')"
+              rows="2"
+            ></textarea>
+            <label v-else-if="f.type === 'checkbox'" class="checkbox-inline">
+              <input type="checkbox" :checked="values[f.name] as boolean" @change="values[f.name] = ($event.target as HTMLInputElement).checked" />
+            </label>
+            <!-- Поле без своей <span>-подписи внутри <label>: DeviceIconPicker уже рендерит
                  собственную подпись "Иконка на диаграмме топологии сети" в своём шаблоне,
                  повторять её здесь через внешний <span> означало бы дублирование текста. -->
-              <DeviceIconPicker
-                v-else-if="f.type === 'diagram-icon'"
-                :model-value="(values[f.name] as string) || null"
-                @update:model-value="(v) => (values[f.name] = v ?? '')"
-              />
-              <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
-            </label>
-          </form>
-        </fieldset>
+            <DeviceIconPicker
+              v-else-if="f.type === 'diagram-icon'"
+              :model-value="(values[f.name] as string) || null"
+              @update:model-value="(v) => (values[f.name] = v ?? '')"
+            />
+            <input v-else v-model="values[f.name] as string" v-truncate-tooltip="String(values[f.name] ?? '')" :type="f.type" :required="f.required" />
+          </label>
+        </form>
+      </fieldset>
 
-        <div class="modal-foot">
-          <button v-if="isEdit && !readOnly" type="button" class="btn btn-danger" :disabled="saving || deleting" @click="removeItem">
-            {{ deleting ? 'Удаление…' : 'Удалить' }}
-          </button>
-          <div class="spacer" />
-          <button type="button" class="btn btn-secondary" :disabled="saving || deleting" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
-          <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving || deleting || !fields.length" @click="submit">
-            {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
-          </button>
-        </div>
+      <div class="modal-foot">
+        <button v-if="isEdit && !readOnly" type="button" class="btn btn-danger" :disabled="saving || deleting" @click="removeItem">
+          {{ deleting ? 'Удаление…' : 'Удалить' }}
+        </button>
+        <div class="spacer" />
+        <button type="button" class="btn btn-secondary" :disabled="saving || deleting" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving || deleting || !fields.length" @click="submit">
+          {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
+        </button>
       </div>
     </div>
-  </Teleport>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 70;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* Фикс п.1.3.6: тот же узкий 460px и та же причина обрезки текста в fk-полях, что и в

@@ -1,20 +1,20 @@
-"""Тест-страж: схема после `alembic upgrade head` совпадает с models.py (A-14).
+"""Тест-страж: схема после `alembic upgrade head` совпадает с models.py (A-14, R1-02).
 
 Раньше CI этого не проверял, и схема из миграций тихо разошлась с моделями: у `created_at`/`updated_at` в базе из миграций
-стоит NULLABLE, а модель обещает NOT NULL; у ряда внешних ключей не было индексов; остались устаревшие колонки. Пользовательские
-базы (EXE, PostgreSQL) строятся именно миграциями, а тесты по умолчанию — `create_all`, поэтому расхождение было невидимо.
+стоял NULLABLE, а модель обещает NOT NULL; часть индексов и ограничений существовала под другими именами или только в базе.
+Пользовательские базы (EXE, PostgreSQL) строятся именно миграциями, а тесты по умолчанию — `create_all`, поэтому расхождение было
+невидимо. Расхождения устранены миграцией `a7d3f1c8e925` и правкой моделей; белого списка больше нет.
 
 Как работает. Применяем всю цепочку миграций к пустой базе и сравниваем результат с `Base.metadata` тем же механизмом, что
-`alembic revision --autogenerate` (`compare_type=True`, как в alembic/env.py). Каждое расхождение превращается в строку-ключ.
-Ожидаемые расхождения перечислены ниже (whitelist) — каждое с причиной, по которой оно оставлено. Тест падает в обе стороны:
-  • появилось расхождение, которого нет в whitelist, — забыта миграция (или модель изменена без неё);
-  • расхождение из whitelist исчезло — уберите строку из списка, чтобы страж не «молчал» про уже исправленное.
+`alembic check` / `--autogenerate` (`compare_type=True` и тот же `include_object`, что в alembic/env.py). Каждое расхождение
+превращается в строку-ключ; ожидаемых нет (`EXPECTED_DRIFT` пуст). Тест падает, если появилось любое расхождение: нужна миграция
+(`alembic revision`) или правка модели, а не строка в `EXPECTED_DRIFT`.
 
-Что делать при падении: добавить миграцию (`alembic revision`), а в whitelist ничего не вносить. Whitelist правится только
-осознанным решением: он фиксирует вопросы, которые должен решить владелец продукта.
+SQLite: ограничения UNIQUE в сравнении пропускаются (безымянные UNIQUE SQLite отдаёт без имени, см. app/alembic_filters.py), поэтому
+их наличие проверяет `test_sqlite_model_uniqueness_exists_in_the_database` — по колонкам, а не по именам.
 
-Запуск: `pytest tests/test_migrations_match_models.py` (SQLite);
-        INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest tests/test_migrations_match_models.py (PostgreSQL).
+Запуск: `pytest backend/tests/test_migrations_match_models.py` (SQLite);
+        INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest backend/tests/test_migrations_match_models.py (PostgreSQL).
 """
 from __future__ import annotations
 
@@ -23,81 +23,22 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from alembic import command
 from alembic.autogenerate import compare_metadata
-from alembic.config import Config
 from alembic.migration import MigrationContext
+from migration_support import BACKEND_DIR, migrate
 
-import app.config as app_config
+from app.alembic_filters import make_include_object
 from app.models import Base
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-
-
-def _alembic_config() -> Config:
-    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
-    cfg.attributes["configure_logger"] = False
-    return cfg
-
-
-def _migrate(url: str, revision: str = "head", *, downgrade: bool = False) -> None:
-    """env.py читает app.config.DATABASE_URL при каждом запуске команды — подставляем адрес на время миграции."""
-    original = app_config.DATABASE_URL
-    app_config.DATABASE_URL = url
-    try:
-        (command.downgrade if downgrade else command.upgrade)(_alembic_config(), revision)
-    finally:
-        app_config.DATABASE_URL = original
+_migrate = migrate
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# Whitelist: расхождения «миграции ↔ модели», которые сознательно оставлены. Формат ключа — см. _describe().
+# Ожидаемые расхождения «миграции ↔ модели»: их нет (R1-02 код-ревью). Раньше здесь был белый список из 49 пунктов — NOT NULL у
+# created_at/updated_at, индексы без описания в моделях, ограничения под разными именами; все они устранены миграцией и правкой
+# моделей. Любое расхождение — ошибка: нужна миграция (или правка модели), а не строка в этом множестве.
 # ----------------------------------------------------------------------------------------------------------------------
-
-# 1. NOT NULL у created_at/updated_at. Модели (TimestampMixin) объявляют их обязательными, а миграции создавали без NOT NULL.
-#    Значения проставляет приложение (default=utcnow_naive), но в старых строках NULL возможен. Выравнивание требует бэкфилла
-#    и решения владельца продукта: ужесточить БД или ослабить модели. До решения — только фиксируем.
-NULLABLE_TIMESTAMP_TABLES = (
-    "auth_sessions", "auth_settings", "crypto_protection_means", "device_categories", "device_type_vlans",
-    "diagram_group_states", "diagram_icons", "diagram_layouts", "embedded_operating_systems", "interface_speeds",
-    "is_placement_assets", "physical_device_vlans", "placement_assets", "port_sync_rules", "protocol_port_catalogs",
-    "report_template_versions", "saved_diagrams", "structural_units", "support_methods", "support_organizations", "users",
-)
-# У двух таблиц нет одной из колонок (auth_sessions — только created_at, auth_settings — только updated_at).
-_TIMESTAMP_COLUMNS = {"auth_sessions": ("created_at",), "auth_settings": ("updated_at",)}
-NULLABLE_TIMESTAMPS = {
-    f"modify_nullable {table}.{column}: db=NULL model=NOT NULL"
-    for table in NULLABLE_TIMESTAMP_TABLES for column in _TIMESTAMP_COLUMNS.get(table, ("created_at", "updated_at"))
-}
-
-COMMON = NULLABLE_TIMESTAMPS | {
-    # 2. Индексы, которые есть в базе, но не объявлены в моделях. Безвредны (ускоряют запросы), в моделях не описаны.
-    "remove_index deployed_software(owner_type,owner_id) ix_deployed_software_owner",
-    "remove_index deployed_software(software_asset_id) ix_deployed_software_software_asset_id",
-    "remove_index ip_addresses(owner_type,owner_id) ix_ip_addresses_owner",
-    # 3. Одно и то же, выраженное по-разному: UNIQUE-ограничение в базе против unique-индекса в модели (`unique=True,
-    #    index=True` у одной колонки), либо индекс под другим именем. Свойство (уникальность/быстрый поиск) обеспечено.
-    "add_index auth_sessions(token_hash) ix_auth_sessions_token_hash",
-    "remove_constraint UniqueConstraint auth_sessions.uq_auth_sessions_token_hash",
-    "add_index diagram_layouts(saved_diagram_id) ix_diagram_layouts_saved_diagram_id",
-    "remove_index diagram_layouts(saved_diagram_id) ix_diagram_layouts_saved_diagram_id",
-    "add_index physical_device_vlans(physical_device_id) ix_physical_device_vlans_physical_device_id",
-    "remove_index physical_device_vlans(physical_device_id) ix_physical_device_vlans_device_id",
-}
-
-# Расхождения, зависящие от СУБД: цепочка миграций ведёт себя по-разному (пересборка таблиц на SQLite, ALTER на PostgreSQL).
-SQLITE_ONLY = {
-    # vlans: UNIQUE(domain_id, vlan_id) на SQLite потерян пересборкой таблицы; на PostgreSQL он есть. Добавление ограничения
-    # на существующие данные может упасть при уже накопленных дублях — отдельное решение.
-    "add_constraint UniqueConstraint vlans.uq_vlan_domain_id",
-}
-POSTGRES_ONLY = {
-    "modify_nullable information_system_sources.created_at: db=NULL model=NOT NULL",
-    "modify_nullable information_system_sources.updated_at: db=NULL model=NOT NULL",
-    # Безымянное UNIQUE у diagram_layouts.saved_diagram_id (начальная схема PostgreSQL) — то же, что unique-индекс модели.
-    "remove_constraint UniqueConstraint diagram_layouts.diagram_layouts_saved_diagram_id_key",
-}
+EXPECTED_DRIFT: set[str] = set()
 
 
 def _flatten(items):
@@ -136,7 +77,9 @@ def _describe(item) -> str:
 def schema_drift(engine: sa.engine.Engine, metadata: sa.MetaData = Base.metadata) -> set[str]:
     """Расхождения между базой и metadata; compare_type — как в alembic/env.py."""
     with engine.connect() as connection:
-        context = MigrationContext.configure(connection, opts={"compare_type": True})
+        context = MigrationContext.configure(
+            connection, opts={"compare_type": True, "include_object": make_include_object(connection.dialect.name)}
+        )
         return {_describe(item) for item in _flatten(compare_metadata(context, metadata))}
 
 
@@ -145,11 +88,11 @@ def _assert_matches_whitelist(drift: set[str], expected: set[str]) -> None:
     problems = []
     if new:
         problems.append(
-            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) — НЕ дописывайте строки в whitelist:\n  "
+            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ дописывайте строки в EXPECTED_DRIFT:\n  "
             + "\n  ".join(new)
         )
     if fixed:
-        problems.append("Эти расхождения уже исправлены — удалите их из whitelist, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed))
+        problems.append("Эти расхождения уже исправлены — удалите их из EXPECTED_DRIFT, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed))
     assert not problems, "\n\n".join(problems)
 
 
@@ -226,12 +169,58 @@ def sqlite_url():
 
 @pytest.mark.sqlite_only
 def test_sqlite_schema_from_migrations_matches_models(sqlite_url):
-    _check_guard(sqlite_url, COMMON | SQLITE_ONLY)
+    _check_guard(sqlite_url, EXPECTED_DRIFT)
 
 
 @pytest.mark.sqlite_only
 def test_sqlite_missing_foreign_key_indexes_exist(sqlite_url):
     _check_missing_indexes_are_created(sqlite_url)
+
+
+def _uniqueness_declared_by_models(metadata: sa.MetaData) -> dict[str, set[frozenset[str]]]:
+    """Таблица → наборы колонок, которые модели объявляют уникальными (UniqueConstraint, `unique=True`, unique-индексы)."""
+    result: dict[str, set[frozenset[str]]] = {}
+    for table in metadata.tables.values():
+        keys = {frozenset(column.name for column in constraint.columns) for constraint in table.constraints if isinstance(constraint, sa.UniqueConstraint)}
+        keys |= {frozenset(column.name for column in index.columns) for index in table.indexes if index.unique}
+        if keys:
+            result[table.name] = keys
+    return result
+
+
+def missing_uniqueness(engine: sa.engine.Engine, metadata: sa.MetaData = Base.metadata) -> list[str]:
+    """Уникальности из моделей, которых нет в базе ни как ограничение, ни как unique-индекс над теми же колонками (имена не важны)."""
+    inspector = sa.inspect(engine)
+    missing = []
+    for table, wanted in _uniqueness_declared_by_models(metadata).items():
+        present = {frozenset(item["column_names"]) for item in inspector.get_unique_constraints(table)}
+        present |= {frozenset(item["column_names"]) for item in inspector.get_indexes(table) if item["unique"]}
+        missing += [f"{table}({', '.join(sorted(columns))})" for columns in wanted - present]
+    return sorted(missing)
+
+
+@pytest.mark.sqlite_only
+def test_sqlite_model_uniqueness_exists_in_the_database(sqlite_url):
+    """Фильтр `include_object` не сравнивает UNIQUE на SQLite — эта проверка закрывает пробел: уникальность каждой модели есть в базе."""
+    engine = sa.create_engine(sqlite_url)
+    try:
+        assert missing_uniqueness(engine) == []
+        # Проверка обязана ловить пропажу (иначе она бесполезна): модель, требующая уникальности там, где её нет, даёт расхождение.
+        broken = _models_copy()
+        broken.tables["ip_addresses"].append_constraint(sa.UniqueConstraint("purpose", name="uq_probe_without_migration"))
+        assert missing_uniqueness(engine, broken) == ["ip_addresses(purpose)"]
+    finally:
+        engine.dispose()
+
+
+def test_ci_runs_alembic_check_on_sqlite_and_postgres():
+    """`alembic check` — часть слияния: шаги в CI не должны пропасть при правке workflow (R1-02)."""
+    import yaml
+
+    workflow = yaml.safe_load((BACKEND_DIR.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    for job in ("test", "test-postgres-migrations"):
+        runs = [step.get("run", "") for step in workflow["jobs"][job]["steps"]]
+        assert any("alembic upgrade head" in run and "alembic check" in run for run in runs), f"в job {job} нет шага alembic check"
 
 
 @pytest.mark.sqlite_only
@@ -276,7 +265,7 @@ def postgres_database():
 
 @pytest.mark.postgres_only
 def test_postgres_schema_from_migrations_matches_models(postgres_database):
-    _check_guard(postgres_database.url, COMMON | POSTGRES_ONLY)
+    _check_guard(postgres_database.url, EXPECTED_DRIFT)
 
 
 @pytest.mark.postgres_only

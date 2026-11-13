@@ -1,17 +1,5 @@
-/* Подложка, шапка и подвал окон панели «Группы портов» (GroupEditModal.vue, GroupVlanPickerModal.vue,
-   GroupDeleteModal.vue). Подключается в каждое окно через <style scoped src>. .overlay — та же база, что у QuickAddModal.vue;
-   окно выбора VLAN имеет тот же z-index и стоит поверх окна группы за счёт порядка в DOM. */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 70;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
+/* Шапка и подвал окон панели «Группы портов» (GroupEditModal.vue, GroupVlanPickerModal.vue, GroupDeleteModal.vue).
+   Подключается в каждое окно через <style scoped src>. Подложку, закрытие, фокус и слой даёт BaseModal.vue. */
 .modal-head {
   display: flex;
   align-items: center;

@@ -46,6 +46,55 @@ def _fresh_throttle(monkeypatch):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# A-05: отчёты журнала аудита лежат в подкаталоге audit/ и подчиняются тем же правилам очистки
+# ---------------------------------------------------------------------------------------------------------------------
+class TestAuditSubdirectory:
+    def test_audit_reports_count_toward_the_quota_together_with_the_root_files(self, tmp_path):
+        (tmp_path / "audit").mkdir()
+        now = time.time()
+        for age, directory, name in [(50, tmp_path, "root_old.xlsx"), (40, tmp_path / "audit", "audit_old.xlsx"), (30, tmp_path, "root_new.xlsx"), (20, tmp_path / "audit", "audit_new.xlsx")]:
+            path = directory / name
+            path.write_bytes(b"x")
+            os.utime(path, (now - age, now - age))
+        removed = cleanup_old_reports(tmp_path, max_age_days=30, max_files=2)
+        assert removed == 2
+        assert _names(tmp_path) == ["root_new.xlsx"] and _names(tmp_path / "audit") == ["audit_new.xlsx"], "самые старые удалены и в корне, и в подкаталоге"
+
+    def test_stale_audit_reports_are_removed_by_age(self, tmp_path):
+        (tmp_path / "audit").mkdir()
+        stale = tmp_path / "audit" / "Журнал_аудита_старый.xlsx"
+        stale.write_bytes(b"x")
+        os.utime(stale, (0, 0))
+        fresh = tmp_path / "audit" / "Журнал_аудита_свежий.xlsx"
+        fresh.write_bytes(b"x")
+        assert cleanup_old_reports(tmp_path, max_age_days=30, max_files=0) == 1
+        assert not stale.exists() and fresh.exists()
+
+    def test_the_subdirectory_itself_and_foreign_files_in_it_are_left_alone(self, tmp_path):
+        audit = tmp_path / "audit"
+        audit.mkdir()
+        keep = audit / "заметка.txt"
+        keep.write_text("не отчёт")
+        os.utime(keep, (0, 0))
+        _make_reports(audit, 3, newest_age=400 * 86400)
+        cleanup_old_reports(tmp_path, max_age_days=30, max_files=0)
+        assert audit.is_dir() and keep.exists() and _names(audit) == []
+
+    def test_a_missing_subdirectory_is_not_an_error(self, tmp_path):
+        _make_reports(tmp_path, 3)
+        assert cleanup_old_reports(tmp_path, max_age_days=30, max_files=2) == 1
+
+    def test_generating_an_audit_report_makes_room_for_it_across_both_directories(self, client, tmp_path, monkeypatch):
+        from app.api import reports
+
+        monkeypatch.setattr(reports, "REPORT_DIR", tmp_path)
+        monkeypatch.setattr(report_cleanup, "REPORT_MAX_FILES", 3)
+        _make_reports(tmp_path, 3)  # квота уже занята файлами корня
+        assert client.post("/api/v1/reports/audit-log").status_code == 200
+        assert len(list(tmp_path.glob("*.xlsx"))) + len(list((tmp_path / "audit").glob("*.xlsx"))) <= 3
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # cleanup_old_reports: квота
 # ---------------------------------------------------------------------------------------------------------------------
 class TestQuota:
@@ -236,10 +285,10 @@ class TestEndpointsKeepTheQuota:
             response = client.post(f"{API}/reports/audit-log")
             assert response.status_code == 200, response.text
             last = response.json()["file_name"]
-            assert len(_names(report_dir)) <= 200
-        assert len(_names(report_dir)) == 200, "квота заполнена, но не превышена"
-        assert (report_dir / last).exists(), "только что созданный отчёт не удаляется"
-        assert client.get(f"{API}/reports/download/{last}").status_code == 200
+            assert len(_names(report_dir / "audit")) <= 200  # отчёты аудита — в подкаталоге (A-05), квота общая с корнем
+        assert len(_names(report_dir / "audit")) == 200, "квота заполнена, но не превышена"
+        assert (report_dir / "audit" / last).exists(), "только что созданный отчёт не удаляется"
+        assert client.get(f"{API}/reports/audit-log/download/{last}").status_code == 200
 
     def test_all_three_generating_endpoints_respect_a_small_quota(self, client, report_dir, monkeypatch):
         monkeypatch.setattr(report_cleanup, "REPORT_MAX_FILES", 3)
@@ -252,14 +301,14 @@ class TestEndpointsKeepTheQuota:
             assert client.post(f"{API}/reports/inventory").status_code == 200
             assert client.post(f"{API}/report-templates/{template}/generate").status_code == 200
             assert client.post(f"{API}/reports/audit-log").status_code == 200
-            assert len([p for p in report_dir.iterdir() if p.suffix in {".xlsx", ".docx"}]) <= 3
+            assert len([p for p in report_dir.rglob("*") if p.suffix in {".xlsx", ".docx"}]) <= 3  # корень и audit/ вместе (A-05)
 
     def test_files_that_are_not_reports_survive_the_quota(self, client, report_dir, monkeypatch):
         monkeypatch.setattr(report_cleanup, "REPORT_MAX_FILES", 2)
         (report_dir / "README.txt").write_text("служебный файл")
         for _ in range(5):
             assert client.post(f"{API}/reports/audit-log").status_code == 200
-        assert (report_dir / "README.txt").exists() and len(_names(report_dir)) == 2
+        assert (report_dir / "README.txt").exists() and len(_names(report_dir / "audit")) == 2
 
 
 # ---------------------------------------------------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import type { DeviceStack } from '../api/types'
 import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
+import DataLoadNotice from '../components/DataLoadNotice.vue'
 
 const stacks = useDeviceStacksStore()
 const auth = useAuthStore()
@@ -67,6 +68,7 @@ async function removeStack(s: DeviceStack) {
     </div>
 
     <div class="card stacks-card">
+      <DataLoadNotice v-if="stacks.truncated" kind="incomplete" what="стеков устройств" :loaded="stacks.all.length" :total="stacks.total" />
       <div v-if="stacks.error" class="error-banner">{{ stacks.error }}</div>
       <div v-else-if="stacks.loading && !stacks.loaded" class="empty">Загрузка стеков…</div>
       <div v-else-if="!stacks.all.length" class="empty">Стеки устройств не созданы.</div>

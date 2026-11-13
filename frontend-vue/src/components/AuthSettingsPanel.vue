@@ -25,7 +25,7 @@ const busyUserId = ref<string | null>(null)
 const userActionError = ref<string | null>(null)
 
 // Первичная настройка при выключенной аутентификации разрешена только с localhost или по токену
-// установки (backend/app/services/auth.py:require_setup_access) — с другого компьютера сервер отвечает
+// установки (backend/app/services/auth/guards.py:require_setup_access) — с другого компьютера сервер отвечает
 // 403 SETUP_ACCESS_DENIED, и панель просит ввести токен.
 const setupTokenNeeded = ref(false)
 const setupTokenInput = ref(getStoredSetupToken() ?? '')

@@ -12,6 +12,7 @@ import type { InformationSystem } from '../api/types'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import StatCard from '../components/StatCard.vue'
 import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
+import ListEmptyRow from '../components/ListEmptyRow.vue'
 import YesNoStatus from '../components/YesNoStatus.vue'
 import InformationSystemFormModal from '../components/InformationSystemFormModal.vue'
 // Общая панель фильтров (поиск, селекты, кнопки действий) — UI-10/UI-11.
@@ -183,9 +184,15 @@ const cryptoCount = () => systems.all.filter((s) => s.crypto_protection_enabled)
                 </div>
               </td>
             </tr>
-            <tr v-if="!systems.filtered.length">
-              <td colspan="7" class="empty-row">Ничего не найдено по заданным фильтрам.</td>
-            </tr>
+            <ListEmptyRow
+              v-if="!systems.filtered.length"
+              :colspan="7"
+              :registry-empty="!systems.all.length"
+              empty-text="Информационных систем пока нет."
+              :action-label="auth.canWrite ? 'Добавить ИС' : undefined"
+              @action="openCreate"
+              @reset="systems.resetFilters()"
+            />
           </tbody>
         </table>
       </ScrollableTableWrap>
@@ -286,11 +293,6 @@ tbody tr:hover td {
   font-family: var(--font-mono);
   font-size: 11.8px;
   color: var(--ink);
-}
-.empty-row {
-  text-align: center;
-  color: var(--ink-muted);
-  padding: 26px 14px;
 }
 .error-banner {
   display: flex;

@@ -24,7 +24,7 @@ import type { Connection, Device, DeviceInterface, InterfaceGroupDraft, Interfac
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
 import { useVLANsStore } from '../stores/vlans'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import { useVlanModeCascade, type CascadeOutcome } from '../composables/useVlanModeCascade'
 import type { CascadePortRequest } from '../api/vlanModeCascade'
@@ -50,9 +50,9 @@ const emit = defineEmits<{
   /** Открыть окно всех портов устройства — например, чтобы изменить группу, которая задаёт VLAN порта. */
   'manage-ports': [target: { interfaceId: string; deviceLabel: string }]
 }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => {
+function dismiss() {
   if (!saving.value && !cascadeApplying.value) emit('close')
-})
+}
 
 const catalogs = useCatalogsStore()
 const vlansStore = useVLANsStore()
@@ -289,142 +289,127 @@ const vlanLabel = (o: VLANDefinition) => `VLAN ${o.vlan_id}${o.name ? ` · ${o.n
 </script>
 
 <template>
-  <!-- Teleport в body: окно открывается поверх таблицы и окна проверки расхождения (оба — оверлеи), как и
-       DevicePortsModal.vue; без него получился бы вложенный position:fixed оверлей внутри оверлея. -->
-  <Teleport to="body">
-    <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
-      <div class="modal card" role="dialog" aria-modal="true" aria-label="Конфигурация порта" data-modal="port-config-edit">
-        <div class="modal-head">
-          <h2>Порт «{{ own.name }}» · {{ own.deviceLabel }}</h2>
-          <button type="button" class="icon-btn" aria-label="Закрыть" :disabled="saving" @click="$emit('close')">
-            <svg class="icon"><use href="/icons.svg#i-x" /></svg>
-          </button>
-        </div>
-
-        <div v-if="errorMessage" class="form-error" role="alert" data-error>
-          <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
-          <span>{{ errorMessage }}</span>
-        </div>
-
-        <p v-if="loading" class="loading" data-loading>Загрузка настроек порта…</p>
-
-        <template v-else>
-          <p class="neighbor" data-neighbor>
-            Соседний порт: «{{ neighbor.name }}» ({{ neighbor.deviceLabel }}) — {{ neighbor.role ? PORT_ROLE_LABELS[neighbor.role] : 'роль не задана' }}, режим
-            {{ neighbor.mode ?? '—' }}, VLAN {{ formatVlans(neighbor.vlans) }}
-            <button type="button" class="link-btn" data-action="copy-neighbor" :disabled="saving" @click="copyFromNeighbor">Задать как у соседа</button>
-          </p>
-
-          <label class="field">
-            <span>Роль порта</span>
-            <select v-model="draft.role" data-field="role" :disabled="saving">
-              <option v-for="role in ROLES" :key="role" :value="role">{{ PORT_ROLE_LABELS[role] }}</option>
-            </select>
-          </label>
-
-          <div class="field">
-            <span>Режим порта</span>
-            <div class="chip-group" role="group" aria-label="Режим порта">
-              <button
-                v-for="mode in MODES"
-                :key="mode"
-                type="button"
-                :class="{ on: draft.mode === mode }"
-                :data-field="`mode-${mode}`"
-                :aria-pressed="draft.mode === mode"
-                :disabled="saving"
-                @click="draft.mode = mode"
-              >
-                {{ mode }}
-              </button>
-            </div>
-            <p v-if="modeChanged" class="hint" data-hint="cascade">
-              Режим меняется каскадом: если порт входит в группу, задающую режим, или связан с портами, у которых режим другой, он сменится и у них. Перед
-              применением покажем все последствия; роль и VLAN сохранятся в той же операции — всё или ничего.
-            </p>
-          </div>
-
-          <div class="field">
-            <span>VLAN порта</span>
-            <p v-if="vlansLocked" class="hint locked" data-hint="group-locked">
-              Режим и VLAN этого порта задаёт группа «{{ group?.name }}» — набор VLAN здесь не меняется. Режим сменить можно (он поменяется у всей группы), VLAN
-              группы правятся в окне портов устройства.
-              <button type="button" class="link-btn" data-action="manage-group" @click="manageGroup">Открыть порты устройства</button>
-            </p>
-            <p v-else-if="!vlanOptions.length" class="hint" data-hint="no-vlans">
-              У устройства нет доступных VLAN — добавьте их в блоке «VLAN устройства» формы устройства.
-            </p>
-            <template v-else>
-              <div class="vlan-tools">
-                <button type="button" class="link-btn" data-action="select-all" :disabled="saving || draft.mode === 'access'" @click="selectAllVlans">
-                  Все VLAN
-                </button>
-                <button type="button" class="link-btn" data-action="clear" :disabled="saving || !draft.vlanIds.length" @click="clearVlans">Снять все</button>
-                <span class="count" data-count
-                  >Выбрано: {{ draft.vlanIds.length }} из {{ vlanOptions.length }}<template v-if="draft.allVlans"> · признак «Все VLAN»</template></span
-                >
-              </div>
-              <!-- key по режиму: при смене checkbox ↔ radio список пересоздаётся. Иначе у живых input с общим name
-                   браузер сбрасывает «выбранность» у остальных радиокнопок, и на экране не отмечено ничего, хотя
-                   в черновике VLAN остался. -->
-              <ul :key="draft.mode" class="vlan-list" data-vlan-list>
-                <li v-for="o in vlanOptions" :key="o.id">
-                  <label>
-                    <input
-                      :type="draft.mode === 'access' ? 'radio' : 'checkbox'"
-                      name="port-vlan"
-                      :data-vlan="o.id"
-                      :checked="draft.vlanIds.includes(o.id)"
-                      :disabled="saving"
-                      @change="toggleVlan(o.id, ($event.target as HTMLInputElement).checked)"
-                    />
-                    <span>{{ vlanLabel(o) }}</span>
-                  </label>
-                </li>
-              </ul>
-              <p v-if="draft.mode === 'access'" class="hint">В режиме access у порта не более одного VLAN.</p>
-            </template>
-            <p v-if="notice" class="hint warn" data-notice>{{ notice }}</p>
-          </div>
-
-          <p class="compare" :class="{ ok: !differences.length }" data-compare>
-            <template v-if="!differences.length">✓ После сохранения конфигурация совпадёт с соседним портом.</template>
-            <template v-else>⚠ От соседнего порта будет отличаться: {{ facetsLabel(differences) }}. Расхождение можно одобрить на дашборде.</template>
-          </p>
-        </template>
-
-        <div class="modal-foot">
-          <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
-          <button type="button" class="btn btn-primary" data-action="save" :disabled="loading || saving || !dirty" @click="save">
-            {{ modeChanged ? 'Далее — проверить последствия' : 'Сохранить' }}
-          </button>
-        </div>
+  <BaseModal @close="dismiss">
+    <div class="modal card" role="dialog" aria-modal="true" aria-label="Конфигурация порта" data-modal="port-config-edit">
+      <div class="modal-head">
+        <h2>Порт «{{ own.name }}» · {{ own.deviceLabel }}</h2>
+        <button type="button" class="icon-btn" aria-label="Закрыть" :disabled="saving" @click="$emit('close')">
+          <svg class="icon"><use href="/icons.svg#i-x" /></svg>
+        </button>
       </div>
 
-      <VlanModeCascadeModal
-        v-if="cascadePending"
-        :plan="cascadePending.plan"
-        :applying="cascadeApplying"
-        :port-label="cascadePending.portLabel"
-        @confirm="cascadeConfirm"
-        @cancel="cascadeCancel"
-      />
+      <div v-if="errorMessage" class="form-error" role="alert" data-error>
+        <svg class="icon"><use href="/icons.svg#i-alert" /></svg>
+        <span>{{ errorMessage }}</span>
+      </div>
+
+      <p v-if="loading" class="loading" data-loading>Загрузка настроек порта…</p>
+
+      <template v-else>
+        <p class="neighbor" data-neighbor>
+          Соседний порт: «{{ neighbor.name }}» ({{ neighbor.deviceLabel }}) — {{ neighbor.role ? PORT_ROLE_LABELS[neighbor.role] : 'роль не задана' }}, режим
+          {{ neighbor.mode ?? '—' }}, VLAN {{ formatVlans(neighbor.vlans) }}
+          <button type="button" class="link-btn" data-action="copy-neighbor" :disabled="saving" @click="copyFromNeighbor">Задать как у соседа</button>
+        </p>
+
+        <label class="field">
+          <span>Роль порта</span>
+          <select v-model="draft.role" data-field="role" :disabled="saving">
+            <option v-for="role in ROLES" :key="role" :value="role">{{ PORT_ROLE_LABELS[role] }}</option>
+          </select>
+        </label>
+
+        <div class="field">
+          <span>Режим порта</span>
+          <div class="chip-group" role="group" aria-label="Режим порта">
+            <button
+              v-for="mode in MODES"
+              :key="mode"
+              type="button"
+              :class="{ on: draft.mode === mode }"
+              :data-field="`mode-${mode}`"
+              :aria-pressed="draft.mode === mode"
+              :disabled="saving"
+              @click="draft.mode = mode"
+            >
+              {{ mode }}
+            </button>
+          </div>
+          <p v-if="modeChanged" class="hint" data-hint="cascade">
+            Режим меняется каскадом: если порт входит в группу, задающую режим, или связан с портами, у которых режим другой, он сменится и у них. Перед
+            применением покажем все последствия; роль и VLAN сохранятся в той же операции — всё или ничего.
+          </p>
+        </div>
+
+        <div class="field">
+          <span>VLAN порта</span>
+          <p v-if="vlansLocked" class="hint locked" data-hint="group-locked">
+            Режим и VLAN этого порта задаёт группа «{{ group?.name }}» — набор VLAN здесь не меняется. Режим сменить можно (он поменяется у всей группы), VLAN
+            группы правятся в окне портов устройства.
+            <button type="button" class="link-btn" data-action="manage-group" @click="manageGroup">Открыть порты устройства</button>
+          </p>
+          <p v-else-if="!vlanOptions.length" class="hint" data-hint="no-vlans">
+            У устройства нет доступных VLAN — добавьте их в блоке «VLAN устройства» формы устройства.
+          </p>
+          <template v-else>
+            <div class="vlan-tools">
+              <button type="button" class="link-btn" data-action="select-all" :disabled="saving || draft.mode === 'access'" @click="selectAllVlans">
+                Все VLAN
+              </button>
+              <button type="button" class="link-btn" data-action="clear" :disabled="saving || !draft.vlanIds.length" @click="clearVlans">Снять все</button>
+              <span class="count" data-count
+                >Выбрано: {{ draft.vlanIds.length }} из {{ vlanOptions.length }}<template v-if="draft.allVlans"> · признак «Все VLAN»</template></span
+              >
+            </div>
+            <!-- key по режиму: при смене checkbox ↔ radio список пересоздаётся. Иначе у живых input с общим name
+                   браузер сбрасывает «выбранность» у остальных радиокнопок, и на экране не отмечено ничего, хотя
+                   в черновике VLAN остался. -->
+            <ul :key="draft.mode" class="vlan-list" data-vlan-list>
+              <li v-for="o in vlanOptions" :key="o.id">
+                <label>
+                  <input
+                    :type="draft.mode === 'access' ? 'radio' : 'checkbox'"
+                    name="port-vlan"
+                    :data-vlan="o.id"
+                    :checked="draft.vlanIds.includes(o.id)"
+                    :disabled="saving"
+                    @change="toggleVlan(o.id, ($event.target as HTMLInputElement).checked)"
+                  />
+                  <span>{{ vlanLabel(o) }}</span>
+                </label>
+              </li>
+            </ul>
+            <p v-if="draft.mode === 'access'" class="hint">В режиме access у порта не более одного VLAN.</p>
+          </template>
+          <p v-if="notice" class="hint warn" data-notice>{{ notice }}</p>
+        </div>
+
+        <p class="compare" :class="{ ok: !differences.length }" data-compare>
+          <template v-if="!differences.length">✓ После сохранения конфигурация совпадёт с соседним портом.</template>
+          <template v-else>⚠ От соседнего порта будет отличаться: {{ facetsLabel(differences) }}. Расхождение можно одобрить на дашборде.</template>
+        </p>
+      </template>
+
+      <div class="modal-foot">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">Отмена</button>
+        <button type="button" class="btn btn-primary" data-action="save" :disabled="loading || saving || !dirty" @click="save">
+          {{ modeChanged ? 'Далее — проверить последствия' : 'Сохранить' }}
+        </button>
+      </div>
     </div>
-  </Teleport>
+
+    <VlanModeCascadeModal
+      v-if="cascadePending"
+      :plan="cascadePending.plan"
+      :applying="cascadeApplying"
+      :port-label="cascadePending.portLabel"
+      @confirm="cascadeConfirm"
+      @cancel="cascadeCancel"
+    />
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 70;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 560px;

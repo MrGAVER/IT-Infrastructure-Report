@@ -10,7 +10,7 @@ INFRA_REGISTRY_TEST_DATABASE_URL (маркер postgres_only), каждый — 
   • схема из миграций пригодна для приложения: все таблицы и колонки моделей на месте, уникальность и внешние ключи моделей
     действуют, остатки старых колонок не мешают вставкам, даты без часового пояса, как в моделях;
   • VLAN уникален в пределах домена, а не глобально (смысл миграции c9a4e7d2f610);
-  • ветки миграций, которые работают с **данными** (на пустой базе они не выполняются), — на строках старой схемы.
+  • ветки миграций, которые работают с **данными** (на пустой базе они не выполняются), — на строках старой схемы (TestMigrationsThatMoveData).
 
 Запуск: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest backend/tests/test_migrations_postgres.py
 """
@@ -106,6 +106,14 @@ def migrated():
 
 def _down_revision(revision: str) -> str:
     return ScriptDirectory.from_config(_config()).get_revision(revision).down_revision
+
+
+def _get_or_insert(connection, table: str, lookup: dict, **extra) -> str:
+    """Строка справочника, которую ранние миграции уже засеяли (порт 22/SSH, тип «Сервер»): берём её, а не вставляем дубль,
+    иначе тест упёрся бы в уникальность справочника, а не в проверяемую миграцию."""
+    where = " AND ".join(f"{column} = :{column}" for column in lookup)
+    found = connection.execute(sa.text(f"SELECT id FROM {table} WHERE {where}"), lookup).scalar()
+    return found or insert_row(connection, table, **lookup, **extra)
 
 
 # ----- структура схемы -----------------------------------------------------------------------------------------------
@@ -309,3 +317,121 @@ class TestMigrationsThatMoveData:
         assert by_kind[("vm", "приложение")] == (False, None)
         assert by_kind[("container", "сервис")] == (False, None)
         assert any(r.ip_address == "203.0.113.7" and r.external_interaction is True for r in rows)
+
+    def test_source_owner_columns_collapse_into_owner_id(self, scratch):
+        """944bd490d967: три необязательных FK источника ИС (устройство/ВМ/контейнер) → единый owner_id по source_type; у ручного источника владельца нет."""
+        revision = "944bd490d967"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            device, vm, container = (insert_row(connection, "physical_devices"), insert_row(connection, "virtual_machines"), insert_row(connection, "containers"))
+            insert_row(connection, "information_system_sources", source_type="device", physical_device_id=device)
+            insert_row(connection, "information_system_sources", source_type="vm", virtual_machine_id=vm)
+            insert_row(connection, "information_system_sources", source_type="container", container_id=container)
+            insert_row(connection, "information_system_sources", source_type="manual")
+        scratch.upgrade(revision)
+        with scratch.engine.connect() as connection:
+            owners = {r.source_type: r.owner_id for r in connection.execute(sa.text("SELECT source_type, owner_id FROM information_system_sources"))}
+        assert owners == {"device": device, "vm": vm, "container": container, "manual": None}
+
+    def test_open_ports_without_a_catalog_entry_get_one(self, scratch):
+        """a1b7c9d3e502: open_ports.protocol_catalog_id заполняется (запись справочника — существующая, новая или по транспорту) и становится обязательным."""
+        revision = "a1b7c9d3e502"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            device = insert_row(connection, "physical_devices")
+            known = _get_or_insert(connection, "protocol_port_catalogs", {"port": 22, "protocol_type": "SSH"})  # порт 22/SSH справочник уже содержит
+            for port, protocol, transport in ((22, "SSH", None), (443, "HTTPS", None), (443, "HTTPS", None), (444, "HTTPS", None), (53, None, "UDP")):
+                values = {"transport_protocol": transport} if transport else {}
+                insert_row(connection, "open_ports", owner_type="physical_device", owner_id=device, port=port, protocol=protocol, **values)
+        scratch.upgrade(revision)
+        with scratch.engine.connect() as connection:
+            rows = connection.execute(sa.text("SELECT p.port, k.protocol_type, k.id AS catalog_id FROM open_ports p JOIN protocol_port_catalogs k ON k.id = p.protocol_catalog_id ORDER BY p.port, k.id")).all()
+        assert [(r.port, r.protocol_type) for r in rows] == [(22, "SSH"), (53, "UDP"), (443, "HTTPS"), (443, "HTTPS"), (444, "HTTPS")]
+        assert rows[0].catalog_id == known  # существующая запись не задвоена
+        assert rows[2].catalog_id == rows[3].catalog_id  # одинаковые 443/HTTPS делят одну новую запись
+        assert {c["name"]: c["nullable"] for c in sa.inspect(scratch.engine).get_columns("open_ports")}["protocol_catalog_id"] is False
+
+    def test_free_text_os_moves_into_the_catalog_and_repeats_share_one_entry(self, scratch):
+        """c4e8a7d91b20: свободный текст ОС устройств и ВМ → каталог operating_systems («Другое»), платформа виртуализации → «Гипервизор».
+        Повтор без версии (version IS NULL) находит прежнюю запись, а не плодит дубль: на PostgreSQL сравнение `version IS :version`
+        было синтаксической ошибкой, и миграция падала на первой же базе с данными."""
+        revision = "c4e8a7d91b20"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            platform = insert_row(connection, "virtualization_platforms", name="VMware ESXi", vendor="VMware", version="8")
+            windows_a = insert_row(connection, "physical_devices", os_name="Windows Server", os_version="2019")
+            debian_a = insert_row(connection, "physical_devices", os_name="Debian", os_version=None)
+            windows_b = insert_row(connection, "physical_devices", os_name="Windows Server", os_version="2019")
+            debian_b = insert_row(connection, "physical_devices", os_name="Debian", os_version=None)
+            vm = insert_row(connection, "virtual_machines", os_name="Ubuntu", os_version="22.04", virtualization_platform_id=platform)
+        scratch.upgrade(revision)
+        with scratch.engine.connect() as connection:
+            devices = {r.id: r.operating_system_id for r in connection.execute(sa.text("SELECT id, operating_system_id FROM physical_devices"))}
+            vm_row = connection.execute(sa.text("SELECT operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :i"), {"i": vm}).one()
+            debian_entries = connection.execute(sa.text("SELECT COUNT(*) FROM operating_systems WHERE name = 'Debian'")).scalar_one()
+            hypervisor = connection.execute(sa.text("SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id WHERE o.id = :i AND c.name = 'Гипервизор'"), {"i": vm_row.hypervisor_os_id}).one()
+        assert all(devices.values())
+        assert devices[windows_a] == devices[windows_b] and devices[debian_a] == devices[debian_b] and devices[windows_a] != devices[debian_a]
+        assert debian_entries == 1
+        assert vm_row.operating_system_id is not None and tuple(hypervisor) == ("VMware ESXi", "8")
+
+    def test_dropping_network_and_security_device_types_removes_everything_hanging_on_them(self, scratch):
+        """38e9b2624a53: типы «Сетевое оборудование»/«Средство защиты информации» и ВСЁ зависимое (интерфейсы, подключения, ВМ, контейнеры, источники ИС,
+        открытые порты) удаляются; устройства прочих типов и их интерфейсы целы, у каждого оставшегося типа появляется категория."""
+        revision = "38e9b2624a53"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            server_type = _get_or_insert(connection, "device_types", {"name": "Сервер"})
+            network_type = _get_or_insert(connection, "device_types", {"name": "Сетевое оборудование"})
+            kept_device = insert_row(connection, "physical_devices", device_type_id=server_type)
+            doomed_device = insert_row(connection, "physical_devices", device_type_id=network_type)
+            doomed_interface = insert_row(connection, "device_interfaces", physical_device_id=doomed_device, name="Gi0/1")
+            kept_interface = insert_row(connection, "device_interfaces", physical_device_id=kept_device, name="Gi0/2")
+            insert_row(connection, "connections", source_interface_id=doomed_interface, destination_interface_id=kept_interface)
+            doomed_vm = insert_row(connection, "virtual_machines", physical_device_id=doomed_device)
+            doomed_container = insert_row(connection, "containers", virtual_machine_id=doomed_vm)
+            insert_row(connection, "information_system_sources", source_type="device", physical_device_id=doomed_device)
+            insert_row(connection, "information_system_sources", source_type="vm", virtual_machine_id=doomed_vm)
+            insert_row(connection, "information_system_sources", source_type="container", container_id=doomed_container)
+            insert_row(connection, "open_ports", owner_type="physical_device", owner_id=doomed_device, port=22)
+            insert_row(connection, "open_ports", owner_type="virtual_machine", owner_id=doomed_vm, port=80)
+        scratch.upgrade(revision)
+        tables = ("physical_devices", "virtual_machines", "containers", "device_interfaces", "connections", "information_system_sources", "open_ports")
+        with scratch.engine.connect() as connection:
+            left = {table: connection.execute(sa.text(f"SELECT COUNT(*) FROM {table}")).scalar_one() for table in tables}
+            types = {r.name: r.category_id for r in connection.execute(sa.text("SELECT name, category_id FROM device_types"))}
+        assert left == {"physical_devices": 1, "virtual_machines": 0, "containers": 0, "device_interfaces": 1, "connections": 0, "information_system_sources": 0, "open_ports": 0}
+        assert "Сетевое оборудование" not in types and all(types.values())
+
+    def test_not_null_type_migration_refuses_rows_without_a_type_and_changes_nothing(self, scratch):
+        """d7a3f1c8b254: связь без типа — остановка с понятной ошибкой, база не тронута; после исправления данных колонка становится NOT NULL."""
+        revision = "d7a3f1c8b254"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            link = insert_row(connection, "connections")  # connection_type_id остаётся NULL
+        with pytest.raises(RuntimeError, match=f"{revision} остановлена"):
+            scratch.upgrade(revision)
+        with scratch.engine.begin() as connection:
+            assert connection.execute(sa.text("SELECT connection_type_id FROM connections WHERE id = :i"), {"i": link}).scalar() is None
+            connection.execute(sa.text("UPDATE connections SET connection_type_id = :t"), {"t": insert_row(connection, "connection_types")})
+        scratch.upgrade(revision)
+        assert {c["name"]: c["nullable"] for c in sa.inspect(scratch.engine).get_columns("connections")}["connection_type_id"] is False
+
+    def test_legacy_os_columns_are_dropped_only_when_every_value_is_in_the_catalog(self, scratch):
+        """e9b4c2a7d136: устройство со свободным текстом ОС, которого нет в каталоге, останавливает миграцию (иначе значение пропало бы
+        вместе с колонкой); после переноса в каталог os_name/os_version и таблица платформ удаляются, ссылка на ОС сохраняется."""
+        revision = "e9b4c2a7d136"
+        scratch.upgrade(_down_revision(revision))
+        with scratch.engine.begin() as connection:
+            device = insert_row(connection, "physical_devices", os_name="Legacy OS", os_version="1")  # operating_system_id остаётся NULL
+        with pytest.raises(RuntimeError, match=f"{revision} остановлена"):
+            scratch.upgrade(revision)
+        with scratch.engine.begin() as connection:
+            os_id = insert_row(connection, "operating_systems", name="Legacy OS", version="1")
+            connection.execute(sa.text("UPDATE physical_devices SET operating_system_id = :o WHERE id = :d"), {"o": os_id, "d": device})
+        scratch.upgrade(revision)
+        inspector = sa.inspect(scratch.engine)
+        assert not {"os_name", "os_version"} & {c["name"] for c in inspector.get_columns("physical_devices")}
+        assert not inspector.has_table("virtualization_platforms")
+        with scratch.engine.connect() as connection:
+            assert connection.execute(sa.text("SELECT operating_system_id FROM physical_devices WHERE id = :d"), {"d": device}).scalar_one() == os_id

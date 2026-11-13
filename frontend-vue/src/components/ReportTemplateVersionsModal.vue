@@ -1,20 +1,19 @@
 <script setup lang="ts">
 // История версий шаблона отчёта: снимок сохраняется на каждое сохранение/восстановление (см.
 // _snapshot_version в backend/app/api/report_builder.py) — сам config снимка наружу не
-// отдаётся (см. ReportTemplateVersion в api/types.ts), просмотреть содержимое прошлой версии
+// отдаётся (см. ReportTemplateVersion в api/types/reports.ts), просмотреть содержимое прошлой версии
 // нельзя, только восстановить целиком. Текущее состояние тоже сохраняется как версия перед
 // восстановлением — откат обратим.
 import { onMounted, ref, useId } from 'vue'
 import { listReportTemplateVersions, restoreReportTemplateVersion } from '../api/reportTemplates'
 import type { ReportTemplate, ReportTemplateVersion } from '../api/types'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { formatServerDateTime } from '../utils/dateTime'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore() // «Восстановить версию» меняет шаблон — только для роли с правом записи
 const props = defineProps<{ template: ReportTemplate }>()
 const emit = defineEmits<{ close: []; restored: [template: ReportTemplate] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -49,7 +48,7 @@ async function restore(v: ReportTemplateVersion) {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">История версий «{{ template.name }}»</h2>
@@ -83,21 +82,10 @@ async function restore(v: ReportTemplateVersion) {
         <button type="button" class="btn btn-secondary" @click="$emit('close')">Закрыть</button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 560px;

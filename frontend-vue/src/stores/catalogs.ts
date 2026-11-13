@@ -4,7 +4,8 @@
 // lookupLabel() в прежнем vanilla-фронтенде (удалён в 2.60.0), но с типами
 // и явным состоянием загрузки вместо ad-hoc Map-кеша поверх fetch().
 import { defineStore } from 'pinia'
-import { listAllResource, api } from '../api/client'
+import { listAllResource, api, type AllPagesResponse } from '../api/client'
+import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { CatalogItem, StructuralUnit, ResourceDescriptor, ProtocolPortCatalogEntry } from '../api/types'
 
 // Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
@@ -97,8 +98,12 @@ export const useCatalogsStore = defineStore('catalogs', {
     resourceNames: {} as Record<string, string>,
     // Отдельно от items/CATALOGS: у ProtocolPortCatalogEntry нет поля name, поэтому
     // он не подходит под общий Record<CatalogKey, CatalogItem[]> (см. комментарий
-    // к типу в api/types.ts). Используется в OpenPortListEditor.vue.
+    // к типу в api/types). Используется в OpenPortListEditor.vue.
     protocolPortCatalog: [] as ProtocolPortCatalogEntry[],
+    // B-02: справочники, загруженные не целиком (потолок listAllResource, 50 000 записей): ключ → сколько получено и сколько на сервере.
+    // Справочники не блокируют сохранение (формы не пишут их целиком), но экран, показывающий справочник полностью, обязан сказать, что
+    // видна только часть: постоянно (DataLoadNotice), а не только исчезающим через 10 с предупреждением.
+    incompleteCatalogs: {} as Record<string, { loaded: number; total: number }>,
     loaded: false,
     loading: false,
     error: null as string | null,
@@ -180,15 +185,21 @@ export const useCatalogsStore = defineStore('catalogs', {
           listAllResource<ProtocolPortCatalogEntry>('protocol-port-catalog'),
         ])
         const failedKeys: string[] = []
+        const truncatedLoads: Array<[string, AllPagesResponse<unknown>]> = []
         CATALOGS.forEach((key, i) => {
           const result = catalogResults[i]
           if (result.status === 'fulfilled') {
             this.items[key] = sortCatalogItems(key, result.value.items)
+            if (result.value.truncated) truncatedLoads.push([key, result.value])
           } else {
             failedKeys.push(key)
           }
         })
+        if (protocolPorts.truncated) truncatedLoads.push(['protocol-port-catalog', protocolPorts])
         this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
+        // Состояние усечения — всегда по последней загрузке: после полной перезагрузки признак снимается.
+        this.incompleteCatalogs = Object.fromEntries(truncatedLoads.map(([key, res]) => [key, { loaded: res.items.length, total: res.total }]))
+        for (const [key, res] of truncatedLoads) warnIfTruncated(res, `справочник «${this.resourceNames[key] ?? key}»`)
         // Фикс п.4.2 (найден при работе над "убрать текстовые поля Порт/Протокол"): раньше
         // сортировался только результат quick-add (QuickAddModal.vue), а сама начальная загрузка —
         // нет, из-за чего справочник в SearchableSelect был отсортирован только ПОСЛЕ первого

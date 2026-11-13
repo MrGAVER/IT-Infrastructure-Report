@@ -26,11 +26,15 @@ from app import config as app_config
 from app.main import install_http_security
 from app.models import AuditLog, User
 from app.services import auth as auth_module
+from app.services.auth import guards as guards_module
+from app.services.auth import passwords as passwords_module
 from app.services.diagram_export import export_svg
 from app.services.diagram_icons import validate_svg_markup
 from app.services.login_throttle import LoginThrottle
 
 ADMIN = {"username": "admin", "password": "Admin1234", "role": "admin"}
+# Токен установки, который сервер принимает: не заглушка из .env.example и не короче MIN_SETUP_TOKEN_LENGTH (A-02 код-ревью r3).
+STRONG_SETUP_TOKEN = "k3Xr-9vT2mQa7wLp-4Zd8"
 
 
 def _create_admin(client) -> None:
@@ -83,23 +87,76 @@ class TestSetupAccess:
         assert r.json()["detail"]["code"] == "SETUP_ACCESS_DENIED"
 
     def test_setup_token_lets_a_remote_client_in(self, client_factory, monkeypatch):
-        monkeypatch.setattr(auth_module, "SETUP_TOKEN", "s3cret-token")
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", STRONG_SETUP_TOKEN)
         remote = client_factory("203.0.113.7")
         assert remote.post("/api/v1/auth/users", json=ADMIN).status_code == 403
         assert remote.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "wrong"}).status_code == 403
-        r = remote.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "s3cret-token"})
+        r = remote.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": STRONG_SETUP_TOKEN})
         assert r.status_code == 201, r.text
 
     def test_with_a_configured_token_localhost_needs_it_too(self, client, monkeypatch):
-        monkeypatch.setattr(auth_module, "SETUP_TOKEN", "s3cret-token")
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", STRONG_SETUP_TOKEN)
         assert client.post("/api/v1/auth/users", json=ADMIN).status_code == 403
-        assert client.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "s3cret-token"}).status_code == 201
+        assert client.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": STRONG_SETUP_TOKEN}).status_code == 201
 
     def test_enabled_auth_still_requires_an_admin_token_not_the_setup_token(self, client, monkeypatch):
         token = _enable_auth_and_login(client)
-        monkeypatch.setattr(auth_module, "SETUP_TOKEN", "s3cret-token")
-        assert client.get("/api/v1/auth/users", headers={"X-Setup-Token": "s3cret-token"}).status_code == 401
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", STRONG_SETUP_TOKEN)
+        assert client.get("/api/v1/auth/users", headers={"X-Setup-Token": STRONG_SETUP_TOKEN}).status_code == 401
         assert client.get("/api/v1/auth/users", headers=_bearer(token)).status_code == 200
+
+
+class TestWeakSetupToken:
+    """A-02: слабый токен установки (заглушка из .env.example или короче MIN_SETUP_TOKEN_LENGTH) равнозначен «не задан».
+
+    Раньше сервер лишь предупреждал в журнале, а публичную заглушку продолжал принимать как настоящий секрет: пока аутентификация
+    выключена, любой, кто достаёт до порта, создавал администратора и закрывал реестр от владельца. Теперь такой токен не пускает
+    никого — ни с верным заголовком, ни без него; остаётся прямой localhost без прокси-заголовков, как при незаданном токене."""
+
+    WEAK_TOKENS = ["change_me_long_random_string", "change_me", "  CHANGE_ME  ", "short-token-1", "a" * (app_config.MIN_SETUP_TOKEN_LENGTH - 1)]
+
+    @pytest.mark.parametrize("weak", WEAK_TOKENS)
+    def test_a_remote_client_is_denied_even_with_the_exact_weak_token(self, client_factory, monkeypatch, weak):
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", weak)
+        remote = client_factory("203.0.113.7")
+        for headers in ({}, {"X-Setup-Token": weak}, {"X-Setup-Token": weak.strip()}):
+            r = remote.post("/api/v1/auth/users", json=ADMIN, headers=headers)
+            assert r.status_code == 403, (headers, r.text)
+            assert r.json()["detail"]["code"] == "SETUP_ACCESS_DENIED"
+        assert remote.put("/api/v1/auth/settings", json={"enabled": True}, headers={"X-Setup-Token": weak}).status_code == 403
+
+    def test_the_denial_explains_why_but_never_echoes_the_token(self, client_factory, monkeypatch):
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", "change_me_long_random_string")
+        message = client_factory("203.0.113.7").post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "change_me_long_random_string"}).json()["detail"]["message"]
+        assert "слишком слаб" in message and "заглушк" in message and "openssl rand -hex 24" in message
+        assert "change_me_long_random_string" not in message
+
+    def test_an_ordinary_denial_does_not_blame_the_token(self, client_factory, monkeypatch):
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", STRONG_SETUP_TOKEN)
+        message = client_factory("203.0.113.7").post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "wrong"}).json()["detail"]["message"]
+        assert "слишком слаб" not in message
+
+    def test_direct_localhost_still_works_like_with_no_token_at_all(self, client, monkeypatch):
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", "change_me_long_random_string")
+        assert client.post("/api/v1/auth/users", json=ADMIN).status_code == 201
+        assert client.put("/api/v1/auth/settings", json={"enabled": True}).status_code == 200
+
+    def test_localhost_behind_a_proxy_is_still_not_trusted(self, client, monkeypatch):
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", "change_me")
+        r = client.post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "change_me", "X-Forwarded-For": "198.51.100.9"})
+        assert r.status_code == 403
+
+    def test_a_strong_token_is_accepted(self, client_factory, monkeypatch):
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", STRONG_SETUP_TOKEN)
+        r = client_factory("203.0.113.7").post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": STRONG_SETUP_TOKEN})
+        assert r.status_code == 201, r.text
+
+    def test_the_token_at_exactly_the_minimum_length_is_accepted(self, client_factory, monkeypatch):
+        token = "x7" * (app_config.MIN_SETUP_TOKEN_LENGTH // 2)
+        assert len(token) == app_config.MIN_SETUP_TOKEN_LENGTH
+        monkeypatch.setattr(guards_module, "SETUP_TOKEN", token)
+        r = client_factory("203.0.113.7").post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": token})
+        assert r.status_code == 201, r.text
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +455,7 @@ class TestLoginHardening:
         digest = hashlib.pbkdf2_hmac("sha256", b"Admin1234", salt, 260_000)
         user.password_hash = f"pbkdf2_sha256$260000${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}"
         db_session.commit()
-        assert auth_module._needs_rehash(user.password_hash)
+        assert passwords_module.needs_rehash(user.password_hash)
         assert client.post("/api/v1/auth/login", json={"username": "admin", "password": "Admin1234"}).status_code == 200
         db_session.expire_all()
         assert int(db_session.scalar(select(User).where(User.username == "admin")).password_hash.split("$")[1]) >= 600_000

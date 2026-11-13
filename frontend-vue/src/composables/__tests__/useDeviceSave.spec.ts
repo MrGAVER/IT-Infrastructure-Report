@@ -309,6 +309,52 @@ describe('редактирование', () => {
   })
 })
 
+// Пункт 3 предложений по улучшению (ревью merge/review-f06-stage2-f05-executors): ПО, VLAN и порты уходят на сервер PUT-ом ЦЕЛИКОМ,
+// поэтому пустой черновик из-за незагруженных данных нельзя отправлять — он стёр бы их у устройства.
+describe('вложенные данные не загрузились или ещё грузятся', () => {
+  it('сбой загрузки: сохраняются основные поля, а ПО, VLAN и порты на сервер не отправляются', async () => {
+    const { draft, save, deps } = setup(deviceOf({ id: 'dev-1' }))
+    draft.nestedLoadFailed.value = true
+
+    await save.submit()
+
+    expect(updateResource).toHaveBeenCalledWith('devices', 'dev-1', expect.objectContaining({ serial_number: 'SN-1' }))
+    expect(syncDeviceDeployedSoftware).not.toHaveBeenCalled()
+    expect(persistDeviceVlans).not.toHaveBeenCalled()
+    expect(persistDeviceInterfaces).not.toHaveBeenCalled()
+    expect(deps.onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('сбой загрузки: изменение набора VLAN не считается произошедшим — проверка согласования портов не запускается', async () => {
+    const { draft, save } = setup(deviceOf({ id: 'dev-1' }))
+    draft.nestedLoadFailed.value = true
+    draft.deviceVlans.value = [{ vlan_id: 'v10', ip_address: '', prefix_length: '', is_management: false, description: '' }]
+
+    await save.submit()
+    await settle()
+
+    expect(findPortSyncNotice).not.toHaveBeenCalled()
+  })
+
+  it('данные ещё грузятся: отправка формы ничего не пишет на сервер', async () => {
+    const { draft, save } = setup(deviceOf({ id: 'dev-1' }))
+    draft.loadingNested.value = true
+
+    await save.submit()
+
+    expect(updateResource).not.toHaveBeenCalled()
+    expect(syncDeviceDeployedSoftware).not.toHaveBeenCalled()
+    expect(persistDeviceVlans).not.toHaveBeenCalled()
+    expect(persistDeviceInterfaces).not.toHaveBeenCalled()
+  })
+
+  it('данные загружены: прежний порядок и состав записи (ПО, VLAN, порты) не изменились', async () => {
+    const { save } = setup(deviceOf({ id: 'dev-1' }))
+    await save.submit()
+    expect(calls).toEqual(['update', 'software', 'domain-members', 'source-domains', 'vlans', 'interfaces'])
+  })
+})
+
 describe('сбой после создания устройства', () => {
   it('устройство уже в БД: форма говорит об этом, список устройств перечитывается, форма не закрывается', async () => {
     persistDeviceVlans.mockRejectedValue(new Error('VLAN не разрешён.'))

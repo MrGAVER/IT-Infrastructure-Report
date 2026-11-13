@@ -52,7 +52,7 @@ describe('GroupDeleteModal', () => {
     await wrapper.get('button[aria-label="Закрыть"]').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(1)
 
-    const overlay = wrapper.get('.overlay')
+    const overlay = wrapper.get('.modal-overlay')
     await overlay.trigger('mousedown')
     await overlay.trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(2)

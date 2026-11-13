@@ -17,6 +17,7 @@ import { useVLANsStore } from '../../stores/vlans'
 import { reloadPinia } from '../../stores/__tests__/preferencesApi'
 
 const TOTAL = 100
+const DEFAULT_SIZE = 10 // F-09: у всех списков одна шкала 10 / 25 / 50 / 100
 const range = (n: number) => Array.from({ length: n }, (_, i) => i)
 
 beforeEach(() => {
@@ -39,7 +40,6 @@ const LISTS = [
   {
     name: 'устройства',
     component: DevicesView,
-    defaultSize: 6,
     seed: () => {
       useDevicesStore().all = range(TOTAL).map((i) => ({
         id: `d${i}`,
@@ -48,13 +48,13 @@ const LISTS = [
         serial_number: `SN-${i}`,
         stack_id: null,
         management_ips: '',
+        siem_enabled: false, // YesNoStatus требует boolean: без поля Vue предупреждает о типе пропса на каждой строке (B-07)
       })) as never
     },
   },
   {
     name: 'виртуальные машины',
     component: VMsView,
-    defaultSize: 8,
     seed: () => {
       useVMsStore().all = range(TOTAL).map((i) => ({ id: `v${i}`, name: `vm-${i}` })) as never
     },
@@ -62,7 +62,6 @@ const LISTS = [
   {
     name: 'контейнеры',
     component: ContainersView,
-    defaultSize: 8,
     seed: () => {
       useContainersStore().all = range(TOTAL).map((i) => ({ id: `c${i}`, name: `ct-${i}`, virtual_machine_id: null, physical_device_id: null })) as never
     },
@@ -70,14 +69,18 @@ const LISTS = [
   {
     name: 'информационные системы',
     component: InformationSystemsView,
-    defaultSize: 8,
     seed: () => {
-      useInformationSystemsStore().all = range(TOTAL).map((i) => ({ id: `s${i}`, name: `is-${i}` })) as never
+      useInformationSystemsStore().all = range(TOTAL).map((i) => ({
+        id: `s${i}`,
+        name: `is-${i}`,
+        siem_enabled: false,
+        crypto_protection_enabled: false,
+      })) as never
     },
   },
 ]
 
-describe.each(LISTS)('$name — выбор количества строк', ({ component, defaultSize, seed }) => {
+describe.each(LISTS)('$name — выбор количества строк', ({ component, seed }) => {
   async function mountList() {
     seed()
     const wrapper = mount(component)
@@ -88,22 +91,22 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
   const dataRows = (wrapper: Awaited<ReturnType<typeof mountList>>) => wrapper.findAll('tbody tr')
   const select = (wrapper: Awaited<ReturnType<typeof mountList>>) => wrapper.find('.table-foot select')
 
-  it('в подвале таблицы есть поле выбора; по умолчанию прежний размер страницы и варианты x1..x8', async () => {
+  it('в подвале таблицы есть поле выбора; по умолчанию 10 строк, варианты — 10 / 25 / 50 / 100', async () => {
     const wrapper = await mountList()
 
     expect(select(wrapper).exists()).toBe(true)
-    expect((select(wrapper).element as HTMLSelectElement).value).toBe(String(defaultSize))
+    expect((select(wrapper).element as HTMLSelectElement).value).toBe(String(DEFAULT_SIZE))
     expect(
       select(wrapper)
         .findAll('option')
         .map((o) => Number(o.text())),
-    ).toEqual([1, 2, 4, 8].map((m) => defaultSize * m))
-    expect(dataRows(wrapper)).toHaveLength(defaultSize)
+    ).toEqual([10, 25, 50, 100])
+    expect(dataRows(wrapper)).toHaveLength(DEFAULT_SIZE)
   })
 
   it('выбор другого значения меняет число строк, диапазон «Показано» и число страниц', async () => {
     const wrapper = await mountList()
-    const size = defaultSize * 4
+    const size = 50
 
     await select(wrapper).setValue(String(size))
 
@@ -114,7 +117,7 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
 
   it('на второй странице диапазон считается от выбранного размера, а не от прежнего', async () => {
     const wrapper = await mountList()
-    const size = defaultSize * 2
+    const size = 25
     await select(wrapper).setValue(String(size))
 
     await wrapper
@@ -127,7 +130,7 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
 
   it('выбор запоминается: после повторного открытия страницы применяется сразу', async () => {
     const first = await mountList()
-    await select(first).setValue(String(defaultSize * 2))
+    await select(first).setValue('25')
     first.unmount()
 
     reloadPinia() // «перезагрузка»: сторы создаются заново, настройки подтянуты с сервера
@@ -137,7 +140,7 @@ describe.each(LISTS)('$name — выбор количества строк', ({ 
     useVLANsStore().loaded = true
     const second = await mountList()
 
-    expect((select(second).element as HTMLSelectElement).value).toBe(String(defaultSize * 2))
-    expect(dataRows(second)).toHaveLength(defaultSize * 2)
+    expect((select(second).element as HTMLSelectElement).value).toBe('25')
+    expect(dataRows(second)).toHaveLength(25)
   })
 })

@@ -9,6 +9,7 @@
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch, useId } from 'vue'
 import { createResource, listAllResource, updateResource } from '../api/client'
+import { loadNestedList, type NestedListResult, type NestedLoadIssue } from '../composables/loadNestedList'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
@@ -21,9 +22,10 @@ import { sortOptionsByLabel } from '../utils/selectOptions'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
 import SoftwareAssetListEditor from './SoftwareAssetListEditor.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 import QuickAddButton from './QuickAddButton.vue'
 import SearchableSelect from './SearchableSelect.vue'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { stripIds } from '../utils/copyEntity'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 
@@ -32,7 +34,6 @@ const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ vm: VirtualMachine | null; copyFrom?: VirtualMachine | null }>()
 const emit = defineEmits<{ close: []; saved: [vm: VirtualMachine] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -62,6 +63,14 @@ const vmIps = ref<VmIpDraftRow[]>([])
 const openPorts = ref<OpenPortDraftRow[]>([])
 const softwareAssets = ref<SoftwareAssetDraftRow[]>([])
 const loadingNested = ref(false)
+
+// Три вложенных списка сохраняются целиком: сервер удаляет записи, которых нет в присланном списке. Поэтому список, который не
+// загрузился или загружен не целиком (issue), НЕ показывается и НЕ отправляется: иначе пустой редактор (или его усечённая часть)
+// при сохранении стёр бы живые данные ВМ. Каждый список независим: сбой IP-адресов не мешает править порты и ПО.
+type NestedKey = 'ips' | 'ports' | 'software'
+const NESTED_KEYS: readonly NestedKey[] = ['ips', 'ports', 'software']
+const NESTED_WHAT: Record<NestedKey, string> = { ips: 'IP-адресов ВМ', ports: 'открытых портов ВМ', software: 'ПО ВМ' }
+const nestedIssues = reactive<Record<NestedKey, NestedLoadIssue | null>>({ ips: null, ports: null, software: null })
 
 function toIpDraftRow(x: IPAddress): VmIpDraftRow {
   return {
@@ -98,6 +107,7 @@ watch(
     vmIps.value = []
     openPorts.value = []
     softwareAssets.value = []
+    for (const key of NESTED_KEYS) nestedIssues[key] = null
     if (!source) return
     form.name = isCopy ? '' : source.name // VirtualMachine.name уникален (backend/app/models.py) — копию с тем же именем не сохранить
     form.operating_system_id = source.operating_system_id ?? ''
@@ -105,27 +115,72 @@ watch(
     form.purpose = source.purpose ?? ''
     form.description = source.description ?? ''
 
-    loadingNested.value = true
-    try {
-      const [ips, ports, software] = await Promise.all([
-        listAllResource<IPAddress>('ip-addresses', { owner_type: 'virtual_machine', owner_id: source.id }),
-        listAllResource<OpenPort>('open-ports', { owner_type: 'virtual_machine', owner_id: source.id }),
-        listAllResource<DeployedSoftware>('deployed-software', { owner_type: 'virtual_machine', owner_id: source.id }),
-      ])
-      vmIps.value = isCopy ? stripIds(ips.items.map(toIpDraftRow)) : ips.items.map(toIpDraftRow)
-      // Бэкенд отдаёт open-ports без сортировки по порту (list_resource) — упорядочиваем при загрузке,
-      // чтобы и ранее сохранённые ВМ открывались с портами по возрастанию.
-      const portRows = ports.items.map(toOpenPortDraftRow)
-      openPorts.value = sortOpenPortRows(isCopy ? stripIds(portRows) : portRows, catalogs.protocolPortCatalog)
-      softwareAssets.value = isCopy ? stripIds(software.items.map(toSoftwareDraftRow)) : software.items.map(toSoftwareDraftRow)
-    } catch (err) {
-      errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить IP-адреса, открытые порты и ПО ВМ'
-    } finally {
-      loadingNested.value = false
-    }
+    await loadNested(source, isCopy, NESTED_KEYS)
   },
   { immediate: true },
 )
+
+/** Загружает один вложенный список в черновик и запоминает, можно ли его сохранять (nestedIssues). Список с проблемой остаётся пустым. */
+async function loadNestedKey(key: NestedKey, source: VirtualMachine, isCopy: boolean): Promise<NestedListResult<unknown>> {
+  const owner = { owner_type: 'virtual_machine', owner_id: source.id }
+  const what = NESTED_WHAT[key]
+  let result: NestedListResult<unknown>
+  if (key === 'ips') {
+    const r = await loadNestedList(() => listAllResource<IPAddress>('ip-addresses', owner), what)
+    const rows = r.items.map(toIpDraftRow)
+    vmIps.value = isCopy ? stripIds(rows) : rows
+    result = r
+  } else if (key === 'ports') {
+    const r = await loadNestedList(() => listAllResource<OpenPort>('open-ports', owner), what)
+    // Бэкенд отдаёт open-ports без сортировки по порту (list_resource) — упорядочиваем при загрузке,
+    // чтобы и ранее сохранённые ВМ открывались с портами по возрастанию.
+    const rows = r.items.map(toOpenPortDraftRow)
+    openPorts.value = sortOpenPortRows(isCopy ? stripIds(rows) : rows, catalogs.protocolPortCatalog)
+    result = r
+  } else {
+    const r = await loadNestedList(() => listAllResource<DeployedSoftware>('deployed-software', owner), what)
+    const rows = r.items.map(toSoftwareDraftRow)
+    softwareAssets.value = isCopy ? stripIds(rows) : rows
+    result = r
+  }
+  nestedIssues[key] = result.issue
+  return result
+}
+
+/** Грузит перечисленные списки параллельно; пока идёт загрузка, «Сохранить» недоступна (см. submit). Первую ошибку показывает форма. */
+async function loadNested(source: VirtualMachine, isCopy: boolean, keys: readonly NestedKey[]) {
+  loadingNested.value = true
+  try {
+    const results = await Promise.all(keys.map((key) => loadNestedKey(key, source, isCopy)))
+    const failed = results.find((r) => r.issue?.kind === 'failed')
+    if (failed) errorMessage.value = failed.error instanceof Error ? failed.error.message : 'Не удалось загрузить IP-адреса, открытые порты и ПО ВМ'
+  } finally {
+    loadingNested.value = false
+  }
+}
+
+/** «Повторить загрузку»: перечитываются только списки, которые не загрузились; основные поля и уже загруженные списки не трогаются. */
+async function retryNested() {
+  const source = props.vm ?? props.copyFrom ?? null
+  if (!source) return
+  errorMessage.value = null
+  await loadNested(
+    source,
+    !props.vm && !!props.copyFrom,
+    NESTED_KEYS.filter((key) => nestedIssues[key]?.kind === 'failed'),
+  )
+}
+
+/** Свойства DataLoadNotice для списка с проблемой загрузки. */
+function noticeProps(key: NestedKey) {
+  const issue = nestedIssues[key]
+  return {
+    kind: issue?.kind ?? 'failed',
+    what: NESTED_WHAT[key],
+    loaded: issue?.kind === 'partial' ? issue.loaded : undefined,
+    total: issue?.kind === 'partial' ? issue.total : undefined,
+  } as const
+}
 
 const hostCandidates = computed<Device[]>(() => filterHostDevices(devicesStore.all, catalogs))
 
@@ -181,23 +236,30 @@ function toPayload() {
 // Новой ВМ (создание или копия) синхронизировать нечего, если ни одна строка не заполнена, —
 // лишний запрос не отправляется. Для существующей ВМ пустой список отправляется всегда: так
 // удаляются записи, которые пользователь убрал из формы.
+//
+// Исключение — список, который не загрузился или загружен не целиком (nestedIssues): он в форме не показан, и его «пустота» — не
+// решение пользователя, а отсутствие данных. PUT с таким списком удалил бы все (или все невидимые) записи ВМ, поэтому не отправляется.
 async function persistVmIps(vmId: string) {
+  if (nestedIssues.ips) return
   if (!isEdit.value && !vmIps.value.some((row) => row.ip_address.trim())) return
   await syncVmIpAddresses(vmId, vmIps.value)
 }
 
 async function persistOpenPorts(vmId: string) {
+  if (nestedIssues.ports) return
   if (!isEdit.value && !openPorts.value.some((row) => row.protocol_catalog_id)) return
   await syncVmOpenPorts(vmId, openPorts.value)
 }
 
 async function persistSoftwareAssets(vmId: string) {
+  if (nestedIssues.software) return
   if (!isEdit.value && !softwareAssets.value.some((row) => row.software_asset_id)) return
   await syncVmDeployedSoftware(vmId, softwareAssets.value)
 }
 
 async function submit() {
-  if (readOnly.value) return
+  // Пока списки грузятся, они пусты, а не «убраны пользователем»: сохранение в этот момент стёрло бы их на сервере.
+  if (readOnly.value || loadingNested.value) return
   errorMessage.value = null
   if (!form.name.trim()) {
     errorMessage.value = 'Укажите название виртуальной машины.'
@@ -237,7 +299,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать виртуальную машину' : 'Добавить виртуальную машину' }}</h2>
@@ -287,41 +349,35 @@ async function submit() {
             <textarea v-model.trim="form.description" rows="2" maxlength="2000"></textarea>
           </label>
 
-          <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов и открытых портов…</p>
-          <VmIpListEditor v-else v-model="vmIps" />
-          <OpenPortListEditor
-            v-if="!loadingNested"
-            v-model="openPorts"
-            :catalog-entries="catalogs.protocolPortCatalog"
-            :collapse-after="formPreferences.collapseRows"
-            sorted-unique
-          />
-          <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
+          <p v-if="loadingNested" class="loading-hint field-wide">Загрузка IP-адресов, открытых портов и ПО…</p>
+          <template v-else>
+            <DataLoadNotice v-if="nestedIssues.ips" class="field-wide" v-bind="noticeProps('ips')" @retry="retryNested" />
+            <VmIpListEditor v-else v-model="vmIps" />
+            <DataLoadNotice v-if="nestedIssues.ports" class="field-wide" v-bind="noticeProps('ports')" @retry="retryNested" />
+            <OpenPortListEditor
+              v-else
+              v-model="openPorts"
+              :catalog-entries="catalogs.protocolPortCatalog"
+              :collapse-after="formPreferences.collapseRows"
+              sorted-unique
+            />
+            <DataLoadNotice v-if="nestedIssues.software" class="field-wide" v-bind="noticeProps('software')" @retry="retryNested" />
+            <SoftwareAssetListEditor v-else v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
+          </template>
         </form>
       </fieldset>
 
       <div class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
-        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving || loadingNested" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* Фикс п.4.1: было 600px фиксированных — ширина окна редактирования ВМ должна быть как у

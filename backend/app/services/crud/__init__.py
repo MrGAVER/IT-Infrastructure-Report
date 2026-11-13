@@ -1,7 +1,12 @@
 """Generic CRUD и синхронизация вложенных коллекций (бывший services/crud/, разрезанный по ответственностям).
 
-Публичный API пакета прежний: всё, что раньше импортировалось из `services.crud`, доступно и отсюда, поэтому
-вызывающий код и тесты менять не нужно. Модули:
+Фасад оставлен для совместимости с существующим кодом (`crud.list_resource(...)`, `from app.services.crud import audit`). НОВЫЙ код
+импортирует из подмодулей (`from app.services.crud.generic import list_resource`): тогда зависимость видна в самом импорте, а не прячется за
+общим входом, через который доступны все имена сразу (A-08 код-ревью r3). Фасад отдаёт только ПУБЛИЧНЫЙ API пакета (имена без «_»; он же перечислен в `__all__`;
+тест `test_crud_package.py` следит, чтобы `__all__` совпадал с импортами фасада, был отсортирован и без дублей). Приватные помощники подмодулей
+(`_RESOURCE_VALIDATORS`, `_find_referencing_counts`…) здесь не реэкспортируются: тесту, которому они нужны, следует импортировать их из
+подмодуля, где они определены (`from app.services.crud.validators import _RESOURCE_VALIDATORS`) — так граница между публичным и внутренним
+API пакета видна в самом импорте (R1-08 код-ревью). Модули:
   - columns: Метаданные ресурсов: какая модель стоит за ключом ресурса и какие колонки в неё можно писать.
   - payload: Проверка входного payload generic CRUD: запись в защищённые ресурсы, схемы Pydantic, неизвестные ключи, типы и длины колонок.
   - audit_log: Запись в журнал аудита и человекочитаемое описание изменений (кто — см. services/actor_context.py).
@@ -17,57 +22,34 @@
   - interface_group_subinterfaces: Подинтерфейсы групп портов: проверка, шаблоны группы, запись в порты.
   - device_vlans: Синхронизация VLAN физического устройства.
   - information_system: Детали информационной системы: связанные таблицы и источники.
+  - stack_vlan_settings: Общие IP и маски VLAN кластерных устройств (стеки): значения, связи, план и применение к устройствам.
 
 Зависимости между модулями направлены в одну сторону (generic -> hooks -> validators/vlan_domains/owned_rows -> audit_log/columns/payload);
 циклов нет. Если тест подменяет функцию (monkeypatch), патчить нужно модуль, который её ВЫЗЫВАЕТ, а не этот пакет.
 """
+
 from __future__ import annotations
 
-from .columns import (  # noqa: F401
+from .columns import (
     model_for,
     columns_for,
     allowed_columns,
 )
-from .payload import (  # noqa: F401
+from .payload import (
     ensure_writable,
     validate_column_types,
     validate_payload_schema,
-    _SERVICE_PAYLOAD_KEYS,
-    _ECHOED_READONLY_KEYS,
-    _reject_unknown_keys,
-    _format_schema_validation_error,
 )
-from .audit_log import (  # noqa: F401
+from .audit_log import (
     audit,
-    _fmt_audit_value,
-    _describe_update,
 )
-from .validators import (  # noqa: F401
-    _validate_physical_device,
-    _find_rack_slot_occupant,
-    _release_rack_slot,
-    _validate_physical_device_vlan,
-    _validate_device_model,
-    _validate_virtual_machine_entry,
-    _validate_container_entry,
-    _validate_physical_device_vlan_entry,
-    _validate_device_model_entry,
-    _validate_connection_entry,
-    _validate_device_type_entry,
-    _validate_diagram_icon_entry,
-    _validate_ip_address_entry,
-    _validate_device_interface_entry,
-    _validate_interface_vlan_entry,
-    _validate_information_system_entry,
-    _validate_device_stack_member_entry,
-    _RESOURCE_VALIDATORS,
+from .validators import (
     validate_resource,
 )
-from .stack_vlan_settings import (  # noqa: F401
+from .stack_vlan_settings import (
     Values,
     apply_stack_settings_to_device,
     assert_device_vlan_editable,
-    device_label,
     domain_members,
     link_values,
     locked_vlan_ids,
@@ -80,78 +62,43 @@ from .stack_vlan_settings import (  # noqa: F401
     vlan_sort_key,
     write_link,
 )
-from .vlan_domains import (  # noqa: F401
-    _domain_device_ids,
-    _stale_group_subinterfaces_on_vlan,
-    _stale_subinterfaces_on_vlan,
-    _unassign_moved_vlan_from_former_domain_devices,
-    _auto_assign_new_domain_vlan_to_domain_devices,
+from .vlan_domains import (
     assign_domain_vlans_to_device,
 )
-from .hooks import (  # noqa: F401
+from .hooks import (
     HOOKS,
     ResourceHooks,
     hooks_for,
 )
-from .generic import (  # noqa: F401
-    _parse_range_datetime,
+from .generic import (
     list_resource,
     create_resource,
     update_resource,
 )
-from .deletion import (  # noqa: F401
-    _find_referencing_counts,
-    _POLYMORPHIC_OWNER_CLEANUP,
+from .deletion import (
     assert_deletable,
     delete_resource,
 )
-from .owned_rows import (  # noqa: F401
-    _IP_PURPOSE_MAX_LENGTH,
-    _SOFTWARE_VERSION_MAX_LENGTH,
-    _resolve_protocol_catalog_entry,
-    _OPEN_PORT_OWNER_LABELS,
-    _ensure_port_number_is_free,
-    _validate_open_port_number_is_free,
-    _validate_is_protocol_number_is_free,
-    _validate_open_port_catalog,
-    _sync_owned_rows,
+from .owned_rows import (
     sync_owner_open_ports,
     sync_owner_ip_addresses,
     sync_owner_deployed_software,
-    _sync_owner_collection,
-    _sync_vm_collection,
     sync_vm_open_ports,
     sync_vm_ip_addresses,
     sync_vm_deployed_software,
     sync_device_deployed_software,
 )
-from .interfaces import (  # noqa: F401
-    _sync_single_interface,
-    _sync_interface_open_ports,
-    _interface_owned_rows,
+from .interfaces import (
     sync_interfaces,
     get_device_interface_ips,
     get_device_interface_open_ports,
     get_device_interface_vlans,
 )
-from .interface_groups import (  # noqa: F401
-    _VLAN_MODES,
+from .interface_groups import (
     list_interface_groups,
     get_interface_groups,
-    _GroupState,
-    _normalize_group_item,
-    _sync_interface_groups,
-    _sync_group_vlans,
-    _sync_group_open_ports,
-    _resolve_interface_group,
-    _apply_group_open_ports,
-    _apply_group_to_interface,
-    _delete_stale_groups,
 )
-from .subinterfaces import (  # noqa: F401
-    _NAME_MAX_LENGTH,
-    _normalize_subinterface_item,
-    _sync_subinterface_children,
+from .subinterfaces import (
     sync_subinterfaces,
     validate_device_subinterfaces,
     delete_subinterfaces,
@@ -161,7 +108,7 @@ from .subinterfaces import (  # noqa: F401
     subinterfaces_by_parent,
     get_device_subinterfaces,
 )
-from .interface_group_subinterfaces import (  # noqa: F401
+from .interface_group_subinterfaces import (
     apply_group_subinterfaces,
     delete_group_subinterfaces,
     group_subinterfaces_by_group,
@@ -171,156 +118,76 @@ from .interface_group_subinterfaces import (  # noqa: F401
     sync_group_subinterfaces,
     with_reused_ids,
 )
-from .device_vlans import (  # noqa: F401
-    _normalize_device_vlan_item,
+from .device_vlans import (
     sync_device_vlans,
 )
-from .information_system import (  # noqa: F401
+from .information_system import (
     get_information_system_details,
-    _LINKED_TABLE_SPECS,
-    _UNIQUE_SOURCE_OWNERS,
-    _assert_no_new_duplicate_sources,
-    _load_protocols,
-    _prepare_protocol_items,
-    _sync_linked_table,
-    _sync_source_ip_addresses,
-    _sync_information_system_sources,
-    _unique_source_key,
     sync_information_system_details,
 )
 
 __all__ = [
-    'HOOKS',
-    'ResourceHooks',
-    '_ECHOED_READONLY_KEYS',
-    '_GroupState',
-    '_IP_PURPOSE_MAX_LENGTH',
-    '_LINKED_TABLE_SPECS',
-    '_NAME_MAX_LENGTH',
-    '_OPEN_PORT_OWNER_LABELS',
-    '_POLYMORPHIC_OWNER_CLEANUP',
-    '_RESOURCE_VALIDATORS',
-    '_SERVICE_PAYLOAD_KEYS',
-    '_SOFTWARE_VERSION_MAX_LENGTH',
-    '_UNIQUE_SOURCE_OWNERS',
-    '_VLAN_MODES',
-    '_apply_group_open_ports',
-    '_apply_group_to_interface',
-    '_assert_no_new_duplicate_sources',
-    '_auto_assign_new_domain_vlan_to_domain_devices',
-    '_delete_stale_groups',
-    '_describe_update',
-    '_domain_device_ids',
-    '_ensure_port_number_is_free',
-    '_find_rack_slot_occupant',
-    '_find_referencing_counts',
-    '_fmt_audit_value',
-    '_format_schema_validation_error',
-    '_normalize_device_vlan_item',
-    '_load_protocols',
-    '_normalize_group_item',
-    '_normalize_subinterface_item',
-    '_parse_range_datetime',
-    '_prepare_protocol_items',
-    '_reject_unknown_keys',
-    '_release_rack_slot',
-    '_resolve_interface_group',
-    '_resolve_protocol_catalog_entry',
-    '_stale_group_subinterfaces_on_vlan',
-    '_stale_subinterfaces_on_vlan',
-    '_sync_group_open_ports',
-    '_sync_group_vlans',
-    '_sync_information_system_sources',
-    '_sync_interface_groups',
-    '_sync_interface_open_ports',
-    '_interface_owned_rows',
-    '_sync_linked_table',
-    '_sync_owned_rows',
-    '_sync_owner_collection',
-    '_sync_single_interface',
-    '_sync_source_ip_addresses',
-    '_sync_subinterface_children',
-    '_sync_vm_collection',
-    '_unassign_moved_vlan_from_former_domain_devices',
-    '_unique_source_key',
-    '_validate_connection_entry',
-    '_validate_container_entry',
-    '_validate_device_model',
-    '_validate_device_model_entry',
-    '_validate_device_stack_member_entry',
-    '_validate_device_type_entry',
-    '_validate_diagram_icon_entry',
-    '_validate_information_system_entry',
-    '_validate_is_protocol_number_is_free',
-    '_validate_ip_address_entry',
-    '_validate_device_interface_entry',
-    '_validate_interface_vlan_entry',
-    '_validate_open_port_catalog',
-    '_validate_open_port_number_is_free',
-    '_validate_physical_device',
-    '_validate_physical_device_vlan',
-    '_validate_physical_device_vlan_entry',
-    '_validate_virtual_machine_entry',
-    'allowed_columns',
-    'assert_deletable',
-    'assign_domain_vlans_to_device',
-    'apply_group_subinterfaces',
-    'audit',
-    'columns_for',
-    'create_resource',
-    'delete_group_subinterfaces',
-    'delete_resource',
-    'delete_subinterfaces',
-    'enrich_subinterfaces',
-    'ensure_writable',
-    'get_device_subinterfaces',
-    'group_subinterfaces_by_group',
-    'hooks_for',
-    'get_information_system_details',
-    'get_interface_groups',
-    'get_device_interface_ips',
-    'get_device_interface_open_ports',
-    'get_device_interface_vlans',
-    'list_interface_groups',
-    'list_resource',
-    'model_for',
-    'normalize_group_subinterfaces',
-    'normalize_ips',
-    'purge_subinterfaces_of_groups',
-    'purge_subinterfaces_of_interfaces',
-    'subinterface_references',
-    'subinterfaces_by_parent',
-    'sync_device_deployed_software',
-    'sync_device_vlans',
-    'sync_group_subinterfaces',
-    'sync_information_system_details',
-    'sync_interfaces',
-    'sync_owner_deployed_software',
-    'sync_owner_ip_addresses',
-    'sync_owner_open_ports',
-    'sync_subinterfaces',
-    'sync_vm_deployed_software',
-    'sync_vm_ip_addresses',
-    'sync_vm_open_ports',
-    'update_resource',
-    'validate_column_types',
-    'validate_device_subinterfaces',
-    'validate_payload_schema',
-    'validate_resource',
-    'Values',
-    'apply_stack_settings_to_device',
-    'assert_device_vlan_editable',
-    'device_label',
-    'domain_members',
-    'link_values',
-    'locked_vlan_ids',
-    'member_devices',
-    'normalize_ip',
-    'outside_domain',
-    'plan_member_settings',
-    'setting_values',
-    'stack_settings',
-    'vlan_sort_key',
-    'with_reused_ids',
-    'write_link',
+    "HOOKS",
+    "ResourceHooks",
+    "Values",
+    "allowed_columns",
+    "apply_group_subinterfaces",
+    "apply_stack_settings_to_device",
+    "assert_deletable",
+    "assert_device_vlan_editable",
+    "assign_domain_vlans_to_device",
+    "audit",
+    "columns_for",
+    "create_resource",
+    "delete_group_subinterfaces",
+    "delete_resource",
+    "delete_subinterfaces",
+    "domain_members",
+    "enrich_subinterfaces",
+    "ensure_writable",
+    "get_device_interface_ips",
+    "get_device_interface_open_ports",
+    "get_device_interface_vlans",
+    "get_device_subinterfaces",
+    "get_information_system_details",
+    "get_interface_groups",
+    "group_subinterfaces_by_group",
+    "hooks_for",
+    "link_values",
+    "list_interface_groups",
+    "list_resource",
+    "locked_vlan_ids",
+    "member_devices",
+    "model_for",
+    "normalize_group_subinterfaces",
+    "normalize_ip",
+    "normalize_ips",
+    "outside_domain",
+    "plan_member_settings",
+    "purge_subinterfaces_of_groups",
+    "purge_subinterfaces_of_interfaces",
+    "setting_values",
+    "stack_settings",
+    "subinterface_references",
+    "subinterfaces_by_parent",
+    "sync_device_deployed_software",
+    "sync_device_vlans",
+    "sync_group_subinterfaces",
+    "sync_information_system_details",
+    "sync_interfaces",
+    "sync_owner_deployed_software",
+    "sync_owner_ip_addresses",
+    "sync_owner_open_ports",
+    "sync_subinterfaces",
+    "sync_vm_deployed_software",
+    "sync_vm_ip_addresses",
+    "sync_vm_open_ports",
+    "update_resource",
+    "validate_column_types",
+    "validate_device_subinterfaces",
+    "validate_payload_schema",
+    "validate_resource",
+    "vlan_sort_key",
+    "with_reused_ids",
+    "write_link",
 ]

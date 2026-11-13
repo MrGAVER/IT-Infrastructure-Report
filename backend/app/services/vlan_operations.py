@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..constants import AuditAction
 from ..models import VLAN, PhysicalDevice, PhysicalDeviceVLAN, VLANDomain, VLANDomainDevice
 from .crud import assign_domain_vlans_to_device, audit
+from .device_label import device_label
 from .serialization import serialize
 
 
@@ -24,7 +25,7 @@ def build_vlan_dashboard(session: Session) -> dict[str, Any]:
 
     vlans = session.scalars(select(VLAN).order_by(VLAN.vlan_id, VLAN.name)).all()
     devices = session.scalars(select(PhysicalDevice)).all()
-    device_names = {d.id: (d.system_name or d.serial_number or d.id) for d in devices}
+    device_names = {d.id: device_label(d, fallback=d.id) for d in devices}
     domains = {d.id: d for d in session.scalars(select(VLANDomain)).all()}
     assignments = session.scalars(select(PhysicalDeviceVLAN)).all()
     grouped = {}
@@ -175,7 +176,7 @@ def copy_device_vlans(session: Session, device_id: str, source_device_id: str | 
         v=VLAN(vlan_id=sv.vlan_id,name=sv.name,description=sv.description,domain_id=None)
         session.add(v); session.flush(); created+=1
         session.add(PhysicalDeviceVLAN(physical_device_id=target.id,vlan_id=v.id,ip_address=None,prefix_length=None,is_management=False,description=sv.description)); assigned+=1
-    audit(session, 'devices', target.id, AuditAction.SYNC, f'Скопированы VLAN с устройства «{source.system_name or source.serial_number}»: определений {created}, назначено {assigned}' + (f', уже были на устройстве {skipped}' if skipped else ''))
+    audit(session, 'devices', target.id, AuditAction.SYNC, f'Скопированы VLAN с устройства «{device_label(source)}»: определений {created}, назначено {assigned}' + (f', уже были на устройстве {skipped}' if skipped else ''))
     session.commit()
     return {'status':'ok','created_definitions':created,'assigned':assigned}
 

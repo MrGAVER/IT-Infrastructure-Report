@@ -238,6 +238,13 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
 }
 .path-row input {
   flex: 1;
+  min-width: 0;
+}
+/* Размер select — по самому длинному пути поля (до 750 px): без потолка он не сжимался и раздвигал страницу вбок. Список при
+   открытии показывает варианты целиком, а в самой строке достаточно «Вставить поле…». */
+.path-row select {
+  min-width: 0;
+  max-width: 55%;
 }
 .sub-block {
   border-top: 1px solid var(--border);
@@ -274,12 +281,14 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
 }
 .filter-row {
   display: grid;
-  grid-template-columns: 1fr 110px 1fr 24px;
+  /* minmax(0, …): у «1fr» минимум — собственная ширина поля ввода, и на телефоне строка раздвигала страницу вбок. */
+  grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1fr) 24px;
   gap: 5px;
   align-items: center;
 }
 .filter-row input,
 .filter-row select {
+  min-width: 0;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-s);
@@ -288,7 +297,7 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
 }
 .column-row {
   display: grid;
-  grid-template-columns: 1fr 130px 1.6fr auto;
+  grid-template-columns: minmax(0, 1fr) 130px minmax(0, 1.6fr) auto;
   gap: 6px;
   align-items: center;
   padding: 6px;
@@ -297,6 +306,7 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
 }
 .column-row input,
 .column-row select {
+  min-width: 0;
   background: var(--surface-1, #fff);
   border: 1px solid var(--border);
   border-radius: var(--r-s);
@@ -306,6 +316,10 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
 .column-value {
   display: flex;
   gap: 5px;
+  min-width: 0;
+}
+.column-value input {
+  flex: 1;
 }
 .column-value.empty {
   color: var(--ink-muted);
@@ -332,5 +346,28 @@ function setColumnSource(ci: number, source: DocxTableColumn['source']) {
 .column-actions button:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* Телефон: четыре колонки в одну строку не помещаются — заголовок и источник рядом, значение и кнопки ниже на всю ширину. */
+@media (max-width: 640px) {
+  .column-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .column-value,
+  .column-actions {
+    grid-column: 1 / -1;
+  }
+  .column-actions {
+    justify-content: flex-end;
+  }
+  .filter-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 24px;
+  }
+  .filter-row input:first-child {
+    grid-column: 1 / -1;
+  }
+  .filter-row button {
+    grid-column: 3;
+  }
 }
 </style>

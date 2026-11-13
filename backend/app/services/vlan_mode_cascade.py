@@ -59,6 +59,7 @@ from sqlalchemy.orm import Session
 from ..constants import AuditAction
 from ..models import Connection, DeviceInterface, InterfaceGroup, InterfaceGroupVLAN, InterfaceVLAN, PhysicalDevice, VLAN
 from .crud import audit
+from .device_label import device_label
 from .port_edit import PreparedPortChange, parse_port_change, prepare_port_change, write_port_change
 from .port_vlans import effective_group_vlan_ids, effective_vlan_ids
 from .serialization import enrich_interfaces
@@ -171,13 +172,13 @@ class _Loader:
         draft = edited.groups.get(key) if edited.device_id else None
         if group is not None and group.physical_device_id != edited.device_id:
             draft = None  # группа другого устройства: форма о ней ничего не знает
-        if group is None and draft is None:
-            return None
-        device_id = group.physical_device_id if group is not None else str(edited.device_id)
         if draft is None:
-            assert group is not None  # проверено выше: нет ни группы, ни черновика — вернули None
+            if group is None:
+                return None  # нет ни группы, ни черновика: такой группы каскад не знает
+            device_id = group.physical_device_id
             mode, name, vlan_ids = group.vlan_mode or "", group.name, None
         else:
+            device_id = group.physical_device_id if group is not None else str(edited.device_id)
             mode = draft.mode
             name = draft.name if draft.name is not None else (group.name if group is not None else "")
             # VLAN не переданы: у сохранённой группы берутся из БД, у новой их ещё нет.
@@ -198,6 +199,16 @@ class _Loader:
             return None  # порт формы ссылается на группу другого устройства (или наоборот) — такой группы для него нет
         return info
 
+    def group_info(self, key: str) -> _GroupInfo:
+        """Описание группы, которую каскад уже признал управляющей режимом (managing_group): None здесь — ошибка вызывающего кода.
+
+        Явная проверка вместо ``assert``: assert исчезает при запуске с ``python -O``, и тогда на месте понятной ошибки был бы
+        ``AttributeError`` где-то дальше по плану."""
+        info = self.infos.get(key)
+        if info is None:
+            raise LookupError(f"Группа {key!r} не подготовлена каскадом: сначала нужен managing_group")
+        return info
+
     def load_members(self, edited: _Edited, keys: Iterable[str]) -> None:
         """Участники групп: у группы из БД — её порты; у группы редактируемого устройства порты, переданные
         в форме, определяет черновик, остальные — БД."""
@@ -210,8 +221,7 @@ class _Loader:
                 found[port.group_id].append(port.id)
             self._db_members.update(found)
         for key in wanted:
-            info = self.infos[key]
-            assert info is not None
+            info = self.group_info(key)
             ids = list(self._db_members.get(key, []))
             if info.deferred:
                 ids = [p for p in ids if p not in edited.ports or not edited.ports[p].group_given]
@@ -315,10 +325,6 @@ def _vlan_ref(vlan_id: str, vlans: dict[str, VLAN]) -> dict[str, Any]:
     return {"id": vlan_id, "vlan_id": vlan.vlan_id if vlan else None, "name": vlan.name if vlan else ""}
 
 
-def _device_name(device: PhysicalDevice | None) -> str:
-    return (device.system_name or device.serial_number) if device else ""
-
-
 def _short_list(names: list[str]) -> str:
     shown = ", ".join(names[:_MAX_LISTED])
     return shown + (f" и ещё {len(names) - _MAX_LISTED}" if len(names) > _MAX_LISTED else "")
@@ -336,8 +342,7 @@ def _collect_group_vlans(change: _Change) -> None:
     loader = change.loader
     stored_groups: list[str] = []
     for key in change.changed_groups:
-        info = loader.infos[key]
-        assert info is not None
+        info = loader.group_info(key)
         if info.vlan_ids is not None:
             change.group_vlans[key] = list(dict.fromkeys(info.vlan_ids))
         else:
@@ -402,12 +407,11 @@ def _build_plan(change: _Change) -> dict[str, Any]:
     loader, target, edited = change.loader, change.target, change.edited
     groups_out: list[dict[str, Any]] = []
     for key, from_mode in change.changed_groups.items():
-        info = loader.infos[key]
-        assert info is not None
+        info = loader.group_info(key)
         before = change.group_vlans.get(key, [])
         after, dropped = _split_vlans(before, change.vlans, target)
         groups_out.append({
-            "id": key, "name": info.name, "device_id": info.device_id, "device_name": _device_name(change.devices.get(info.device_id)),
+            "id": key, "name": info.name, "device_id": info.device_id, "device_name": device_label(change.devices.get(info.device_id)),
             "deferred": info.deferred, "from_mode": from_mode, "to_mode": target,
             "ports": [{"id": m, "name": edited.port_name(loader.ports[m])} for m in loader.members[key]],
             "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
@@ -421,7 +425,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
         before = change.port_vlans.get(pid, [])
         after, dropped = _split_vlans(before, change.vlans, target)
         ports_out.append({
-            "id": pid, "name": edited.port_name(port), "device_id": port.physical_device_id, "device_name": _device_name(change.devices.get(port.physical_device_id)),
+            "id": pid, "name": edited.port_name(port), "device_id": port.physical_device_id, "device_name": device_label(change.devices.get(port.physical_device_id)),
             "deferred": edited.owns(port), "from_mode": from_mode, "to_mode": target,
             "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
             "vlans_after": [_vlan_ref(v, change.vlans) for v in after], "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
@@ -432,7 +436,7 @@ def _build_plan(change: _Change) -> dict[str, Any]:
     for pid in change.changed_ports:
         port = loader.ports[pid]
         entry = devices_out.setdefault(port.physical_device_id, {
-            "id": port.physical_device_id, "name": _device_name(change.devices.get(port.physical_device_id)),
+            "id": port.physical_device_id, "name": device_label(change.devices.get(port.physical_device_id)),
             "deferred": edited.owns(port), "port_count": 0, "group_count": 0,
         })
         entry["port_count"] += 1
@@ -501,7 +505,8 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
     return result
 
 
-def _parse_mode(mode: Any) -> str:
+def parse_cascade_mode(mode: Any) -> str:
+    # Публичный разбор для моделей запросов (api/port_config_schemas.py): правила остаются здесь, модели их только вызывают.
     if mode not in VLAN_MODES:
         raise HTTPException(422, "Режим порта должен быть 'access' или 'trunk'")
     return mode
@@ -545,7 +550,7 @@ def _parse_edited_group(key: Any, raw: Any) -> _EditedGroup:
     return _EditedGroup(mode=raw["mode"], vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name"))
 
 
-def _parse_edited(raw: Any) -> _Edited:
+def parse_cascade_edited(raw: Any) -> _Edited:
     """edited = {device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}}
     или null/отсутствует. group у порта — ключ группы формы (null — порт вне групп); группы формы — и
     сохранённые (ключ = id), и новые (временный ключ)."""
@@ -585,8 +590,8 @@ def preview_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], sessio
     port: {role?, vlan_ids?} — роль и набор VLAN порта-инициатора, проверяются под целевой режим (ничего не пишет)."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
-    mode = _parse_mode(payload.get("mode"))
-    plan = _compute(interface_id, mode, _parse_edited(payload.get("edited")), session).plan
+    mode = parse_cascade_mode(payload.get("mode"))
+    plan = _compute(interface_id, mode, parse_cascade_edited(payload.get("edited")), session).plan
     _prepare_port(interface_id, payload, mode, session)  # ошибка в роли/VLAN видна до подтверждения каскада
     return plan
 
@@ -643,7 +648,7 @@ def _parse_apply_request(payload: Any) -> tuple[str, _Edited]:
     """Проверки тела запроса применения — до любых обращений к БД. Порядок: объект → mode → edited → confirm."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
-    mode, edited = _parse_mode(payload.get("mode")), _parse_edited(payload.get("edited"))
+    mode, edited = parse_cascade_mode(payload.get("mode")), parse_cascade_edited(payload.get("edited"))
     if payload.get("confirm") is not True:
         raise HTTPException(422, "Применение требует подтверждения: confirm = true")
     return mode, edited
@@ -704,7 +709,7 @@ def _audit_cascade(change: _Change, session: Session) -> None:
     """По записи аудита на каждое устройство, которое записано сейчас (отложенные пишет форма)."""
     plan, loader = change.plan, change.loader
     start = loader.ports[change.start_id]
-    start_label = f"порт «{change.edited.port_name(start)}» устройства «{_device_name(change.devices.get(start.physical_device_id))}»"
+    start_label = f"порт «{change.edited.port_name(start)}» устройства «{device_label(change.devices.get(start.physical_device_id))}»"
     for device in plan["devices"]:
         if not device["deferred"]:
             audit(session, "interfaces", device["id"], AuditAction.UPDATE, _audit_text(plan, device["id"], start_label))

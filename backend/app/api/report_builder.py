@@ -11,13 +11,13 @@ from ..constants import AuditAction
 from ..db import get_db
 from ..models import ReportTemplate, ReportTemplateVersion
 from ..services.report_cleanup import cleanup_before_new_report
-from ..services.report_params import parse_config_object, parse_preview_limit, parse_report_params, parse_structural_unit_ids
 from ..services.crud import audit
 from ..services.report_engine import ReportBuilderError, validate_config
 from ..services.report_grid import preview_grid, validate_grid_config
 from ..services.report_meta import build_entity_metadata, entity_metadata_public
 from ..services.report_render import build_report_from_template, preview_rows
 from ..services.timeutil import iso_utc
+from .report_schemas import ReportGenerateRequest, ReportPreviewRequest, ReportTemplateWrite
 
 
 def _validate_by_format(meta: dict, fmt: str, config: dict) -> None:
@@ -47,19 +47,22 @@ def _template_out(t: ReportTemplate) -> dict:
     }
 
 
-def _load_and_validate(payload: dict) -> tuple[str, dict, str, str | None]:
-    name = (payload.get("name") or "").strip()
-    if not name:
-        raise HTTPException(422, "Укажите название шаблона")
-    fmt = payload.get("format", "xlsx")
-    config = payload.get("config")
-    if not isinstance(config, dict):
-        raise HTTPException(422, "Поле config должно быть объектом с описанием листов/блоков")
+def _load_and_validate(body: ReportTemplateWrite) -> tuple[str, dict, str, str | None]:
+    """Форма тела уже проверена моделью (api/report_schemas.py); здесь — предметная проверка шаблона под его формат."""
     try:
-        _validate_by_format(build_entity_metadata(), fmt, config)
+        _validate_by_format(build_entity_metadata(), body.format, body.config)
     except ReportBuilderError as e:
         raise HTTPException(422, str(e)) from e
-    return name, config, fmt, payload.get("description")
+    return body.name, body.config, body.format, body.description
+
+
+def _existing_template(template_id: str, session: Session = Depends(get_db)) -> ReportTemplate:
+    """Шаблон по id или 404. Зависимость, а не строка в обработчике: FastAPI выполняет зависимости раньше разбора тела запроса,
+    поэтому неизвестный шаблон по-прежнему отвечает 404, а не 422 про тело (порядок A-10, закреплён тестом)."""
+    t = session.get(ReportTemplate, template_id)
+    if not t:
+        raise HTTPException(404, "Шаблон отчёта не найден")
+    return t
 
 
 def _snapshot_version(t: ReportTemplate, session: Session) -> None:
@@ -82,17 +85,14 @@ def list_entities():
 
 
 @router.post("/report-builder/preview")
-def preview(payload: dict, session: Session = Depends(get_db)):
+def preview(body: ReportPreviewRequest, session: Session = Depends(get_db)):
     """Быстрый предпросмотр (первые строки/ячейки каждого листа-блока) без сохранения шаблона и
     файла. xlsx — материализованная сетка (report_grid.preview_grid), docx — таблицы блоков."""
-    fmt = payload.get("format", "xlsx")
-    config = parse_config_object(payload.get("config"))
-    limit = parse_preview_limit(payload)
     try:
-        _validate_by_format(build_entity_metadata(), fmt, config)
-        if fmt == "xlsx":
-            return preview_grid(session, config, limit=limit)
-        return preview_rows(session, config, limit=limit)
+        _validate_by_format(build_entity_metadata(), body.format, body.config)
+        if body.format == "xlsx":
+            return preview_grid(session, body.config, limit=body.limit)
+        return preview_rows(session, body.config, limit=body.limit)
     except ReportBuilderError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -112,8 +112,8 @@ def get_template(template_id: str, session: Session = Depends(get_db)):
 
 
 @router.post("/report-templates", status_code=201)
-def create_template(payload: dict, session: Session = Depends(get_db)):
-    name, config, fmt, description = _load_and_validate(payload)
+def create_template(body: ReportTemplateWrite, session: Session = Depends(get_db)):
+    name, config, fmt, description = _load_and_validate(body)
     if session.scalar(select(ReportTemplate).where(ReportTemplate.name == name)):
         raise HTTPException(409, "Шаблон с таким названием уже существует")
     t = ReportTemplate(name=name, description=description, format=fmt, config=json.dumps(config, ensure_ascii=False))
@@ -124,11 +124,8 @@ def create_template(payload: dict, session: Session = Depends(get_db)):
 
 
 @router.put("/report-templates/{template_id}")
-def update_template(template_id: str, payload: dict, session: Session = Depends(get_db)):
-    t = session.get(ReportTemplate, template_id)
-    if not t:
-        raise HTTPException(404, "Шаблон отчёта не найден")
-    name, config, fmt, description = _load_and_validate(payload)
+def update_template(template_id: str, body: ReportTemplateWrite, t: ReportTemplate = Depends(_existing_template), session: Session = Depends(get_db)):
+    name, config, fmt, description = _load_and_validate(body)
     dup = session.scalar(select(ReportTemplate).where(ReportTemplate.name == name, ReportTemplate.id != template_id))
     if dup:
         raise HTTPException(409, "Шаблон с таким названием уже существует")
@@ -212,15 +209,11 @@ def duplicate_template(template_id: str, session: Session = Depends(get_db)):
 
 
 @router.post("/report-templates/{template_id}/generate")
-def generate_template_report(template_id: str, payload: dict | None = None, session: Session = Depends(get_db)):
-    t = session.get(ReportTemplate, template_id)
-    if not t:
-        raise HTTPException(404, "Шаблон отчёта не найден")
-    params = parse_report_params((payload or {}).get("params"))
-    structural_unit_ids = parse_structural_unit_ids((payload or {}).get("structural_unit_ids"))
+def generate_template_report(body: ReportGenerateRequest | None = None, t: ReportTemplate = Depends(_existing_template), session: Session = Depends(get_db)):
+    body = body or ReportGenerateRequest()
     cleanup_before_new_report(REPORT_DIR)
     try:
-        path = build_report_from_template(session, t, REPORT_DIR, params=params, structural_unit_ids=structural_unit_ids)
+        path = build_report_from_template(session, t, REPORT_DIR, params=body.params, structural_unit_ids=body.structural_unit_ids)
     except ReportBuilderError as e:
         raise HTTPException(422, str(e)) from e
     return {"file_name": path.name, "download_url": f"/api/v1/reports/download/{path.name}"}

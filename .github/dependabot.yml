@@ -1,0 +1,41 @@
+# Автообновление зависимостей (A-10 код-ревью r3). Dependabot открывает PR; слияние — решение владельца после зелёного CI.
+#
+# Важно для pip: Dependabot правит только backend/requirements*.txt (диапазоны версий). Закреплённые файлы requirements*.lock с хешами
+# он не понимает, а шаг CI «Lock-файлы backend актуальны» сравнивает их с .txt — поэтому PR с обновлением Python-зависимости покажет красный
+# CI, пока lock не пересобран (README, «Зависимости backend»: uv pip compile … --generate-hashes). Это осознанная цена за воспроизводимые
+# сборки; обновления безопасности pip-audit (gate в CI) находит независимо от Dependabot.
+#
+# Обновления собраны в группы по типу (минорные и патчи — одним PR), чтобы не получать десятки отдельных PR.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend-vue"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # Базовые образы backend/Dockerfile: тег и digest обновляются вместе.
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # Действия CI закреплены по SHA с комментарием версии (# v4): Dependabot обновляет и SHA, и комментарий.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

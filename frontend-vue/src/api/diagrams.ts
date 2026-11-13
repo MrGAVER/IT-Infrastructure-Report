@@ -1,7 +1,7 @@
 // Диаграмма топологии сети — контракт узла/ребра и API-эндпоинты раздела 4.4/7 ТЗ
 // (backend/app/api/diagrams.py, backend/app/services/diagram_graph.py). Типы зафиксированы по
 // ТЗ независимо от того, готов ли в моменте бэкенд (см. раздел 12 ТЗ, "Точка 1 (старт)").
-import { api, getStoredToken } from './client'
+import { api, apiErrorFromResponse, getStoredToken } from './client'
 
 export type DiagramGroupBy = 'structural_unit' | 'vlan' | 'building' | 'device_category'
 
@@ -11,6 +11,19 @@ export const GROUP_BY_OPTIONS: { value: DiagramGroupBy; label: string }[] = [
   { value: 'building', label: 'По зданию' },
   { value: 'device_category', label: 'По категории устройства' },
 ]
+
+/**
+ * Границы порога сворачивания узлов в группу. Верхняя — контракт с backend (MAX_COLLAPSE_THRESHOLD в api/diagram_schemas.py): заведомо
+ * больше предела раскладки (5000 узлов) и помещается в INTEGER и SQLite, и PostgreSQL. Больше — сервер ответит 422 (до BE-01 — 500),
+ * поэтому форма не даёт такое значение отправить (FE-04 ревью ветки fix/code-review-main-f06-stage2-f05).
+ */
+export const MIN_COLLAPSE_THRESHOLD = 1
+export const MAX_COLLAPSE_THRESHOLD = 1_000_000
+
+/** Целое число в допустимых границах; пустое поле (v-model.number отдаёт '') и дроби не проходят. */
+export function isValidCollapseThreshold(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= MIN_COLLAPSE_THRESHOLD && value <= MAX_COLLAPSE_THRESHOLD
+}
 
 export type DiagramIconShape = 'server' | 'switch' | 'switch_l2' | 'switch_l3' | 'router' | 'firewall' | 'workstation' | 'peripheral' | 'generic'
 
@@ -187,7 +200,7 @@ export function deleteDiagram(id: string) {
 /**
  * Скачивание файла экспорта — НЕ через api.get() (тот всегда делает res.json()) и НЕ через
  * простую навигацию `<a href>` (как /reports/download в reports.ts): тот путь не прикладывает
- * заголовок Authorization и работает только пока auth выключен (см. backend/app/services/auth.py
+ * заголовок Authorization и работает только пока auth выключен (см. backend/app/services/auth/settings.py
  * — переключаемая опция). Экспорт диаграммы всегда идёт через fetch() с явным заголовком, чтобы
  * скачивание не ломалось молча, как только администратор включит вход по паролю.
  */
@@ -196,12 +209,38 @@ export async function exportDiagram(id: string, format: DiagramExportFormat): Pr
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`/api/v1/diagrams/${id}/export?format=${format}&persist_export=true`, { headers })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(text || res.statusText)
-  }
-  const disposition = res.headers.get('Content-Disposition') ?? ''
-  const asciiMatch = disposition.match(/filename="([^"]+)"/)
-  const filename = asciiMatch?.[1] ?? `diagram.${format}`
+  // Текст ошибки берётся из JSON-тела `{detail}` (в том числе 503 «Сервер занят…» с Retry-After при ограничении тяжёлых экспортов),
+  // а не выводится сырым телом ответа: `apiErrorFromResponse` — тот же разбор, что у `request()`.
+  if (!res.ok) throw await apiErrorFromResponse(res)
+  const filename = filenameFromDisposition(res.headers.get('Content-Disposition') ?? '', `diagram.${format}`)
   return { blob: await res.blob(), filename }
+}
+
+/**
+ * Имя файла из заголовка Content-Disposition: сначала `filename*` (RFC 6266 / RFC 8187, UTF-8 в %-кодировке), затем ASCII-вариант `filename="…"`.
+ *
+ * Зачем два варианта: сервер (backend/app/api/diagrams.py) отдаёт оба. В ASCII-запасном каждая кириллическая буква заменена на «_»
+ * («Диаграмма_сети_ЦОД.vsdx» → «__________________.vsdx»), и разные диаграммы становятся неразличимы; настоящее название лежит только в `filename*`.
+ * Разделители пути (`/`, `\`) в декодированном имени заменяются на «_»: это часть названия диаграммы, а не путь, и в имени файла им не место.
+ * Битая %-последовательность (`URIError` при декодировании) не ошибка запроса: файл всё равно скачивается, под ASCII-именем.
+ *
+ * @param disposition значение заголовка (пустая строка, если заголовка нет)
+ * @param fallback имя, если в заголовке нет ни одного пригодного
+ *
+ * @example
+ *   filenameFromDisposition(`attachment; filename="____.svg"; filename*=UTF-8''%D0%94.svg`, 'diagram.svg') // 'Д.svg'
+ */
+export function filenameFromDisposition(disposition: string, fallback: string): string {
+  // `UTF-8'<язык>'<значение>`: язык по RFC 8187 необязателен и на практике пуст, но допустим.
+  const utf8 = disposition.match(/filename\*\s*=\s*UTF-8'[^']*'([^;]+)/i)
+  if (utf8) {
+    try {
+      const decoded = decodeURIComponent(utf8[1].trim()).replace(/[\\/]/g, '_')
+      if (decoded) return decoded
+    } catch {
+      // Битая %-последовательность: используем ASCII-вариант ниже.
+    }
+  }
+  // Не совпадёт с `filename*=`: между «filename» и «=» стоит «*».
+  return disposition.match(/filename\s*=\s*"([^"]+)"/i)?.[1] ?? fallback
 }

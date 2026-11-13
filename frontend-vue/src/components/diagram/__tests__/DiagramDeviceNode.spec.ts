@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
 import DiagramDeviceNode from '../DiagramDeviceNode.vue'
 import type { DiagramDeviceNode as DeviceNodeData } from '../../../api/diagrams'
 import { makeNodeProps } from './nodeTestHelpers'
@@ -78,6 +79,32 @@ describe('DiagramDeviceNode.vue', () => {
     const customDevice: DeviceNodeData = { ...baseDevice, icon: { mode: 'custom', svg_markup: '<svg><circle r="4" class="mark"/></svg>' } }
     const wrapper = mountNode(customDevice)
     expect(wrapper.find('.custom-icon .mark').exists()).toBe(true)
+  })
+
+  it('R2-03: две иконки с одним id градиента на одной странице получают разные id, каждая ссылается на свой градиент', () => {
+    const gradientIcon = (color: string) =>
+      `<svg viewBox="0 0 24 24"><defs><linearGradient id="g"><stop offset="0" stop-color="${color}"/></linearGradient></defs><rect width="24" height="24" fill="url(#g)"/></svg>`
+    const nodeData = (id: string, color: string): DeviceNodeData => ({ ...baseDevice, id, icon: { mode: 'custom', svg_markup: gradientIcon(color) } })
+    // Один родитель = одно приложение Vue, как в настоящем интерфейсе: счётчик useId() общий, а не свой у каждого mount().
+    const Canvas = defineComponent({
+      render: () => h('div', [h(DiagramDeviceNode, makeNodeProps(nodeData('dev-a', '#f00'))), h(DiagramDeviceNode, makeNodeProps(nodeData('dev-b', '#00f')))]),
+    })
+    const wrapper = mount(Canvas, { global: { stubs }, attachTo: document.body })
+
+    const ids = Array.from(document.body.querySelectorAll('.custom-icon [id]')).map((el) => el.id)
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+    const icons = wrapper.findAll('.custom-icon').map((w) => w.element)
+    expect(icons).toHaveLength(2)
+    for (const icon of icons) {
+      const target = icon
+        .querySelector('rect')!
+        .getAttribute('fill')!
+        .match(/url\(#([^)]+)\)/)![1]
+      expect(icon.querySelector(`[id="${target}"]`)).not.toBeNull() // ссылка указывает на градиент своей иконки
+    }
+    expect(icons.map((icon) => icon.querySelector('stop')!.getAttribute('stop-color'))).toEqual(['#f00', '#00f'])
+    wrapper.unmount()
   })
 
   it('иконка mode=custom вырезает исполняемое содержимое SVG (код-ревью п.3.1, XSS)', () => {

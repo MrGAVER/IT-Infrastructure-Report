@@ -88,3 +88,85 @@ describe('DiagramFormModal.vue', () => {
     expect(payload.scope_filter.structural_unit_ids).toEqual(['su-1'])
   })
 })
+
+// FE-04 (ревью ветки fix/code-review-main-f06-stage2-f05): поле «порог сворачивания» не было ограничено сверху, и значение вроде
+// 99999999999999999999 уходило на сервер, где (до BE-01) давало HTTP 500. Верхняя граница — контракт между потоками ревью:
+// MAX_COLLAPSE_THRESHOLD = 1_000_000 (backend/app/api/diagram_schemas.py).
+describe('DiagramFormModal.vue: порог сворачивания (FE-04)', () => {
+  function postCalls(fetchMock: ReturnType<typeof vi.fn>) {
+    return fetchMock.mock.calls.filter(([u, init]) => (init as RequestInit | undefined)?.method === 'POST' && (u as string).endsWith('/diagrams'))
+  }
+
+  async function submitWithThreshold(raw: string) {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.endsWith('/diagrams')) return jsonResponse({ id: 'd-new' }, 201)
+      return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(DiagramFormModal)
+    await flushPromises()
+    await wrapper.find('input[type="text"]').setValue('Диаграмма')
+    await wrapper.find('input[type="number"]').setValue(raw)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    return { wrapper, fetchMock }
+  }
+
+  it('у поля порога заданы границы: min=1, max=1000000, step=1', async () => {
+    const wrapper = mount(DiagramFormModal)
+    await flushPromises()
+    const input = wrapper.find('input[type="number"]')
+    expect(input.attributes('min')).toBe('1')
+    expect(input.attributes('max')).toBe('1000000')
+    expect(input.attributes('step')).toBe('1')
+  })
+
+  it.each([
+    ['больше предела', '1000001'],
+    ['сверхбольшое (то, что давало 500)', '99999999999999999999'],
+    ['ноль', '0'],
+    ['отрицательное', '-5'],
+    ['дробное', '1.5'],
+    ['пустое', ''],
+  ])('значение «%s» не уходит на сервер, у поля показана ошибка', async (_name, raw) => {
+    const { wrapper, fetchMock } = await submitWithThreshold(raw)
+
+    expect(postCalls(fetchMock)).toHaveLength(0)
+    expect(wrapper.emitted('created')).toBeUndefined()
+    const error = wrapper.find('[data-testid="threshold-error"]')
+    expect(error.exists()).toBe(true)
+    expect(error.attributes('role')).toBe('alert')
+    expect(error.text()).toContain('1000000')
+    // Ошибка привязана к полю: скринридер озвучит её вместе с полем, а у самого поля есть признак ошибки.
+    const input = wrapper.find('input[type="number"]')
+    expect(input.attributes('aria-invalid')).toBe('true')
+    expect(input.attributes('aria-describedby')).toBe(error.attributes('id'))
+  })
+
+  it.each([
+    ['нижняя граница', '1', 1],
+    ['верхняя граница', '1000000', 1_000_000],
+    ['обычное значение', '20', 20],
+  ])('%s принимается и уходит на сервер как есть', async (_name, raw, expected) => {
+    const { wrapper, fetchMock } = await submitWithThreshold(raw)
+
+    const calls = postCalls(fetchMock)
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse((calls[0][1] as RequestInit).body as string).collapse_threshold).toBe(expected)
+    expect(wrapper.find('[data-testid="threshold-error"]').exists()).toBe(false)
+    expect(wrapper.emitted('created')?.[0]).toEqual(['d-new'])
+  })
+
+  it('после исправления значения ошибка исчезает, и повторная отправка проходит', async () => {
+    const { wrapper, fetchMock } = await submitWithThreshold('2000000')
+    expect(wrapper.find('[data-testid="threshold-error"]').exists()).toBe(true)
+
+    await wrapper.find('input[type="number"]').setValue('50')
+    expect(wrapper.find('[data-testid="threshold-error"]').exists()).toBe(false)
+    expect(wrapper.find('input[type="number"]').attributes('aria-invalid')).toBeUndefined()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(postCalls(fetchMock)).toHaveLength(1)
+  })
+})

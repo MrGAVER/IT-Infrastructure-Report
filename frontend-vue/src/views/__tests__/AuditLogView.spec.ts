@@ -45,34 +45,34 @@ afterEach(() => {
 
 describe('AuditLogView.vue — пагинация', () => {
   it('при большом числе записей номера страниц собираются в окно, а не растягиваются на всю ширину', async () => {
-    const wrapper = await mountView(1000) // 12 на странице → 84 страницы
+    const wrapper = await mountView(1000) // 10 на странице → 100 страниц
 
-    expect(pageLabels(wrapper)).toEqual(['1', '2', '84'])
+    expect(pageLabels(wrapper)).toEqual(['1', '2', '100'])
     expect(wrapper.findAll('.pager button').length).toBeLessThan(10)
     expect(wrapper.find('.pager-gap').exists()).toBe(true)
-    expect(rows(wrapper)).toHaveLength(12)
-    expect(foot(wrapper)).toContain('Показано 1–12 из 1000')
+    expect(rows(wrapper)).toHaveLength(10)
+    expect(foot(wrapper)).toContain('Показано 1–10 из 1000')
   })
 
   it('на страницу приходит только нужный кусок журнала: клиент не держит все записи', async () => {
     const wrapper = await mountView(1000)
 
     expect(pageUrls()).toHaveLength(1)
-    expect(lastParams().get('limit')).toBe('12')
-    expect(useAuditLogStore().items).toHaveLength(12)
-    expect(rows(wrapper)).toHaveLength(12)
+    expect(lastParams().get('limit')).toBe('10')
+    expect(useAuditLogStore().items).toHaveLength(10)
+    expect(rows(wrapper)).toHaveLength(10)
   })
 
   it('переход на последнюю страницу запрашивает её у сервера; окно номеров следует за страницей', async () => {
-    const wrapper = await mountView(1000)
+    const wrapper = await mountView(1004)
 
-    await wrapper.find('.pager button[aria-label="Страница 84"]').trigger('click')
+    await wrapper.find('.pager button[aria-label="Страница 101"]').trigger('click')
     await flushPromises()
 
-    expect(lastParams().get('offset')).toBe('996')
-    expect(pageLabels(wrapper)).toEqual(['1', '83', '84'])
-    expect(rows(wrapper)).toHaveLength(4) // 1000 = 83·12 + 4
-    expect(foot(wrapper)).toContain('Показано 997–1000 из 1000')
+    expect(lastParams().get('offset')).toBe('1000')
+    expect(pageLabels(wrapper)).toEqual(['1', '100', '101'])
+    expect(rows(wrapper)).toHaveLength(4) // 1004 = 100·10 + 4
+    expect(foot(wrapper)).toContain('Показано 1001–1004 из 1004')
   })
 
   it('«›» и «‹» листают по одной странице', async () => {
@@ -81,7 +81,7 @@ describe('AuditLogView.vue — пагинация', () => {
     await wrapper.find('.pager button[aria-label="Следующая страница"]').trigger('click')
     await flushPromises()
     expect(useAuditLogStore().page).toBe(2)
-    expect(lastParams().get('offset')).toBe('12')
+    expect(lastParams().get('offset')).toBe('10')
 
     await wrapper.find('.pager button[aria-label="Предыдущая страница"]').trigger('click')
     await flushPromises()
@@ -91,7 +91,7 @@ describe('AuditLogView.vue — пагинация', () => {
   it('записи старше первой тысячи доступны: журнал в 2500 записей листается до самой старой', async () => {
     const wrapper = await mountView(2500)
 
-    await wrapper.find(`.pager button[aria-label="Страница ${Math.ceil(2500 / 12)}"]`).trigger('click')
+    await wrapper.find(`.pager button[aria-label="Страница ${Math.ceil(2500 / 10)}"]`).trigger('click')
     await flushPromises()
 
     expect(foot(wrapper)).toContain('из 2500')
@@ -104,10 +104,11 @@ describe('AuditLogView.vue — пагинация', () => {
     expect(pageLabels(wrapper)).toEqual(['1'])
   })
 
-  it('пустой журнал: сообщение «Ничего не найдено», 0–0 из 0', async () => {
+  it('пустой журнал: «В журнале аудита пока нет записей.» (а не «ничего не найдено по фильтрам»), 0–0 из 0', async () => {
     const wrapper = await mountView(0)
 
-    expect(wrapper.text()).toContain('Ничего не найдено по заданным фильтрам.')
+    expect(wrapper.text()).toContain('В журнале аудита пока нет записей.')
+    expect(wrapper.text()).not.toContain('Ничего не найдено')
     expect(foot(wrapper)).toContain('Показано 0–0 из 0')
   })
 })
@@ -131,26 +132,26 @@ describe('AuditLogView.vue — счётчики и размер страницы
   it('выбор «Показывать по N» запрашивает страницу с новым limit и пересчитывает диапазон и пейджер', async () => {
     const wrapper = await mountView(1000)
 
-    await wrapper.find('.table-foot select').setValue('48')
+    await wrapper.find('.table-foot select').setValue('50')
     await flushPromises()
 
-    expect(lastParams().get('limit')).toBe('48')
-    expect(rows(wrapper)).toHaveLength(48)
-    expect(foot(wrapper)).toContain('Показано 1–48 из 1000')
-    expect(pageLabels(wrapper)).toEqual(['1', '2', '21'])
+    expect(lastParams().get('limit')).toBe('50')
+    expect(rows(wrapper)).toHaveLength(50)
+    expect(foot(wrapper)).toContain('Показано 1–50 из 1000')
+    expect(pageLabels(wrapper)).toEqual(['1', '2', '20'])
   })
 
   it('размер страницы запоминается между открытиями экрана', async () => {
     const first = await mountView(100)
-    await first.find('.table-foot select').setValue('24')
+    await first.find('.table-foot select').setValue('25')
     await flushPromises()
     first.unmount()
 
     reloadPinia() // «перезагрузка»: стор создаётся заново, настройки подтянуты с сервера
     const second = await mountView(100)
 
-    expect(lastParams().get('limit')).toBe('24')
-    expect(rows(second)).toHaveLength(24)
+    expect(lastParams().get('limit')).toBe('25')
+    expect(rows(second)).toHaveLength(25)
   })
 
   it('фильтр «Раздел» наполняется разделами из журнала, а не всеми ресурсами', async () => {
@@ -252,7 +253,7 @@ describe('AuditLogView.vue — загрузка и ошибки', () => {
     const second = await mountView(100)
 
     expect(pageUrls()).toHaveLength(1) // urls сбрасывается в mountView: запрос ушёл и при втором открытии
-    expect(rows(second)).toHaveLength(12)
+    expect(rows(second)).toHaveLength(10)
   })
 
   it('«Обновить» перечитывает текущую страницу', async () => {
@@ -268,7 +269,7 @@ describe('AuditLogView.vue — загрузка и ошибки', () => {
     await flushPromises()
 
     expect(pageUrls().length).toBe(before + 1)
-    expect(lastParams().get('offset')).toBe('12')
+    expect(lastParams().get('offset')).toBe('10')
     expect(useAuditLogStore().page).toBe(2)
   })
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useCatalogsStore } from '../catalogs'
+import { useToast } from '../../composables/useToast'
 import { structuralUnitsFixture, buildingsFixture, deviceTypesFixture } from './fixtures'
 
 function mockFetchFor() {
@@ -294,5 +295,65 @@ describe('useCatalogsStore', () => {
 
       expect(store.items['interfaces'].map((i) => i.id)).toEqual(['if-2', 'if-9', 'if-19'])
     })
+  })
+})
+
+describe('useCatalogsStore: усечённая загрузка справочников (B-02)', () => {
+  /** Справочник зданий «не помещается»: сервер обещает 2000 записей, но на вторую страницу отвечает пустой. */
+  function stubTruncatedBuildings() {
+    return vi.fn(async (url: string) => {
+      if (/\/resources$/.test(url)) return new Response(JSON.stringify([{ key: 'buildings', name: 'Здания' }]))
+      const key = url.match(/\/resources\/([a-z-]+)/)?.[1] ?? ''
+      if (key === 'buildings') {
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+        return new Response(JSON.stringify({ items: offset === 0 ? buildingsFixture.items : [], total: 2000, offset, limit: 1000 }))
+      }
+      return new Response(JSON.stringify({ items: [], total: 0, offset: 0, limit: 1000 }))
+    })
+  }
+
+  it('усечённый справочник запоминается (сколько получено и сколько на сервере), остальные не помечаются; данные при этом доступны', async () => {
+    vi.stubGlobal('fetch', stubTruncatedBuildings())
+    const store = useCatalogsStore()
+
+    await store.reload()
+
+    expect(store.loaded).toBe(true)
+    expect(store.error).toBeNull()
+    expect(store.incompleteCatalogs).toEqual({ buildings: { loaded: buildingsFixture.items.length, total: 2000 } })
+    expect(store.items['buildings']).toHaveLength(buildingsFixture.items.length) // загруженное не выбрасывается — справочник не блокируется
+  })
+
+  it('усечение сопровождается предупреждением с человекочитаемым именем справочника', async () => {
+    vi.stubGlobal('fetch', stubTruncatedBuildings())
+    useToast().toasts.splice(0)
+
+    await useCatalogsStore().reload()
+
+    const warnings = useToast().toasts.filter((t) => t.type === 'warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].message).toContain('справочник «Здания»')
+    expect(warnings[0].message).toMatch(/из 2\D000/)
+  })
+
+  it('после полной перезагрузки признак усечения снимается', async () => {
+    const store = useCatalogsStore()
+    vi.stubGlobal('fetch', stubTruncatedBuildings())
+    await store.reload()
+    expect(Object.keys(store.incompleteCatalogs)).toEqual(['buildings'])
+
+    vi.stubGlobal('fetch', mockFetchFor())
+    await store.reload()
+
+    expect(store.incompleteCatalogs).toEqual({})
+  })
+
+  it('полная загрузка: incompleteCatalogs пуст', async () => {
+    vi.stubGlobal('fetch', mockFetchFor())
+    const store = useCatalogsStore()
+
+    await store.reload()
+
+    expect(store.incompleteCatalogs).toEqual({})
   })
 })

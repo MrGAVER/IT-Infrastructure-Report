@@ -70,7 +70,12 @@ def upgrade():
         if not name and not version:
             return None
         name = name or "Не указано"
-        row = bind.execute(sa.text("SELECT id FROM operating_systems WHERE category_id=:cat AND name=:name AND version IS :version"), {"cat": other_id, "name": name, "version": version}).fetchone()
+        # `version IS :version` годится только для SQLite; PostgreSQL принимает после IS лишь NULL/TRUE/FALSE/DISTINCT FROM и падает
+        # синтаксической ошибкой на параметре. Поэтому «нет версии» и «есть версия» — два разных запроса (смысл тот же: NULL сопоставляется с NULL).
+        if version is None:
+            row = bind.execute(sa.text("SELECT id FROM operating_systems WHERE category_id=:cat AND name=:name AND version IS NULL"), {"cat": other_id, "name": name}).fetchone()
+        else:
+            row = bind.execute(sa.text("SELECT id FROM operating_systems WHERE category_id=:cat AND name=:name AND version=:version"), {"cat": other_id, "name": name, "version": version}).fetchone()
         if row:
             return row[0]
         osid = _id()

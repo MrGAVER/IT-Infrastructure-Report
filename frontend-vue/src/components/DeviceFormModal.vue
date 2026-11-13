@@ -4,11 +4,11 @@
 // Состояние формы — useDeviceDraft; загрузка (редактирование или копия донора) — useDeviceLoader; сохранение с подтверждением
 // конфликтов 409 — useDeviceSave; домены VLAN, VLAN портов и общие настройки VLAN стека — useDeviceDomains, useDevicePortVlans,
 // useDeviceStackVlans. Основные поля формы и их справочники — DeviceMainFields (useDeviceFormFields).
-import { ref, useId } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
 import { useFormPreferencesStore } from '../stores/formPreferences'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 import { useDeviceDomains } from '../composables/useDeviceDomains'
 import { useDeviceDraft } from '../composables/useDeviceDraft'
@@ -22,13 +22,13 @@ import DeviceInterfacesEditor from './DeviceInterfacesEditor.vue'
 import DeviceVlanListEditor from './DeviceVlanListEditor.vue'
 import DeviceStackVlanIpEditor from './DeviceStackVlanIpEditor.vue'
 import DeviceMainFields from './DeviceMainFields.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
 const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ device: Device | null; copyFrom?: Device | null }>()
 const emit = defineEmits<{ close: []; saved: [device: Device] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -37,12 +37,27 @@ const vlansStore = useVLANsStore()
 const formPreferences = useFormPreferencesStore()
 
 const draft = useDeviceDraft(() => props.device)
-const { errorMessage, isEdit, form, softwareAssets, interfaces, interfaceGroups, deviceVlans, loadingNested, initialConnections, interfaceConflicts } = draft
+const {
+  errorMessage,
+  isEdit,
+  form,
+  softwareAssets,
+  interfaces,
+  interfaceGroups,
+  deviceVlans,
+  loadingNested,
+  nestedLoadFailed,
+  initialConnections,
+  interfaceConflicts,
+} = draft
 
 // Редактор портов: перед записью проверяет расхождения с соседями (reviewNeighborMismatches).
 const interfacesEditor = ref<InstanceType<typeof DeviceInterfacesEditor> | null>(null)
 // Блок «VLAN устройства»: форма раскрывает его, когда ошибка сохранения относится к строке, скрытой сворачиванием.
 const vlanEditor = ref<InstanceType<typeof DeviceVlanListEditor> | null>(null)
+
+// Редакторы вложенных данных показываются, только когда те загружены: ни во время загрузки, ни после сбоя (там пустой черновик — не «пусто»).
+const nestedReady = computed(() => !loadingNested.value && !nestedLoadFailed.value)
 
 const domains = useDeviceDomains(draft)
 const { availableVlans, singleDeviceDomainId, joinableDomains, memberDomains, onVlanCreated, onVlanDomainCreated, onJoinDomainRequested, onCancelJoinDomain } =
@@ -51,7 +66,7 @@ const { deviceStackId, lockedStackVlans, onStackVlanState, onStackVlanApplied, o
 // Порядок вызова важен: подписки (watch) создаются в этом порядке — VLAN портов, затем загрузка источника (она же следит за
 // типом устройства); каскад полей формы создаёт DeviceMainFields при монтировании, то есть последним.
 const { portVlanOptions } = useDevicePortVlans(draft, { revealStaleSubinterfaces: () => void interfacesEditor.value?.revealStaleSubinterfaces() })
-const { reloadNeighborConfigs } = useDeviceLoader(draft, { device: () => props.device, copyFrom: () => props.copyFrom })
+const { reloadNeighborConfigs, retryNested } = useDeviceLoader(draft, { device: () => props.device, copyFrom: () => props.copyFrom })
 
 const { saving, submit } = useDeviceSave(draft, {
   device: () => props.device,
@@ -65,7 +80,7 @@ const { saving, submit } = useDeviceSave(draft, {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать устройство' : 'Добавить устройство' }}</h2>
@@ -84,9 +99,11 @@ const { saving, submit } = useDeviceSave(draft, {
           <DeviceMainFields :model-value="form" />
 
           <p v-if="loadingNested" class="loading-hint field-wide">Загрузка портов, ПО, интерфейсов и VLAN…</p>
-          <SoftwareAssetListEditor v-if="!loadingNested" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
+          <!-- Сбой загрузки: редакторы скрыты, а их списки при сохранении не отправляются (иначе пустой черновик стёр бы данные на сервере). -->
+          <DataLoadNotice v-else-if="nestedLoadFailed" class="field-wide" kind="failed" what="портов, ПО и VLAN устройства" @retry="retryNested" />
+          <SoftwareAssetListEditor v-if="nestedReady" v-model="softwareAssets" :catalog-entries="catalogs.items['software-assets'] ?? []" />
           <DeviceInterfacesEditor
-            v-if="!loadingNested"
+            v-if="nestedReady"
             ref="interfacesEditor"
             v-model="interfaces"
             v-model:groups="interfaceGroups"
@@ -103,7 +120,7 @@ const { saving, submit } = useDeviceSave(draft, {
             @neighbors-changed="reloadNeighborConfigs"
           />
           <DeviceVlanListEditor
-            v-if="!loadingNested"
+            v-if="nestedReady"
             ref="vlanEditor"
             v-model="deviceVlans"
             :collapse-after="formPreferences.collapseRows"
@@ -119,7 +136,7 @@ const { saving, submit } = useDeviceSave(draft, {
             @join-domain="onJoinDomainRequested"
           />
           <DeviceStackVlanIpEditor
-            v-if="deviceStackId && !loadingNested"
+            v-if="deviceStackId && nestedReady"
             :stack-id="deviceStackId"
             :reload-token="0"
             @update:state="onStackVlanState"
@@ -131,26 +148,15 @@ const { saving, submit } = useDeviceSave(draft, {
 
       <div class="modal-foot">
         <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ readOnly ? 'Закрыть' : 'Отмена' }}</button>
-        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving" @click="submit">
+        <button v-if="!readOnly" type="button" class="btn btn-primary" :disabled="saving || loadingNested" @click="submit">
           {{ saving ? 'Сохранение…' : isEdit ? 'Сохранить' : 'Добавить' }}
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   /* Список интерфейсов (DeviceInterfacesEditor.vue) — таблица из 10 колонок; на типичных
@@ -158,7 +164,7 @@ const { saving, submit } = useDeviceSave(draft, {
      "Применить к выбранным" в последней колонке приходится прокручивать таблицу горизонтально.
      Увеличенные 70vw/1400px дают заметно больше места именно на таких окнах (напр. 1440px
      окно: было 720px, стало ~1008px), а нижняя граница 640px не меняется — на узких экранах
-     ничего не задевает, и там же по-прежнему работает .iface-table-wrap { overflow-x: auto }
+     ничего не задевает, и там же таблицу листают вбок (ScrollableTableWrap в DeviceInterfacesEditor.vue)
      как запасной вариант. */
   max-width: clamp(640px, 70vw, 1400px);
   padding: 20px 22px 18px;
@@ -187,7 +193,8 @@ const { saving, submit } = useDeviceSave(draft, {
 }
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr): таблица интерфейсов во всю ширину формы не должна растягивать колонки шире окна и на планшете. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 14px;
 }
 /* Свой экземпляр правила (а не из DeviceMainFields): им пользуются строка загрузки и корень DeviceStackVlanIpEditor — scoped-стиль
@@ -211,7 +218,9 @@ const { saving, submit } = useDeviceSave(draft, {
 
 @media (max-width: 640px) {
   .form-grid {
-    grid-template-columns: 1fr;
+    /* Не «1fr»: у него минимум — ширина содержимого, и 10-колонная таблица интерфейсов растягивала форму шире окна (до 1100 px
+       при 390). minmax(0, 1fr) держит дорожку в ширине окна, а таблица листается внутри своей обёртки. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

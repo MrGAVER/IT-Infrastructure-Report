@@ -7,7 +7,7 @@ import PortConfigEditModal from '../../components/PortConfigEditModal.vue'
 import PortConfigReviewModal from '../../components/PortConfigReviewModal.vue'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
-import { DEFAULT_PAGE_SIZE } from '../../stores/connectionsDashboard'
+import { DEFAULT_PAGE_SIZE } from '../../utils/pageSize'
 import type { Connection, ConnectionsSummary } from '../../api/types'
 import { usePreferencesStore } from '../../stores/preferences'
 
@@ -241,35 +241,35 @@ describe('ConnectionsView.vue — постраничная выборка с с�
     expect(buttons.map((b) => b.text())).toContain('1000')
   })
 
-  it('поле «Показывать по»: варианты 8/16/32/64; выбор запрашивает у сервера новый limit и запоминается', async () => {
+  it('поле «Показывать по»: варианты 10 / 25 / 50 / 100; выбор запрашивает у сервера новый limit и запоминается', async () => {
     localStorage.clear()
     const wrapper = await mountView({ rows: [connectionFixture], total: 100 })
     const select = wrapper.find('.table-foot select')
 
-    expect(select.findAll('option').map((o) => o.text())).toEqual(['8', '16', '32', '64'])
+    expect(select.findAll('option').map((o) => o.text())).toEqual(['10', '25', '50', '100'])
     expect((select.element as HTMLSelectElement).value).toBe(String(DEFAULT_PAGE_SIZE))
 
-    await select.setValue('32')
+    await select.setValue('25')
     await flushPromises()
 
-    expect(lastPageParams().get('limit')).toBe('32')
+    expect(lastPageParams().get('limit')).toBe('25')
     expect(lastPageParams().get('offset')).toBe('0')
     expect(wrapper.find('.table-foot').text()).toContain('из 100')
-    expect(wrapper.findAll('.pager button').filter((b) => /^\d+$/.test(b.text()))).toHaveLength(4) // 100 / 32 → 4 страницы
-    expect(usePreferencesStore().user.page_sizes).toEqual({ connections: 32 })
+    expect(wrapper.findAll('.pager button').filter((b) => /^\d+$/.test(b.text()))).toHaveLength(4) // 100 / 25 → 4 страницы
+    expect(usePreferencesStore().user.page_sizes).toEqual({ connections: 25 })
   })
 
   it('после смены размера следующая страница запрашивается со смещением от нового размера', async () => {
     localStorage.clear()
     const wrapper = await mountView({ rows: [connectionFixture], total: 100 })
-    await wrapper.find('.table-foot select').setValue('16')
+    await wrapper.find('.table-foot select').setValue('25')
     await flushPromises()
 
     await wrapper.find('[aria-label="Следующая страница"]').trigger('click')
     await flushPromises()
 
-    expect(lastPageParams().get('offset')).toBe('16')
-    expect(lastPageParams().get('limit')).toBe('16')
+    expect(lastPageParams().get('offset')).toBe('25')
+    expect(lastPageParams().get('limit')).toBe('25')
   })
 
   it('переход на следующую страницу запрашивает следующее смещение', async () => {
@@ -299,8 +299,10 @@ describe('ConnectionsView.vue — постраничная выборка с с�
     expect(wrapper.find('.error-banner').text()).toContain('База данных недоступна')
   })
 
-  it('пустой результат — сообщение «Ничего не найдено»', async () => {
-    const wrapper = await mountView({ rows: [], total: 0 })
+  // До F-04 здесь стоял пустой реестр (summary.total = 0): тест закреплял дефект — «не найдено по фильтрам» при нуле подключений.
+  // Пустой реестр и его текст проверяет listEmptyState.spec.ts; здесь в реестре подключения есть, а страница пуста из-за условий.
+  it('пустой результат при непустом реестре — сообщение «Ничего не найдено»', async () => {
+    const wrapper = await mountView({ rows: [], total: 0, summary: { total: 3 } })
     expect(wrapper.find('.empty-row').text()).toContain('Ничего не найдено')
   })
 })

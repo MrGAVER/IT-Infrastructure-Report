@@ -14,7 +14,8 @@ import { computed, reactive, ref, watch, useId } from 'vue'
 import { api, createResource, deleteResource, listAllResource, updateResource } from '../api/client'
 import type { Device, VLANDomain, VLANDomainDeviceLink } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
+import DataLoadNotice from './DataLoadNotice.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
@@ -22,7 +23,6 @@ const { readOnly } = useReadOnlyForm()
 
 const props = defineProps<{ domain: VLANDomain | null }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 // Доступное имя диалога — его заголовок (UI-04): скринридер озвучивает название при открытии окна.
 const titleId = useId()
 
@@ -38,6 +38,9 @@ const form = reactive(emptyForm())
 
 const members = ref<VLANDomainDeviceLink[]>([])
 const loadingMembers = ref(false)
+// B-02: состав домена загружен не целиком (потолок listAllResource). Участники добавляются и убираются отдельными запросами, поэтому
+// сохранение формы ничего не стирает, но список «можно добавить» строится от состава: по неполному нельзя исключить повторное добавление.
+const membersIncomplete = ref<{ loaded: number; total: number } | null>(null)
 const addMemberDeviceId = ref('')
 const memberBusyId = ref<string | null>(null)
 
@@ -57,6 +60,7 @@ watch(
   async (d) => {
     Object.assign(form, emptyForm())
     members.value = []
+    membersIncomplete.value = null
     if (d) {
       form.name = d.name
       form.description = d.description ?? ''
@@ -66,6 +70,7 @@ watch(
       try {
         const res = await listAllResource<VLANDomainDeviceLink>('vlan-domain-devices', { domain_id: d.id })
         members.value = res.items
+        membersIncomplete.value = res.truncated ? { loaded: res.items.length, total: res.total } : null
       } catch (err) {
         errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить состав домена'
       } finally {
@@ -77,7 +82,7 @@ watch(
 )
 
 async function addMember() {
-  if (!props.domain || !addMemberDeviceId.value) return
+  if (!props.domain || !addMemberDeviceId.value || membersIncomplete.value) return
   const deviceId = addMemberDeviceId.value
   try {
     const link = await api.post<VLANDomainDeviceLink>(`/vlan-domains/${props.domain.id}/members`, { physical_device_id: deviceId })
@@ -147,7 +152,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <div class="modal-head">
         <h2 :id="titleId">{{ isEdit ? 'Редактировать VLAN-домен' : 'Добавить VLAN-домен' }}</h2>
@@ -195,6 +200,14 @@ async function submit() {
 
             <p v-if="loadingMembers" class="loading-hint">Загрузка состава домена…</p>
             <template v-else>
+              <DataLoadNotice
+                v-if="membersIncomplete"
+                kind="incomplete"
+                what="устройств домена"
+                :loaded="membersIncomplete.loaded"
+                :total="membersIncomplete.total"
+                hint="Добавление устройств отключено: по неполному списку нельзя исключить повторное добавление."
+              />
               <div v-if="!members.length" class="empty">Устройства не добавлены</div>
               <div v-for="m in members" :key="m.id" class="member-row">
                 <span>{{ memberDeviceLabel(m.physical_device_id) }}</span>
@@ -203,11 +216,11 @@ async function submit() {
                 </button>
               </div>
               <div class="add-member-row">
-                <select v-model="addMemberDeviceId">
+                <select v-model="addMemberDeviceId" :disabled="!!membersIncomplete">
                   <option value="">— выберите устройство —</option>
                   <option v-for="d in availableToAdd" :key="d.id" :value="d.id">{{ deviceLabel(d) }}</option>
                 </select>
-                <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId" @click="addMember">
+                <button type="button" class="btn btn-secondary" :disabled="!addMemberDeviceId || !!membersIncomplete" @click="addMember">
                   <svg class="icon"><use href="/icons.svg#i-plus" /></svg>
                   Добавить
                 </button>
@@ -225,21 +238,10 @@ async function submit() {
         </button>
       </div>
     </div>
-  </div>
+  </BaseModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 560px;

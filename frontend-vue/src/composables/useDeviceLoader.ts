@@ -51,39 +51,55 @@ export function useDeviceLoader(draft: DeviceDraft, deps: DeviceLoaderDeps) {
       // Устройства-соседи и их свободные порты блок «Подключение» запрашивает у сервера сам (поиском со страницами),
       // полный список устройств форме не нужен.
       if (!source) return
-      draft.loadingNested.value = true
-      try {
-        const data = await loadDeviceNestedData(source, isCopy, () => vlansStore.ensureLoaded())
-        draft.softwareAssets.value = data.softwareAssets
-        draft.interfaces.value = data.interfaces
-        draft.interfaceGroups.value = data.interfaceGroups
-        // При копировании id стёрты — снимок пуст, а у копии всё равно нет подключений и соседей.
-        draft.snapshot.portConfigs = snapshotPortConfigs(draft.interfaces.value)
-        draft.initialConnections.value = snapshotConnections(draft.interfaces.value)
-        draft.savedConnections.value = data.connections
-        // Список VLAN устройства упорядочен по номеру VLAN (как открытые порты): vlansStore к этому моменту уже
-        // загружен (ensureLoaded выше), так что номера известны.
-        draft.deviceVlans.value = sortDeviceVlanRows(data.vlanRows, vlansStore.allDefinitions)
-        draft.snapshot.deviceVlanKey = deviceVlanKey(draft.deviceVlans.value)
-        // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
-        // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
-        // п.1.3.8), а не как уже подтверждённое: иначе availableVlans решит, что устройство
-        // уже участник домена, которым оно на самом деле пока не является, а связь так и не
-        // создастся, поскольку persistPendingDomainMemberships читает только pendingDomainMemberships.
-        if (isCopy) {
-          draft.pendingDomainMemberships.value = new Set(data.domainIds)
-        } else {
-          draft.memberDomainIds.value = new Set(data.domainIds)
-        }
-        draft.deviceTypeVlanIds.value = data.typeVlanIds
-      } catch (err) {
-        draft.errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты, ПО, интерфейсы и VLAN устройства'
-      } finally {
-        draft.loadingNested.value = false
-      }
+      await loadNested(source, isCopy)
     },
     { immediate: true },
   )
+
+  // Вложенные данные грузятся атомарно (один Promise.all): либо все, либо ничего. При сбое черновик остаётся пустым, и это нужно
+  // помнить явно (nestedLoadFailed): сохранение пустых списков стёрло бы ПО, VLAN и порты устройства на сервере.
+  async function loadNested(source: Device, isCopy: boolean) {
+    draft.loadingNested.value = true
+    draft.nestedLoadFailed.value = false
+    try {
+      const data = await loadDeviceNestedData(source, isCopy, () => vlansStore.ensureLoaded())
+      draft.softwareAssets.value = data.softwareAssets
+      draft.interfaces.value = data.interfaces
+      draft.interfaceGroups.value = data.interfaceGroups
+      // При копировании id стёрты — снимок пуст, а у копии всё равно нет подключений и соседей.
+      draft.snapshot.portConfigs = snapshotPortConfigs(draft.interfaces.value)
+      draft.initialConnections.value = snapshotConnections(draft.interfaces.value)
+      draft.savedConnections.value = data.connections
+      // Список VLAN устройства упорядочен по номеру VLAN (как открытые порты): vlansStore к этому моменту уже
+      // загружен (ensureLoaded выше), так что номера известны.
+      draft.deviceVlans.value = sortDeviceVlanRows(data.vlanRows, vlansStore.allDefinitions)
+      draft.snapshot.deviceVlanKey = deviceVlanKey(draft.deviceVlans.value)
+      // При копировании членство в доменах ещё не существует для НОВОГО устройства — переносим
+      // как "предстоит создать при сохранении" (см. persistPendingDomainMemberships, фикс
+      // п.1.3.8), а не как уже подтверждённое: иначе availableVlans решит, что устройство
+      // уже участник домена, которым оно на самом деле пока не является, а связь так и не
+      // создастся, поскольку persistPendingDomainMemberships читает только pendingDomainMemberships.
+      if (isCopy) {
+        draft.pendingDomainMemberships.value = new Set(data.domainIds)
+      } else {
+        draft.memberDomainIds.value = new Set(data.domainIds)
+      }
+      draft.deviceTypeVlanIds.value = data.typeVlanIds
+    } catch (err) {
+      draft.nestedLoadFailed.value = true
+      draft.errorMessage.value = err instanceof Error ? err.message : 'Не удалось загрузить открытые порты, ПО, интерфейсы и VLAN устройства'
+    } finally {
+      draft.loadingNested.value = false
+    }
+  }
+
+  /** «Повторить загрузку» после сбоя: перечитываются только вложенные данные; основные поля формы (их могли править) не сбрасываются. */
+  async function retryNested() {
+    const source = deps.device() ?? deps.copyFrom() ?? null
+    if (!source) return
+    draft.errorMessage.value = null
+    await loadNested(source, !deps.device() && !!deps.copyFrom())
+  }
 
   // Смена типа устройства уже после загрузки: допустимые VLAN порта перечитываются под новый тип.
   watch(
@@ -117,5 +133,5 @@ export function useDeviceLoader(draft: DeviceDraft, deps: DeviceLoaderDeps) {
     }
   }
 
-  return { reloadNeighborConfigs }
+  return { reloadNeighborConfigs, retryNested }
 }

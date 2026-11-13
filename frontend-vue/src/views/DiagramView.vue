@@ -11,7 +11,7 @@
 // localNodes/localEdges пересобираются из него заново при каждой загрузке/пересборке диаграммы
 // (см. syncFromStore), а обратно в стор данные идут ТОЛЬКО через явные действия
 // (onNodeDragStop -> store.moveNode, раздел 4.6 ТЗ), а не автоматической синхронизацией.
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { VueFlow, useVueFlow, type Edge, type EdgeMouseEvent, type GraphNode, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
@@ -29,6 +29,7 @@ import { useMediaQuery } from '../composables/useMediaQuery'
 import { CONNECTION_EDGE_TYPE, edgeBaseStyle, edgeIsRelatedToHover, GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
 import { FIT_VIEW_OPTIONS, resolveInitialView } from '../utils/diagramViewport'
 import { EDGE_LABEL_LAYOUT_KEY, computeEdgeLabelLayout, edgeLabelsVisible } from '../utils/diagramEdgeLabels'
+import { EDGE_ROUTES_KEY, routeEdgesWithStatus, routeInputsFromFlow, type EdgeRouteMap } from '../utils/diagramEdgeRouting'
 import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagrams'
 
 const route = useRoute()
@@ -36,7 +37,7 @@ const router = useRouter()
 const store = useDiagramStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
-const { fitView, setViewport, onNodesInitialized, viewport } = useVueFlow()
+const { fitView, setViewport, onNodesInitialized, viewport, getNodes } = useVueFlow()
 
 const diagramId = computed(() => String(route.params.id))
 
@@ -47,6 +48,30 @@ provide(
   computed(() => computeEdgeLabelLayout(store.diagram?.edges ?? [])),
 )
 const labelsHidden = computed(() => !edgeLabelsVisible(viewport.value.zoom))
+
+// F-07: ортогональные маршруты рёбер в обход узлов. Считаются сразу для всех рёбер, потому что маршрут одного зависит от остальных
+// (занятые дорожки) и от всех узлов (препятствия), и отдаются рёбрам через provide. Пересчёт — когда узлы измерены (первая отрисовка,
+// «Пересобрать», разворачивание группы) и после остановки перетаскивания; пока узел тащат, маршруты его рёбер не совпадают с хэндлами,
+// и DiagramConnectionEdge рисует их прежней кривой. Небольшая задержка собирает серию событий в один расчёт.
+const ROUTE_RECALC_DELAY_MS = 60
+const edgeRoutes = shallowRef<EdgeRouteMap>(new Map())
+provide(EDGE_ROUTES_KEY, edgeRoutes)
+// ИБ-04 (ревью merge/review-r3-executors): расчёт маршрутов ограничен по времени (ROUTING_BUDGET_MS), и на плотной диаграмме часть рёбер
+// остаётся без маршрута — их рисует прежняя кривая. Раньше это происходило молча: пользователь видел «кривые вперемешку с ортогональными»
+// и не понимал почему. Теперь экран показывает короткую подсказку; она привязана к тому же результату, что и сами маршруты.
+const routingDegraded = ref(false)
+let routeTimer: ReturnType<typeof setTimeout> | undefined
+function recomputeRoutes() {
+  routeTimer = undefined
+  const { nodes, requests } = routeInputsFromFlow(getNodes.value, localEdges.value)
+  const result = routeEdgesWithStatus(nodes, requests)
+  edgeRoutes.value = result.routes
+  routingDegraded.value = result.degraded
+}
+function scheduleRouteRecalc() {
+  if (routeTimer !== undefined) clearTimeout(routeTimer)
+  routeTimer = setTimeout(recomputeRoutes, ROUTE_RECALC_DELAY_MS)
+}
 
 // Мини-карта на телефоне занимает заметную часть холста шириной 350 px, а ориентироваться там помогают кнопки масштаба.
 const isPhone = useMediaQuery('(max-width: 760px)')
@@ -83,6 +108,7 @@ async function loadDiagram() {
 }
 
 onNodesInitialized(() => {
+  scheduleRouteRecalc()
   if (!applyInitialView) return
   applyInitialView = false
   const view = resolveInitialView(store.diagram?.viewport)
@@ -95,6 +121,7 @@ watch(diagramId, loadDiagram)
 // Сдвиг узла уходит на сервер с задержкой (debounce в сторе): при уходе с экрана отправляем его сразу.
 // Смену диаграммы на этом же экране покрывает store.load(). Ошибка сохранения остаётся в store.error.
 onBeforeUnmount(() => {
+  if (routeTimer !== undefined) clearTimeout(routeTimer)
   void store.flushLayoutSave()
 })
 
@@ -127,6 +154,7 @@ function onPaneClick() {
   store.clearSelection()
 }
 function onNodeDragStop({ node }: NodeDragEvent) {
+  scheduleRouteRecalc()
   store.moveNode(node.id, node.position.x, node.position.y)
 }
 
@@ -284,6 +312,13 @@ async function commitRename() {
         <span v-if="renameError" class="rename-error">{{ renameError }}</span>
       </div>
       <span v-if="store.savingLayout" class="saving-hint">сохранение раскладки…</span>
+      <span
+        v-if="routingDegraded"
+        class="saving-hint routing-hint"
+        role="status"
+        title="Диаграмма слишком плотная: расчёт маршрутов уложился во время не для всех связей. Оставшиеся нарисованы плавной кривой."
+        >часть связей проложена упрощённо</span
+      >
       <div class="spacer"></div>
       <button v-if="auth.canWrite" class="btn btn-secondary" type="button" :disabled="store.loading" @click="onRegenerate">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>

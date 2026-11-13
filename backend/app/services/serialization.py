@@ -5,12 +5,42 @@ from typing import Any, Sequence
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ..models import (Connection, ConnectionType, DeviceInterface, DeviceSubinterface, IPAddress, OpenPort, PhysicalDevice, SupportOrganization, SupportMethod, PlacementAsset, ISPlacementAsset, VirtualMachine, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, Department, Container, ProtocolPortCatalog, EmbeddedOperatingSystem, PhysicalDeviceVLAN, VLAN, DeviceStack, DeviceStackMember, InterfaceGroup, InterfaceGroupIP, InterfaceGroupOpenPort, InterfaceGroupVLAN)
+from ..models import (
+    Connection,
+    ConnectionType,
+    DeviceInterface,
+    DeviceSubinterface,
+    IPAddress,
+    OpenPort,
+    PhysicalDevice,
+    SupportOrganization,
+    SupportMethod,
+    PlacementAsset,
+    ISPlacementAsset,
+    VirtualMachine,
+    InformationSystem,
+    ISDepartment,
+    ISProtocol,
+    InformationSystemSource,
+    Department,
+    Container,
+    ProtocolPortCatalog,
+    EmbeddedOperatingSystem,
+    PhysicalDeviceVLAN,
+    VLAN,
+    DeviceStack,
+    DeviceStackMember,
+    InterfaceGroup,
+    InterfaceGroupIP,
+    InterfaceGroupOpenPort,
+    InterfaceGroupVLAN,
+)
 from .port_config import PortConfigStatus, evaluate_port_config, config_differences
 from .port_config_db import load_port_configs
 from .port_vlans import carries_all_vlans, effective_group_vlan_ids
 from ..constants import OwnerType, SourceType
 from .computed import device_management_ports_and_ips
+from .device_label import device_label
 from .timeutil import iso_utc
 
 def serialize(obj: Any) -> dict[str, Any]:
@@ -244,7 +274,7 @@ def _load_connection_lookups(items: Sequence[Connection], session: Session) -> _
 def _endpoint_fields(side: str, iface: DeviceInterface | None, device: PhysicalDevice | None, config: Any) -> dict[str, Any]:
     """Поля одного конца подключения (side — 'source' или 'destination'): устройство, порт и его конфигурация."""
     return {
-        f'{side}_device_name': (device.system_name or device.serial_number) if device else '',
+        f'{side}_device_name': device_label(device),
         f'{side}_interface_name': iface.name if iface else '',
         f'{side}_port_role': config.role.value if config else None,
         f'{side}_vlan_mode': config.mode if config else None,
@@ -384,7 +414,7 @@ def _enrich_single_information_system(obj: InformationSystem, ln: _InformationSy
         'ip_addresses_summary': '; '.join(ip_addresses),
         # protocol_catalog_id обязателен для ISProtocol (NOT NULL, миграция b7f2c1e5a904): свободного текста без справочника не бывает.
         'protocols_summary': _unique_joined(f'{ln.proto_map[x.protocol_catalog_id].protocol_type}/{ln.proto_map[x.protocol_catalog_id].port}' for x in ln.proto_by_is.get(obj.id, []) if x.protocol_catalog_id in ln.proto_map),
-        'physical_devices_summary': _unique_joined((d.system_name or d.serial_number or d.id) for d in devices),
+        'physical_devices_summary': _unique_joined(device_label(d, fallback=d.id) for d in devices),
         'vms_summary': _unique_joined(v.name or v.id for v in vms),
         'containers_summary': _unique_joined(c.name or c.id for c in containers),
     }

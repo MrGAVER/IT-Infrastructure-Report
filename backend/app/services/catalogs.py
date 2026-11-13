@@ -81,7 +81,26 @@ DEVICE_TYPE_CATEGORY = {
     'Принтер/МФУ': 'Периферия и вспомогательное оборудование',
 }
 DEVICE_TYPE_NAMES = list(DEVICE_TYPE_CATEGORY.keys())
-PROTOCOL_DEFAULTS = [(22,'SSH','Secure Shell'),(53,'DNS','Domain Name System'),(80,'HTTP','Web HTTP'),(123,'NTP','Network Time Protocol'),(161,'SNMP','Simple Network Management Protocol'),(389,'LDAP','Lightweight Directory Access Protocol'),(443,'HTTPS','Web HTTPS'),(445,'SMB','Server Message Block'),(636,'LDAPS','LDAP over TLS'),(1433,'MS SQL','Microsoft SQL Server'),(1521,'Oracle','Oracle Database'),(2049,'NFS','Network File System'),(3306,'MySQL','MySQL'),(3389,'RDP','Remote Desktop Protocol'),(5432,'PostgreSQL','PostgreSQL'),(5900,'VNC','Virtual Network Computing'),(8080,'HTTP-alt','Alternative HTTP'),(8443,'HTTPS-alt','Alternative HTTPS')]
+PROTOCOL_DEFAULTS = [
+    (22, "SSH", "Secure Shell"),
+    (53, "DNS", "Domain Name System"),
+    (80, "HTTP", "Web HTTP"),
+    (123, "NTP", "Network Time Protocol"),
+    (161, "SNMP", "Simple Network Management Protocol"),
+    (389, "LDAP", "Lightweight Directory Access Protocol"),
+    (443, "HTTPS", "Web HTTPS"),
+    (445, "SMB", "Server Message Block"),
+    (636, "LDAPS", "LDAP over TLS"),
+    (1433, "MS SQL", "Microsoft SQL Server"),
+    (1521, "Oracle", "Oracle Database"),
+    (2049, "NFS", "Network File System"),
+    (3306, "MySQL", "MySQL"),
+    (3389, "RDP", "Remote Desktop Protocol"),
+    (5432, "PostgreSQL", "PostgreSQL"),
+    (5900, "VNC", "Virtual Network Computing"),
+    (8080, "HTTP-alt", "Alternative HTTP"),
+    (8443, "HTTPS-alt", "Alternative HTTPS"),
+]
 EMBEDDED_OS_DEFAULTS = [('Cisco IOS','15','Cisco'),('Cisco IOS XE','17','Cisco'),('Junos OS','21','Juniper'),('RouterOS','7','MikroTik'),('FortiOS','7','Fortinet'),('PAN-OS','11','Palo Alto Networks'),('ArubaOS-CX','10','HPE Aruba'),('Comware','7','HPE'),('Huawei VRP','8','Huawei'),('Dell OS10','10','Dell'),('SONiC','','Community')
 ]
 OS_DEFAULTS = [

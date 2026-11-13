@@ -40,13 +40,13 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 # crud.assert_deletable() (см. docstring services/integrity.py).
 ALLOWED_DELETIONS = {
     # сессии и учётные записи
-    ("app/services/auth.py", "delete_user", "user"),
-    ("app/services/auth.py", "cleanup_expired_sessions", "AuthSession"),
-    ("app/services/auth.py", "resolve_session", "row"),
-    ("app/services/auth.py", "revoke_session", "AuthSession"),
-    ("app/services/auth.py", "revoke_all_sessions", "AuthSession"),
-    ("app/services/auth.py", "revoke_all_sessions_except", "AuthSession"),
-    ("app/services/auth.py", "revoke_session_by_id", "AuthSession"),
+    ("app/services/auth/users.py", "delete_user", "user"),
+    ("app/services/auth/sessions.py", "cleanup_expired_sessions", "AuthSession"),
+    ("app/services/auth/sessions.py", "resolve_session", "row"),
+    ("app/services/auth/sessions.py", "revoke_session", "AuthSession"),
+    ("app/services/auth/sessions.py", "revoke_all_sessions", "AuthSession"),
+    ("app/services/auth/sessions.py", "revoke_all_sessions_except", "AuthSession"),
+    ("app/services/auth/sessions.py", "revoke_session_by_id", "AuthSession"),
     # настройки интерфейса (AppPreference): листовая таблица, на неё никто не ссылается и она не входит в защищённые
     # модели. Запись удаляется, когда настройку сбрасывают к умолчанию (null), и все личные записи — вместе с
     # удаляемым пользователем (внешнего ключа с каскадом у owner нет, см. models.AppPreference)

@@ -16,7 +16,7 @@ import type { Connection, PortConfigFacet, PortSyncPlanItem } from '../api/types
 import PortSyncPlanModal from './PortSyncPlanModal.vue'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsDashboardStore } from '../stores/connectionsDashboard'
-import { useOverlayDismiss } from '../composables/useOverlayDismiss'
+import BaseModal from './BaseModal.vue'
 import { useToast } from '../composables/useToast'
 import { useVlanModeCascade } from '../composables/useVlanModeCascade'
 import type { VlanMode } from '../api/vlanModeCascade'
@@ -32,7 +32,6 @@ const emit = defineEmits<{
   /** Открыть окно правки роли, режима и VLAN одного порта подключения. */
   'edit-port': [side: 'source' | 'destination']
 }>()
-const { onOverlayPointerDown, onOverlayClick } = useOverlayDismiss(() => emit('close'))
 
 const catalogs = useCatalogsStore()
 const dashboard = useConnectionsDashboardStore()
@@ -167,7 +166,7 @@ function alignMode(keepSource: boolean) {
 </script>
 
 <template>
-  <div class="overlay" @mousedown="onOverlayPointerDown" @click="onOverlayClick">
+  <BaseModal @close="emit('close')">
     <div class="modal card" role="dialog" aria-modal="true" aria-label="Конфигурация портов подключения">
       <div class="modal-head">
         <h2>Конфигурация портов подключения</h2>
@@ -293,7 +292,7 @@ function alignMode(keepSource: boolean) {
       @close="planOpen = false"
       @applied="onPlanApplied"
     />
-  </div>
+  </BaseModal>
 
   <VlanModeCascadeModal
     v-if="cascadePending"
@@ -306,17 +305,6 @@ function alignMode(keepSource: boolean) {
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  overflow-y: auto;
-}
 .modal {
   width: 100%;
   max-width: 620px;

@@ -1,11 +1,10 @@
 // Стор для экрана "Виртуальные машины" (Лист 4).
-// GET /api/v1/vms -> {items,total}, как /devices (см. api/types.ts:VMsResponse).
+// GET /api/v1/vms -> {items,total}, как /devices (см. api/types/workloads.ts:VMsResponse).
 import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import type { VirtualMachine, VMsResponse } from '../api/types'
-import { isAllowedPageSize, loadPageSize, pageAfterSizeChange, pageSizeOptionsFor, savePageSize } from '../utils/pageSize'
+import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 
-const DEFAULT_PAGE_SIZE = 8
 const LIST_ID = 'vms'
 
 export const useVMsStore = defineStore('vms', {
@@ -17,7 +16,7 @@ export const useVMsStore = defineStore('vms', {
     error: null as string | null,
     search: '',
     page: 1,
-    pageSize: loadPageSize(LIST_ID, DEFAULT_PAGE_SIZE),
+    pageSize: loadPageSize(LIST_ID),
   }),
   getters: {
     filtered(state): VirtualMachine[] {
@@ -26,7 +25,7 @@ export const useVMsStore = defineStore('vms', {
       return state.all.filter((vm) => [vm.name, vm.purpose, vm.description].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
     },
     pageSizeOptions(): number[] {
-      return pageSizeOptionsFor(DEFAULT_PAGE_SIZE)
+      return [...PAGE_SIZE_OPTIONS]
     },
     pageCount(): number {
       return Math.max(1, Math.ceil(this.filtered.length / this.pageSize))
@@ -61,12 +60,17 @@ export const useVMsStore = defineStore('vms', {
     /** Смена количества строк на странице: остаёмся на странице с тем же первым видимым
      * элементом, выбор запоминается для этого списка. Недопустимое значение игнорируется. */
     setPageSize(size: number) {
-      if (size === this.pageSize || !isAllowedPageSize(size, DEFAULT_PAGE_SIZE)) return
+      if (size === this.pageSize || !isAllowedPageSize(size)) return
       this.page = pageAfterSizeChange(this.page, this.pageSize, size)
       this.pageSize = size
       savePageSize(LIST_ID, size)
     },
     resetPageOnFilterChange() {
+      this.page = 1
+    },
+    /** Снимает поиск (кнопка «Сбросить фильтры» в пустой таблице, F-04). */
+    resetFilters() {
+      this.search = ''
       this.page = 1
     },
   },

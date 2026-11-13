@@ -77,12 +77,15 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
   // убранное пользователем. `deviceExisted` — устройство существовало до этого сохранения (редактирование
   // или повтор после сбоя): для только что созданного пустой список синхронизировать не нужно.
   async function persistSoftwareAssets(deviceId: string, deviceExisted: boolean) {
+    // ПО не загрузилось (см. useDeviceDraft.nestedLoadFailed): пустой черновик — не решение пользователя, PUT стёр бы ПО устройства.
+    if (draft.nestedLoadFailed.value) return
     if (!deviceExisted && !draft.softwareAssets.value.some((row) => row.software_asset_id)) return
     await syncDeviceDeployedSoftware(deviceId, draft.softwareAssets.value)
   }
 
   async function submit() {
-    if (deps.readOnly.value) return
+    // Пока вложенные данные грузятся, черновик пуст: сохранение в этот момент стёрло бы ПО, VLAN и порты устройства на сервере.
+    if (deps.readOnly.value || draft.loadingNested.value) return
     draft.errorMessage.value = null
     const issue = validateDeviceDraft({
       form: draft.form,
@@ -138,24 +141,27 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
           // allowed_vlans в backend/app/services/crud/interfaces.py). Если VLAN только что добавлен в блок
           // "VLAN устройства" и тут же назначен порту в этом же сохранении, к моменту проверки он
           // должен уже быть в БД — иначе 422 "VLAN не разрешён" на ровном месте для пользователя.
-          const deviceVlansChanged = !!deps.device() && deviceVlanKey(draft.deviceVlans.value) !== draft.snapshot.deviceVlanKey
-          await persistDeviceVlans(saved.id, draft.deviceVlans.value)
-          // Атомарный PUT (не через generic createResource/deleteResource) — см.
-          // api/deviceInterfaces.ts:persistDeviceInterfaces.
-          const { items: savedInterfaces } = await persistDeviceInterfaces(
-            saved.id,
-            draft.interfaces.value,
-            draft.interfaceGroups.value,
-            draft.initialConnections.value,
-          )
-          // Фикс п.3.1: без этого catalogs.items['interfaces'] не узнаёт о только что
-          // сохранённых портах устройства (persistDeviceInterfaces — чистый API-вызов, сам кэш
-          // каталогов не трогает по дизайну, см. её комментарий), и поле "Порт" в форме
-          // подключения (ConnectionFormModal.vue, читает ровно этот кэш) оставалось пустым для
-          // нового устройства до жёсткой перезагрузки страницы, обнуляющей кэш и вызывающей
-          // catalogs.reload() заново. DevicePortsModal.vue делает этот же вызов уже сейчас —
-          // здесь его просто не было для основного пути создания/редактирования устройства.
-          catalogs.replaceDeviceInterfaces(saved.id, savedInterfaces)
+          //
+          // Вложенные данные не загрузились (nestedLoadFailed) — VLAN и порты в форме не показаны и в запрос не попадают: иначе PUT
+          // пустых списков удалил бы их на сервере. Основные поля устройства при этом сохраняются как обычно.
+          const nestedSynced = !draft.nestedLoadFailed.value
+          let savedInterfaces: Awaited<ReturnType<typeof persistDeviceInterfaces>>['items'] = []
+          const deviceVlansChanged = nestedSynced && !!deps.device() && deviceVlanKey(draft.deviceVlans.value) !== draft.snapshot.deviceVlanKey
+          if (nestedSynced) {
+            await persistDeviceVlans(saved.id, draft.deviceVlans.value)
+            // Атомарный PUT (не через generic createResource/deleteResource) — см.
+            // api/deviceInterfaces.ts:persistDeviceInterfaces.
+            savedInterfaces = (await persistDeviceInterfaces(saved.id, draft.interfaces.value, draft.interfaceGroups.value, draft.initialConnections.value))
+              .items
+            // Фикс п.3.1: без этого catalogs.items['interfaces'] не узнаёт о только что
+            // сохранённых портах устройства (persistDeviceInterfaces — чистый API-вызов, сам кэш
+            // каталогов не трогает по дизайну, см. её комментарий), и поле "Порт" в форме
+            // подключения (ConnectionFormModal.vue, читает ровно этот кэш) оставалось пустым для
+            // нового устройства до жёсткой перезагрузки страницы, обнуляющей кэш и вызывающей
+            // catalogs.reload() заново. DevicePortsModal.vue делает этот же вызов уже сейчас —
+            // здесь его просто не было для основного пути создания/редактирования устройства.
+            catalogs.replaceDeviceInterfaces(saved.id, savedInterfaces)
+          }
           // Пункт 3: сторы VLAN и доменов читаются другими экранами (VLANsView, DevicesView) без
           // повторной загрузки — без этого включение в домен и новые VLAN устройства были видны там
           // только после перезагрузки страницы. reload() сам не бросает (ошибка пишется в store.error).

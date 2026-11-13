@@ -8,6 +8,7 @@
 import { computed } from 'vue'
 import type { GridPreviewSection } from '../api/types'
 import { visibleCellsForRow } from '../utils/gridCoverage'
+import ScrollableTableWrap from './ScrollableTableWrap.vue'
 
 const props = defineProps<{ section: GridPreviewSection }>()
 
@@ -28,7 +29,7 @@ function cellText(value: unknown): string {
       <span v-if="section.total_records !== undefined && section.rows" class="preview-note"> показано записей: {{ section.total_records }} </span>
     </div>
     <p v-if="section.error" class="preview-error">{{ section.error }}</p>
-    <div v-else class="preview-table-wrap">
+    <ScrollableTableWrap v-else :label="`Предпросмотр: ${section.title || 'без названия'}`">
       <table class="preview-table">
         <tbody>
           <tr v-for="(_row, ri) in section.rows" :key="ri">
@@ -44,7 +45,7 @@ function cellText(value: unknown): string {
           </tr>
         </tbody>
       </table>
-    </div>
+    </ScrollableTableWrap>
   </div>
 </template>
 
@@ -70,9 +71,6 @@ function cellText(value: unknown): string {
   font-size: 12px;
   color: var(--status-crit);
   margin: 0;
-}
-.preview-table-wrap {
-  overflow-x: auto;
 }
 .preview-table {
   border-collapse: collapse;

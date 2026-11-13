@@ -7,7 +7,7 @@
 
 /** Минимальная форма строки/ячейки, которой достаточно для coverageForRows/visibleCellsForRow —
  * общая как для "живых" GridRow/GridCell редактора, так и для уже материализованных
- * GridPreviewRow/GridPreviewCell предпросмотра (api/types.ts): у обеих есть col/colspan/rowspan,
+ * GridPreviewRow/GridPreviewCell предпросмотра (api/types): у обеих есть col/colspan/rowspan,
  * но разный набор остальных полей (kind/text/path у одной, value/is_datetime у другой). */
 export interface CoverageRow<TCell extends { col: number; colspan?: number; rowspan?: number }> {
   cells: TCell[]
