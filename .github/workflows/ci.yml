@@ -128,10 +128,16 @@ jobs:
         # Тесты с меткой slow (test_report_layout_performance.py) проверяют время работы и на 2-ядерном раннере в паре со вторым
         # процессом и измерением покрытия выходят за лимит (3,8–4,0 с при лимите 3,0 с), поэтому идут отдельным шагом без -n,
         # а покрытие дописывается (--cov-append). Порог покрытия проверяет только второй шаг — по сумме обоих.
+        # Бюджет «неожиданных» пропусков (ИА-08 код-ревью r3, backend/tests/skip_budget.py): отбор по базе SQLite/PostgreSQL не считается, остальное —
+        # да. Сейчас их не больше двух: test_pyinstaller_spec.py (PyInstaller нет в requirements-dev.lock) и дымовой тест LibreOffice (`soffice` может
+        # отсутствовать на раннере). Новый пропуск роняет сборку: поднимать число можно только осознанно, объяснив в коммите, зачем тест пропускается.
+        # `-rs` печатает причины всех пропусков в сводке.
+        env:
+          INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "2"
         run: |
           status=0
-          pytest -n auto -m "not slow" -v --cov --cov-fail-under=0 --cov-report= || status=$?
-          pytest -m slow -v --cov --cov-append --cov-report=term:skip-covered || status=$?
+          pytest -n auto -m "not slow" -v -rs --cov --cov-fail-under=0 --cov-report= || status=$?
+          pytest -m slow -v -rs --cov --cov-append --cov-report=term:skip-covered || status=$?
           { echo "### Покрытие тестами backend"; echo; coverage report --format=markdown --skip-covered --fail-under=0 || true; } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
@@ -294,7 +300,10 @@ jobs:
         run: pip install --require-hashes -r backend/requirements-dev.lock
 
       - name: Тесты backend на PostgreSQL
-        run: pytest -v
+        # Бюджет неожиданных пропусков — как в job `test` (там же объяснение).
+        env:
+          INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "2"
+        run: pytest -v -rs
 
   # Тот же набор тестов на PostgreSQL, но схема собрана цепочкой миграций Alembic (`alembic upgrade head`), как при
   # первом запуске docker-compose, а не из моделей: так проверяется схема, которую получат реальные установки.
@@ -346,7 +355,10 @@ jobs:
           alembic check
 
       - name: Тесты backend на PostgreSQL (схема из миграций)
-        run: pytest -v
+        # Бюджет неожиданных пропусков — как в job `test` (там же объяснение).
+        env:
+          INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "2"
+        run: pytest -v -rs
 
       - name: Живой запуск приложения на PostgreSQL
         working-directory: backend

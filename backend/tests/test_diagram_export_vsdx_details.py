@@ -19,12 +19,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 import pytest
+import vsdx
 
 from app.services.diagram_export import NODE_HEIGHT, NODE_WIDTH, export_vsdx
 from app.services.diagram_export._common import DIAGRAM_EDGE_FONT_SIZE, DIAGRAM_NODE_FONT_SIZE, PORT_TICK_HEIGHT, PORT_TICK_WIDTH
 from test_diagram_export import CUSTOM_SVG, _custom_graph, _sample_graph
 
-vsdx = pytest.importorskip("vsdx")
 
 SCALE = 100.0  # VSDX_SCALE: пиксели графа -> дюймы Visio
 

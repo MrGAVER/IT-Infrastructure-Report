@@ -36,6 +36,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from skip_budget import POSTGRES_ONLY_REASON, SQLITE_ONLY_REASON, pytest_sessionfinish  # noqa: F401  (хук бюджета пропусков, ИА-08)
 
 
 # Серверный режим приложения работает на PostgreSQL (docker-compose.yml), а по умолчанию тесты идут на SQLite.
@@ -62,11 +63,12 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
+    # Причины — константы skip_budget: плагин не считает эти пропуски «неожиданными» (ИА-08 код-ревью r3).
     if IS_POSTGRES:
-        skip = pytest.mark.skip(reason="тест только для SQLite (INFRA_REGISTRY_TEST_DATABASE_URL задан)")
+        skip = pytest.mark.skip(reason=SQLITE_ONLY_REASON)
         marker = "sqlite_only"
     else:
-        skip = pytest.mark.skip(reason="тест требует PostgreSQL (задайте INFRA_REGISTRY_TEST_DATABASE_URL)")
+        skip = pytest.mark.skip(reason=POSTGRES_ONLY_REASON)
         marker = "postgres_only"
     for item in items:
         if marker in item.keywords:

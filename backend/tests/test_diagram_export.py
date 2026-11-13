@@ -19,6 +19,7 @@ import zipfile
 from urllib.parse import quote, unquote
 
 import pytest
+import vsdx
 
 from app.services.diagram_export import (
     CUSTOM_ICON_TILE_HEIGHT,
@@ -296,7 +297,6 @@ def test_export_vsdx_embeds_category_icon_as_foreign_data(tmp_path):
     vsdx, содержит валидный PNG, связи и Content-Type на месте) — НЕ визуальную отрисовку;
     сторонний инструмент проверки (headless LibreOffice) для этой конкретной фигуры недоступен
     как оракул, см. learnings в памяти проекта."""
-    vsdx = pytest.importorskip("vsdx")
     graph = _sample_graph()
     data = export_vsdx(graph)
     out_path = tmp_path / "diagram_icon.vsdx"
@@ -333,7 +333,6 @@ def test_export_vsdx_embeds_category_icon_as_foreign_data(tmp_path):
 def test_export_vsdx_dedupes_identical_glyph_to_one_image(tmp_path):
     """Два устройства одной категории (одинаковый icon["glyph"]) должны переиспользовать ОДНУ
     картинку, а не плодить дубликаты — см. glyph_rel_ids в export_vsdx."""
-    pytest.importorskip("vsdx")
     same_glyph = '<rect x="2" y="2" width="20" height="20"/>'
     graph = {
         "nodes": [
@@ -356,7 +355,6 @@ def test_export_vsdx_dedupes_identical_glyph_to_one_image(tmp_path):
 def test_export_vsdx_without_glyphs_has_no_media(tmp_path):
     """Сгенерированная иконка без glyph и группа не должны создавать ни одной картинки-оверлея.
     (Custom-иконки картинку создают — см. test_export_vsdx_custom_icon_* ниже.)"""
-    pytest.importorskip("vsdx")
     graph = {
         "nodes": [
             {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0,
@@ -378,7 +376,6 @@ def test_export_vsdx_icon_shape_has_no_leftover_template_text(tmp_path):
     """Если ForeignData не распознаётся читателем, фигура откатывается на обычную геометрию —
     без явной очистки показала бы унаследованный от шаблона текст "RECTANGLE" (см. docstring в
     export_vsdx). Проверяем, что среди фигур нет ни одной с таким текстом."""
-    vsdx = pytest.importorskip("vsdx")
     graph = _sample_graph()
     data = export_vsdx(graph)
     out_path = tmp_path / "diagram_icon_text.vsdx"
@@ -398,7 +395,6 @@ def test_export_vsdx_page_fits_content_bounding_box(tmp_path):
     """Находка №5 отчёта (Фаза 2, п.3): страница подгоняется под фактический охват графа
     (тот же расчёт с отступом 40px, что и viewBox в export_svg), а не остаётся фиксированного
     размера шаблона A4 — иначе большой граф обрезался бы, а маленький терялся на пустом листе."""
-    vsdx = pytest.importorskip("vsdx")
     graph = {
         "nodes": [
             {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
@@ -422,7 +418,6 @@ def test_export_vsdx_page_fits_content_bounding_box(tmp_path):
 
 
 def test_export_vsdx_empty_graph_keeps_template_page_size(tmp_path):
-    vsdx = pytest.importorskip("vsdx")
     data = export_vsdx({"nodes": [], "edges": []})
     out_path = tmp_path / "diagram_empty.vsdx"
     out_path.write_bytes(data)
@@ -438,7 +433,6 @@ def test_export_vsdx_empty_graph_keeps_template_page_size(tmp_path):
 
 
 
-    vsdx = pytest.importorskip("vsdx")
     graph = _sample_graph()
     data = export_vsdx(graph)
     out_path = tmp_path / "diagram.vsdx"
@@ -461,7 +455,6 @@ def test_export_vsdx_edge_anchors_to_resolved_port_not_shape_center(tmp_path):
     """Находка №2 отчёта (Фаза 2, п.1): для конца ребра с известным port_index точка коннектора
     должна лежать на нижней грани фигуры (в терминах графа) на нужной доле ширины, а не в
     center_x_y. _sample_graph(): source_interface.port_index=0 на switch (port_ticks=24)."""
-    vsdx = pytest.importorskip("vsdx")
     graph = _sample_graph()
     data = export_vsdx(graph)
     out_path = tmp_path / "diagram_port_anchor.vsdx"
@@ -486,7 +479,6 @@ def test_export_vsdx_edge_anchors_to_resolved_port_not_shape_center(tmp_path):
 
 
 def test_export_vsdx_edge_connector_present(tmp_path):
-    vsdx = pytest.importorskip("vsdx")
     graph = _sample_graph()
     data = export_vsdx(graph)
     out_path = tmp_path / "diagram_edge.vsdx"
@@ -560,7 +552,6 @@ def test_export_drawio_group_and_inactive_edge_marked_visually():
 def test_export_vsdx_group_and_device_and_inactive_edge_distinguishable(tmp_path):
     """Паритет с .svg/.drawio: группа должна визуально отличаться от устройства (иначе на
     .vsdx-экспорте их не различить), а неактивное ребро — быть помечено пунктиром."""
-    vsdx = pytest.importorskip("vsdx")
     graph = _parity_graph()
     data = export_vsdx(graph)
     out_path = tmp_path / "diagram_parity.vsdx"
@@ -596,7 +587,6 @@ def test_export_vsdx_opens_in_third_party_reader(tmp_path):
     _finalize_vsdx_package). LibreOffice — не единственный сторонний читатель в природе, но
     самый доступный для автоматической проверки; отсутствие soffice в окружении не должно
     ронять пайплайн — тест в этом случае пропускается, а не падает."""
-    pytest.importorskip("vsdx")
     soffice = shutil.which("soffice")
     if not soffice:
         pytest.skip("soffice (LibreOffice) недоступен в этом окружении")
@@ -724,7 +714,6 @@ def test_export_drawio_custom_icon_without_markup_draws_no_tile():
 
 
 def test_export_vsdx_custom_icon_embedded_as_png(tmp_path):
-    pytest.importorskip("vsdx")
     data = export_vsdx(_custom_graph(CUSTOM_SVG))
     out_path = tmp_path / "custom_icon.vsdx"
     out_path.write_bytes(data)
@@ -737,7 +726,6 @@ def test_export_vsdx_custom_icon_embedded_as_png(tmp_path):
 
 
 def test_export_vsdx_custom_icons_dedupe_by_markup(tmp_path):
-    pytest.importorskip("vsdx")
     other_svg = CUSTOM_SVG.replace("#33c9a7", "#ff0000")
     assert len(_vsdx_media(export_vsdx(_custom_graph(CUSTOM_SVG, CUSTOM_SVG, CUSTOM_SVG)), tmp_path)) == 1
     assert len(_vsdx_media(export_vsdx(_custom_graph(CUSTOM_SVG, other_svg, CUSTOM_SVG)), tmp_path)) == 2
@@ -746,7 +734,6 @@ def test_export_vsdx_custom_icons_dedupe_by_markup(tmp_path):
 def test_export_vsdx_survives_custom_icon_rasterization_failure(tmp_path, monkeypatch, caplog):
     """Один нерастрируемый svg_markup в каталоге не должен ронять экспорт всей диаграммы:
     иконка пропускается (с предупреждением в логе), узел остаётся с нейтральной заливкой."""
-    vsdx = pytest.importorskip("vsdx")
     import resvg_py
 
     def _boom(**_kwargs):
@@ -770,7 +757,6 @@ def test_export_vsdx_survives_custom_icon_rasterization_failure(tmp_path, monkey
 def test_export_vsdx_survives_glyph_rasterization_failure(tmp_path, monkeypatch):
     """Как и для custom-иконки: глиф, который не удалось растрировать, не роняет экспорт — узел остаётся с заливкой
     без картинки, а повторно растрировать тот же глиф для других узлов не пытаются (None запоминается в кэше)."""
-    vsdx = pytest.importorskip("vsdx")
     from app.services.diagram_export import vsdx as vsdx_exporter
 
     calls = []
@@ -797,7 +783,6 @@ def test_export_vsdx_survives_glyph_rasterization_failure(tmp_path, monkeypatch)
 
 def test_export_vsdx_skips_edges_whose_nodes_are_not_in_the_graph(tmp_path):
     """Ребро на узел, которого нет в графе, пропускается без ошибки; остальные рёбра рисуются как обычно."""
-    vsdx = pytest.importorskip("vsdx")
     graph = _sample_graph()
     valid_edges = len(graph["edges"])
     graph["edges"].append({"id": "conn-dangling-target", "source_node_id": "dev-switch", "target_node_id": "нет-такого", "source_interface": None, "target_interface": None, "vlans": [{"vlan_id": 77, "name": "призрак"}]})
@@ -876,7 +861,6 @@ def test_export_vsdx_node_shapes_have_graph_size_and_centered_pin(tmp_path):
     """Регрессия: фигуры узлов оставались размера шаблона (2.17x1.57in), а страница считалась по
     NODE_WIDTH/NODE_HEIGHT — нижний ряд и правый край большого графа обрезались. Кроме того, vsdx
     не пересчитывает LocPinX/LocPinY при смене размера — pin обязан быть в центре новой фигуры."""
-    vsdx = pytest.importorskip("vsdx")
     graph = {
         "nodes": [
             {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
