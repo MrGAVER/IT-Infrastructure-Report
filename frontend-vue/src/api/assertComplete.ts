@@ -40,3 +40,27 @@ export function assertComplete<R extends CompletenessInfo>(res: R, what: string)
   if (res.truncated) throw new IncompleteDataError(what, res.items.length, res.total)
   return res
 }
+
+/**
+ * Загружает список целиком (`load` — обычно `() => listAllResource(...)`) и бросает `IncompleteDataError`, только если он не набрался и со второй
+ * попытки. Усечённый ответ перечитывается ОДИН раз, прежде чем стать ошибкой.
+ *
+ * Зачем повтор (ИБ-05, ревью merge/review-r3-executors): `truncated` считается как «получено меньше, чем `total` с первой страницы». Если пока
+ * читались страницы, чью-то запись удалили, `total` устарел, и признак ложно срабатывает, хотя список как раз целый: форма отказывалась
+ * сохраняться, пока пользователь сам не закроет и не откроет её заново. Повторная загрузка берёт свежий `total` и в таком случае проходит.
+ *
+ * Повторяется только усечение. Ошибка самой загрузки (сеть, 4xx/5xx) пробрасывается сразу: повтор запроса — дело вызывающего кода.
+ * Если список упёрся в настоящий потолок `listAllResource` (50 000 записей), повтор даст то же самое и обойдётся ещё одной полной загрузкой, но
+ * это редкий случай, и до ошибки он доходит так же, как раньше.
+ *
+ * @param load — загрузка списка; вызывается заново при повторе, поэтому не должна иметь побочных эффектов
+ * @param what — что загружалось, в именительном падеже (как у `assertComplete`)
+ *
+ * @example
+ *   const software = await loadAllComplete(() => listAllResource<DeployedSoftware>('deployed-software', { owner_id }), 'Установленное ПО')
+ */
+export async function loadAllComplete<R extends CompletenessInfo>(load: () => Promise<R>, what: string): Promise<R> {
+  const first = await load()
+  if (!first.truncated) return first
+  return assertComplete(await load(), what)
+}

@@ -232,13 +232,80 @@ describe('sanitizeSvgIsolated — очистка и изоляция id за о�
     expect(svg.getAttribute('aria-describedby')).toBe('p-d')
   })
 
-  it('ссылки на несуществующие id (в том числе внешние) не трогаются', () => {
-    const result = sanitizeSvgIsolated('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)" stroke="url(#other)"/><use href="#other"/></svg>', 'p')
-    const doc = parse(result)
+  // ИБ-03 (ревью merge/review-r3-executors): раньше ссылки на id, которых в иконке нет, оставались как есть, и иконка могла подтянуть
+  // чужой градиент или символ (элемент страницы или соседней иконки) по предсказуемому id. Теперь такие ссылки снимаются.
+  describe('ИБ-03: ссылки на id вне иконки снимаются', () => {
+    it('<use href="#outside"> теряет href, а ссылка на свой id по-прежнему переписывается', () => {
+      const result = sanitizeSvgIsolated(
+        '<svg><defs><symbol id="a"><circle r="2"/></symbol></defs><use id="u1" href="#a"/><use id="u2" href="#outside"/></svg>',
+        'p',
+      )
+      const doc = parse(result)
 
-    expect(doc.querySelector('rect')?.getAttribute('stroke')).toBe('url(#other)')
-    expect(doc.querySelector('use')?.getAttribute('href')).toBe('#other')
-    expect(doc.querySelector('rect')?.getAttribute('fill')).toBe('url(#p-g)')
+      expect(doc.querySelector('#p-u1')?.getAttribute('href')).toBe('#p-a')
+      expect(doc.querySelector('#p-u2')?.hasAttribute('href')).toBe(false)
+      expect(result).not.toContain('outside')
+    })
+
+    it('xlink:href на чужой id снимается так же, как href', () => {
+      const result = sanitizeSvgIsolated('<svg><rect id="r"/><use xlink:href="#outside"/></svg>', 'p')
+
+      expect(result).not.toContain('outside')
+      expect(parse(result).querySelector('use')?.attributes.length).toBe(0)
+    })
+
+    it('fill="url(#missing)" снимается целиком (в том числе запасной цвет после url()); свои url(#id) остаются', () => {
+      const result = sanitizeSvgIsolated(
+        '<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)" stroke="url(#missing)"/><rect fill="url(#missing) red" width="1"/></svg>',
+        'p',
+      )
+      const [first, second] = Array.from(parse(result).querySelectorAll('rect'))
+
+      expect(first.getAttribute('fill')).toBe('url(#p-g)')
+      expect(first.hasAttribute('stroke')).toBe(false)
+      expect(second.hasAttribute('fill')).toBe(false)
+      expect(second.getAttribute('width')).toBe('1') // остальные атрибуты не тронуты
+      expect(result).not.toContain('missing')
+    })
+
+    it('атрибут снимается, если хоть один url() в нём ведёт наружу (даже при втором, своём)', () => {
+      const result = sanitizeSvgIsolated('<svg><defs><filter id="f"/></defs><rect filter="url(#f) url(#missing)"/></svg>', 'p')
+
+      expect(parse(result).querySelector('rect')?.hasAttribute('filter')).toBe(false)
+    })
+
+    it('иконка вовсе без id: ссылки на чужие id снимаются и в ней (проход выполняется всегда)', () => {
+      const result = sanitizeSvgIsolated('<svg><rect fill="url(#missing)" width="1"/><use href="#outside"/></svg>', 'p')
+
+      expect(result).not.toContain('missing')
+      expect(result).not.toContain('outside')
+      expect(result).toContain('width="1"')
+    })
+
+    it('aria-labelledby/aria-describedby: чужие id вычёркиваются из списка, свои переписываются; пустой список — атрибута нет', () => {
+      const result = sanitizeSvgIsolated('<svg aria-labelledby="t outside" aria-describedby="outside"><title id="t">Имя</title></svg>', 'p')
+      const svg = parse(result).querySelector('svg')!
+
+      expect(svg.getAttribute('aria-labelledby')).toBe('p-t')
+      expect(svg.hasAttribute('aria-describedby')).toBe(false)
+    })
+
+    it('значения со скобками, не являющиеся ссылками (transform, d), не затрагиваются', () => {
+      const result = sanitizeSvgIsolated('<svg><g transform="translate(1 2) scale(2)"><path d="M0 0L(1)"/></g></svg>', 'p')
+      const doc = parse(result)
+
+      expect(doc.querySelector('g')?.getAttribute('transform')).toBe('translate(1 2) scale(2)')
+      expect(doc.querySelector('path')?.getAttribute('d')).toBe('M0 0L(1)')
+    })
+
+    it('ссылка на id СОСЕДНЕЙ иконки с тем же исходным id не пересекается: у каждой иконки свой префикс', () => {
+      const first = sanitizeSvgIsolated('<svg><defs><linearGradient id="g"/></defs><rect fill="url(#g)"/></svg>', 'ic1')
+      const second = sanitizeSvgIsolated('<svg><rect fill="url(#g)"/></svg>', 'ic2') // своего g у неё нет — ссылка на чужой
+
+      expect(first).toContain('url(#ic1-g)')
+      expect(second).not.toContain('url(')
+      expect(second).not.toContain('ic1')
+    })
   })
 
   it('префикс очищается от символов, недопустимых в id', () => {

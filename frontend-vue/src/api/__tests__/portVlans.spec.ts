@@ -101,6 +101,25 @@ describe('усечённая загрузка VLAN (B-02)', () => {
     await expect(loadAssignedDeviceVlanIds('dev-1')).rejects.toBeInstanceOf(IncompleteDataError)
   })
 
+  // ИБ-05: первое чтение усечено из-за записи, удалённой во время загрузки; повторное чтение — полное.
+  it('ИБ-05: ложное усечение (при повторном чтении список целый) — набор VLAN возвращается, а не IncompleteDataError', async () => {
+    let firstPassDone = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'))
+        if (!firstPassDone) {
+          // Первое чтение: первая страница обещает 2000 записей, вторая пуста (запись удалили между запросами).
+          if (offset !== 0) firstPassDone = true
+          return jsonResponse({ items: offset === 0 ? [{ id: 'l-1', vlan_id: 'v-1' }] : [], total: 2000, offset, limit: 1000 })
+        }
+        return jsonResponse({ items: [{ id: 'l-1', vlan_id: 'v-1' }], total: 1, offset, limit: 1000 })
+      }),
+    )
+
+    await expect(loadAssignedDeviceVlanIds('dev-1')).resolves.toEqual(new Set(['v-1']))
+  })
+
   it('пустой deviceTypeId по-прежнему не делает запроса и не падает', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

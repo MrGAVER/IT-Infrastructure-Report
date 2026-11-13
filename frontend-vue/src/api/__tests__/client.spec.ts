@@ -9,6 +9,7 @@ import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   ErrorCode,
   listAllResource,
+  notifyUnauthorizedIfNeeded,
   parseRetryAfter,
   request,
   setStoredToken,
@@ -79,6 +80,27 @@ describe('api/client: ответ 401 и событие UNAUTHORIZED_EVENT', () =
     await expect(api.get('/resources/devices')).rejects.toMatchObject({ status: 500 })
 
     expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  // ИБ-02: общий помощник для тех, кто делает fetch напрямую (скачивание файлов) и не проходит через request().
+  describe('notifyUnauthorizedIfNeeded (ИБ-02)', () => {
+    it('401 на обычном пути — отправляет UNAUTHORIZED_EVENT', () => {
+      notifyUnauthorizedIfNeeded(401, '/api/v1/reports/download/a.xlsx')
+
+      expect(onUnauthorized).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['/auth/login', '/auth/me/password'])('401 на %s (ошибка в форме, а не конец сессии) — событие не отправляется', (path) => {
+      notifyUnauthorizedIfNeeded(401, path)
+
+      expect(onUnauthorized).not.toHaveBeenCalled()
+    })
+
+    it.each([200, 403, 404, 500, 503])('статус %i — событие не отправляется', (status) => {
+      notifyUnauthorizedIfNeeded(status, '/resources/devices')
+
+      expect(onUnauthorized).not.toHaveBeenCalled()
+    })
   })
 })
 

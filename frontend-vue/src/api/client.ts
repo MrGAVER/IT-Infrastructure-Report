@@ -68,6 +68,21 @@ export const UNAUTHORIZED_EVENT = 'itr:unauthorized'
  * сервера. Для этих путей UNAUTHORIZED_EVENT не отправляется, иначе опечатка в форме завершила бы сессию. */
 const SESSION_NEUTRAL_401_PATHS: ReadonlySet<string> = new Set(['/auth/login', '/auth/me/password'])
 
+/**
+ * Сообщает приложению, что сессия недействительна: при статусе 401 отправляет `UNAUTHORIZED_EVENT` (authStore слушает его в main.ts).
+ * Для путей из SESSION_NEUTRAL_401_PATHS не отправляет: там 401 — ошибка в форме («неверный пароль»), а не конец сессии.
+ *
+ * Вызывают все, кто делает `fetch` напрямую и разбирает ответ сам (`request()`, скачивание файлов): иначе протухший токен при скачивании
+ * показывал бы ошибку, но не возвращал бы пользователя на экран входа, как это делает любой другой запрос.
+ *
+ * @param path путь запроса так, как он передан в `request()` (без префикса /api/v1), либо полный адрес скачиваемого файла
+ */
+export function notifyUnauthorizedIfNeeded(status: number, path: string): void {
+  if (status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+  }
+}
+
 export class ApiError extends Error {
   status: number
   /** Код ошибки из detail.code (см. backend/app/constants.py:ErrorCode) — например
@@ -219,10 +234,8 @@ export async function request<T>(path: string, init: RequestInit = {}, options: 
       const error = await apiErrorFromResponse(res)
       // Не для путей из SESSION_NEUTRAL_401_PATHS: там 401 — это ожидаемая ошибка в форме
       // ("неверный пароль" при входе, "неверный текущий пароль" при смене), а не признак того,
-      // что сессия уже вошедшего пользователя недействительна.
-      if (res.status === 401 && !SESSION_NEUTRAL_401_PATHS.has(path)) {
-        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
-      }
+      // что сессия уже вошедшего пользователя недействительна (см. notifyUnauthorizedIfNeeded).
+      notifyUnauthorizedIfNeeded(res.status, path)
       throw error
     }
     // 204 и пустое тело при 200 дают null: тип `T` это не отражает, поэтому вызывающий код, которому нужно тело (список, объект),

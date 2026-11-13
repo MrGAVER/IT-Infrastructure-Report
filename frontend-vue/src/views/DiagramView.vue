@@ -29,7 +29,7 @@ import { useMediaQuery } from '../composables/useMediaQuery'
 import { CONNECTION_EDGE_TYPE, edgeBaseStyle, edgeIsRelatedToHover, GROUP_PREFIX, groupKeyOf, toFlowEdge, toFlowNode } from '../utils/diagramFlow'
 import { FIT_VIEW_OPTIONS, resolveInitialView } from '../utils/diagramViewport'
 import { EDGE_LABEL_LAYOUT_KEY, computeEdgeLabelLayout, edgeLabelsVisible } from '../utils/diagramEdgeLabels'
-import { EDGE_ROUTES_KEY, routeEdges, routeInputsFromFlow, type EdgeRouteMap } from '../utils/diagramEdgeRouting'
+import { EDGE_ROUTES_KEY, routeEdgesWithStatus, routeInputsFromFlow, type EdgeRouteMap } from '../utils/diagramEdgeRouting'
 import type { DiagramEdge, DiagramExportFormat, DiagramNode } from '../api/diagrams'
 
 const route = useRoute()
@@ -56,11 +56,17 @@ const labelsHidden = computed(() => !edgeLabelsVisible(viewport.value.zoom))
 const ROUTE_RECALC_DELAY_MS = 60
 const edgeRoutes = shallowRef<EdgeRouteMap>(new Map())
 provide(EDGE_ROUTES_KEY, edgeRoutes)
+// ИБ-04 (ревью merge/review-r3-executors): расчёт маршрутов ограничен по времени (ROUTING_BUDGET_MS), и на плотной диаграмме часть рёбер
+// остаётся без маршрута — их рисует прежняя кривая. Раньше это происходило молча: пользователь видел «кривые вперемешку с ортогональными»
+// и не понимал почему. Теперь экран показывает короткую подсказку; она привязана к тому же результату, что и сами маршруты.
+const routingDegraded = ref(false)
 let routeTimer: ReturnType<typeof setTimeout> | undefined
 function recomputeRoutes() {
   routeTimer = undefined
   const { nodes, requests } = routeInputsFromFlow(getNodes.value, localEdges.value)
-  edgeRoutes.value = routeEdges(nodes, requests)
+  const result = routeEdgesWithStatus(nodes, requests)
+  edgeRoutes.value = result.routes
+  routingDegraded.value = result.degraded
 }
 function scheduleRouteRecalc() {
   if (routeTimer !== undefined) clearTimeout(routeTimer)
@@ -306,6 +312,13 @@ async function commitRename() {
         <span v-if="renameError" class="rename-error">{{ renameError }}</span>
       </div>
       <span v-if="store.savingLayout" class="saving-hint">сохранение раскладки…</span>
+      <span
+        v-if="routingDegraded"
+        class="saving-hint routing-hint"
+        role="status"
+        title="Диаграмма слишком плотная: расчёт маршрутов уложился во время не для всех связей. Оставшиеся нарисованы плавной кривой."
+        >часть связей проложена упрощённо</span
+      >
       <div class="spacer"></div>
       <button v-if="auth.canWrite" class="btn btn-secondary" type="button" :disabled="store.loading" @click="onRegenerate">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
