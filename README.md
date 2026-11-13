@@ -93,8 +93,26 @@ GET    /api/v1/resources/{resource}/schema
   доступны все записи, а не только последние.
 - Сортировка таблиц списков по клику на заголовок, предупреждение о несохранённых изменениях при
   закрытии форм устройства/ИС и вкладки браузера.
-- Основные разделы вынесены в левое меню: ИС, устройства, интерфейсы, подключения, ВМ, контейнеры,
-  ПО, VLAN, открытые порты, аудит и справочники.
+- Разделы вынесены в левое меню тремя группами: «Реестр» (дашборд, информационные системы, устройства и их стеки,
+  подключения, диаграмма топологии, виртуальные машины, контейнеры), «Справочники» (VLAN, здания и помещения, структурные
+  подразделения, прочие справочники) и «Система» (отчёты и их шаблоны, правила согласования портов, журнал аудита — только
+  администратору). Хлебные крошки экранов реестра единые: «Реестр › <экран>».
+- Списки: один набор размеров страницы на весь интерфейс — 10 / 25 / 50 / 100, по умолчанию 10 (прежний выбор вне этой шкалы
+  читается как «не выбрано»). Пустой реестр так и пишет («Устройств пока нет.») и при праве записи предлагает создать запись, а когда
+  пусты только результаты фильтров — предлагает «Сбросить фильтры». У широких таблиц (журнал аудита, шаблоны отчётов, справочники,
+  ВМ, контейнеры) край затухает, подсказывая горизонтальную прокрутку.
+- Модальные окна построены на одной основе (`components/BaseModal.vue`): фокус уходит в окно и замкнут в нём (Tab / Shift+Tab), при
+  закрытии возвращается на кнопку, открывшую окно; Esc закрывает только верхнее из вложенных окон; страница под окном не
+  прокручивается, а меню и основная область недоступны для клавиатуры и вспомогательных технологий (`inert`). Уведомления выводятся
+  в живых областях (`role="status"` / `role="alert"`).
+- Полнота данных. Формы, которые сохраняют списки целиком (ПО, VLAN, порты и группы устройства, IP-адреса, открытые порты и ПО ВМ),
+  не отправляют список, который не загрузился или загружен не полностью: вместо него показывается «загружено n из N» с кнопкой
+  «Повторить загрузку», остальные поля формы сохраняются. Иначе сервер удалил бы записи, которых пользователь не видел. Экраны,
+  показывающие список целиком (контейнеры, подключения, стеки устройств, VLAN-домены, справочники), держат такое сообщение постоянно, а не
+  только всплывающим уведомлением.
+- Диаграмма топологии: рёбра идут ортогональными маршрутами в обход узлов (расчёт ограничен по времени — 250 мс и по размеру схемы; если
+  часть связей проложена упрощённо, в заголовке экрана появляется подсказка). Файл диаграммы скачивается с настоящим именем, в том
+  числе кириллическим. Экспорт в `.svg`, `.drawio` и `.vsdx` строится на сервере и от этой трассировки не зависит.
 
 ### Миграции Alembic
 
@@ -827,6 +845,11 @@ backend/
                         vlan, device_stacks, vms, reports, listings, frontend_assets, report_builder, auth, ...
                         (обработчики только разбирают запрос и вызывают services/)
     services/        — crud/ (пакет: generic CRUD и синхронизация вложенных коллекций, см. ниже),
+                        auth/ (пакет: пароли, сессии, блокировка учётной записи после неверных паролей, пользователи, вход,
+                        шлюз доступа к /api/*, зависимости эндпоинтов, заголовки безопасности),
+                        diagram_export/ (пакет: экспорт диаграммы в .svg, .drawio и .vsdx), vsdx_process (рендер .vsdx в
+                        дочернем процессе с таймаутом), export_cache (кэш готовых экспортов), body_limit (предел размера
+                        тела запроса), device_label (единое правило подписи устройства),
                         vlan_operations (VLAN: панель, домены, копирование, массовое назначение), device_stacks,
                         validation, serialization, catalogs, computed, constants,
                         report_meta/report_engine/report_grid/report_render (конструктор отчётов),
@@ -836,22 +859,24 @@ backend/
                         и конструктором отчётов), excel_safety
     main.py          — application factory
     config.py        — конфигурация, версия приложения
+    alembic_filters.py — фильтр сравнения схемы для `alembic check` (его импортирует alembic/env.py)
     db.py             — подключение к БД
     reporting.py      — генерация регламентированного Excel-отчёта (4 листа)
   alembic/            — миграции БД
-  tests/              — тесты backend (unittest)
+  tests/              — тесты backend (pytest; часть файлов в стиле unittest)
 frontend-vue/         — единственный UI приложения (Vue 3 + TypeScript + Vite + Pinia)
   src/
     views/            — экраны-маршруты: Dashboard, Devices, InformationSystems, VMs,
                         Connections, VLANs, Containers, Reports, ReportTemplates (+ два
                         визуальных редактора шаблонов), Settings, Login, AuditLog,
                         Buildings, StructuralUnits, OtherCatalogs
-    components/        — модалки форм и переиспользуемые редакторы (DeviceFormModal,
+    components/        — модалки форм (на общей основе BaseModal) и переиспользуемые редакторы (DeviceFormModal,
                         DeviceInterfacesEditor, GridCellInspector, DocxTableBlockEditor и т. д.)
     stores/            — Pinia-сторы (catalogs, devices, auth, vlans, reportTemplates и т. д.)
-    api/               — HTTP-клиент и типы (client.ts, types.ts, reportTemplates.ts и т. д.)
+    api/               — HTTP-клиент и типы (client.ts, types/ — типы по доменам, reportTemplates.ts и т. д.)
     router/, layout/, composables/, directives/, utils/, styles/
-    __tests__/          — рядом с исходником каждого модуля, 69 файлов / 504 теста (Vitest)
+    __tests__/          — рядом с исходником каждого модуля, 267 файлов / 3 882 теста (Vitest)
+  e2e/                 — проверки в настоящем Chromium (Playwright), см. frontend-vue/README.md
   dist/                — production-сборка (`npm run build`), раздаётся бэкендом на `GET /`
 installer/            — скрипты сборки Windows EXE
 launcher.py            — точка входа для EXE
@@ -932,19 +957,19 @@ lock не пересобран командами выше. Digest вручну�
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
   видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
-- **Скорость прогона backend** (~3 200 тестов): `pytest -n auto -m "not slow"` раскладывает их по ядрам (`pytest-xdist` из dev-зависимостей;
-  на SQLite тесты независимы), а три теста на время (метка `slow`, `test_report_layout_performance.py`) идут отдельно: `pytest -m slow` —
+- **Скорость прогона backend** (~4 400 тестов): `pytest -n auto -m "not slow"` раскладывает их по ядрам (`pytest-xdist` из dev-зависимостей;
+  на SQLite тесты независимы), а пять тестов на время (метка `slow`: `test_report_layout_performance.py` и `test_vsdx_export_performance.py`) идут отдельно: `pytest -m slow` —
   рядом с другим процессом они выходят за лимит; так же сделан шаг в CI. Без `-n` для отладки (`--pdb`, `-s`) и на PostgreSQL (`INFRA_REGISTRY_TEST_DATABASE_URL`):
   там одна общая база, и параллельные процессы мешали бы друг другу. Внутри `conftest.py` три ускорения: схема SQLite из
   моделей копируется из шаблона, а не строится в каждом тесте; результат `alembic upgrade` на пустой файловой SQLite
   запоминается на процесс (отключить: `INFRA_REGISTRY_TEST_NO_UPGRADE_CACHE=1`); PBKDF2 в тестах идёт на 1 000 итераций
   (тест, которому нужно боевое число, помечается `@pytest.mark.real_password_hashing`).
 - **Покрытие backend**: `pytest --cov` (настройки — `[tool.coverage]` в `pyproject.toml`, считаются и ветви; нужен
-  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На 2.158.0 покрытие
-  94,97 %, порог в `pyproject.toml` (`fail_under`) — 92 %; CI запускает тесты с `--cov`, печатает сводку в Summary job-а и
-  падает, если покрытие ниже порога. Самые слабые места: `api/report_builder.py` (68 %), `api/frontend_assets.py`,
-  `db.py`, `services/report_render.py`, `services/diagram_graph.py`.
-- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, около 220 файлов) — Vitest +
+  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На слиянии пакетов код-ревью (r1–r3; SQLite, без тестов с меткой `slow`) покрытие `backend/app` — 97,35 % (на 2.158.0
+  было 94,97 %), порог в `pyproject.toml` (`fail_under`) — 92 %; CI запускает тесты с `--cov`, печатает сводку в Summary job-а и
+  падает, если покрытие ниже порога. Самые слабые места: `services/vsdx_process.py` (79,6 %), `services/report_render.py`, `services/diagram_graph.py`,
+  `api/report_builder.py` и `services/report_engine.py` (82–85 %).
+- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 267 файлов, 3 882 теста) — Vitest +
   `@vue/test-utils` на `jsdom` (см. `vitest.config.ts`): сторы Pinia (catalogs, devices, auth,
   connections, vlans и т. д.), утилиты (`utils/gridCoverage.ts`, `utils/reportEntityPaths.ts` и
   др.) и компоненты, включая модалки, рендерящиеся через `Teleport`. Не e2e — без реального
@@ -955,9 +980,17 @@ lock не пересобран командами выше. Digest вручну�
   npm test   # vitest run
   ```
   Подробности состава и статус по экранам — в [`frontend-vue/README.md`](frontend-vue/README.md).
+- **E2E в настоящем браузере** (`frontend-vue/e2e/`, Playwright + Chromium; запуск — `npm run e2e`, в CI — отдельный job `e2e`):
+  то, чего не видит jsdom, — раскладка на телефоне, контраст текста (axe-core), фокус и Tab в окнах, живые области уведомлений,
+  подсказка прокрутки таблиц, ортогональные рёбра диаграммы. Состав и переменные окружения — в
+  [`frontend-vue/README.md`](frontend-vue/README.md#e2e-проверки-интерфейса-playwright).
 
 Дополнительно при каждом изменении проверяются:
 
+- `ruff check .` и `ruff format --check backend` (форматтер включён для всего backend; файлы, которые он ещё изменил бы, перечислены
+  одним сокращающимся списком в `pyproject.toml`, и тест не даёт списку расти), а также `bandit -r backend/app -ll`;
+- бюджет «неожиданных» пропусков: CI запускает `pytest -rs` и падает, если пропущено больше тестов, чем объяснено
+  (`INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS`, плагин `backend/tests/skip_budget.py`; отбор по SQLite/PostgreSQL не считается);
 - `python -m py_compile` по всему backend;
 - `vue-tsc -b` — проверка типов TypeScript по всему `frontend-vue/` (часть `npm run build`, см.
   `frontend-vue/package.json`), без реального запуска в браузере;
