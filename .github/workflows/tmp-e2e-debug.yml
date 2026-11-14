@@ -1,0 +1,87 @@
+# ВРЕМЕННО (отладка падения e2e с Playwright 1.65). Файл не должен попасть в main: PR с ним закрывается без слияния.
+# Повторяет job `e2e` из ci.yml и публикует вывод Playwright комментарием в PR, потому что журналы и артефакты CI недоступны вне GitHub.
+name: tmp-e2e-debug
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  e2e-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - run: pip install --require-hashes -r backend/requirements.lock
+
+      - run: npm ci
+        working-directory: frontend-vue
+
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend-vue
+
+      - name: Версии
+        working-directory: frontend-vue
+        run: |
+          {
+            echo "playwright: $(npx playwright --version)"
+            echo "node: $(node --version)"
+            node -e "const b=require('playwright-core/browsers.json').browsers.find(x=>x.name==='chromium'); console.log('chromium по browsers.json:', JSON.stringify(b))"
+            ls ~/.cache/ms-playwright
+          } > /tmp/versions.log 2>&1 || true
+
+      - name: e2e (вывод сохраняется в файл)
+        working-directory: frontend-vue
+        continue-on-error: true
+        env:
+          CI: "true"
+        run: |
+          npx vite build > /tmp/build.log 2>&1
+          echo "vite build exit=$?" >> /tmp/build.log
+          npx playwright test --reporter=list > /tmp/e2e.log 2>&1
+          echo "playwright exit=$?" >> /tmp/e2e.log
+
+      - name: Опубликовать вывод комментарием в PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          def read(path):
+              try:
+                  return open(path, encoding="utf-8", errors="replace").read()
+              except OSError:
+                  return "(нет файла)"
+
+          log = read("/tmp/e2e.log")
+          # Сначала сводка и блоки с ошибками (хвост), затем начало (первые падения), чтобы поместиться в лимит комментария GitHub.
+          head, tail = log[:9000], log[-38000:] if len(log) > 47000 else ""
+          body = "### tmp-e2e-debug\n\n**Версии**\n```\n" + read("/tmp/versions.log")[-1500:] + "\n```\n"
+          body += "**vite build (хвост)**\n```\n" + read("/tmp/build.log")[-600:] + "\n```\n"
+          body += "**playwright test**\n```\n" + (head + "\n[...пропущено...]\n" + tail if tail else log) + "\n```\n"
+          body = body[:64000]
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['PR']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"},
+              method="POST",
+          )
+          print(urllib.request.urlopen(req).status)
+          PY
