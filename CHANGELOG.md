@@ -6001,6 +6001,18 @@ make_include_object` → `ModuleNotFoundError: No module named 'app.alembic_filt
 **Не проверялось** (нет среды): запуск `.exe` и рендер `.vsdx` в дочернем процессе под Windows; e2e Playwright (Chromium недоступен); тесты на PostgreSQL и job `compose-postgres`
 (нужны PostgreSQL и Docker; в CI они выполняются); поведение в реальных браузерах (скачивание файлов, подсказка об упрощённых маршрутах диаграммы).
 
+### Не выпущено — `opentelemetry-api` 1.45.1 → 1.45.2 (CVE-2026-126360): pip-audit блокировал job `test`
+
+Ветка `fix/lock-opentelemetry-api-1.45.2` (от `main` @ `d22ef87`). Номер версии не менялся; менялись только lock-файлы.
+
+**Симптом.** Блокирующий шаг `pip-audit` (job `test`, `requirements.lock`) стал падать на любом коммите: `opentelemetry-api 1.45.1` получил CVE-2026-126360, исправление — 1.45.2.
+Зависимость транзитивная (её тянет `fastapi`), закреплена в lock-файлах, поэтому сама не обновлялась; ни один из открытых PR Dependabot её не затрагивает.
+Уязвимость опубликовали после зелёного CI на слиянии код-ревью, к самому слиянию это отношения не имеет.
+
+- **`backend/requirements.lock`, `requirements-dev.lock`, `requirements-build.lock`:** обновлена одна зависимость (версия и хеши), больше ничего. Команда — как в README, «Зависимости backend», с флагом точечного обновления:
+  `uv pip compile requirements.txt --universal --generate-hashes --python-version 3.12 -o requirements.lock --no-header --upgrade-package opentelemetry-api` (так же для `requirements-dev` и `requirements-build`).
+- **Проверено:** `pip-audit` по `requirements.lock` и `requirements-build.lock` — уязвимостей нет; повторная пересборка всех трёх lock-файлов без флага не меняет их (шаг CI «Lock-файлы backend актуальны»); тесты, читающие lock-файлы, проходят.
+
 ### Не выпущено — исправление CI: `test-postgres` и `test-postgres-migrations` падали на `test_skip_budget.py`
 
 Ветка `fix/ci-skip-budget-postgres-env` (от `main` @ `d22ef87`). Номер версии не менялся. Менялся только тестовый файл, код приложения не затронут.
@@ -6020,4 +6032,4 @@ Job-ы `test` (SQLite), `compose-postgres` и `e2e` прошли. В `test-postg
 
 **Проверено локально** на PostgreSQL 16.15 (те же пользователь и база, что в CI): `test_skip_budget.py` — 20 из 20 на SQLite, на PostgreSQL (схема из моделей) и на PostgreSQL (схема из миграций);
 шаг «Живой запуск приложения на PostgreSQL» (`tests/tools/pg_app_smoke.py`, парольная аутентификация `scram-sha-256`, пароль со спецсимволами) — OK; `ruff check` чисто. Весь набор на PostgreSQL после
-правки целиком не перезапускался (изменён один тестовый файл) — подтверждение за CI.
+правки целиком локально не перезапускался (изменён один тестовый файл); его подтвердил CI на PR: `test-postgres` и `test-postgres-migrations` прошли.
