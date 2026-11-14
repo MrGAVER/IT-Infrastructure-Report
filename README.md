@@ -916,6 +916,12 @@ CI проверяет, что lock-файлы актуальны (пересбо
 Actions (они закреплены по SHA). PR с обновлением Python-зависимости покажет красный шаг «Lock-файлы backend актуальны», пока
 lock не пересобран командами выше. Digest вручную: `docker buildx imagetools inspect python:3.12-slim` (строка `Digest`).
 
+Dependabot **не предлагает** смену версии Python и Node в образах (в `dependabot.yml` для них задан `ignore`) и мажорное обновление
+TypeScript: CI, lock-файлы и тесты идут на Python 3.12 и Node 22, тест `test_the_pinned_images_are_the_ones_the_project_uses` следит за
+тегами образов, а TypeScript 7 пока не ставится из-за peer-зависимостей `vue-tsc` и `typescript-eslint`. Смена Python или Node — отдельная
+миграция (Dockerfile, `ci.yml`, lock-файлы и тесты вместе, с правкой этого блока), а не обновление одной строки. Обновление digest того же тега
+правило не блокирует.
+
 ### Пакет `backend/app/services/crud/`
 
 Бывший `crud.py` на 1382 строки разрезан по ответственностям; публичный API (`from app.services.crud import ...`)
