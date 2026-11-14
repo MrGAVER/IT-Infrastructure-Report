@@ -46,6 +46,7 @@ from .api.vlan import router as vlan_router
 from .api.vms import router as vms_router
 from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
+from .services.auth.security_headers import SecurityHeadersMiddleware
 from .services.body_limit import BodySizeLimitMiddleware
 from .services.catalogs import seed_defaults
 from .services.csrf_guard import SameOriginGuardMiddleware, forwarded_host_trusted
@@ -141,6 +142,9 @@ install_http_security(
     max_body_bytes=MAX_REQUEST_BODY_BYTES,
     accept_ip_hosts=ACCEPT_IP_HOSTS,
 )
+# Заголовки безопасности — САМЫЙ внешний слой (A-04 код-ревью main @ b375f58): после install_http_security, потому что последний добавленный
+# слой в Starlette стоит снаружи. Так их получают и ответы, которые формируют внутренние слои сами (400 по Host, 403 по клиенту и origin, 413).
+app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(auth_router)
 app.include_router(preferences_router)
 # Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
