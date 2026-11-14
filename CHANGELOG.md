@@ -6033,3 +6033,33 @@ Job-ы `test` (SQLite), `compose-postgres` и `e2e` прошли. В `test-postg
 **Проверено локально** на PostgreSQL 16.15 (те же пользователь и база, что в CI): `test_skip_budget.py` — 20 из 20 на SQLite, на PostgreSQL (схема из моделей) и на PostgreSQL (схема из миграций);
 шаг «Живой запуск приложения на PostgreSQL» (`tests/tools/pg_app_smoke.py`, парольная аутентификация `scram-sha-256`, пароль со спецсимволами) — OK; `ruff check` чисто. Весь набор на PostgreSQL после
 правки целиком локально не перезапускался (изменён один тестовый файл); его подтвердил CI на PR: `test-postgres` и `test-postgres-migrations` прошли.
+
+### Не выпущено — обновление зависимостей (Dependabot): что влито, что нет и почему
+
+Ветки `chore/deps-actions-and-backend` (PR #24, влит в `main` @ `6517237`) и `chore/deps-frontend` (PR #25). Номер версии не менялся. Ветки Dependabot влиты
+merge-коммитами, поэтому GitHub отметил их PR как влитые. Код приложения не менялся, только манифесты, lock-файлы и `ci.yml`.
+
+**Влито — GitHub Actions** (#13, #15, #16, #17): `checkout` 4 → 7.0.1, `setup-node` 4 → 7.1.0, `setup-python` 5 → 7.1.0, `upload-artifact` 4 → 7.0.2. Все вхождения в `ci.yml`
+обновлены единообразно и по-прежнему закреплены полным SHA; SHA сверены с тегами в официальных репозиториях actions.
+
+**Влито — backend** (#9, #10, #11, #12, #14): нижние границы в `requirements*.txt` (`pytest-xdist>=3.8.0`, `fastapi>=0.162.2`, `pydantic>=2.14.3`, `alembic>=1.20.1`,
+`uvicorn[standard]>=0.54.0`). Сами PR lock-файлы не обновляют, поэтому у #10–#12 падал шаг «Lock-файлы backend актуальны»; lock-файлы перегенерированы
+(`uv pip compile --universal --generate-hashes --python-version 3.12 --upgrade-package fastapi --upgrade-package pydantic --upgrade-package alembic`) во всех трёх
+(`requirements.lock`, `requirements-dev.lock`, `requirements-build.lock`). Изменились ровно `fastapi` 0.142.3 → 0.162.7, `pydantic` 2.13.5 → 2.14.3 (`pydantic-core` 2.46.5 → 2.50.4)
+и `alembic` 1.20.0 → 1.20.1; `pytest-xdist` и `uvicorn` уже стояли на нужных версиях. Проверено в чистом окружении из `requirements-dev.lock` (с проверкой хешей):
+4 338 тестов прошли, 49 пропущено (на один больше обычного: в dev-lock нет PyInstaller — это учтённый бюджетом пропуск), `ruff check` и `pip-audit` чисты, пересборка lock без флагов не меняет файлы.
+
+**Влито — frontend** (#18, #19, #21): `jsdom` 30 → 31, `@types/node` 24 → 26 (только типы; Node в CI и Docker остаётся 22, формально типы опережают среду), группа minor/patch #18
+без Playwright: `vue` 3.5.45, `pinia` 4.1.0, `vue-router` 5.5.1, `vite` 8.3.8, `vue-tsc` 3.3.14, `@vitest/ui` 5.1.0, `@vue/test-utils` 2.5.1, `eslint` 10.15.0, `eslint-plugin-vue`, `globals`,
+`typescript-eslint`, `@vitejs/plugin-vue`, `vue-eslint-parser`. Конфликты `package.json` / `package-lock.json` между этими PR разрешены (версии из всех трёх сохранены), лок пересобран из итогового `package.json`.
+`npm ci`, ESLint, Prettier, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 теста), `vite build` и `npm audit --omit=dev` проходят.
+
+**Не влито:**
+
+- **`@playwright/test` 1.64.1 → 1.65 (часть группы #18):** остаётся 1.64.1 (единственный `playwright-core` в дереве). `e2e` падает только с 1.65 — найдено делением группы на три части (Playwright / `vue`+`pinia`+`vue-router` / остальной
+  инструментарий) тремя временными PR, остальные части проходят. Причину внутри 1.65 не выяснили (журнал и артефакт CI с хоста раннера недоступны). Поскольку PR #18 влит, Dependabot, вероятно, откроет отдельный PR на Playwright;
+  до выяснения причины его не вливать.
+- **#7 `python:3.12-slim` → `3.15-slim`:** образ проверяется тестом закреплённых образов (`test_the_pinned_images_are_the_ones_the_project_uses`), а в `compose-postgres` контейнер приложения не стартует; при этом CI, lock-файлы
+  (`--python-version 3.12`) и тесты остаются на 3.12. Переход на другую версию Python — отдельная миграция (Dockerfile, CI, lock-файлы, тесты вместе), а не обновление одной строки.
+- **#8 `node:22-slim` → `25-slim`:** тот же тест закреплённых образов; Node 25 — нечётная версия без долгосрочной поддержки, CI и `e2e` идут на Node 22. Переходить имеет смысл на LTS, одновременно меняя Node в CI.
+- **#20 `typescript` 6 → 7:** падает уже на `npm ci` (зависимости не разрешаются: `vue-tsc` и `typescript-eslint` не поддерживают TypeScript 7), как и ранее принятое решение отложить TypeScript 7.
