@@ -593,9 +593,17 @@ class Connection(TimestampMixin, Base):
     __tablename__ = "connections"
     # Порт не соединяется сам с собой: раньше это проверял только services/validation.py:validate_connection, а БД принимала такую запись
     # (A-01 код-ревью main @ b375f58, миграция c4a9e2d7b185). CHECK — последний рубеж; понятное 422 по-прежнему отдаёт validate_connection.
-    # Второе правило — «порт участвует не более чем в одном АКТИВНОМ подключении» — в БД индексом не выразить для всех ролей порта
-    # (источник в одном подключении, назначение в другом), поэтому гонку закрывает блокировка строк портов (validation.lock_interfaces).
-    __table_args__ = (CheckConstraint("source_interface_id <> destination_interface_id", name="ck_connections_distinct_ports"),)
+    # Второе правило — «порт участвует не более чем в одном АКТИВНОМ подключении». Два частичных уникальных индекса (миграция e3b7a15c9d42) держат его
+    # для одной роли: порт не бывает источником двух активных подключений и назначением двух активных. Неактивные (архивные) подключения индекс не видит.
+    # Колонка is_active NOT NULL, поэтому предикат `is_active` — то же, что `is_active IS NOT FALSE` в validate_connection, и одинаково работает в SQLite и PostgreSQL.
+    # Случай «источник в одном подключении, назначение в другом» индексом по одной колонке не выразить: его закрывают validate_connection и
+    # блокировка строк портов (validation.lock_interfaces). Индексы не откладываются до конца транзакции, поэтому обмен соседями в форме устройства
+    # (services/interface_connections.py) на время применения плана выключает переставляемые подключения.
+    __table_args__ = (
+        CheckConstraint("source_interface_id <> destination_interface_id", name="ck_connections_distinct_ports"),
+        Index("uq_connections_source_active", "source_interface_id", unique=True, sqlite_where=text("is_active"), postgresql_where=text("is_active")),
+        Index("uq_connections_destination_active", "destination_interface_id", unique=True, sqlite_where=text("is_active"), postgresql_where=text("is_active")),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     source_interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)
     destination_interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)

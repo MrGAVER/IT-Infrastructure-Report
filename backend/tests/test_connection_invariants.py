@@ -26,28 +26,16 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceType, PhysicalDevice
+from app.models import Connection
 from app.services import interface_connections, validation
 from app.services.validation import lock_interfaces, validate_connection
+from connection_support import make_world
 
 
 @pytest.fixture()
 def world(db_session):
     """Одно устройство с четырьмя портами и тип подключения; всё зафиксировано, чтобы его видели другие сессии."""
-    category = DeviceCategory(name="Сетевое оборудование")
-    db_session.add(category)
-    db_session.flush()
-    device_type = DeviceType(name="Коммутатор", category_id=category.id)
-    db_session.add(device_type)
-    db_session.flush()
-    device = PhysicalDevice(device_type_id=device_type.id, serial_number="SN-INV", system_name="sw-inv")
-    db_session.add(device)
-    db_session.flush()
-    ports = [DeviceInterface(physical_device_id=device.id, name=f"Gi0/{number}") for number in range(1, 5)]
-    connection_type = ConnectionType(name="Витая пара")
-    db_session.add_all([*ports, connection_type])
-    db_session.commit()
-    return SimpleNamespace(ports=[port.id for port in ports], ifaces=ports, type_id=connection_type.id)
+    return make_world(db_session)
 
 
 def _data(source: str, destination: str, type_id: str) -> dict:

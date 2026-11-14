@@ -10,33 +10,17 @@ SQLite-вариант идёт на файле-БД (sqlite_only), PostgreSQL-в
 
 from __future__ import annotations
 
-import os
-import uuid
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
-from migration_support import insert_row, migrate
+from connection_support import Database, scratch_database
+from migration_support import insert_row
 
 PRE_REVISION = "a7d3f1c8e925"
 TARGET_REVISION = "c4a9e2d7b185"
 CONSTRAINT = "ck_connections_distinct_ports"
-
-
-class _Database:
-    """Пустая база и её адрес; удаляется вместе с каталогом теста (SQLite) или командой DROP DATABASE (PostgreSQL)."""
-
-    def __init__(self, url: str, engine: sa.Engine, cleanup=lambda: None) -> None:
-        self.url, self.engine, self._cleanup = url, engine, cleanup
-
-    def migrate(self, revision: str, *, downgrade: bool = False) -> None:
-        migrate(self.url, revision, downgrade=downgrade)
-
-    def close(self) -> None:
-        self.engine.dispose()
-        self._cleanup()
 
 
 @pytest.fixture(
@@ -46,40 +30,21 @@ class _Database:
     ]
 )
 def database(request, tmp_path):
-    if request.param == "sqlite":
-        url = f"sqlite:///{tmp_path / 'distinct_ports.db'}"
-        db = _Database(url, sa.create_engine(url))
-    else:
-        admin = make_url(os.environ["INFRA_REGISTRY_TEST_DATABASE_URL"])
-        name = f"infra_migr_{uuid.uuid4().hex[:10]}"
-        admin_engine = sa.create_engine(admin.render_as_string(hide_password=False), isolation_level="AUTOCOMMIT")
-        with admin_engine.connect() as connection:
-            connection.exec_driver_sql(f'CREATE DATABASE "{name}"')
-        url = admin.set(database=name).render_as_string(hide_password=False)
-
-        def drop() -> None:
-            with admin_engine.connect() as connection:
-                connection.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-            admin_engine.dispose()
-
-        db = _Database(url, sa.create_engine(url), drop)
-    try:
+    with scratch_database(request.param, tmp_path) as db:
         yield db
-    finally:
-        db.close()
 
 
-def _version(db: _Database) -> str:
+def _version(db: Database) -> str:
     with db.engine.connect() as connection:
         return connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
 
 
-def _count(db: _Database) -> int:
+def _count(db: Database) -> int:
     with db.engine.connect() as connection:
         return connection.execute(sa.text("SELECT count(*) FROM connections")).scalar_one()
 
 
-def _seed(db: _Database, *, loops: int = 0, inactive_loop: bool = False) -> dict[str, list[str]]:
+def _seed(db: Database, *, loops: int = 0, inactive_loop: bool = False) -> dict[str, list[str]]:
     """Два обычных подключения (четыре разных порта) и, по запросу, подключения «порт сам с собой» (активные и/или неактивное)."""
     ids: dict[str, list[str]] = {"normal": [], "loop": []}
     with db.engine.begin() as connection:
@@ -93,13 +58,13 @@ def _seed(db: _Database, *, loops: int = 0, inactive_loop: bool = False) -> dict
     return ids
 
 
-def _insert_loop(db: _Database) -> None:
+def _insert_loop(db: Database) -> None:
     with db.engine.begin() as connection:
         port = insert_row(connection, "device_interfaces")
         insert_row(connection, "connections", source_interface_id=port, destination_interface_id=port, is_active=True)
 
 
-def _structure(db: _Database) -> tuple[set[str], set[tuple[str, str]]]:
+def _structure(db: Database) -> tuple[set[str], set[tuple[str, str]]]:
     """Имена индексов и пары (колонка, родительская таблица) внешних ключей таблицы connections."""
     inspector = sa.inspect(db.engine)
     indexes = {index["name"] for index in inspector.get_indexes("connections")}

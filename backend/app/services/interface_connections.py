@@ -29,6 +29,9 @@
 входит в две разные пары; пара не задана дважды с разными параметрами), и только после этого план
 применяется. Благодаря плану порты можно менять местами в одном запросе (A: P→Q, B: Q→P): прежние
 порты переставляемых этим же запросом подключений при проверке считаются свободными.
+
+Уникальные индексы активных подключений (uq_connections_source_active, uq_connections_destination_active) не откладываются до конца транзакции, поэтому
+перед применением плана подключения, меняющие соседний порт, выключаются (is_active = false), а после применения всех подключений включаются снова.
 """
 from __future__ import annotations
 
@@ -156,9 +159,47 @@ def sync_interface_connections(requests: Sequence[tuple[DeviceInterface, Any]], 
     _assert_plans_consistent(plans)
     # Подключения, которые этот запрос переставляет: их прежние порты при проверке считаются свободными.
     moved_ids = {plan.target.id for plan in plans if plan.target}
+    switched_off = _switch_off_moving(plans, session)
     for plan in plans:
         changed += _apply_plan(plan, moved_ids, session)
+    _switch_on(switched_off, session)
     return changed
+
+
+def _new_ends(plan: _Plan) -> tuple[str, str]:
+    """(источник, назначение) подключения после применения плана. Направление существующего подключения не переворачивается: порт остаётся на той
+    стороне, на которой стоял, меняется только соседний; новое подключение идёт от порта к соседу."""
+    target = plan.target
+    if target is None or target.source_interface_id == plan.iface.id:
+        return plan.iface.id, plan.peer.id
+    return plan.peer.id, plan.iface.id
+
+
+def _switch_off_moving(plans: Sequence[_Plan], session: Session) -> list[Connection]:
+    """Выключает (is_active = false) подключения, которые этот запрос переставляет на другие порты, и сбрасывает это в БД.
+
+    Уникальные индексы uq_connections_source_active / uq_connections_destination_active (A-01 этап 2) не откладываются до конца транзакции, а план применяется по одному
+    подключению: при обмене соседями (A: P→Q, B: Q→P) в промежутке порт числится за двумя активными подключениями, и индекс отверг бы запись. Выключенные строки
+    индекс не видит; ``_switch_on`` включает их, когда все стоят на новых местах. Всё происходит в одной транзакции — другие запросы промежуточного состояния не видят,
+    а при ошибке откат вернёт подключения как были. Подключения, у которых меняются только тип линии или описание, не трогаются."""
+    moving = [
+        plan.target
+        for plan in plans
+        if plan.target is not None and _new_ends(plan) != (plan.target.source_interface_id, plan.target.destination_interface_id)
+    ]
+    for connection in moving:
+        connection.is_active = False
+    if moving:
+        session.flush()
+    return moving
+
+
+def _switch_on(connections: Sequence[Connection], session: Session) -> None:
+    """Возвращает переставленные подключения в работу; индекс проверяет итоговое состояние (конфликт — IntegrityError, его вызывающий код превращает в 409)."""
+    for connection in connections:
+        connection.is_active = True
+    if connections:
+        session.flush()
 
 
 def _ports_of_request(parsed: Sequence[tuple[DeviceInterface, ConnectionSpec | None]], rows: Sequence[DeviceInterface]) -> set[str]:
@@ -240,7 +281,7 @@ def _apply_plan(plan: _Plan, moved_ids: set[str], session: Session) -> int:
 
     # Направление (источник/назначение) существующего подключения не переворачиваем: порт остаётся
     # на той стороне, на которой стоял, меняется только соседний.
-    source_id, destination_id = (iface.id, peer.id) if target.source_interface_id == iface.id else (peer.id, iface.id)
+    source_id, destination_id = _new_ends(plan)
     candidate = {'source_interface_id': source_id, 'destination_interface_id': destination_id, 'connection_type_id': spec.connection_type_id, 'is_active': True, 'description': spec.description}
     validate_connection(candidate, session, current_connection_id=target.id, ignore_connection_ids=moved_ids)
 
