@@ -6012,3 +6012,24 @@ make_include_object` → `ModuleNotFoundError: No module named 'app.alembic_filt
 - **`backend/requirements.lock`, `requirements-dev.lock`, `requirements-build.lock`:** обновлена одна зависимость (версия и хеши), больше ничего. Команда — как в README, «Зависимости backend», с флагом точечного обновления:
   `uv pip compile requirements.txt --universal --generate-hashes --python-version 3.12 -o requirements.lock --no-header --upgrade-package opentelemetry-api` (так же для `requirements-dev` и `requirements-build`).
 - **Проверено:** `pip-audit` по `requirements.lock` и `requirements-build.lock` — уязвимостей нет; повторная пересборка всех трёх lock-файлов без флага не меняет их (шаг CI «Lock-файлы backend актуальны»); тесты, читающие lock-файлы, проходят.
+
+### Не выпущено — исправление CI: `test-postgres` и `test-postgres-migrations` падали на `test_skip_budget.py`
+
+Ветка `fix/ci-skip-budget-postgres-env` (от `main` @ `d22ef87`). Номер версии не менялся. Менялся только тестовый файл, код приложения не затронут.
+
+**Симптом.** После слияния пакетов код-ревью в `main` в запуске CI упали два job-а — `test-postgres` и `test-postgres-migrations`, оба на шаге `pytest -v -rs`.
+Job-ы `test` (SQLite), `compose-postgres` и `e2e` прошли. В `test-postgres-migrations` из-за этого не выполнился и следующий шаг «Живой запуск приложения на PostgreSQL».
+
+**Причина (ИА-08, `backend/tests/test_skip_budget.py`).** Тест `test_the_real_conftest_does_not_count_database_selection_as_unexpected` запускает вложенный `pytest`
+на `test_migrations_postgres.py` и ждёт слово «skipped»: на SQLite тесты только для PostgreSQL пропускаются штатно. Хелпер `_run_real_suite` копировал окружение
+родителя целиком, а в двух PostgreSQL-job-ах `INFRA_REGISTRY_TEST_DATABASE_URL` (во втором ещё и `INFRA_REGISTRY_TEST_SCHEMA=migrations`) задан на уровне job-а.
+Вложенный прогон тоже уходил на PostgreSQL, 20 тестов не пропускались, а проходили, слова «skipped» в выводе не было, и тест падал. В job-е на SQLite этого не видно,
+а ИА-08 проверялся только там. Падал ровно этот один тест: на PostgreSQL полный набор в обоих режимах (схема из моделей и из миграций) не дал других падений.
+
+- **`backend/tests/test_skip_budget.py`:** `_run_real_suite` больше не передаёт вложенному прогону переменные выбора базы (`DATABASE_SELECTION_ENV`), он всегда идёт на SQLite.
+- **Регрессионный тест** `test_real_suite_run_does_not_inherit_the_database_selection` подменяет запуск и проверяет окружение вложенного процесса; он красный на прежнем хелпере
+  уже в обычном job-е на SQLite (раньше эту ошибку ловил только PostgreSQL-job), зелёный после правки.
+
+**Проверено локально** на PostgreSQL 16.15 (те же пользователь и база, что в CI): `test_skip_budget.py` — 20 из 20 на SQLite, на PostgreSQL (схема из моделей) и на PostgreSQL (схема из миграций);
+шаг «Живой запуск приложения на PostgreSQL» (`tests/tools/pg_app_smoke.py`, парольная аутентификация `scram-sha-256`, пароль со спецсимволами) — OK; `ruff check` чисто. Весь набор на PostgreSQL после
+правки целиком локально не перезапускался (изменён один тестовый файл); его подтвердил CI на PR: `test-postgres` и `test-postgres-migrations` прошли.

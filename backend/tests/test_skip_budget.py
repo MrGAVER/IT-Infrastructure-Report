@@ -146,11 +146,38 @@ def test_every_pytest_command_in_ci_prints_the_skip_reasons():
 
 
 # --- Настоящий conftest.py -------------------------------------------------------------------------------------------------------------------
+# Выбор базы для тестов (conftest.py): вложенный прогон должен идти на SQLite независимо от того, на чём идёт родитель.
+DATABASE_SELECTION_ENV = ("INFRA_REGISTRY_TEST_DATABASE_URL", "INFRA_REGISTRY_TEST_SCHEMA")
+
+
 def _run_real_suite(budget: str, *tests: str) -> subprocess.CompletedProcess:
-    env = {k: v for k, v in os.environ.items() if k != skip_budget.ENV_VAR and not k.startswith("PYTEST_")}
+    env = {k: v for k, v in os.environ.items() if k != skip_budget.ENV_VAR and k not in DATABASE_SELECTION_ENV and not k.startswith("PYTEST_")}
     env[skip_budget.ENV_VAR] = budget
     command = [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-p", "no:xdist", *tests]
     return subprocess.run(command, cwd=TESTS_DIR.parents[1], env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
+
+
+def test_real_suite_run_does_not_inherit_the_database_selection(monkeypatch):
+    """Регрессия: в job-ах PostgreSQL (CI) вложенный прогон наследовал выбор базы родителя.
+
+    Тест ниже проверяет поведение на SQLite («тесты только для PostgreSQL пропускаются штатно»). Но в `test-postgres` и
+    `test-postgres-migrations` задан INFRA_REGISTRY_TEST_DATABASE_URL (во втором ещё и INFRA_REGISTRY_TEST_SCHEMA), вложенный pytest
+    унаследовал их, пошёл на PostgreSQL, и тесты «только для PostgreSQL» не пропустились, а прошли: в выводе нет слова «skipped», тест падал.
+    В job-е на SQLite (`test`) этого не видно, поэтому наследование проверяется напрямую, подменой запуска.
+    """
+    monkeypatch.setenv("INFRA_REGISTRY_TEST_DATABASE_URL", "postgresql+psycopg://user:pass@localhost:5432/db")
+    monkeypatch.setenv("INFRA_REGISTRY_TEST_SCHEMA", "migrations")
+    passed: dict[str, str] = {}
+
+    def fake_run(command, **kwargs):
+        passed.update(kwargs["env"])
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    _run_real_suite("0", "backend/tests/test_migrations_postgres.py")
+    assert passed, "вложенный запуск не был перехвачен"
+    leaked = sorted(name for name in ("INFRA_REGISTRY_TEST_DATABASE_URL", "INFRA_REGISTRY_TEST_SCHEMA") if name in passed)
+    assert not leaked, f"вложенный pytest унаследовал выбор базы родителя: {leaked}"
 
 
 def test_the_real_conftest_does_not_count_database_selection_as_unexpected():
