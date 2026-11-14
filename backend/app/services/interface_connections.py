@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from ..constants import AuditAction
 from ..models import AuditLog, Connection, ConnectionType, DeviceInterface
-from .validation import validate_connection
+from .validation import lock_interfaces, validate_connection
 
 _AUDIT_ENTITY = 'connections'
 
@@ -137,6 +137,10 @@ def sync_interface_connections(requests: Sequence[tuple[DeviceInterface, Any]], 
     # строим и проверяем план и только потом применяем его: порт соседа, освобождаемый в этом же
     # запросе, можно занять независимо от порядка строк.
     parsed = [(iface, parse_connection_spec(raw)) for iface, raw in requests]
+    # На PostgreSQL все порты запроса берутся ОДНИМ упорядоченным захватом до чтения их подключений (A-01 код-ревью main @ b375f58): план считается из
+    # актуального состояния, а два запроса с пересекающимися портами не блокируют друг друга взаимно — без этого validate_connection брал бы порты
+    # парами в порядке плана, и запросы с противоположным порядком могли бы упереться друг в друга. Повторная блокировка уже взятых строк мгновенна.
+    lock_interfaces(session, _ports_of_request(parsed, rows))
     changed = 0
     for iface, spec in parsed:
         if spec is not None:
@@ -155,6 +159,19 @@ def sync_interface_connections(requests: Sequence[tuple[DeviceInterface, Any]], 
     for plan in plans:
         changed += _apply_plan(plan, moved_ids, session)
     return changed
+
+
+def _ports_of_request(parsed: Sequence[tuple[DeviceInterface, ConnectionSpec | None]], rows: Sequence[DeviceInterface]) -> set[str]:
+    """id всех портов запроса: сами порты и их соседи (заданные id либо номером элемента массива interfaces; неверный номер — ошибка 422 позже, не здесь)."""
+    ids = {iface.id for iface, _ in parsed}
+    for _, spec in parsed:
+        if spec is None:
+            continue
+        if spec.peer_interface_id:
+            ids.add(spec.peer_interface_id)
+        elif spec.peer_row is not None and spec.peer_row < len(rows):
+            ids.add(rows[spec.peer_row].id)
+    return ids
 
 
 def _resolve_peer(iface: DeviceInterface, spec: ConnectionSpec, rows: Sequence[DeviceInterface], session: Session) -> DeviceInterface:

@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, select, text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .services.timeutil import utcnow_naive
@@ -591,6 +591,11 @@ class InterfaceVLAN(TimestampMixin, Base):
 
 class Connection(TimestampMixin, Base):
     __tablename__ = "connections"
+    # Порт не соединяется сам с собой: раньше это проверял только services/validation.py:validate_connection, а БД принимала такую запись
+    # (A-01 код-ревью main @ b375f58, миграция c4a9e2d7b185). CHECK — последний рубеж; понятное 422 по-прежнему отдаёт validate_connection.
+    # Второе правило — «порт участвует не более чем в одном АКТИВНОМ подключении» — в БД индексом не выразить для всех ролей порта
+    # (источник в одном подключении, назначение в другом), поэтому гонку закрывает блокировка строк портов (validation.lock_interfaces).
+    __table_args__ = (CheckConstraint("source_interface_id <> destination_interface_id", name="ck_connections_distinct_ports"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     source_interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)
     destination_interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)
