@@ -43,7 +43,7 @@ jobs:
             ls ~/.cache/ms-playwright
           } > /tmp/versions.log 2>&1 || true
 
-      - name: e2e (вывод сохраняется в файл)
+      - name: Замер подсказки поля пароля на Playwright 1.65.1 и 1.64.1
         working-directory: frontend-vue
         continue-on-error: true
         env:
@@ -51,8 +51,14 @@ jobs:
         run: |
           npx vite build > /tmp/build.log 2>&1
           echo "vite build exit=$?" >> /tmp/build.log
-          npx playwright test --reporter=list > /tmp/e2e.log 2>&1
-          echo "playwright exit=$?" >> /tmp/e2e.log
+          {
+            echo "===== Playwright $(npx playwright --version) ====="
+            npx playwright test tmp-measure --reporter=list --workers=1 --retries=0 2>&1 | grep -E "MEASURE|passed|failed|Error" || true
+            npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.64.1 playwright@1.64.1 playwright-core@1.64.1 > /tmp/npm164.log 2>&1
+            npx playwright install chromium > /tmp/install164.log 2>&1
+            echo "===== Playwright $(npx playwright --version) ====="
+            npx playwright test tmp-measure --reporter=list --workers=1 --retries=0 2>&1 | grep -E "MEASURE|passed|failed|Error" || true
+          } > /tmp/e2e.log 2>&1
 
       - name: Опубликовать вывод комментарием в PR
         if: always()
