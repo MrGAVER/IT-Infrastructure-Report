@@ -4,10 +4,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..schemas import AuditSettingsUpdate
 from ..services.auth import require_admin_if_auth_enabled
 from ..services.audit_query import AuditQuery, MAX_SEARCH_LENGTH, list_audit_log
+from ..services.audit_retention import get_audit_settings, run_scheduled_cleanup, serialize_audit_settings, update_retention
 
-# Только чтение: журнал аудита изменяется исключительно самим приложением (crud.audit()).
+# Записи журнала приложение пишет само (crud.audit()), через API их не изменить. Доступ — только администратору (при включённой аутентификации)
+# и ко всему роутеру сразу, включая настройки аудита: новый маршрут здесь не может остаться без проверки роли.
 router = APIRouter(prefix='/api/v1', tags=['Audit'], dependencies=[Depends(require_admin_if_auth_enabled)])
 
 
@@ -22,5 +25,26 @@ def audit_log_page(
 ):
     """Страница журнала аудита (новые сверху): поиск по деталям и id записи, фильтры по действию и
     разделу считаются на сервере. `total` — под теми же условиями; `summary` (всего и по действиям)
-    и `entity_types` (разделы, встречающиеся в журнале) — по всему журналу."""
+    и `entity_types` (разделы, встречающиеся в журнале) — по всему журналу.
+
+    Заодно — ленивый запуск очистки по сроку хранения (services/audit_retention.py): срок задан и прошли сутки с прошлой очистки.
+    Сбой очистки страницу не ломает."""
+    run_scheduled_cleanup(session)
     return list_audit_log(session, AuditQuery(q=q, action=action, entity_type=entity_type), offset=offset, limit=limit)
+
+
+@router.get('/audit-log/settings')
+def read_audit_settings(session: Session = Depends(get_db)) -> dict:
+    """Настройки аудита: действующий срок хранения (0 — не удалять), задан ли он в форме или действует умолчание, когда была очистка."""
+    return serialize_audit_settings(get_audit_settings(session))
+
+
+@router.put('/audit-log/settings')
+def update_audit_settings(payload: AuditSettingsUpdate, session: Session = Depends(get_db)) -> dict:
+    """Меняет срок хранения журнала (`retention_days`: 0 — не удалять, null — сбросить к умолчанию, поле не передано — не менять).
+    Новый срок сразу применяется: записи старше удаляются; `removed_now` — сколько удалено. Изменение пишется в журнал аудита."""
+    patch = payload.model_dump(exclude_unset=True)
+    if 'retention_days' not in patch:
+        return serialize_audit_settings(get_audit_settings(session))
+    update = update_retention(session, patch['retention_days'])
+    return serialize_audit_settings(update.row, removed_now=update.removed, cleanup_failed=update.cleanup_failed)

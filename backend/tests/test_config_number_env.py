@@ -31,6 +31,7 @@ SETTINGS = [
     ("INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES", "AUTH_LOCKOUT_MINUTES", 15.0, ("2.5", 2.5), "-0.5"),
     ("INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH", "AUTH_MIN_PASSWORD_LENGTH", 8, ("12", 12), "0"),
     ("INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS", "AUTH_KNOWN_CLIENT_DAYS", 30, ("14", 14), "-1"),
+    ("INFRA_REGISTRY_AUDIT_RETENTION_DAYS", "AUDIT_RETENTION_DAYS", 0, ("90", 90), "-1"),  # A-05: срок хранения журнала аудита, 0 — не удалять (services/audit_retention)
 ]
 ALL_ENV_NAMES = [setting[0] for setting in SETTINGS]
 IDS = [setting[1] for setting in SETTINGS]
@@ -39,7 +40,7 @@ _PROBE = "import json, sys; sys.path.insert(0, sys.argv[1]); import app.config a
 
 
 def _import_config(tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
-    """Импортирует app.config в чистом процессе: из окружения убраны все семь переменных, заданные в `env` — добавлены."""
+    """Импортирует app.config в чистом процессе: из окружения убраны все переменные таблицы SETTINGS, заданные в `env` — добавлены."""
     environment = {key: value for key, value in os.environ.items() if key not in ALL_ENV_NAMES}
     environment.update(DATABASE_URL="sqlite:///:memory:", INFRA_REGISTRY_DATA_DIR=str(tmp_path))
     environment.update(env)

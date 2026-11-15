@@ -897,6 +897,22 @@ class AuthSettings(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
+class AuditSettings(Base):
+    """Синглтон (id 'singleton') — политика хранения журнала аудита (A-05 код-ревью main @ b375f58).
+
+    retention_days — срок хранения в днях, который администратор задал в форме «Настройки аудита»: записи старше удаляются
+    (services/audit_retention.py), 0 — не удалять. NULL — в форме не задавалось, действует значение по умолчанию из окружения
+    (config.AUDIT_RETENTION_DAYS, а там по умолчанию 0): различие NULL и 0 позволяет «сбросить к умолчанию» и не терять смысл переменной.
+    last_cleanup_at — когда очистка по сроку последний раз довела дело до конца; от неё считается «не чаще раза в сутки».
+    Строка создаётся при первой записи (чтение без строки возвращает умолчания), как у AuthSettings; отдельная таблица, а не ключ
+    AppPreference: настройки интерфейса читает любая роль (GET /preferences), а эти — только администратор."""
+    __tablename__ = "audit_settings"
+    __table_args__ = (CheckConstraint("retention_days IS NULL OR retention_days >= 0", name="ck_audit_settings_retention_days_non_negative"),)
+    id: Mapped[str] = mapped_column(String(20), primary_key=True, default="singleton")
+    retention_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_cleanup_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+
 class AppPreference(Base):
     """Серверная настройка интерфейса (раньше жила в localStorage браузера — тема, название организации,
     размеры страниц списков, порог сворачивания блока «VLAN устройства»). Общий key-value, а не по таблице на

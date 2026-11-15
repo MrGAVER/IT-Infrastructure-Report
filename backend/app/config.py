@@ -40,6 +40,10 @@ AUDIT_REPORT_SUBDIR = 'audit'
 # Сколько дней хранятся сгенерированные отчёты: файл нужен только пока его скачивают, а каталог без
 # очистки рос бы бесконечно. 0 — не удалять никогда.
 REPORT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_REPORT_RETENTION_DAYS', 30, int)  # minimum намеренно не задан: 0 и меньше — не удалять (report_cleanup.py)
+# Срок хранения записей журнала аудита, дней (A-05 код-ревью main @ b375f58): записи старше удаляются (services/audit_retention.py). 0 — не удалять
+# никогда (по умолчанию: журнал аудита нельзя терять молча, решение о ротации принимает владелец). Это значение по умолчанию: администратор
+# может задать срок в форме «Настройки аудита» — значение из формы (audit_settings.retention_days) важнее переменной окружения.
+AUDIT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_AUDIT_RETENTION_DAYS', 0, int, minimum=0)
 
 
 def _database_url() -> str:
