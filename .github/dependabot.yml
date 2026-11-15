@@ -46,8 +46,11 @@ updates:
     ignore:
       - dependency-name: "python"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # Node: исправления безопасности для 22-й линии приходят обновлением digest тега (PR #32), а о конце её поддержки (30.04.2027) должен напомнить
+      # сам Dependabot, поэтому мажорные версии не блокируются целиком: отсекаются только линии без LTS (23 и 25; по новому графику Node, начиная
+      # с 27, LTS становится каждый выпуск). PR на следующую LTS-линию красный до миграции (Dockerfile, ci.yml, lock-файлы и тесты вместе).
       - dependency-name: "node"
-        update-types: ["version-update:semver-major"]
+        versions: [">= 23, < 24", ">= 25, < 26"]
 
   # Действия CI закреплены по SHA с комментарием версии (# v4): Dependabot обновляет и SHA, и комментарий.
   - package-ecosystem: "github-actions"

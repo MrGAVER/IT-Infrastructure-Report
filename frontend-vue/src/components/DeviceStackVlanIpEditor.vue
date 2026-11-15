@@ -263,8 +263,7 @@ function memberValue(m: { assigned: boolean; ip_address: string | null; prefix_l
             <summary>По устройствам</summary>
             <ul>
               <li v-for="m in row.server.members" :key="m.physical_device_id">
-                <b>{{ m.device_name }}</b
-                >: {{ memberValue(m) }}
+                <b>{{ m.device_name }}</b>: {{ memberValue(m) }}
               </li>
             </ul>
           </details>

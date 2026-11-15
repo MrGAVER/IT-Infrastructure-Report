@@ -6099,3 +6099,29 @@ GitHub проверяет при чтении файла, ошибки видн�
 
 **Проверено.** До исправления на Playwright 1.65.1 тест красный (275 > 266), на 1.64.1 зелёный. После: `npm ci`, `vue-tsc -b`, ESLint и Prettier чисты; e2e на Playwright 1.65.1 подтверждает CI на PR (в браузере локально не запускался: CDN Playwright из среды недоступен).
 Запас подсказки по ширине всего 9px: если в поле пароля понадобится более длинный текст, он перестанет помещаться на телефоне 390px; тест это поймает.
+
+### Не выпущено — Dependabot, второй пакет: digest node, backend, npm, Playwright 1.65.1 и правило Node для LTS
+
+Ветка `chore/deps-sweep-2` (от `main` @ `f5f2e9a`). Номер версии не менялся. Ветки Dependabot влиты merge-коммитами, поэтому GitHub отметит их PR как влитые; код приложения не менялся,
+только манифесты, lock-файлы, `Dockerfile`, конфигурация Dependabot, один тест и README.
+
+**Влито.**
+
+- **#31** — исправление e2e (`placeholderFit` не зависит от `clientWidth` у `<input>`) и `@playwright/test` 1.65.1 (запись выше). Без него группа #35 с `@playwright/test ^1.65.0` падала бы на `e2e`.
+- **#32** — digest `node:22-slim` (тег тот же, содержимое образа новое): исправления безопасности для закреплённой линии Node 22. Это же подтвердило, что `ignore` из PR #30 digest-обновления не блокирует.
+- **backend** — #33 `psycopg[binary]>=3.3.8`, #34 `httpx2>=2.16.0`, #36 `pytest>=9.2.0`, #37 `python-docx>=1.2.0`, #38 `fastapi>=0.162.5`. Lock-файлы перегенерированы (`uv pip compile ... --upgrade-package psycopg --upgrade-package psycopg-binary --upgrade-package pytest`):
+  `psycopg` и `psycopg-binary` 3.3.6 → 3.3.9 (все три lock), `pytest` 9.1.1 → 9.2.0 (`requirements-dev.lock`). У #34, #37 и #38 lock уже стоял на нужных версиях (`httpx2` 2.16.0, `python-docx` 1.2.0, `fastapi` 0.162.7), у них менялись только границы в `requirements*.txt`.
+  Конфликты соседних строк `requirements.txt` между PR разрешены, сохранены все границы.
+- **#35** — группа minor/patch: `prettier` 3.9.10 → 3.10.1 и `@playwright/test ^1.65.0`; в пакете остаётся `^1.65.1` из #31. Конфликты `package.json` и `package-lock.json` с #31 разрешены, лок пересобран (один `playwright-core` 1.65.1 в дереве).
+
+**Форматирование под `prettier` 3.10.** Новая версия иначе переносит закрывающие теги у инлайн-элементов (`</b\n>` → `</b>`), и `format:check` падал бы на PR #35. Применён `prettier --write` к четырём файлам (17 строк):
+`DeviceStackVlanIpEditor.vue`, `StackMemberAddConfirmModal.vue`, `VlanModeCascadeModal.vue`, `ConnectionsView.vue`. Меняется только перенос строк внутри тегов, текст и разметка те же; `vitest` проходит.
+
+**Правило Dependabot для Node.** Прежний `ignore` блокировал **все** мажорные версии образа `node`, включая LTS-линии 24 и 26, поэтому о конце поддержки Node 22 (только исправления безопасности до 30.04.2027) Dependabot бы не напомнил.
+Теперь отсекаются только линии без LTS (23 и 25): `versions: [">= 23, < 24", ">= 25, < 26"]`; нечётные версии после 25 отсекать не нужно, по новому графику Node (с 27-й) LTS становится каждый выпуск. Следующий LTS (Node 26 с 28.10.2026, Node 24) Dependabot предложит PR-ом;
+он останется красным до миграции (Dockerfile, `ci.yml`, lock-файлы и тесты вместе), и это сознательное напоминание о ней. Правило для образа `python` (минорные и мажорные) и для `typescript` (мажорные) не менялось: у Python нет LTS (каждая линия поддерживается 5 лет, исправления приходят digest-обновлением тега `3.12-slim`),
+TypeScript 7 не ставится из-за `vue-tsc` и `typescript-eslint`. Тест `test_dependabot_only_skips_node_lines_without_lts` красный на прежнем правиле, зелёный на новом; `test_dependabot_does_not_propose_runtime_or_toolchain_version_jumps` теперь про Python и TypeScript. README, раздел «Цепочка поставок», описан по-новому.
+Поведение `versions` в Docker-экосистеме Dependabot проверяется только его следующим запуском: если вместо PR на Node 26 он предложит Node 25, правило не сработало и его нужно переписать.
+
+**Проверено.** Backend на чистом окружении из `requirements-dev.lock` (с проверкой хешей): 4 340 тестов прошли, 49 пропущено (в dev-lock нет PyInstaller — учтённый бюджетом пропуск); `ruff check` и `pip-audit` чисты; пересборка lock без флагов не меняет файлы.
+Frontend: `npm ci`, ESLint, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 теста), `vite build`, `npm audit --omit=dev` (уровень high и выше), Prettier — чисто после форматирования (ниже). `e2e` на Playwright 1.65.1, PostgreSQL-job-ы и `compose-postgres` подтверждает CI на PR.
