@@ -1,7 +1,7 @@
 # Зависимости для разработки: тесты и статический анализ. Не нужны в продакшн-образе
 # (backend/Dockerfile их не устанавливает). Устанавливаются поверх requirements.txt.
 -r requirements.txt
-pytest>=9.1,<10
+pytest>=9.2.0,<10
 pytest-cov>=6,<8
 pytest-xdist>=3.8.0,<4
 httpx2>=2,<3
