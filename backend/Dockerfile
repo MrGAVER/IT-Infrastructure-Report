@@ -3,7 +3,7 @@
 # читателя и для Dependabot (.github/dependabot.yml, docker): он предлагает обновление тега и digest одним PR. Вручную:
 # `docker buildx imagetools inspect python:3.12-slim` → строка Digest (не digest отдельной платформы). Значения взяты из
 # docker-library/repo-info (образы от 04–05.11.2026); сборку образа проверяет шаг CI «Проверка сборки Docker-образа backend».
-FROM node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS frontend-vue-build
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS frontend-vue-build
 WORKDIR /frontend-vue
 # Сначала только манифесты — слой с npm ci кешируется, пока package-lock.json не меняется.
 COPY frontend-vue/package.json frontend-vue/package-lock.json ./
