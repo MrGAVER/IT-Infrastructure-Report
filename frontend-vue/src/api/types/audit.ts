@@ -33,3 +33,23 @@ export interface AuditLogPage {
   summary: AuditLogSummary
   entity_types: string[]
 }
+
+/** GET /api/v1/audit-log/settings — настройки аудита (backend/app/services/audit_retention.py). Доступны только
+ * администратору (при выключенной аутентификации — всем, как и сам журнал).
+ * retention_days — действующий срок хранения записей в днях, 0 — не удалять; is_default — срок не задан в форме и
+ * действует значение по умолчанию сервера (default_retention_days); max_retention_days — верхняя граница, которую
+ * принимает сервер; last_cleanup_at — когда очистка по сроку последний раз дошла до конца (UTC, ISO) или null. */
+export interface AuditSettings {
+  retention_days: number
+  is_default: boolean
+  default_retention_days: number
+  max_retention_days: number
+  last_cleanup_at: string | null
+}
+
+/** Ответ PUT /api/v1/audit-log/settings: настройки после сохранения + итог немедленной очистки по новому сроку.
+ * removed_now — сколько записей удалено сразу; cleanup_failed — срок сохранён, но очистка не удалась (повторится). */
+export interface AuditSettingsSaveResult extends AuditSettings {
+  removed_now: number
+  cleanup_failed: boolean
+}
