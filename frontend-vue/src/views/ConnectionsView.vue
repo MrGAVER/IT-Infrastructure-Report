@@ -348,8 +348,7 @@ async function removeConnection(c: Connection) {
                 </template>
                 <template v-else>
                   <span v-for="side in sidesOf(c)" :key="side.key" class="role-line">
-                    <span class="mono">{{ side.port }}</span
-                    >: <span :class="{ diff: c.port_config_diff.includes('role') }">{{ roleLabel(side.role) }}</span> ·
+                    <span class="mono">{{ side.port }}</span>: <span :class="{ diff: c.port_config_diff.includes('role') }">{{ roleLabel(side.role) }}</span> ·
                     <span :class="{ diff: c.port_config_diff.includes('mode') }">{{ modeLabel(side.mode) }}</span> ·
                     <span :class="{ diff: c.port_config_diff.includes('vlans') }">VLAN {{ formatVlans(side.vlans) }}</span>
                   </span>

@@ -916,11 +916,12 @@ CI проверяет, что lock-файлы актуальны (пересбо
 Actions (они закреплены по SHA). PR с обновлением Python-зависимости покажет красный шаг «Lock-файлы backend актуальны», пока
 lock не пересобран командами выше. Digest вручную: `docker buildx imagetools inspect python:3.12-slim` (строка `Digest`).
 
-Dependabot **не предлагает** смену версии Python и Node в образах (в `dependabot.yml` для них задан `ignore`) и мажорное обновление
-TypeScript: CI, lock-файлы и тесты идут на Python 3.12 и Node 22, тест `test_the_pinned_images_are_the_ones_the_project_uses` следит за
-тегами образов, а TypeScript 7 пока не ставится из-за peer-зависимостей `vue-tsc` и `typescript-eslint`. Смена Python или Node — отдельная
-миграция (Dockerfile, `ci.yml`, lock-файлы и тесты вместе, с правкой этого блока), а не обновление одной строки. Обновление digest того же тега
-правило не блокирует.
+Dependabot **не предлагает** смену версии Python в образе и мажорное обновление TypeScript (в `dependabot.yml` для них задан `ignore`): CI,
+lock-файлы и тесты идут на Python 3.12, тест `test_the_pinned_images_are_the_ones_the_project_uses` следит за тегами образов, а TypeScript 7 пока не
+ставится из-за peer-зависимостей `vue-tsc` и `typescript-eslint`. Исправления безопасности для закреплённых линий приходят обновлением digest того же тега
+(образы `python:3.12-slim`, `node:22-slim`) и патч-обновлениями. У Node блокируются только линии без LTS (23 и 25): PR на следующую LTS-линию Dependabot
+открывает, и он остаётся красным до миграции — это напоминание о ней (Node 22 получает только исправления безопасности до 30.04.2027). Смена Python или Node —
+отдельная миграция (Dockerfile, `ci.yml`, lock-файлы и тесты вместе, с правкой этого блока), а не обновление одной строки.
 
 ### Пакет `backend/app/services/crud/`
 

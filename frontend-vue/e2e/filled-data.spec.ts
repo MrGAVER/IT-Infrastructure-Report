@@ -125,10 +125,14 @@ async function placeholderFit(page: Page, selector: string): Promise<{ text: str
       const style = getComputedStyle(input)
       const context = document.createElement('canvas').getContext('2d')!
       context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+      // Ширина под текст = ширина рамки элемента минус рамки и поля. `clientWidth` для <input> брать нельзя: в Chromium 159 (его тянет Playwright 1.65)
+      // он перестал включать поля и стал равен ширине содержимого, и вычитание полей считало их дважды: поле 304px давало «266px» вместо реальных 284px,
+      // и тест UI-03 падал при том, что вёрстка не менялась (подсказка 275px помещалась в 284px и в Chromium 156, и в 159).
+      const horizontal = ['borderLeftWidth', 'borderRightWidth', 'paddingLeft', 'paddingRight'] as const
       return {
         text: input.placeholder,
         textWidth: context.measureText(input.placeholder).width,
-        available: input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        available: input.getBoundingClientRect().width - horizontal.reduce((sum, side) => sum + parseFloat(style[side]), 0),
       }
     })
 }

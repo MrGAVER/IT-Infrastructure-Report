@@ -73,9 +73,8 @@ const portsText = (count: number) => plural(count, 'порт', 'порта', 'п
 
       <p class="cascade-desc">
         Режим порта должен совпадать у обеих сторон подключения. Чтобы после смены режима порта {{ portLabel }} на {{ target }} не осталось расхождений, режим
-        {{ target }} будет установлен у всех связанных портов. Всего изменится: портов — <b>{{ plan.totals.ports }}</b
-        >, устройств — <b>{{ plan.totals.devices }}</b
-        ><template v-if="plan.totals.groups"
+        {{ target }} будет установлен у всех связанных портов. Всего изменится: портов — <b>{{ plan.totals.ports }}</b>, устройств —
+        <b>{{ plan.totals.devices }}</b><template v-if="plan.totals.groups"
           >, групп — <b>{{ plan.totals.groups }}</b></template
         >.
       </p>

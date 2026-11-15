@@ -21,9 +21,9 @@ const replacedCount = computed(() => props.preview.changes.filter((c) => c.actio
       <h3 :id="titleId">Добавить «{{ preview.device_name }}» в стек «{{ preview.stack_name }}»?</h3>
       <p class="lead">У стека заданы общие настройки VLAN — устройство получит их значения. Данные устройства изменятся так:</p>
       <p class="summary" data-testid="stack-member-confirm-summary">
-        VLAN будет назначено: <b>{{ addedCount }}</b
-        >, значений будет заменено: <b>{{ replacedCount }}</b
-        ><template v-if="preview.unchanged_count">, уже совпадает: {{ preview.unchanged_count }}</template>
+        VLAN будет назначено: <b>{{ addedCount }}</b>, значений будет заменено: <b>{{ replacedCount }}</b><template v-if="preview.unchanged_count"
+          >, уже совпадает: {{ preview.unchanged_count }}</template
+        >
       </p>
       <table class="changes">
         <thead>

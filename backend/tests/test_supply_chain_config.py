@@ -88,21 +88,32 @@ def test_dependabot_limits_the_flood_of_pull_requests(dependabot):
         assert 0 < update.get("open-pull-requests-limit", 10) <= 10, update["package-ecosystem"]
 
 
-def _ignored(dependabot: dict, ecosystem: str) -> dict[str, set[str]]:
+def _ignore_rules(dependabot: dict, ecosystem: str) -> dict[str, dict]:
     update = next(u for u in dependabot["updates"] if u["package-ecosystem"] == ecosystem)
-    return {rule["dependency-name"]: set(rule.get("update-types", [])) for rule in update.get("ignore", [])}
+    return {rule["dependency-name"]: rule for rule in update.get("ignore", [])}
 
 
 def test_dependabot_does_not_propose_runtime_or_toolchain_version_jumps(dependabot):
-    """Python, Node и TypeScript меняются отдельной миграцией, а не PR Dependabot (PR Dependabot #7, #8 и #20 были красными).
+    """Python и TypeScript меняются отдельной миграцией, а не PR Dependabot (PR #7 и #20 были красными).
 
-    Образы python:3.12-slim и node:22-slim закреплены сознательно (CI, lock-файлы и тесты идут на 3.12 / Node 22, тест образов следит за тегами),
-    TypeScript 7 не ставится из-за peer-зависимостей vue-tsc и typescript-eslint. Правило не должно пропасть незаметно.
+    Образ python:3.12-slim закреплён сознательно (CI, lock-файлы и тесты идут на 3.12, тест образов следит за тегами; у Python нет LTS: каждая
+    минорная линия поддерживается 5 лет, а исправления безопасности приходят обновлением digest тега). TypeScript 7 не ставится из-за
+    peer-зависимостей vue-tsc и typescript-eslint. Правила не должны пропасть незаметно.
     """
-    docker = _ignored(dependabot, "docker")
-    assert docker["python"] >= {"version-update:semver-minor", "version-update:semver-major"}  # 3.12 → 3.15 для Dependabot — минорное
-    assert docker["node"] >= {"version-update:semver-major"}  # 22 → 25 — мажорное
-    assert _ignored(dependabot, "npm")["typescript"] >= {"version-update:semver-major"}
+    docker = _ignore_rules(dependabot, "docker")
+    assert set(docker["python"]["update-types"]) >= {"version-update:semver-minor", "version-update:semver-major"}  # 3.12 → 3.15 — минорное
+    assert set(_ignore_rules(dependabot, "npm")["typescript"]["update-types"]) >= {"version-update:semver-major"}
+
+
+def test_dependabot_only_skips_node_lines_without_lts(dependabot):
+    """Node: отсекаются только версии без LTS (23, 25), а LTS-преемники (24, 26) предлагаются как напоминание о миграции.
+
+    Прежнее правило «все мажорные» скрывало бы и конец поддержки Node 22 (30.04.2027), и переход на LTS. По новому графику Node (с 27-й
+    версии LTS становится каждый выпуск) нечётные версии после 25 отсекать не нужно.
+    """
+    node = _ignore_rules(dependabot, "docker")["node"]
+    assert "update-types" not in node, "мажорные версии Node нельзя блокировать целиком: LTS-линии должны предлагаться"
+    assert sorted(node["versions"]) == [">= 23, < 24", ">= 25, < 26"]
 
 
 # --- bandit в CI -------------------------------------------------------------------------------------------------------------------
