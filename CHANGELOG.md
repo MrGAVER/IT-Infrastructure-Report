@@ -6063,3 +6063,20 @@ merge-коммитами, поэтому GitHub отметил их PR как в
   (`--python-version 3.12`) и тесты остаются на 3.12. Переход на другую версию Python — отдельная миграция (Dockerfile, CI, lock-файлы, тесты вместе), а не обновление одной строки.
 - **#8 `node:22-slim` → `25-slim`:** тот же тест закреплённых образов; Node 25 — нечётная версия без долгосрочной поддержки, CI и `e2e` идут на Node 22. Переходить имеет смысл на LTS, одновременно меняя Node в CI.
 - **#20 `typescript` 6 → 7:** падает уже на `npm ci` (зависимости не разрешаются: `vue-tsc` и `typescript-eslint` не поддерживают TypeScript 7), как и ранее принятое решение отложить TypeScript 7.
+
+### Не выпущено — Dependabot: исключения для Python, Node и TypeScript 7
+
+Ветка `chore/dependabot-ignore-runtime-and-ts7` (от `main` @ `de21713`). Номер версии не менялся; меняется только конфигурация Dependabot, один тест и README.
+
+**Зачем.** PR Dependabot #7 (`python:3.12-slim` → `3.15-slim`), #8 (`node:22-slim` → `25-slim`) и #20 (`typescript` 6 → 7) не рутинные обновления, а смена среды или инструмента: CI, lock-файлы
+(`--python-version 3.12`) и тесты идут на Python 3.12, фронтенд собирается на Node 22 (LTS), тест `test_the_pinned_images_are_the_ones_the_project_uses` следит за тегами образов, контейнер на Python 3.15 не стартовал
+в `compose-postgres`, а TypeScript 7 не ставится (`npm ci` падает на peer-зависимостях `vue-tsc` и `typescript-eslint`). Dependabot открывал бы их заново каждую неделю.
+
+- **`.github/dependabot.yml`:** для docker — `ignore` образа `python` (минорные и мажорные обновления: 3.12 → 3.15 для Dependabot минорное) и `node` (мажорные); для npm — `ignore` для `typescript` (мажорные).
+  Обновление digest того же тега и патчи не блокируются. Каждое правило снабжено комментарием, когда его снимать: смена Python или Node — одна миграция (Dockerfile, `ci.yml`, lock-файлы, тесты вместе), TypeScript 7 — когда `vue-tsc` и `typescript-eslint` объявят его поддержку.
+- **Тест** `test_dependabot_does_not_propose_runtime_or_toolchain_version_jumps` (`test_supply_chain_config.py`) следит, чтобы правила не пропали незаметно; красный без правки `dependabot.yml`, зелёный с ней.
+- **Список исключений форматтера** (`pyproject.toml`, `MAX_EXCLUDED_FILES`): `test_supply_chain_config.py` после добавления теста стал полностью отформатирован, и по правилу ИА-05 его запись убрана из списка (272 → 271).
+- **README**, раздел «Цепочка поставок»: описано, что Dependabot не предлагает и как это снять.
+
+Открытые PR #7, #8 и #20 Dependabot закроет сам после применения конфигурации; если не закроет — закрыть вручную. Правило `ignore` проверить на практике можно только на следующем запуске Dependabot (еженедельно): схему конфигурации
+GitHub проверяет при чтении файла, ошибки видны на странице Dependabot в Insights репозитория.

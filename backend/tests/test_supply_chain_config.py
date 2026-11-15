@@ -10,6 +10,7 @@
 Тест статический: docker daemon и доступ к реестрам в окружении разработки недоступны, поэтому сборку образа проверяет CI (`docker build`).
 Запуск: pytest backend/tests/test_supply_chain_config.py -v
 """
+
 from __future__ import annotations
 
 import re
@@ -85,6 +86,23 @@ def test_every_dependabot_entry_points_at_a_real_directory_with_its_manifest(dep
 def test_dependabot_limits_the_flood_of_pull_requests(dependabot):
     for update in dependabot["updates"]:
         assert 0 < update.get("open-pull-requests-limit", 10) <= 10, update["package-ecosystem"]
+
+
+def _ignored(dependabot: dict, ecosystem: str) -> dict[str, set[str]]:
+    update = next(u for u in dependabot["updates"] if u["package-ecosystem"] == ecosystem)
+    return {rule["dependency-name"]: set(rule.get("update-types", [])) for rule in update.get("ignore", [])}
+
+
+def test_dependabot_does_not_propose_runtime_or_toolchain_version_jumps(dependabot):
+    """Python, Node и TypeScript меняются отдельной миграцией, а не PR Dependabot (PR Dependabot #7, #8 и #20 были красными).
+
+    Образы python:3.12-slim и node:22-slim закреплены сознательно (CI, lock-файлы и тесты идут на 3.12 / Node 22, тест образов следит за тегами),
+    TypeScript 7 не ставится из-за peer-зависимостей vue-tsc и typescript-eslint. Правило не должно пропасть незаметно.
+    """
+    docker = _ignored(dependabot, "docker")
+    assert docker["python"] >= {"version-update:semver-minor", "version-update:semver-major"}  # 3.12 → 3.15 для Dependabot — минорное
+    assert docker["node"] >= {"version-update:semver-major"}  # 22 → 25 — мажорное
+    assert _ignored(dependabot, "npm")["typescript"] >= {"version-update:semver-major"}
 
 
 # --- bandit в CI -------------------------------------------------------------------------------------------------------------------
