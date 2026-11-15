@@ -272,7 +272,6 @@ exclude = [
   "backend/tests/test_stale_subinterfaces_report.py",
   "backend/tests/test_startup_without_migrations.py",
   "backend/tests/test_structural_appendix.py",
-  "backend/tests/test_supply_chain_config.py",
   "backend/tests/test_support_crypto_device_links.py",
   "backend/tests/test_sync_interfaces_behaviour.py",
   "backend/tests/test_timeutil.py",
