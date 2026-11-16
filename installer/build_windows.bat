@@ -5,7 +5,7 @@ where node >nul 2>nul
 if errorlevel 1 (
     echo ОШИБКА: Node.js не найден в PATH. Он нужен для сборки Vue-фронтенда ^(frontend-vue^),
     echo который теперь является основным UI ^(см. backend/app/config.py:FRONTEND_DIR^).
-    echo Установите Node.js 20+ и повторите сборку.
+    echo Установите Node.js 22+ и повторите сборку.
     exit /b 1
 )
 pushd frontend-vue

@@ -45,9 +45,18 @@ def test_every_base_image_is_pinned_by_digest_and_keeps_its_tag(line):
     assert match["tag"] != "latest"
 
 
-def test_the_pinned_images_are_the_ones_the_project_uses():
+def test_the_pinned_images_match_the_versions_ci_runs_on():
+    """Образ и CI живут на одной версии: сборка в Docker и проверки в CI не должны расходиться по Node и Python.
+
+    Версию задаёт ci.yml (`node-version`, `python-version`), а Dockerfile обязан её повторять. Так смена Node или Python остаётся одной миграцией
+    (Dockerfile и ci.yml вместе), а PR Dependabot, который меняет только образ (как были #7 и #8), ловится этим тестом, а не уже в CI на пустом месте.
+    """
     images = {m["image"]: m["tag"] for m in map(PINNED_FROM.match, _from_lines()) if m}
-    assert images == {"node": "22-slim", "python": "3.12-slim"}
+    ci = CI.read_text(encoding="utf-8")
+    node = set(re.findall(r'node-version:\s*"?([0-9]+)"?', ci))
+    python = set(re.findall(r'python-version:\s*"?([0-9]+\.[0-9]+)"?', ci))
+    assert len(node) == 1 and len(python) == 1, f"в ci.yml везде должна быть одна версия Node и одна Python, а сейчас: {sorted(node)}, {sorted(python)}"
+    assert images == {"node": f"{node.pop()}-slim", "python": f"{python.pop()}-slim"}
 
 
 def test_a_digest_is_not_reused_for_two_different_images():
@@ -96,24 +105,13 @@ def _ignore_rules(dependabot: dict, ecosystem: str) -> dict[str, dict]:
 def test_dependabot_does_not_propose_runtime_or_toolchain_version_jumps(dependabot):
     """Python и TypeScript меняются отдельной миграцией, а не PR Dependabot (PR #7 и #20 были красными).
 
-    Образ python:3.12-slim закреплён сознательно (CI, lock-файлы и тесты идут на 3.12, тест образов следит за тегами; у Python нет LTS: каждая
-    минорная линия поддерживается 5 лет, а исправления безопасности приходят обновлением digest тега). TypeScript 7 не ставится из-за
-    peer-зависимостей vue-tsc и typescript-eslint. Правила не должны пропасть незаметно.
+    Образ python:3.12-slim закреплён сознательно (CI, lock-файлы и тесты идут на 3.12; у Python нет LTS: каждая минорная линия поддерживается
+    5 лет, а исправления безопасности приходят обновлением digest тега). TypeScript 7 не ставится из-за peer-зависимостей vue-tsc и
+    typescript-eslint. Правила не должны пропасть незаметно. Node в этом списке нет: он на LTS, и его следующие линии Dependabot предлагает сам.
     """
     docker = _ignore_rules(dependabot, "docker")
     assert set(docker["python"]["update-types"]) >= {"version-update:semver-minor", "version-update:semver-major"}  # 3.12 → 3.15 — минорное
     assert set(_ignore_rules(dependabot, "npm")["typescript"]["update-types"]) >= {"version-update:semver-major"}
-
-
-def test_dependabot_only_skips_node_lines_without_lts(dependabot):
-    """Node: отсекаются только версии без LTS (23, 25), а LTS-преемники (24, 26) предлагаются как напоминание о миграции.
-
-    Прежнее правило «все мажорные» скрывало бы и конец поддержки Node 22 (30.04.2027), и переход на LTS. По новому графику Node (с 27-й
-    версии LTS становится каждый выпуск) нечётные версии после 25 отсекать не нужно.
-    """
-    node = _ignore_rules(dependabot, "docker")["node"]
-    assert "update-types" not in node, "мажорные версии Node нельзя блокировать целиком: LTS-линии должны предлагаться"
-    assert sorted(node["versions"]) == [">= 23, < 24", ">= 25, < 26"]
 
 
 # --- bandit в CI -------------------------------------------------------------------------------------------------------------------

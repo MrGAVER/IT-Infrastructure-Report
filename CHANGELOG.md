@@ -6126,6 +6126,24 @@ TypeScript 7 не ставится из-за `vue-tsc` и `typescript-eslint`. �
 **Проверено.** Backend на чистом окружении из `requirements-dev.lock` (с проверкой хешей): 4 340 тестов прошли, 49 пропущено (в dev-lock нет PyInstaller — учтённый бюджетом пропуск); `ruff check` и `pip-audit` чисты; пересборка lock без флагов не меняет файлы.
 Frontend: `npm ci`, ESLint, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 теста), `vite build`, `npm audit --omit=dev` (уровень high и выше), Prettier — чисто после форматирования (ниже). `e2e` на Playwright 1.65.1, PostgreSQL-job-ы и `compose-postgres` подтверждает CI на PR.
 
+### Не выпущено — миграция Node 22 → 26 (LTS)
+
+Ветка `chore/node-26-lts` (от `main` @ `c9f98a3`). Номер версии не менялся. Dependabot PR #40 (`node:22-slim` → `26-slim`) влит merge-коммитом; к нему добавлена остальная миграция: он один красным не мог быть влит (тест образов и CI оставались на Node 22).
+
+**Зачем.** Node 22 переходит в режим «только исправления безопасности» и выходит из поддержки 30.04.2027; Node 26 — Active LTS с 28.10.2026, поддержка до 30.04.2029. Заодно `@types/node` 26 (влит ранее) наконец совпадает с версией среды выполнения.
+
+- **`backend/Dockerfile`:** `node:26-slim@sha256:e6bedef…` (digest из PR #40).
+- **`.github/workflows/ci.yml`:** `node-version: "26"` в обоих местах (job `test` и job `e2e`).
+- **Тест образов** `test_the_pinned_images_match_the_versions_ci_runs_on` (`test_supply_chain_config.py`) вместо жёстко прописанных `22-slim` / `3.12-slim`: тег образа обязан совпадать с `node-version` и `python-version` в `ci.yml`, а сами версии в `ci.yml` везде одинаковы.
+  Теперь смена версии — одна миграция (Dockerfile и `ci.yml`), а PR Dependabot, который меняет только образ (как были #7 и #8), ловится тестом. Красный при образе `node:26` и CI на 22, зелёный после правки `ci.yml`.
+- **`.github/dependabot.yml`:** правило для `node` (отсечение линий 23 и 25) снято: впереди остались только версии 27+, а по новому графику Node (с 27-й) LTS становится каждый выпуск. Правила для `python` (минорные и мажорные) и `typescript` (мажорные) остались. Тест `test_dependabot_only_skips_node_lines_without_lts` удалён вместе с правилом.
+  Перед следующей миграцией Node проверять, что линия уже LTS (между выпуском и LTS она существует как Current).
+- **README / `installer/build_windows.bat`:** «Node.js 20+» заменено на «Node.js 22+ (CI и Docker-образ собирают на 26 LTS)» (Node 20 уже вышел из поддержки); абзац про Dependabot в разделе «Цепочка поставок» переписан под новое правило.
+
+**Проверено на настоящем Node 26.13.1** (npm 10.9.9, бинарник из npm-пакета `node@26`): `npm ci`, ESLint, Prettier, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 теста), `vite build`, `npm audit --omit=dev` (high и выше) — всё чисто;
+`e2e` (Playwright 1.65.1, Chromium 153 из npm-пакета, бэкенд на lock-окружении, режим `CI=true`) — 177 из 177. Тесты конфигурации цепочки поставок и установщика проходят; `ruff` чисто. Сборку Docker-образа, `compose-postgres` и PostgreSQL-job-ы подтверждает CI на PR (PR #40 до миграции собирал образ на Node 26 успешно).
+Не проверялось: сборка `.exe` под Windows (установщик Node 26 не использует, меняется только текст проверки).
+
 ### Не выпущено — Dependabot, третий пакет: sqlalchemy 2.1.8, ruff 0.17.5 и нижние границы vsdx, pyyaml, defusedxml
 
 Ветка `chore/deps-sweep-3` (от `main` @ `c9f98a3`). Номер версии не менялся. Ветки Dependabot влиты merge-коммитами, поэтому GitHub отметит их PR как влитые; код приложения не менялся, только `requirements*.txt` и lock-файлы.
