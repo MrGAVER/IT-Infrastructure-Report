@@ -181,11 +181,35 @@ def validate_support_method_organization(data: dict[str, Any], session: Session)
         raise HTTPException(422, 'Выбранный способ оказания техподдержки принадлежит другой организации технической поддержки')
 
 
+_LOCK_CHUNK = 500  # число id в одном запросе блокировки: у psycopg число параметров одного запроса ограничено
+
+
+def lock_interfaces(session: Session, interface_ids: Iterable[str | None]) -> None:
+    """Блокирует строки портов (``SELECT ... FOR UPDATE``) до конца транзакции — только на PostgreSQL (A-01 код-ревью main @ b375f58).
+
+    Правило «порт участвует не более чем в одном активном подключении» проверяется схемой «прочитал → проверил → записал»: два одновременных запроса
+    с одним и тем же портом оба проходили проверку до записи любого из них (воспроизведено на PostgreSQL 16). После блокировки второй запрос ждёт
+    фиксации первого, его следующий SELECT видит уже зафиксированное подключение и честно отвечает 409 — для любого сочетания ролей порта
+    (источник/назначение), чего не выразить уникальным индексом.
+
+    Порядок по возрастанию id — единый для всех мест, берущих порты (в том числе services/port_sync_reconcile.py), поэтому два запроса с пересекающимися
+    портами не блокируют друг друга взаимно. Порции идут по возрастанию id, значит глобальный порядок тот же. Повторы и пустые значения отбрасываются.
+    На SQLite (EXE, один писатель) блокировка не нужна: запись там и так сериализована блокировкой файла."""
+    if session.get_bind().dialect.name != 'postgresql':
+        return
+    ids = sorted({interface_id for interface_id in interface_ids if interface_id})
+    for start in range(0, len(ids), _LOCK_CHUNK):
+        session.execute(select(DeviceInterface.id).where(DeviceInterface.id.in_(ids[start:start + _LOCK_CHUNK])).order_by(DeviceInterface.id).with_for_update())
+
+
 def validate_connection(data: dict[str, Any], session: Session, current_connection_id: str | None = None, ignore_connection_ids: Iterable[str] = ()) -> None:
     """Проверяет пару портов подключения. ``current_connection_id`` — редактируемое подключение
     (его занятость не считается). ``ignore_connection_ids`` — дополнительные подключения, которые
     тот же запрос переставляет на другие порты (форма устройства: обмен соседями между портами) —
-    их прежние порты на момент проверки считаются свободными."""
+    их прежние порты на момент проверки считаются свободными.
+
+    На PostgreSQL перед проверкой занятости блокирует строки обоих портов (см. lock_interfaces): параллельный запрос с тем же портом дождётся
+    фиксации этого и получит 409, а не создаст второе активное подключение."""
     source_id, destination_id = data.get('source_interface_id'), data.get('destination_interface_id')
     if not source_id:
         raise HTTPException(422, 'Необходимо выбрать исходное устройство и его порт')
@@ -199,6 +223,9 @@ def validate_connection(data: dict[str, Any], session: Session, current_connecti
         raise HTTPException(422, 'Исходный и конечный интерфейсы не могут совпадать')
     if not data.get('connection_type_id'):
         raise HTTPException(422, 'Необходимо выбрать тип подключения')
+    # Блокировка — после всех дешёвых 422-проверок (запрос с заведомо неверными данными ничего не блокирует) и ДО чтения занятости: иначе
+    # чужое незафиксированное подключение осталось бы невидимым. Блокировка держится до commit/rollback вызывающей стороны.
+    lock_interfaces(session, (source_id, destination_id))
     # One physical/logical interface can participate in only one active connection.
     # During editing, the current connection itself is ignored.
     stmt = select(Connection).where(

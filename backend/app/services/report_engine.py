@@ -34,7 +34,8 @@ iter_report_rows, resolve_value, validate_path, substitute_params) как общ
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Iterable
 
 from sqlalchemy import select
@@ -246,6 +247,23 @@ def _matches_filters(ctx: ReportContext, entity_key: str, obj: Any, filters: lis
     return True
 
 
+def _sort_key(raw: Any) -> tuple[int, int, Any]:
+    """Ключ сортировки по «сырому» значению поля (A-02): пустое — в конец; числа, даты и строки между собой не сравниваются (ранг типа), поэтому
+    смешанный столбец не даёт TypeError (в SQLite колонка с аффинностью INTEGER может хранить и текст).
+
+    Раньше сортировали готовую строку из render_field: VLAN шли как «10, 100, 2, 9», даты «ДД.ММ.ГГГГ» — не по хронологии, а пустые значения — первыми
+    (render_field возвращает «», а не None)."""
+    if isinstance(raw, list):  # путь через связь «[]»: сортируем по тому же тексту, что увидит читатель отчёта
+        raw = _to_text(raw)
+    if raw is None or raw == "":
+        return (1, 0, 0)
+    if isinstance(raw, (bool, int, float, Decimal)):
+        return (0, 0, raw)
+    if isinstance(raw, date):  # datetime — подкласс date; ISO-строка сортируется хронологически (в БД хранится наивное UTC-время)
+        return (0, 1, raw.isoformat())
+    return (0, 2, str(raw))
+
+
 def iter_report_rows(ctx: ReportContext, root_entity: str, *, expand: str | None = None,
                       include_empty_expand: bool = True, filters: list[dict[str, Any]] | None = None,
                       sort_by: str | None = None) -> Iterable[tuple[Any, str | None, Any]]:
@@ -258,10 +276,7 @@ def iter_report_rows(ctx: ReportContext, root_entity: str, *, expand: str | None
     rows = list(ctx.all_rows(root_entity).values())
     rows = [r for r in rows if _matches_filters(ctx, root_entity, r, filters)]
     if sort_by:
-        def sort_key(r):
-            v = render_field(ctx, root_entity, r, sort_by)
-            return (v is None, v)
-        rows.sort(key=sort_key)
+        rows.sort(key=lambda r: _sort_key(resolve_value(ctx, root_entity, r, sort_by)))
 
     for row in rows:
         if not expand:

@@ -17,7 +17,7 @@ import re
 from datetime import date
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 
 class PhysicalDeviceCreate(BaseModel):
@@ -162,6 +162,20 @@ class ChangePasswordRequest(BaseModel):
 class AuthSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     enabled: bool
+
+
+# --- Настройки аудита (services/audit_retention.py, api/audit_log.py) -------------------------------
+# Верхняя граница срока хранения: десять лет. Больше — это уже «не удалять» (0), а опечатка вроде лишнего нуля не должна молча
+# превращаться в «хранить вечно».
+AUDIT_RETENTION_MAX_DAYS = 3650
+
+
+class AuditSettingsUpdate(BaseModel):
+    """PUT /api/v1/audit-log/settings. Поле, которого нет в теле, не меняется; retention_days = null сбрасывает срок к значению
+    по умолчанию (INFRA_REGISTRY_AUDIT_RETENTION_DAYS); 0 — не удалять. StrictInt: «30» (строка), 30.5 и true — не срок хранения,
+    а ошибка клиента, и тихо превращать их в число не нужно. extra="forbid": опечатка в имени поля — 422, а не молчаливое «сохранено»."""
+    model_config = ConfigDict(extra="forbid")
+    retention_days: Optional[StrictInt] = Field(default=None, ge=0, le=AUDIT_RETENTION_MAX_DAYS)
 
 
 # --- Настройки интерфейса (services/preferences.py, api/preferences.py) -----------------------------

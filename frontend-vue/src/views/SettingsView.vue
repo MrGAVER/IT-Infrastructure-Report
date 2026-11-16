@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import AccountPanel from '../components/AccountPanel.vue'
+import AuditSettingsButton from '../components/AuditSettingsButton.vue'
 import AuthSettingsPanel from '../components/AuthSettingsPanel.vue'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
 import { useAuthStore } from '../stores/auth'
@@ -160,6 +161,17 @@ function resetCollapseLimit() {
           {{ s.name }} — <span class="mono">{{ s.brand }}</span>
         </div>
       </div>
+    </section>
+
+    <!-- Настройки аудита (срок хранения журнала) — тот же доступ, что у самого журнала: администратору (и единственному пользователю
+         при выключенной аутентификации). У viewer секции нет. Кнопка и форма — общий компонент с экраном «Журнал аудита». -->
+    <section v-if="auth.canViewAuditLog" class="card settings-section" data-testid="audit-settings-section">
+      <h2>Журнал аудита</h2>
+      <p class="hint">
+        Срок хранения записей журнала: записи старше удаляются автоматически, 0 — хранить без ограничения. Настройки доступны администратору; та же кнопка есть
+        на экране «Журнал аудита».
+      </p>
+      <AuditSettingsButton />
     </section>
 
     <AuthSettingsPanel />

@@ -9,6 +9,10 @@ import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { CatalogItem, StructuralUnit, ResourceDescriptor, ProtocolPortCatalogEntry } from '../api/types'
 import { createLatestRequest } from '../utils/latestRequest'
 
+/** Подписи разделов журнала аудита, которых нет в /api/v1/resources (записи о служебных настройках, а не о ресурсах реестра).
+ * Раздел 'audit-settings' — изменение срока хранения журнала и очистка по сроку (backend/app/services/audit_retention.py). */
+const SERVICE_SECTION_LABELS: Record<string, string> = { 'audit-settings': 'Настройки аудита' }
+
 // Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
 // числа, а не посимвольно ("Gi1/0/2" раньше "Gi1/0/19", а не наоборот, как было бы при обычном
 // лексикографическом сравнении — фикс п.3.5 "натуральная сортировка" портов). Тот же collator
@@ -119,7 +123,7 @@ export const useCatalogsStore = defineStore('catalogs', {
     resourceLabel:
       (state) =>
       (key: string): string =>
-        state.resourceNames[key] ?? key,
+        state.resourceNames[key] ?? SERVICE_SECTION_LABELS[key] ?? key,
     /** Быстрый лукап id → запись для конкретного каталога.
      *
      * Кеш индекса намеренно ключуется по САМОМУ МАССИВУ (WeakMap), а не по имени каталога, как

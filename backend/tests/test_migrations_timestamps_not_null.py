@@ -26,6 +26,8 @@ from alembic.operations import Operations
 from migration_support import BACKEND_DIR, insert_row, migrate
 
 PREVIOUS = "e4b1c7d9a362"
+# Тест проверяет именно эту ревизию («схема не изменилась ничем, кроме NOT NULL»): с миграцией до head любая более поздняя ревизия, меняющая схему, ломала бы его (A-01, этап 2).
+TARGET = "a7d3f1c8e925"
 MIGRATION_FILE = BACKEND_DIR / "alembic" / "versions" / "a7d3f1c8e925_timestamps_not_null.py"
 
 
@@ -133,7 +135,7 @@ def run_scenario(url: str) -> None:
         triggers_before = sqlite_triggers(engine) if engine.dialect.name == "sqlite" else []
         started = _utc_now()
 
-        migrate(url, "head")
+        migrate(url, TARGET)
         finished = _utc_now()
 
         # 1. Все перечисленные колонки стали NOT NULL.
@@ -161,7 +163,7 @@ def run_scenario(url: str) -> None:
         migrate(url, PREVIOUS, downgrade=True)
         assert nullability(engine) == nullable_before
         assert row_counts(engine) == counts_before
-        migrate(url, "head")
+        migrate(url, TARGET)
         assert row_counts(engine) == counts_before
         assert not [key for key, nullable in nullability(engine).items() if nullable]
     finally:

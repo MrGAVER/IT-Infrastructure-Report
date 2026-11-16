@@ -1,6 +1,33 @@
 from __future__ import annotations
 import os
 from pathlib import Path
+from typing import Any, Callable
+
+
+def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None) -> Any:
+    """Число из переменной окружения: не задана, пуста или из одних пробелов — ``default``; нечисловое значение или меньше ``minimum`` — явная ошибка
+    запуска с ИМЕНЕМ переменной (а не молчаливое игнорирование опечатки и не безымянный ``invalid literal for int()``).
+
+    Пустая строка — обычное дело: так выглядят незаполненные строки в ``.env`` (``VAR=``), а docker-compose передаёт в контейнер пустое значение
+    вместо отсутствующего. Раньше такие переменные разбирались «голым» ``int(os.getenv(...))`` и роняли запуск при импорте модуля (A-03 код-ревью main @ b375f58).
+    ``minimum=None`` — нижней границы нет."""
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return default
+    try:
+        value = cast(raw)
+    except ValueError as exc:
+        raise ValueError(f'{name}: ожидается число, получено {raw!r}') from exc
+    if minimum is not None and value < minimum:
+        raise ValueError(f'{name}: значение не может быть меньше {minimum} ({raw})')
+    return value
+
+
+def _optional_number_env(name: str, cast: Callable[[str], Any]) -> Any:
+    """Необязательное неотрицательное число: не задано или пусто — None (остаётся значение SQLAlchemy по умолчанию), отрицательное или нечисловое —
+    ошибка запуска. Частный случай ``_number_env``."""
+    return _number_env(name, None, cast, minimum=0)
+
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 APP_DATA_DIR = Path(os.getenv('INFRA_REGISTRY_DATA_DIR', str(BASE_DIR))).expanduser().resolve()
@@ -12,7 +39,11 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 AUDIT_REPORT_SUBDIR = 'audit'
 # Сколько дней хранятся сгенерированные отчёты: файл нужен только пока его скачивают, а каталог без
 # очистки рос бы бесконечно. 0 — не удалять никогда.
-REPORT_RETENTION_DAYS = int(os.getenv('INFRA_REGISTRY_REPORT_RETENTION_DAYS', '30'))
+REPORT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_REPORT_RETENTION_DAYS', 30, int)  # minimum намеренно не задан: 0 и меньше — не удалять (report_cleanup.py)
+# Срок хранения записей журнала аудита, дней (A-05 код-ревью main @ b375f58): записи старше удаляются (services/audit_retention.py). 0 — не удалять
+# никогда (по умолчанию: журнал аудита нельзя терять молча, решение о ротации принимает владелец). Это значение по умолчанию: администратор
+# может задать срок в форме «Настройки аудита» — значение из формы (audit_settings.retention_days) важнее переменной окружения.
+AUDIT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_AUDIT_RETENTION_DAYS', 0, int, minimum=0)
 
 
 def _database_url() -> str:
@@ -44,20 +75,6 @@ def _database_url() -> str:
 
 DATABASE_URL = _database_url()
 
-
-def _optional_number_env(name: str, cast):
-    """Необязательное число из переменной окружения: не задана или пуста — None (остаётся значение SQLAlchemy по
-    умолчанию), нечисловое значение — явная ошибка запуска, а не молчаливое игнорирование опечатки."""
-    raw = os.getenv(name, '').strip()
-    if not raw:
-        return None
-    try:
-        value = cast(raw)
-    except ValueError as exc:
-        raise ValueError(f'{name}: ожидается число, получено {raw!r}') from exc
-    if value < 0:
-        raise ValueError(f'{name}: значение не может быть отрицательным ({raw})')
-    return value
 
 # Сколько файлов отчётов остаётся в каталоге: отчёт может сформировать любой клиент (роль viewer или вход выключен), и без
 # квоты цикл запросов заполнил бы диск; срок хранения (REPORT_RETENTION_DAYS) этому не мешает. Лишние удаляются, самые
@@ -130,7 +147,7 @@ ALLOWED_CLIENTS = _csv_env('INFRA_REGISTRY_ALLOWED_CLIENTS')
 # приложения — JSON; самый тяжёлый легитимный запрос — SVG-иконка (длиннее 256 К символов её всё равно пропускает экспорт диаграммы,
 # а в JSON с экранированием это до 1,5 МБ) — укладывается с запасом. Если реальный сценарий не проходит, поднимите предел;
 # 0 — проверка выключена (тогда защиту должен давать обратный прокси).
-MAX_REQUEST_BODY_BYTES = int(os.getenv('INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES', str(2 * 1024 * 1024)))
+MAX_REQUEST_BODY_BYTES = _number_env('INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES', 2 * 1024 * 1024, int, minimum=0)
 
 # Токен первичной настройки аутентификации. Пока аутентификация выключена (это значение по
 # умолчанию), создавать пользователей и включать её можно только с localhost без прокси-заголовков
@@ -177,20 +194,21 @@ CSP_POLICY = os.getenv(
 
 # Аутентификация выключаема на уровне данных (AuthSettings.enabled, см. services/auth/settings.py) —
 # переменные ниже настраивают её поведение, когда она включена, а не сам факт включения.
-AUTH_SESSION_TTL_HOURS = float(os.getenv('INFRA_REGISTRY_SESSION_TTL_HOURS', '12'))
+AUTH_SESSION_TTL_HOURS = _number_env('INFRA_REGISTRY_SESSION_TTL_HOURS', 12.0, float, minimum=0)
 # 10, а не 5: от перебора с одного адреса защищает троттлинг входа (services/login_throttle.py), а
 # блокировка учётной записи — запасной рубеж против распределённого подбора; чем она чувствительнее,
 # тем проще посторонним держать администратора заблокированным.
-AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', '10'))
-AUTH_LOCKOUT_MINUTES = float(os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', '15'))
-AUTH_MIN_PASSWORD_LENGTH = int(os.getenv('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', '8'))
+# minimum=1 у порога и длины пароля: 0 блокировал бы вход после первой же ошибки / снимал бы требование к длине пароля (остаются проверки «буквы и цифры»).
+AUTH_MAX_FAILED_ATTEMPTS = _number_env('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', 10, int, minimum=1)
+AUTH_LOCKOUT_MINUTES = _number_env('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', 15.0, float, minimum=0)
+AUTH_MIN_PASSWORD_LENGTH = _number_env('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', 8, int, minimum=1)
 # Блокировка учётной записи после серии неудачных входов (выше) сама становится оружием: любой, кто достаёт до /login, может
 # держать администратора заблокированным, посылая неверные пароли (имена пользователей перечисляются — 423 подтверждает
 # существование). Поэтому блокировка отклоняет вход только с «незнакомых» адресов: адрес, с которого этот пользователь уже входил
 # успешно за последние AUTH_KNOWN_CLIENT_DAYS дней, проходит проверку пароля, а подбор с него ограничивают счётчик и троттлинг входа.
 # За обратным прокси задайте FORWARDED_ALLOW_IPS: иначе у всех клиентов адрес прокси, и «знакомым» окажется любой. 0 — отключить.
 AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS = os.getenv('INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
-AUTH_KNOWN_CLIENT_DAYS = int(os.getenv('INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS', '30'))
+AUTH_KNOWN_CLIENT_DAYS = _number_env('INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS', 30, int, minimum=0)
 
 # Интерактивная документация API (/docs, /redoc, /openapi.json) по умолчанию выключена: она раскрывает полную карту API и
 # моделей данных любому посетителю (проверка входа касается только /api/*), а Swagger UI/ReDoc подгружают скрипты с внешнего CDN —

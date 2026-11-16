@@ -52,6 +52,10 @@ ALLOWED_DELETIONS = {
     # удаляемым пользователем (внешнего ключа с каскадом у owner нет, см. models.AppPreference)
     ("app/services/preferences.py", "update_preferences", "row"),
     ("app/services/preferences.py", "delete_user_preferences", "AppPreference"),
+    # журнал аудита (A-05): очистка записей старше срока хранения, который задал администратор (по умолчанию срок 0 — не удалять).
+    # Листовая таблица: на AuditLog никто не ссылается; удаление пакетное, по возрасту записи, и само пишет в журнал свежую
+    # запись об очистке (services/audit_retention.py, тесты — test_audit_retention.py)
+    ("app/services/audit_retention.py", "purge_expired_entries", "AuditLog"),
     # диаграммы и шаблоны отчётов
     ("app/api/diagrams.py", "delete_diagram", "diagram"),
     ("app/api/report_builder.py", "delete_template", "ReportTemplateVersion"),

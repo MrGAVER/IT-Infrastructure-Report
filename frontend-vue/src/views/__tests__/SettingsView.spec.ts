@@ -7,6 +7,7 @@ import { useFormPreferencesStore } from '../../stores/formPreferences'
 import { useAuthStore } from '../../stores/auth'
 import { usePreferencesStore } from '../../stores/preferences'
 import { stubPreferencesApi } from '../../stores/__tests__/preferencesApi'
+import { stubAuditSettingsApi } from '../../stores/__tests__/auditSettingsApi'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -171,5 +172,48 @@ describe('SettingsView.vue — подпись, где хранятся личн�
     expect(hint).toContain(`По умолчанию — ${DEFAULT_ORGANIZATION_NAME}.`)
     expect(hint).not.toContain('«ООО «')
     expect(hint).not.toContain('»»')
+  })
+})
+
+describe('SettingsView.vue — настройки аудита (A-05)', () => {
+  const section = (wrapper: ReturnType<typeof mount>) => wrapper.find('[data-testid="audit-settings-section"]')
+  const asUser = (role: 'admin' | 'viewer') => {
+    const auth = useAuthStore()
+    auth.enabled = true
+    auth.initialized = true
+    auth.user = { id: 'u1', username: 'user', role, is_active: true } as never
+  }
+
+  it('администратор видит секцию «Журнал аудита» с кнопкой настроек', () => {
+    asUser('admin')
+    const wrapper = mount(SettingsView)
+
+    expect(section(wrapper).find('h2').text()).toBe('Журнал аудита')
+    expect(section(wrapper).find('[data-testid="audit-settings-open"]').text()).toBe('Настройки аудита')
+  })
+
+  it('при выключенной аутентификации секция есть (журнал открыт единственному пользователю)', () => {
+    expect(section(mount(SettingsView)).exists()).toBe(true)
+  })
+
+  it('у наблюдателя (viewer) секции и кнопки нет, остальные настройки на месте', () => {
+    asUser('viewer')
+    const wrapper = mount(SettingsView)
+
+    expect(section(wrapper).exists()).toBe(false)
+    expect(wrapper.find('[data-testid="audit-settings-open"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="forms-settings"]').exists()).toBe(true)
+  })
+
+  it('кнопка открывает ту же форму со сроком хранения журнала', async () => {
+    asUser('admin')
+    const api = stubAuditSettingsApi({ retention_days: 90, is_default: false })
+    const wrapper = mount(SettingsView)
+
+    await section(wrapper).find('[data-testid="audit-settings-open"]').trigger('click')
+    await flushPromises()
+
+    expect(api.requests).toContain('GET /api/v1/audit-log/settings')
+    expect((wrapper.find('[data-field="retention-days"]').element as HTMLInputElement).value).toBe('90')
   })
 })

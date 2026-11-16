@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 import { useAuditLogStore, ACTION_LABELS } from '../stores/auditLog'
 import { useCatalogsStore } from '../stores/catalogs'
+import AuditSettingsButton from '../components/AuditSettingsButton.vue'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
 import StatCard from '../components/StatCard.vue'
@@ -66,6 +67,8 @@ onBeforeUnmount(() => searchDebounced.cancel())
         </button>
       </div>
       <div class="spacer"></div>
+      <!-- Сохранение настроек пишет запись в журнал, а новый срок сразу очищает его: страница и счётчики устарели — перечитываем. -->
+      <AuditSettingsButton @saved="log.reload()" />
       <button class="btn btn-secondary" :disabled="log.loading" @click="log.reload()">
         <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
         Обновить

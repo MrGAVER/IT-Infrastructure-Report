@@ -46,6 +46,7 @@ from .api.vlan import router as vlan_router
 from .api.vms import router as vms_router
 from .db import SessionLocal
 from .services.auth import auth_gate_middleware, get_or_create_auth_settings
+from .services.auth.security_headers import SecurityHeadersMiddleware
 from .services.body_limit import BodySizeLimitMiddleware
 from .services.catalogs import seed_defaults
 from .services.csrf_guard import SameOriginGuardMiddleware, forwarded_host_trusted
@@ -57,6 +58,7 @@ from .services.network_access import (
     has_remote_clients,
     parse_client_networks,
 )
+from .services.audit_retention import run_scheduled_cleanup
 from .services.port_sync_store import ensure_default_rules
 from .services.openapi_errors import install_error_formats
 from .services.request_errors import request_validation_handler
@@ -70,6 +72,7 @@ ALLOWED_CLIENT_NETWORKS: list[IPNetwork] = parse_client_networks(ALLOWED_CLIENTS
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_catalogs_on_startup()
+    cleanup_audit_log_on_startup()
     yield
 
 # Документация API выключена по умолчанию (config.ENABLE_DOCS): None вместо адреса снимает сами маршруты.
@@ -141,6 +144,9 @@ install_http_security(
     max_body_bytes=MAX_REQUEST_BODY_BYTES,
     accept_ip_hosts=ACCEPT_IP_HOSTS,
 )
+# Заголовки безопасности — САМЫЙ внешний слой (A-04 код-ревью main @ b375f58): после install_http_security, потому что последний добавленный
+# слой в Starlette стоит снаружи. Так их получают и ответы, которые формируют внутренние слои сами (400 по Host, 403 по клиенту и origin, 413).
+app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(auth_router)
 app.include_router(preferences_router)
 # Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
@@ -200,6 +206,16 @@ def _raise_if_schema_not_migrated(session) -> None:
     session.rollback()  # на PostgreSQL после ошибки транзакция прервана, и inspector в ней не сработал бы
     if not sa_inspect(session.get_bind()).has_table(SCHEMA_PROBE_TABLE):
         raise RuntimeError(SCHEMA_NOT_MIGRATED_MESSAGE) from None
+
+
+def cleanup_audit_log_on_startup() -> None:
+    """Ленивая очистка журнала аудита по сроку хранения при старте (A-05): срок задан и прошли сутки с прошлой очистки.
+    Ошибки БД не бросает — запуск сервера из-за неё не должен падать (см. services/audit_retention.run_scheduled_cleanup)."""
+    session = SessionLocal()
+    try:
+        run_scheduled_cleanup(session)
+    finally:
+        session.close()
 
 
 def seed_catalogs_on_startup():

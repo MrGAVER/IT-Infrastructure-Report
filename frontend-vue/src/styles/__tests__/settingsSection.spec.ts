@@ -84,8 +84,8 @@ describe('разметка панелей «Настроек»', () => {
     const settings = mount(SettingsView)
     await flushPromises()
     const panels = settings.findAll('section.settings-section')
-    // организация, формы, цветовая схема, предпросмотр, аутентификация, учётная запись
-    expect(panels).toHaveLength(6)
+    // организация, формы, цветовая схема, предпросмотр, журнал аудита (администратору), аутентификация, учётная запись
+    expect(panels).toHaveLength(7)
     for (const panel of panels) expect(panel.find('h2').exists()).toBe(true)
 
     expect(mount(AuthSettingsPanel).find('section.settings-section h2').text()).toBe('Аутентификация')

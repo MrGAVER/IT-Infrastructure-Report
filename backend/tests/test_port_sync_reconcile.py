@@ -301,8 +301,9 @@ def test_a_port_with_two_connections_is_changed_by_the_first_only(world):
     world.configure(n1, vlans=(10,))
     world.configure(n2, vlans=(20,))
     first = world.connect(empty, n1)
-    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую.
-    duplicate = Connection(source_interface_id=empty, destination_interface_id=n2, connection_type_id=world.cable, is_active=True)
+    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую. Порт — источник в первом подключении и
+    # назначение во втором: одноролевой дубль (источник дважды) с A-01 этап 2 запрещён уникальным индексом, разноролевой индекс по одной колонке не ловит.
+    duplicate = Connection(source_interface_id=n2, destination_interface_id=empty, connection_type_id=world.cable, is_active=True)
     world.db.add(duplicate)
     world.db.commit()
     second = duplicate.id
@@ -671,8 +672,9 @@ def test_two_connections_cannot_merge_into_the_same_port_in_one_plan(world):
     world.configure(b, mode="trunk", vlans=(20,))
     world.configure(c, mode="trunk", vlans=(30,))
     first = world.connect(a, b)
-    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую.
-    duplicate = Connection(source_interface_id=a, destination_interface_id=c, connection_type_id=world.cable, is_active=True)
+    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую. Порт a — источник в первом подключении
+    # и назначение во втором: одноролевой дубль с A-01 этап 2 запрещён уникальным индексом, разноролевой индекс по одной колонке не ловит.
+    duplicate = Connection(source_interface_id=c, destination_interface_id=a, connection_type_id=world.cable, is_active=True)
     world.db.add(duplicate)
     world.db.commit()
     second = duplicate.id
@@ -683,7 +685,7 @@ def test_two_connections_cannot_merge_into_the_same_port_in_one_plan(world):
     assert by_connection[first]["outcome"] == "auto" and len(by_connection[first]["targets"]) == 2
     # Порт a уже изменяется первым подключением — во втором ему ничего не применяется, порт c объединяется.
     blocked = {t["target"]: t["blocked"] for t in by_connection[second]["targets"]}
-    assert "другим подключением" in blocked["source"] and blocked["destination"] is None
+    assert "другим подключением" in blocked["destination"] and blocked["source"] is None
     assert plan["summary"]["applicable"] == 3  # a и b по первому подключению + c по второму
 
     world.apply(plan)
