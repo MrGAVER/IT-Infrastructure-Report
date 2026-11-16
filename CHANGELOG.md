@@ -6143,3 +6143,46 @@ Frontend: `npm ci`, ESLint, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 
 **Проверено на настоящем Node 26.13.1** (npm 10.9.9, бинарник из npm-пакета `node@26`): `npm ci`, ESLint, Prettier, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 теста), `vite build`, `npm audit --omit=dev` (high и выше) — всё чисто;
 `e2e` (Playwright 1.65.1, Chromium 153 из npm-пакета, бэкенд на lock-окружении, режим `CI=true`) — 177 из 177. Тесты конфигурации цепочки поставок и установщика проходят; `ruff` чисто. Сборку Docker-образа, `compose-postgres` и PostgreSQL-job-ы подтверждает CI на PR (PR #40 до миграции собирал образ на Node 26 успешно).
 Не проверялось: сборка `.exe` под Windows (установщик Node 26 не использует, меняется только текст проверки).
+
+### Не выпущено — код-ревью main @ b375f58, пакет A: инварианты подключений, сортировка отчётов, заголовки безопасности, срок хранения аудита
+
+Ветка `fix/pkg-a-backend-db` (от `main` @ `b375f58`). Номер версии не менялся. Новые миграции Alembic: `c4a9e2d7b185` → `e3b7a15c9d42` → `d6c1a8f3e594` (одна цепочка от `a7d3f1c8e925`, голова — `d6c1a8f3e594`); у всех работает `downgrade()`.
+
+**Исправлено.**
+- **A-01. Инварианты подключений в БД.** Правила «порт не соединяется сам с собой» и «порт участвует не более чем в одном активном подключении» проверял только `validate_connection` по схеме «прочитал → проверил → записал»; на PostgreSQL 16 два одновременных запроса с общим портом проходили проверку оба. Теперь: `CHECK ck_connections_distinct_ports`; на PostgreSQL `validate_connection` и форма устройства берут строки портов `SELECT … FOR UPDATE` по возрастанию `id` (второй запрос ждёт и получает 409 при любом сочетании ролей порта, взаимной блокировки нет); два частичных уникальных индекса по активным подключениям (`uq_connections_source_active`, `uq_connections_destination_active`). Обмен соседями в форме устройства на время применения плана выключает переставляемые подключения (`is_active = false`) и включает их снова в той же транзакции.
+- **A-02. Сортировка отчётов** идёт по «сырому» значению, а не по готовой строке: числа (VLAN `2, 9, 10, 100`) и даты (хронологически) сортируются как числа и даты, пустые значения — в конец. Это касается документных отчётов (docx) и xlsx-сетки одинаково. **Меняется порядок строк в пользовательских шаблонах с `sort_by`: пустые значения теперь внизу, а не вверху.**
+- **A-03. Пустое числовое значение `INFRA_REGISTRY_*`** (`VAR=` в `.env`) больше не роняет запуск безымянным `ValueError: invalid literal for int()…`: пусто — значение по умолчанию, нечисловое или ниже границы — понятная ошибка с именем переменной. Затронуты `REPORT_RETENTION_DAYS`, `MAX_REQUEST_BODY_BYTES`, `SESSION_TTL_HOURS`, `AUTH_MAX_ATTEMPTS`, `AUTH_LOCKOUT_MINUTES`, `AUTH_MIN_PASSWORD_LENGTH`, `AUTH_KNOWN_CLIENT_DAYS`. **Новые нижние границы:** `AUTH_MAX_ATTEMPTS` и `AUTH_MIN_PASSWORD_LENGTH` не меньше 1, остальные не меньше 0 (`REPORT_RETENTION_DAYS` без границы: `0` и меньше — «не удалять»); значение ниже границы теперь останавливает запуск с сообщением.
+- **A-04. Заголовки безопасности** (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, CSP) теперь ставятся и на ответы внешних middleware — 400 по `Host`, 403 по `Origin` и по адресу клиента, 413 по размеру тела. Для `/docs`, `/redoc`, `/openapi.json` исключение из CSP сохранено; дублей заголовков нет.
+- **Дефект, найденный тестами A-06:** `verify_password` на повреждённом хэше (число итераций 0, отрицательное или не помещающееся в C long) давал необработанное исключение, то есть 500 на экране входа; теперь `False`.
+
+**Добавлено.**
+- **A-05. Срок хранения журнала аудита** (решение владельца). Кнопка «Настройки аудита» на экранах «Журнал аудита» и «Настройки» (доступна только администратору; `GET`/`PUT /api/v1/audit-log/settings`), таблица `audit_settings`, переменная `INFRA_REGISTRY_AUDIT_RETENTION_DAYS` (по умолчанию `0` — не удалять). Записи старше срока удаляются пакетами по 1000 строк не чаще раза в сутки; о каждой очистке и о смене срока остаётся запись в самом журнале.
+- **A-06. Тесты слабо покрытых модулей** (`vlan_operations`, `report_render`, `report_engine`, `diagram_graph`, `validation`, `auth/passwords`, `vsdx_process`); впервые покрыт `GET /api/v1/vlan-dashboard`. Покрытие backend — 97,67 % при пороге 92 %.
+
+**Перед обновлением рабочей базы.** Миграции `c4a9e2d7b185` и `e3b7a15c9d42` **останавливаются, ничего не меняя**, если в данных уже есть нарушения; какое подключение настоящее (это физический кабель), решает человек. Найти их заранее:
+
+```sql
+-- порт, соединённый сам с собой
+SELECT id FROM connections WHERE source_interface_id = destination_interface_id;
+-- порт, занятый двумя активными подключениями в одной роли (источник; то же для destination_interface_id)
+SELECT source_interface_id, COUNT(*), STRING_AGG(id::text, ', ')
+  FROM connections WHERE is_active IS NOT FALSE
+ GROUP BY source_interface_id HAVING COUNT(*) > 1;
+```
+
+(`STRING_AGG(id::text, …)` — синтаксис PostgreSQL; в SQLite — `GROUP_CONCAT(id, ', ')`.)
+
+**Проверено** (на `main` @ `e4b1df8` + пакеты A и B): `ruff check` и `ruff format --check`, `bandit -ll`, `alembic upgrade head` и `alembic check` на SQLite и PostgreSQL 16 (плюс `downgrade` на три шага и обратно на PostgreSQL); `pytest` на SQLite — 4 647 + 5 медленных passed, покрытие 97,68 % при пороге 92 %; на PostgreSQL 16 — 4 642 passed и на схеме из `create_all`, и на схеме из миграций (`INFRA_REGISTRY_TEST_SCHEMA=migrations`). Блокировка портов проверена мутацией: без `FOR UPDATE` падают 4 из 6 тестов конкурентного создания подключений.
+
+### Не выпущено — код-ревью main @ b375f58, пакет B: настройки из `.env` в Docker, гонка ответов в сторах
+
+Ветка `fix/pkg-b-frontend-infra` (от `main` @ `e4b1df8`; код пакета A — в ветке `fix/pkg-a-backend-db`, обе записи внесены интегратором одним коммитом). Номер версии не менялся. Миграций нет.
+
+**Исправлено.**
+- **B-01 (высокая серьёзность). Настройки из `.env` не доходили до контейнера.** `docker-compose.yml` передаёт приложению только перечисленные переменные, а пять настроек, описанных в `.env.example` и README, в `app.environment` не входили: `INFRA_REGISTRY_ALLOWED_CLIENTS`, `INFRA_REGISTRY_REPORT_RETENTION_DAYS`, `INFRA_REGISTRY_REPORT_MAX_FILES`, `INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES`, `INFRA_REGISTRY_ENABLE_DOCS`. Главное следствие: список разрешённых клиентов оставался «включённым» только на бумаге — доступ был открыт всем, кто достаёт до порта. Теперь все пять пробрасываются; тест-страж `backend/tests/test_compose_env_passthrough.py` требует, чтобы каждая настройка из `.env.example` (в том числе закомментированная) была и в compose, и запрещает пустое умолчание для `INFRA_REGISTRY_CSP` (пусто = отключить CSP). **Внимание при обновлении:** если в `.env` уже задан `INFRA_REGISTRY_ALLOWED_CLIENTS`, ограничение **впервые начнёт действовать**. Приложение сверяет список с тем адресом клиента, который ему передал Docker или прокси; на Docker Desktop при обращении с самого хоста это может быть адрес шлюза сети Docker, а не `127.0.0.1` — выясните свой адрес и добавьте его в список заранее, иначе вы заблокируете сами себя. Не проверялось в Docker (демона в среде разработки не было).
+- **B-02. «Последний запрос побеждает» в Pinia-сторах.** Перекрывающиеся `reload()` позволяли ответу на более ранний запрос прийти позже и затереть свежий список, а `loading` сбрасывался по окончании первого запроса. Общий хелпер `utils/latestRequest.ts` применён в десяти сторах (`catalogs`, `connections`, `containers`, `deviceStacks`, `devices`, `informationSystems`, `reportTemplates`, `vlanDomains`, `vlans`, `vms`) и в двух, где защита уже была (`auditLog`, `connectionsDashboard`; поведение прежнее). Сверх пакета по результатам оценки — `diagram.load(id)` (быстрое переключение схем показывало не ту схему) и `portSyncRules.load()`.
+
+**Добавлено.**
+- **B-03. Настройки сессий, блокировки входа и пула БД в Docker** (решение владельца: открывать ли их — отдельный коммит, его можно отбросить): `INFRA_REGISTRY_SESSION_TTL_HOURS`, `…_AUTH_MAX_ATTEMPTS`, `…_AUTH_LOCKOUT_MINUTES`, `…_AUTH_MIN_PASSWORD_LENGTH`, `…_AUTH_KNOWN_CLIENT_DAYS`, `…_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS`, `…_DB_POOL_SIZE`, `…_DB_MAX_OVERFLOW`, `…_DB_POOL_TIMEOUT` и (из пакета A) `INFRA_REGISTRY_AUDIT_RETENTION_DAYS`. Числовые умолчания в compose явные и равны `config.py`, поэтому порядок слияния с пакетом A не важен. `INFRA_REGISTRY_CSP` не пробрасывается намеренно. Описания — в `.env.example` и README.
+
+**Проверено.** `npm run lint`, `format:check`, `build` (`vue-tsc -b && vite build`) чисто; `vitest` — 275 файлов, 3 993 теста passed; e2e Playwright — 177 passed; `pytest backend/tests/test_compose_env_passthrough.py backend/tests/test_docker_compose_defaults.py` — passed (страж B-01 до правки compose падал на ровно пяти ключах, тест гонки B-02 — на 30 из 40 сценариев десяти сторов). `docker compose config` с `.env` из `.env.example` и с переопределёнными значениями показывает все переменные. **Не проверялось:** запуск контейнеров (`docker compose up`) и проверка адреса клиента внутри Docker — демона Docker в среде разработки не было; поведение `INFRA_REGISTRY_ALLOWED_CLIENTS` в Docker Desktop и за прокси нужно проверить вручную перед выкладкой.
