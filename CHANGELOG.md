@@ -6185,7 +6185,7 @@ SELECT source_interface_id, COUNT(*), STRING_AGG(id::text, ', ')
 
 (`STRING_AGG(id::text, …)` — синтаксис PostgreSQL; в SQLite — `GROUP_CONCAT(id, ', ')`.)
 
-**Проверено** (на `main` @ `e4b1df8` + пакеты A и B): `ruff check` и `ruff format --check`, `bandit -ll`, `alembic upgrade head` и `alembic check` на SQLite и PostgreSQL 16 (плюс `downgrade` на три шага и обратно на PostgreSQL); `pytest` на SQLite — 4 647 + 5 медленных passed, покрытие 97,68 % при пороге 92 %; на PostgreSQL 16 — 4 642 passed и на схеме из `create_all`, и на схеме из миграций (`INFRA_REGISTRY_TEST_SCHEMA=migrations`). Блокировка портов проверена мутацией: без `FOR UPDATE` падают 4 из 6 тестов конкурентного создания подключений.
+**Проверено** (на `main` @ `cdcb6c4`, то есть с `sqlalchemy` 2.1.8 и `ruff` 0.17.5, + пакеты A и B): `ruff check` и `ruff format --check`, `bandit -ll`, `alembic upgrade head` и `alembic check` на SQLite и PostgreSQL 16 (плюс `downgrade` на три шага и обратно на PostgreSQL); `pytest` на SQLite — 4 647 + 5 медленных passed, покрытие 97,68 % при пороге 92 %; на PostgreSQL 16 — 4 641 passed и на схеме из `create_all`, и на схеме из миграций (`INFRA_REGISTRY_TEST_SCHEMA=migrations`). Блокировка портов проверена мутацией: без `FOR UPDATE` падают 4 из 6 тестов конкурентного создания подключений.
 
 ### Не выпущено — код-ревью main @ b375f58, пакет B: настройки из `.env` в Docker, гонка ответов в сторах
 
