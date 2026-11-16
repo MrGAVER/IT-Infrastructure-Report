@@ -6125,3 +6125,16 @@ TypeScript 7 не ставится из-за `vue-tsc` и `typescript-eslint`. �
 
 **Проверено.** Backend на чистом окружении из `requirements-dev.lock` (с проверкой хешей): 4 340 тестов прошли, 49 пропущено (в dev-lock нет PyInstaller — учтённый бюджетом пропуск); `ruff check` и `pip-audit` чисты; пересборка lock без флагов не меняет файлы.
 Frontend: `npm ci`, ESLint, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 теста), `vite build`, `npm audit --omit=dev` (уровень high и выше), Prettier — чисто после форматирования (ниже). `e2e` на Playwright 1.65.1, PostgreSQL-job-ы и `compose-postgres` подтверждает CI на PR.
+
+### Не выпущено — Dependabot, третий пакет: sqlalchemy 2.1.8, ruff 0.17.5 и нижние границы vsdx, pyyaml, defusedxml
+
+Ветка `chore/deps-sweep-3` (от `main` @ `c9f98a3`). Номер версии не менялся. Ветки Dependabot влиты merge-коммитами, поэтому GitHub отметит их PR как влитые; код приложения не менялся, только `requirements*.txt` и lock-файлы.
+
+- **#41** `vsdx>=0.6.1`, **#44** `pyyaml>=6.0.3`, **#45** `defusedxml>=0.7.1`: lock-файлы уже стояли на этих версиях (`vsdx` 0.6.1, `pyyaml` 6.0.3, `defusedxml` 0.7.1), менялись только границы в `requirements*.txt`.
+- **#42** `SQLAlchemy>=2.1.8`: lock `sqlalchemy` 2.1.4 → 2.1.8 (все три lock-файла).
+- **#43** `ruff>=0.17.5`: `requirements-dev.lock` `ruff` 0.16.10 → 0.17.5. Новая версия на этом репозитории: `ruff check .` чисто, `ruff format --check` даёт тот же единственный неотформатированный файл (`launcher.py`, он не отформатирован и при 0.16.10),
+  тесты сокращающегося списка исключений форматтера (`test_code_style_limits.py`) проходят без изменений.
+- Lock перегенерирован `uv pip compile --universal --generate-hashes --python-version 3.12 --upgrade-package sqlalchemy --upgrade-package ruff`; больше никаких версий не менялось, пересборка без флагов не меняет файлы.
+
+**Проверено** в чистом окружении из `requirements-dev.lock` (с проверкой хешей): `pytest -n 4 -m "not slow"` — 4 340 тестов прошли, 49 пропущено (учтённый бюджетом пропуск: в dev-lock нет PyInstaller); `ruff check` чисто, `pip-audit` чист, пересборка lock идемпотентна.
+PostgreSQL-job-ы и `compose-postgres` (драйвер и ORM затронуты обновлением `sqlalchemy`) подтверждает CI на PR.
