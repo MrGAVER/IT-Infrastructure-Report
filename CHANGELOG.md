@@ -6143,3 +6143,16 @@ Frontend: `npm ci`, ESLint, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 
 **Проверено на настоящем Node 26.13.1** (npm 10.9.9, бинарник из npm-пакета `node@26`): `npm ci`, ESLint, Prettier, `vue-tsc -b`, `vitest run` (267 файлов, 3 882 теста), `vite build`, `npm audit --omit=dev` (high и выше) — всё чисто;
 `e2e` (Playwright 1.65.1, Chromium 153 из npm-пакета, бэкенд на lock-окружении, режим `CI=true`) — 177 из 177. Тесты конфигурации цепочки поставок и установщика проходят; `ruff` чисто. Сборку Docker-образа, `compose-postgres` и PostgreSQL-job-ы подтверждает CI на PR (PR #40 до миграции собирал образ на Node 26 успешно).
 Не проверялось: сборка `.exe` под Windows (установщик Node 26 не использует, меняется только текст проверки).
+
+### Не выпущено — Dependabot, третий пакет: sqlalchemy 2.1.8, ruff 0.17.5 и нижние границы vsdx, pyyaml, defusedxml
+
+Ветка `chore/deps-sweep-3` (от `main` @ `c9f98a3`). Номер версии не менялся. Ветки Dependabot влиты merge-коммитами, поэтому GitHub отметит их PR как влитые; код приложения не менялся, только `requirements*.txt` и lock-файлы.
+
+- **#41** `vsdx>=0.6.1`, **#44** `pyyaml>=6.0.3`, **#45** `defusedxml>=0.7.1`: lock-файлы уже стояли на этих версиях (`vsdx` 0.6.1, `pyyaml` 6.0.3, `defusedxml` 0.7.1), менялись только границы в `requirements*.txt`.
+- **#42** `SQLAlchemy>=2.1.8`: lock `sqlalchemy` 2.1.4 → 2.1.8 (все три lock-файла).
+- **#43** `ruff>=0.17.5`: `requirements-dev.lock` `ruff` 0.16.10 → 0.17.5. Новая версия на этом репозитории: `ruff check .` чисто, `ruff format --check` даёт тот же единственный неотформатированный файл (`launcher.py`, он не отформатирован и при 0.16.10),
+  тесты сокращающегося списка исключений форматтера (`test_code_style_limits.py`) проходят без изменений.
+- Lock перегенерирован `uv pip compile --universal --generate-hashes --python-version 3.12 --upgrade-package sqlalchemy --upgrade-package ruff`; больше никаких версий не менялось, пересборка без флагов не меняет файлы.
+
+**Проверено** в чистом окружении из `requirements-dev.lock` (с проверкой хешей): `pytest -n 4 -m "not slow"` — 4 340 тестов прошли, 49 пропущено (учтённый бюджетом пропуск: в dev-lock нет PyInstaller); `ruff check` чисто, `pip-audit` чист, пересборка lock идемпотентна.
+PostgreSQL-job-ы и `compose-postgres` (драйвер и ORM затронуты обновлением `sqlalchemy`) подтверждает CI на PR.
