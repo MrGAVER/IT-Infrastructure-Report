@@ -6,10 +6,14 @@ import { defineStore } from 'pinia'
 import { createPortSyncRule, deletePortSyncRule, fetchPortSyncRules, reorderPortSyncRules, resetPortSyncRule, updatePortSyncRule } from '../api/portSync'
 import type { PortSyncRule, PortSyncRuleInput } from '../api/types'
 import { movedOrder } from '../utils/portSyncRules'
+import { createLatestRequest } from '../utils/latestRequest'
 
 function byPriority(rules: PortSyncRule[]): PortSyncRule[] {
   return [...rules].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))
 }
+
+// B-02: ответ на более ранний запрос не должен затереть более поздний (см. utils/latestRequest.ts).
+const latest = createLatestRequest()
 
 export const usePortSyncRulesStore = defineStore('portSyncRules', {
   state: () => ({
@@ -27,15 +31,18 @@ export const usePortSyncRulesStore = defineStore('portSyncRules', {
   },
   actions: {
     async load(): Promise<void> {
+      const isLatest = latest.begin()
       this.loading = true
       this.error = null
       try {
-        this.rules = byPriority((await fetchPortSyncRules()).items)
+        const res = await fetchPortSyncRules()
+        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
+        this.rules = byPriority(res.items)
         this.loaded = true
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось загрузить правила'
+        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить правила'
       } finally {
-        this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
     /** Заменяет правило ответом сервера (или добавляет новое) и сохраняет порядок проверки. */

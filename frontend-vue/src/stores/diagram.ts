@@ -20,6 +20,7 @@ import {
   type SavedDiagramDetail,
 } from '../api/diagrams'
 import { saveBlob } from '../api/saveBlob'
+import { createLatestRequest } from '../utils/latestRequest'
 
 // Раздел 12 ТЗ: "дебounced-сохранение раскладки" — не на каждый пиксель drag, а после паузы;
 // 600мс — тот же порядок величины, что и debounce поиска в других списковых экранах проекта.
@@ -41,6 +42,9 @@ function takePendingLayoutSave(): boolean {
 
 export type DiagramSelection = { kind: 'node'; node: DiagramNode } | { kind: 'edge'; edge: DiagramEdge } | null
 
+// B-02: ответ на более ранний load(id) не должен затереть более поздний (см. utils/latestRequest.ts).
+const latest = createLatestRequest()
+
 export const useDiagramStore = defineStore('diagram', {
   state: () => ({
     diagram: null as SavedDiagramDetail | null,
@@ -56,19 +60,27 @@ export const useDiagramStore = defineStore('diagram', {
   },
   actions: {
     async load(id: string) {
+      const isLatest = latest.begin()
       // Перемещения предыдущей диаграммы, ещё не ушедшие на сервер (окно debounce), отправляем ДО замены
       // this.diagram — иначе таймер сработал бы уже по новой диаграмме и последний сдвиг был бы потерян.
       await this.flushLayoutSave()
+      // Пока сохранялась раскладка, пользователь мог открыть другую схему: этот запрос уже не нужен, а его loading = true
+      // остался бы висеть, если бы более поздняя загрузка успела закончиться раньше.
+      if (!isLatest()) return
       this.loading = true
       this.error = null
       this.selection = null
       try {
-        this.diagram = await getDiagram(id)
+        const loaded = await getDiagram(id)
+        if (!isLatest()) return // быстрое переключение схем: устаревший ответ не показываем; finally ничего не тронет
+        this.diagram = loaded
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось загрузить диаграмму'
-        this.diagram = null
+        if (isLatest()) {
+          this.error = e instanceof Error ? e.message : 'Не удалось загрузить диаграмму'
+          this.diagram = null
+        }
       } finally {
-        this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
 
