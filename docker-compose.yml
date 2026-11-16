@@ -43,6 +43,15 @@ services:
       # Адреса прокси, которым доверяет uvicorn при определении IP клиента (X-Forwarded-For) — нужно
       # за обратным прокси, иначе в журнале аудита и сессиях будет адрес самого прокси.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Адреса и подсети клиентов, которым разрешено подключаться (через запятую). Пусто — без ограничений.
+      # Без этой строки значение из .env до приложения не доходило: ограничение казалось включённым, а доступ был открыт.
+      INFRA_REGISTRY_ALLOWED_CLIENTS: ${INFRA_REGISTRY_ALLOWED_CLIENTS:-}
+      # Срок хранения отчётов (дней; 0 — не удалять) и квота их числа. Значения по умолчанию совпадают с config.py.
+      INFRA_REGISTRY_REPORT_RETENTION_DAYS: ${INFRA_REGISTRY_REPORT_RETENTION_DAYS:-30}
+      INFRA_REGISTRY_REPORT_MAX_FILES: ${INFRA_REGISTRY_REPORT_MAX_FILES:-}
+      # Предел размера тела запроса, байт (0 — без проверки) и интерактивная документация API (1 — включить, только для разработки).
+      INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES: ${INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES:-2097152}
+      INFRA_REGISTRY_ENABLE_DOCS: ${INFRA_REGISTRY_ENABLE_DOCS:-}
     volumes:
       # Каталог данных приложения: сформированные отчёты (а при DATABASE_URL на SQLite — и база). Код в образе
       # доступен только для чтения, писать процессу можно лишь сюда; без тома отчёты терялись при пересоздании контейнера.
