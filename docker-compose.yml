@@ -49,6 +49,8 @@ services:
       # Срок хранения отчётов (дней; 0 — не удалять) и квота их числа. Значения по умолчанию совпадают с config.py.
       INFRA_REGISTRY_REPORT_RETENTION_DAYS: ${INFRA_REGISTRY_REPORT_RETENTION_DAYS:-30}
       INFRA_REGISTRY_REPORT_MAX_FILES: ${INFRA_REGISTRY_REPORT_MAX_FILES:-}
+      # Срок хранения записей журнала аудита, дней. 0 — не удалять никогда (по умолчанию). Значение из формы «Настройки аудита» важнее.
+      INFRA_REGISTRY_AUDIT_RETENTION_DAYS: ${INFRA_REGISTRY_AUDIT_RETENTION_DAYS:-0}
       # Предел размера тела запроса, байт (0 — без проверки) и интерактивная документация API (1 — включить, только для разработки).
       INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES: ${INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES:-2097152}
       INFRA_REGISTRY_ENABLE_DOCS: ${INFRA_REGISTRY_ENABLE_DOCS:-}
