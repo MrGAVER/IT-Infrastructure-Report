@@ -52,10 +52,11 @@ def test_csp_is_never_forwarded_with_an_empty_default():
     assert not re.search(r"INFRA_REGISTRY_CSP\s*:\s*\$\{[^}]*:-\}", COMPOSE_TEXT)
 
 
-def test_forwarded_numeric_keys_do_not_default_to_empty_until_empty_values_are_safe():
-    # Пока config.py разбирает эти переменные голым int()/float() (тикет A-03 ещё не влит в main), пустое значение роняет запуск
-    # (`ValueError: invalid literal for int() with base 10: ''`), и контейнер уходит в цикл перезапусков. Поэтому у них в compose
-    # стоит явное умолчание. После влития A-03 страж можно удалить, а умолчания заменить пустыми — значения будут жить только в config.py.
+def test_forwarded_numeric_keys_do_not_default_to_empty():
+    # Пока config.py разбирает эти переменные «голым» int()/float(), пустое значение роняет запуск
+    # (`ValueError: invalid literal for int() with base 10: ''`), и контейнер уходит в цикл перезапусков. После A-03 пусто безопасно,
+    # но явные умолчания в compose делают результат независимым от порядка слияния пакетов A и B. Если решите хранить умолчания только в
+    # config.py (пустое `${VAR:-}`), удалите этот тест вместе с переходом.
     numeric = (
         "INFRA_REGISTRY_REPORT_RETENTION_DAYS",
         "INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES",
@@ -66,4 +67,4 @@ def test_forwarded_numeric_keys_do_not_default_to_empty_until_empty_values_are_s
         "INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS",
     )
     empty_defaults = [key for key in numeric if re.search(rf"{key}\s*:\s*\$\{{[^}}]*:-\}}", COMPOSE_TEXT)]
-    assert not empty_defaults, f"числовые настройки с пустым умолчанием роняют запуск до A-03: {empty_defaults}"
+    assert not empty_defaults, f"числовые настройки с пустым умолчанием: {empty_defaults}"

@@ -52,6 +52,20 @@ services:
       # Предел размера тела запроса, байт (0 — без проверки) и интерактивная документация API (1 — включить, только для разработки).
       INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES: ${INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES:-2097152}
       INFRA_REGISTRY_ENABLE_DOCS: ${INFRA_REGISTRY_ENABLE_DOCS:-}
+      # Сессии и блокировка входа (действуют, когда аутентификация включена). Значения по умолчанию совпадают с config.py; пустым
+      # числовое значение не оставляйте — до исправления A-03 приложение на нём не запускалось, поэтому явные умолчания, а не `:-`.
+      INFRA_REGISTRY_SESSION_TTL_HOURS: ${INFRA_REGISTRY_SESSION_TTL_HOURS:-12}
+      INFRA_REGISTRY_AUTH_MAX_ATTEMPTS: ${INFRA_REGISTRY_AUTH_MAX_ATTEMPTS:-10}
+      INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES: ${INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES:-15}
+      INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH: ${INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH:-8}
+      INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS: ${INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS:-30}
+      INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS: ${INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS:-1}
+      # Пул соединений PostgreSQL. Пусто — значения SQLAlchemy (5 / 10 / 30 с).
+      INFRA_REGISTRY_DB_POOL_SIZE: ${INFRA_REGISTRY_DB_POOL_SIZE:-}
+      INFRA_REGISTRY_DB_MAX_OVERFLOW: ${INFRA_REGISTRY_DB_MAX_OVERFLOW:-}
+      INFRA_REGISTRY_DB_POOL_TIMEOUT: ${INFRA_REGISTRY_DB_POOL_TIMEOUT:-}
+      # INFRA_REGISTRY_CSP здесь намеренно НЕТ: пустая строка означает «отключить Content-Security-Policy», и `${…:-}` выключил бы
+      # защиту у каждого, кто переменную не задавал. Нужна своя политика — docker-compose.override.yml с явным значением.
     volumes:
       # Каталог данных приложения: сформированные отчёты (а при DATABASE_URL на SQLite — и база). Код в образе
       # доступен только для чтения, писать процессу можно лишь сюда; без тома отчёты терялись при пересоздании контейнера.
