@@ -5,6 +5,10 @@
 import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import type { VLANDashboardGroup, VLANDashboardResponse, VLANDefinition } from '../api/types'
+import { createLatestRequest } from '../utils/latestRequest'
+
+// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+const latest = createLatestRequest()
 
 export const useVLANsStore = defineStore('vlans', {
   state: () => ({
@@ -56,16 +60,18 @@ export const useVLANsStore = defineStore('vlans', {
       await this.reload()
     },
     async reload() {
+      const isLatest = latest.begin()
       this.loading = true
       this.error = null
       try {
         const res = await api.get<VLANDashboardResponse>('/vlan-dashboard')
+        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
         this.groups = res.items
         this.loaded = true
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось загрузить VLAN'
+        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить VLAN'
       } finally {
-        this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
   },

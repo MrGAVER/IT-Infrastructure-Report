@@ -7,6 +7,7 @@ import { defineStore } from 'pinia'
 import { listAllResource, api, type AllPagesResponse } from '../api/client'
 import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { CatalogItem, StructuralUnit, ResourceDescriptor, ProtocolPortCatalogEntry } from '../api/types'
+import { createLatestRequest } from '../utils/latestRequest'
 
 // Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
 // числа, а не посимвольно ("Gi1/0/2" раньше "Gi1/0/19", а не наоборот, как было бы при обычном
@@ -92,6 +93,9 @@ export function sortProtocolPortCatalog(items: ProtocolPortCatalogEntry[]): Prot
   return [...items].sort((a, b) => a.port - b.port || a.protocol_type.localeCompare(b.protocol_type, 'ru'))
 }
 
+// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+const latest = createLatestRequest()
+
 export const useCatalogsStore = defineStore('catalogs', {
   state: () => ({
     items: {} as Record<CatalogKey, CatalogItem[]>,
@@ -165,6 +169,7 @@ export const useCatalogsStore = defineStore('catalogs', {
       await this.reload()
     },
     async reload() {
+      const isLatest = latest.begin()
       this.loading = true
       this.error = null
       try {
@@ -184,6 +189,7 @@ export const useCatalogsStore = defineStore('catalogs', {
           api.get<ResourceDescriptor[]>('/resources'),
           listAllResource<ProtocolPortCatalogEntry>('protocol-port-catalog'),
         ])
+        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
         const failedKeys: string[] = []
         const truncatedLoads: Array<[string, AllPagesResponse<unknown>]> = []
         CATALOGS.forEach((key, i) => {
@@ -208,9 +214,9 @@ export const useCatalogsStore = defineStore('catalogs', {
         this.loaded = true
         this.error = failedKeys.length ? `Не удалось загрузить справочники: ${failedKeys.join(', ')}` : null
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось загрузить справочники'
+        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить справочники'
       } finally {
-        this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
     label(key: CatalogKey, id: string | null | undefined, fallback = '—'): string {

@@ -15,6 +15,7 @@ import type { ApprovePortConfigResult } from '../api/portConfig'
 import type { Connection, ConnectionsSummary, PortConfigStatus } from '../api/types'
 import { useConnectionsStore } from './connections'
 import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
+import { createLatestRequest } from '../utils/latestRequest'
 
 const LIST_ID = 'connections'
 
@@ -25,7 +26,7 @@ const EMPTY_SUMMARY: ConnectionsSummary = { total: 0, active: 0, inactive: 0, mi
 
 // Номер последнего отправленного запроса страницы: пользователь печатает быстрее, чем отвечает
 // сервер, и ответ на более ранний запрос не должен затереть ответ на более поздний.
-let latestRequest = 0
+const latest = createLatestRequest()
 
 export const useConnectionsDashboardStore = defineStore('connectionsDashboard', {
   state: () => ({
@@ -55,7 +56,7 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
      * позднего запроса) отбрасывается. Если страница вышла за конец (удалили последнюю запись
      * страницы, сузили фильтр), переходим на последнюю существующую. */
     async load(): Promise<void> {
-      const request = ++latestRequest
+      const isLatest = latest.begin()
       this.loading = true
       this.error = null
       try {
@@ -66,7 +67,7 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
           offset: (this.page - 1) * this.pageSize,
           limit: this.pageSize,
         })
-        if (request !== latestRequest) return
+        if (!isLatest()) return
         if (res.items.length === 0 && res.total > 0 && this.page > 1) {
           this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
           return this.load()
@@ -76,9 +77,9 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
         this.summary = res.summary
         this.loaded = true
       } catch (e) {
-        if (request === latestRequest) this.error = e instanceof Error ? e.message : 'Не удалось загрузить подключения'
+        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить подключения'
       } finally {
-        if (request === latestRequest) this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
     /** Снимает поиск и оба фильтра (кнопка «Сбросить фильтры» в пустой таблице, F-04). Только меняет условия: страницу

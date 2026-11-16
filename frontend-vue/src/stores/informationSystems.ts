@@ -9,8 +9,12 @@ import { api } from '../api/client'
 import type { InformationSystem } from '../api/types'
 import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
 import { sortNaturally } from '../utils/naturalSort'
+import { createLatestRequest } from '../utils/latestRequest'
 
 const LIST_ID = 'informationSystems'
+
+// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+const latest = createLatestRequest()
 
 export const useInformationSystemsStore = defineStore('informationSystems', {
   state: () => ({
@@ -57,16 +61,19 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
       await this.reload()
     },
     async reload() {
+      const isLatest = latest.begin()
       this.loading = true
       this.error = null
       try {
         // backend сортирует по строке («ИС 10» раньше «ИС 2»): порядок приводится к естественному один раз при записи (UI-13).
-        this.all = sortNaturally(await api.get<InformationSystem[]>('/information-systems'), (s) => s.name)
+        const list = await api.get<InformationSystem[]>('/information-systems')
+        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
+        this.all = sortNaturally(list, (s) => s.name)
         this.loaded = true
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось загрузить информационные системы'
+        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить информационные системы'
       } finally {
-        this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
     /** Помечает загруженный список устаревшим: при следующем открытии экрана ИС он загрузится заново. Нужен, когда

@@ -11,6 +11,7 @@ import { defineStore } from 'pinia'
 import { fetchAuditLogPage } from '../api/auditLogPage'
 import type { AuditLogEntry, AuditLogSummary } from '../api/types'
 import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
+import { createLatestRequest } from '../utils/latestRequest'
 
 const LIST_ID = 'auditLog'
 
@@ -25,7 +26,7 @@ const EMPTY_SUMMARY: AuditLogSummary = { total: 0, by_action: {} }
 
 // Номер последнего отправленного запроса страницы: пользователь печатает быстрее, чем отвечает
 // сервер, и ответ на более ранний запрос не должен затереть ответ на более поздний.
-let latestRequest = 0
+const latest = createLatestRequest()
 
 export const useAuditLogStore = defineStore('auditLog', {
   state: () => ({
@@ -60,7 +61,7 @@ export const useAuditLogStore = defineStore('auditLog', {
      * позднего запроса) отбрасывается. Если страница вышла за конец (журнал сузили фильтром),
      * переходим на последнюю существующую. */
     async load(): Promise<void> {
-      const request = ++latestRequest
+      const isLatest = latest.begin()
       this.loading = true
       this.error = null
       try {
@@ -71,7 +72,7 @@ export const useAuditLogStore = defineStore('auditLog', {
           offset: (this.page - 1) * this.pageSize,
           limit: this.pageSize,
         })
-        if (request !== latestRequest) return
+        if (!isLatest()) return
         if (res.items.length === 0 && res.total > 0 && this.page > 1) {
           this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
           return this.load()
@@ -82,9 +83,9 @@ export const useAuditLogStore = defineStore('auditLog', {
         this.entityTypes = res.entity_types
         this.loaded = true
       } catch (e) {
-        if (request === latestRequest) this.error = e instanceof Error ? e.message : 'Не удалось загрузить журнал аудита'
+        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить журнал аудита'
       } finally {
-        if (request === latestRequest) this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
     /** Кнопка «Обновить»: перечитать текущую страницу (в журнале могли появиться новые записи). */

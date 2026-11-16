@@ -4,8 +4,12 @@ import { defineStore } from 'pinia'
 import { api } from '../api/client'
 import type { VirtualMachine, VMsResponse } from '../api/types'
 import { PAGE_SIZE_OPTIONS, isAllowedPageSize, loadPageSize, pageAfterSizeChange, savePageSize } from '../utils/pageSize'
+import { createLatestRequest } from '../utils/latestRequest'
 
 const LIST_ID = 'vms'
+
+// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+const latest = createLatestRequest()
 
 export const useVMsStore = defineStore('vms', {
   state: () => ({
@@ -41,17 +45,19 @@ export const useVMsStore = defineStore('vms', {
       await this.reload()
     },
     async reload() {
+      const isLatest = latest.begin()
       this.loading = true
       this.error = null
       try {
         const res = await api.get<VMsResponse>('/vms')
+        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
         this.all = res.items
         this.total = res.total
         this.loaded = true
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось загрузить виртуальные машины'
+        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить виртуальные машины'
       } finally {
-        this.loading = false
+        if (isLatest()) this.loading = false
       }
     },
     setPage(p: number) {
