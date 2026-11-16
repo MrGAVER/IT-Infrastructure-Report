@@ -38,19 +38,16 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    # Версии Python и Node закреплены сознательно: CI, lock-файлы (`--python-version 3.12`) и тесты идут на Python 3.12, фронтенд собирается и
-    # проверяется на Node 22 (LTS), а test_the_pinned_images_are_the_ones_the_project_uses следит за тегами образов. Смена Python или Node —
-    # отдельная миграция (Dockerfile, ci.yml, lock-файлы и тесты вместе), а не правка одной строки Dockerfile: PR #7 (python:3.15-slim) и
-    # #8 (node:25-slim) ломали проверку образов, а контейнер на 3.15 не стартовал в compose-postgres. Правило не мешает обновлению digest
-    # того же тега. Снимается правкой этого блока в той же миграции.
+    # Python закреплён на 3.12 сознательно: CI, lock-файлы (`--python-version 3.12`) и тесты идут на нём, а PR #7 (python:3.15-slim) ломал проверку
+    # образов, и контейнер на 3.15 не стартовал в compose-postgres. У Python нет LTS (каждая линия поддерживается 5 лет), исправления безопасности
+    # приходят обновлением digest тега `3.12-slim`; правило этому не мешает. Смена версии Python — миграция (Dockerfile, ci.yml, lock-файлы и тесты
+    # вместе), снимается правкой этого блока.
+    # Node (LTS 26, поддержка до 30.04.2029) не заблокирован: Dependabot предлагает и digest тега, и следующие линии. Образ и CI должны жить
+    # на одной версии (test_the_pinned_images_match_the_versions_ci_runs_on), поэтому PR на новую линию красный, пока `node-version` в ci.yml
+    # не поднят той же миграцией. Перед такой миграцией проверять, что линия уже LTS (по новому графику Node, с 27-й, LTS становится каждый выпуск).
     ignore:
       - dependency-name: "python"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
-      # Node: исправления безопасности для 22-й линии приходят обновлением digest тега (PR #32), а о конце её поддержки (30.04.2027) должен напомнить
-      # сам Dependabot, поэтому мажорные версии не блокируются целиком: отсекаются только линии без LTS (23 и 25; по новому графику Node, начиная
-      # с 27, LTS становится каждый выпуск). PR на следующую LTS-линию красный до миграции (Dockerfile, ci.yml, lock-файлы и тесты вместе).
-      - dependency-name: "node"
-        versions: [">= 23, < 24", ">= 25, < 26"]
 
   # Действия CI закреплены по SHA с комментарием версии (# v4): Dependabot обновляет и SHA, и комментарий.
   - package-ecosystem: "github-actions"

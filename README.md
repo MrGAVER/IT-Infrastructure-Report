@@ -405,7 +405,7 @@ http://localhost:8000/docs   # только при INFRA_REGISTRY_ENABLE_DOCS=1 
 
 ### Локальный запуск без Docker
 
-Требуется Python 3.12+ и Node.js 20+ (для сборки UI):
+Требуется Python 3.12+ и Node.js 22+ (CI и Docker-образ собирают на 26 LTS) (для сборки UI):
 
 ```bash
 python -m venv .venv
@@ -475,7 +475,7 @@ infra_registry.pre-3a7c1e5d.20261024-093000.bak   <- <имя базы>.pre-<ве
 
 **Сборка** выполняется **на Windows** (PyInstaller собирает исполняемый файл под текущую ОС;
 сначала собирается основной UI — `installer\build_windows.bat` делает это автоматически,
-поэтому требуется установленный Node.js 20+):
+поэтому требуется установленный Node.js 22+ (CI и Docker-образ собирают на 26 LTS)):
 
 ```bat
 installer\build_windows.bat
@@ -917,11 +917,10 @@ Actions (они закреплены по SHA). PR с обновлением Pyt
 lock не пересобран командами выше. Digest вручную: `docker buildx imagetools inspect python:3.12-slim` (строка `Digest`).
 
 Dependabot **не предлагает** смену версии Python в образе и мажорное обновление TypeScript (в `dependabot.yml` для них задан `ignore`): CI,
-lock-файлы и тесты идут на Python 3.12, тест `test_the_pinned_images_are_the_ones_the_project_uses` следит за тегами образов, а TypeScript 7 пока не
-ставится из-за peer-зависимостей `vue-tsc` и `typescript-eslint`. Исправления безопасности для закреплённых линий приходят обновлением digest того же тега
-(образы `python:3.12-slim`, `node:22-slim`) и патч-обновлениями. У Node блокируются только линии без LTS (23 и 25): PR на следующую LTS-линию Dependabot
-открывает, и он остаётся красным до миграции — это напоминание о ней (Node 22 получает только исправления безопасности до 30.04.2027). Смена Python или Node —
-отдельная миграция (Dockerfile, `ci.yml`, lock-файлы и тесты вместе, с правкой этого блока), а не обновление одной строки.
+lock-файлы и тесты идут на Python 3.12, а TypeScript 7 пока не ставится из-за peer-зависимостей `vue-tsc` и `typescript-eslint`. Исправления безопасности для
+закреплённых линий приходят обновлением digest того же тега (`python:3.12-slim`, `node:26-slim`) и патч-обновлениями. Node (LTS 26, поддержка до 30.04.2029) не заблокирован:
+образ и CI обязаны жить на одной версии (`test_the_pinned_images_match_the_versions_ci_runs_on` сверяет `FROM` в Dockerfile с `node-version` и `python-version` в `ci.yml`), поэтому PR Dependabot
+на новую линию Node красный, пока `node-version` в `ci.yml` не поднят той же миграцией. Смена версии Python или Node — отдельная миграция (Dockerfile, `ci.yml`, lock-файлы и тесты вместе).
 
 ### Пакет `backend/app/services/crud/`
 
