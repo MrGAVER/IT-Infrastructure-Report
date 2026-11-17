@@ -89,7 +89,14 @@ class TestDefaultBehaviourIsUnchanged:
         assert run_cleanup(db_session, now=now, actor=None) is None
 
     def test_default_settings_are_serialized_as_not_deleting(self, db_session):
-        assert retention_state(get_audit_settings(db_session)) == audit_retention.RetentionState(retention_days=0, is_default=True, default_retention_days=0, max_retention_days=3650, last_cleanup_at=None)
+        expected = audit_retention.RetentionState(
+            retention_days=0,
+            is_default=True,
+            default_retention_days=0,
+            max_retention_days=3650,
+            last_cleanup_at=None,
+        )
+        assert retention_state(get_audit_settings(db_session)) == expected
 
     def test_environment_default_applies_until_the_form_overrides_it(self, db_session, now, monkeypatch):
         monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 30)
@@ -286,7 +293,7 @@ class TestPinningTheDefaultValue:
 
 
 class TestOverlappingScheduledRuns:
-    """R-03: запуск «занимается» атомарно, поэтому одновременные запросы (и воркеры) не чистят журнал дважды."""
+    """Запуск «занимается» атомарно, поэтому одновременные запросы (и воркеры) не чистят журнал дважды."""
 
     def test_a_run_that_starts_in_the_middle_of_another_one_does_nothing(self, db_session, now, monkeypatch):
         from sqlalchemy.orm import sessionmaker

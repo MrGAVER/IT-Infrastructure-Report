@@ -99,11 +99,15 @@ def test_report_retention_zero_and_negative_still_mean_never_delete(tmp_path, ra
 FLOAT_SETTINGS = [setting for setting in SETTINGS if isinstance(setting[2], float)]
 
 
-@pytest.mark.parametrize(("env_name", "attr", "default", "valid", "below_minimum"), FLOAT_SETTINGS, ids=[setting[1] for setting in FLOAT_SETTINGS])
+@pytest.mark.parametrize(
+    ("env_name", "attr", "default", "valid", "below_minimum"),
+    FLOAT_SETTINGS,
+    ids=[setting[1] for setting in FLOAT_SETTINGS],
+)
 @pytest.mark.parametrize("raw", ["inf", "Infinity", "nan", "-inf"])
 def test_a_non_finite_float_fails_the_start_naming_the_variable(tmp_path, env_name, attr, default, valid, below_minimum, raw):
-    # Раньше `inf` проходил проверку минимума (inf >= 0), а `nan` — любую (nan < 0 ложно): запуск шёл, и ошибка (OverflowError в timedelta) случалась
-    # в рантайме, при первой блокировке учётной записи.
+    # Раньше `inf` проходил проверку минимума (inf >= 0), а `nan` — любую (nan < 0 ложно): запуск шёл, и ошибка (OverflowError
+    # в timedelta) случалась в рантайме, при первой блокировке учётной записи.
     error = _error_line(_import_config(tmp_path, **{env_name: raw}))
     assert error.startswith("ValueError") and env_name in error, error
 
@@ -126,9 +130,11 @@ def test_documented_audit_retention_maximum_matches_the_constant():
 
     repository = BACKEND_DIR.parent
     for name in (".env.example", "README.md"):
-        lines = [line for line in (repository / name).read_text(encoding="utf-8").splitlines() if "3650" in line or "наибольший срок" in line]
+        text = (repository / name).read_text(encoding="utf-8")
+        lines = [line for line in text.splitlines() if "3650" in line or "наибольший срок" in line]
         assert lines, f"{name}: нет строки с наибольшим сроком хранения аудита"
-        assert all(str(AUDIT_RETENTION_MAX_DAYS) in line for line in lines), f"{name}: граница в документации не равна AUDIT_RETENTION_MAX_DAYS"
+        message = f"{name}: граница в документации не равна AUDIT_RETENTION_MAX_DAYS"
+        assert all(str(AUDIT_RETENTION_MAX_DAYS) in line for line in lines), message
 
 
 class TestNumberEnvHelper:

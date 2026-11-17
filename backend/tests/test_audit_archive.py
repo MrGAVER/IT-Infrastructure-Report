@@ -3,7 +3,8 @@
 
 Что проверяется: запись удаляется из БД только после того, как её копия записана в файл и сброшена на диск; при сбое архива не удаляется
 ничего и очистка считается неудавшейся (срок при этом сохраняется); формат файла (колонки, разделитель, BOM, защита от формул, права);
-проход без удаляемых записей файла не создаёт; уборка отчётов архив не трогает; контракт ответа `PUT /api/v1/audit-log/settings` не меняется.
+проход без удаляемых записей файла не создаёт; уборка отчётов архив не трогает; контракт ответа
+`PUT /api/v1/audit-log/settings` не меняется.
 
 Запуск: pytest backend/tests/test_audit_archive.py -v
 """
@@ -37,7 +38,14 @@ def now() -> datetime:
 
 
 def _entry(created_at: datetime, *, details: str = "запись", entity_id: str = "e", actor_username: str | None = None) -> AuditLog:
-    return AuditLog(entity_type="devices", entity_id=entity_id, action="UPDATE", details=details, created_at=created_at, actor_username=actor_username)
+    return AuditLog(
+        entity_type="devices",
+        entity_id=entity_id,
+        action="UPDATE",
+        details=details,
+        created_at=created_at,
+        actor_username=actor_username,
+    )
 
 
 def _old(now: datetime, count: int, *, days: int = 100) -> list[AuditLog]:
@@ -151,7 +159,8 @@ class TestFailClosed:
         assert len(_details(db_session)) == 4
 
     def test_a_failure_in_a_later_batch_keeps_everything_not_yet_archived(self, db_session, now, monkeypatch):
-        entries = [_entry(now - timedelta(days=100 - index), details=f"запись {index:02d}") for index in range(6)]  # запись 00 — самая старая
+        # запись 00 — самая старая
+        entries = [_entry(now - timedelta(days=100 - index), details=f"запись {index:02d}") for index in range(6)]
         _seed(db_session, *entries)
         original, calls = AuditArchive.write_batch, []
 
@@ -210,7 +219,8 @@ class TestFailClosed:
         assert (update.removed, update.cleanup_failed) == (0, True)
         assert get_audit_settings(db_session).retention_days == 30
         assert len(_details(db_session)) == 3
-        assert [e.action for e in db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY))] == ["UPDATE"], "записи об очистке нет"
+        cleanup_records = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY))
+        assert [e.action for e in cleanup_records] == ["UPDATE"], "записи об очистке нет"
 
 
 class TestFileFormat:
@@ -271,7 +281,16 @@ class TestHttpContract:
 
         body = client.put(URL, json={"retention_days": 30}).json()
 
-        assert set(body) == {"retention_days", "is_default", "default_retention_days", "max_retention_days", "last_cleanup_at", "removed_now", "cleanup_failed"}
+        expected_fields = {
+            "retention_days",
+            "is_default",
+            "default_retention_days",
+            "max_retention_days",
+            "last_cleanup_at",
+            "removed_now",
+            "cleanup_failed",
+        }
+        assert set(body) == expected_fields
         assert (body["removed_now"], body["cleanup_failed"]) == (4, False)
         (path,) = _archives()
         assert len(_read_archive(path)[1]) == 4

@@ -1,10 +1,12 @@
 """
 Нарушение ограничений портов подключения на уровне БД превращается в понятный 409, а не в безликий INTEGRITY_ERROR.
 
-Обычно запрос, который нарушил бы ограничение, останавливает validate_connection (422/409 с объяснением). До БД дело доходит в гонке двух запросов или при записи в
-обход проверки, и тогда `services/integrity.integrity_error_response` должен узнать нарушенное ограничение. Тексты ошибок разные: PostgreSQL называет ограничение
-(`violates unique constraint "uq_connections_source_active"`), а SQLite для частичного индекса пишет только колонку (`UNIQUE constraint failed: connections.source_interface_id`),
-поэтому распознавание учитывает оба вида. Ответ для клиента по-прежнему не содержит ни имён таблиц, колонок, ни самих ограничений.
+Обычно запрос, который нарушил бы ограничение, останавливает validate_connection (422/409 с объяснением). До БД дело доходит
+в гонке двух запросов или при записи в обход проверки, и тогда `services/integrity.integrity_error_response` должен узнать
+нарушенное ограничение. Тексты ошибок разные: PostgreSQL называет ограничение
+(`violates unique constraint "uq_connections_source_active"`), а SQLite для частичного индекса пишет только колонку
+(`UNIQUE constraint failed: connections.source_interface_id`), поэтому распознавание учитывает оба вида. Ответ для клиента
+по-прежнему не содержит ни имён таблиц, колонок, ни самих ограничений.
 
 Запуск: pytest backend/tests/test_integrity_port_constraints.py -v   (и с INFRA_REGISTRY_TEST_DATABASE_URL — на PostgreSQL)
 """
@@ -32,9 +34,23 @@ def world(db_session):
 def _violation(session, world, source: str, destination: str, *, first: tuple[str, str] | None = None) -> IntegrityError:
     """Записывает подключение в обход validate_connection и возвращает ошибку БД. first — подключение, которое уже стоит в БД."""
     if first:
-        session.add(Connection(source_interface_id=first[0], destination_interface_id=first[1], connection_type_id=world.type_id, is_active=True))
+        session.add(
+            Connection(
+                source_interface_id=first[0],
+                destination_interface_id=first[1],
+                connection_type_id=world.type_id,
+                is_active=True,
+            )
+        )
         session.commit()
-    session.add(Connection(source_interface_id=source, destination_interface_id=destination, connection_type_id=world.type_id, is_active=True))
+    session.add(
+        Connection(
+            source_interface_id=source,
+            destination_interface_id=destination,
+            connection_type_id=world.type_id,
+            is_active=True,
+        )
+    )
     with pytest.raises(IntegrityError) as caught:
         session.commit()
     session.rollback()
@@ -96,7 +112,8 @@ class TestEachConstraintHasItsOwnAnswer:
 
 class TestThroughTheHttpLayer:
     def test_a_race_that_passes_validation_gets_the_clear_409(self, client, monkeypatch):
-        """Два запроса прошли проверку «порт свободен»; второй упёрся в уникальный индекс. Проверку обходим — так выглядит этот исход для клиента."""
+        """Два запроса прошли проверку «порт свободен»; второй упёрся в уникальный индекс.
+        Проверку обходим — так выглядит этот исход для клиента."""
         from app.services import interface_connections
         from test_interface_connections import _conn, _connection_type, _device_with_ports, _sync
 
@@ -104,7 +121,11 @@ class TestThroughTheHttpLayer:
         connection_type = _connection_type(client)
         first, first_ports = _device_with_ports(client, "SRV-RACE-1", ["eth0"])
         second, second_ports = _device_with_ports(client, "SRV-RACE-2", ["eth0"])
-        connect = lambda device, ports: _sync(client, device["id"], [{"id": ports["eth0"]["id"], "name": "eth0", "connection": _conn(theirs["g1"], connection_type)}])  # noqa: E731
+
+        def connect(device, ports):
+            port = {"id": ports["eth0"]["id"], "name": "eth0", "connection": _conn(theirs["g1"], connection_type)}
+            return _sync(client, device["id"], [port])
+
         assert connect(first, first_ports).status_code == 200
         monkeypatch.setattr(interface_connections, "validate_connection", lambda *args, **kwargs: None)
 

@@ -39,30 +39,41 @@ def _service_entries(client, headers: dict | None = None) -> list[dict]:
 
 
 class TestResponseContract:
-    """R-08: у ответов настроек есть схема (response_model), а форма JSON побайтно прежняя — на неё опирается фронтенд (api/types/audit.ts)."""
+    """У ответов настроек есть схема (response_model), а форма JSON побайтно прежняя — на неё опирается фронтенд (api/types/audit.ts)."""
 
     def test_get_response_is_byte_for_byte_the_documented_shape(self, client):
         response = client.get(URL)
 
-        assert response.text == '{"retention_days":0,"is_default":true,"default_retention_days":0,"max_retention_days":3650,"last_cleanup_at":null}'
+        expected = '{"retention_days":0,"is_default":true,"default_retention_days":0,"max_retention_days":3650,"last_cleanup_at":null}'
+        assert response.text == expected
 
     def test_put_response_keeps_the_field_order_and_adds_the_cleanup_result_last(self, client):
         response = client.put(URL, json={"retention_days": 90})
 
-        assert list(response.json()) == ["retention_days", "is_default", "default_retention_days", "max_retention_days", "last_cleanup_at", "removed_now", "cleanup_failed"]
+        assert list(response.json()) == [
+            "retention_days",
+            "is_default",
+            "default_retention_days",
+            "max_retention_days",
+            "last_cleanup_at",
+            "removed_now",
+            "cleanup_failed",
+        ]
 
     def test_put_without_a_period_answers_like_get_without_the_cleanup_result(self, client):
         client.put(URL, json={"retention_days": 90})
 
         response = client.put(URL, json={})
 
-        assert response.text == client.get(URL).text, "срока в теле нет — сохранять нечего: ответ как у GET, без removed_now и cleanup_failed"
+        # срока в теле нет — сохранять нечего: ответ как у GET, без removed_now и cleanup_failed
+        assert response.text == client.get(URL).text
 
     def test_the_contract_is_described_in_openapi(self, client):
         from app.main import app
 
         paths = app.openapi()["paths"]["/api/v1/audit-log/settings"]
-        refs = {method: paths[method]["responses"]["200"]["content"]["application/json"]["schema"].get("$ref", "") for method in ("get", "put")}
+        responses = {method: paths[method]["responses"]["200"] for method in ("get", "put")}
+        refs = {method: found["content"]["application/json"]["schema"].get("$ref", "") for method, found in responses.items()}
 
         assert refs == {"get": "#/components/schemas/AuditSettingsOut", "put": "#/components/schemas/AuditSettingsSaveOut"}
 

@@ -207,10 +207,9 @@ def run_cleanup(session: Session, *, now: datetime, actor: Optional[Actor]) -> O
 
 
 def _claim_cleanup(session: Session, now: datetime) -> bool:
-    """Атомарно «занимает» очередной ленивый запуск: один UPDATE с условием «очистка назначена» ставит last_cleanup_at = now. Побеждает
-    ровно
-    одна сессия (одновременные запросы, несколько воркеров), остальные получают False и ничего не удаляют: двойных записей «удалено N» и
-    встречных DELETE больше нет. Строка настроек должна существовать (get_or_create_audit_settings).
+    """Атомарно «занимает» очередной ленивый запуск: один UPDATE с условием «очистка назначена» ставит last_cleanup_at = now.
+    Побеждает ровно одна сессия (одновременные запросы, несколько воркеров), остальные получают False и ничего не удаляют: двойных
+    записей «удалено N» и встречных DELETE больше нет. Строка настроек должна существовать (get_or_create_audit_settings).
 
     Core-UPDATE не знает о сессионной карте объектов, а у SessionLocal expire_on_commit=False, поэтому загруженная строка настроек
     устаревает — сбрасываем её, чтобы дальше читалось значение из БД."""
@@ -223,9 +222,9 @@ def _claim_cleanup(session: Session, now: datetime) -> bool:
 
 
 def _release_claim(session: Session, now: datetime, previous: Optional[datetime]) -> None:
-    """Возвращает прежнюю отметку, если занятый запуск не состоялся (сбой): иначе неудачная очистка отложилась бы на сутки. Возвращает
-    только
-    свою отметку (last_cleanup_at == now) — отметку, которую успел поставить кто-то другой, не трогает. Сама не бросает ошибок."""
+    """Возвращает прежнюю отметку, если занятый запуск не состоялся (сбой): иначе неудачная очистка отложилась бы на сутки.
+    Возвращает только свою отметку (last_cleanup_at == now) — отметку, которую успел поставить кто-то другой, не трогает.
+    Сама не бросает ошибок."""
     try:
         ours = update(AuditSettings).where(AuditSettings.id == SETTINGS_ID, AuditSettings.last_cleanup_at == now)
         session.execute(ours.values(last_cleanup_at=previous).execution_options(synchronize_session=False))

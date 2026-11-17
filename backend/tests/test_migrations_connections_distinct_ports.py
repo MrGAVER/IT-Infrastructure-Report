@@ -136,12 +136,13 @@ def _check_constraint_names(db: Database) -> list[str]:
 
 
 def test_upgrade_skips_a_constraint_that_already_exists(database):
-    """База создана по моделям (create_all + stamp) или ревизия запущена повторно: ограничение уже есть. Как и соседние миграции, эта пропускает его, а не падает
-    на ALTER TABLE … ADD CONSTRAINT с занятым именем (PostgreSQL) и не плодит копию (SQLite)."""
+    """База создана по моделям (create_all + stamp) или ревизия запущена повторно: ограничение уже есть. Как и соседние миграции,
+    эта пропускает его, а не падает на ALTER TABLE … ADD CONSTRAINT с занятым именем (PostgreSQL) и не плодит копию (SQLite)."""
     database.migrate(TARGET_REVISION)
     assert _check_constraint_names(database) == [CONSTRAINT]
     with database.engine.begin() as connection:
-        connection.execute(sa.text("UPDATE alembic_version SET version_num = :revision"), {"revision": PRE_REVISION})  # схема прежняя «по версии», ограничение на месте
+        # схема прежняя «по версии», ограничение на месте
+        connection.execute(sa.text("UPDATE alembic_version SET version_num = :revision"), {"revision": PRE_REVISION})
 
     database.migrate(TARGET_REVISION)
 
