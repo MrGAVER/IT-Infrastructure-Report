@@ -181,7 +181,8 @@ class AuditSettingsUpdate(BaseModel):
 
 class AuditSettingsOut(BaseModel):
     """GET /api/v1/audit-log/settings. retention_days — действующий срок (0 — не удалять); is_default — срок в форме не задан, действует
-    default_retention_days (из окружения); max_retention_days — верхняя граница; last_cleanup_at — ISO 8601 UTC или null. Форму JSON повторяет
+    default_retention_days (из окружения); max_retention_days — верхняя граница; last_cleanup_at — ISO 8601 UTC или null. Форму JSON
+    повторяет
     вручную написанный тип frontend-vue/src/api/types/audit.ts: менять поля только вместе с ним."""
     retention_days: int
     is_default: bool
@@ -191,7 +192,8 @@ class AuditSettingsOut(BaseModel):
 
 
 class AuditSettingsSaveOut(AuditSettingsOut):
-    """PUT /api/v1/audit-log/settings: настройки после сохранения + итог немедленной очистки по новому сроку. Если в теле не было retention_days,
+    """PUT /api/v1/audit-log/settings: настройки после сохранения + итог немедленной очистки по новому сроку. Если в теле не было
+    retention_days,
     сохранять нечего и ответ — как у GET: removed_now и cleanup_failed в него не попадают (эндпоинт отдаёт только заданные поля)."""
     removed_now: Optional[int] = None  # сколько записей удалено сразу при сохранении
     cleanup_failed: Optional[bool] = None  # срок сохранён, но очистка не удалась; повторится при ближайшем ленивом запуске

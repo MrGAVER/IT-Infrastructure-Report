@@ -1,4 +1,4 @@
-"""Политика хранения журнала аудита: срок хранения, очистка по сроку, настройки (A-05 код-ревью main @ b375f58).
+"""Политика хранения журнала аудита: срок хранения, очистка по сроку, настройки.
 
 Журнал по смыслу нельзя удалять молча, поэтому по умолчанию он не очищается (срок 0). Срок задаёт администратор в форме «Настройки аудита»
 (PUT /api/v1/audit-log/settings); если он не задан, действует INFRA_REGISTRY_AUDIT_RETENTION_DAYS (по умолчанию 0). Записи старше срока
@@ -10,7 +10,8 @@
 * не чаще раза в сутки (audit_settings.last_cleanup_at) — для ленивых запусков; сохранение настроек администратором запускает очистку сразу;
 * факт очистки (число строк и граница) пишется в сам журнал отдельной записью (раздел «audit-settings», действие DELETE).
 
-Отдельного планировщика в приложении нет (как и у services/report_cleanup.py и уборки сессий), поэтому ленивые запуски — при старте сервера и
+Отдельного планировщика в приложении нет (как и у services/report_cleanup.py и уборки сессий), поэтому ленивые запуски — при старте сервера
+и
 при открытии журнала (GET /api/v1/audit-log). Если журнал не открывают и сервер не перезапускают, очистка ждёт ближайшего из этих событий.
 
 Пример:
@@ -121,10 +122,19 @@ def _has_expired(session: Session, cutoff: datetime) -> bool:
     return bool(session.scalar(select(exists().where(AuditLog.created_at < cutoff))))
 
 
-def purge_expired_entries(session: Session, retention_days: int, *, now: datetime, batch_size: Optional[int] = None, max_batches: Optional[int] = None) -> PurgeResult:
-    """Удаляет записи журнала строго старше `now - retention_days` пакетами по batch_size (по умолчанию BATCH_SIZE), старые первыми (индекс ix_audit_log_created_at_id).
+def purge_expired_entries(
+    session: Session,
+    retention_days: int,
+    *,
+    now: datetime,
+    batch_size: Optional[int] = None,
+    max_batches: Optional[int] = None,
+) -> PurgeResult:
+    """Удаляет записи журнала строго старше `now - retention_days` пакетами по batch_size (по умолчанию BATCH_SIZE), старые первыми (индекс
+    ix_audit_log_created_at_id).
 
-    Каждый пакет — один DELETE с подзапросом `id IN (SELECT … LIMIT n)` и свой commit: так работает и на SQLite, и на PostgreSQL (DELETE … LIMIT
+    Каждый пакет — один DELETE с подзапросом `id IN (SELECT … LIMIT n)` и свой commit: так работает и на SQLite, и на PostgreSQL (DELETE …
+    LIMIT
     в PostgreSQL нет), число параметров не растёт с размером пакета. Короткий пакет (меньше batch_size) — последний. Возвращает число
     удалённых строк, границу и признак «дочистили до конца»."""
     if retention_days <= 0:
@@ -135,7 +145,8 @@ def purge_expired_entries(session: Session, retention_days: int, *, now: datetim
     oldest_batch = select(AuditLog.id).where(AuditLog.created_at < cutoff).order_by(AuditLog.created_at, AuditLog.id).limit(batch_size)
     removed = 0
     for _ in range(max_batches):
-        deleted = session.execute(delete(AuditLog).where(AuditLog.id.in_(oldest_batch)).execution_options(synchronize_session=False)).rowcount or 0
+        delete_batch = delete(AuditLog).where(AuditLog.id.in_(oldest_batch)).execution_options(synchronize_session=False)
+        deleted = session.execute(delete_batch).rowcount or 0
         session.commit()
         removed += deleted
         if deleted < batch_size:
@@ -148,7 +159,8 @@ def _days_text(days: int) -> str:
 
 
 def _describe_purge(days: int, result: PurgeResult) -> str:
-    text = f"Очистка журнала по сроку хранения ({days} дн.): удалено записей — {result.removed}, граница — {result.cutoff:%d.%m.%Y %H:%M} UTC (удалены более старые)."
+    head = f"Очистка журнала по сроку хранения ({days} дн.): удалено записей — {result.removed}"
+    text = f"{head}, граница — {result.cutoff:%d.%m.%Y %H:%M} UTC (удалены более старые)."
     return text if result.complete else text + " Очистка продолжится при следующем запуске."
 
 
@@ -172,7 +184,8 @@ def run_cleanup(session: Session, *, now: datetime, actor: Optional[Actor]) -> O
 
 
 def _claim_cleanup(session: Session, now: datetime) -> bool:
-    """Атомарно «занимает» очередной ленивый запуск: один UPDATE с условием «очистка назначена» ставит last_cleanup_at = now. Побеждает ровно
+    """Атомарно «занимает» очередной ленивый запуск: один UPDATE с условием «очистка назначена» ставит last_cleanup_at = now. Побеждает
+    ровно
     одна сессия (одновременные запросы, несколько воркеров), остальные получают False и ничего не удаляют: двойных записей «удалено N» и
     встречных DELETE больше нет. Строка настроек должна существовать (get_or_create_audit_settings).
 
@@ -187,11 +200,12 @@ def _claim_cleanup(session: Session, now: datetime) -> bool:
 
 
 def _release_claim(session: Session, now: datetime, previous: Optional[datetime]) -> None:
-    """Возвращает прежнюю отметку, если занятый запуск не состоялся (сбой): иначе неудачная очистка отложилась бы на сутки. Возвращает только
+    """Возвращает прежнюю отметку, если занятый запуск не состоялся (сбой): иначе неудачная очистка отложилась бы на сутки. Возвращает
+    только
     свою отметку (last_cleanup_at == now) — отметку, которую успел поставить кто-то другой, не трогает. Сама не бросает ошибок."""
     try:
-        release = update(AuditSettings).where(AuditSettings.id == SETTINGS_ID, AuditSettings.last_cleanup_at == now).values(last_cleanup_at=previous)
-        session.execute(release.execution_options(synchronize_session=False))
+        ours = update(AuditSettings).where(AuditSettings.id == SETTINGS_ID, AuditSettings.last_cleanup_at == now)
+        session.execute(ours.values(last_cleanup_at=previous).execution_options(synchronize_session=False))
         session.commit()
         session.expire_all()
     except SQLAlchemyError:
@@ -260,7 +274,8 @@ def update_retention(session: Session, retention_days: Optional[int], *, now: Op
     before = effective_retention_days(row)
     row.retention_days = retention_days
     row.last_cleanup_at = None
-    audit(session, AUDIT_ENTITY, SETTINGS_ID, AuditAction.UPDATE, _describe_change(before, effective_retention_days(row), reset=retention_days is None))
+    change = _describe_change(before, effective_retention_days(row), reset=retention_days is None)
+    audit(session, AUDIT_ENTITY, SETTINGS_ID, AuditAction.UPDATE, change)
     session.commit()
     try:
         result = run_cleanup(session, now=now, actor=None)

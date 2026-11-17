@@ -4,7 +4,22 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false, func, select, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    false,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .services.timeutil import utcnow_naive
@@ -592,18 +607,35 @@ class InterfaceVLAN(TimestampMixin, Base):
 class Connection(TimestampMixin, Base):
     __tablename__ = "connections"
     # Порт не соединяется сам с собой: раньше это проверял только services/validation.py:validate_connection, а БД принимала такую запись
-    # (A-01 код-ревью main @ b375f58, миграция c4a9e2d7b185). CHECK — последний рубеж; понятное 422 по-прежнему отдаёт validate_connection.
-    # Второе правило — «порт участвует не более чем в одном АКТИВНОМ подключении». Два частичных уникальных индекса (миграция e3b7a15c9d42) держат его
-    # для одной роли: порт не бывает источником двух активных подключений и назначением двух активных. Неактивные (архивные) подключения индекс не видит.
-    # Колонка is_active NOT NULL, поэтому предикат `is_active` — то же, что `is_active IS NOT FALSE` в validate_connection, и одинаково работает в SQLite и PostgreSQL.
+    # (миграция c4a9e2d7b185). CHECK — последний рубеж; понятное 422 по-прежнему отдаёт validate_connection.
+    # Второе правило — «порт участвует не более чем в одном АКТИВНОМ подключении». Два частичных уникальных индекса (миграция e3b7a15c9d42)
+    # держат его
+    # для одной роли: порт не бывает источником двух активных подключений и назначением двух активных. Неактивные (архивные) подключения
+    # индекс не видит.
+    # Колонка is_active NOT NULL, поэтому предикат `is_active` — то же, что `is_active IS NOT FALSE` в validate_connection, и одинаково
+    # работает в SQLite и PostgreSQL.
     # Случай «источник в одном подключении, назначение в другом» индексом по одной колонке не выразить: его закрывают validate_connection и
-    # блокировка строк портов (validation.lock_interfaces) — только на PostgreSQL: на SQLite блокировки строк нет, и этот кросс-ролевой случай при
-    # одновременных запросах не защищён (README, «Известные ограничения»). Индексы не откладываются до конца транзакции, поэтому обмен соседями в форме устройства
+    # блокировка строк портов (validation.lock_interfaces) — только на PostgreSQL: на SQLite блокировки строк нет, и этот кросс-ролевой
+    # случай при
+    # одновременных запросах не защищён (README, «Известные ограничения»). Индексы не откладываются до конца транзакции, поэтому обмен
+    # соседями в форме устройства
     # (services/interface_connections.py) на время применения плана выключает переставляемые подключения.
     __table_args__ = (
         CheckConstraint("source_interface_id <> destination_interface_id", name="ck_connections_distinct_ports"),
-        Index("uq_connections_source_active", "source_interface_id", unique=True, sqlite_where=text("is_active"), postgresql_where=text("is_active")),
-        Index("uq_connections_destination_active", "destination_interface_id", unique=True, sqlite_where=text("is_active"), postgresql_where=text("is_active")),
+        Index(
+            "uq_connections_source_active",
+            "source_interface_id",
+            unique=True,
+            sqlite_where=text("is_active"),
+            postgresql_where=text("is_active"),
+        ),
+        Index(
+            "uq_connections_destination_active",
+            "destination_interface_id",
+            unique=True,
+            sqlite_where=text("is_active"),
+            postgresql_where=text("is_active"),
+        ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     source_interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)
@@ -899,7 +931,7 @@ class AuthSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
 class AuditSettings(Base):
-    """Синглтон (id 'singleton') — политика хранения журнала аудита (A-05 код-ревью main @ b375f58).
+    """Синглтон (id 'singleton') — политика хранения журнала аудита.
 
     retention_days — срок хранения в днях, который администратор задал в форме «Настройки аудита»: записи старше удаляются
     (services/audit_retention.py), 0 — не удалять. NULL — в форме не задавалось, действует значение по умолчанию из окружения
@@ -908,7 +940,9 @@ class AuditSettings(Base):
     Строка создаётся при первой записи (чтение без строки возвращает умолчания), как у AuthSettings; отдельная таблица, а не ключ
     AppPreference: настройки интерфейса читает любая роль (GET /preferences), а эти — только администратор."""
     __tablename__ = "audit_settings"
-    __table_args__ = (CheckConstraint("retention_days IS NULL OR retention_days >= 0", name="ck_audit_settings_retention_days_non_negative"),)
+    __table_args__ = (
+        CheckConstraint("retention_days IS NULL OR retention_days >= 0", name="ck_audit_settings_retention_days_non_negative"),
+    )
     id: Mapped[str] = mapped_column(String(20), primary_key=True, default="singleton")
     retention_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_cleanup_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
