@@ -56,31 +56,27 @@ export const useConnectionsDashboardStore = defineStore('connectionsDashboard', 
      * позднего запроса) отбрасывается. Если страница вышла за конец (удалили последнюю запись
      * страницы, сузили фильтр), переходим на последнюю существующую. */
     async load(): Promise<void> {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const res = await fetchConnectionsPage({
-          q: this.searchParam,
-          is_active: this.isActiveParam,
-          port_config_status: this.portConfigFilter === 'all' ? undefined : this.portConfigFilter,
-          offset: (this.page - 1) * this.pageSize,
-          limit: this.pageSize,
-        })
-        if (!isLatest()) return
-        if (res.items.length === 0 && res.total > 0 && this.page > 1) {
-          this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
-          return this.load()
-        }
-        this.items = res.items
-        this.total = res.total
-        this.summary = res.summary
-        this.loaded = true
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить подключения'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: () =>
+          fetchConnectionsPage({
+            q: this.searchParam,
+            is_active: this.isActiveParam,
+            port_config_status: this.portConfigFilter === 'all' ? undefined : this.portConfigFilter,
+            offset: (this.page - 1) * this.pageSize,
+            limit: this.pageSize,
+          }),
+        apply: (res) => {
+          if (res.items.length === 0 && res.total > 0 && this.page > 1) {
+            this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
+            return this.load()
+          }
+          this.items = res.items
+          this.total = res.total
+          this.summary = res.summary
+          this.loaded = true
+        },
+        errorMessage: 'Не удалось загрузить подключения',
+      })
     },
     /** Снимает поиск и оба фильтра (кнопка «Сбросить фильтры» в пустой таблице, F-04). Только меняет условия: страницу
      * с сервера перечитывает экран — его наблюдатели за поиском и фильтрами, как при любом другом их изменении. */
