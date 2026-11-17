@@ -10,7 +10,7 @@ import { createLatestRequest } from '../utils/latestRequest'
 
 const LIST_ID = 'containers'
 
-// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useContainersStore = defineStore('containers', {
@@ -50,22 +50,17 @@ export const useContainersStore = defineStore('containers', {
       await this.reload()
     },
     async reload() {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const res = await listAllResource<Container>('containers')
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        this.all = res.items
-        this.total = res.total
-        this.truncated = res.truncated === true
-        this.loaded = true
-        warnIfTruncated(res, 'контейнеров')
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить контейнеры'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: () => listAllResource<Container>('containers'),
+        apply: (res) => {
+          this.all = res.items
+          this.total = res.total
+          this.truncated = res.truncated === true
+          this.loaded = true
+          warnIfTruncated(res, 'контейнеров')
+        },
+        errorMessage: 'Не удалось загрузить контейнеры',
+      })
     },
     setPage(p: number) {
       this.page = Math.min(Math.max(1, p), this.pageCount)
