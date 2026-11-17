@@ -249,6 +249,15 @@ npm run format:check
 same-origin принцип, что и в проде, где собранный `dist/` раздаётся самим
 FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR`).
 
+### Аудит зависимостей
+
+`npm ci` (в том числе из `installer/build_windows.bat`) должен заканчиваться строкой `found 0 vulnerabilities`; CI блокирует слияние только по
+runtime-зависимостям (`npm audit --omit=dev --audit-level=high`), но полный `npm audit` держим чистым, чтобы при сборке EXE не было шума.
+Блок `overrides` в `package.json` (`minimatch` `^11.0.8`, `glob` `^14.0.6`) закрывает замечания к dev-инструментам, пока `typescript-eslint`
+и `@vue/test-utils` (через `js-beautify`) сами не перешли на исправленные версии; подробности и условие снятия — в корневом
+[`README.md`](../README.md), раздел «Зависимости backend» → «Цепочка поставок». Не используйте `npm audit fix --force`: он понижает
+`typescript-eslint`, `eslint-plugin-vue` и `@vue/test-utils`. После правки `package.json` пересобирайте lock командой `npm install`, а проверяйте `npm ci`.
+
 ### E2E-проверки интерфейса (Playwright)
 
 Юнит-тесты (vitest + jsdom) раскладку не считают — `css: false`, а у jsdom нет движка вёрстки, — поэтому обрезанное мобильное меню,
@@ -385,6 +394,13 @@ npx playwright show-report          # HTML-отчёт после прогона 
   `api/assertComplete.ts` превращает усечение в `IncompleteDataError` (`loadAllComplete` один раз перечитывает список, если запись
   удалили во время загрузки), `composables/loadNestedList.ts` — состояние загрузки вложенного списка, `components/DataLoadNotice.vue` —
   сообщение «загружено n из N» с кнопкой «Повторить загрузку».
+- **Перекрывающиеся запросы: побеждает последний** (B-02). Два `reload()` подряд (после сохранения формы и по событию обновления) могли
+  закончиться в обратном порядке: ответ на первый запрос приходил позже и затирал свежий список, а `loading` сбрасывался по окончании
+  первого. `utils/latestRequest.ts` (`createLatestRequest().begin()` возвращает функцию «я всё ещё последний?») применён во всех сторах,
+  которые загружают списки (`catalogs`, `connections`, `containers`, `deviceStacks`, `devices`, `informationSystems`, `reportTemplates`,
+  `vlanDomains`, `vlans`, `vms`, `auditLog`, `connectionsDashboard`, `portSyncRules`) и в `diagram.load(id)` (быстрое переключение схем
+  показывало не ту схему). Новый стор с асинхронной загрузкой списка заводит свой экземпляр на уровне модуля и проверяет `isLatest()` и
+  перед записью результата, и в `finally` перед сбросом `loading`.
 - **Скачивание файлов.** `api/saveBlob.ts` — единый «сохранить blob» (ссылка освобождается через 30 с); ошибки скачивания разбирает общий
   `apiErrorFromResponse`; имя файла берётся из `filename*` заголовка `Content-Disposition` (`filenameFromDisposition` в `api/diagrams.ts`).
 - **Трассировка рёбер диаграммы** (F-07, B-08): `utils/diagramEdgeRouting.ts` — сетка и поиск пути A* (куча — `utils/minHeap.ts`),

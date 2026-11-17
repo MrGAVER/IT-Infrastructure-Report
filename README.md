@@ -54,6 +54,13 @@ GET    /api/v1/resources/{resource}/schema
 `offset`/`limit`, проверка уникальности и обработка внешних ключей. Удаление объекта, на который
 есть ссылки, блокируется с HTTP 409 и понятным сообщением о том, где именно он используется.
 
+**Инварианты подключений** держит сама БД, а не только проверка в приложении: порт не соединяется сам с собой
+(`CHECK ck_connections_distinct_ports`) и участвует не более чем в одном активном подключении в своей роли — источника или назначения
+(частичные уникальные индексы `uq_connections_source_active` и `uq_connections_destination_active`). Понятный ответ `409` по-прежнему даёт
+`validate_connection`; на PostgreSQL он перед проверкой блокирует строки портов (`SELECT … FOR UPDATE` по возрастанию `id`), поэтому два
+одновременных запроса с общим портом не проходят проверку оба. Обмен соседями в форме устройства на время применения плана выключает
+переставляемые подключения (`is_active = false`) и включает их снова в той же транзакции. Миграции этих правил — в разделе «Миграции Alembic».
+
 ### Структурные единицы
 
 Справочник организационных структурных единиц (филиал, площадка, подразделение и т. п.) с
@@ -154,6 +161,23 @@ alembic check
 
 В Docker миграция выполняется автоматически перед запуском Uvicorn, в EXE — автоматически при
 старте приложения.
+
+**Перед обновлением рабочей базы до 2.159.0.** Миграции `c4a9e2d7b185` и `e3b7a15c9d42` (инварианты подключений) **останавливаются с
+понятной ошибкой, ничего не меняя**, если в данных уже есть нарушения: какое подключение настоящее (это физический кабель), решает человек,
+а не миграция. Найти такие строки заранее:
+
+```sql
+-- порт, соединённый сам с собой
+SELECT id FROM connections WHERE source_interface_id = destination_interface_id;
+-- порт, занятый двумя активными подключениями в одной роли (источник; то же для destination_interface_id)
+SELECT source_interface_id, COUNT(*), STRING_AGG(id::text, ', ')
+  FROM connections WHERE is_active IS NOT FALSE
+ GROUP BY source_interface_id HAVING COUNT(*) > 1;
+```
+
+(`STRING_AGG(id::text, …)` — синтаксис PostgreSQL; в SQLite — `GROUP_CONCAT(id, ', ')`.) Следующая ревизия `d6c1a8f3e594` создаёт таблицу
+`audit_settings` (срок хранения журнала аудита); у всех трёх ревизий `downgrade()` работает. Перед `alembic upgrade head` на PostgreSQL
+сделайте копию базы (EXE копирует базу сам).
 
 ### Отчёт Excel
 
@@ -327,6 +351,12 @@ docker compose up --build
 | `INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS` / `INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS` | `30` / `1` | за сколько дней адрес считается «знакомым» и включено ли это исключение из блокировки (`0` — блокировать все адреса) |
 | `INFRA_REGISTRY_DB_POOL_SIZE` / `INFRA_REGISTRY_DB_MAX_OVERFLOW` / `INFRA_REGISTRY_DB_POOL_TIMEOUT` | не заданы (значения SQLAlchemy: `5` / `10` / `30` с) | размер пула соединений PostgreSQL и время ожидания соединения; поднимайте при многих одновременных пользователях (не выше `max_connections` сервера БД). Для SQLite не применяются |
 
+**Числовые настройки.** Пустое значение (`VAR=` в `.env`) означает «по умолчанию»; нечисловое значение или значение ниже границы
+останавливает запуск с сообщением, где названа переменная. Границы: `INFRA_REGISTRY_AUTH_MAX_ATTEMPTS` и
+`INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH` — не меньше 1; `INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES`, `…_SESSION_TTL_HOURS`,
+`…_AUTH_LOCKOUT_MINUTES`, `…_AUTH_KNOWN_CLIENT_DAYS` — не меньше 0; у `INFRA_REGISTRY_REPORT_RETENTION_DAYS` границы нет (`0` и меньше —
+«не удалять»).
+
 **Список клиентов в Docker (`INFRA_REGISTRY_ALLOWED_CLIENTS`).** Приложение сверяет со списком тот адрес клиента, который ему
 передали Docker или обратный прокси. За прокси без `FORWARDED_ALLOW_IPS` у всех клиентов будет адрес самого прокси — список тогда либо
 пропустит всех, либо не пропустит никого. Адрес, который приложение видит при обращении с самого хоста, зависит от режима сети Docker
@@ -415,7 +445,9 @@ docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB
   настройте прокси на `X-Forwarded-For` (в nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`).
 - **Иконки диаграмм** проходят проверку по белому списку тегов и атрибутов SVG; `.svg`-экспорт вкладывает
   пользовательскую иконку как изображение (data URI), а не как исполняемую разметку.
-- Ответы содержат `Content-Security-Policy` (кроме `/docs`, `/redoc`, которые по умолчанию выключены).
+- **Заголовки безопасности.** Ответы содержат `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options` и `Referrer-Policy` — в том
+  числе отказы внешних проверок (`400` по `Host`, `403` по `Origin` и по адресу клиента, `413` по размеру тела): заголовки ставятся
+  самым внешним слоем, а не только обработчиками. Исключение — CSP на `/docs`, `/redoc` и `/openapi.json` (по умолчанию выключены, см. ниже).
 - **Документация API** (`/docs`, `/redoc`, `/openapi.json`) по умолчанию выключена и отвечает `404`: иначе полную карту API и моделей
   данных видел бы любой посетитель без входа, а Swagger UI/ReDoc грузят скрипты с внешнего CDN (в закрытом контуре они не работают).
   Для разработки включите `INFRA_REGISTRY_ENABLE_DOCS=1` — страницы будут открыты без входа, не оставляйте опцию на сервере.
@@ -835,6 +867,9 @@ Word-документ «Приложение к структурной схем�
   подхватывает её без изменений в этом модуле.
 - `backend/app/services/report_engine.py` — разбор путей полей, подстановка параметров,
   циклический вывод строк по связи и (для формата `.docx`) структурная валидация блоков документа.
+  **Сортировка строк (`sort_by`)** идёт по «сырому» значению поля, а не по готовой строке (`_sort_key`): числа (VLAN `2, 9, 10, 100`) и даты
+  (хронологически) сортируются как числа и даты, пустые значения — в конец; для `.docx` и `.xlsx` одинаково. В шаблонах, где задан `sort_by`,
+  пустые значения теперь внизу таблицы, а не вверху (с 2.159.0).
 - `backend/app/services/report_grid.py` — grid-движок формата `.xlsx`: валидация листа (позиции и
   объединения ячеек, источники данных повторяющихся строк), материализация конфигурации в
   физические строки/ячейки и рендеринг в настоящий `.xlsx` через openpyxl (стили, объединение,
@@ -899,7 +934,7 @@ frontend-vue/         — единственный UI приложения (Vue 
     stores/            — Pinia-сторы (catalogs, devices, auth, vlans, reportTemplates и т. д.)
     api/               — HTTP-клиент и типы (client.ts, types/ — типы по доменам, reportTemplates.ts и т. д.)
     router/, layout/, composables/, directives/, utils/, styles/
-    __tests__/          — рядом с исходником каждого модуля, 267 файлов / 3 882 теста (Vitest)
+    __tests__/          — рядом с исходником каждого модуля, 275 файлов / 3 993 теста (Vitest)
   e2e/                 — проверки в настоящем Chromium (Playwright), см. frontend-vue/README.md
   dist/                — production-сборка (`npm run build`), раздаётся бэкендом на `GET /`
 installer/            — скрипты сборки Windows EXE
@@ -946,6 +981,15 @@ lock-файлы и тесты идут на Python 3.12, а TypeScript 7 пок�
 образ и CI обязаны жить на одной версии (`test_the_pinned_images_match_the_versions_ci_runs_on` сверяет `FROM` в Dockerfile с `node-version` и `python-version` в `ci.yml`), поэтому PR Dependabot
 на новую линию Node красный, пока `node-version` в `ci.yml` не поднят той же миграцией. Смена версии Python или Node — отдельная миграция (Dockerfile, `ci.yml`, lock-файлы и тесты вместе).
 
+**`npm audit` при сборке EXE.** `npm ci` в `installer/build_windows.bat` печатает итог `npm audit` по всему дереву, включая dev-инструменты
+(ESLint, Vitest), хотя блокирующий шаг CI смотрит только runtime-зависимости (`npm audit --omit=dev`, уровень high и выше). В 2.159.0 сборка
+показывала 12 замечаний уровня moderate — два пакета в цепочках `typescript-eslint` и `@vue/test-utils` → `js-beautify`: `minimatch`
+(GHSA-g3hv-75wg-m249, отказ в обслуживании при разборе шаблона) и `glob` (GHSA-3g3m-2fjr-6pw4, обход отмены через `AbortSignal`). В
+собранный интерфейс (`dist/`) они не попадают. Закрыто блоком `overrides` в `frontend-vue/package.json` (`minimatch` `^11.0.8`, `glob`
+`^14.0.6`): исправленные версии есть, но родительские пакеты ещё требуют прежние диапазоны. Блок нужно убрать, когда `typescript-eslint`
+и `js-beautify` сами перейдут на исправленные версии (проверка: удалить блок, `npm install`, `npm audit`). `npm audit fix --force` не
+используйте: он «исправляет» понижением `typescript-eslint` до 8.36.0, `eslint-plugin-vue` до 10.2.0 и `@vue/test-utils` до 2.4.11.
+
 ### Пакет `backend/app/services/crud/`
 
 Бывший `crud.py` на 1382 строки разрезан по ответственностям; публичный API (`from app.services.crud import ...`)
@@ -987,7 +1031,7 @@ lock-файлы и тесты идут на Python 3.12, а TypeScript 7 пок�
   ```
   `pytest` из корня репозитория запускает оба слоя сразу (см. `pytest.ini`); `unittest discover`
   видит только первый (тесты `test_api.py` написаны в стиле pytest-фикстур, а не `unittest.TestCase`).
-- **Скорость прогона backend** (~4 400 тестов): `pytest -n auto -m "not slow"` раскладывает их по ядрам (`pytest-xdist` из dev-зависимостей;
+- **Скорость прогона backend** (~4 650 тестов): `pytest -n auto -m "not slow"` раскладывает их по ядрам (`pytest-xdist` из dev-зависимостей;
   на SQLite тесты независимы), а пять тестов на время (метка `slow`: `test_report_layout_performance.py` и `test_vsdx_export_performance.py`) идут отдельно: `pytest -m slow` —
   рядом с другим процессом они выходят за лимит; так же сделан шаг в CI. Без `-n` для отладки (`--pdb`, `-s`) и на PostgreSQL (`INFRA_REGISTRY_TEST_DATABASE_URL`):
   там одна общая база, и параллельные процессы мешали бы друг другу. Внутри `conftest.py` три ускорения: схема SQLite из
@@ -995,11 +1039,11 @@ lock-файлы и тесты идут на Python 3.12, а TypeScript 7 пок�
   запоминается на процесс (отключить: `INFRA_REGISTRY_TEST_NO_UPGRADE_CACHE=1`); PBKDF2 в тестах идёт на 1 000 итераций
   (тест, которому нужно боевое число, помечается `@pytest.mark.real_password_hashing`).
 - **Покрытие backend**: `pytest --cov` (настройки — `[tool.coverage]` в `pyproject.toml`, считаются и ветви; нужен
-  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На слиянии пакетов код-ревью (r1–r3; SQLite, без тестов с меткой `slow`) покрытие `backend/app` — 97,35 % (на 2.158.0
+  `pytest-cov` из dev-зависимостей). Построчный отчёт: `coverage report` (или `coverage html`). На 2.159.0 (SQLite, без тестов с меткой `slow`; 4 647 тестов) покрытие `backend/app` — 97,68 % (на 2.158.0
   было 94,97 %), порог в `pyproject.toml` (`fail_under`) — 92 %; CI запускает тесты с `--cov`, печатает сводку в Summary job-а и
-  падает, если покрытие ниже порога. Самые слабые места: `services/vsdx_process.py` (79,6 %), `services/report_render.py`, `services/diagram_graph.py`,
-  `api/report_builder.py` и `services/report_engine.py` (82–85 %).
-- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 267 файлов, 3 882 теста) — Vitest +
+  падает, если покрытие ниже порога. Самые слабые места: `api/report_builder.py` (82 %), `db.py` (86 %), `api/listings.py`,
+  `services/crud/vlan_domains.py` и `services/crud/information_system.py` (89–90 %).
+- **Тесты frontend-vue** (`frontend-vue/src/**/__tests__/*.spec.ts`, 275 файлов, 3 993 теста) — Vitest +
   `@vue/test-utils` на `jsdom` (см. `vitest.config.ts`): сторы Pinia (catalogs, devices, auth,
   connections, vlans и т. д.), утилиты (`utils/gridCoverage.ts`, `utils/reportEntityPaths.ts` и
   др.) и компоненты, включая модалки, рендерящиеся через `Teleport`. Не e2e — без реального
@@ -1030,7 +1074,7 @@ lock-файлы и тесты идут на Python 3.12, а TypeScript 7 пок�
 ## История изменений
 
 Полная хронология версий вынесена в отдельный файл — см. [CHANGELOG.md](./CHANGELOG.md).
-Текущая версия: **2.158.0** (источник — `APP_VERSION` в `backend/app/config.py`, отдаётся в `GET /api/v1/health`).
+Текущая версия: **2.159.0** (источник — `APP_VERSION` в `backend/app/config.py`, отдаётся в `GET /api/v1/health`).
 
 ## Известные ограничения и заметки
 
