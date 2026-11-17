@@ -95,8 +95,10 @@ export const useDiagramStore = defineStore('diagram', {
      * старое имя без объяснения. */
     async rename(name: string) {
       if (!this.diagram) return
-      const updated = await apiRenameDiagram(this.diagram.id, name)
-      this.diagram.name = updated.name
+      const id = this.diagram.id
+      const updated = await apiRenameDiagram(id, name)
+      // Пока шёл запрос, могла открыться другая схема: её имя ответ сервера менять не должен.
+      if (this.diagram?.id === id) this.diagram.name = updated.name
     },
 
     selectNode(node: DiagramNode) {
@@ -170,18 +172,24 @@ export const useDiagramStore = defineStore('diagram', {
 
     async regenerate() {
       if (!this.diagram) return
+      const id = this.diagram.id
       // Пересборка заменяет this.diagram данными сервера: несохранённый сдвиг узла иначе затёрся бы.
       await this.flushLayoutSave()
+      // Пока сохранялась раскладка и шёл запрос, пользователь мог открыть другую схему (или закрыть эту): результат пересборки
+      // схемы `id` к чужой схеме не относится — не подменяем её, не показываем чужую ошибку и не гасим loading чужой загрузки.
+      const stillOpen = () => this.diagram?.id === id
+      if (!stillOpen()) return
       this.loading = true
       try {
-        const refreshed = await apiRegenerateDiagram(this.diagram.id)
+        const refreshed = await apiRegenerateDiagram(id)
+        if (!stillOpen()) return
         // regenerate() не возвращает viewport (см. backend/app/api/diagrams.py) — сохраняем
         // текущий, чтобы пересборка графа не сбрасывала масштаб/панораму канваса.
-        this.diagram = { ...refreshed, viewport: this.diagram.viewport }
+        this.diagram = { ...refreshed, viewport: this.diagram!.viewport }
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось пересобрать диаграмму'
+        if (stillOpen()) this.error = e instanceof Error ? e.message : 'Не удалось пересобрать диаграмму'
       } finally {
-        this.loading = false
+        if (stillOpen()) this.loading = false
       }
     },
 
@@ -195,26 +203,30 @@ export const useDiagramStore = defineStore('diagram', {
       if (!this.diagram) return
       // Диаграмма удаляется — сохранять её раскладку незачем (сервер ответил бы 404). Если удалить не удалось,
       // диаграмма остаётся открытой, и сдвиги нужно вернуть в очередь.
+      const id = this.diagram.id
       const hadPendingSave = takePendingLayoutSave()
       try {
-        await apiDeleteDiagram(this.diagram.id)
+        await apiDeleteDiagram(id)
       } catch (e) {
         if (hadPendingSave) this.scheduleLayoutSave()
         throw e
       }
-      this.diagram = null
+      // Удалена схема `id`; если за время запроса открыли другую, её закрывать нельзя.
+      if (this.diagram?.id === id) this.diagram = null
     },
 
     async exportAs(format: DiagramExportFormat) {
       if (!this.diagram) return
+      const id = this.diagram.id
       this.exporting = format
       try {
-        const { blob, filename } = await apiExportDiagram(this.diagram.id, format)
+        const { blob, filename } = await apiExportDiagram(id, format)
         saveBlob(blob, filename)
         // Сервер уже сохранил last_export_format (см. backend/app/api/diagrams.py) — отражаем
         // это в локальном состоянии сразу, без перезапроса всей диаграммы, чтобы сплит-кнопка
         // экспорта (DiagramExportPanel.vue) сменила основной формат немедленно.
-        this.diagram.last_export_format = format
+        // Файл скачан в любом случае, но «последний формат» относится к схеме `id`, а не к той, что открыта сейчас.
+        if (this.diagram?.id === id) this.diagram.last_export_format = format
       } finally {
         this.exporting = null
       }
