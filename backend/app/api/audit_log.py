@@ -12,8 +12,7 @@ from ..services.audit_retention import get_audit_settings, retention_state, run_
 from ..services.timeutil import iso_utc
 
 # Записи журнала приложение пишет само (crud.audit()), через API их не изменить. Доступ — только администратору (при включённой
-# аутентификации)
-# и ко всему роутеру сразу, включая настройки аудита: новый маршрут здесь не может остаться без проверки роли.
+# аутентификации) и ко всему роутеру сразу, включая настройки аудита: новый маршрут здесь не может остаться без проверки роли.
 router = APIRouter(prefix='/api/v1', tags=['Audit'], dependencies=[Depends(require_admin_if_auth_enabled)])
 
 

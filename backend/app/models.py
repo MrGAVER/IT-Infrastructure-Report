@@ -609,16 +609,12 @@ class Connection(TimestampMixin, Base):
     # Порт не соединяется сам с собой: раньше это проверял только services/validation.py:validate_connection, а БД принимала такую запись
     # (миграция c4a9e2d7b185). CHECK — последний рубеж; понятное 422 по-прежнему отдаёт validate_connection.
     # Второе правило — «порт участвует не более чем в одном АКТИВНОМ подключении». Два частичных уникальных индекса (миграция e3b7a15c9d42)
-    # держат его
-    # для одной роли: порт не бывает источником двух активных подключений и назначением двух активных. Неактивные (архивные) подключения
-    # индекс не видит.
-    # Колонка is_active NOT NULL, поэтому предикат `is_active` — то же, что `is_active IS NOT FALSE` в validate_connection, и одинаково
-    # работает в SQLite и PostgreSQL.
-    # Случай «источник в одном подключении, назначение в другом» индексом по одной колонке не выразить: его закрывают validate_connection и
-    # блокировка строк портов (validation.lock_interfaces) — только на PostgreSQL: на SQLite блокировки строк нет, и этот кросс-ролевой
-    # случай при
-    # одновременных запросах не защищён (README, «Известные ограничения»). Индексы не откладываются до конца транзакции, поэтому обмен
-    # соседями в форме устройства
+    # держат его для одной роли: порт не бывает источником двух активных подключений и назначением двух активных. Неактивные (архивные)
+    # подключения индекс не видит. Колонка is_active NOT NULL, поэтому предикат `is_active` — то же, что `is_active IS NOT FALSE` в
+    # validate_connection, и одинаково работает в SQLite и PostgreSQL. Случай «источник в одном подключении, назначение в другом» индексом
+    # по одной колонке не выразить: его закрывают validate_connection и блокировка строк портов (validation.lock_interfaces) — только на
+    # PostgreSQL: на SQLite блокировки строк нет, и этот кросс-ролевой случай при одновременных запросах не защищён (README, «Известные
+    # ограничения»). Индексы не откладываются до конца транзакции, поэтому обмен соседями в форме устройства
     # (services/interface_connections.py) на время применения плана выключает переставляемые подключения.
     __table_args__ = (
         CheckConstraint("source_interface_id <> destination_interface_id", name="ck_connections_distinct_ports"),
@@ -1019,4 +1015,3 @@ class DiagramGroupState(TimestampMixin, Base):
     is_collapsed: Mapped[bool] = mapped_column(Boolean, default=True)
     device_count: Mapped[int] = mapped_column(Integer, default=0)
     custom_threshold: Mapped[Optional[int]] = mapped_column(Integer)  # NULL — наследует SavedDiagram.collapse_threshold
-

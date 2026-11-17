@@ -9,12 +9,10 @@ from .constants import AUDIT_RETENTION_MAX_DAYS
 
 def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None, maximum: Any = None) -> Any:
     """Число из переменной окружения: не задана, пуста или из одних пробелов — ``default``; нечисловое значение или меньше ``minimum`` —
-    явная ошибка
-    запуска с ИМЕНЕМ переменной (а не молчаливое игнорирование опечатки и не безымянный ``invalid literal for int()``).
+    явная ошибка запуска с ИМЕНЕМ переменной (а не молчаливое игнорирование опечатки и не безымянный ``invalid literal for int()``).
 
     Пустая строка — обычное дело: так выглядят незаполненные строки в ``.env`` (``VAR=``), а docker-compose передаёт в контейнер пустое
-    значение
-    вместо отсутствующего. Раньше такие переменные разбирались «голым» ``int(os.getenv(...))`` и роняли запуск при импорте модуля.
+    значение вместо отсутствующего. Раньше такие переменные разбирались «голым» ``int(os.getenv(...))`` и роняли запуск при импорте модуля.
     ``inf`` и ``nan`` у дробных значений — тоже ошибка запуска. ``minimum=None`` / ``maximum=None`` — нижней / верхней границы нет."""
     raw = os.getenv(name, '').strip()
     if not raw:
@@ -35,8 +33,7 @@ def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum:
 
 def _optional_number_env(name: str, cast: Callable[[str], Any]) -> Any:
     """Необязательное неотрицательное число: не задано или пусто — None (остаётся значение SQLAlchemy по умолчанию), отрицательное или
-    нечисловое —
-    ошибка запуска. Частный случай ``_number_env``."""
+    нечисловое — ошибка запуска. Частный случай ``_number_env``."""
     return _number_env(name, None, cast, minimum=0)
 
 
