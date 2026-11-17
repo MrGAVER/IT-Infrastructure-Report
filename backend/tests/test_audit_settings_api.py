@@ -174,16 +174,36 @@ class TestAccessRights:
 
 
 class TestCleanupOnOpeningTheLog:
-    def test_opening_the_log_runs_a_due_cleanup_in_the_name_of_the_system(self, client, db_session):
+    def test_opening_the_log_runs_a_due_cleanup_after_the_response_in_the_name_of_the_system(self, client, db_session):
         _seed_old(db_session, 5)
         db_session.add(AuditSettings(id="singleton", retention_days=30))
         db_session.commit()
 
+        client.get(LOG_URL, params={"limit": 200})  # страница читается до очистки; сама очистка идёт задачей после ответа
         page = client.get(LOG_URL, params={"limit": 200}).json()
 
-        assert not [item for item in page["items"] if item["entity_type"] == "devices"], "просроченные записи удалены до выборки страницы"
+        assert not [item for item in page["items"] if item["entity_type"] == "devices"], "просроченные записи удалены"
         (entry,) = [item for item in page["items"] if item["entity_type"] == "audit-settings"]
         assert entry["actor_username"] == "система" and "удалено записей — 5" in entry["details"]
+
+    def test_the_page_is_read_before_the_cleanup_and_the_cleanup_is_only_queued(self, db_session, client_factory):
+        """GET не удаляет данные внутри запроса: очистка ставится в фоновые задачи (после ответа, со своей сессией)."""
+        from fastapi import BackgroundTasks
+
+        from app.api.audit_log import audit_log_page
+
+        _seed_old(db_session, 5)
+        db_session.add(AuditSettings(id="singleton", retention_days=30))
+        db_session.commit()
+        background = BackgroundTasks()
+
+        page = audit_log_page(q=None, action=None, entity_type=None, offset=0, limit=200, background=background, session=db_session)
+
+        assert page["summary"]["total"] == 5 and _device_entries(db_session) == 5, "в самом запросе ничего не удалено"
+        assert len(background.tasks) == 1
+        task = background.tasks[0]
+        task.func(*task.args, **task.kwargs)
+        assert _device_entries(db_session) == 0
 
     def test_with_the_default_setting_opening_the_log_deletes_nothing(self, client, db_session):
         _seed_old(db_session, 5, days=5000)

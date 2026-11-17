@@ -26,10 +26,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from .. import db as app_db  # через модуль, а не `from ..db import SessionLocal`: тесты подменяют app.db.SessionLocal
 from ..config import AUDIT_RETENTION_DAYS
 from ..constants import AUDIT_RETENTION_MAX_DAYS, AuditAction
 from ..models import AuditLog, AuditSettings
@@ -164,29 +165,78 @@ def run_cleanup(session: Session, *, now: datetime, actor: Optional[Actor]) -> O
     result = purge_expired_entries(session, days, now=now)
     if result.removed:
         audit(session, AUDIT_ENTITY, SETTINGS_ID, AuditAction.DELETE, _describe_purge(days, result), actor=actor)
-    if result.complete:
-        row.last_cleanup_at = now
+    # Дочистили — отмечаем; остановились на лимите пакетов — отметку снимаем, чтобы следующий запуск продолжил без ожидания суток.
+    row.last_cleanup_at = now if result.complete else None
     session.commit()
     return result
+
+
+def _claim_cleanup(session: Session, now: datetime) -> bool:
+    """Атомарно «занимает» очередной ленивый запуск: один UPDATE с условием «очистка назначена» ставит last_cleanup_at = now. Побеждает ровно
+    одна сессия (одновременные запросы, несколько воркеров), остальные получают False и ничего не удаляют: двойных записей «удалено N» и
+    встречных DELETE больше нет. Строка настроек должна существовать (get_or_create_audit_settings).
+
+    Core-UPDATE не знает о сессионной карте объектов, а у SessionLocal expire_on_commit=False, поэтому загруженная строка настроек
+    устаревает — сбрасываем её, чтобы дальше читалось значение из БД."""
+    is_due = or_(AuditSettings.last_cleanup_at.is_(None), AuditSettings.last_cleanup_at <= now - CLEANUP_INTERVAL)
+    claim = update(AuditSettings).where(AuditSettings.id == SETTINGS_ID, is_due).values(last_cleanup_at=now)
+    claimed = session.execute(claim.execution_options(synchronize_session=False)).rowcount
+    session.commit()
+    session.expire_all()
+    return bool(claimed)
+
+
+def _release_claim(session: Session, now: datetime, previous: Optional[datetime]) -> None:
+    """Возвращает прежнюю отметку, если занятый запуск не состоялся (сбой): иначе неудачная очистка отложилась бы на сутки. Возвращает только
+    свою отметку (last_cleanup_at == now) — отметку, которую успел поставить кто-то другой, не трогает. Сама не бросает ошибок."""
+    try:
+        release = update(AuditSettings).where(AuditSettings.id == SETTINGS_ID, AuditSettings.last_cleanup_at == now).values(last_cleanup_at=previous)
+        session.execute(release.execution_options(synchronize_session=False))
+        session.commit()
+        session.expire_all()
+    except SQLAlchemyError:
+        session.rollback()
+        logger.exception("Не удалось вернуть отметку запуска очистки журнала аудита: следующая попытка — не раньше чем через сутки")
 
 
 def run_scheduled_cleanup(session: Session, *, now: Optional[datetime] = None) -> int:
     """Ленивый запуск (старт сервера, открытие журнала): срок задан и с прошлой очистки прошли сутки. Возвращает число удалённых записей.
 
+    Запуск сначала «занимается» атомарно (`_claim_cleanup`): из нескольких одновременных вызовов чистит один. Не состоялся из-за сбоя —
+    отметка возвращается, и следующий запуск повторит попытку.
+
     Не бросает ошибок вообще: журнал открывают ради чтения, а сервер запускают ради работы, и сбой очистки — БД, неверный срок,
-    любая непредвиденная ошибка — не должен ломать ни то ни другое. Ошибка пишется в журнал приложения (logger.exception), следующий
-    запуск повторит попытку."""
+    любая непредвиденная ошибка — не должен ломать ни то ни другое. Ошибка пишется в журнал приложения (logger.exception).
+
+    Вызывать из фона со своей сессией (`run_scheduled_cleanup_in_own_session`): очистка может идти долго, и держать ради неё запрос
+    читателя журнала нельзя."""
     now = now or utcnow_naive()
+    previous: Optional[datetime] = None
+    claimed = False
     try:
         row = get_audit_settings(session)
         if effective_retention_days(row) <= 0 or not cleanup_is_due(row, now):
             return 0
+        previous = row.last_cleanup_at if row is not None else None
+        get_or_create_audit_settings(session)  # занять запуск можно только в существующей строке
+        claimed = _claim_cleanup(session, now)
+        if not claimed:
+            return 0  # другой запуск успел раньше
         result = run_cleanup(session, now=now, actor=SYSTEM_ACTOR)
     except Exception:  # контракт функции — «не бросает»: широкий перехват здесь намеренный, ошибка не теряется, а пишется в лог
         session.rollback()
         logger.exception("Очистка журнала аудита по сроку хранения не выполнена")
+        if claimed:
+            _release_claim(session, now, previous)
         return 0
     return result.removed if result else 0
+
+
+def run_scheduled_cleanup_in_own_session() -> int:
+    """Точка входа фоновых запусков — задача после ответа `GET /audit-log` и старт сервера: своя сессия, закрывается здесь. Сессией запроса
+    пользоваться нельзя: к моменту фоновой задачи она уже отдана обратно (get_db закрывает её), а удаление пакетами занимает секунды."""
+    with app_db.SessionLocal() as session:
+        return run_scheduled_cleanup(session)
 
 
 def _describe_change(before: int, after: int, *, reset: bool) -> str:

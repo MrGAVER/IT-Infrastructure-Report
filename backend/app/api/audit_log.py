@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -8,7 +8,7 @@ from ..models import AuditSettings
 from ..schemas import AuditSettingsOut, AuditSettingsSaveOut, AuditSettingsUpdate
 from ..services.auth import require_admin_if_auth_enabled
 from ..services.audit_query import AuditQuery, MAX_SEARCH_LENGTH, list_audit_log
-from ..services.audit_retention import get_audit_settings, retention_state, run_scheduled_cleanup, update_retention
+from ..services.audit_retention import get_audit_settings, retention_state, run_scheduled_cleanup_in_own_session, update_retention
 from ..services.timeutil import iso_utc
 
 # Записи журнала приложение пишет само (crud.audit()), через API их не изменить. Доступ — только администратору (при включённой аутентификации)
@@ -18,6 +18,7 @@ router = APIRouter(prefix='/api/v1', tags=['Audit'], dependencies=[Depends(requi
 
 @router.get('/audit-log')
 def audit_log_page(
+    background: BackgroundTasks,
     q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
     action: str | None = Query(None, max_length=50),
     entity_type: str | None = Query(None, max_length=100),
@@ -29,10 +30,12 @@ def audit_log_page(
     разделу считаются на сервере. `total` — под теми же условиями; `summary` (всего и по действиям)
     и `entity_types` (разделы, встречающиеся в журнале) — по всему журналу.
 
-    Заодно — ленивый запуск очистки по сроку хранения (services/audit_retention.py): срок задан и прошли сутки с прошлой очистки.
-    Сбой очистки страницу не ломает."""
-    run_scheduled_cleanup(session)
-    return list_audit_log(session, AuditQuery(q=q, action=action, entity_type=entity_type), offset=offset, limit=limit)
+    Заодно — ленивый запуск очистки по сроку хранения (services/audit_retention.py): срок задан и прошли сутки с прошлой очистки. GET
+    данные не удаляет: очистка ставится задачей после ответа и идёт в своей сессии, читателя журнала не задерживает и его страницу не
+    ломает. Поэтому первая страница после смены срока ещё показывает не очищенные записи — очистка видна со следующего открытия."""
+    page = list_audit_log(session, AuditQuery(q=q, action=action, entity_type=entity_type), offset=offset, limit=limit)
+    background.add_task(run_scheduled_cleanup_in_own_session)
+    return page
 
 
 def _settings_fields(row: AuditSettings | None) -> dict[str, object]:

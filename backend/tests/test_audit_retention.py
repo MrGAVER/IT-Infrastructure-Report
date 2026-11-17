@@ -250,6 +250,111 @@ class TestScheduledRunsAtMostOncePerDay:
         assert get_audit_settings(db_session).last_cleanup_at is None, "очистка не засчитана: следующий запуск повторит попытку"
 
 
+class TestOverlappingScheduledRuns:
+    """R-03: запуск «занимается» атомарно, поэтому одновременные запросы (и воркеры) не чистят журнал дважды."""
+
+    def test_a_run_that_starts_in_the_middle_of_another_one_does_nothing(self, db_session, now, monkeypatch):
+        from sqlalchemy.orm import sessionmaker
+
+        _set_retention(db_session, 30)
+        _seed(db_session, *_old(now, 4))
+        other_session = sessionmaker(bind=db_session.get_bind(), autoflush=False, expire_on_commit=False)()
+        real_purge, overlapping = audit_retention.purge_expired_entries, []
+
+        def purge_while_another_request_arrives(session, days, **kwargs):
+            if not overlapping:  # второй запрос открыл журнал, пока первый ещё не удалил ни одной строки
+                overlapping.append(run_scheduled_cleanup(other_session, now=now))
+            return real_purge(session, days, **kwargs)
+
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", purge_while_another_request_arrives)
+
+        try:
+            first = run_scheduled_cleanup(db_session, now=now)
+        finally:
+            other_session.close()  # открытая транзакция второй сессии на PostgreSQL блокировала бы очистку таблиц следующим тестом
+        assert (first, overlapping) == (4, [0]), "очистку выполнил первый запуск; второй увидел занятую отметку и ушёл"
+        records = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY, AuditLog.action == "DELETE")).all()
+        assert len(records) == 1, "запись «удалено N» одна"
+
+    def test_a_failed_run_gives_the_claim_back_so_the_next_run_retries(self, db_session, now, monkeypatch):
+        _set_retention(db_session, 30)
+        earlier = now - timedelta(days=3)
+        get_audit_settings(db_session).last_cleanup_at = earlier
+        _seed(db_session, *_old(now, 2))
+        real_purge = audit_retention.purge_expired_entries
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("сбой")))
+
+        assert run_scheduled_cleanup(db_session, now=now) == 0
+
+        assert get_audit_settings(db_session).last_cleanup_at == earlier, "отметка «очистка была» не должна копиться на сбое"
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", real_purge)
+        assert run_scheduled_cleanup(db_session, now=now) == 2
+
+    def test_an_incomplete_run_stays_due_even_after_an_older_cleanup(self, db_session, now, monkeypatch):
+        _set_retention(db_session, 30)
+        get_audit_settings(db_session).last_cleanup_at = now - timedelta(days=3)
+        _seed(db_session, *_old(now, 5))
+        monkeypatch.setattr(audit_retention, "BATCH_SIZE", 2)
+        monkeypatch.setattr(audit_retention, "MAX_BATCHES_PER_RUN", 1)
+
+        assert run_scheduled_cleanup(db_session, now=now) == 2
+
+        assert get_audit_settings(db_session).last_cleanup_at is None, "остаток удалит следующий запуск без ожидания суток"
+        assert run_scheduled_cleanup(db_session, now=now + timedelta(minutes=1)) == 2
+
+    def test_the_settings_row_is_created_for_the_environment_default(self, db_session, now, monkeypatch):
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 30)
+        _seed(db_session, *_old(now, 2))
+        assert get_audit_settings(db_session) is None
+
+        assert run_scheduled_cleanup(db_session, now=now) == 2
+
+        assert get_audit_settings(db_session).last_cleanup_at == now
+
+    def test_the_own_session_entry_point_cleans_through_a_separate_session(self, db_session, now, client_factory):
+        _set_retention(db_session, 30)
+        _seed(db_session, *_old(now, 3))
+
+        assert audit_retention.run_scheduled_cleanup_in_own_session() == 3
+
+        assert _details(db_session) == []
+
+
+class TestOverlappingRunsOnPostgres:
+    @pytest.mark.postgres_only
+    def test_two_simultaneous_requests_purge_the_log_once(self, db_session, now, client_factory, monkeypatch):
+        """Два потока (два запроса/воркера) открывают журнал одновременно, каждый в своей сессии: чистит один, запись об очистке одна."""
+        import threading
+        import time
+
+        _set_retention(db_session, 30)
+        _seed(db_session, *_old(now, 4))
+        real_purge, purge_calls = audit_retention.purge_expired_entries, []
+
+        def slow_counted_purge(session, days, **kwargs):
+            purge_calls.append(days)
+            time.sleep(0.5)  # окно, в котором второй поток успевает прочитать «очистка назначена»
+            return real_purge(session, days, **kwargs)
+
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", slow_counted_purge)
+        barrier, results = threading.Barrier(2), []
+
+        def request() -> None:
+            barrier.wait()
+            results.append(audit_retention.run_scheduled_cleanup_in_own_session())
+
+        threads = [threading.Thread(target=request) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert sorted(results) == [0, 4] and len(purge_calls) == 1
+        db_session.expire_all()
+        records = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY, AuditLog.action == "DELETE")).all()
+        assert len(records) == 1
+
+
 class TestScheduledRunNeverRaises:
     """Контракт `run_scheduled_cleanup`: «не бросает» — любой сбой очистки (не только БД) пишется в журнал приложения и возвращает 0."""
 
