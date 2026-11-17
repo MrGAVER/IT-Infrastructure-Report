@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable
@@ -12,7 +13,7 @@ def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum:
 
     Пустая строка — обычное дело: так выглядят незаполненные строки в ``.env`` (``VAR=``), а docker-compose передаёт в контейнер пустое значение
     вместо отсутствующего. Раньше такие переменные разбирались «голым» ``int(os.getenv(...))`` и роняли запуск при импорте модуля (A-03 код-ревью main @ b375f58).
-    ``minimum=None`` / ``maximum=None`` — нижней / верхней границы нет."""
+    ``inf`` и ``nan`` у дробных значений — тоже ошибка запуска. ``minimum=None`` / ``maximum=None`` — нижней / верхней границы нет."""
     raw = os.getenv(name, '').strip()
     if not raw:
         return default
@@ -20,6 +21,8 @@ def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum:
         value = cast(raw)
     except ValueError as exc:
         raise ValueError(f'{name}: ожидается число, получено {raw!r}') from exc
+    if isinstance(value, float) and not math.isfinite(value):  # float('inf') проходит проверку минимума, а nan — любую; ошибка вылезла бы позже, в рантайме
+        raise ValueError(f'{name}: ожидается конечное число, получено {raw!r}')
     if minimum is not None and value < minimum:
         raise ValueError(f'{name}: значение не может быть меньше {minimum} ({raw})')
     if maximum is not None and value > maximum:

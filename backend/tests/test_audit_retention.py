@@ -250,6 +250,41 @@ class TestScheduledRunsAtMostOncePerDay:
         assert get_audit_settings(db_session).last_cleanup_at is None, "очистка не засчитана: следующий запуск повторит попытку"
 
 
+class TestPinningTheDefaultValue:
+    """R-07в: срок, равный действующему умолчанию, но ещё не заданный в форме, сохраняется как явное значение («зафиксирован»).
+    Запись в журнале при этом не должна гласить «не ограничен → не ограничен»."""
+
+    def test_pinning_zero_over_the_default_zero_says_so_instead_of_an_arrow_between_equal_values(self, db_session, now):
+        assert get_audit_settings(db_session) is None  # срок в форме не задавался: действует умолчание 0
+
+        update = update_retention(db_session, 0, now=now)
+
+        assert update.row.retention_days == 0, "значение сохранено явно: оно переживёт смену INFRA_REGISTRY_AUDIT_RETENTION_DAYS"
+        (entry,) = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()
+        assert "зафиксирован" in entry.details and "→" not in entry.details, entry.details
+
+    def test_pinning_the_environment_default_value_reads_the_same_way(self, db_session, now, monkeypatch):
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 30)
+
+        update_retention(db_session, 30, now=now)
+
+        (entry,) = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()
+        assert "30 дн." in entry.details and "зафиксирован" in entry.details and "→" not in entry.details, entry.details
+
+    def test_a_real_change_still_shows_both_values(self, db_session, now):
+        update_retention(db_session, 90, now=now)
+
+        (entry,) = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()
+        assert entry.details == "Срок хранения журнала аудита: не ограничен → 90 дн."
+
+    def test_saving_the_same_stored_value_again_writes_nothing(self, db_session, now):
+        update_retention(db_session, 0, now=now)
+
+        update_retention(db_session, 0, now=now)
+
+        assert len(db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()) == 1
+
+
 class TestOverlappingScheduledRuns:
     """R-03: запуск «занимается» атомарно, поэтому одновременные запросы (и воркеры) не чистят журнал дважды."""
 

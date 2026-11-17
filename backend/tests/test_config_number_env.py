@@ -96,6 +96,18 @@ def test_report_retention_zero_and_negative_still_mean_never_delete(tmp_path, ra
     assert _values(_import_config(tmp_path, INFRA_REGISTRY_REPORT_RETENTION_DAYS=raw))["REPORT_RETENTION_DAYS"] == int(raw)
 
 
+FLOAT_SETTINGS = [setting for setting in SETTINGS if isinstance(setting[2], float)]
+
+
+@pytest.mark.parametrize(("env_name", "attr", "default", "valid", "below_minimum"), FLOAT_SETTINGS, ids=[setting[1] for setting in FLOAT_SETTINGS])
+@pytest.mark.parametrize("raw", ["inf", "Infinity", "nan", "-inf"])
+def test_a_non_finite_float_fails_the_start_naming_the_variable(tmp_path, env_name, attr, default, valid, below_minimum, raw):
+    # Раньше `inf` проходил проверку минимума (inf >= 0), а `nan` — любую (nan < 0 ложно): запуск шёл, и ошибка (OverflowError в timedelta) случалась
+    # в рантайме, при первой блокировке учётной записи.
+    error = _error_line(_import_config(tmp_path, **{env_name: raw}))
+    assert error.startswith("ValueError") and env_name in error, error
+
+
 def test_audit_retention_above_the_documented_maximum_fails_the_start_naming_the_variable(tmp_path):
     # Раньше верхней границы у переменной не было: 1000000 проходило при импорте, а `now - timedelta(days=…)` в очистке давало OverflowError
     # и роняло запуск сервера и каждое открытие журнала. README и .env.example обещают «не больше 3650».
@@ -173,3 +185,11 @@ class TestNumberEnvHelper:
         monkeypatch.setenv("INFRA_REGISTRY_TEST_NUMBER", "11")
         with pytest.raises(ValueError, match="INFRA_REGISTRY_TEST_NUMBER.*больше 10"):
             _number_env("INFRA_REGISTRY_TEST_NUMBER", 1, int, maximum=10)
+
+    @pytest.mark.parametrize("raw", ["inf", "-inf", "nan"])
+    def test_non_finite_floats_are_rejected_even_without_bounds(self, monkeypatch, raw):
+        from app.config import _number_env
+
+        monkeypatch.setenv("INFRA_REGISTRY_TEST_NUMBER", raw)
+        with pytest.raises(ValueError, match="INFRA_REGISTRY_TEST_NUMBER.*конечное число"):
+            _number_env("INFRA_REGISTRY_TEST_NUMBER", 1.0, float)

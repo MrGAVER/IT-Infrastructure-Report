@@ -240,6 +240,9 @@ def run_scheduled_cleanup_in_own_session() -> int:
 
 
 def _describe_change(before: int, after: int, *, reset: bool) -> str:
+    if before == after and not reset:
+        # Значение равно действовавшему умолчанию, но в форме не задавалось — теперь задано явно и переживёт смену переменной окружения.
+        return f"Срок хранения журнала аудита: {_days_text(after)} — зафиксирован в настройках (до этого действовало значение по умолчанию)"
     text = f"Срок хранения журнала аудита: {_days_text(before)} → {_days_text(after)}"
     return text + " (сброшен к значению по умолчанию)" if reset else text
 
