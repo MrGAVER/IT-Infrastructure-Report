@@ -12,7 +12,7 @@ function byPriority(rules: PortSyncRule[]): PortSyncRule[] {
   return [...rules].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))
 }
 
-// B-02: ответ на более ранний запрос не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний запрос не должен затереть более поздний или подтверждённое изменение (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const usePortSyncRulesStore = defineStore('portSyncRules', {
@@ -31,19 +31,14 @@ export const usePortSyncRulesStore = defineStore('portSyncRules', {
   },
   actions: {
     async load(): Promise<void> {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const res = await fetchPortSyncRules()
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        this.rules = byPriority(res.items)
-        this.loaded = true
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить правила'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: fetchPortSyncRules,
+        apply: (res) => {
+          this.rules = byPriority(res.items)
+          this.loaded = true
+        },
+        errorMessage: 'Не удалось загрузить правила',
+      })
     },
     /** Принимает список, подтверждённый сервером (ответ на изменение). Загрузка, начатая до изменения, принесла бы снимок без него и
      * откатила бы его (включённое правило снова выключено, удалённое вернулось): её ответ отбрасывается, а чтобы остальные данные
