@@ -11,7 +11,8 @@ import { createLatestRequest } from '../utils/latestRequest'
 const usersLatest = createLatestRequest()
 const sessionsLatest = createLatestRequest()
 
-/** Флаг загрузки одного из списков в виде `{ loading }`, который принимает `invalidate()`: у стора два флага, `usersLoading` и `sessionsLoading`. */
+/** Флаг загрузки одного из списков в виде `{ loading }`, который принимает `invalidate()`:
+ * у стора два флага, `usersLoading` и `sessionsLoading`. */
 function loadingFlag(store: { usersLoading: boolean; sessionsLoading: boolean }, key: 'usersLoading' | 'sessionsLoading'): { loading: boolean } {
   return {
     get loading() {
