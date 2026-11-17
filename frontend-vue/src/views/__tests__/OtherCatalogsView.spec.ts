@@ -339,3 +339,118 @@ describe('OtherCatalogsView.vue — пагинация', () => {
     expect(wrapper.find('.paged-foot').exists()).toBe(false)
   })
 })
+
+describe('OtherCatalogsView.vue — поиск', () => {
+  const searchInput = (wrapper: ReturnType<typeof mount>) => wrapper.find('.search-box input')
+
+  it('над таблицей справочника есть поле поиска', async () => {
+    seedCatalogs()
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    expect(searchInput(wrapper).exists()).toBe(true)
+  })
+
+  it('оставляет в таблице только записи, подходящие под запрос (без учёта регистра)', async () => {
+    seedCatalogs()
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    await searchInput(wrapper).setValue('КОММУТ')
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('Коммутатор')
+    expect(wrapper.find('.found-count').text()).toBe('Найдено 1 из 2')
+  })
+
+  it('ищет и по значениям связанных записей (fk показывается названием, а не id)', async () => {
+    const catalogs = seedCatalogs()
+    catalogs.items['device-models'] = [
+      { id: 'dm-1', model: 'R740', device_type_id: 'dt-1', manufacturer_id: 'mf-1', name: 'R740' },
+      { id: 'dm-2', model: 'C9300', device_type_id: 'dt-2', manufacturer_id: 'mf-1', name: 'C9300' },
+    ] as never
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Модель устройства'))!
+      .trigger('click')
+
+    await searchInput(wrapper).setValue('коммутатор')
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('C9300')
+  })
+
+  it('несколько слов запроса сужают результат: нужны все', async () => {
+    const catalogs = seedCatalogs()
+    catalogs.items['manufacturers'] = [
+      { id: 'mf-1', name: 'Cisco Systems' },
+      { id: 'mf-2', name: 'Cisco Meraki' },
+      { id: 'mf-3', name: 'Huawei Systems' },
+    ]
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Производитель'))!
+      .trigger('click')
+
+    await searchInput(wrapper).setValue('cisco systems')
+
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+    expect(wrapper.find('tbody').text()).toContain('Cisco Systems')
+  })
+
+  it('если ничего не найдено — сообщение с запросом; «Сбросить поиск» возвращает все записи', async () => {
+    seedCatalogs()
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+
+    await searchInput(wrapper).setValue('нет такого')
+    expect(wrapper.find('tbody').exists()).toBe(false)
+    expect(wrapper.find('.empty-state').text()).toContain('По запросу «нет такого» ничего не найдено')
+    // подвал со страницами при пустой выдаче не нужен, а само поле поиска остаётся, чтобы запрос можно было поправить
+    expect(wrapper.find('.paged-foot').exists()).toBe(false)
+    expect(searchInput(wrapper).exists()).toBe(true)
+
+    await wrapper.find('.reset-search').trigger('click')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+    expect((searchInput(wrapper).element as HTMLInputElement).value).toBe('')
+  })
+
+  it('смена справочника очищает запрос — в другом справочнике другие колонки', async () => {
+    seedCatalogs()
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+    await searchInput(wrapper).setValue('сервер')
+
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Производитель'))!
+      .trigger('click')
+
+    expect((searchInput(wrapper).element as HTMLInputElement).value).toBe('')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+  })
+
+  it('поиск возвращает на первую страницу, а подвал считает найденные записи', async () => {
+    const catalogs = seedCatalogs()
+    catalogs.items['manufacturers'] = Array.from({ length: 30 }, (_, i) => ({ id: `mf-${i + 1}`, name: `Производитель ${i + 1}` }))
+    const wrapper = mount(OtherCatalogsView)
+    await flushPromises()
+    await wrapper
+      .findAll('.catalog-item')
+      .find((i) => i.text().includes('Производитель'))!
+      .trigger('click')
+    await wrapper.find('.pager button[aria-label="Страница 3"]').trigger('click')
+
+    await searchInput(wrapper).setValue('Производитель 2')
+
+    // Слова запроса — «производитель» и «2»: подходят записи с цифрой 2 (2, 12, 20–29) — 12 штук, показана первая страница
+    expect(wrapper.find('.paged-foot .range').text()).toBe('Показано 1–10 из 12')
+    expect(wrapper.findAll('tbody tr')[0].text()).toContain('Производитель 2')
+  })
+})

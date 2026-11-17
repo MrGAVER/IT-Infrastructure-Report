@@ -18,9 +18,12 @@ import type { QuickField } from '../quickAdd/schema'
 import { useToast } from '../composables/useToast'
 import { usePagedList } from '../composables/usePagedList'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
+import { filterBySearch } from '../utils/textSearch'
 import CatalogRecordFormModal from '../components/CatalogRecordFormModal.vue'
 import PagedListFooter from '../components/PagedListFooter.vue'
 import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
+// Общая панель фильтров (поле поиска) — та же, что у «Устройств», «VLAN», «Подключений».
+import '../styles/list-toolbar.css'
 
 const OTHER_CATALOGS = [
   'device-types',
@@ -89,13 +92,6 @@ const records = computed<Record<string, unknown>[]>(() => {
   return (catalogs.items[selected.value as keyof typeof catalogs.items] ?? []) as unknown as Record<string, unknown>[]
 })
 
-// Постранично выводятся записи выбранного справочника. Размер страницы один на все справочники экрана
-// (запоминается как настройка списка «otherCatalogs»), а страница при смене справочника сбрасывается на первую.
-const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
-  () => records.value,
-  { listId: 'otherCatalogs' },
-)
-watch(selected, () => resetPage())
 
 function recordCount(key: OtherCatalogKey): number {
   if (key === 'protocol-port-catalog') return catalogs.protocolPortCatalog.length
@@ -115,6 +111,26 @@ function cellValue(record: Record<string, unknown>, field: QuickField): string {
   if (raw === null || raw === undefined || raw === '') return '—'
   return String(raw)
 }
+
+// Поиск по тому, что видно в таблице: значения колонок выбранного справочника как они показаны (для fk — название
+// связанной записи, для флажка — «Да»/«Нет»). Запрос из нескольких слов сужает выбор — см. utils/textSearch.ts.
+const search = ref('')
+const filteredRecords = computed(() => filterBySearch(records.value, search.value, (record) => fields.value.map((f) => cellValue(record, f))))
+const isSearching = computed(() => search.value.trim() !== '')
+
+// Постранично выводятся найденные записи выбранного справочника. Размер страницы один на все справочники экрана
+// (запоминается как настройка списка «otherCatalogs»), а страница при смене справочника или запроса сбрасывается на первую.
+const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
+  () => filteredRecords.value,
+  { listId: 'otherCatalogs' },
+)
+// Запрос относится к справочнику, в котором введён: в другом справочнике другие колонки, и оставшийся от прошлого
+// запрос показал бы там «пустую» таблицу без видимой причины.
+watch(selected, () => {
+  search.value = ''
+  resetPage()
+})
+watch(search, () => resetPage())
 
 const modalOpen = ref(false)
 const editingItem = ref<Record<string, unknown> | null>(null)
@@ -169,8 +185,28 @@ async function onDeleted() {
           </button>
         </div>
 
+        <div v-if="fields.length && records.length" class="filter-bar list-toolbar catalog-toolbar">
+          <div class="filter-fields">
+            <div class="search-box">
+              <svg class="icon"><use href="/icons.svg#i-search" /></svg>
+              <input
+                v-model="search"
+                type="text"
+                placeholder="Поиск по значениям справочника…"
+                title="Поиск по значениям колонок выбранного справочника; несколько слов сужают результат"
+                aria-label="Поиск по значениям справочника"
+              />
+            </div>
+            <span v-if="isSearching" class="found-count">Найдено {{ total }} из {{ records.length }}</span>
+          </div>
+        </div>
+
         <p v-if="!fields.length" class="empty-state">Для «{{ selected }}» форма редактирования не настроена.</p>
         <p v-else-if="!records.length" class="empty-state">Записей пока нет.</p>
+        <div v-else-if="!filteredRecords.length" class="empty-state">
+          По запросу «{{ search.trim() }}» ничего не найдено.
+          <button type="button" class="btn btn-secondary reset-search" @click="search = ''">Сбросить поиск</button>
+        </div>
         <ScrollableTableWrap v-else :label="`Записи справочника «${QUICK_ADD_LABELS[selected] ?? selected}»`">
           <table>
             <thead>
@@ -194,7 +230,7 @@ async function onDeleted() {
           </table>
         </ScrollableTableWrap>
         <PagedListFooter
-          v-if="fields.length && records.length"
+          v-if="fields.length && filteredRecords.length"
           class="catalog-foot"
           :page="page"
           :page-count="pageCount"
@@ -317,6 +353,16 @@ async function onDeleted() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.catalog-toolbar {
+  margin-bottom: 12px;
+}
+.found-count {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.reset-search {
+  margin-left: 10px;
 }
 
 table {
