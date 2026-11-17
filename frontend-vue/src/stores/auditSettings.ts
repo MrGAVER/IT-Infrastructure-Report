@@ -6,6 +6,10 @@ import { defineStore } from 'pinia'
 import { fetchAuditSettings, saveAuditSettings } from '../api/auditSettings'
 import { ApiError } from '../api/client'
 import type { AuditSettings, AuditSettingsSaveResult } from '../api/types'
+import { createLatestRequest } from '../utils/latestRequest'
+
+// Ответ на более ранний load() не должен затереть более поздний или уже подтверждённое сохранение (см. utils/latestRequest.ts).
+const latest = createLatestRequest()
 
 export const useAuditSettingsStore = defineStore('auditSettings', {
   state: () => ({
@@ -17,15 +21,13 @@ export const useAuditSettingsStore = defineStore('auditSettings', {
   actions: {
     /** Перечитывает настройки с сервера; при ошибке оставляет её текст в error (прежние настройки не затираются). */
     async load(): Promise<void> {
-      this.loading = true
-      this.error = null
-      try {
-        this.settings = await fetchAuditSettings()
-      } catch (err) {
-        this.error = err instanceof ApiError ? err.message : 'Не удалось загрузить настройки аудита'
-      } finally {
-        this.loading = false
-      }
+      await latest.run(this, {
+        fetch: fetchAuditSettings,
+        apply: (settings) => {
+          this.settings = settings
+        },
+        errorMessage: (err) => (err instanceof ApiError ? err.message : 'Не удалось загрузить настройки аудита'),
+      })
     },
 
     /** Сохраняет срок хранения (null — сбросить к умолчанию). Ошибку пробрасывает вызывающему: форма показывает её у кнопки. */
@@ -33,6 +35,8 @@ export const useAuditSettingsStore = defineStore('auditSettings', {
       this.saving = true
       try {
         const result = await saveAuditSettings(retentionDays)
+        // load(), начатый до сохранения, принесёт прежний срок: его ответ отбрасывается, а настройки перечитываются заново.
+        const wasLoading = latest.invalidate(this)
         this.settings = {
           retention_days: result.retention_days,
           is_default: result.is_default,
@@ -40,6 +44,7 @@ export const useAuditSettingsStore = defineStore('auditSettings', {
           max_retention_days: result.max_retention_days,
           last_cleanup_at: result.last_cleanup_at,
         }
+        if (wasLoading) void this.load()
         return result
       } finally {
         this.saving = false

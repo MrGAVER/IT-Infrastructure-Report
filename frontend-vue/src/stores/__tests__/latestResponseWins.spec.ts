@@ -3,16 +3,19 @@
 // раньше такой защиты не было (у auditLog и connectionsDashboard она уже была и проверяется их собственными тестами).
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { useAuditSettingsStore } from '../auditSettings'
 import { useCatalogsStore } from '../catalogs'
 import { useConnectionsStore } from '../connections'
 import { useContainersStore } from '../containers'
 import { useDeviceStacksStore } from '../deviceStacks'
 import { useDevicesStore } from '../devices'
 import { useInformationSystemsStore } from '../informationSystems'
+import { usePortSyncRulesStore } from '../portSyncRules'
 import { useReportTemplatesStore } from '../reportTemplates'
 import { useVLANDomainsStore } from '../vlanDomains'
 import { useVLANsStore } from '../vlans'
 import { useVMsStore } from '../vms'
+import { BASE_AUDIT_SETTINGS } from './auditSettingsApi'
 
 type Marker = 'старый' | 'новый'
 
@@ -194,5 +197,209 @@ describe.each(CASES)('reload(): побеждает последний запущ
 
     expect(store.error).toBeTruthy()
     expect(store.loading).toBe(false)
+  })
+})
+
+// Обратное направление той же гонки: стор сам применяет локально подтверждённое сервером изменение (upsert/remove/move,
+// addCatalogItem, save), а load(), начатый ДО изменения, отвечает позже и приносит снимок, где изменения ещё нет.
+// Без invalidate() запоздалый ответ молча откатывал бы только что подтверждённое изменение.
+
+interface Loadable {
+  loading: boolean
+  error: string | null
+}
+
+interface LocalChangeCase<S extends Loadable> {
+  name: string
+  open: () => S
+  /** Уже загруженное состояние стора: изменение происходит поверх него. */
+  seed: (store: S) => void
+  startLoad: (store: S) => Promise<void>
+  load: { url: string }
+  /** Локальное изменение. Если оно ходит на сервер — вернуть промис, ответ на него задаёт `confirm`. */
+  change: (store: S) => Promise<unknown> | void
+  confirm?: { method: 'PUT' | 'DELETE'; url: string; body: unknown }
+  /** Ответ на запоздалый load: снимок, сделанный до изменения. */
+  staleBody: (url: string) => unknown
+  /** Ответ на перезапущенный load: то, что на самом деле лежит на сервере после изменения. */
+  freshBody: (url: string) => unknown
+  read: (store: S) => unknown
+  afterChange: unknown
+  afterFresh: unknown
+}
+
+function localCase<S extends Loadable>(c: LocalChangeCase<S>): LocalChangeCase<Loadable> {
+  return c as unknown as LocalChangeCase<Loadable>
+}
+
+/** Управляемый fetch с нумерацией запросов отдельно для каждой пары «метод + адрес»: у настроек аудита GET и PUT — один адрес. */
+function controlledRequests() {
+  const pending = new Map<string, Array<(r: Response) => void>>()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      (url: string, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          const key = `${init?.method ?? 'GET'} ${url}`
+          pending.set(key, [...(pending.get(key) ?? []), resolve])
+        }),
+    ),
+  )
+  const matching = (method: string, urlPart: string) => [...pending.keys()].filter((k) => k.startsWith(`${method} `) && k.includes(urlPart))
+  return {
+    async sent(method: string, urlPart: string, generation = 0) {
+      await vi.waitFor(() => expect(matching(method, urlPart).some((k) => pending.get(k)!.length > generation)).toBe(true))
+    },
+    /** Отвечает на запросы с порядковым номером `generation` по каждому подходящему адресу. */
+    answer(method: string, urlPart: string, generation: number, make: (url: string) => unknown) {
+      for (const key of matching(method, urlPart)) pending.get(key)![generation]?.(new Response(JSON.stringify(make(key.slice(method.length + 1)))))
+    },
+  }
+}
+
+const ruleBody = (enabled: boolean) => ({ id: 'a', priority: 1, enabled })
+const auditBody = (retention: number, lastCleanup: string | null) => ({
+  ...BASE_AUDIT_SETTINGS,
+  retention_days: retention,
+  is_default: retention === BASE_AUDIT_SETTINGS.retention_days,
+  last_cleanup_at: lastCleanup,
+})
+
+/** Ответ на запрос любого справочника; у каталога протоколов другая форма записи (порт и тип, а не имя). */
+function catalogsBody(url: string, ids: string[]) {
+  if (/\/resources$/.test(url)) return []
+  if (/protocol-port-catalog/.test(url)) return page(ids.map((id, i) => ({ id, port: 80 + i, protocol_type: 'tcp' })))
+  return page(ids.map((id) => ({ id, name: id })))
+}
+
+const LOCAL_CASES: LocalChangeCase<Loadable>[] = [
+  localCase({
+    name: 'portSyncRules.update',
+    open: () => usePortSyncRulesStore(),
+    seed: (store) => {
+      store.rules = [ruleBody(true) as never]
+      store.loaded = true
+    },
+    startLoad: (store) => store.load(),
+    load: { url: '/port-sync/rules' },
+    change: (store) => store.update('a', { enabled: false }),
+    confirm: { method: 'PUT', url: '/port-sync/rules/a', body: ruleBody(false) },
+    staleBody: () => ({ items: [ruleBody(true)], total: 1 }),
+    freshBody: () => ({ items: [ruleBody(false)], total: 1 }),
+    read: (store) => store.rules.map((r) => r.enabled),
+    afterChange: [false],
+    afterFresh: [false],
+  }),
+  localCase({
+    name: 'portSyncRules.remove',
+    open: () => usePortSyncRulesStore(),
+    seed: (store) => {
+      store.rules = [ruleBody(true) as never]
+      store.loaded = true
+    },
+    startLoad: (store) => store.load(),
+    load: { url: '/port-sync/rules' },
+    change: (store) => store.remove('a'),
+    confirm: { method: 'DELETE', url: '/port-sync/rules/a', body: null },
+    staleBody: () => ({ items: [ruleBody(true)], total: 1 }),
+    freshBody: () => ({ items: [], total: 0 }),
+    read: (store) => store.rules.map((r) => r.id),
+    afterChange: [],
+    afterFresh: [],
+  }),
+  localCase({
+    name: 'catalogs.addCatalogItem',
+    open: () => useCatalogsStore(),
+    seed: (store) => {
+      store.items.buildings = [{ id: 'old', name: 'old' }] as never
+      store.loaded = true
+    },
+    startLoad: (store) => store.reload(),
+    load: { url: '' },
+    change: (store) => store.addCatalogItem('buildings', { id: 'new', name: 'new' } as never),
+    // 21 справочник + /resources + каталог протоколов: один reload() — больше двадцати запросов, ответ задаётся на каждый.
+    staleBody: (url) => catalogsBody(url, ['old']),
+    freshBody: (url) => catalogsBody(url, ['old', 'new', 'server']),
+    read: (store) => ((store as ReturnType<typeof useCatalogsStore>).items.buildings ?? []).map((i) => i.id).sort(),
+    afterChange: ['new', 'old'],
+    afterFresh: ['new', 'old', 'server'],
+  }),
+  localCase({
+    name: 'auditSettings.save',
+    open: () => useAuditSettingsStore(),
+    seed: (store) => {
+      store.settings = auditBody(0, null)
+    },
+    startLoad: (store) => store.load(),
+    load: { url: '/audit-log/settings' },
+    change: (store) => store.save(30),
+    confirm: { method: 'PUT', url: '/audit-log/settings', body: { ...auditBody(30, null), removed_now: 5, cleanup_failed: false } },
+    staleBody: () => auditBody(0, null),
+    freshBody: () => auditBody(30, '2026-11-17T09:00:00'),
+    read: (store) => [store.settings?.retention_days, store.settings?.last_cleanup_at],
+    afterChange: [30, null],
+    afterFresh: [30, '2026-11-17T09:00:00'],
+  }),
+]
+
+describe.each(LOCAL_CASES)('загрузка в полёте, затем подтверждённое изменение — $name', (c) => {
+  /** Доводит сценарий до момента «изменение применено, ответ запоздавшего load ещё не пришёл». */
+  async function changeWhileLoading() {
+    const server = controlledRequests()
+    const store = c.open()
+    c.seed(store)
+
+    const load = c.startLoad(store)
+    await server.sent('GET', c.load.url)
+    const change = c.change(store)
+    if (c.confirm) {
+      await server.sent(c.confirm.method, c.confirm.url)
+      server.answer(c.confirm.method, c.confirm.url, 0, () => c.confirm!.body)
+    }
+    await change
+    return { server, store, load }
+  }
+
+  it('запоздалый ответ load не откатывает подтверждённое изменение', async () => {
+    const { server, store, load } = await changeWhileLoading()
+    expect(c.read(store)).toEqual(c.afterChange)
+
+    server.answer('GET', c.load.url, 0, c.staleBody) // ответ на load, начатый до изменения, приходит после него
+    await load
+
+    expect(c.read(store)).toEqual(c.afterChange)
+    expect(store.error).toBeNull()
+  })
+
+  it('данные не остаются устаревшими: load перезапускается, loading не сбрасывается запоздавшим ответом, итог — ответ перезапуска', async () => {
+    const { server, store, load } = await changeWhileLoading()
+
+    server.answer('GET', c.load.url, 0, c.staleBody)
+    await load
+    expect(store.loading).toBe(true) // идёт перезапущенный load: запоздавший не вправе погасить индикатор
+
+    await server.sent('GET', c.load.url, 1)
+    server.answer('GET', c.load.url, 1, c.freshBody)
+    await vi.waitFor(() => expect(store.loading).toBe(false))
+
+    expect(c.read(store)).toEqual(c.afterFresh)
+    expect(store.error).toBeNull()
+  })
+
+  it('без загрузки в полёте изменение не запускает лишних запросов', async () => {
+    const server = controlledRequests()
+    const store = c.open()
+    c.seed(store)
+
+    const change = c.change(store)
+    if (c.confirm) {
+      await server.sent(c.confirm.method, c.confirm.url)
+      server.answer(c.confirm.method, c.confirm.url, 0, () => c.confirm!.body)
+    }
+    await change
+
+    expect(c.read(store)).toEqual(c.afterChange)
+    expect(store.loading).toBe(false)
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET')).toHaveLength(0)
   })
 })
