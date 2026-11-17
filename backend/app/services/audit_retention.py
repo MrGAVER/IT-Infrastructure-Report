@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy import delete, exists, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -35,7 +35,7 @@ from ..constants import AUDIT_RETENTION_MAX_DAYS, AuditAction
 from ..models import AuditLog, AuditSettings
 from .actor_context import Actor
 from .crud import audit
-from .timeutil import iso_utc, utcnow_naive
+from .timeutil import utcnow_naive
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,17 @@ class PurgeResult:
     removed: int
     cutoff: datetime  # записи строго старше этого момента (naive UTC) удалены
     complete: bool  # False — остановились на лимите пакетов за запуск, остаток удалит следующий запуск
+
+
+@dataclass(frozen=True)
+class RetentionState:
+    """Настройки хранения как значения предметной области: JSON с именами полей и ISO-строками собирает слой API (api/audit_log.py)."""
+
+    retention_days: int  # действующий срок, 0 — не удалять
+    is_default: bool  # срок в форме не задан, действует значение по умолчанию из окружения
+    default_retention_days: int
+    max_retention_days: int
+    last_cleanup_at: Optional[datetime]  # naive UTC
 
 
 @dataclass(frozen=True)
@@ -91,18 +102,14 @@ def effective_retention_days(row: Optional[AuditSettings]) -> int:
     return AUDIT_RETENTION_DAYS
 
 
-def serialize_audit_settings(row: Optional[AuditSettings], *, removed_now: Optional[int] = None, cleanup_failed: bool = False) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "retention_days": effective_retention_days(row),
-        "is_default": row is None or row.retention_days is None,
-        "default_retention_days": AUDIT_RETENTION_DAYS,
-        "max_retention_days": AUDIT_RETENTION_MAX_DAYS,
-        "last_cleanup_at": iso_utc(row.last_cleanup_at) if row is not None else None,
-    }
-    if removed_now is not None:  # только в ответе на сохранение
-        payload["removed_now"] = removed_now
-        payload["cleanup_failed"] = cleanup_failed
-    return payload
+def retention_state(row: Optional[AuditSettings]) -> RetentionState:
+    return RetentionState(
+        retention_days=effective_retention_days(row),
+        is_default=row is None or row.retention_days is None,
+        default_retention_days=AUDIT_RETENTION_DAYS,
+        max_retention_days=AUDIT_RETENTION_MAX_DAYS,
+        last_cleanup_at=row.last_cleanup_at if row is not None else None,
+    )
 
 
 def cleanup_is_due(row: Optional[AuditSettings], now: datetime) -> bool:

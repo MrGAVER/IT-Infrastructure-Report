@@ -179,6 +179,24 @@ class AuditSettingsUpdate(BaseModel):
     retention_days: Optional[StrictInt] = Field(default=None, ge=0, le=AUDIT_RETENTION_MAX_DAYS)
 
 
+class AuditSettingsOut(BaseModel):
+    """GET /api/v1/audit-log/settings. retention_days — действующий срок (0 — не удалять); is_default — срок в форме не задан, действует
+    default_retention_days (из окружения); max_retention_days — верхняя граница; last_cleanup_at — ISO 8601 UTC или null. Форму JSON повторяет
+    вручную написанный тип frontend-vue/src/api/types/audit.ts: менять поля только вместе с ним."""
+    retention_days: int
+    is_default: bool
+    default_retention_days: int
+    max_retention_days: int
+    last_cleanup_at: Optional[str]
+
+
+class AuditSettingsSaveOut(AuditSettingsOut):
+    """PUT /api/v1/audit-log/settings: настройки после сохранения + итог немедленной очистки по новому сроку. Если в теле не было retention_days,
+    сохранять нечего и ответ — как у GET: removed_now и cleanup_failed в него не попадают (эндпоинт отдаёт только заданные поля)."""
+    removed_now: Optional[int] = None  # сколько записей удалено сразу при сохранении
+    cleanup_failed: Optional[bool] = None  # срок сохранён, но очистка не удалась; повторится при ближайшем ленивом запуске
+
+
 # --- Настройки интерфейса (services/preferences.py, api/preferences.py) -----------------------------
 # extra="forbid": набор ключей фиксирован — опечатка или чужой ключ дают 422, а не молча сохраняются.
 # Поле, которого нет в теле запроса, не трогается; поле со значением null сбрасывает настройку к значению

@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..schemas import AuditSettingsUpdate
+from ..models import AuditSettings
+from ..schemas import AuditSettingsOut, AuditSettingsSaveOut, AuditSettingsUpdate
 from ..services.auth import require_admin_if_auth_enabled
 from ..services.audit_query import AuditQuery, MAX_SEARCH_LENGTH, list_audit_log
-from ..services.audit_retention import get_audit_settings, run_scheduled_cleanup, serialize_audit_settings, update_retention
+from ..services.audit_retention import get_audit_settings, retention_state, run_scheduled_cleanup, update_retention
+from ..services.timeutil import iso_utc
 
 # Записи журнала приложение пишет само (crud.audit()), через API их не изменить. Доступ — только администратору (при включённой аутентификации)
 # и ко всему роутеру сразу, включая настройки аудита: новый маршрут здесь не может остаться без проверки роли.
@@ -33,18 +35,30 @@ def audit_log_page(
     return list_audit_log(session, AuditQuery(q=q, action=action, entity_type=entity_type), offset=offset, limit=limit)
 
 
-@router.get('/audit-log/settings')
-def read_audit_settings(session: Session = Depends(get_db)) -> dict:
+def _settings_fields(row: AuditSettings | None) -> dict[str, object]:
+    """Поля ответа настроек (имена и ISO-строки — забота транспорта, поэтому здесь, а не в сервисе)."""
+    state = retention_state(row)
+    return {
+        'retention_days': state.retention_days,
+        'is_default': state.is_default,
+        'default_retention_days': state.default_retention_days,
+        'max_retention_days': state.max_retention_days,
+        'last_cleanup_at': iso_utc(state.last_cleanup_at),
+    }
+
+
+@router.get('/audit-log/settings', response_model=AuditSettingsOut)
+def read_audit_settings(session: Session = Depends(get_db)) -> AuditSettingsOut:
     """Настройки аудита: действующий срок хранения (0 — не удалять), задан ли он в форме или действует умолчание, когда была очистка."""
-    return serialize_audit_settings(get_audit_settings(session))
+    return AuditSettingsOut(**_settings_fields(get_audit_settings(session)))
 
 
-@router.put('/audit-log/settings')
-def update_audit_settings(payload: AuditSettingsUpdate, session: Session = Depends(get_db)) -> dict:
+@router.put('/audit-log/settings', response_model=AuditSettingsSaveOut, response_model_exclude_unset=True)
+def update_audit_settings(payload: AuditSettingsUpdate, session: Session = Depends(get_db)) -> AuditSettingsSaveOut:
     """Меняет срок хранения журнала (`retention_days`: 0 — не удалять, null — сбросить к умолчанию, поле не передано — не менять).
     Новый срок сразу применяется: записи старше удаляются; `removed_now` — сколько удалено. Изменение пишется в журнал аудита."""
     patch = payload.model_dump(exclude_unset=True)
     if 'retention_days' not in patch:
-        return serialize_audit_settings(get_audit_settings(session))
+        return AuditSettingsSaveOut(**_settings_fields(get_audit_settings(session)))  # removed_now не задан → в ответ не попадает
     update = update_retention(session, patch['retention_days'])
-    return serialize_audit_settings(update.row, removed_now=update.removed, cleanup_failed=update.cleanup_failed)
+    return AuditSettingsSaveOut(**_settings_fields(update.row), removed_now=update.removed, cleanup_failed=update.cleanup_failed)

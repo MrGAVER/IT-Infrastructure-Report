@@ -26,7 +26,7 @@ from app.services.audit_retention import (
     purge_expired_entries,
     run_cleanup,
     run_scheduled_cleanup,
-    serialize_audit_settings,
+    retention_state,
     update_retention,
 )
 from app.services.timeutil import utcnow_naive
@@ -89,13 +89,7 @@ class TestDefaultBehaviourIsUnchanged:
         assert run_cleanup(db_session, now=now, actor=None) is None
 
     def test_default_settings_are_serialized_as_not_deleting(self, db_session):
-        assert serialize_audit_settings(get_audit_settings(db_session)) == {
-            "retention_days": 0,
-            "is_default": True,
-            "default_retention_days": 0,
-            "max_retention_days": 3650,
-            "last_cleanup_at": None,
-        }
+        assert retention_state(get_audit_settings(db_session)) == audit_retention.RetentionState(retention_days=0, is_default=True, default_retention_days=0, max_retention_days=3650, last_cleanup_at=None)
 
     def test_environment_default_applies_until_the_form_overrides_it(self, db_session, now, monkeypatch):
         monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 30)
@@ -105,8 +99,21 @@ class TestDefaultBehaviourIsUnchanged:
         assert _details(db_session) == ["свежая"]
 
         _set_retention(db_session, 0)  # явный 0 в форме важнее умолчания из окружения
-        assert serialize_audit_settings(get_audit_settings(db_session))["retention_days"] == 0
-        assert serialize_audit_settings(get_audit_settings(db_session))["is_default"] is False
+        assert retention_state(get_audit_settings(db_session)).retention_days == 0
+        assert retention_state(get_audit_settings(db_session)).is_default is False
+
+
+class TestLayering:
+    def test_the_service_does_not_depend_on_the_transport_layer(self):
+        """Сервис не импортирует schemas (слой транспорта) и не собирает JSON ответа: именованные поля и ISO-строки — дело API."""
+        import ast
+        from pathlib import Path
+
+        tree = ast.parse(Path(audit_retention.__file__).read_text(encoding="utf-8"))
+        imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+
+        assert "schemas" not in imported
+        assert not hasattr(audit_retention, "serialize_audit_settings")
 
 
 class TestPurge:
@@ -226,7 +233,7 @@ class TestScheduledRunsAtMostOncePerDay:
         _set_retention(db_session, 30)
         run_scheduled_cleanup(db_session, now=now)
 
-        assert serialize_audit_settings(get_audit_settings(db_session))["last_cleanup_at"] == now.isoformat() + "+00:00"
+        assert retention_state(get_audit_settings(db_session)).last_cleanup_at == now
 
     def test_a_database_error_is_logged_and_does_not_reach_the_caller(self, db_session, now, monkeypatch, caplog):
         _set_retention(db_session, 30)
@@ -323,7 +330,7 @@ class TestUpdateRetention:
         update = update_retention(db_session, None, now=now)
 
         assert update.row.retention_days is None
-        assert serialize_audit_settings(update.row)["is_default"] is True
+        assert retention_state(update.row).is_default is True
         assert _service_entries(db_session)[-1].details == "Срок хранения журнала аудита: 90 дн. → не ограничен (сброшен к значению по умолчанию)"
 
     def test_a_failed_cleanup_keeps_the_saved_period_and_is_reported(self, db_session, now, monkeypatch):
@@ -337,4 +344,4 @@ class TestUpdateRetention:
         assert (update.removed, update.cleanup_failed) == (0, True)
         assert get_audit_settings(db_session).retention_days == 90
         assert [entry.action for entry in _service_entries(db_session)] == ["UPDATE"]
-        assert serialize_audit_settings(update.row, removed_now=update.removed, cleanup_failed=update.cleanup_failed)["cleanup_failed"] is True
+        assert update.cleanup_failed is True
