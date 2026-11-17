@@ -5,7 +5,7 @@ import { listReportTemplates } from '../api/reportTemplates'
 import type { ReportTemplate } from '../api/types'
 import { createLatestRequest } from '../utils/latestRequest'
 
-// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useReportTemplatesStore = defineStore('reportTemplates', {
@@ -29,19 +29,14 @@ export const useReportTemplatesStore = defineStore('reportTemplates', {
       await this.reload()
     },
     async reload() {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const list = await listReportTemplates()
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        this.all = list
-        this.loaded = true
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить шаблоны отчётов'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: () => listReportTemplates(),
+        apply: (list) => {
+          this.all = list
+          this.loaded = true
+        },
+        errorMessage: 'Не удалось загрузить шаблоны отчётов',
+      })
     },
   },
 })
