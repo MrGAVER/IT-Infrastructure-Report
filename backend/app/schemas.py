@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
+from .constants import AUDIT_RETENTION_MAX_DAYS
+
 
 class PhysicalDeviceCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -165,9 +167,8 @@ class AuthSettingsUpdate(BaseModel):
 
 
 # --- Настройки аудита (services/audit_retention.py, api/audit_log.py) -------------------------------
-# Верхняя граница срока хранения: десять лет. Больше — это уже «не удалять» (0), а опечатка вроде лишнего нуля не должна молча
-# превращаться в «хранить вечно».
-AUDIT_RETENTION_MAX_DAYS = 3650
+# Верхняя граница срока хранения (constants.AUDIT_RETENTION_MAX_DAYS): десять лет. Больше — это уже «не удалять» (0), а опечатка вроде
+# лишнего нуля не должна молча превращаться в «хранить вечно».
 
 
 class AuditSettingsUpdate(BaseModel):

@@ -243,6 +243,34 @@ class TestScheduledRunsAtMostOncePerDay:
         assert get_audit_settings(db_session).last_cleanup_at is None, "очистка не засчитана: следующий запуск повторит попытку"
 
 
+class TestScheduledRunNeverRaises:
+    """Контракт `run_scheduled_cleanup`: «не бросает» — любой сбой очистки (не только БД) пишется в журнал приложения и возвращает 0."""
+
+    def test_an_overflowing_period_is_logged_and_does_not_escape(self, db_session, now, monkeypatch, caplog):
+        # Срок из окружения без верхней границы: now - timedelta(days=10**6) → OverflowError («date value out of range»).
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 10**6)
+
+        with caplog.at_level(logging.ERROR, logger="app.services.audit_retention"):
+            assert run_scheduled_cleanup(db_session, now=now) == 0
+
+        assert "Очистка журнала аудита по сроку хранения не выполнена" in caplog.text
+        assert get_audit_settings(db_session) is None or get_audit_settings(db_session).last_cleanup_at is None, "очистка не засчитана"
+
+    def test_any_unexpected_error_inside_the_purge_is_contained(self, db_session, now, monkeypatch, caplog):
+        db_session.add(AuditSettings(id="singleton", retention_days=30))
+        db_session.commit()
+
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("неожиданный сбой")
+
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", boom)
+
+        with caplog.at_level(logging.ERROR, logger="app.services.audit_retention"):
+            assert run_scheduled_cleanup(db_session, now=now) == 0
+
+        assert "неожиданный сбой" in caplog.text
+
+
 class TestUpdateRetention:
     def test_saving_a_period_writes_the_change_to_the_log_and_cleans_up_at_once(self, db_session, now):
         _seed(db_session, *_old(now, 4), _entry(now, details="свежая"))

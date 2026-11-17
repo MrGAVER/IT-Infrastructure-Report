@@ -31,9 +31,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..config import AUDIT_RETENTION_DAYS
-from ..constants import AuditAction
+from ..constants import AUDIT_RETENTION_MAX_DAYS, AuditAction
 from ..models import AuditLog, AuditSettings
-from ..schemas import AUDIT_RETENTION_MAX_DAYS
 from .actor_context import Actor
 from .crud import audit
 from .timeutil import iso_utc, utcnow_naive
@@ -167,15 +166,16 @@ def run_cleanup(session: Session, *, now: datetime, actor: Optional[Actor]) -> O
 def run_scheduled_cleanup(session: Session, *, now: Optional[datetime] = None) -> int:
     """Ленивый запуск (старт сервера, открытие журнала): срок задан и с прошлой очистки прошли сутки. Возвращает число удалённых записей.
 
-    Не бросает ошибок БД: журнал открывают ради чтения, и сбой очистки не должен его ломать — ошибка пишется в журнал приложения
-    (logger.exception), следующий запуск повторит попытку."""
+    Не бросает ошибок вообще: журнал открывают ради чтения, а сервер запускают ради работы, и сбой очистки — БД, неверный срок,
+    любая непредвиденная ошибка — не должен ломать ни то ни другое. Ошибка пишется в журнал приложения (logger.exception), следующий
+    запуск повторит попытку."""
     now = now or utcnow_naive()
     try:
         row = get_audit_settings(session)
         if effective_retention_days(row) <= 0 or not cleanup_is_due(row, now):
             return 0
         result = run_cleanup(session, now=now, actor=SYSTEM_ACTOR)
-    except SQLAlchemyError:
+    except Exception:  # контракт функции — «не бросает»: широкий перехват здесь намеренный, ошибка не теряется, а пишется в лог
         session.rollback()
         logger.exception("Очистка журнала аудита по сроку хранения не выполнена")
         return 0

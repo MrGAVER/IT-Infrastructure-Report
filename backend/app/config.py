@@ -3,14 +3,16 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from .constants import AUDIT_RETENTION_MAX_DAYS
 
-def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None) -> Any:
+
+def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None, maximum: Any = None) -> Any:
     """Число из переменной окружения: не задана, пуста или из одних пробелов — ``default``; нечисловое значение или меньше ``minimum`` — явная ошибка
     запуска с ИМЕНЕМ переменной (а не молчаливое игнорирование опечатки и не безымянный ``invalid literal for int()``).
 
     Пустая строка — обычное дело: так выглядят незаполненные строки в ``.env`` (``VAR=``), а docker-compose передаёт в контейнер пустое значение
     вместо отсутствующего. Раньше такие переменные разбирались «голым» ``int(os.getenv(...))`` и роняли запуск при импорте модуля (A-03 код-ревью main @ b375f58).
-    ``minimum=None`` — нижней границы нет."""
+    ``minimum=None`` / ``maximum=None`` — нижней / верхней границы нет."""
     raw = os.getenv(name, '').strip()
     if not raw:
         return default
@@ -20,6 +22,8 @@ def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum:
         raise ValueError(f'{name}: ожидается число, получено {raw!r}') from exc
     if minimum is not None and value < minimum:
         raise ValueError(f'{name}: значение не может быть меньше {minimum} ({raw})')
+    if maximum is not None and value > maximum:
+        raise ValueError(f'{name}: значение не может быть больше {maximum} ({raw})')
     return value
 
 
@@ -43,7 +47,7 @@ REPORT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_REPORT_RETENTION_DAYS', 30, 
 # Срок хранения записей журнала аудита, дней (A-05 код-ревью main @ b375f58): записи старше удаляются (services/audit_retention.py). 0 — не удалять
 # никогда (по умолчанию: журнал аудита нельзя терять молча, решение о ротации принимает владелец). Это значение по умолчанию: администратор
 # может задать срок в форме «Настройки аудита» — значение из формы (audit_settings.retention_days) важнее переменной окружения.
-AUDIT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_AUDIT_RETENTION_DAYS', 0, int, minimum=0)
+AUDIT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_AUDIT_RETENTION_DAYS', 0, int, minimum=0, maximum=AUDIT_RETENTION_MAX_DAYS)
 
 
 def _database_url() -> str:

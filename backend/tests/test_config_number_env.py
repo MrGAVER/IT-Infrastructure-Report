@@ -96,6 +96,29 @@ def test_report_retention_zero_and_negative_still_mean_never_delete(tmp_path, ra
     assert _values(_import_config(tmp_path, INFRA_REGISTRY_REPORT_RETENTION_DAYS=raw))["REPORT_RETENTION_DAYS"] == int(raw)
 
 
+def test_audit_retention_above_the_documented_maximum_fails_the_start_naming_the_variable(tmp_path):
+    # Раньше верхней границы у переменной не было: 1000000 проходило при импорте, а `now - timedelta(days=…)` в очистке давало OverflowError
+    # и роняло запуск сервера и каждое открытие журнала. README и .env.example обещают «не больше 3650».
+    from app.constants import AUDIT_RETENTION_MAX_DAYS
+
+    env_name, attr = "INFRA_REGISTRY_AUDIT_RETENTION_DAYS", "AUDIT_RETENTION_DAYS"
+    assert _values(_import_config(tmp_path, **{env_name: str(AUDIT_RETENTION_MAX_DAYS)}))[attr] == AUDIT_RETENTION_MAX_DAYS
+    for raw in (str(AUDIT_RETENTION_MAX_DAYS + 1), "1000000"):
+        error = _error_line(_import_config(tmp_path, **{env_name: raw}))
+        assert error.startswith("ValueError") and env_name in error and str(AUDIT_RETENTION_MAX_DAYS) in error, error
+
+
+def test_documented_audit_retention_maximum_matches_the_constant():
+    # Документация и код расходились (README: 3650, код: без границы); тест перечня переменных такого расхождения не видел.
+    from app.constants import AUDIT_RETENTION_MAX_DAYS
+
+    repository = BACKEND_DIR.parent
+    for name in (".env.example", "README.md"):
+        lines = [line for line in (repository / name).read_text(encoding="utf-8").splitlines() if "3650" in line or "наибольший срок" in line]
+        assert lines, f"{name}: нет строки с наибольшим сроком хранения аудита"
+        assert all(str(AUDIT_RETENTION_MAX_DAYS) in line for line in lines), f"{name}: граница в документации не равна AUDIT_RETENTION_MAX_DAYS"
+
+
 class TestNumberEnvHelper:
     """Сам помощник (в процессе теста, без импорта модуля заново)."""
 
@@ -141,3 +164,12 @@ class TestNumberEnvHelper:
         monkeypatch.setenv("INFRA_REGISTRY_TEST_NUMBER", "-1")
         with pytest.raises(ValueError, match="INFRA_REGISTRY_TEST_NUMBER"):
             _optional_number_env("INFRA_REGISTRY_TEST_NUMBER", int)
+
+    def test_value_equal_to_the_maximum_is_accepted_and_above_it_names_the_variable(self, monkeypatch):
+        from app.config import _number_env
+
+        monkeypatch.setenv("INFRA_REGISTRY_TEST_NUMBER", "10")
+        assert _number_env("INFRA_REGISTRY_TEST_NUMBER", 1, int, maximum=10) == 10
+        monkeypatch.setenv("INFRA_REGISTRY_TEST_NUMBER", "11")
+        with pytest.raises(ValueError, match="INFRA_REGISTRY_TEST_NUMBER.*больше 10"):
+            _number_env("INFRA_REGISTRY_TEST_NUMBER", 1, int, maximum=10)

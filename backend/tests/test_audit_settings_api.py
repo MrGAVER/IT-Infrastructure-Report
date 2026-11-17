@@ -173,6 +173,16 @@ class TestCleanupOnOpeningTheLog:
 
         assert _device_entries(db_session) == 3, "проверка роли идёт раньше очистки"
 
+    def test_the_server_starts_and_the_log_opens_when_the_period_overflows(self, client_factory, monkeypatch):
+        """Срок из окружения вне допустимого диапазона не должен ронять ни запуск сервера (lifespan), ни чтение журнала."""
+        from app.services import audit_retention
+
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 10**6)
+
+        client = client_factory()  # вход в lifespan: cleanup_audit_log_on_startup()
+
+        assert client.get(LOG_URL).status_code == 200
+
     def test_the_server_start_runs_a_due_cleanup(self, db_session, client_factory):
         from app import main as app_main
 
