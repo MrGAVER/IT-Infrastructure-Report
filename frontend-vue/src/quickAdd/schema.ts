@@ -41,7 +41,7 @@ export interface QuickField {
   /** Только для type='fk'. Показывает кнопку "+" рядом с select'ом — открывает ВЛОЖЕННУЮ
    * QuickAddModal для fkResource, не закрывая текущую форму (см. QuickAddModal.vue: nested-*).
    * Включено точечно для полей, где отсутствие нужного значения в справочнике реально мешает
-   * заполнить форму прямо сейчас (device-models: тип устройства/производитель; vlans: домен) —
+   * заполнить форму прямо сейчас (device-models: тип устройства/производитель; vlans: домен; buildings: структурная единица) —
    * не для всех fk-полей подряд, чтобы не плодить лишние "+" там, где каталог почти наверняка
    * уже полон на момент открытия формы. Второй уровень вложенности (добавить fk ВНУТРИ этой
    * вложенной формы) сознательно не поддерживается — см. фильтр в QuickAddModal.vue. */
@@ -229,10 +229,22 @@ export const QUICK_ADD_FIELDS: Record<string, QuickField[]> = {
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'description', label: 'Описание', type: 'textarea', required: false },
   ],
+  // nestedQuickAdd у structural_unit_id: нужной единицы может не быть в справочнике в момент добавления здания
+  // из формы устройства — «+» заводит её, не закрывая окно здания. Второй уровень вложенности не возникает:
+  // у structural-units своих fk-полей нет (см. комментарий выше). Окно «Добавить: Здание» само открывается
+  // только из форм (устройство, помещение через «Здание» БЕЗ nestedQuickAdd), поэтому цепочка здание → единица
+  // остаётся одноуровневой.
   buildings: [
     { name: 'name', label: 'Наименование', type: 'text', required: true },
     { name: 'address', label: 'Адрес', type: 'text', required: false },
-    { name: 'structural_unit_id', label: 'Структурная единица', type: 'fk', required: false, fkResource: 'structural-units' },
+    {
+      name: 'structural_unit_id',
+      label: 'Структурная единица',
+      type: 'fk',
+      required: false,
+      fkResource: 'structural-units',
+      nestedQuickAdd: true,
+    },
   ],
   // building_id обязателен на бэкенде (Room.building_id NOT NULL) — без fk-поля здесь
   // сохранение немедленно падало бы 422 у любого, кто добавит помещение через "+".
