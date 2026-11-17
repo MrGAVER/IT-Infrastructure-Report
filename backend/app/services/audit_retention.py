@@ -8,11 +8,13 @@
   блокировки и раздувало журнал БД); за один запуск — не более MAX_BATCHES_PER_RUN пакетов, остаток доберёт следующий запуск;
 * только строки строго старше границы `now - срок`: запись, созданная ровно на границе, и все более новые остаются;
 * не чаще раза в сутки (audit_settings.last_cleanup_at) — для ленивых запусков; сохранение настроек администратором запускает очистку сразу;
-* факт очистки (число строк и граница) пишется в сам журнал отдельной записью (раздел «audit-settings», действие DELETE).
+* перед удалением каждого пакета его строки записываются в файл архива и сбрасываются на диск (services/audit_archive.py, каталог
+  `reports/audit/`): очистка не должна быть способом бесследно стереть журнал. Не удалось сохранить архив — пакет не удаляется,
+  очистка считается неудавшейся (как сбой БД) и повторится при следующем запуске;
+* факт очистки (число строк, граница и имя файла архива) пишется в сам журнал отдельной записью (раздел «audit-settings», действие DELETE).
 
 Отдельного планировщика в приложении нет (как и у services/report_cleanup.py и уборки сессий), поэтому ленивые запуски — при старте сервера
-и
-при открытии журнала (GET /api/v1/audit-log). Если журнал не открывают и сервер не перезапускают, очистка ждёт ближайшего из этих событий.
+и при открытии журнала (GET /api/v1/audit-log). Если журнал не открывают и сервер не перезапускают, очистка ждёт ближайшего из этих событий.
 
 Пример:
     run_scheduled_cleanup(session)                      # ленивый запуск: срок задан и прошли сутки
@@ -25,7 +27,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Sequence
 
 from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -36,6 +39,7 @@ from ..config import AUDIT_RETENTION_DAYS
 from ..constants import AUDIT_RETENTION_MAX_DAYS, AuditAction
 from ..models import AuditLog, AuditSettings
 from .actor_context import Actor
+from .audit_archive import ARCHIVE_COLUMNS, AuditArchive, AuditArchiveError, audit_archive_dir
 from .crud import audit
 from .timeutil import utcnow_naive
 
@@ -45,6 +49,7 @@ SETTINGS_ID = "singleton"
 AUDIT_ENTITY = "audit-settings"  # раздел записей об изменении настроек и об очистке; не 'audit-log' — записи этого раздела audit() не пишет
 BATCH_SIZE = 1000
 MAX_BATCHES_PER_RUN = 100  # 100 000 строк за запуск: страница журнала, открытая на «первой очистке» большого журнала, не зависает надолго
+DELETE_CHUNK = 500  # id в одном DELETE: пакет 1000 строк делится так, чтобы не упереться в предел параметров старых SQLite (999)
 CLEANUP_INTERVAL = timedelta(days=1)
 # Ленивый запуск не принадлежит пользователю, открывшему журнал: запись об очистке подписана «системой», а не его именем.
 SYSTEM_ACTOR = Actor(user_id=None, username="система", ip=None)
@@ -55,6 +60,7 @@ class PurgeResult:
     removed: int
     cutoff: datetime  # записи строго старше этого момента (naive UTC) удалены
     complete: bool  # False — остановились на лимите пакетов за запуск, остаток удалит следующий запуск
+    archive_path: Optional[Path] = None  # файл с копиями удалённых записей; None, если удалять было нечего
 
 
 @dataclass(frozen=True)
@@ -122,6 +128,16 @@ def _has_expired(session: Session, cutoff: datetime) -> bool:
     return bool(session.scalar(select(exists().where(AuditLog.created_at < cutoff))))
 
 
+def _delete_by_ids(session: Session, ids: Sequence[str]) -> int:
+    """Удаляет ровно перечисленные записи (теми же id, что попали в архив), порциями по DELETE_CHUNK. Возвращает число удалённых строк."""
+    deleted = 0
+    for start in range(0, len(ids), DELETE_CHUNK):
+        chunk = ids[start : start + DELETE_CHUNK]
+        statement = delete(AuditLog).where(AuditLog.id.in_(chunk)).execution_options(synchronize_session=False)
+        deleted += session.execute(statement).rowcount or 0
+    return deleted
+
+
 def purge_expired_entries(
     session: Session,
     retention_days: int,
@@ -129,29 +145,34 @@ def purge_expired_entries(
     now: datetime,
     batch_size: Optional[int] = None,
     max_batches: Optional[int] = None,
+    archive_dir: Optional[Path] = None,
 ) -> PurgeResult:
     """Удаляет записи журнала строго старше `now - retention_days` пакетами по batch_size (по умолчанию BATCH_SIZE), старые первыми (индекс
     ix_audit_log_created_at_id).
 
-    Каждый пакет — один DELETE с подзапросом `id IN (SELECT … LIMIT n)` и свой commit: так работает и на SQLite, и на PostgreSQL (DELETE …
-    LIMIT
-    в PostgreSQL нет), число параметров не растёт с размером пакета. Короткий пакет (меньше batch_size) — последний. Возвращает число
-    удалённых строк, границу и признак «дочистили до конца»."""
+    Пакет: читаем строки → записываем их в архив и сбрасываем на диск → удаляем ровно эти id → commit. Каждый пакет — своя короткая
+    транзакция, поэтому и на SQLite, и на PostgreSQL (DELETE … LIMIT там нет) удаление миллионов строк не держит блокировки. Записи,
+    которой нет в архиве, не удаляется никогда: сбой архива — `AuditArchiveError` до удаления пакета, уже удалённые пакеты остаются
+    удалёнными (они сохранены). Короткий пакет (меньше batch_size) — последний. archive_dir — каталог архива (по умолчанию
+    `reports/audit/`). Возвращает число удалённых строк, границу, признак «дочистили до конца» и файл архива."""
     if retention_days <= 0:
         raise ValueError("retention_days должен быть положительным: срок 0 означает «не удалять»")
     batch_size = batch_size or BATCH_SIZE  # размеры читаются при вызове, а не при определении функции: тесты подменяют константы модуля
     max_batches = max_batches or MAX_BATCHES_PER_RUN
     cutoff = now - timedelta(days=retention_days)
-    oldest_batch = select(AuditLog.id).where(AuditLog.created_at < cutoff).order_by(AuditLog.created_at, AuditLog.id).limit(batch_size)
+    expired = select(*ARCHIVE_COLUMNS).where(AuditLog.created_at < cutoff)
+    oldest_batch = expired.order_by(AuditLog.created_at, AuditLog.id).limit(batch_size)
     removed = 0
-    for _ in range(max_batches):
-        delete_batch = delete(AuditLog).where(AuditLog.id.in_(oldest_batch)).execution_options(synchronize_session=False)
-        deleted = session.execute(delete_batch).rowcount or 0
-        session.commit()
-        removed += deleted
-        if deleted < batch_size:
-            return PurgeResult(removed, cutoff, complete=True)
-    return PurgeResult(removed, cutoff, complete=not _has_expired(session, cutoff))
+    with AuditArchive(archive_dir or audit_archive_dir(), now=now) as archive:
+        for _ in range(max_batches):
+            rows = session.execute(oldest_batch).all()
+            if rows:
+                archive.write_batch(rows)
+                removed += _delete_by_ids(session, [row.id for row in rows])
+                session.commit()
+            if len(rows) < batch_size:
+                return PurgeResult(removed, cutoff, complete=True, archive_path=archive.path)
+        return PurgeResult(removed, cutoff, complete=not _has_expired(session, cutoff), archive_path=archive.path)
 
 
 def _days_text(days: int) -> str:
@@ -161,6 +182,8 @@ def _days_text(days: int) -> str:
 def _describe_purge(days: int, result: PurgeResult) -> str:
     head = f"Очистка журнала по сроку хранения ({days} дн.): удалено записей — {result.removed}"
     text = f"{head}, граница — {result.cutoff:%d.%m.%Y %H:%M} UTC (удалены более старые)."
+    if result.archive_path is not None:  # только имя: полный путь раскрывал бы устройство сервера всем, кто читает журнал
+        text += f" Копия удалённых записей сохранена в файле {result.archive_path.name}."
     return text if result.complete else text + " Очистка продолжится при следующем запуске."
 
 
@@ -266,7 +289,8 @@ def update_retention(session: Session, retention_days: Optional[int], *, now: Op
 
     Сохранение — явное действие администратора, поэтому очистка идёт сразу, не дожидаясь суток. Значение, равное сохранённому, ничего не
     меняет: ни записи в журнале, ни очистки. last_cleanup_at сбрасывается: при новом сроке прежняя отметка ничего не значит, а если очистка
-    остановилась на лимите пакетов, ленивый запуск продолжит её без ожидания суток. Ошибка очистки не отменяет сохранённый срок."""
+    остановилась на лимите пакетов, ленивый запуск продолжит её без ожидания суток. Ошибка очистки (БД или архива) не отменяет
+    сохранённый срок."""
     now = now or utcnow_naive()
     row = get_or_create_audit_settings(session)
     if row.retention_days == retention_days:
@@ -279,7 +303,7 @@ def update_retention(session: Session, retention_days: Optional[int], *, now: Op
     session.commit()
     try:
         result = run_cleanup(session, now=now, actor=None)
-    except SQLAlchemyError:
+    except (SQLAlchemyError, AuditArchiveError):
         session.rollback()
         logger.exception("Очистка журнала аудита после смены срока хранения не выполнена")
         return RetentionUpdate(row, removed=0, cleanup_failed=True)
