@@ -5,6 +5,7 @@ import DevicesView from '../DevicesView.vue'
 import { useDevicesStore } from '../../stores/devices'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useVLANsStore } from '../../stores/vlans'
+import { useDeviceStacksStore } from '../../stores/deviceStacks'
 import type { Device } from '../../api/types'
 
 function jsonResponse(body: unknown, status = 200) {
@@ -215,5 +216,68 @@ describe('DevicesView.vue — подпись счётчика строк (UI-09)
     useDevicesStore().search = 'edge'
     await flushPromises()
     expect(footText(wrapper)).toBe('Показано 1–1 из 1')
+  })
+})
+
+describe('DevicesView.vue — стеки в дашборде «Стеки устройств» без перезагрузки страницы', () => {
+  const NEW_STACK = { id: 'stack-new', name: 'Новый стек', description: null }
+
+  /** Сервер, где стек уже создан: список /resources/device-stacks отдаёт его, остальное — пустые ответы. */
+  function stubServerWithNewStack(calls: string[] = []) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push(`${method} ${url}`)
+        if (method === 'POST' && url.endsWith('/resources/device-stacks')) return jsonResponse(NEW_STACK, 201)
+        if (url.includes('/device-stacks/stack-new/detail')) return jsonResponse({ stack: NEW_STACK, members: [], connections: [] })
+        if (url.includes('/resources/device-stacks')) return jsonResponse({ items: [NEW_STACK], total: 1, offset: 0, limit: 1000 })
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+  }
+
+  async function createStackFromRegistry(wrapper: ReturnType<typeof mount>) {
+    await wrapper
+      .findAll('.filter-bar button')
+      .find((b) => b.text() === 'Стек')!
+      .trigger('click')
+    await wrapper.find('.modal input[type="text"]').setValue('Новый стек')
+    await wrapper.find('.modal form').trigger('submit')
+    await flushPromises()
+  }
+
+  it('стек, созданный в «Инвентаризации устройств», попадает в уже загруженный стор «Стеки устройств»', async () => {
+    seed([])
+    // Дашборд «Стеки устройств» уже открывали в этой сессии: стор загружен и пуст, ensureLoaded() его не перечитает.
+    const stacks = useDeviceStacksStore()
+    stacks.all = []
+    stacks.loaded = true
+    stubServerWithNewStack()
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+
+    await createStackFromRegistry(wrapper)
+
+    expect(stacks.all.map((s) => s.id)).toEqual(['stack-new'])
+  })
+
+  it('закрытие окна стека крестиком (после добавления участников) обновляет и устройства, и стеки', async () => {
+    seed([])
+    const stacks = useDeviceStacksStore()
+    stacks.all = []
+    stacks.loaded = true
+    const calls: string[] = []
+    stubServerWithNewStack(calls)
+    const wrapper = mount(DevicesView)
+    await flushPromises()
+    await createStackFromRegistry(wrapper)
+    calls.length = 0
+
+    await wrapper.find('.modal .icon-btn[aria-label="Закрыть"]').trigger('click')
+    await flushPromises()
+
+    expect(calls.some((c) => c.startsWith('GET') && c.includes('/devices'))).toBe(true)
+    expect(calls.some((c) => c.startsWith('GET') && c.includes('/resources/device-stacks'))).toBe(true)
   })
 })

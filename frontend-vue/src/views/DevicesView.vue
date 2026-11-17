@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
+import { useDeviceStacksStore } from '../stores/deviceStacks'
 import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
@@ -21,6 +22,7 @@ import '../styles/list-toolbar.css'
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
 const vlans = useVLANsStore()
+const stacks = useDeviceStacksStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
@@ -137,11 +139,13 @@ function closeStackModal() {
   // по клику, а не только по кнопке "Сохранить" формы — перезагружаем реестр устройств при
   // ЛЮБОМ закрытии модалки (а не только в onStackSaved ниже), иначе принадлежность к стеку и
   // номер позиции в этой таблице могли бы остаться устаревшими, закрой пользователь её крестиком.
-  devices.reload()
+  // Вместе с устройствами перечитываются стеки — иначе дашборд «Стеки устройств», уже открывавшийся в этой сессии,
+  // не показал бы созданный/изменённый стек до перезагрузки страницы (его стор ensureLoaded() повторно не читает).
+  void stacks.reloadWithDevices()
 }
 async function onStackSaved(stack: DeviceStack) {
   const wasCreate = stackModalStack.value === null
-  await devices.reload()
+  await stacks.reloadWithDevices()
   if (wasCreate) {
     // Стек только что создан и пока пуст — сразу переключаем ЭТУ ЖЕ модалку в режим
     // редактирования (watch(() => props.stack, ...) в DeviceStackFormModal.vue отработает сам
