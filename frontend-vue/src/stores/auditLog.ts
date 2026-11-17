@@ -61,32 +61,28 @@ export const useAuditLogStore = defineStore('auditLog', {
      * позднего запроса) отбрасывается. Если страница вышла за конец (журнал сузили фильтром),
      * переходим на последнюю существующую. */
     async load(): Promise<void> {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const res = await fetchAuditLogPage({
-          q: this.search.trim() || undefined,
-          action: this.actionFilter === 'all' ? undefined : this.actionFilter,
-          entity_type: this.entityTypeFilter || undefined,
-          offset: (this.page - 1) * this.pageSize,
-          limit: this.pageSize,
-        })
-        if (!isLatest()) return
-        if (res.items.length === 0 && res.total > 0 && this.page > 1) {
-          this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
-          return this.load()
-        }
-        this.items = res.items
-        this.total = res.total
-        this.summary = res.summary
-        this.entityTypes = res.entity_types
-        this.loaded = true
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить журнал аудита'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: () =>
+          fetchAuditLogPage({
+            q: this.search.trim() || undefined,
+            action: this.actionFilter === 'all' ? undefined : this.actionFilter,
+            entity_type: this.entityTypeFilter || undefined,
+            offset: (this.page - 1) * this.pageSize,
+            limit: this.pageSize,
+          }),
+        apply: (res) => {
+          if (res.items.length === 0 && res.total > 0 && this.page > 1) {
+            this.page = Math.max(1, Math.ceil(res.total / this.pageSize))
+            return this.load()
+          }
+          this.items = res.items
+          this.total = res.total
+          this.summary = res.summary
+          this.entityTypes = res.entity_types
+          this.loaded = true
+        },
+        errorMessage: 'Не удалось загрузить журнал аудита',
+      })
     },
     /** Кнопка «Обновить»: перечитать текущую страницу (в журнале могли появиться новые записи). */
     reload(): Promise<void> {
