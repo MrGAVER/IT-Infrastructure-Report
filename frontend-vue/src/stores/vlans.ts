@@ -7,7 +7,7 @@ import { api } from '../api/client'
 import type { VLANDashboardGroup, VLANDashboardResponse, VLANDefinition } from '../api/types'
 import { createLatestRequest } from '../utils/latestRequest'
 
-// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useVLANsStore = defineStore('vlans', {
@@ -60,19 +60,14 @@ export const useVLANsStore = defineStore('vlans', {
       await this.reload()
     },
     async reload() {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const res = await api.get<VLANDashboardResponse>('/vlan-dashboard')
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        this.groups = res.items
-        this.loaded = true
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить VLAN'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: () => api.get<VLANDashboardResponse>('/vlan-dashboard'),
+        apply: (res) => {
+          this.groups = res.items
+          this.loaded = true
+        },
+        errorMessage: 'Не удалось загрузить VLAN',
+      })
     },
   },
 })
