@@ -130,13 +130,36 @@ describe('AuditSettingsModal.vue', () => {
     expect(api.puts).toEqual([])
   })
 
-  it('значение, равное текущему, не сохраняется (нечего менять)', async () => {
+  it('значение, равное текущему, не сохраняется (нечего менять), и форма говорит об этом', async () => {
     stubAuditSettingsApi({ retention_days: 90, is_default: false })
     const wrapper = await open()
 
     await input(wrapper).setValue('90')
 
     expect(save(wrapper).attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').text()).toBe('Значение совпадает с действующим — сохранять нечего.')
+
+    await input(wrapper).setValue('91')
+
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').exists()).toBe(false)
+  })
+
+  it('значение по умолчанию тоже «равно текущему»: закрепить его явно нельзя, форма объясняет, почему «Сохранить» недоступна', async () => {
+    stubAuditSettingsApi()
+    const wrapper = await open()
+
+    expect(save(wrapper).attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').exists()).toBe(true)
+  })
+
+  it('ошибка в поле заменяет пояснение «совпадает с действующим»: показывается одна причина', async () => {
+    stubAuditSettingsApi({ retention_days: 90, is_default: false })
+    const wrapper = await open()
+
+    await input(wrapper).setValue('-1')
+
+    expect(wrapper.find('[data-testid="audit-settings-field-error"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').exists()).toBe(false)
   })
 
   it('«Сбросить» возвращает значение по умолчанию (null) и доступна, только если срок задан в форме', async () => {

@@ -112,6 +112,7 @@ function submit() {
           в сутки (при запуске сервера и при открытии журнала). Об изменении срока и о каждой очистке остаётся запись в самом журнале.
         </p>
         <p v-if="draftError" class="field-error" role="alert" data-testid="audit-settings-field-error">{{ draftError }}</p>
+        <p v-else-if="unchanged" class="hint" data-testid="audit-settings-unchanged">Значение совпадает с действующим — сохранять нечего.</p>
 
         <dl class="status">
           <dt>Сейчас</dt>
