@@ -42,7 +42,7 @@ function takePendingLayoutSave(): boolean {
 
 export type DiagramSelection = { kind: 'node'; node: DiagramNode } | { kind: 'edge'; edge: DiagramEdge } | null
 
-// B-02: ответ на более ранний load(id) не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний load(id) не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useDiagramStore = defineStore('diagram', {
@@ -60,28 +60,25 @@ export const useDiagramStore = defineStore('diagram', {
   },
   actions: {
     async load(id: string) {
-      const isLatest = latest.begin()
-      // Перемещения предыдущей диаграммы, ещё не ушедшие на сервер (окно debounce), отправляем ДО замены
-      // this.diagram — иначе таймер сработал бы уже по новой диаграмме и последний сдвиг был бы потерян.
-      await this.flushLayoutSave()
-      // Пока сохранялась раскладка, пользователь мог открыть другую схему: этот запрос уже не нужен, а его loading = true
-      // остался бы висеть, если бы более поздняя загрузка успела закончиться раньше.
-      if (!isLatest()) return
-      this.loading = true
-      this.error = null
-      this.selection = null
-      try {
-        const loaded = await getDiagram(id)
-        if (!isLatest()) return // быстрое переключение схем: устаревший ответ не показываем; finally ничего не тронет
-        this.diagram = loaded
-      } catch (e) {
-        if (isLatest()) {
-          this.error = e instanceof Error ? e.message : 'Не удалось загрузить диаграмму'
+      await latest.run(this, {
+        // Перемещения предыдущей диаграммы, ещё не ушедшие на сервер (окно debounce), отправляем ДО замены
+        // this.diagram — иначе таймер сработал бы уже по новой диаграмме и последний сдвиг был бы потерян.
+        // Пока сохранялась раскладка, пользователь мог открыть другую схему: тогда этот запрос не стартует, а его loading = true
+        // не остался бы висеть, если бы более поздняя загрузка успела закончиться раньше.
+        prepare: () => this.flushLayoutSave(),
+        onStart: () => {
+          this.selection = null
+        },
+        fetch: () => getDiagram(id),
+        // Быстрое переключение схем: ответ на более раннюю схему не показываем.
+        apply: (loaded) => {
+          this.diagram = loaded
+        },
+        errorMessage: 'Не удалось загрузить диаграмму',
+        onError: () => {
           this.diagram = null
-        }
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+        },
+      })
     },
 
     async create(payload: CreateDiagramPayload): Promise<SavedDiagramDetail> {
