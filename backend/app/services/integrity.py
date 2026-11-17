@@ -50,15 +50,20 @@ logger = logging.getLogger(__name__)
 
 # Имя уникального индекса слота стойки (миграция b5d2f8a1c673, models.PhysicalDevice.__table_args__).
 RACK_SLOT_INDEX = "uq_device_rack_slot"
+# Ограничения портов подключения (models.Connection). PostgreSQL называет нарушенное ограничение, а SQLite для частичного уникального индекса пишет только колонку
+# («UNIQUE constraint failed: connections.source_interface_id», без имени индекса), поэтому распознаём и то и другое.
+ACTIVE_PORT_INDEXES = ("uq_connections_source_active", "uq_connections_destination_active")
+ACTIVE_PORT_COLUMNS = ("connections.source_interface_id", "connections.destination_interface_id")
+SAME_PORT_CHECK = "ck_connections_distinct_ports"
 
 
 def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPException:
     """409 для нарушения ограничения БД БЕЗ текста исходной ошибки.
 
     Раньше клиенту уходило `str(exc.orig)[:300]` — имена таблиц, колонок и ограничений (код-ревью, п. 8).
-    Теперь детали пишутся только в лог сервера, а клиент получает общий код INTEGRITY_ERROR. Исключение —
-    гонка за слот в стойке: два параллельных запроса прошли проверку «слот свободен», а второй упёрся в
-    уникальный индекс; это ожидаемый исход, и для него есть понятный код RACK_POSITION_OCCUPIED.
+    Теперь детали пишутся только в лог сервера, а клиент получает общий код INTEGRITY_ERROR. Исключения — ожидаемые исходы гонки
+    двух запросов, для которых есть понятные коды: слот в стойке (RACK_POSITION_OCCUPIED) и порт подключения — уже занят другим
+    активным подключением (PORT_ALREADY_CONNECTED) или соединён сам с собой (CONNECTION_SAME_PORT).
 
     Вызывающий сам откатывает сессию; функция только строит исключение (`raise ... from exc`).
     """
@@ -69,6 +74,13 @@ def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPExceptio
         return HTTPException(409, detail={
             "code": ErrorCode.RACK_POSITION_OCCUPIED,
             "message": "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой пользователь). Обновите данные и повторите.",
+        })
+    if SAME_PORT_CHECK in lowered:
+        return HTTPException(409, detail={"code": ErrorCode.CONNECTION_SAME_PORT, "message": "Порт нельзя подключить к самому себе. Выберите другой порт."})
+    if any(name in lowered for name in ACTIVE_PORT_INDEXES) or ("unique constraint failed" in lowered and any(column in lowered for column in ACTIVE_PORT_COLUMNS)):
+        return HTTPException(409, detail={
+            "code": ErrorCode.PORT_ALREADY_CONNECTED,
+            "message": "Порт уже участвует в другом активном подключении (возможно, его только что подключил другой пользователь). Обновите данные и повторите.",
         })
     return HTTPException(409, detail={"code": ErrorCode.INTEGRITY_ERROR, "message": "Нарушение целостности данных: операция противоречит существующим записям."})
 
