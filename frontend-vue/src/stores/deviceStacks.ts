@@ -8,7 +8,7 @@ import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { DeviceStack } from '../api/types'
 import { createLatestRequest } from '../utils/latestRequest'
 
-// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useDeviceStacksStore = defineStore('deviceStacks', {
@@ -28,22 +28,17 @@ export const useDeviceStacksStore = defineStore('deviceStacks', {
       await this.reload()
     },
     async reload() {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const res = await listAllResource<DeviceStack>('device-stacks')
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        this.all = res.items
-        this.total = res.total
-        this.truncated = res.truncated === true
-        this.loaded = true
-        warnIfTruncated(res, 'стеков устройств')
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить стеки устройств'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: () => listAllResource<DeviceStack>('device-stacks'),
+        apply: (res) => {
+          this.all = res.items
+          this.total = res.total
+          this.truncated = res.truncated === true
+          this.loaded = true
+          warnIfTruncated(res, 'стеков устройств')
+        },
+        errorMessage: 'Не удалось загрузить стеки устройств',
+      })
     },
   },
 })
