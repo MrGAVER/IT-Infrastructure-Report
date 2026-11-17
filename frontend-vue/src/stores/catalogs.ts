@@ -97,7 +97,7 @@ export function sortProtocolPortCatalog(items: ProtocolPortCatalogEntry[]): Prot
   return [...items].sort((a, b) => a.port - b.port || a.protocol_type.localeCompare(b.protocol_type, 'ru'))
 }
 
-// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний reload() не должен затереть более поздний или точечное изменение каталога (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useCatalogsStore = defineStore('catalogs', {
@@ -173,10 +173,7 @@ export const useCatalogsStore = defineStore('catalogs', {
       await this.reload()
     },
     async reload() {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
+      await latest.run(this, {
         // listAllResource: справочники (типы устройств, здания и т.п.) должны загружаться целиком.
         // Обычно они небольшие и умещаются в одну страницу (1000 записей), но если записей
         // больше, helper дочитывает остальные страницы — иначе лишние молча пропали бы из списков.
@@ -188,40 +185,39 @@ export const useCatalogsStore = defineStore('catalogs', {
         // Домен VLAN и т.д. сразу), хотя реально не смог загрузиться, например, только один
         // редко нужный каталог. allSettled записывает то, что реально пришло, а не проваленные
         // ключи перечисляет в this.error.
-        const [catalogResults, resources, protocolPorts] = await Promise.all([
-          Promise.allSettled(CATALOGS.map((key) => listAllResource<CatalogItem>(key))),
-          api.get<ResourceDescriptor[]>('/resources'),
-          listAllResource<ProtocolPortCatalogEntry>('protocol-port-catalog'),
-        ])
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        const failedKeys: string[] = []
-        const truncatedLoads: Array<[string, AllPagesResponse<unknown>]> = []
-        CATALOGS.forEach((key, i) => {
-          const result = catalogResults[i]
-          if (result.status === 'fulfilled') {
-            this.items[key] = sortCatalogItems(key, result.value.items)
-            if (result.value.truncated) truncatedLoads.push([key, result.value])
-          } else {
-            failedKeys.push(key)
-          }
-        })
-        if (protocolPorts.truncated) truncatedLoads.push(['protocol-port-catalog', protocolPorts])
-        this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
-        // Состояние усечения — всегда по последней загрузке: после полной перезагрузки признак снимается.
-        this.incompleteCatalogs = Object.fromEntries(truncatedLoads.map(([key, res]) => [key, { loaded: res.items.length, total: res.total }]))
-        for (const [key, res] of truncatedLoads) warnIfTruncated(res, `справочник «${this.resourceNames[key] ?? key}»`)
-        // Фикс п.4.2 (найден при работе над "убрать текстовые поля Порт/Протокол"): раньше
-        // сортировался только результат quick-add (QuickAddModal.vue), а сама начальная загрузка —
-        // нет, из-за чего справочник в SearchableSelect был отсортирован только ПОСЛЕ первого
-        // добавления записи через "+", а до этого — в порядке ответа бэкенда.
-        this.protocolPortCatalog = sortProtocolPortCatalog(protocolPorts.items)
-        this.loaded = true
-        this.error = failedKeys.length ? `Не удалось загрузить справочники: ${failedKeys.join(', ')}` : null
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить справочники'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+        fetch: () =>
+          Promise.all([
+            Promise.allSettled(CATALOGS.map((key) => listAllResource<CatalogItem>(key))),
+            api.get<ResourceDescriptor[]>('/resources'),
+            listAllResource<ProtocolPortCatalogEntry>('protocol-port-catalog'),
+          ]),
+        apply: ([catalogResults, resources, protocolPorts]) => {
+          const failedKeys: string[] = []
+          const truncatedLoads: Array<[string, AllPagesResponse<unknown>]> = []
+          CATALOGS.forEach((key, i) => {
+            const result = catalogResults[i]
+            if (result.status === 'fulfilled') {
+              this.items[key] = sortCatalogItems(key, result.value.items)
+              if (result.value.truncated) truncatedLoads.push([key, result.value])
+            } else {
+              failedKeys.push(key)
+            }
+          })
+          if (protocolPorts.truncated) truncatedLoads.push(['protocol-port-catalog', protocolPorts])
+          this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
+          // Состояние усечения — всегда по последней загрузке: после полной перезагрузки признак снимается.
+          this.incompleteCatalogs = Object.fromEntries(truncatedLoads.map(([key, res]) => [key, { loaded: res.items.length, total: res.total }]))
+          for (const [key, res] of truncatedLoads) warnIfTruncated(res, `справочник «${this.resourceNames[key] ?? key}»`)
+          // Фикс п.4.2 (найден при работе над "убрать текстовые поля Порт/Протокол"): раньше
+          // сортировался только результат quick-add (QuickAddModal.vue), а сама начальная загрузка —
+          // нет, из-за чего справочник в SearchableSelect был отсортирован только ПОСЛЕ первого
+          // добавления записи через "+", а до этого — в порядке ответа бэкенда.
+          this.protocolPortCatalog = sortProtocolPortCatalog(protocolPorts.items)
+          this.loaded = true
+          this.error = failedKeys.length ? `Не удалось загрузить справочники: ${failedKeys.join(', ')}` : null
+        },
+        errorMessage: 'Не удалось загрузить справочники',
+      })
     },
     label(key: CatalogKey, id: string | null | undefined, fallback = '—'): string {
       if (!id) return fallback
