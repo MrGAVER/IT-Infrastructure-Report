@@ -58,6 +58,21 @@ describe('AuditSettingsModal.vue', () => {
     expect(wrapper.find('form').exists()).toBe(false)
   })
 
+  it('подтверждение и подсказка говорят об архиве: записи удаляются из журнала, но их копия остаётся на сервере', async () => {
+    stubAuditSettingsApi({})
+    const wrapper = await open()
+
+    await input(wrapper).setValue('30')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const question = vi.mocked(confirm).mock.calls[0][0] as string
+    expect(question).toContain('reports/audit')
+    expect(question).not.toContain('безвозвратно') // с архивом это неверно: копию удалённых записей сохраняет сервер
+    expect(wrapper.find('.hint').text()).toContain('копия сохраняется')
+    expect(wrapper.find('.hint').text()).not.toContain('безвозвратно')
+  })
+
   it('403 при загрузке: вместо формы текст сервера', async () => {
     stubAuditSettingsApi({}, { loadStatus: 403 })
 
