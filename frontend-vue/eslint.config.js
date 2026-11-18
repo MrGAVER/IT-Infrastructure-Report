@@ -20,6 +20,11 @@ export default defineConfig([
     languageOptions: { parserOptions: { parser: tseslint.parser } },
   },
   {
+    // Служебные node-скрипты (scripts/): не часть приложения, запускаются из CI и командной строки; console — их вывод.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
     files: ['**/*.{ts,vue}'],
     languageOptions: { globals: { ...globals.browser } },
     rules: {

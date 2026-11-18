@@ -252,7 +252,16 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
 ### Аудит зависимостей
 
 `npm ci` (в том числе из `installer/build_windows.bat`) должен заканчиваться строкой `found 0 vulnerabilities`; CI блокирует слияние только по
-runtime-зависимостям (`npm audit --omit=dev --audit-level=high`), но полный `npm audit` держим чистым, чтобы при сборке EXE не было шума.
+runtime-зависимостям (`npm run audit:gate` — `npm audit --omit=dev --audit-level=high` с исключениями, см. ниже), но полный `npm audit` держим
+чистым, когда это возможно, чтобы при сборке EXE не было шума.
+
+**Исключения гейта** (`ALLOWLIST` в `scripts/audit-gate.mjs`). У `npm audit` нет списка исключений, а для свежей уязвимости исправленной версии
+может ещё не быть: тогда шаг CI красный для всех, и `overrides` не помогают (ставят ту же уязвимую версию). Исключение — это id advisory, причина
+и срок (`expires`); после срока оно перестаёт действовать, и гейт падает снова. Исключение действует только на указанный advisory — любая другая
+уязвимость high и выше по-прежнему валит шаг; ошибка самого `npm audit` (нет сети) — тоже падение. Сейчас одно исключение — `picomatch`
+(GHSA-fc5q-39xc-vjpf, ReDoS, исправления в npm нет): библиотека приходит через `vue-router`/`vite` и работает только при сборке, в `dist/` её
+нет. Снять исключение: когда `npm view picomatch version` выше 4.0.7 — обновить lock (`npm update picomatch`), удалить запись из `ALLOWLIST`
+(скрипт сам подскажет «исключение больше не нужно», когда advisory пропадёт из отчёта). Проверка гейта: `npm run audit:gate`.
 Блок `overrides` в `package.json` (`minimatch` `^11.0.8`, `glob` `^14.0.6`) закрывает замечания к dev-инструментам, пока `typescript-eslint`
 и `@vue/test-utils` (через `js-beautify`) сами не перешли на исправленные версии; подробности и условие снятия — в корневом
 [`README.md`](../README.md), раздел «Зависимости backend» → «Цепочка поставок». Не используйте `npm audit fix --force`: он понижает

@@ -37,9 +37,11 @@ jobs:
         run: npm ci
         working-directory: frontend-vue
 
-      - name: npm audit frontend-vue (runtime-зависимости, уровень high и выше) — gate
+      - name: npm audit frontend-vue (runtime-зависимости, уровень high и выше, с исключениями из scripts/audit-gate.mjs) — gate
         # Аналог pip-audit для frontend: известная уязвимость уровня high и выше в зависимости, которая попадает в сборку, блокирует слияние.
-        run: npm audit --omit=dev --audit-level=high
+        # Это тот же `npm audit --omit=dev --audit-level=high`, но с явным списком исключений (id advisory, причина, срок): нужен, когда
+        # исправленной версии ещё нет. Срок вышел или появилась другая уязвимость — шаг падает. Список — ALLOWLIST в scripts/audit-gate.mjs.
+        run: npm run audit:gate
         working-directory: frontend-vue
 
       - name: npm audit frontend-vue (вместе с dev-зависимостями) — не блокирует
