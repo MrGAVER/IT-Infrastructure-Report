@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useVLANsStore } from '../stores/vlans'
+import { useDeviceStacksStore } from '../stores/deviceStacks'
 import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
@@ -15,12 +16,14 @@ import StructuralUnitTree from '../components/StructuralUnitTree.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
 import DeviceTableRow from '../components/DeviceTableRow.vue'
 import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
+import { deviceCountLabel } from '../utils/plural'
 // Общая панель фильтров (поиск, селекты, кнопки действий) — UI-10/UI-11.
 import '../styles/list-toolbar.css'
 
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
 const vlans = useVLANsStore()
+const stacks = useDeviceStacksStore()
 const auth = useAuthStore()
 const { notify, notifyError } = useToast()
 
@@ -60,14 +63,6 @@ function toggleUnit(id: string) {
 function toggleStack(id: string) {
   if (expandedStacks.value.has(id)) expandedStacks.value.delete(id)
   else expandedStacks.value.add(id)
-}
-
-/** Русское склонение "N устройство/устройства/устройств" для счётчика в строке стека. */
-function deviceCountLabel(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  const word = mod10 === 1 && mod100 !== 11 ? 'устройство' : mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14) ? 'устройства' : 'устройств'
-  return `${n} ${word}`
 }
 
 const siemCount = () => devices.all.filter((d) => d.siem_enabled).length
@@ -137,11 +132,13 @@ function closeStackModal() {
   // по клику, а не только по кнопке "Сохранить" формы — перезагружаем реестр устройств при
   // ЛЮБОМ закрытии модалки (а не только в onStackSaved ниже), иначе принадлежность к стеку и
   // номер позиции в этой таблице могли бы остаться устаревшими, закрой пользователь её крестиком.
-  devices.reload()
+  // Вместе с устройствами перечитываются стеки — иначе дашборд «Стеки устройств», уже открывавшийся в этой сессии,
+  // не показал бы созданный/изменённый стек до перезагрузки страницы (его стор ensureLoaded() повторно не читает).
+  void stacks.reloadWithDevices()
 }
 async function onStackSaved(stack: DeviceStack) {
   const wasCreate = stackModalStack.value === null
-  await devices.reload()
+  await stacks.reloadWithDevices()
   if (wasCreate) {
     // Стек только что создан и пока пуст — сразу переключаем ЭТУ ЖЕ модалку в режим
     // редактирования (watch(() => props.stack, ...) в DeviceStackFormModal.vue отработает сам

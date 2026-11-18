@@ -7,6 +7,7 @@ import { listAllResource } from '../api/client'
 import { warnIfTruncated } from '../composables/useTruncationWarning'
 import type { DeviceStack } from '../api/types'
 import { createLatestRequest } from '../utils/latestRequest'
+import { useDevicesStore } from './devices'
 
 // Ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
@@ -39,6 +40,13 @@ export const useDeviceStacksStore = defineStore('deviceStacks', {
         },
         errorMessage: 'Не удалось загрузить стеки устройств',
       })
+    },
+    /** Стек создан, изменён или потерял/получил участников: состав стека читается с устройств (stack_id/stack_position в
+     * реестре устройств), поэтому перечитываются оба списка. Вызывается там, где стеком управляют (окно стека в
+     * «Инвентаризации устройств» и в «Стеках устройств»): ensureLoaded() уже загруженный стор не перечитывает, и без этого
+     * дашборд «Стеки устройств» показывал бы прежние данные до перезагрузки страницы. */
+    async reloadWithDevices() {
+      await Promise.all([this.reload(), useDevicesStore().reload()])
     },
   },
 })

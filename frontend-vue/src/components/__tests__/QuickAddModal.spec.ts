@@ -215,6 +215,50 @@ describe('QuickAddModal.vue', () => {
     expect(domainInput.value).toBe('Филиал-2')
   })
 
+  it('«Добавить: Здание»: у блока «Структурная единица» есть «+», новая единица сразу выбирается в форме здания', async () => {
+    const catalogs = useCatalogsStore()
+    catalogs.items['structural-units'] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'POST' && url.endsWith('/resources/structural-units')) {
+          return jsonResponse({ id: 'su-new', name: 'Филиал «Север»', description: null }, 201)
+        }
+        return jsonResponse({ items: [], total: 0, offset: 0, limit: 1000 })
+      }),
+    )
+
+    mount(QuickAddModal, { props: { resource: 'buildings' } })
+
+    const unitAddButton = body()
+      .findAll('button[aria-label^="Добавить:"]')
+      .find((b) => b.attributes('aria-label') === 'Добавить: Структурная единица')
+    expect(unitAddButton).toBeTruthy()
+    await unitAddButton!.trigger('click')
+
+    // Вложенное окно открывается поверх окна здания, не закрывая его.
+    const overlays = body().findAll('.modal-overlay')
+    expect(overlays).toHaveLength(2)
+    await overlays[1].find('input[type="text"]').setValue('Филиал «Север»')
+    await overlays[1].find('form').trigger('submit')
+    await flushPromises()
+
+    expect(body().findAll('.modal-overlay')).toHaveLength(1)
+    const unitInput = body().find('.searchable-select input').element as HTMLInputElement
+    expect(unitInput.value).toBe('Филиал «Север»')
+    expect(catalogs.items['structural-units']).toEqual([{ id: 'su-new', name: 'Филиал «Север»', description: null }])
+  })
+
+  it('«Добавить: Здание»: «+» есть только у структурной единицы — второго уровня вложенности нет', async () => {
+    mount(QuickAddModal, { props: { resource: 'buildings' } })
+    expect(body().findAll('button[aria-label^="Добавить:"]')).toHaveLength(1)
+
+    await body().find('button[aria-label="Добавить: Структурная единица"]').trigger('click')
+    const nested = body().findAll('.modal-overlay')[1]
+    expect(nested.findAll('button[aria-label^="Добавить:"]')).toHaveLength(0)
+  })
+
   it('п.3: длинное значение в текстовом поле показывает подсказку через секунду наведения', async () => {
     vi.useFakeTimers()
     try {
