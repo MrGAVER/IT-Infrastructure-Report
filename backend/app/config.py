@@ -110,7 +110,7 @@ DB_POOL_OPTIONS = {
 # файла (см. main.py:spa_fallback), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-APP_VERSION = '2.159.0'
+APP_VERSION = '2.160.0'
 
 def _csv_env(name: str, default: str = '') -> list[str]:
     """Список из переменной окружения через запятую: пробелы и пустые элементы отбрасываются."""
