@@ -92,6 +92,16 @@ describe('DeviceTableRow.vue — длинные значения не разду
     expect(wrapper.find('.clip-place').text()).toBe('—')
   })
 
+  it('помещение без здания показывается без «—» перед ним; пустое место и модель — прочерк без подсказки', () => {
+    const roomOnly = mountRow(device({ building_id: null, room_id: 'r-1' }))
+    expect(roomOnly.find('.clip-place').text()).toBe(LONG_ROOM)
+
+    const empty = mountRow(device({ building_id: null, room_id: null, manufacturer_id: null, model_id: null }))
+    expect(empty.find('.clip-place').attributes('title')).toBeUndefined()
+    expect(empty.find('.clip-model').text()).toBe('—')
+    expect(empty.find('.clip-model').attributes('title')).toBeUndefined()
+  })
+
   it('имя и описание получают title с полным текстом; без описания блока описания нет', () => {
     const long = 'очень длинное описание '.repeat(10).trim()
     const withDescription = mountRow(device({ description: long, system_name: 'sw-core-moscow-datacenter-building-3-floor-2-rack-12-unit-40-0' }))

@@ -15,7 +15,8 @@ import { buildStackSummaries, stackSearchTexts, stackStats } from '../utils/stac
 import type { StackSummary } from '../utils/stackSummary'
 import { filterBySearch } from '../utils/textSearch'
 import { deviceCountLabel } from '../utils/plural'
-import type { Device, DeviceStack } from '../api/types'
+import { deviceModelLabel, devicePlaceLabel } from '../utils/deviceLabels'
+import type { DeviceStack } from '../api/types'
 import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
 import DataLoadNotice from '../components/DataLoadNotice.vue'
 import StatCard from '../components/StatCard.vue'
@@ -49,20 +50,9 @@ onMounted(async () => {
   }
 })
 
-function buildingLabel(id: string | null): string {
-  return id ? ((catalogs.indexOf('buildings').get(id)?.name as string | undefined) ?? '') : ''
-}
-function roomLabel(id: string | null): string {
-  return id ? ((catalogs.indexOf('rooms').get(id)?.name as string | undefined) ?? '') : ''
-}
-function modelLabel(d: Device): string {
-  return [catalogs.label('manufacturers', d.manufacturer_id, ''), catalogs.label('device-models', d.model_id, '')].filter(Boolean).join(' · ')
-}
-function placeLabel(d: Device): string {
-  return [buildingLabel(d.building_id), roomLabel(d.room_id)].filter(Boolean).join(' · ')
-}
-
-const summaries = computed(() => buildStackSummaries(stacks.all, devices.all, { model: modelLabel, place: placeLabel }))
+const summaries = computed(() =>
+  buildStackSummaries(stacks.all, devices.all, { model: (d) => deviceModelLabel(catalogs, d), place: (d) => devicePlaceLabel(catalogs, d) }),
+)
 const stats = computed(() => stackStats(summaries.value))
 
 // Поиск — по названию и описанию стека и по тому, что показано о его составе (см. stackSearchTexts); несколько слов сужают выбор.
