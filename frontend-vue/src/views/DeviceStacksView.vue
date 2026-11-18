@@ -11,12 +11,14 @@ import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
 import { usePagedList } from '../composables/usePagedList'
+import { useStackSharedVlans } from '../composables/useStackSharedVlans'
 import { buildStackSummaries, stackSearchTexts, stackStats } from '../utils/stackSummary'
 import type { StackSummary } from '../utils/stackSummary'
 import { filterBySearch } from '../utils/textSearch'
 import { deviceCountLabel } from '../utils/plural'
+import { formatStackValues, stackVlanStatus } from '../utils/stackVlans'
 import { deviceModelLabel, devicePlaceLabel } from '../utils/deviceLabels'
-import type { DeviceStack } from '../api/types'
+import type { DeviceStack, StackVlanRow } from '../api/types'
 import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
 import DataLoadNotice from '../components/DataLoadNotice.vue'
 import StatCard from '../components/StatCard.vue'
@@ -82,6 +84,21 @@ function toggleAll() {
   else for (const id of ids) expanded.value.add(id)
 }
 
+// Общие VLAN стека не входят в реестр устройств, поэтому подгружаются отдельным запросом на стек — только для раскрытых строк
+// текущей страницы (см. composables/useStackSharedVlans.ts). По ним поиск не ведётся: они появляются после раскрытия строки.
+const stackVlans = useStackSharedVlans(() => pageItems.value.filter((s) => expanded.value.has(s.stack.id)).map((s) => s.stack.id))
+function vlanLoadStatus(stackId: string): 'loading' | 'ready' | 'error' {
+  return stackVlans.stateOf(stackId)?.status ?? 'loading'
+}
+function vlanRows(stackId: string): StackVlanRow[] {
+  const state = stackVlans.stateOf(stackId)
+  return state?.status === 'ready' ? state.items : []
+}
+function vlanLoadError(stackId: string): string {
+  const state = stackVlans.stateOf(stackId)
+  return state?.status === 'error' ? state.message : ''
+}
+
 function listText(values: readonly string[]): string {
   return values.join('; ')
 }
@@ -97,12 +114,17 @@ function openEdit(s: DeviceStack) {
   modalStack.value = s
   modalOpen.value = true
 }
+/** Перечитать всё, что показывает экран: стеки и устройства — и общие VLAN раскрытых строк (в окне стека их меняют). */
+function refresh() {
+  stackVlans.invalidate()
+  void stacks.reloadWithDevices()
+}
 function closeModal() {
   modalOpen.value = false
   modalStack.value = null
   // Состав стека меняется прямо в окне (добавить/убрать устройство применяется сразу), а таблица строится из реестра
   // устройств, поэтому при любом закрытии окна — в том числе крестиком — перечитываются и стеки, и устройства.
-  void stacks.reloadWithDevices()
+  refresh()
 }
 function onSaved() {
   const wasEdit = modalStack.value !== null
@@ -152,7 +174,7 @@ async function removeStack(s: DeviceStack) {
       </div>
 
       <div class="filter-actions">
-        <button type="button" class="btn btn-secondary" :disabled="stacks.loading || devices.loading" @click="stacks.reloadWithDevices()">
+        <button type="button" class="btn btn-secondary" :disabled="stacks.loading || devices.loading" @click="refresh">
           <svg class="icon"><use href="/icons.svg#i-refresh" /></svg>
           Обновить
         </button>
@@ -274,6 +296,25 @@ async function removeStack(s: DeviceStack) {
                       </tr>
                     </tbody>
                   </table>
+                  <div class="stack-vlans">
+                    <h4 class="stack-vlans-title">Общие VLAN стека</h4>
+                    <p v-if="vlanLoadStatus(s.stack.id) === 'loading'" class="members-empty">Загрузка общих VLAN…</p>
+                    <p v-else-if="vlanLoadStatus(s.stack.id) === 'error'" class="members-empty vlan-error">
+                      Не удалось загрузить общие VLAN: {{ vlanLoadError(s.stack.id) }}
+                      <button type="button" class="btn btn-secondary" @click="stackVlans.retry(s.stack.id)">Повторить</button>
+                    </p>
+                    <p v-else-if="!vlanRows(s.stack.id).length" class="members-empty">Общие VLAN не заданы — настраиваются в окне стека («Открыть»).</p>
+                    <ul v-else class="stack-vlan-list">
+                      <li v-for="v in vlanRows(s.stack.id)" :key="v.vlan_id" class="stack-vlan-item">
+                        <b class="vlan-id">VLAN {{ v.vlan_number }}</b>
+                        <span v-if="v.vlan_name" class="vlan-name">{{ v.vlan_name }}</span>
+                        <span class="mono vlan-values">{{ formatStackValues(v) }}</span>
+                        <span class="status" :class="stackVlanStatus(v).kind === 'ok' ? 'on' : 'off'">
+                          <span class="status-dot"></span>{{ stackVlanStatus(v).text }}
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
                 </td>
               </tr>
             </template>
@@ -462,6 +503,39 @@ tbody tr:last-child > td {
   padding: 10px 0;
   font-size: 12px;
   color: var(--ink-muted);
+}
+.stack-vlans {
+  margin-top: 10px;
+}
+.stack-vlans-title {
+  margin: 0;
+  padding-top: 4px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+.stack-vlan-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stack-vlan-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 12.5px;
+}
+.vlan-name {
+  color: var(--ink-muted);
+}
+.vlan-error .btn {
+  margin-left: 10px;
 }
 .members-table {
   min-width: 0;
