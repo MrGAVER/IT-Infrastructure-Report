@@ -6,7 +6,7 @@ import { useDeviceStacksStore } from '../../stores/deviceStacks'
 import { useDevicesStore } from '../../stores/devices'
 import { useCatalogsStore } from '../../stores/catalogs'
 import { useAuthStore } from '../../stores/auth'
-import type { Device, DeviceStack } from '../../api/types'
+import type { Device, DeviceStack, StackVlanRow } from '../../api/types'
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status })
@@ -48,7 +48,13 @@ const CORE: DeviceStack = { id: 'stack-1', name: 'Стек ядра', descriptio
 const ACCESS: DeviceStack = { id: 'stack-2', name: 'Стек доступа', description: null }
 
 /** Сервер: список стеков отдаёт server.stacks (его можно менять между запросами), остальное — пустые ответы. */
-function stubServer(server: { stacks: DeviceStack[] }, calls: string[] = []) {
+interface FakeServer {
+  stacks: DeviceStack[]
+  /** Общие VLAN по id стека; 'error' — сервер отвечает ошибкой. Нет записи — у стека нет общих VLAN. */
+  vlans?: Record<string, StackVlanRow[] | 'error'>
+}
+
+function stubServer(server: FakeServer, calls: string[] = []) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -56,6 +62,12 @@ function stubServer(server: { stacks: DeviceStack[] }, calls: string[] = []) {
       calls.push(`${method} ${url}`)
       if (method === 'GET' && url.includes('/resources/device-stacks')) {
         return jsonResponse({ items: server.stacks, total: server.stacks.length, offset: 0, limit: 1000 })
+      }
+      const vlansMatch = method === 'GET' ? url.match(/\/device-stacks\/([^/]+)\/vlans/) : null
+      if (vlansMatch) {
+        const rows = server.vlans?.[vlansMatch[1]] ?? []
+        if (rows === 'error') return jsonResponse({ detail: 'Сбой сервера' }, 500)
+        return jsonResponse({ stack_id: vlansMatch[1], member_count: 2, items: rows, available: [] })
       }
       if (url.includes('/device-stacks/') && url.endsWith('/detail')) {
         return jsonResponse({ stack: server.stacks[0], members: [], connections: [] })
@@ -78,6 +90,23 @@ function seedDevices(devices: Device[]) {
   catalogs.items['rooms'] = [{ id: 'r-1', name: 'Серверная' }] as never
   catalogs.loaded = true
 }
+
+const sharedVlan = (overrides: Partial<StackVlanRow> = {}): StackVlanRow => ({
+  vlan_id: 'v-10',
+  vlan_number: 10,
+  vlan_name: 'Servers',
+  domain_id: null,
+  is_shared: true,
+  ip_address: '10.0.10.1',
+  prefix_length: 24,
+  is_management: true,
+  is_uniform: true,
+  assigned_count: 2,
+  member_count: 2,
+  members: [],
+  ...overrides,
+})
+const vlanCalls = (calls: string[]) => calls.filter((c) => c.startsWith('GET') && /\/device-stacks\/[^/]+\/vlans/.test(c))
 
 const coreMembers = () => [
   device({
@@ -110,8 +139,8 @@ const coreMembers = () => [
   }),
 ]
 
-async function mountView(stacks: DeviceStack[], devices: Device[] = [], calls: string[] = []) {
-  const server = { stacks }
+async function mountView(stacks: DeviceStack[], devices: Device[] = [], calls: string[] = [], vlans: FakeServer['vlans'] = {}) {
+  const server: FakeServer = { stacks, vlans }
   stubServer(server, calls)
   seedDevices(devices)
   const wrapper = mount(DeviceStacksView)
@@ -311,6 +340,118 @@ describe('DeviceStacksView.vue', () => {
 
       expect(calls.some((c) => c.startsWith('GET') && c.includes('/resources/device-stacks'))).toBe(true)
       expect(calls.some((c) => c.startsWith('GET') && c.includes('/devices'))).toBe(true)
+    })
+  })
+
+  describe('общие VLAN стека (подгружаются при раскрытии строки)', () => {
+    it('до раскрытия строки запросов общих VLAN нет; при раскрытии показываются VLAN, адрес и состояние применения', async () => {
+      const calls: string[] = []
+      const { wrapper } = await mountView([CORE], coreMembers(), calls, { 'stack-1': [sharedVlan()] })
+      expect(vlanCalls(calls)).toEqual([])
+
+      await wrapper.find('.stack-toggle').trigger('click')
+      await flushPromises()
+
+      expect(vlanCalls(calls)).toHaveLength(1)
+      const block = wrapper.find('.stack-vlans').text()
+      expect(block).toContain('VLAN 10')
+      expect(block).toContain('Servers')
+      expect(block).toContain('10.0.10.1/24, «Управление»')
+      expect(block).toContain('Применено ко всем (2)')
+    })
+
+    it('настройка применена не ко всем участникам — состояние-предупреждение с числами', async () => {
+      const { wrapper } = await mountView([CORE], coreMembers(), [], {
+        'stack-1': [sharedVlan({ is_uniform: false, assigned_count: 1, is_management: false })],
+      })
+
+      await wrapper.find('.stack-toggle').trigger('click')
+      await flushPromises()
+
+      const status = wrapper.find('.stack-vlan-item .status')
+      expect(status.text()).toBe('VLAN назначен не у всех: 1 из 2')
+      expect(status.classes()).toContain('off')
+    })
+
+    it('свернул и раскрыл снова — повторного запроса нет', async () => {
+      const calls: string[] = []
+      const { wrapper } = await mountView([CORE], coreMembers(), calls, { 'stack-1': [sharedVlan()] })
+
+      await wrapper.find('.stack-toggle').trigger('click')
+      await flushPromises()
+      await wrapper.find('.stack-toggle').trigger('click')
+      await wrapper.find('.stack-toggle').trigger('click')
+      await flushPromises()
+
+      expect(vlanCalls(calls)).toHaveLength(1)
+      expect(wrapper.find('.stack-vlans').text()).toContain('VLAN 10')
+    })
+
+    it('у стека нет общих VLAN — подсказка, где их настроить', async () => {
+      const { wrapper } = await mountView([CORE], coreMembers())
+
+      await wrapper.find('.stack-toggle').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.stack-vlans').text()).toContain('Общие VLAN не заданы')
+    })
+
+    it('ошибка загрузки показывается в блоке, а «Повторить» запрашивает данные снова', async () => {
+      const server = { 'stack-1': 'error' as const }
+      const calls: string[] = []
+      const { wrapper } = await mountView([CORE], coreMembers(), calls, server)
+      await wrapper.find('.stack-toggle').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.stack-vlans').text()).toContain('Не удалось загрузить общие VLAN')
+
+      // сервер «починился»: тот же объект, который читает заглушка
+      ;(server as Record<string, unknown>)['stack-1'] = [sharedVlan()]
+      await wrapper.find('.stack-vlans .btn').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.stack-vlans').text()).toContain('VLAN 10')
+      expect(vlanCalls(calls)).toHaveLength(2)
+    })
+
+    it('«Развернуть все» запрашивает общие VLAN только стеков текущей страницы', async () => {
+      const many = Array.from({ length: 12 }, (_, i): DeviceStack => ({ id: `s-${i + 1}`, name: `Стек ${i + 1}`, description: null }))
+      const calls: string[] = []
+      const { wrapper } = await mountView(many, [], calls)
+
+      await wrapper
+        .findAll('.filter-actions button')
+        .find((b) => b.text() === 'Развернуть все')!
+        .trigger('click')
+      await flushPromises()
+      expect(vlanCalls(calls)).toHaveLength(10)
+
+      // на вторую страницу — раскрытые там строки догружаются
+      await wrapper.find('.pager button[aria-label="Страница 2"]').trigger('click')
+      await flushPromises()
+      expect(vlanCalls(calls)).toHaveLength(12)
+    })
+
+    it('«Обновить» и закрытие окна стека сбрасывают кэш — общие VLAN раскрытых строк запрашиваются заново', async () => {
+      const calls: string[] = []
+      const { wrapper } = await mountView([CORE], coreMembers(), calls, { 'stack-1': [sharedVlan()] })
+      await wrapper.find('.stack-toggle').trigger('click')
+      await flushPromises()
+      expect(vlanCalls(calls)).toHaveLength(1)
+
+      await wrapper
+        .findAll('.filter-actions button')
+        .find((b) => b.text() === 'Обновить')!
+        .trigger('click')
+      await flushPromises()
+      expect(vlanCalls(calls)).toHaveLength(2)
+
+      await wrapper.find('.stack-row .btn-secondary').trigger('click')
+      await flushPromises()
+      // Редактор общих VLAN в самом окне стека тоже читает /vlans — к проверке это не относится: считаем запросы после закрытия.
+      calls.length = 0
+      await wrapper.find('.modal .icon-btn[aria-label="Закрыть"]').trigger('click')
+      await flushPromises()
+      expect(vlanCalls(calls)).toHaveLength(1)
     })
   })
 

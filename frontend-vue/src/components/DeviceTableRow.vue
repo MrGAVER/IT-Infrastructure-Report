@@ -5,6 +5,7 @@
 // вместо обычного индекса) — и оба используют ОДНУ И ТУ ЖЕ разметку столбцов, поэтому вынесена
 // в отдельный компонент вместо дублирования полутора десятков <td> в двух местах DevicesView.vue.
 import { useCatalogsStore } from '../stores/catalogs'
+import { deviceModelLabel, devicePlaceLabel } from '../utils/deviceLabels'
 import type { Device } from '../api/types'
 import YesNoStatus from './YesNoStatus.vue'
 
@@ -24,21 +25,13 @@ defineEmits<{ edit: [d: Device]; copy: [d: Device]; remove: [d: Device] }>()
 
 const catalogs = useCatalogsStore()
 
-function buildingLabel(id: string | null) {
-  if (!id) return '—'
-  return (catalogs.indexOf('buildings').get(id)?.name as string) ?? '—'
-}
-function roomLabel(id: string | null) {
-  if (!id) return ''
-  return (catalogs.indexOf('rooms').get(id)?.name as string) ?? ''
-}
 /** «Здание · помещение»: названия бывают в 100+ символов и раздували высоту строки, поэтому ячейка однострочная с многоточием,
- * а полный текст — в подсказке (title). */
+ * а полный текст — в подсказке (title). Пустое значение в таблице показывается прочерком, а подсказки у него нет. */
 function placeLabel(d: Device): string {
-  return [buildingLabel(d.building_id), roomLabel(d.room_id)].filter(Boolean).join(' · ')
+  return devicePlaceLabel(catalogs, d)
 }
 function modelLabel(d: Device): string {
-  return [catalogs.label('manufacturers', d.manufacturer_id, ''), catalogs.label('device-models', d.model_id, '')].filter(Boolean).join(' · ') || '—'
+  return deviceModelLabel(catalogs, d)
 }
 </script>
 
@@ -55,12 +48,12 @@ function modelLabel(d: Device): string {
       <span class="clip" :title="device.serial_number">{{ device.serial_number }}</span>
     </td>
     <td>
-      <span class="clip clip-model" :title="modelLabel(device)">{{ modelLabel(device) }}</span>
+      <span class="clip clip-model" :title="modelLabel(device) || undefined">{{ modelLabel(device) || '—' }}</span>
     </td>
     <td>{{ device.embedded_os_name || catalogs.label('operating-systems', device.operating_system_id) }}</td>
     <td class="mono">{{ device.management_ips || '—' }}</td>
     <td>
-      <span class="clip clip-place" :title="placeLabel(device) || undefined">{{ placeLabel(device) }}</span>
+      <span class="clip clip-place" :title="placeLabel(device) || undefined">{{ placeLabel(device) || '—' }}</span>
     </td>
     <td>
       <YesNoStatus :value="device.siem_enabled" />
