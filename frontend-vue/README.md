@@ -394,13 +394,19 @@ npx playwright show-report          # HTML-отчёт после прогона 
   `api/assertComplete.ts` превращает усечение в `IncompleteDataError` (`loadAllComplete` один раз перечитывает список, если запись
   удалили во время загрузки), `composables/loadNestedList.ts` — состояние загрузки вложенного списка, `components/DataLoadNotice.vue` —
   сообщение «загружено n из N» с кнопкой «Повторить загрузку».
-- **Перекрывающиеся запросы: побеждает последний** (B-02). Два `reload()` подряд (после сохранения формы и по событию обновления) могли
+- **Перекрывающиеся запросы: побеждает последний.** Два `reload()` подряд (после сохранения формы и по событию обновления) могли
   закончиться в обратном порядке: ответ на первый запрос приходил позже и затирал свежий список, а `loading` сбрасывался по окончании
-  первого. `utils/latestRequest.ts` (`createLatestRequest().begin()` возвращает функцию «я всё ещё последний?») применён во всех сторах,
-  которые загружают списки (`catalogs`, `connections`, `containers`, `deviceStacks`, `devices`, `informationSystems`, `reportTemplates`,
-  `vlanDomains`, `vlans`, `vms`, `auditLog`, `connectionsDashboard`, `portSyncRules`) и в `diagram.load(id)` (быстрое переключение схем
-  показывало не ту схему). Новый стор с асинхронной загрузкой списка заводит свой экземпляр на уровне модуля и проверяет `isLatest()` и
-  перед записью результата, и в `finally` перед сбросом `loading`.
+  первого. Вся загрузка списка идёт через `utils/latestRequest.ts`: `latest.run(this, { fetch, apply, errorMessage })` ведёт `loading` и
+  `error` стора и отбрасывает ответ, ошибку и `finally` запроса, который успел вытеснить более поздний. Так загружают данные все сторы
+  (`catalogs`, `connections`, `containers`, `deviceStacks`, `devices`, `informationSystems`, `reportTemplates`, `vlanDomains`, `vlans`,
+  `vms`, `auditLog`, `connectionsDashboard`, `portSyncRules`, `auditSettings`) и `diagram.load(id)` (быстрое переключение схем показывало
+  не ту схему; сохранение отложенной раскладки до замены схемы — параметр `prepare`). Новый стор с асинхронной загрузкой заводит свой
+  экземпляр `createLatestRequest()` на уровне модуля и загружает только через `run()`: собственных `begin()` / `isLatest()` в сторах нет.
+  Есть и обратное направление той же гонки. Когда стор сам применяет подтверждённое сервером изменение к уже показанным данным
+  (`portSyncRules.upsert` / `remove` / `move`, `catalogs.addCatalogItem` / `replaceInterface` / `replaceDeviceInterfaces` / `addDiagramIcon`,
+  `auditSettings.save`), перед этим вызывается `latest.invalidate(this)`: загрузка, начатая до изменения, принесла бы снимок без него и
+  откатила бы изменение (выключенное правило снова включено, новая запись справочника пропала). `invalidate` сбрасывает `loading` и
+  возвращает `true`, если загрузка шла, — тогда стор запускает её заново, чтобы остальные данные не остались устаревшими.
 - **Скачивание файлов.** `api/saveBlob.ts` — единый «сохранить blob» (ссылка освобождается через 30 с); ошибки скачивания разбирает общий
   `apiErrorFromResponse`; имя файла берётся из `filename*` заголовка `Content-Disposition` (`filenameFromDisposition` в `api/diagrams.ts`).
 - **Трассировка рёбер диаграммы** (F-07, B-08): `utils/diagramEdgeRouting.ts` — сетка и поиск пути A* (куча — `utils/minHeap.ts`),

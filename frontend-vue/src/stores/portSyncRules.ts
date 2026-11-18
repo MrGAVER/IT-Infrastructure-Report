@@ -12,7 +12,7 @@ function byPriority(rules: PortSyncRule[]): PortSyncRule[] {
   return [...rules].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))
 }
 
-// B-02: ответ на более ранний запрос не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний запрос не должен затереть более поздний или подтверждённое изменение (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const usePortSyncRulesStore = defineStore('portSyncRules', {
@@ -31,24 +31,27 @@ export const usePortSyncRulesStore = defineStore('portSyncRules', {
   },
   actions: {
     async load(): Promise<void> {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        const res = await fetchPortSyncRules()
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        this.rules = byPriority(res.items)
-        this.loaded = true
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить правила'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: fetchPortSyncRules,
+        apply: (res) => {
+          this.rules = byPriority(res.items)
+          this.loaded = true
+        },
+        errorMessage: 'Не удалось загрузить правила',
+      })
+    },
+    /** Принимает список, подтверждённый сервером (ответ на изменение). Загрузка, начатая до изменения, принесла бы снимок без него и
+     * откатила бы его (включённое правило снова выключено, удалённое вернулось): её ответ отбрасывается, а чтобы остальные данные
+     * не остались устаревшими, загрузка запускается заново. */
+    applyConfirmed(rules: PortSyncRule[]): void {
+      const wasLoading = latest.invalidate(this)
+      this.rules = byPriority(rules)
+      if (wasLoading) void this.load()
     },
     /** Заменяет правило ответом сервера (или добавляет новое) и сохраняет порядок проверки. */
     upsert(rule: PortSyncRule): PortSyncRule {
       const exists = this.rules.some((r) => r.id === rule.id)
-      this.rules = byPriority(exists ? this.rules.map((r) => (r.id === rule.id ? rule : r)) : [...this.rules, rule])
+      this.applyConfirmed(exists ? this.rules.map((r) => (r.id === rule.id ? rule : r)) : [...this.rules, rule])
       return rule
     },
     async create(input: Partial<PortSyncRuleInput>): Promise<PortSyncRule> {
@@ -67,14 +70,14 @@ export const usePortSyncRulesStore = defineStore('portSyncRules', {
     },
     async remove(id: string): Promise<void> {
       await deletePortSyncRule(id)
-      this.rules = this.rules.filter((r) => r.id !== id)
+      this.applyConfirmed(this.rules.filter((r) => r.id !== id))
     },
     /** Сдвигает правило на одну позицию в порядке проверки; сервер перенумеровывает приоритеты. */
     async move(id: string, delta: -1 | 1): Promise<void> {
       const ids = this.rules.map((r) => r.id)
       const next = movedOrder(ids, id, delta)
       if (next.every((value, index) => value === ids[index])) return
-      this.rules = byPriority((await reorderPortSyncRules(next)).items)
+      this.applyConfirmed((await reorderPortSyncRules(next)).items)
     },
   },
 })

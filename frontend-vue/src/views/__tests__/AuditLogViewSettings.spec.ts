@@ -1,5 +1,5 @@
-// A-05 (код-ревью main @ b375f58): кнопка «Настройки аудита» на экране «Журнал аудита» — права, перечитывание журнала после сохранения и подпись раздела
-// записей об изменении настроек и об очистке. Сама форма проверена в components/__tests__/AuditSettingsModal.spec.ts.
+// Кнопка «Настройки аудита» на экране «Журнал аудита»: права, перечитывание журнала после сохранения и подпись раздела записей
+// об изменении настроек и об очистке. Сама форма проверена в components/__tests__/AuditSettingsModal.spec.ts.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
