@@ -31,7 +31,6 @@ import { useCatalogsStore } from '../../stores/catalogs'
 import { useDevicesStore } from '../../stores/devices'
 import { useVMsStore } from '../../stores/vms'
 import { useContainersStore } from '../../stores/containers'
-import { useDeviceStacksStore } from '../../stores/deviceStacks'
 import { useVLANsStore } from '../../stores/vlans'
 import { useVLANDomainsStore } from '../../stores/vlanDomains'
 import { useDiagramStore } from '../../stores/diagram'
@@ -303,14 +302,16 @@ const SCREENS: Screen[] = [
   {
     name: 'DeviceStacksView (стеки)',
     async mount() {
-      const store = useDeviceStacksStore()
-      store.all = [stack()]
-      store.loaded = true
+      // Экран перечитывает стеки при открытии — список должен прийти с «сервера», а не из заранее заполненного стора.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => json(url.includes('/resources/device-stacks') ? { items: [stack()], total: 1, offset: 0, limit: 1000 } : emptyPage)),
+      )
       const wrapper = mount(DeviceStacksView)
       await flushPromises()
       return wrapper
     },
-    write: ['text:Стек', '[aria-label="Удалить стек"]'],
+    write: ['text:Добавить стек', '[aria-label="Удалить стек"]'],
     read: ['text:Открыть'],
   },
   {

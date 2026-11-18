@@ -19,9 +19,7 @@ export function searchTokens(query: string): string[] {
  */
 export function matchesSearchTokens(tokens: readonly string[], texts: readonly (string | null | undefined)[]): boolean {
   if (!tokens.length) return true
-  const haystack = texts
-    .filter((t): t is string => typeof t === 'string' && t !== '')
-    .map(normalizeSearchText)
+  const haystack = texts.filter((t): t is string => typeof t === 'string' && t !== '').map(normalizeSearchText)
   return tokens.every((token) => haystack.some((text) => text.includes(token)))
 }
 

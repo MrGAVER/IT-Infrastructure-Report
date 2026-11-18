@@ -92,7 +92,6 @@ const records = computed<Record<string, unknown>[]>(() => {
   return (catalogs.items[selected.value as keyof typeof catalogs.items] ?? []) as unknown as Record<string, unknown>[]
 })
 
-
 function recordCount(key: OtherCatalogKey): number {
   if (key === 'protocol-port-catalog') return catalogs.protocolPortCatalog.length
   return (catalogs.items[key as keyof typeof catalogs.items] ?? []).length
