@@ -13,7 +13,7 @@ import { createLatestRequest } from '../utils/latestRequest'
 
 const LIST_ID = 'informationSystems'
 
-// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useInformationSystemsStore = defineStore('informationSystems', {
@@ -61,20 +61,15 @@ export const useInformationSystemsStore = defineStore('informationSystems', {
       await this.reload()
     },
     async reload() {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
-        // backend сортирует по строке («ИС 10» раньше «ИС 2»): порядок приводится к естественному один раз при записи (UI-13).
-        const list = await api.get<InformationSystem[]>('/information-systems')
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        this.all = sortNaturally(list, (s) => s.name)
-        this.loaded = true
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить информационные системы'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+      await latest.run(this, {
+        fetch: () => api.get<InformationSystem[]>('/information-systems'),
+        apply: (list) => {
+          // backend сортирует по строке («ИС 10» раньше «ИС 2»): порядок приводится к естественному один раз при записи (UI-13).
+          this.all = sortNaturally(list, (s) => s.name)
+          this.loaded = true
+        },
+        errorMessage: 'Не удалось загрузить информационные системы',
+      })
     },
     /** Помечает загруженный список устаревшим: при следующем открытии экрана ИС он загрузится заново. Нужен, когда
      * данные, от которых зависит строка ИС, правятся на другом экране: столбец «IP-адреса» берёт адреса связанных ВМ

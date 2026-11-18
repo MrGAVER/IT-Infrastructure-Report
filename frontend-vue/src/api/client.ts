@@ -407,6 +407,10 @@ export const ErrorCode = {
   /** 429: слишком много неудачных попыток входа; заголовок Retry-After → ApiError.retryAfter. */
   TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
   INTEGRITY_ERROR: 'INTEGRITY_ERROR',
+  /** 409: порт уже участвует в другом активном подключении (в том числе его только что подключил другой пользователь). */
+  PORT_ALREADY_CONNECTED: 'PORT_ALREADY_CONNECTED',
+  /** 409: порт нельзя соединить с самим собой. */
+  CONNECTION_SAME_PORT: 'CONNECTION_SAME_PORT',
   /** 403: запрос, меняющий данные, пришёл со страницы другого origin (защита от CSRF); повтор не поможет — см. INFRA_REGISTRY_CORS_ORIGINS. */
   CROSS_ORIGIN_BLOCKED: 'CROSS_ORIGIN_BLOCKED',
   /** 413: тело запроса больше INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES (по умолчанию 2 МБ); message сервера называет предел. Повтор того же запроса не поможет. */

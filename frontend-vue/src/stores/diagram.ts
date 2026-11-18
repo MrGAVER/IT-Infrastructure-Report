@@ -42,7 +42,7 @@ function takePendingLayoutSave(): boolean {
 
 export type DiagramSelection = { kind: 'node'; node: DiagramNode } | { kind: 'edge'; edge: DiagramEdge } | null
 
-// B-02: ответ на более ранний load(id) не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний load(id) не должен затереть более поздний (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useDiagramStore = defineStore('diagram', {
@@ -60,28 +60,25 @@ export const useDiagramStore = defineStore('diagram', {
   },
   actions: {
     async load(id: string) {
-      const isLatest = latest.begin()
-      // Перемещения предыдущей диаграммы, ещё не ушедшие на сервер (окно debounce), отправляем ДО замены
-      // this.diagram — иначе таймер сработал бы уже по новой диаграмме и последний сдвиг был бы потерян.
-      await this.flushLayoutSave()
-      // Пока сохранялась раскладка, пользователь мог открыть другую схему: этот запрос уже не нужен, а его loading = true
-      // остался бы висеть, если бы более поздняя загрузка успела закончиться раньше.
-      if (!isLatest()) return
-      this.loading = true
-      this.error = null
-      this.selection = null
-      try {
-        const loaded = await getDiagram(id)
-        if (!isLatest()) return // быстрое переключение схем: устаревший ответ не показываем; finally ничего не тронет
-        this.diagram = loaded
-      } catch (e) {
-        if (isLatest()) {
-          this.error = e instanceof Error ? e.message : 'Не удалось загрузить диаграмму'
+      await latest.run(this, {
+        // Перемещения предыдущей диаграммы, ещё не ушедшие на сервер (окно debounce), отправляем ДО замены
+        // this.diagram — иначе таймер сработал бы уже по новой диаграмме и последний сдвиг был бы потерян.
+        // Пока сохранялась раскладка, пользователь мог открыть другую схему: тогда этот запрос не стартует, а его loading = true
+        // не остался бы висеть, если бы более поздняя загрузка успела закончиться раньше.
+        prepare: () => this.flushLayoutSave(),
+        onStart: () => {
+          this.selection = null
+        },
+        fetch: () => getDiagram(id),
+        // Быстрое переключение схем: ответ на более раннюю схему не показываем.
+        apply: (loaded) => {
+          this.diagram = loaded
+        },
+        errorMessage: 'Не удалось загрузить диаграмму',
+        onError: () => {
           this.diagram = null
-        }
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+        },
+      })
     },
 
     async create(payload: CreateDiagramPayload): Promise<SavedDiagramDetail> {
@@ -98,8 +95,10 @@ export const useDiagramStore = defineStore('diagram', {
      * старое имя без объяснения. */
     async rename(name: string) {
       if (!this.diagram) return
-      const updated = await apiRenameDiagram(this.diagram.id, name)
-      this.diagram.name = updated.name
+      const id = this.diagram.id
+      const updated = await apiRenameDiagram(id, name)
+      // Пока шёл запрос, могла открыться другая схема: её имя ответ сервера менять не должен.
+      if (this.diagram?.id === id) this.diagram.name = updated.name
     },
 
     selectNode(node: DiagramNode) {
@@ -173,18 +172,24 @@ export const useDiagramStore = defineStore('diagram', {
 
     async regenerate() {
       if (!this.diagram) return
+      const id = this.diagram.id
       // Пересборка заменяет this.diagram данными сервера: несохранённый сдвиг узла иначе затёрся бы.
       await this.flushLayoutSave()
+      // Пока сохранялась раскладка и шёл запрос, пользователь мог открыть другую схему (или закрыть эту): результат пересборки
+      // схемы `id` к чужой схеме не относится — не подменяем её, не показываем чужую ошибку и не гасим loading чужой загрузки.
+      const stillOpen = () => this.diagram?.id === id
+      if (!stillOpen()) return
       this.loading = true
       try {
-        const refreshed = await apiRegenerateDiagram(this.diagram.id)
+        const refreshed = await apiRegenerateDiagram(id)
+        if (!stillOpen()) return
         // regenerate() не возвращает viewport (см. backend/app/api/diagrams.py) — сохраняем
         // текущий, чтобы пересборка графа не сбрасывала масштаб/панораму канваса.
-        this.diagram = { ...refreshed, viewport: this.diagram.viewport }
+        this.diagram = { ...refreshed, viewport: this.diagram!.viewport }
       } catch (e) {
-        this.error = e instanceof Error ? e.message : 'Не удалось пересобрать диаграмму'
+        if (stillOpen()) this.error = e instanceof Error ? e.message : 'Не удалось пересобрать диаграмму'
       } finally {
-        this.loading = false
+        if (stillOpen()) this.loading = false
       }
     },
 
@@ -198,26 +203,30 @@ export const useDiagramStore = defineStore('diagram', {
       if (!this.diagram) return
       // Диаграмма удаляется — сохранять её раскладку незачем (сервер ответил бы 404). Если удалить не удалось,
       // диаграмма остаётся открытой, и сдвиги нужно вернуть в очередь.
+      const id = this.diagram.id
       const hadPendingSave = takePendingLayoutSave()
       try {
-        await apiDeleteDiagram(this.diagram.id)
+        await apiDeleteDiagram(id)
       } catch (e) {
         if (hadPendingSave) this.scheduleLayoutSave()
         throw e
       }
-      this.diagram = null
+      // Удалена схема `id`; если за время запроса открыли другую, её закрывать нельзя.
+      if (this.diagram?.id === id) this.diagram = null
     },
 
     async exportAs(format: DiagramExportFormat) {
       if (!this.diagram) return
+      const id = this.diagram.id
       this.exporting = format
       try {
-        const { blob, filename } = await apiExportDiagram(this.diagram.id, format)
+        const { blob, filename } = await apiExportDiagram(id, format)
         saveBlob(blob, filename)
         // Сервер уже сохранил last_export_format (см. backend/app/api/diagrams.py) — отражаем
         // это в локальном состоянии сразу, без перезапроса всей диаграммы, чтобы сплит-кнопка
         // экспорта (DiagramExportPanel.vue) сменила основной формат немедленно.
-        this.diagram.last_export_format = format
+        // Файл скачан в любом случае, но «последний формат» относится к схеме `id`, а не к той, что открыта сейчас.
+        if (this.diagram?.id === id) this.diagram.last_export_format = format
       } finally {
         this.exporting = null
       }

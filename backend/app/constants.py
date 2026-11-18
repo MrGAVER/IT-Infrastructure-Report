@@ -14,6 +14,8 @@ class ErrorCode:
 
     DUPLICATE_SYSTEM_NAME = "DUPLICATE_SYSTEM_NAME"
     RACK_POSITION_OCCUPIED = "RACK_POSITION_OCCUPIED"
+    PORT_ALREADY_CONNECTED = "PORT_ALREADY_CONNECTED"
+    CONNECTION_SAME_PORT = "CONNECTION_SAME_PORT"
     REFERENCED_BY_OTHER_RECORDS = "REFERENCED_BY_OTHER_RECORDS"
     DUPLICATE_USERNAME = "DUPLICATE_USERNAME"
     WEAK_PASSWORD = "WEAK_PASSWORD"  # nosec B105 # код ошибки API, не пароль
@@ -87,3 +89,8 @@ class OwnerType:
     # напрямую информационная система (у одной ИС может быть несколько source-строк, у каждой
     # свой независимый список IP).
     INFORMATION_SYSTEM_SOURCE = "information_system_source"
+
+
+# Наибольший срок хранения журнала аудита, дней. Одна граница для переменной окружения (config.py), схемы API (schemas.py), ответа настроек
+# и документации; константа лежит здесь, а не в schemas.py, чтобы ни config, ни сервисы не зависели от слоя транспорта.
+AUDIT_RETENTION_MAX_DAYS = 3650

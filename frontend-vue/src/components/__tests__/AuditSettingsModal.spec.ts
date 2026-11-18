@@ -58,6 +58,21 @@ describe('AuditSettingsModal.vue', () => {
     expect(wrapper.find('form').exists()).toBe(false)
   })
 
+  it('подтверждение и подсказка говорят об архиве: записи удаляются из журнала, но их копия остаётся на сервере', async () => {
+    stubAuditSettingsApi({})
+    const wrapper = await open()
+
+    await input(wrapper).setValue('30')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const question = vi.mocked(confirm).mock.calls[0][0] as string
+    expect(question).toContain('reports/audit')
+    expect(question).not.toContain('безвозвратно') // с архивом это неверно: копию удалённых записей сохраняет сервер
+    expect(wrapper.find('.hint').text()).toContain('копия сохраняется')
+    expect(wrapper.find('.hint').text()).not.toContain('безвозвратно')
+  })
+
   it('403 при загрузке: вместо формы текст сервера', async () => {
     stubAuditSettingsApi({}, { loadStatus: 403 })
 
@@ -130,13 +145,36 @@ describe('AuditSettingsModal.vue', () => {
     expect(api.puts).toEqual([])
   })
 
-  it('значение, равное текущему, не сохраняется (нечего менять)', async () => {
+  it('значение, равное текущему, не сохраняется (нечего менять), и форма говорит об этом', async () => {
     stubAuditSettingsApi({ retention_days: 90, is_default: false })
     const wrapper = await open()
 
     await input(wrapper).setValue('90')
 
     expect(save(wrapper).attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').text()).toBe('Значение совпадает с действующим — сохранять нечего.')
+
+    await input(wrapper).setValue('91')
+
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').exists()).toBe(false)
+  })
+
+  it('значение по умолчанию тоже «равно текущему»: закрепить его явно нельзя, форма объясняет, почему «Сохранить» недоступна', async () => {
+    stubAuditSettingsApi()
+    const wrapper = await open()
+
+    expect(save(wrapper).attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').exists()).toBe(true)
+  })
+
+  it('ошибка в поле заменяет пояснение «совпадает с действующим»: показывается одна причина', async () => {
+    stubAuditSettingsApi({ retention_days: 90, is_default: false })
+    const wrapper = await open()
+
+    await input(wrapper).setValue('-1')
+
+    expect(wrapper.find('[data-testid="audit-settings-field-error"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="audit-settings-unchanged"]').exists()).toBe(false)
   })
 
   it('«Сбросить» возвращает значение по умолчанию (null) и доступна, только если срок задан в форме', async () => {

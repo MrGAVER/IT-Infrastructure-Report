@@ -129,3 +129,24 @@ def test_downgrade_drops_the_constraint_and_keeps_the_data(database):
     assert _count(database) == len(ids["normal"])
     assert _structure(database) == before
     _insert_loop(database)  # ограничения больше нет
+
+
+def _check_constraint_names(db: Database) -> list[str]:
+    return [constraint["name"] for constraint in sa.inspect(db.engine).get_check_constraints("connections") if constraint["name"]]
+
+
+def test_upgrade_skips_a_constraint_that_already_exists(database):
+    """База создана по моделям (create_all + stamp) или ревизия запущена повторно: ограничение уже есть. Как и соседние миграции,
+    эта пропускает его, а не падает на ALTER TABLE … ADD CONSTRAINT с занятым именем (PostgreSQL) и не плодит копию (SQLite)."""
+    database.migrate(TARGET_REVISION)
+    assert _check_constraint_names(database) == [CONSTRAINT]
+    with database.engine.begin() as connection:
+        # схема прежняя «по версии», ограничение на месте
+        connection.execute(sa.text("UPDATE alembic_version SET version_num = :revision"), {"revision": PRE_REVISION})
+
+    database.migrate(TARGET_REVISION)
+
+    assert _version(database) == TARGET_REVISION
+    assert _check_constraint_names(database) == [CONSTRAINT], "ограничение одно"
+    with pytest.raises(IntegrityError):
+        _insert_loop(database)

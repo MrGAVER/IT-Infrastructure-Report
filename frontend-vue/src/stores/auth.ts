@@ -5,6 +5,24 @@
 import { defineStore } from 'pinia'
 import { ApiError, api, getStoredToken, setStoredToken } from '../api/client'
 import type { AuthMeResponse, AuthSessionInfo, AuthStatus, AuthUser, LoginResponse, UserRole } from '../api/types'
+import { createLatestRequest } from '../utils/latestRequest'
+
+// У стора два независимых списка — учётные записи и сессии, — и поток загрузки у каждого свой (см. utils/latestRequest.ts).
+const usersLatest = createLatestRequest()
+const sessionsLatest = createLatestRequest()
+
+/** Флаг загрузки одного из списков в виде `{ loading }`, который принимает `invalidate()`:
+ * у стора два флага, `usersLoading` и `sessionsLoading`. */
+function loadingFlag(store: { usersLoading: boolean; sessionsLoading: boolean }, key: 'usersLoading' | 'sessionsLoading'): { loading: boolean } {
+  return {
+    get loading() {
+      return store[key]
+    },
+    set loading(value: boolean) {
+      store[key] = value
+    },
+  }
+}
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -137,40 +155,61 @@ export const useAuthStore = defineStore('auth', {
       return result
     },
     async fetchUsers() {
+      const isLatest = usersLatest.begin()
       this.usersLoading = true
       try {
-        this.users = await api.get<AuthUser[]>('/auth/users')
+        const users = await api.get<AuthUser[]>('/auth/users')
+        if (isLatest()) this.users = users // ответ более раннего запроса не затирает более поздний и подтверждённое изменение списка
       } finally {
-        this.usersLoading = false
+        if (isLatest()) this.usersLoading = false
       }
+    },
+    /** Применяет подтверждённое сервером изменение списка учётных записей. Загрузка списка, начатая до изменения, принесла бы снимок
+     * без него: её ответ отбрасывается, а если она шла — список перечитывается заново (ошибка повторной загрузки изменение не отменяет:
+     * оно уже подтверждено, а список обновится при следующем открытии экрана). */
+    applyToUsers(apply: () => void) {
+      const wasLoading = usersLatest.invalidate(loadingFlag(this, 'usersLoading'))
+      apply()
+      if (wasLoading) this.fetchUsers().catch(() => {})
     },
     async createUser(username: string, password: string, role: UserRole): Promise<AuthUser> {
       const user = await api.post<AuthUser>('/auth/users', { username, password, role })
-      this.users.push(user)
+      this.applyToUsers(() => {
+        this.users.push(user)
+      })
       return user
     },
     async updateUser(id: string, payload: Partial<{ username: string; password: string; role: UserRole; is_active: boolean }>): Promise<AuthUser> {
       const updated = await api.put<AuthUser>(`/auth/users/${id}`, payload)
-      const idx = this.users.findIndex((u) => u.id === id)
-      if (idx !== -1) this.users[idx] = updated
+      this.applyToUsers(() => {
+        const idx = this.users.findIndex((u) => u.id === id)
+        if (idx !== -1) this.users[idx] = updated
+      })
       if (this.user?.id === id) this.user = updated
       return updated
     },
     async deleteUser(id: string) {
       await api.delete(`/auth/users/${id}`)
-      this.users = this.users.filter((u) => u.id !== id)
+      this.applyToUsers(() => {
+        this.users = this.users.filter((u) => u.id !== id)
+      })
     },
     async fetchMySessions() {
+      const isLatest = sessionsLatest.begin()
       this.sessionsLoading = true
       try {
-        this.sessions = await api.get<AuthSessionInfo[]>('/auth/sessions')
+        const sessions = await api.get<AuthSessionInfo[]>('/auth/sessions')
+        if (isLatest()) this.sessions = sessions
       } finally {
-        this.sessionsLoading = false
+        if (isLatest()) this.sessionsLoading = false
       }
     },
     async revokeSession(id: string) {
       await api.delete(`/auth/sessions/${id}`)
+      // Загрузка списка, начатая до отзыва, вернула бы отозванную сессию: её ответ отбрасывается, список перечитывается (как applyToUsers).
+      const wasLoading = sessionsLatest.invalidate(loadingFlag(this, 'sessionsLoading'))
       this.sessions = this.sessions.filter((s) => s.id !== id)
+      if (wasLoading) this.fetchMySessions().catch(() => {})
     },
     /** В отличие от updateUser (админ меняет ЧУЖОЙ пароль), эта смена — собственная, требует
      * текущий пароль и доступна любой роли (см. backend/app/services/auth.change_own_password).

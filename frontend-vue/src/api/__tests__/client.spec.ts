@@ -795,6 +795,21 @@ describe('api/client: Retry-After и новые коды ошибок (B-12)', (
     expect((error as ApiError).message).toBe(message)
   })
 
+  it.each([
+    [ErrorCode.PORT_ALREADY_CONNECTED, 'Порт уже участвует в другом активном подключении. Обновите данные и повторите.'],
+    [ErrorCode.CONNECTION_SAME_PORT, 'Порт нельзя подключить к самому себе. Выберите другой порт.'],
+  ])('409 %s: ApiError несёт код и русское сообщение сервера как есть', async (code, message) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: { code, message } }, 409)),
+    )
+    const error = await api.put('/devices/d1/interfaces', {}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(409)
+    expect((error as ApiError).code).toBe(code)
+    expect((error as ApiError).message).toBe(message)
+  })
+
   it('ErrorCode содержит четыре кода, которых раньше не было', () => {
     expect(ErrorCode).toMatchObject({
       SETUP_ACCESS_DENIED: 'SETUP_ACCESS_DENIED',

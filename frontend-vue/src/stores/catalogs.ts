@@ -97,7 +97,7 @@ export function sortProtocolPortCatalog(items: ProtocolPortCatalogEntry[]): Prot
   return [...items].sort((a, b) => a.port - b.port || a.protocol_type.localeCompare(b.protocol_type, 'ru'))
 }
 
-// B-02: ответ на более ранний reload() не должен затереть более поздний (см. utils/latestRequest.ts).
+// Ответ на более ранний reload() не должен затереть более поздний или точечное изменение каталога (см. utils/latestRequest.ts).
 const latest = createLatestRequest()
 
 export const useCatalogsStore = defineStore('catalogs', {
@@ -173,10 +173,7 @@ export const useCatalogsStore = defineStore('catalogs', {
       await this.reload()
     },
     async reload() {
-      const isLatest = latest.begin()
-      this.loading = true
-      this.error = null
-      try {
+      await latest.run(this, {
         // listAllResource: справочники (типы устройств, здания и т.п.) должны загружаться целиком.
         // Обычно они небольшие и умещаются в одну страницу (1000 записей), но если записей
         // больше, helper дочитывает остальные страницы — иначе лишние молча пропали бы из списков.
@@ -188,40 +185,39 @@ export const useCatalogsStore = defineStore('catalogs', {
         // Домен VLAN и т.д. сразу), хотя реально не смог загрузиться, например, только один
         // редко нужный каталог. allSettled записывает то, что реально пришло, а не проваленные
         // ключи перечисляет в this.error.
-        const [catalogResults, resources, protocolPorts] = await Promise.all([
-          Promise.allSettled(CATALOGS.map((key) => listAllResource<CatalogItem>(key))),
-          api.get<ResourceDescriptor[]>('/resources'),
-          listAllResource<ProtocolPortCatalogEntry>('protocol-port-catalog'),
-        ])
-        if (!isLatest()) return // устаревший ответ: finally ничего не тронет
-        const failedKeys: string[] = []
-        const truncatedLoads: Array<[string, AllPagesResponse<unknown>]> = []
-        CATALOGS.forEach((key, i) => {
-          const result = catalogResults[i]
-          if (result.status === 'fulfilled') {
-            this.items[key] = sortCatalogItems(key, result.value.items)
-            if (result.value.truncated) truncatedLoads.push([key, result.value])
-          } else {
-            failedKeys.push(key)
-          }
-        })
-        if (protocolPorts.truncated) truncatedLoads.push(['protocol-port-catalog', protocolPorts])
-        this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
-        // Состояние усечения — всегда по последней загрузке: после полной перезагрузки признак снимается.
-        this.incompleteCatalogs = Object.fromEntries(truncatedLoads.map(([key, res]) => [key, { loaded: res.items.length, total: res.total }]))
-        for (const [key, res] of truncatedLoads) warnIfTruncated(res, `справочник «${this.resourceNames[key] ?? key}»`)
-        // Фикс п.4.2 (найден при работе над "убрать текстовые поля Порт/Протокол"): раньше
-        // сортировался только результат quick-add (QuickAddModal.vue), а сама начальная загрузка —
-        // нет, из-за чего справочник в SearchableSelect был отсортирован только ПОСЛЕ первого
-        // добавления записи через "+", а до этого — в порядке ответа бэкенда.
-        this.protocolPortCatalog = sortProtocolPortCatalog(protocolPorts.items)
-        this.loaded = true
-        this.error = failedKeys.length ? `Не удалось загрузить справочники: ${failedKeys.join(', ')}` : null
-      } catch (e) {
-        if (isLatest()) this.error = e instanceof Error ? e.message : 'Не удалось загрузить справочники'
-      } finally {
-        if (isLatest()) this.loading = false
-      }
+        fetch: () =>
+          Promise.all([
+            Promise.allSettled(CATALOGS.map((key) => listAllResource<CatalogItem>(key))),
+            api.get<ResourceDescriptor[]>('/resources'),
+            listAllResource<ProtocolPortCatalogEntry>('protocol-port-catalog'),
+          ]),
+        apply: ([catalogResults, resources, protocolPorts]) => {
+          const failedKeys: string[] = []
+          const truncatedLoads: Array<[string, AllPagesResponse<unknown>]> = []
+          CATALOGS.forEach((key, i) => {
+            const result = catalogResults[i]
+            if (result.status === 'fulfilled') {
+              this.items[key] = sortCatalogItems(key, result.value.items)
+              if (result.value.truncated) truncatedLoads.push([key, result.value])
+            } else {
+              failedKeys.push(key)
+            }
+          })
+          if (protocolPorts.truncated) truncatedLoads.push(['protocol-port-catalog', protocolPorts])
+          this.resourceNames = Object.fromEntries(resources.map((r) => [r.key, r.name]))
+          // Состояние усечения — всегда по последней загрузке: после полной перезагрузки признак снимается.
+          this.incompleteCatalogs = Object.fromEntries(truncatedLoads.map(([key, res]) => [key, { loaded: res.items.length, total: res.total }]))
+          for (const [key, res] of truncatedLoads) warnIfTruncated(res, `справочник «${this.resourceNames[key] ?? key}»`)
+          // Фикс п.4.2 (найден при работе над "убрать текстовые поля Порт/Протокол"): раньше
+          // сортировался только результат quick-add (QuickAddModal.vue), а сама начальная загрузка —
+          // нет, из-за чего справочник в SearchableSelect был отсортирован только ПОСЛЕ первого
+          // добавления записи через "+", а до этого — в порядке ответа бэкенда.
+          this.protocolPortCatalog = sortProtocolPortCatalog(protocolPorts.items)
+          this.loaded = true
+          this.error = failedKeys.length ? `Не удалось загрузить справочники: ${failedKeys.join(', ')}` : null
+        },
+        errorMessage: 'Не удалось загрузить справочники',
+      })
     },
     label(key: CatalogKey, id: string | null | undefined, fallback = '—'): string {
       if (!id) return fallback
@@ -235,6 +231,14 @@ export const useCatalogsStore = defineStore('catalogs', {
       }
       return (item.name as string) ?? fallback
     },
+    /** Применяет точечное изменение каталога, уже подтверждённое сервером (быстрое добавление записи, смена портов устройства).
+     * reload(), начатый до изменения, принесёт снимок без него и затёр бы только что внесённую запись; его ответ отбрасывается,
+     * а чтобы остальные справочники не остались устаревшими, загрузка запускается заново. */
+    applyLocalChange(change: () => void): void {
+      const wasLoading = latest.invalidate(this)
+      change()
+      if (wasLoading) void this.reload()
+    },
     /** Точечно заменяет интерфейсы одного устройства в уже загруженном каталоге 'interfaces' —
      * тот же приём, что точечное добавление в QuickAddModal.vue (createResource + merge вместо
      * полного catalogs.reload()). Нужно после PUT /devices/{id}/interfaces из DevicePortsModal.vue
@@ -245,20 +249,24 @@ export const useCatalogsStore = defineStore('catalogs', {
      * загружен (форма открылась раньше catalogs.ensureLoaded()) — тогда просто ничего не покажется
      * в селекте до следующего reload(), как и в остальных точечных обновлениях каталога. */
     replaceDeviceInterfaces(deviceId: string, items: CatalogItem[]) {
-      const current = this.items['interfaces'] ?? []
-      this.items['interfaces'] = sortCatalogItems('interfaces', [...current.filter((i) => i.physical_device_id !== deviceId), ...items])
+      this.applyLocalChange(() => {
+        const current = this.items['interfaces'] ?? []
+        this.items['interfaces'] = sortCatalogItems('interfaces', [...current.filter((i) => i.physical_device_id !== deviceId), ...items])
+      })
     },
     /** Точечно заменяет ОДИН порт в уже загруженном каталоге 'interfaces' — после смены его роли
      * (PUT /interfaces/{id}/port-role). В отличие от replaceDeviceInterfaces() не трогает остальные
      * порты устройства. Если каталог ещё не загружен или порта в нём нет — ничего не делает: при
      * следующей загрузке порт придёт уже с актуальными флагами. */
     replaceInterface(item: CatalogItem) {
-      const current = this.items['interfaces']
-      if (!current || !current.some((i) => i.id === item.id)) return
-      this.items['interfaces'] = sortCatalogItems(
-        'interfaces',
-        current.map((i) => (i.id === item.id ? item : i)),
-      )
+      this.applyLocalChange(() => {
+        const current = this.items['interfaces']
+        if (!current || !current.some((i) => i.id === item.id)) return
+        this.items['interfaces'] = sortCatalogItems(
+          'interfaces',
+          current.map((i) => (i.id === item.id ? item : i)),
+        )
+      })
     },
     /** Точечно добавляет только что созданную запись каталога (QuickAddModal.vue) в уже
      * загруженный список, сохраняя сортировку — та же причина не звать полный reload(), что и в
@@ -269,13 +277,17 @@ export const useCatalogsStore = defineStore('catalogs', {
      * созданная запись всё равно попадает в список одна, чтобы вызывающий select хотя бы мог
      * показать её как выбранную, а не молча проигнорировать value без своего <option>. */
     addCatalogItem(key: CatalogKey, item: CatalogItem) {
-      this.items[key] = sortCatalogItems(key, [...(this.items[key] ?? []), item])
+      this.applyLocalChange(() => {
+        this.items[key] = sortCatalogItems(key, [...(this.items[key] ?? []), item])
+      })
     },
     /** Точечно добавляет только что загруженную пользовательскую иконку диаграммы в уже
      * загруженный каталог 'diagram-icons' — тот же приём, что replaceDeviceInterfaces() выше,
      * без полного catalogs.reload() ради одной новой записи (см. DeviceIconPicker.vue). */
     addDiagramIcon(icon: CatalogItem) {
-      this.items['diagram-icons'] = [...(this.items['diagram-icons'] ?? []), icon]
+      this.applyLocalChange(() => {
+        this.items['diagram-icons'] = [...(this.items['diagram-icons'] ?? []), icon]
+      })
     },
     /** id единицы + все id её потомков — нужно для фильтра "включая дочерние" (см. reporting.py backend). */
     unitAndDescendantIds(rootId: string): Set<string> {

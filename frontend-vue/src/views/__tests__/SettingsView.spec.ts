@@ -175,7 +175,7 @@ describe('SettingsView.vue — подпись, где хранятся личн�
   })
 })
 
-describe('SettingsView.vue — настройки аудита (A-05)', () => {
+describe('SettingsView.vue — настройки аудита', () => {
   const section = (wrapper: ReturnType<typeof mount>) => wrapper.find('[data-testid="audit-settings-section"]')
   const asUser = (role: 'admin' | 'viewer') => {
     const auth = useAuthStore()

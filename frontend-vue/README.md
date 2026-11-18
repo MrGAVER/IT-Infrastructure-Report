@@ -252,7 +252,16 @@ FastAPI (см. `backend/app/api/system.py`, `backend/app/main.py`, `FRONTEND_DIR
 ### Аудит зависимостей
 
 `npm ci` (в том числе из `installer/build_windows.bat`) должен заканчиваться строкой `found 0 vulnerabilities`; CI блокирует слияние только по
-runtime-зависимостям (`npm audit --omit=dev --audit-level=high`), но полный `npm audit` держим чистым, чтобы при сборке EXE не было шума.
+runtime-зависимостям (`npm run audit:gate` — `npm audit --omit=dev --audit-level=high` с исключениями, см. ниже), но полный `npm audit` держим
+чистым, когда это возможно, чтобы при сборке EXE не было шума.
+
+**Исключения гейта** (`ALLOWLIST` в `scripts/audit-gate.mjs`). У `npm audit` нет списка исключений, а для свежей уязвимости исправленной версии
+может ещё не быть: тогда шаг CI красный для всех, и `overrides` не помогают (ставят ту же уязвимую версию). Исключение — это id advisory, причина
+и срок (`expires`); после срока оно перестаёт действовать, и гейт падает снова. Исключение действует только на указанный advisory — любая другая
+уязвимость high и выше по-прежнему валит шаг; ошибка самого `npm audit` (нет сети) — тоже падение. Сейчас одно исключение — `picomatch`
+(GHSA-fc5q-39xc-vjpf, ReDoS, исправления в npm нет): библиотека приходит через `vue-router`/`vite` и работает только при сборке, в `dist/` её
+нет. Снять исключение: когда `npm view picomatch version` выше 4.0.7 — обновить lock (`npm update picomatch`), удалить запись из `ALLOWLIST`
+(скрипт сам подскажет «исключение больше не нужно», когда advisory пропадёт из отчёта). Проверка гейта: `npm run audit:gate`.
 Блок `overrides` в `package.json` (`minimatch` `^11.0.8`, `glob` `^14.0.6`) закрывает замечания к dev-инструментам, пока `typescript-eslint`
 и `@vue/test-utils` (через `js-beautify`) сами не перешли на исправленные версии; подробности и условие снятия — в корневом
 [`README.md`](../README.md), раздел «Зависимости backend» → «Цепочка поставок». Не используйте `npm audit fix --force`: он понижает
@@ -394,13 +403,19 @@ npx playwright show-report          # HTML-отчёт после прогона 
   `api/assertComplete.ts` превращает усечение в `IncompleteDataError` (`loadAllComplete` один раз перечитывает список, если запись
   удалили во время загрузки), `composables/loadNestedList.ts` — состояние загрузки вложенного списка, `components/DataLoadNotice.vue` —
   сообщение «загружено n из N» с кнопкой «Повторить загрузку».
-- **Перекрывающиеся запросы: побеждает последний** (B-02). Два `reload()` подряд (после сохранения формы и по событию обновления) могли
+- **Перекрывающиеся запросы: побеждает последний.** Два `reload()` подряд (после сохранения формы и по событию обновления) могли
   закончиться в обратном порядке: ответ на первый запрос приходил позже и затирал свежий список, а `loading` сбрасывался по окончании
-  первого. `utils/latestRequest.ts` (`createLatestRequest().begin()` возвращает функцию «я всё ещё последний?») применён во всех сторах,
-  которые загружают списки (`catalogs`, `connections`, `containers`, `deviceStacks`, `devices`, `informationSystems`, `reportTemplates`,
-  `vlanDomains`, `vlans`, `vms`, `auditLog`, `connectionsDashboard`, `portSyncRules`) и в `diagram.load(id)` (быстрое переключение схем
-  показывало не ту схему). Новый стор с асинхронной загрузкой списка заводит свой экземпляр на уровне модуля и проверяет `isLatest()` и
-  перед записью результата, и в `finally` перед сбросом `loading`.
+  первого. Вся загрузка списка идёт через `utils/latestRequest.ts`: `latest.run(this, { fetch, apply, errorMessage })` ведёт `loading` и
+  `error` стора и отбрасывает ответ, ошибку и `finally` запроса, который успел вытеснить более поздний. Так загружают данные все сторы
+  (`catalogs`, `connections`, `containers`, `deviceStacks`, `devices`, `informationSystems`, `reportTemplates`, `vlanDomains`, `vlans`,
+  `vms`, `auditLog`, `connectionsDashboard`, `portSyncRules`, `auditSettings`) и `diagram.load(id)` (быстрое переключение схем показывало
+  не ту схему; сохранение отложенной раскладки до замены схемы — параметр `prepare`). Новый стор с асинхронной загрузкой заводит свой
+  экземпляр `createLatestRequest()` на уровне модуля и загружает только через `run()`: собственных `begin()` / `isLatest()` в сторах нет.
+  Есть и обратное направление той же гонки. Когда стор сам применяет подтверждённое сервером изменение к уже показанным данным
+  (`portSyncRules.upsert` / `remove` / `move`, `catalogs.addCatalogItem` / `replaceInterface` / `replaceDeviceInterfaces` / `addDiagramIcon`,
+  `auditSettings.save`), перед этим вызывается `latest.invalidate(this)`: загрузка, начатая до изменения, принесла бы снимок без него и
+  откатила бы изменение (выключенное правило снова включено, новая запись справочника пропала). `invalidate` сбрасывает `loading` и
+  возвращает `true`, если загрузка шла, — тогда стор запускает её заново, чтобы остальные данные не остались устаревшими.
 - **Скачивание файлов.** `api/saveBlob.ts` — единый «сохранить blob» (ссылка освобождается через 30 с); ошибки скачивания разбирает общий
   `apiErrorFromResponse`; имя файла берётся из `filename*` заголовка `Content-Disposition` (`filenameFromDisposition` в `api/diagrams.ts`).
 - **Трассировка рёбер диаграммы** (F-07, B-08): `utils/diagramEdgeRouting.ts` — сетка и поиск пути A* (куча — `utils/minHeap.ts`),

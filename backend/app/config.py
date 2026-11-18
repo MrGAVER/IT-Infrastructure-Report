@@ -1,16 +1,19 @@
 from __future__ import annotations
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable
 
+from .constants import AUDIT_RETENTION_MAX_DAYS
 
-def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None) -> Any:
-    """Число из переменной окружения: не задана, пуста или из одних пробелов — ``default``; нечисловое значение или меньше ``minimum`` — явная ошибка
-    запуска с ИМЕНЕМ переменной (а не молчаливое игнорирование опечатки и не безымянный ``invalid literal for int()``).
 
-    Пустая строка — обычное дело: так выглядят незаполненные строки в ``.env`` (``VAR=``), а docker-compose передаёт в контейнер пустое значение
-    вместо отсутствующего. Раньше такие переменные разбирались «голым» ``int(os.getenv(...))`` и роняли запуск при импорте модуля (A-03 код-ревью main @ b375f58).
-    ``minimum=None`` — нижней границы нет."""
+def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None, maximum: Any = None) -> Any:
+    """Число из переменной окружения: не задана, пуста или из одних пробелов — ``default``; нечисловое значение или меньше ``minimum`` —
+    явная ошибка запуска с ИМЕНЕМ переменной (а не молчаливое игнорирование опечатки и не безымянный ``invalid literal for int()``).
+
+    Пустая строка — обычное дело: так выглядят незаполненные строки в ``.env`` (``VAR=``), а docker-compose передаёт в контейнер пустое
+    значение вместо отсутствующего. Раньше такие переменные разбирались «голым» ``int(os.getenv(...))`` и роняли запуск при импорте модуля.
+    ``inf`` и ``nan`` у дробных значений — тоже ошибка запуска. ``minimum=None`` / ``maximum=None`` — нижней / верхней границы нет."""
     raw = os.getenv(name, '').strip()
     if not raw:
         return default
@@ -18,14 +21,19 @@ def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum:
         value = cast(raw)
     except ValueError as exc:
         raise ValueError(f'{name}: ожидается число, получено {raw!r}') from exc
+    # float('inf') проходит проверку минимума, а nan — любую; ошибка вылезла бы позже, в рантайме
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f'{name}: ожидается конечное число, получено {raw!r}')
     if minimum is not None and value < minimum:
         raise ValueError(f'{name}: значение не может быть меньше {minimum} ({raw})')
+    if maximum is not None and value > maximum:
+        raise ValueError(f'{name}: значение не может быть больше {maximum} ({raw})')
     return value
 
 
 def _optional_number_env(name: str, cast: Callable[[str], Any]) -> Any:
-    """Необязательное неотрицательное число: не задано или пусто — None (остаётся значение SQLAlchemy по умолчанию), отрицательное или нечисловое —
-    ошибка запуска. Частный случай ``_number_env``."""
+    """Необязательное неотрицательное число: не задано или пусто — None (остаётся значение SQLAlchemy по умолчанию), отрицательное или
+    нечисловое — ошибка запуска. Частный случай ``_number_env``."""
     return _number_env(name, None, cast, minimum=0)
 
 
@@ -39,11 +47,12 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 AUDIT_REPORT_SUBDIR = 'audit'
 # Сколько дней хранятся сгенерированные отчёты: файл нужен только пока его скачивают, а каталог без
 # очистки рос бы бесконечно. 0 — не удалять никогда.
-REPORT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_REPORT_RETENTION_DAYS', 30, int)  # minimum намеренно не задан: 0 и меньше — не удалять (report_cleanup.py)
-# Срок хранения записей журнала аудита, дней (A-05 код-ревью main @ b375f58): записи старше удаляются (services/audit_retention.py). 0 — не удалять
+# minimum намеренно не задан: 0 и меньше — не удалять (report_cleanup.py)
+REPORT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_REPORT_RETENTION_DAYS', 30, int)
+# Срок хранения записей журнала аудита, дней: записи старше удаляются (services/audit_retention.py). 0 — не удалять
 # никогда (по умолчанию: журнал аудита нельзя терять молча, решение о ротации принимает владелец). Это значение по умолчанию: администратор
 # может задать срок в форме «Настройки аудита» — значение из формы (audit_settings.retention_days) важнее переменной окружения.
-AUDIT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_AUDIT_RETENTION_DAYS', 0, int, minimum=0)
+AUDIT_RETENTION_DAYS = _number_env('INFRA_REGISTRY_AUDIT_RETENTION_DAYS', 0, int, minimum=0, maximum=AUDIT_RETENTION_MAX_DAYS)
 
 
 def _database_url() -> str:
@@ -101,7 +110,7 @@ DB_POOL_OPTIONS = {
 # файла (см. main.py:spa_fallback), а не тихо упадёт. В Docker/PyInstaller-сборке
 # каталог собирается/копируется как часть сборки (см. backend/Dockerfile, infra_registry.spec).
 FRONTEND_DIR = Path(os.getenv('INFRA_REGISTRY_FRONTEND_DIR', str(BASE_DIR / 'frontend-vue' / 'dist'))).expanduser().resolve()
-APP_VERSION = '2.159.0'
+APP_VERSION = '2.160.0'
 
 def _csv_env(name: str, default: str = '') -> list[str]:
     """Список из переменной окружения через запятую: пробелы и пустые элементы отбрасываются."""
@@ -198,7 +207,8 @@ AUTH_SESSION_TTL_HOURS = _number_env('INFRA_REGISTRY_SESSION_TTL_HOURS', 12.0, f
 # 10, а не 5: от перебора с одного адреса защищает троттлинг входа (services/login_throttle.py), а
 # блокировка учётной записи — запасной рубеж против распределённого подбора; чем она чувствительнее,
 # тем проще посторонним держать администратора заблокированным.
-# minimum=1 у порога и длины пароля: 0 блокировал бы вход после первой же ошибки / снимал бы требование к длине пароля (остаются проверки «буквы и цифры»).
+# minimum=1 у порога и длины пароля: 0 блокировал бы вход после первой же ошибки / снимал бы требование к длине пароля (остаются проверки
+# «буквы и цифры»).
 AUTH_MAX_FAILED_ATTEMPTS = _number_env('INFRA_REGISTRY_AUTH_MAX_ATTEMPTS', 10, int, minimum=1)
 AUTH_LOCKOUT_MINUTES = _number_env('INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES', 15.0, float, minimum=0)
 AUTH_MIN_PASSWORD_LENGTH = _number_env('INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH', 8, int, minimum=1)

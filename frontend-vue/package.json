@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "e2e": "vite build && playwright test",
     "lint": "eslint .",
+    "audit:gate": "node scripts/audit-gate.mjs",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

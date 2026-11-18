@@ -98,14 +98,13 @@ describe('экраны показывают постоянное сообщен�
   })
 
   it('DeviceStacksView', async () => {
+    // Экран перечитывает стеки при открытии, поэтому «усечённость» берётся из ответа сервера, а не из заранее заданного состояния стора.
+    stubTruncatedServer()
     const store = useDeviceStacksStore()
-    store.all = [{ id: 's-1', name: 'stack' } as never]
-    store.loaded = true
-    store.total = 2000
-    store.truncated = true
 
     const wrapper = mount(DeviceStacksView)
     await flushPromises()
+    expect(store.truncated).toBe(true)
     expect(plain(notice(wrapper).text())).toContain('стеков устройств')
     expect(plain(notice(wrapper).text())).toContain('загружено 1 из 2 000')
 

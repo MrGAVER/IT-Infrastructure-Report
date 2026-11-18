@@ -39,8 +39,8 @@ def verify_password(password: str, stored: str) -> bool:
         salt = base64.b64decode(salt_b64)
         expected = base64.b64decode(hash_b64)
         iterations = int(iterations_s)
-        # Вычисление — под тем же try: число итераций из повреждённого хеша (0, отрицательное, не помещающееся в C long) pbkdf2_hmac отвергает
-        # ValueError/OverflowError, а это «пароль не подошёл», а не 500 на экране входа (A-06).
+        # Вычисление — под тем же try: число итераций из повреждённого хеша (0, отрицательное, не помещающееся в C long) pbkdf2_hmac
+        # отвергает ValueError/OverflowError, а это «пароль не подошёл», а не 500 на экране входа.
         candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     except (ValueError, TypeError, OverflowError):
         return False

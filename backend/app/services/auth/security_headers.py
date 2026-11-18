@@ -1,16 +1,19 @@
 """Заголовки безопасности ответов: базовый набор против MIME-sniffing и кликджекинга и Content-Security-Policy.
 
-Добавляются в двух местах (A-04 код-ревью main @ b375f58):
+Добавляются в двух местах:
 
-* SecurityHeadersMiddleware — САМЫЙ внешний слой приложения (main.py): заголовки получает любой ответ, в том числе сформированный внутренними
+* SecurityHeadersMiddleware — САМЫЙ внешний слой приложения (main.py): заголовки получает любой ответ, в том числе сформированный
+внутренними
   слоями до auth_gate_middleware — 400 проверки Host, 403 проверки клиента и origin, 413 предела тела запроса. Раньше такие ответы уходили
   без заголовков, потому что их ставил только auth_gate_middleware, стоящий внутри этих слоёв;
 * with_security_headers — прежний интерфейс для services/auth/gate.py (ответ уже получен, правится его объект).
 
-Оба пути идут через apply_security_headers с ``setdefault``: уже выставленный заголовок (обработчиком, обратным прокси или первым из двух слоёв)
+Оба пути идут через apply_security_headers с ``setdefault``: уже выставленный заголовок (обработчиком, обратным прокси или первым из двух
+слоёв)
 не перезаписывается и не дублируется.
 
-Пример: ``app.add_middleware(SecurityHeadersMiddleware)`` — после install_http_security(...): последний добавленный слой в Starlette самый внешний.
+Пример: ``app.add_middleware(SecurityHeadersMiddleware)`` — после install_http_security(...): последний добавленный слой в Starlette самый
+внешний.
 """
 from __future__ import annotations
 

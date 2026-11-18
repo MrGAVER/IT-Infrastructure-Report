@@ -58,7 +58,7 @@ from .services.network_access import (
     has_remote_clients,
     parse_client_networks,
 )
-from .services.audit_retention import run_scheduled_cleanup
+from .services.audit_retention import run_scheduled_cleanup_in_own_session
 from .services.port_sync_store import ensure_default_rules
 from .services.openapi_errors import install_error_formats
 from .services.request_errors import request_validation_handler
@@ -144,8 +144,9 @@ install_http_security(
     max_body_bytes=MAX_REQUEST_BODY_BYTES,
     accept_ip_hosts=ACCEPT_IP_HOSTS,
 )
-# Заголовки безопасности — САМЫЙ внешний слой (A-04 код-ревью main @ b375f58): после install_http_security, потому что последний добавленный
-# слой в Starlette стоит снаружи. Так их получают и ответы, которые формируют внутренние слои сами (400 по Host, 403 по клиенту и origin, 413).
+# Заголовки безопасности — САМЫЙ внешний слой: после install_http_security, потому что последний добавленный
+# слой в Starlette стоит снаружи. Так их получают и ответы, которые формируют внутренние слои сами (400 по Host, 403 по клиенту и origin,
+# 413).
 app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(auth_router)
 app.include_router(preferences_router)
@@ -209,13 +210,9 @@ def _raise_if_schema_not_migrated(session) -> None:
 
 
 def cleanup_audit_log_on_startup() -> None:
-    """Ленивая очистка журнала аудита по сроку хранения при старте (A-05): срок задан и прошли сутки с прошлой очистки.
+    """Ленивая очистка журнала аудита по сроку хранения при старте: срок задан и прошли сутки с прошлой очистки.
     Ошибки БД не бросает — запуск сервера из-за неё не должен падать (см. services/audit_retention.run_scheduled_cleanup)."""
-    session = SessionLocal()
-    try:
-        run_scheduled_cleanup(session)
-    finally:
-        session.close()
+    run_scheduled_cleanup_in_own_session()
 
 
 def seed_catalogs_on_startup():

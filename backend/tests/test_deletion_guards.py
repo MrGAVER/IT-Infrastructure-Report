@@ -54,8 +54,10 @@ ALLOWED_DELETIONS = {
     ("app/services/preferences.py", "delete_user_preferences", "AppPreference"),
     # журнал аудита (A-05): очистка записей старше срока хранения, который задал администратор (по умолчанию срок 0 — не удалять).
     # Листовая таблица: на AuditLog никто не ссылается; удаление пакетное, по возрасту записи, и само пишет в журнал свежую
-    # запись об очистке (services/audit_retention.py, тесты — test_audit_retention.py)
-    ("app/services/audit_retention.py", "purge_expired_entries", "AuditLog"),
+    # запись об очистке (services/audit_retention.py, тесты — test_audit_retention.py). Удаляются только записи, уже сохранённые в
+    # файл архива (services/audit_archive.py, тесты — test_audit_archive.py): единственный DELETE — _delete_by_ids, он вызывается
+    # из purge_expired_entries после AuditArchive.write_batch.
+    ("app/services/audit_retention.py", "_delete_by_ids", "AuditLog"),
     # диаграммы и шаблоны отчётов
     ("app/api/diagrams.py", "delete_diagram", "diagram"),
     ("app/api/report_builder.py", "delete_template", "ReportTemplateVersion"),

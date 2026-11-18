@@ -38,6 +38,46 @@ def _service_entries(client, headers: dict | None = None) -> list[dict]:
     return page.json()["items"]
 
 
+class TestResponseContract:
+    """У ответов настроек есть схема (response_model), а форма JSON побайтно прежняя — на неё опирается фронтенд (api/types/audit.ts)."""
+
+    def test_get_response_is_byte_for_byte_the_documented_shape(self, client):
+        response = client.get(URL)
+
+        expected = '{"retention_days":0,"is_default":true,"default_retention_days":0,"max_retention_days":3650,"last_cleanup_at":null}'
+        assert response.text == expected
+
+    def test_put_response_keeps_the_field_order_and_adds_the_cleanup_result_last(self, client):
+        response = client.put(URL, json={"retention_days": 90})
+
+        assert list(response.json()) == [
+            "retention_days",
+            "is_default",
+            "default_retention_days",
+            "max_retention_days",
+            "last_cleanup_at",
+            "removed_now",
+            "cleanup_failed",
+        ]
+
+    def test_put_without_a_period_answers_like_get_without_the_cleanup_result(self, client):
+        client.put(URL, json={"retention_days": 90})
+
+        response = client.put(URL, json={})
+
+        # срока в теле нет — сохранять нечего: ответ как у GET, без removed_now и cleanup_failed
+        assert response.text == client.get(URL).text
+
+    def test_the_contract_is_described_in_openapi(self, client):
+        from app.main import app
+
+        paths = app.openapi()["paths"]["/api/v1/audit-log/settings"]
+        responses = {method: paths[method]["responses"]["200"] for method in ("get", "put")}
+        refs = {method: found["content"]["application/json"]["schema"].get("$ref", "") for method, found in responses.items()}
+
+        assert refs == {"get": "#/components/schemas/AuditSettingsOut", "put": "#/components/schemas/AuditSettingsSaveOut"}
+
+
 class TestReadAndWrite:
     def test_defaults_do_not_delete_anything(self, client):
         response = client.get(URL)
@@ -145,16 +185,36 @@ class TestAccessRights:
 
 
 class TestCleanupOnOpeningTheLog:
-    def test_opening_the_log_runs_a_due_cleanup_in_the_name_of_the_system(self, client, db_session):
+    def test_opening_the_log_runs_a_due_cleanup_after_the_response_in_the_name_of_the_system(self, client, db_session):
         _seed_old(db_session, 5)
         db_session.add(AuditSettings(id="singleton", retention_days=30))
         db_session.commit()
 
+        client.get(LOG_URL, params={"limit": 200})  # страница читается до очистки; сама очистка идёт задачей после ответа
         page = client.get(LOG_URL, params={"limit": 200}).json()
 
-        assert not [item for item in page["items"] if item["entity_type"] == "devices"], "просроченные записи удалены до выборки страницы"
+        assert not [item for item in page["items"] if item["entity_type"] == "devices"], "просроченные записи удалены"
         (entry,) = [item for item in page["items"] if item["entity_type"] == "audit-settings"]
         assert entry["actor_username"] == "система" and "удалено записей — 5" in entry["details"]
+
+    def test_the_page_is_read_before_the_cleanup_and_the_cleanup_is_only_queued(self, db_session, client_factory):
+        """GET не удаляет данные внутри запроса: очистка ставится в фоновые задачи (после ответа, со своей сессией)."""
+        from fastapi import BackgroundTasks
+
+        from app.api.audit_log import audit_log_page
+
+        _seed_old(db_session, 5)
+        db_session.add(AuditSettings(id="singleton", retention_days=30))
+        db_session.commit()
+        background = BackgroundTasks()
+
+        page = audit_log_page(q=None, action=None, entity_type=None, offset=0, limit=200, background=background, session=db_session)
+
+        assert page["summary"]["total"] == 5 and _device_entries(db_session) == 5, "в самом запросе ничего не удалено"
+        assert len(background.tasks) == 1
+        task = background.tasks[0]
+        task.func(*task.args, **task.kwargs)
+        assert _device_entries(db_session) == 0
 
     def test_with_the_default_setting_opening_the_log_deletes_nothing(self, client, db_session):
         _seed_old(db_session, 5, days=5000)
@@ -172,6 +232,16 @@ class TestCleanupOnOpeningTheLog:
         assert client.get(LOG_URL, headers=_headers(viewer_token)).status_code == 403
 
         assert _device_entries(db_session) == 3, "проверка роли идёт раньше очистки"
+
+    def test_the_server_starts_and_the_log_opens_when_the_period_overflows(self, client_factory, monkeypatch):
+        """Срок из окружения вне допустимого диапазона не должен ронять ни запуск сервера (lifespan), ни чтение журнала."""
+        from app.services import audit_retention
+
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 10**6)
+
+        client = client_factory()  # вход в lifespan: cleanup_audit_log_on_startup()
+
+        assert client.get(LOG_URL).status_code == 200
 
     def test_the_server_start_runs_a_due_cleanup(self, db_session, client_factory):
         from app import main as app_main

@@ -220,6 +220,16 @@ def _fast_password_hashing(request, monkeypatch):
     monkeypatch.setattr(passwords_module, "PBKDF2_ITERATIONS", 1_000)  # читает hash_password/needs_rehash — патч на модуле паролей
 
 
+@pytest.fixture(autouse=True)
+def _isolated_audit_archive_dir(tmp_path, monkeypatch):
+    """Очистка журнала аудита перед удалением пишет архив в `<REPORT_DIR>/audit/` (services/audit_archive.py). Каталог читается при вызове
+    из `app.config.REPORT_DIR`, поэтому каждому тесту — свой: файлы не копятся в общем каталоге данных и не попадают в проверки соседних
+    тестов, которые считают содержимое `reports/audit/`. Модули, привязавшие REPORT_DIR при импорте (api/reports.py), не затрагиваются."""
+    import app.config as app_config
+
+    monkeypatch.setattr(app_config, "REPORT_DIR", tmp_path / "reports")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _reuse_alembic_upgrades_on_empty_sqlite(tmp_path_factory):
     """`alembic upgrade <ревизия>` на пустой файловой SQLite занимает 1–2 с (десятки миграций), а тесты миграций строят такую

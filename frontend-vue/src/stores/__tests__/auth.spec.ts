@@ -249,3 +249,144 @@ describe('useAuthStore', () => {
     await expect(auth.changeOwnPassword('wrong', 'NewPass1234')).rejects.toMatchObject({ status: 401 })
   })
 })
+
+// Список учётных записей и список сессий — тот же класс гонок, что у остальных сторов (utils/latestRequest.ts): загрузка, начатая ДО
+// подтверждённого изменения, отвечает позже и приносит снимок без него.
+describe('useAuthStore: загрузка списков и подтверждённые изменения', () => {
+  const bob = { ...adminUser, id: 'u2', username: 'bob', role: 'viewer' as const }
+  const session = (id: string) => ({
+    id,
+    created_at: '2026-01-01T00:00:00',
+    expires_at: '2026-01-02T00:00:00',
+    user_agent: null,
+    ip_address: null,
+    current: false,
+  })
+
+  type Call = { url: string; method: string; respond: (status: number, body?: unknown) => void }
+
+  /** fetch, ответами на который управляет тест: запрос ждёт, пока его не вызовут respond. */
+  function manualFetch() {
+    const calls: Call[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (url: string, init?: RequestInit) =>
+          new Promise<Response>((resolve) => {
+            const respond = (status: number, body?: unknown) => resolve(new Response(body === undefined ? null : JSON.stringify(body), { status }))
+            calls.push({ url, method: init?.method ?? 'GET', respond })
+          }),
+      ),
+    )
+    /** Ждёт, пока стор отправит `numberth` запрос с этим методом и адресом (до отправки он проходит через несколько await). */
+    async function request(method: string, urlPart: string, index = 0): Promise<Call> {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const found = calls.filter((c) => c.method === method && c.url.includes(urlPart))[index]
+        if (found) return found
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      throw new Error(`Запрос ${method} ${urlPart} №${index + 1} не был отправлен`)
+    }
+    return { request }
+  }
+
+  it('fetchUsers(): ответ более раннего запроса не затирает ответ более позднего', async () => {
+    const http = manualFetch()
+    const auth = useAuthStore()
+
+    const first = auth.fetchUsers()
+    const second = auth.fetchUsers()
+    ;(await http.request('GET', '/auth/users', 1)).respond(200, [adminUser, bob])
+    await second
+    ;(await http.request('GET', '/auth/users', 0)).respond(200, [adminUser])
+    await first
+
+    expect(auth.users.map((u) => u.id)).toEqual(['u1', 'u2'])
+    expect(auth.usersLoading).toBe(false)
+  })
+
+  it('createUser(): загрузка списка, начатая до создания, не стирает новую учётку; список перечитывается', async () => {
+    const http = manualFetch()
+    const auth = useAuthStore()
+
+    const load = auth.fetchUsers()
+    const create = auth.createUser('bob', 'Password1234', 'viewer')
+    ;(await http.request('POST', '/auth/users')).respond(201, bob)
+    await create
+    ;(await http.request('GET', '/auth/users', 0)).respond(200, [adminUser]) // запоздалый снимок без bob
+    await load
+    expect(auth.users.map((u) => u.id)).toEqual(['u2'])
+    expect(auth.usersLoading).toBe(true) // шла повторная загрузка — флаг не сбросил ответ отброшенной
+
+    ;(await http.request('GET', '/auth/users', 1)).respond(200, [adminUser, bob])
+    await vi.waitFor(() => expect(auth.usersLoading).toBe(false))
+    expect(auth.users.map((u) => u.id)).toEqual(['u1', 'u2'])
+  })
+
+  it('deleteUser(): загрузка списка, начатая до удаления, не возвращает удалённую учётку', async () => {
+    const http = manualFetch()
+    const auth = useAuthStore()
+    auth.users = [adminUser, bob]
+
+    const load = auth.fetchUsers()
+    const removal = auth.deleteUser('u2')
+    ;(await http.request('DELETE', '/auth/users/u2')).respond(204)
+    await removal
+    ;(await http.request('GET', '/auth/users', 0)).respond(200, [adminUser, bob]) // запоздалый снимок с удалённым
+    await load
+    expect(auth.users.map((u) => u.id)).toEqual(['u1'])
+
+    ;(await http.request('GET', '/auth/users', 1)).respond(200, [adminUser])
+    await vi.waitFor(() => expect(auth.usersLoading).toBe(false))
+    expect(auth.users.map((u) => u.id)).toEqual(['u1'])
+  })
+
+  it('updateUser(): загрузка списка, начатая до правки, не откатывает изменённую учётку', async () => {
+    const http = manualFetch()
+    const auth = useAuthStore()
+    auth.users = [adminUser, bob]
+
+    const load = auth.fetchUsers()
+    const update = auth.updateUser('u2', { role: 'admin' })
+    ;(await http.request('PUT', '/auth/users/u2')).respond(200, { ...bob, role: 'admin' })
+    await update
+    ;(await http.request('GET', '/auth/users', 0)).respond(200, [adminUser, bob]) // запоздалый снимок с прежней ролью
+    await load
+
+    expect(auth.users.find((u) => u.id === 'u2')?.role).toBe('admin')
+    ;(await http.request('GET', '/auth/users', 1)).respond(200, [adminUser, { ...bob, role: 'admin' }])
+    await vi.waitFor(() => expect(auth.usersLoading).toBe(false))
+  })
+
+  it('revokeSession(): загрузка списка сессий, начатая до отзыва, не возвращает отозванную сессию', async () => {
+    const http = manualFetch()
+    const auth = useAuthStore()
+    auth.sessions = [session('s1'), session('s2')]
+
+    const load = auth.fetchMySessions()
+    const revoke = auth.revokeSession('s2')
+    ;(await http.request('DELETE', '/auth/sessions/s2')).respond(204)
+    await revoke
+    ;(await http.request('GET', '/auth/sessions', 0)).respond(200, [session('s1'), session('s2')])
+    await load
+    expect(auth.sessions.map((s) => s.id)).toEqual(['s1'])
+    expect(auth.sessionsLoading).toBe(true)
+
+    ;(await http.request('GET', '/auth/sessions', 1)).respond(200, [session('s1')])
+    await vi.waitFor(() => expect(auth.sessionsLoading).toBe(false))
+    expect(auth.sessions.map((s) => s.id)).toEqual(['s1'])
+  })
+
+  it('мутация без загрузки в полёте не запускает повторную загрузку списка', async () => {
+    const http = manualFetch()
+    const auth = useAuthStore()
+    auth.users = [adminUser, bob]
+
+    const removal = auth.deleteUser('u2')
+    ;(await http.request('DELETE', '/auth/users/u2')).respond(204)
+    await removal
+
+    expect(auth.users.map((u) => u.id)).toEqual(['u1'])
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => (init?.method ?? 'GET') === 'GET')).toHaveLength(0)
+  })
+})

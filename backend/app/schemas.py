@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
+from .constants import AUDIT_RETENTION_MAX_DAYS
+
 
 class PhysicalDeviceCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -165,9 +167,8 @@ class AuthSettingsUpdate(BaseModel):
 
 
 # --- Настройки аудита (services/audit_retention.py, api/audit_log.py) -------------------------------
-# Верхняя граница срока хранения: десять лет. Больше — это уже «не удалять» (0), а опечатка вроде лишнего нуля не должна молча
-# превращаться в «хранить вечно».
-AUDIT_RETENTION_MAX_DAYS = 3650
+# Верхняя граница срока хранения (constants.AUDIT_RETENTION_MAX_DAYS): десять лет. Больше — это уже «не удалять» (0), а опечатка вроде
+# лишнего нуля не должна молча превращаться в «хранить вечно».
 
 
 class AuditSettingsUpdate(BaseModel):
@@ -176,6 +177,25 @@ class AuditSettingsUpdate(BaseModel):
     а ошибка клиента, и тихо превращать их в число не нужно. extra="forbid": опечатка в имени поля — 422, а не молчаливое «сохранено»."""
     model_config = ConfigDict(extra="forbid")
     retention_days: Optional[StrictInt] = Field(default=None, ge=0, le=AUDIT_RETENTION_MAX_DAYS)
+
+
+class AuditSettingsOut(BaseModel):
+    """GET /api/v1/audit-log/settings. retention_days — действующий срок (0 — не удалять); is_default — срок в форме не задан, действует
+    default_retention_days (из окружения); max_retention_days — верхняя граница; last_cleanup_at — ISO 8601 UTC или null. Форму JSON
+    повторяет вручную написанный тип frontend-vue/src/api/types/audit.ts: менять поля только вместе с ним."""
+    retention_days: int
+    is_default: bool
+    default_retention_days: int
+    max_retention_days: int
+    last_cleanup_at: Optional[str]
+
+
+class AuditSettingsSaveOut(AuditSettingsOut):
+    """PUT /api/v1/audit-log/settings: настройки после сохранения + итог немедленной очистки по новому сроку. Если в теле не было
+    retention_days, сохранять нечего и ответ — как у GET: removed_now и cleanup_failed в него не попадают (эндпоинт отдаёт только заданные
+    поля)."""
+    removed_now: Optional[int] = None  # сколько записей удалено сразу при сохранении
+    cleanup_failed: Optional[bool] = None  # срок сохранён, но очистка не удалась; повторится при ближайшем ленивом запуске
 
 
 # --- Настройки интерфейса (services/preferences.py, api/preferences.py) -----------------------------

@@ -26,7 +26,7 @@ from app.services.audit_retention import (
     purge_expired_entries,
     run_cleanup,
     run_scheduled_cleanup,
-    serialize_audit_settings,
+    retention_state,
     update_retention,
 )
 from app.services.timeutil import utcnow_naive
@@ -89,13 +89,14 @@ class TestDefaultBehaviourIsUnchanged:
         assert run_cleanup(db_session, now=now, actor=None) is None
 
     def test_default_settings_are_serialized_as_not_deleting(self, db_session):
-        assert serialize_audit_settings(get_audit_settings(db_session)) == {
-            "retention_days": 0,
-            "is_default": True,
-            "default_retention_days": 0,
-            "max_retention_days": 3650,
-            "last_cleanup_at": None,
-        }
+        expected = audit_retention.RetentionState(
+            retention_days=0,
+            is_default=True,
+            default_retention_days=0,
+            max_retention_days=3650,
+            last_cleanup_at=None,
+        )
+        assert retention_state(get_audit_settings(db_session)) == expected
 
     def test_environment_default_applies_until_the_form_overrides_it(self, db_session, now, monkeypatch):
         monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 30)
@@ -105,8 +106,21 @@ class TestDefaultBehaviourIsUnchanged:
         assert _details(db_session) == ["свежая"]
 
         _set_retention(db_session, 0)  # явный 0 в форме важнее умолчания из окружения
-        assert serialize_audit_settings(get_audit_settings(db_session))["retention_days"] == 0
-        assert serialize_audit_settings(get_audit_settings(db_session))["is_default"] is False
+        assert retention_state(get_audit_settings(db_session)).retention_days == 0
+        assert retention_state(get_audit_settings(db_session)).is_default is False
+
+
+class TestLayering:
+    def test_the_service_does_not_depend_on_the_transport_layer(self):
+        """Сервис не импортирует schemas (слой транспорта) и не собирает JSON ответа: именованные поля и ISO-строки — дело API."""
+        import ast
+        from pathlib import Path
+
+        tree = ast.parse(Path(audit_retention.__file__).read_text(encoding="utf-8"))
+        imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+
+        assert "schemas" not in imported
+        assert not hasattr(audit_retention, "serialize_audit_settings")
 
 
 class TestPurge:
@@ -226,7 +240,7 @@ class TestScheduledRunsAtMostOncePerDay:
         _set_retention(db_session, 30)
         run_scheduled_cleanup(db_session, now=now)
 
-        assert serialize_audit_settings(get_audit_settings(db_session))["last_cleanup_at"] == now.isoformat() + "+00:00"
+        assert retention_state(get_audit_settings(db_session)).last_cleanup_at == now
 
     def test_a_database_error_is_logged_and_does_not_reach_the_caller(self, db_session, now, monkeypatch, caplog):
         _set_retention(db_session, 30)
@@ -241,6 +255,174 @@ class TestScheduledRunsAtMostOncePerDay:
         assert "Очистка журнала аудита по сроку хранения не выполнена" in caplog.text
         assert get_audit_settings(db_session).retention_days == 30, "сессия исправна, настройки читаются"
         assert get_audit_settings(db_session).last_cleanup_at is None, "очистка не засчитана: следующий запуск повторит попытку"
+
+
+class TestPinningTheDefaultValue:
+    """R-07в: срок, равный действующему умолчанию, но ещё не заданный в форме, сохраняется как явное значение («зафиксирован»).
+    Запись в журнале при этом не должна гласить «не ограничен → не ограничен»."""
+
+    def test_pinning_zero_over_the_default_zero_says_so_instead_of_an_arrow_between_equal_values(self, db_session, now):
+        assert get_audit_settings(db_session) is None  # срок в форме не задавался: действует умолчание 0
+
+        update = update_retention(db_session, 0, now=now)
+
+        assert update.row.retention_days == 0, "значение сохранено явно: оно переживёт смену INFRA_REGISTRY_AUDIT_RETENTION_DAYS"
+        (entry,) = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()
+        assert "зафиксирован" in entry.details and "→" not in entry.details, entry.details
+
+    def test_pinning_the_environment_default_value_reads_the_same_way(self, db_session, now, monkeypatch):
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 30)
+
+        update_retention(db_session, 30, now=now)
+
+        (entry,) = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()
+        assert "30 дн." in entry.details and "зафиксирован" in entry.details and "→" not in entry.details, entry.details
+
+    def test_a_real_change_still_shows_both_values(self, db_session, now):
+        update_retention(db_session, 90, now=now)
+
+        (entry,) = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()
+        assert entry.details == "Срок хранения журнала аудита: не ограничен → 90 дн."
+
+    def test_saving_the_same_stored_value_again_writes_nothing(self, db_session, now):
+        update_retention(db_session, 0, now=now)
+
+        update_retention(db_session, 0, now=now)
+
+        assert len(db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY)).all()) == 1
+
+
+class TestOverlappingScheduledRuns:
+    """Запуск «занимается» атомарно, поэтому одновременные запросы (и воркеры) не чистят журнал дважды."""
+
+    def test_a_run_that_starts_in_the_middle_of_another_one_does_nothing(self, db_session, now, monkeypatch):
+        from sqlalchemy.orm import sessionmaker
+
+        _set_retention(db_session, 30)
+        _seed(db_session, *_old(now, 4))
+        other_session = sessionmaker(bind=db_session.get_bind(), autoflush=False, expire_on_commit=False)()
+        real_purge, overlapping = audit_retention.purge_expired_entries, []
+
+        def purge_while_another_request_arrives(session, days, **kwargs):
+            if not overlapping:  # второй запрос открыл журнал, пока первый ещё не удалил ни одной строки
+                overlapping.append(run_scheduled_cleanup(other_session, now=now))
+            return real_purge(session, days, **kwargs)
+
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", purge_while_another_request_arrives)
+
+        try:
+            first = run_scheduled_cleanup(db_session, now=now)
+        finally:
+            other_session.close()  # открытая транзакция второй сессии на PostgreSQL блокировала бы очистку таблиц следующим тестом
+        assert (first, overlapping) == (4, [0]), "очистку выполнил первый запуск; второй увидел занятую отметку и ушёл"
+        records = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY, AuditLog.action == "DELETE")).all()
+        assert len(records) == 1, "запись «удалено N» одна"
+
+    def test_a_failed_run_gives_the_claim_back_so_the_next_run_retries(self, db_session, now, monkeypatch):
+        _set_retention(db_session, 30)
+        earlier = now - timedelta(days=3)
+        get_audit_settings(db_session).last_cleanup_at = earlier
+        _seed(db_session, *_old(now, 2))
+        real_purge = audit_retention.purge_expired_entries
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("сбой")))
+
+        assert run_scheduled_cleanup(db_session, now=now) == 0
+
+        assert get_audit_settings(db_session).last_cleanup_at == earlier, "отметка «очистка была» не должна копиться на сбое"
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", real_purge)
+        assert run_scheduled_cleanup(db_session, now=now) == 2
+
+    def test_an_incomplete_run_stays_due_even_after_an_older_cleanup(self, db_session, now, monkeypatch):
+        _set_retention(db_session, 30)
+        get_audit_settings(db_session).last_cleanup_at = now - timedelta(days=3)
+        _seed(db_session, *_old(now, 5))
+        monkeypatch.setattr(audit_retention, "BATCH_SIZE", 2)
+        monkeypatch.setattr(audit_retention, "MAX_BATCHES_PER_RUN", 1)
+
+        assert run_scheduled_cleanup(db_session, now=now) == 2
+
+        assert get_audit_settings(db_session).last_cleanup_at is None, "остаток удалит следующий запуск без ожидания суток"
+        assert run_scheduled_cleanup(db_session, now=now + timedelta(minutes=1)) == 2
+
+    def test_the_settings_row_is_created_for_the_environment_default(self, db_session, now, monkeypatch):
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 30)
+        _seed(db_session, *_old(now, 2))
+        assert get_audit_settings(db_session) is None
+
+        assert run_scheduled_cleanup(db_session, now=now) == 2
+
+        assert get_audit_settings(db_session).last_cleanup_at == now
+
+    def test_the_own_session_entry_point_cleans_through_a_separate_session(self, db_session, now, client_factory):
+        _set_retention(db_session, 30)
+        _seed(db_session, *_old(now, 3))
+
+        assert audit_retention.run_scheduled_cleanup_in_own_session() == 3
+
+        assert _details(db_session) == []
+
+
+class TestOverlappingRunsOnPostgres:
+    @pytest.mark.postgres_only
+    def test_two_simultaneous_requests_purge_the_log_once(self, db_session, now, client_factory, monkeypatch):
+        """Два потока (два запроса/воркера) открывают журнал одновременно, каждый в своей сессии: чистит один, запись об очистке одна."""
+        import threading
+        import time
+
+        _set_retention(db_session, 30)
+        _seed(db_session, *_old(now, 4))
+        real_purge, purge_calls = audit_retention.purge_expired_entries, []
+
+        def slow_counted_purge(session, days, **kwargs):
+            purge_calls.append(days)
+            time.sleep(0.5)  # окно, в котором второй поток успевает прочитать «очистка назначена»
+            return real_purge(session, days, **kwargs)
+
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", slow_counted_purge)
+        barrier, results = threading.Barrier(2), []
+
+        def request() -> None:
+            barrier.wait()
+            results.append(audit_retention.run_scheduled_cleanup_in_own_session())
+
+        threads = [threading.Thread(target=request) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert sorted(results) == [0, 4] and len(purge_calls) == 1
+        db_session.expire_all()
+        records = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == AUDIT_ENTITY, AuditLog.action == "DELETE")).all()
+        assert len(records) == 1
+
+
+class TestScheduledRunNeverRaises:
+    """Контракт `run_scheduled_cleanup`: «не бросает» — любой сбой очистки (не только БД) пишется в журнал приложения и возвращает 0."""
+
+    def test_an_overflowing_period_is_logged_and_does_not_escape(self, db_session, now, monkeypatch, caplog):
+        # Срок из окружения без верхней границы: now - timedelta(days=10**6) → OverflowError («date value out of range»).
+        monkeypatch.setattr(audit_retention, "AUDIT_RETENTION_DAYS", 10**6)
+
+        with caplog.at_level(logging.ERROR, logger="app.services.audit_retention"):
+            assert run_scheduled_cleanup(db_session, now=now) == 0
+
+        assert "Очистка журнала аудита по сроку хранения не выполнена" in caplog.text
+        assert get_audit_settings(db_session) is None or get_audit_settings(db_session).last_cleanup_at is None, "очистка не засчитана"
+
+    def test_any_unexpected_error_inside_the_purge_is_contained(self, db_session, now, monkeypatch, caplog):
+        db_session.add(AuditSettings(id="singleton", retention_days=30))
+        db_session.commit()
+
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("неожиданный сбой")
+
+        monkeypatch.setattr(audit_retention, "purge_expired_entries", boom)
+
+        with caplog.at_level(logging.ERROR, logger="app.services.audit_retention"):
+            assert run_scheduled_cleanup(db_session, now=now) == 0
+
+        assert "неожиданный сбой" in caplog.text
 
 
 class TestUpdateRetention:
@@ -295,7 +477,7 @@ class TestUpdateRetention:
         update = update_retention(db_session, None, now=now)
 
         assert update.row.retention_days is None
-        assert serialize_audit_settings(update.row)["is_default"] is True
+        assert retention_state(update.row).is_default is True
         assert _service_entries(db_session)[-1].details == "Срок хранения журнала аудита: 90 дн. → не ограничен (сброшен к значению по умолчанию)"
 
     def test_a_failed_cleanup_keeps_the_saved_period_and_is_reported(self, db_session, now, monkeypatch):
@@ -309,4 +491,4 @@ class TestUpdateRetention:
         assert (update.removed, update.cleanup_failed) == (0, True)
         assert get_audit_settings(db_session).retention_days == 90
         assert [entry.action for entry in _service_entries(db_session)] == ["UPDATE"]
-        assert serialize_audit_settings(update.row, removed_now=update.removed, cleanup_failed=update.cleanup_failed)["cleanup_failed"] is True
+        assert update.cleanup_failed is True
