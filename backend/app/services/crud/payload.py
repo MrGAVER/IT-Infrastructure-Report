@@ -46,7 +46,7 @@ def validate_payload_schema(resource: str, payload: dict[str, Any], *, is_update
 
 
 # Служебные ключи, которые generic CRUD читает из payload напрямую (они не колонки модели).
-_SERVICE_PAYLOAD_KEYS = frozenset({'confirm_system_name_duplicate', 'confirm_rack_position_reassign'})
+_SERVICE_PAYLOAD_KEYS = frozenset({'confirm_system_name_duplicate', 'confirm_rack_position_reassign', 'expected_updated_at'})
 
 
 # Ключи, которые клиент может вернуть «эхом» из ранее полученной записи; generic CRUD их и так игнорирует

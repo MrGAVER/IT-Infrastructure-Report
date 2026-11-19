@@ -29,6 +29,9 @@ class ErrorCode:
     WRONG_CURRENT_PASSWORD = "WRONG_CURRENT_PASSWORD"  # nosec B105 # код ошибки API, не пароль
     INTEGRITY_ERROR = "INTEGRITY_ERROR"
     REQUEST_BODY_TOO_LARGE = "REQUEST_BODY_TOO_LARGE"
+    # 409 на PUT /resources/{ресурс}/{id}: клиент прислал expected_updated_at,
+    # а запись с тех пор изменил другой пользователь (код-ревью С-4).
+    STALE_RECORD = "STALE_RECORD"
 
 
 class AuditAction:
