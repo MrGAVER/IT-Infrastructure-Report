@@ -16,7 +16,7 @@ from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
 from ...constants import AuditAction
 from ..integrity import integrity_error_response
-from .audit_log import _describe_update, audit
+from .audit_log import _describe_update, audit, describe_record
 from .columns import allowed_columns, model_for
 from ..timeutil import to_naive_utc
 from .hooks import hooks_for
@@ -120,7 +120,8 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     with _translated_write_errors(resource, session):
         session.flush()
         hooks.after_create(obj, session)
-        audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
+        audit(session, resource, str(obj.id), AuditAction.CREATE, f'Создание записи: {describe_record(obj)}')
+        session.commit()
         return hooks.to_dict(obj, session)
 
 
