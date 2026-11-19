@@ -154,6 +154,60 @@ jobs:
           docker rm -f infra-registry-smoke
           test "$ok" = 1
 
+  # Windows: продукт поставляется как Windows-EXE (Н-7 код-ревью 2.160.0), а остальные задания идут на ubuntu. launcher.py, infra_registry.spec,
+  # резервная копия SQLite перед миграцией (os.replace, блокировки файлов), запуск экспорта .vsdx в дочернем процессе (spawn) и пути вида
+  # C:\... проверяются только здесь. Набор намеренно узкий — только то, что зависит от платформы: полный набор тестов уже идёт на Linux.
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Установить Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.lock
+
+      - name: Установить зависимости (runtime + dev + набор для сборки EXE)
+        # Lock-файлы универсальные (uv --universal): в них есть и пакеты только для win32 (colorama, tzdata). Набор для сборки нужен,
+        # чтобы test_pyinstaller_spec.py реально выполнялся, а не пропускался из-за отсутствия PyInstaller.
+        run: |
+          pip install --require-hashes -r backend/requirements-dev.lock
+          pip install --require-hashes -r backend/requirements-build.lock
+
+      - name: Тесты, зависящие от платформы (резервная копия, спецификация PyInstaller, сборка .bat)
+        # Бюджет «неожиданных» пропусков (ИА-08, backend/tests/skip_budget.py) — 0: PyInstaller здесь установлен, spec-тест обязан выполняться.
+        env:
+          INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "0"
+        run: pytest backend/tests/test_launcher_backup.py backend/tests/test_review_p2_db_backup_cli.py backend/tests/test_pyinstaller_spec.py backend/tests/test_build_windows_bat.py -v -rs -p no:cacheprovider
+
+      - name: Запуск launcher.py — миграции применяются, сервер отвечает на /api/v1/health
+        # Как у пользователя без EXE: python launcher.py --no-browser на пустом каталоге данных. Собранный frontend не нужен: health его не использует.
+        env:
+          INFRA_REGISTRY_DATA_DIR: ${{ runner.temp }}\registry-data
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'launcher.out.log'
+          $err = Join-Path $env:RUNNER_TEMP 'launcher.err.log'
+          $process = Start-Process python -ArgumentList 'launcher.py', '--no-browser', '--port', '8765' -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+          $ok = $false
+          try {
+            for ($i = 0; $i -lt 40 -and -not $ok -and -not $process.HasExited; $i++) {
+              try { $ok = (Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/v1/health' -TimeoutSec 2).status -eq 'ok' }
+              catch { Start-Sleep -Seconds 2 }
+            }
+          }
+          finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            Get-Content $out, $err
+          }
+          if (-not $ok) { throw 'launcher.py не ответил на /api/v1/health' }
+          if (-not (Test-Path (Join-Path $env:INFRA_REGISTRY_DATA_DIR 'infra_registry.db'))) { throw 'launcher.py не создал файл базы' }
+
   # Проверки интерфейса в настоящем браузере (Playwright, Chromium): мобильное меню, иконки, шрифты и вёрстка 17 экранов на трёх
   # размерах окна. Юнит-тесты vitest раскладку не считают (jsdom), поэтому обрезанное меню, пустые иконки спрайта и запросы к
   # внешнему CDN ловятся только здесь. backend поднимается на чистой SQLite (frontend-vue/e2e/start-backend.mjs), фронтенд
