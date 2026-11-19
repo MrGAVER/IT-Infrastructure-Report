@@ -1,8 +1,9 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from ..constants import MAX_PAGE_OFFSET, MAX_SEARCH_LENGTH
 from ..db import get_db
-from ..services.connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, list_connections
+from ..services.connection_query import ConnectionQuery, list_connections
 from ..services.connection_review import approve_port_config, preview_port_config, revoke_port_config_approval, set_port_role
 from ..services.port_config import PortConfigStatus
 from ..services.port_edit import apply_port_config
@@ -19,7 +20,7 @@ def connections_page(
     q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
     is_active: bool | None = None,
     port_config_status: PortConfigStatus | None = None,
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_PAGE_OFFSET),
     limit: int = Query(25, ge=1, le=200),
     session: Session = Depends(get_db),
 ):

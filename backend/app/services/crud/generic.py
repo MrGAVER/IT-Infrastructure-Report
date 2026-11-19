@@ -37,7 +37,9 @@ def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
         # присланное клиентом обратно (например, created_at записи как граница периода), приводится к UTC без tzinfo —
         # иначе сравнение с колонкой шло бы по тексту со смещением. Чистая дата и время без смещения — как раньше.
         return to_naive_utc(datetime.fromisoformat(text))
-    except ValueError as exc:
+    except (ValueError, OverflowError) as exc:
+        # OverflowError — не подкласс ValueError: приведение крайней даты со смещением к UTC («0001-01-01T00:00:00+14:00»,
+        # «9999-12-31T23:59:59-14:00») выходит за пределы datetime и раньше отвечало 500.
         raise HTTPException(422, f'Некорректная дата: {value}') from exc
 
 

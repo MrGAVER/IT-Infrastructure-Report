@@ -3,11 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
+from ..constants import MAX_PAGE_OFFSET, MAX_SEARCH_LENGTH
 from ..db import get_db
 from ..models import AuditSettings
 from ..schemas import AuditSettingsOut, AuditSettingsSaveOut, AuditSettingsUpdate
 from ..services.auth import require_admin_if_auth_enabled
-from ..services.audit_query import AuditQuery, MAX_SEARCH_LENGTH, list_audit_log
+from ..services.audit_query import AuditQuery, list_audit_log
 from ..services.audit_retention import get_audit_settings, retention_state, run_scheduled_cleanup_in_own_session, update_retention
 from ..services.timeutil import iso_utc
 
@@ -22,7 +23,7 @@ def audit_log_page(
     q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
     action: str | None = Query(None, max_length=50),
     entity_type: str | None = Query(None, max_length=100),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_PAGE_OFFSET),
     limit: int = Query(24, ge=1, le=200),
     session: Session = Depends(get_db),
 ):
