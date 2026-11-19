@@ -33,6 +33,9 @@ _SECURITY_HEADERS = {
 # страницы документации, а данных реестра на них нет.
 _CSP_EXEMPT_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect", "/openapi.json"})
 
+# Ответы API несут данные реестра; статические файлы интерфейса (/assets/…) кэшируются как обычно.
+_NO_STORE_PREFIX = "/api/"
+
 
 def apply_security_headers(headers: MutableHeaders, path: str = "") -> None:
     """Дописывает недостающие заголовки безопасности; уже стоящие не трогает (регистр имени не важен)."""
@@ -43,6 +46,10 @@ def apply_security_headers(headers: MutableHeaders, path: str = "") -> None:
     # (см. config.CSP_POLICY) — например, когда её выставляет обратный прокси.
     if CSP_POLICY and path not in _CSP_EXEMPT_PATHS:
         headers.setdefault("Content-Security-Policy", CSP_POLICY)
+    # Данные реестра не должны оседать в кэше браузера и промежуточных прокси — на общем компьютере их потом откроет следующий
+    # пользователь (код-ревью Н-2). setdefault: ответ, у которого обработчик сам задал Cache-Control, остаётся как есть.
+    if path.startswith(_NO_STORE_PREFIX):
+        headers.setdefault("Cache-Control", "no-store")
 
 
 def with_security_headers(response, path: str = ""):

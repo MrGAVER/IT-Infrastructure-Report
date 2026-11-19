@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..config import APP_VERSION
 from ..db import get_db
 from ..models import Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine
 from ..services.catalogs import seed_defaults
@@ -12,7 +11,10 @@ from ..services.integrity import find_duplicate_open_port_numbers, find_off_port
 router = APIRouter(tags=['System'])
 
 @router.get('/api/v1/health')
-def health(): return {'status':'ok','service':'infra-registry','version':APP_VERSION}
+def health():
+    """Проверка живости для Docker, CI и балансировщиков. Путь публичный (до входа), поэтому версию приложения не отдаёт: по ней
+    посторонний подбирает известные уязвимости (код-ревью Н-2). Версия — в CHANGELOG.md и, если включён ENABLE_DOCS, в /openapi.json."""
+    return {'status': 'ok', 'service': 'infra-registry'}
 
 @router.get('/api/v1/integrity')
 def integrity_report(session: Session = Depends(get_db)):
