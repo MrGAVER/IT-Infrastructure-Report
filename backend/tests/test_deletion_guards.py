@@ -42,6 +42,9 @@ ALLOWED_DELETIONS = {
     # сессии и учётные записи
     ("app/services/auth/users.py", "delete_user", "user"),
     ("app/services/auth/sessions.py", "cleanup_expired_sessions", "AuthSession"),
+    # предел числа сессий на пользователя (код-ревью Н-10): при входе сверх MAX_SESSIONS_PER_USER удаляются самые старые
+    # сессии этого же пользователя (листовая таблица; тесты — test_review_p1_session_limit.py)
+    ("app/services/auth/sessions.py", "_trim_user_sessions", "AuthSession"),
     ("app/services/auth/sessions.py", "resolve_session", "row"),
     ("app/services/auth/sessions.py", "revoke_session", "AuthSession"),
     ("app/services/auth/sessions.py", "revoke_all_sessions", "AuthSession"),
