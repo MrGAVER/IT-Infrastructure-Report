@@ -22,6 +22,7 @@ BAT = ROOT / "installer" / "build_windows.bat"
 README_EXE = ROOT / "installer" / "README_EXE.md"
 README = ROOT / "README.md"
 LAUNCHER = ROOT / "launcher.py"
+DB_BACKUP = ROOT / "backend" / "app" / "services" / "db_backup.py"
 
 COPY_LINE = re.compile(r"^copy\s+/Y\s+(?P<src>\S+)\s+(?P<dst>\S+)(?P<tail>.*)$", re.IGNORECASE)
 
@@ -95,8 +96,9 @@ class TestReadmeExe:
         assert documented == known, f"таблица настроек расходится с кодом: {documented ^ known}"
         assert f"`{exe_settings.DEFAULT_PORT}`" in text
 
-    def test_number_of_kept_backups_matches_the_launcher(self, text):
-        keep = re.search(r"^BACKUPS_TO_KEEP = (\d+)$", LAUNCHER.read_text(encoding="utf-8"), re.MULTILINE)
+    def test_number_of_kept_backups_matches_the_backup_module(self, text):
+        """Копию делает общий модуль app/services/db_backup.py (его же использует docker-entrypoint.sh), а не сам launcher.py."""
+        keep = re.search(r"^BACKUPS_TO_KEEP = (\d+)$", DB_BACKUP.read_text(encoding="utf-8"), re.MULTILINE)
         assert keep and f"{keep.group(1)} последних" in text
         assert "infra_registry.pre-" in text
 

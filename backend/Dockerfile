@@ -20,6 +20,8 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY backend/app ./app
 COPY backend/alembic.ini .
 COPY backend/alembic ./alembic
+# Точка входа: резервная копия SQLite → миграции → сервер (см. комментарий в самом файле).
+COPY backend/docker-entrypoint.sh ./docker-entrypoint.sh
 # Единственный UI (см. backend/app/config.py:FRONTEND_DIR) — собран на предыдущем стейдже, а не
 # скопирован с хоста: так образ воспроизводим из исходников одной командой `docker build`,
 # без обязательного локального `npm run build` перед сборкой образа.
@@ -45,6 +47,7 @@ RUN groupadd --system app && useradd --system --gid app --home-dir /app/data app
 USER app
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=5 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3).status==200 else 1)"
-# exec: uvicorn заменяет оболочку и становится PID 1, поэтому SIGTERM от `docker stop` доходит до приложения и оно завершается
-# корректно, а не через 10 с по SIGKILL (без exec процесс был потомком sh, который сигнал не пересылает).
-CMD ["sh","-c","alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Команда запуска — в docker-entrypoint.sh: копия SQLite-базы (при сбое миграция не начинается) → alembic upgrade head →
+# `exec uvicorn` (uvicorn заменяет оболочку и становится PID 1, поэтому SIGTERM от `docker stop` доходит до приложения и оно
+# завершается корректно, а не через 10 с по SIGKILL). Скрипт запускается через sh, а не по биту исполнения: на Windows он теряется.
+CMD ["sh","/app/docker-entrypoint.sh"]

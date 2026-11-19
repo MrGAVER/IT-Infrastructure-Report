@@ -1,4 +1,4 @@
-"""A-12: резервная копия SQLite-БД перед миграцией (launcher.backup_before_migration).
+"""A-12: резервная копия SQLite-БД перед миграцией (app.services.db_backup.backup_before_migration; EXE вызывает её из launcher.migrate).
 
 Раньше EXE при каждом старте сразу выполнял `alembic upgrade head` на пользовательской БД: часть ревизий необратима
 (удаляет данные), DDL в SQLite нетранзакционен, и пользователь, обновивший EXE и получивший ошибку миграции, не имел пути
@@ -32,6 +32,14 @@ def launcher(monkeypatch):
     module = importlib.import_module("launcher")
     yield module
     sys.modules.pop("launcher", None)
+
+
+@pytest.fixture()
+def db_backup():
+    """Общий модуль копирования (его используют и EXE, и docker-entrypoint.sh)."""
+    import app.services.db_backup as module
+
+    return module
 
 
 def _make_cfg(db_path: Path) -> Config:
@@ -104,12 +112,12 @@ def _dump(path: Path) -> list[str]:
 # Когда копия делается
 # ---------------------------------------------------------------------------------------------------------------------
 class TestWhenBackupIsMade:
-    def test_old_revision_gets_a_backup_with_the_same_rows(self, launcher, old_db, tmp_path):
+    def test_old_revision_gets_a_backup_with_the_same_rows(self, db_backup, old_db, tmp_path):
         before = _dump(old_db)
-        backup = launcher.backup_before_migration(old_db, _make_cfg(old_db))
+        backup = db_backup.backup_before_migration(old_db, _make_cfg(old_db))
 
         assert backup is not None and backup.parent == tmp_path
-        assert launcher._backup_pattern(old_db).match(backup.name), backup.name
+        assert db_backup._backup_pattern(old_db).match(backup.name), backup.name
         assert backup.name.startswith("infra_registry.pre-") and backup.suffix == ".bak"
         with sqlite3.connect(backup) as conn:
             assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
@@ -119,12 +127,12 @@ class TestWhenBackupIsMade:
         assert _dump(old_db) == before, "исходная БД не тронута"
         assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")] == [], "временный файл не остаётся"
 
-    def test_head_revision_gets_no_backup(self, launcher, head_db, tmp_path, head_revisions):
-        assert launcher.backup_before_migration(head_db, _make_cfg(head_db)) is None
+    def test_head_revision_gets_no_backup(self, db_backup, head_db, tmp_path, head_revisions):
+        assert db_backup.backup_before_migration(head_db, _make_cfg(head_db)) is None
         assert _backups(tmp_path) == []
 
     @pytest.mark.parametrize("kind", ["missing", "zero-bytes", "no-tables"])
-    def test_nothing_to_preserve_means_no_backup(self, launcher, tmp_path, kind):
+    def test_nothing_to_preserve_means_no_backup(self, db_backup, tmp_path, kind):
         db_path = tmp_path / DB_NAME
         if kind == "zero-bytes":
             db_path.write_bytes(b"")
@@ -132,39 +140,39 @@ class TestWhenBackupIsMade:
             with sqlite3.connect(db_path) as conn:
                 conn.execute("CREATE TABLE t (x)")
                 conn.execute("DROP TABLE t")
-        assert launcher.backup_before_migration(db_path, _make_cfg(db_path)) is None
+        assert db_backup.backup_before_migration(db_path, _make_cfg(db_path)) is None
         assert _backups(tmp_path) == []
         assert db_path.exists() == (kind != "missing"), "проверка не создаёт файл БД"
 
-    def test_database_with_tables_but_without_alembic_version_is_backed_up(self, launcher, tmp_path):
+    def test_database_with_tables_but_without_alembic_version_is_backed_up(self, db_backup, tmp_path):
         """Старая БД, созданная без alembic (или с потерянной таблицей версий): миграция её изменит — копия нужна."""
         db_path = tmp_path / DB_NAME
         with sqlite3.connect(db_path) as conn:
             conn.execute("CREATE TABLE manufacturers (id TEXT, name TEXT)")
             conn.execute("INSERT INTO manufacturers VALUES ('1', 'Старый')")
-        backup = launcher.backup_before_migration(db_path, _make_cfg(db_path))
+        backup = db_backup.backup_before_migration(db_path, _make_cfg(db_path))
         assert backup is not None
         with sqlite3.connect(backup) as conn:
             assert conn.execute("SELECT name FROM manufacturers").fetchall() == [("Старый",)]
 
-    def test_only_the_alembic_table_does_not_count_as_data(self, launcher, tmp_path):
+    def test_only_the_alembic_table_does_not_count_as_data(self, db_backup, tmp_path):
         db_path = tmp_path / DB_NAME
         with sqlite3.connect(db_path) as conn:
             conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
-        assert launcher.backup_before_migration(db_path, _make_cfg(db_path)) is None
+        assert db_backup.backup_before_migration(db_path, _make_cfg(db_path)) is None
 
-    def test_backup_name_carries_the_target_revision_and_the_time(self, launcher, old_db, monkeypatch, head_revisions):
-        monkeypatch.setattr(launcher, "_timestamp", lambda: "20261024-093000")
-        backup = launcher.backup_before_migration(old_db, _make_cfg(old_db))
+    def test_backup_name_carries_the_target_revision_and_the_time(self, db_backup, old_db, monkeypatch, head_revisions):
+        monkeypatch.setattr(db_backup, "_timestamp", lambda: "20261024-093000")
+        backup = db_backup.backup_before_migration(old_db, _make_cfg(old_db))
         assert backup.name == f"infra_registry.pre-{min(head_revisions)[:8]}.20261024-093000.bak"
 
-    def test_backup_is_consistent_while_another_connection_has_uncommitted_changes(self, launcher, old_db):
+    def test_backup_is_consistent_while_another_connection_has_uncommitted_changes(self, db_backup, old_db):
         """Копия — через sqlite3.backup, а не копирование файла: незавершённая транзакция в неё не попадает."""
         other = sqlite3.connect(old_db, isolation_level=None)
         try:
             other.execute("BEGIN IMMEDIATE")
             other.execute("INSERT INTO manufacturers (id, name, created_at, updated_at) VALUES ('m-2', 'Не зафиксирована', '2026', '2026')")
-            backup = launcher.backup_before_migration(old_db, _make_cfg(old_db))
+            backup = db_backup.backup_before_migration(old_db, _make_cfg(old_db))
         finally:
             other.execute("ROLLBACK")
             other.close()
@@ -177,17 +185,17 @@ class TestWhenBackupIsMade:
 # Ротация
 # ---------------------------------------------------------------------------------------------------------------------
 class TestRotation:
-    def test_keeps_the_five_newest_backups(self, launcher, old_db, tmp_path, monkeypatch):
+    def test_keeps_the_five_newest_backups(self, db_backup, old_db, tmp_path, monkeypatch):
         stamps = iter(f"2026102{day}-120000" for day in range(1, 8))
-        monkeypatch.setattr(launcher, "_timestamp", lambda: next(stamps))
-        created = [launcher.backup_before_migration(old_db, _make_cfg(old_db)) for _ in range(7)]
+        monkeypatch.setattr(db_backup, "_timestamp", lambda: next(stamps))
+        created = [db_backup.backup_before_migration(old_db, _make_cfg(old_db)) for _ in range(7)]
         assert all(created)
         remaining = _backups(tmp_path)
-        assert launcher.BACKUPS_TO_KEEP == 5 and len(remaining) == 5
+        assert db_backup.BACKUPS_TO_KEEP == 5 and len(remaining) == 5
         assert remaining == sorted(p.name for p in created[2:]), "остались пять самых новых, две старейшие удалены"
         assert not created[0].exists() and not created[1].exists() and created[-1].exists()
 
-    def test_only_files_of_this_mask_are_removed(self, launcher, old_db, tmp_path, monkeypatch):
+    def test_only_files_of_this_mask_are_removed(self, db_backup, old_db, tmp_path, monkeypatch):
         foreign = [
             tmp_path / "manual_copy.bak",                                  # копия пользователя
             tmp_path / "infra_registry.bak",                               # без метки ревизии/времени
@@ -199,20 +207,20 @@ class TestRotation:
             path.write_bytes(b"x")
         (tmp_path / "infra_registry.pre-12345678.20200102-000000.bak").mkdir()  # каталог с «подходящим» именем
         stamps = iter(f"2026102{day}-120000" for day in range(1, 8))
-        monkeypatch.setattr(launcher, "_timestamp", lambda: next(stamps))
+        monkeypatch.setattr(db_backup, "_timestamp", lambda: next(stamps))
         for _ in range(7):
-            launcher.backup_before_migration(old_db, _make_cfg(old_db))
+            db_backup.backup_before_migration(old_db, _make_cfg(old_db))
         assert all(path.exists() for path in foreign)
         assert (tmp_path / "infra_registry.pre-12345678.20200102-000000.bak").is_dir()
         assert old_db.exists()
-        ours = [p for p in tmp_path.iterdir() if launcher._backup_pattern(old_db).match(p.name) and p.is_file()]
+        ours = [p for p in tmp_path.iterdir() if db_backup._backup_pattern(old_db).match(p.name) and p.is_file()]
         assert len(ours) == 5
 
-    def test_a_backup_that_cannot_be_deleted_is_a_warning_not_an_error(self, launcher, old_db, tmp_path, monkeypatch, caplog):
+    def test_a_backup_that_cannot_be_deleted_is_a_warning_not_an_error(self, db_backup, old_db, tmp_path, monkeypatch, caplog):
         stamps = iter(f"2026102{day}-120000" for day in range(1, 8))
-        monkeypatch.setattr(launcher, "_timestamp", lambda: next(stamps))
+        monkeypatch.setattr(db_backup, "_timestamp", lambda: next(stamps))
         for _ in range(5):
-            launcher.backup_before_migration(old_db, _make_cfg(old_db))
+            db_backup.backup_before_migration(old_db, _make_cfg(old_db))
         original = Path.unlink
 
         def stubborn(self, *args, **kwargs):
@@ -221,8 +229,8 @@ class TestRotation:
             return original(self, *args, **kwargs)
 
         monkeypatch.setattr(Path, "unlink", stubborn)
-        with caplog.at_level("WARNING", logger=launcher.logger.name):
-            assert launcher.backup_before_migration(old_db, _make_cfg(old_db)) is not None
+        with caplog.at_level("WARNING", logger=db_backup.logger.name):
+            assert db_backup.backup_before_migration(old_db, _make_cfg(old_db)) is not None
         assert any("20261021-120000.bak" in r.getMessage() for r in caplog.records)
 
 
@@ -230,7 +238,7 @@ class TestRotation:
 # Сбои
 # ---------------------------------------------------------------------------------------------------------------------
 class TestFailures:
-    def test_failed_backup_raises_and_leaves_no_partial_file(self, launcher, old_db, tmp_path, monkeypatch):
+    def test_failed_backup_raises_and_leaves_no_partial_file(self, db_backup, old_db, tmp_path, monkeypatch):
         real_connect = sqlite3.connect
 
         def disk_full(database, *args, **kwargs):
@@ -238,30 +246,30 @@ class TestFailures:
                 raise sqlite3.OperationalError("database or disk is full")
             return real_connect(database, *args, **kwargs)
 
-        monkeypatch.setattr(launcher.sqlite3, "connect", disk_full)
+        monkeypatch.setattr(db_backup.sqlite3, "connect", disk_full)
         before = _dump(old_db)
-        with pytest.raises(launcher.MigrationBackupError, match="резервную копию"):
-            launcher.backup_before_migration(old_db, _make_cfg(old_db))
+        with pytest.raises(db_backup.MigrationBackupError, match="резервную копию"):
+            db_backup.backup_before_migration(old_db, _make_cfg(old_db))
         monkeypatch.undo()
         assert _backups(tmp_path) == [] and not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
         assert _dump(old_db) == before
 
-    def test_corrupt_file_is_reported_as_a_backup_error(self, launcher, tmp_path):
+    def test_corrupt_file_is_reported_as_a_backup_error(self, db_backup, tmp_path):
         db_path = tmp_path / DB_NAME
         db_path.write_bytes("это не база данных SQLite".encode() * 100)
-        with pytest.raises(launcher.MigrationBackupError):
-            launcher.backup_before_migration(db_path, _make_cfg(db_path))
+        with pytest.raises(db_backup.MigrationBackupError):
+            db_backup.backup_before_migration(db_path, _make_cfg(db_path))
 
-    def test_migrate_or_fail_turns_the_error_into_a_clear_exit(self, launcher, monkeypatch, capsys):
+    def test_migrate_or_fail_turns_the_error_into_a_clear_exit(self, launcher, db_backup, monkeypatch, capsys):
         def broken():
-            raise launcher.MigrationBackupError("не удалось создать резервную копию базы X: диск заполнен")
+            raise db_backup.MigrationBackupError("не удалось создать резервную копию базы X: диск заполнен")
 
         monkeypatch.setattr(launcher, "migrate", broken)
         with pytest.raises(SystemExit) as exit_info:
             launcher.migrate_or_fail()
         assert exit_info.value.code == 2
         error = capsys.readouterr().err
-        assert "диск заполнен" in error and "База не изменена" in error and launcher.SKIP_BACKUP_ENV in error
+        assert "диск заполнен" in error and "База не изменена" in error and db_backup.SKIP_BACKUP_ENV in error
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -298,27 +306,27 @@ class TestMigrateWiring:
         launcher.migrate()
         assert (data_dir / DB_NAME).is_file() and _backups(data_dir) == []
 
-    def test_backup_failure_prevents_the_migration(self, launcher, templates, data_dir, monkeypatch):
+    def test_backup_failure_prevents_the_migration(self, launcher, db_backup, templates, data_dir, monkeypatch):
         shutil.copy(templates["old"], data_dir / DB_NAME)
         upgrades = []
         monkeypatch.setattr(command, "upgrade", lambda *args, **kwargs: upgrades.append(args))
-        monkeypatch.setattr(launcher, "backup_before_migration", lambda *a, **k: (_ for _ in ()).throw(launcher.MigrationBackupError("нет места")))
-        with pytest.raises(launcher.MigrationBackupError):
+        monkeypatch.setattr(db_backup, "backup_before_migration", lambda *a, **k: (_ for _ in ()).throw(db_backup.MigrationBackupError("нет места")))
+        with pytest.raises(db_backup.MigrationBackupError):
             launcher.migrate()
         assert upgrades == [], "без копии миграцию не начинаем"
 
     @pytest.mark.parametrize("value", ["1", "true", "YES"])
-    def test_skip_variable_runs_the_migration_without_a_backup(self, launcher, templates, data_dir, monkeypatch, value):
+    def test_skip_variable_runs_the_migration_without_a_backup(self, launcher, db_backup, templates, data_dir, monkeypatch, value):
         shutil.copy(templates["old"], data_dir / DB_NAME)
-        monkeypatch.setenv(launcher.SKIP_BACKUP_ENV, value)
+        monkeypatch.setenv(db_backup.SKIP_BACKUP_ENV, value)
         launcher.migrate()
         assert _backups(data_dir) == []
         with sqlite3.connect(data_dir / DB_NAME) as conn:
             assert conn.execute("SELECT count(*) FROM alembic_version").fetchone()[0] >= 1
 
     @pytest.mark.parametrize("value", ["", "0", "no", "off"])
-    def test_other_values_do_not_disable_the_backup(self, launcher, templates, data_dir, monkeypatch, value):
+    def test_other_values_do_not_disable_the_backup(self, launcher, db_backup, templates, data_dir, monkeypatch, value):
         shutil.copy(templates["old"], data_dir / DB_NAME)
-        monkeypatch.setenv(launcher.SKIP_BACKUP_ENV, value)
+        monkeypatch.setenv(db_backup.SKIP_BACKUP_ENV, value)
         launcher.migrate()
         assert len(_backups(data_dir)) == 1
