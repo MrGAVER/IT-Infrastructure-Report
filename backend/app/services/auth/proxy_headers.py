@@ -1,4 +1,5 @@
-"""Предупреждение о заголовках обратного прокси, которому не доверяет uvicorn (код-ревью 2.158.0, П-3)."""
+"""Заголовки обратного прокси, которым не доверяет uvicorn: предупреждение администратору (код-ревью 2.158.0, П-3) и признак
+«адрес клиента определён надёжно» для исключения «знакомый адрес» из блокировки учётной записи (код-ревью С-3)."""
 from __future__ import annotations
 
 import ipaddress
@@ -16,8 +17,10 @@ logger = logging.getLogger("app.services.auth")
 # uvicorn подставляет адрес клиента из X-Forwarded-For только тогда, когда TCP-соединение пришло с адреса из
 # FORWARDED_ALLOW_IPS. Если прокси там не перечислен, у всех клиентов за ним один адрес — прокси: троттлинг входа
 # (пара «адрес + логин» и счётчик адреса) становится общим, и неверные пароли нападающего задерживают вход настоящего
-# администратора, а «знакомым» (см. lockout.is_known_client) оказывается любой. Программно это не запретить — только заметить.
+# администратора, а «знакомым» (см. lockout.is_known_client) оказывался бы любой. Настроить прокси за администратора программа не может,
+# но может не полагаться на такой адрес: client_ip_is_reliable() ниже отключает для него исключение из блокировки учётной записи.
 _proxy_headers_warned = False  # один раз на процесс: сообщение о конфигурации, а не журнал каждого запроса
+_UNPARSED_HEADERS = frozenset({"Forwarded", "X-Real-IP"})  # заголовки, из которых uvicorn адрес клиента не берёт никогда
 
 
 def _normalize_host(value: str) -> str:
@@ -45,8 +48,9 @@ def _untrusted_proxy_header(request: Request) -> Optional[str]:
     с доверенного прокси), поэтому сравнивать client.host со списком FORWARDED_ALLOW_IPS нельзя: за правильно настроенным
     прокси адрес клиента там никогда не бывает, и предупреждение срабатывало бы на каждый запрос. Признак другой: при подмене
     адрес клиента — одна из записей самого заголовка; если заголовок пришёл, а адреса соединения среди его записей нет, значит
-    uvicorn его не разбирал. Заголовок Forwarded (RFC 7239) uvicorn не разбирает вообще, поэтому за ним адрес клиента — всегда
-    адрес прокси. Значение заголовка (его присылает кто угодно) наружу не отдаётся."""
+    uvicorn его не разбирал. Заголовки Forwarded (RFC 7239) и X-Real-IP uvicorn не разбирает вообще, поэтому за ними адрес клиента —
+    всегда адрес прокси (прокси, который шлёт и X-Forwarded-For, и X-Real-IP, при верной настройке попадает в ветку выше).
+    Значение заголовка (его присылает кто угодно) наружу не отдаётся."""
     client = request.client
     if client is None:
         return None
@@ -60,7 +64,21 @@ def _untrusted_proxy_header(request: Request) -> Optional[str]:
             return None
     if seen_entry:
         return "X-Forwarded-For"
-    return "Forwarded" if "forwarded" in request.headers else None
+    if "forwarded" in request.headers:
+        return "Forwarded"
+    return "X-Real-IP" if "x-real-ip" in request.headers else None
+
+
+def client_ip_is_reliable(request: Optional[Request]) -> bool:
+    """Можно ли считать request.client адресом самого клиента, а не прокси или NAT.
+
+    Ложь, когда адреса нет вовсе или пришёл заголовок обратного прокси, которому uvicorn не доверяет (см. _untrusted_proxy_header):
+    тогда у всех клиентов за этим прокси один адрес, и «знакомым» после первого же входа стал бы любой запрос через него. Истина — для
+    прямого соединения без прокси-заголовков и для доверенного прокси (uvicorn уже подставил адрес клиента). Ложь здесь — безопасная
+    сторона: исключение из блокировки просто не применяется. Прокси, который вовсе не шлёт заголовков, и клиенты за общим NAT
+    этим признаком не распознать — для таких развёртываний есть INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS=0
+    (README, «Аутентификация и авторизация»)."""
+    return request is not None and request.client is not None and _untrusted_proxy_header(request) is None
 
 
 def warn_once_if_proxy_untrusted(request: Request) -> None:
@@ -73,7 +91,7 @@ def warn_once_if_proxy_untrusted(request: Request) -> None:
     if header is None:
         return
     _proxy_headers_warned = True
-    hint = " Заголовок Forwarded uvicorn не разбирает — настройте прокси на X-Forwarded-For." if header == "Forwarded" else ""
+    hint = f" Заголовок {header} uvicorn не разбирает — настройте прокси на X-Forwarded-For." if header in _UNPARSED_HEADERS else ""
     logger.warning(
         "Запрос пришёл с заголовком %s от адреса %s, которому uvicorn не доверяет (FORWARDED_ALLOW_IPS: %s): адрес клиента "
         "остаётся адресом этого узла. Если это обратный прокси, у всех клиентов за ним один адрес — троттлинг входа (в том "
