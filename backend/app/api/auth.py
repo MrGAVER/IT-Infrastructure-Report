@@ -1,7 +1,7 @@
 """Роутер аутентификации: /api/v1/auth/*.
 
 Публичные без токена (см. services/auth/gate.PUBLIC_API_PATHS): status, login.
-Всё остальное защищено ASGI-middleware (services/auth/gate.py:auth_gate_middleware) при AuthSettings.enabled=True;
+Всё остальное защищено ASGI-middleware (services/auth/gate.py:AuthGateMiddleware) при AuthSettings.enabled=True;
 при enabled=False реестр открыт целиком, как и весь остальной /api/*, это и есть однопользовательский
 режим. /users и /settings дополнительно проверяют доступ явно (require_admin): при включённой
 аутентификации — роль admin (middleware пропускает viewer'а на безопасные GET-запросы, а список учётных
@@ -109,7 +109,7 @@ def change_my_password(payload: ChangePasswordRequest, request: Request, session
     if actor is None:
         raise HTTPException(400, "Аутентификация выключена.")
     # request.state.user загружен И принадлежит сессии БД, открытой и уже закрытой в middleware
-    # (см. auth_gate_middleware) — мутировать/session.refresh() его в ЭТОЙ (Depends(get_db))
+    # (см. AuthGateMiddleware) — мутировать/session.refresh() его в ЭТОЙ (Depends(get_db))
     # сессии нельзя, SQLAlchemy кинет "not persistent within this Session". Дозагружаем по id.
     user = _get_user_or_404(session, actor.id)
     updated = change_own_password(

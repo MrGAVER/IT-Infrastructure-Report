@@ -42,6 +42,7 @@ from .payload import (
 )
 from .audit_log import (
     audit,
+    describe_record,
 )
 from .validators import (
     validate_resource,
@@ -142,6 +143,7 @@ __all__ = [
     "delete_group_subinterfaces",
     "delete_resource",
     "delete_subinterfaces",
+    "describe_record",
     "domain_members",
     "enrich_subinterfaces",
     "ensure_writable",

@@ -174,3 +174,58 @@ def test_generic_crud_extreme_values_never_give_5xx(client, db_session, resource
             if status >= 500:
                 failures.append(f"{method.upper()} {label} → {status}: {text[:_REPORTED_TEXT]}")
     assert not failures, f"{resource}: 5xx на экстремальных значениях:\n" + "\n".join(failures)
+
+
+# --- параметры строки запроса GET --------------------------------------------------------------------------------------------
+# Код-ревью С-1: offset ≥ 2**63 и крайние date_from давали необработанный OverflowError (500) под любой ролью, включая viewer.
+# Раньше тест обходил только тела запросов; параметры страниц и дат проверяются отдельно.
+
+BEYOND_MAX_OFFSETS = (2**31, 2**63, 10**20)
+EXTREME_DATES = ("0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00")
+
+
+def _paged_urls(client) -> list[str]:
+    """Все постраничные GET: универсальный список, журнал аудита, подключения, свободные порты и выбор устройств."""
+    device_id = seed_path_values(client)["device_id"]
+    return [
+        "/api/v1/resources/devices",
+        "/api/v1/resources/audit-log",
+        "/api/v1/audit-log",
+        "/api/v1/connections",
+        "/api/v1/devices/options",
+        f"/api/v1/devices/{device_id}/free-interfaces",
+    ]
+
+
+def test_offset_beyond_the_bound_is_422_not_500(client):
+    failures = []
+    for url in _paged_urls(client):
+        for offset in BEYOND_MAX_OFFSETS:
+            status = client.get(url, params={"offset": offset}).status_code
+            if status != 422:
+                failures.append(f"GET {url}?offset={offset} → {status}")
+    assert not failures, "offset за границей int32 должен давать 422:\n" + "\n".join(failures)
+
+
+def test_offset_at_the_bound_still_works(client):
+    from app.constants import MAX_PAGE_OFFSET
+
+    for url in _paged_urls(client):
+        response = client.get(url, params={"offset": MAX_PAGE_OFFSET})
+        assert response.status_code == 200, f"GET {url}?offset={MAX_PAGE_OFFSET} → {response.status_code}"
+
+
+@pytest.mark.parametrize("resource", ["devices", "audit-log"])
+@pytest.mark.parametrize("name", ["date_from", "date_to"])
+@pytest.mark.parametrize("value", EXTREME_DATES)
+def test_extreme_dates_are_422_not_500(client, resource, name, value):
+    response = client.get(f"/api/v1/resources/{resource}", params={name: value})
+    assert response.status_code == 422, f"{name}={value} → {response.status_code}"
+
+
+def test_search_longer_than_the_bound_is_422(client):
+    from app.constants import MAX_SEARCH_LENGTH
+
+    for url in _paged_urls(client):
+        assert client.get(url, params={"q": "x" * MAX_SEARCH_LENGTH}).status_code == 200, url
+        assert client.get(url, params={"q": "x" * (MAX_SEARCH_LENGTH + 1)}).status_code == 422, url

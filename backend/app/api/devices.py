@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from ..constants import MAX_PAGE_OFFSET, MAX_SEARCH_LENGTH
 from ..db import get_db
 from ..schemas import DeployedSoftwareSync, DeviceInterfacesSync, DeviceVlansSync
 from ..services.crud import get_device_interface_ips, get_device_interface_open_ports, get_device_interface_vlans, get_device_subinterfaces, get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
@@ -52,9 +53,9 @@ def device_subinterfaces(device_id: str, session: Session = Depends(get_db)):
 @router.get('/{device_id}/free-interfaces')
 def free_interfaces(
     device_id: str,
-    q: str | None = None,
+    q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
     include: list[str] = Query(default=[]),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_PAGE_OFFSET),
     limit: int = Query(100, ge=1, le=500),
     session: Session = Depends(get_db),
 ):
@@ -71,10 +72,10 @@ def interface_connections(device_id: str, session: Session = Depends(get_db)):
 
 @router.get('/options')
 def device_options(
-    q: str | None = None,
+    q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
     include: list[str] = Query(default=[]),
     exclude: list[str] = Query(default=[]),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_PAGE_OFFSET),
     limit: int = Query(50, ge=1, le=200),
     session: Session = Depends(get_db),
 ):

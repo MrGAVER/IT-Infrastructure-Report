@@ -17,7 +17,6 @@ import json
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import MAX_REQUEST_BODY_BYTES
 from app.constants import ErrorCode
@@ -29,15 +28,8 @@ LIMIT = 1000
 ORIGIN = "http://localhost:5173"
 
 
-def _make_app(*, max_bytes: int = LIMIT, cors_origins=(), inner_gate: bool = False) -> FastAPI:
-    """inner_gate — BaseHTTPMiddleware под лимитом, как auth_gate_middleware в настоящем приложении."""
+def _make_app(*, max_bytes: int = LIMIT, cors_origins=()) -> FastAPI:
     app = FastAPI()
-    if inner_gate:
-
-        async def gate(request: Request, call_next):
-            return await call_next(request)
-
-        app.add_middleware(BaseHTTPMiddleware, dispatch=gate)
     calls: list[int] = []
     app.state.calls = calls
 
@@ -138,23 +130,13 @@ def test_chunked_json_body_over_limit_is_rejected_with_413(limited):
 
 
 @pytest.mark.parametrize("path", ["/api/v1/echo", "/api/v1/json"])
-def test_chunked_body_over_limit_is_413_even_below_base_http_middleware(path):
-    """Регрессия: под лимитом стоит BaseHTTPMiddleware (в приложении — проверка входа). Он читает receive внутри группы задач
-    anyio, и исключение приходит в FastAPI обёрнутым в ExceptionGroup, а не HTTPException — без подмены ответа клиент получал
-    400 «There was an error parsing the body» вместо 413."""
-    client = TestClient(_make_app(inner_gate=True), base_url="http://localhost:8000")
+def test_chunked_body_over_limit_closes_the_connection(limited, path):
+    """413 по потоку несёт Connection: close — клиент уже слал тело, и остаток не должен разобраться как следующий запрос.
+    (Те же проверки на настоящем приложении с включённой аутентификацией — test_review_p1_auth_gate_asgi.py.)"""
     chunks = [b'{"a": "', b"x" * 600, b"x" * 600, b'"}']
-    response = client.post(path, content=iter(chunks), headers={"Content-Type": "application/json"})
+    response = limited.post(path, content=iter(chunks), headers={"Content-Type": "application/json"})
     _assert_too_large(response)
     assert response.headers["connection"] == "close"
-    assert client.app.state.calls == []
-
-
-def test_chunked_body_within_limit_passes_below_base_http_middleware():
-    client = TestClient(_make_app(inner_gate=True), base_url="http://localhost:8000")
-    response = client.post("/api/v1/echo", content=iter([b"x" * 300] * 3))
-    assert response.status_code == 200, response.text
-    assert response.json() == {"size": 900}
 
 
 def test_chunked_body_within_limit_passes(limited):

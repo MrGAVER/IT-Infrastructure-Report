@@ -9,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .config import (
     ACCEPT_IP_HOSTS,
@@ -45,7 +44,7 @@ from .api.system import router as system_router
 from .api.vlan import router as vlan_router
 from .api.vms import router as vms_router
 from .db import SessionLocal
-from .services.auth import auth_gate_middleware, get_or_create_auth_settings
+from .services.auth import AuthGateMiddleware, get_or_create_auth_settings
 from .services.auth.security_headers import SecurityHeadersMiddleware
 from .services.body_limit import BodySizeLimitMiddleware
 from .services.catalogs import seed_defaults
@@ -83,11 +82,11 @@ app = FastAPI(
     openapi_url='/openapi.json' if ENABLE_DOCS else None,
 )
 # Порядок add_middleware() важен: Starlette оборачивает мидлвари в порядке, ОБРАТНОМ порядку
-# регистрации (последний добавленный — самый внешний). auth_gate_middleware иногда завершает запрос
-# сам, не вызывая call_next (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
+# регистрации (последний добавленный — самый внешний). AuthGateMiddleware иногда завершает запрос
+# сам, не вызывая приложение под собой (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
 # него, эти ответы уходили бы клиенту без CORS-заголовков, и браузер в dev-режиме (Vite на отдельном
 # порту, см. CORS_ALLOWED_ORIGINS) показывал бы малопонятную CORS-ошибку вместо настоящих 401/403.
-# Поэтому auth_gate_middleware регистрируется ПЕРВЫМ (внутри), а CORS и проверка Host — ПОСЛЕ него
+# Поэтому AuthGateMiddleware регистрируется ПЕРВЫМ (внутри), а CORS и проверка Host — ПОСЛЕ него
 # (снаружи), см. install_http_security().
 def install_http_security(
     app: FastAPI,
@@ -114,11 +113,11 @@ def install_http_security(
     - SameOriginGuardMiddleware (всегда, при любом режиме аутентификации) — 403 CROSS_ORIGIN_BLOCKED на POST/PUT/PATCH/
       DELETE к /api/ с чужого origin (CSRF: CORS защищает чтение, но не мешает браузеру отправить сам запрос). Origin'ы
       из cors_origins считаются доверенными; X-Forwarded-Host учитывается при trust_forwarded_host. Стоит внутри CORS
-      и проверки Host, но снаружи auth_gate_middleware: чужая страница получает отказ раньше, чем 401/обработчик.
+      и проверки Host, но снаружи AuthGateMiddleware: чужая страница получает отказ раньше, чем 401/обработчик.
     - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (F-06 код-ревью main:
       раньше тело любого размера целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
       дошёл до браузера на dev-сервере с понятным текстом, а не CORS-ошибкой, и внутри проверок клиента, Host и origin — чужие
-      запросы отсекаются раньше. Снаружи auth_gate_middleware: тело больше предела не читается и до проверки входа.
+      запросы отсекаются раньше. Снаружи AuthGateMiddleware: тело больше предела не читается и до проверки входа.
     allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через
     куки — широкий allow_origins вместе с allow_credentials=True был бы лишним риском без пользы."""
     if max_body_bytes is not None:
@@ -134,7 +133,7 @@ def install_http_security(
     if allowed_clients:
         app.add_middleware(ClientAccessMiddleware, networks=allowed_clients)
 
-app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
+app.add_middleware(AuthGateMiddleware)
 install_http_security(
     app,
     allowed_hosts=ALLOWED_HOSTS,

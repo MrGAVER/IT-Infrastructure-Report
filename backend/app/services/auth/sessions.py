@@ -14,6 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ...config import AUTH_SESSION_TTL_HOURS
+from ...constants import MAX_SESSIONS_PER_USER
 from ...models import AuthSession, User
 from ..timeutil import iso_utc
 from ._common import naive_utc_now
@@ -35,6 +36,8 @@ def create_session(session: Session, user: User, *, request: Optional[Request] =
     сейчас удаляется явно лишь при logout или при попытке использовать именно этот истёкший
     токен (resolve_session) — большинство сессий тихо истекают, и это неизбежно копится."""
     cleanup_expired_sessions(session)
+    # место под новую сессию: после входа у пользователя не больше MAX_SESSIONS_PER_USER
+    _trim_user_sessions(session, user.id, keep=MAX_SESSIONS_PER_USER - 1)
     token = _generate_token()
     row = AuthSession(
         token_hash=_hash_token(token),
@@ -46,6 +49,23 @@ def create_session(session: Session, user: User, *, request: Optional[Request] =
     session.add(row)
     session.commit()
     return token
+
+
+def _trim_user_sessions(session: Session, user_id: str, *, keep: int) -> int:
+    """Оставляет у пользователя не более `keep` самых новых сессий, остальные удаляет; возвращает число удалённых (код-ревью Н-10).
+
+    Порядок — по времени создания, при равенстве по id, чтобы результат был детерминированным. Без коммита: его делает вызывающий
+    create_session вместе с добавлением новой строки, и обрезка с входом либо проходят обе, либо ни одна."""
+    surplus = session.scalars(
+        select(AuthSession.id)
+        .where(AuthSession.user_id == user_id)
+        .order_by(AuthSession.created_at.desc(), AuthSession.id.desc())
+        .offset(max(keep, 0))
+    ).all()
+    if not surplus:
+        return 0
+    session.execute(delete(AuthSession).where(AuthSession.id.in_(surplus)))
+    return len(surplus)
 
 
 def cleanup_expired_sessions(session: Session) -> int:

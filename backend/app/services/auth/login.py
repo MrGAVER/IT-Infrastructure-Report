@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import threading
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException, Request
@@ -21,6 +22,7 @@ from ..login_throttle import LoginThrottle
 from ._common import naive_utc_now, request_client_ip, too_many_attempts
 from .lockout import account_locked, is_known_client, register_failed_password
 from .passwords import hash_password, needs_rehash, verify_password
+from .proxy_headers import client_ip_is_reliable
 from .sessions import create_session
 from .users import find_user_by_username
 
@@ -76,6 +78,16 @@ def _record_login_failure(pair_key: tuple, ip_key: tuple) -> None:
     ip_throttle.record_failure(ip_key)
 
 
+def _known_client_may_try(session: Session, user: User, request: Optional[Request], client_ip: Optional[str], now: datetime) -> bool:
+    """Пропускать ли проверку пароля при блокировке учётной записи: да — с «знакомого» адреса (см. config.AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS),
+    иначе посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг и счётчик неудач при этом действуют.
+
+    Адрес должен быть определён надёжно (client_ip_is_reliable): за прокси, которому uvicorn не доверяет, или NAT у всех один адрес, и
+    «знакомым» стал бы любой запрос через него (код-ревью С-3) — тогда блокировка действует как для незнакомого адреса. Надёжность
+    проверяется раньше обращения к журналу аудита: дешёвая проверка отсекает лишний запрос к БД."""
+    return AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and client_ip_is_reliable(request) and is_known_client(session, user.id, client_ip, now)
+
+
 def authenticate(session: Session, username: str, password: str, *, request: Optional[Request] = None) -> tuple[User, str]:
     """Возвращает (пользователь, токен сессии) либо кидает HTTPException. Намеренно не различает
     в тексте ошибки «нет такого пользователя» и «неверный пароль» (защита от перебора логинов) —
@@ -99,9 +111,7 @@ def authenticate(session: Session, username: str, password: str, *, request: Opt
         raise _invalid_credentials()
 
     now = naive_utc_now()
-    if user.locked_until and user.locked_until > now and not (AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS and is_known_client(session, user.id, client_ip, now)):
-        # С «знакомого» адреса пароль проверяется и во время блокировки (см. config.AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS): иначе
-        # посторонний, посылая неверные пароли, держал бы владельца заблокированным. Троттлинг выше и счётчик ниже действуют.
+    if user.locked_until and user.locked_until > now and not _known_client_may_try(session, user, request, client_ip, now):
         raise account_locked(user.locked_until, now)
 
     with _password_hash_slot():
