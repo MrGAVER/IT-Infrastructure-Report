@@ -12,7 +12,7 @@ from .columns import allowed_columns
 
 def audit(session: Session, entity_type: str, entity_id: str, action: str, details: str = '', actor: Actor | None = None) -> None:
     """Запись в журнал аудита. Автор берётся из actor, а если он не передан — из current_actor, который
-    выставляет auth_gate_middleware на время запроса (см. services/actor_context.py): так записи
+    выставляет AuthGateMiddleware на время запроса (см. services/actor_context.py): так записи
     отвечают на вопрос «кто это сделал» без изменения сигнатур десятков вызывающих функций. Явный actor
     нужен там, где запрос ещё анонимен, а действие уже принадлежит пользователю (вход)."""
     if entity_type == 'audit-log': return
