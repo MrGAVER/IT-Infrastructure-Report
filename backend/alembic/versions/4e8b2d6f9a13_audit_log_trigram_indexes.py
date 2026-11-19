@@ -1,4 +1,4 @@
-"""PostgreSQL: trigram-индексы поиска по журналу аудита (Н-4, часть П2)
+"""PostgreSQL: trigram-индексы поиска по журналу аудита
 
 Revision ID: 4e8b2d6f9a13
 Revises: 7c3d9a5e1b24

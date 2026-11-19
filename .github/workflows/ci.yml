@@ -154,7 +154,7 @@ jobs:
           docker rm -f infra-registry-smoke
           test "$ok" = 1
 
-  # Windows: продукт поставляется как Windows-EXE (Н-7 код-ревью 2.160.0), а остальные задания идут на ubuntu. launcher.py, infra_registry.spec,
+  # Windows: продукт поставляется как Windows-EXE, а остальные задания идут на ubuntu. launcher.py, infra_registry.spec,
   # резервная копия SQLite перед миграцией (os.replace, блокировки файлов), запуск экспорта .vsdx в дочернем процессе (spawn) и пути вида
   # C:\... проверяются только здесь. Набор намеренно узкий — только то, что зависит от платформы: полный набор тестов уже идёт на Linux.
   windows-smoke:

@@ -4,7 +4,7 @@
 до приложения не доходил, остановка ждала SIGKILL через 10 с), `chown -R app:app /app` делал исходный код и alembic записываемыми
 для процесса приложения, а для /app/data (отчёты, при SQLite — база) не было тома.
 
-С-7 код-ревью 2.160.0: команда запуска вынесена в backend/docker-entrypoint.sh — перед `alembic upgrade head` скрипт делает резервную
+Команда запуска вынесена в backend/docker-entrypoint.sh — перед `alembic upgrade head` скрипт делает резервную
 копию SQLite-базы (app/services/db_backup.py); порядок и «не мигрировать без копии» проверяются здесь настоящей оболочкой `sh` на
 копии скрипта, где python/alembic/uvicorn заменены заглушками.
 
@@ -74,7 +74,7 @@ class TestDockerfile:
         assert lines[copy_at].split()[-1] == "./docker-entrypoint.sh" and copy_at < chmod_at
 
     def test_backup_runs_before_migrations_and_uvicorn_replaces_the_shell(self):
-        """С-7: копия SQLite → alembic → exec uvicorn (PID 1 получает SIGTERM)."""
+        """Копия SQLite → alembic → exec uvicorn (PID 1 получает SIGTERM)."""
         assert _entrypoint_commands() == ["set -eu", BACKUP, ALEMBIC, f"exec {UVICORN}"]
 
     def test_entrypoint_uses_unix_line_endings(self):
@@ -124,7 +124,7 @@ class TestCompose:
 
 
 class TestPostgresBackupService:
-    """С-7: pg_dump перед обновлением — одноразовый сервис compose с профилем backup (не стартует вместе с приложением)."""
+    """pg_dump перед обновлением — одноразовый сервис compose с профилем backup (не стартует вместе с приложением)."""
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -205,7 +205,7 @@ class TestShellSemantics:
 
 @pytest.mark.skipif(shutil.which("sh") is None, reason="нужна оболочка sh")
 class TestEntrypointOrdering:
-    """С-7: настоящий скрипт с заглушками python/alembic/uvicorn в PATH, журнал вызовов — по порядку; сбой копии не пускает дальше."""
+    """Настоящий скрипт с заглушками python/alembic/uvicorn в PATH, журнал вызовов — по порядку; сбой копии не пускает дальше."""
 
     @staticmethod
     def _run(tmp_path: Path, backup_exit_code: int) -> tuple[subprocess.CompletedProcess, list[str]]:

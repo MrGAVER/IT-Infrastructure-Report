@@ -283,7 +283,7 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
             for cell in cells:
                 kind = cell.get("kind", "static")
                 value = _formula_value(cell, params) if kind == "formula" else substitute_params(cell.get("text", ""), params)
-                # Код-ревью п.3.2: формулы kind=="formula" — задуманы автором шаблона отчёта и защищаться не должны;
+                # Формулы kind=="formula" — задуманы автором шаблона отчёта и защищаться не должны;
                 # все остальные виды ячеек могут содержать пользовательские данные (например, статичный текст с
                 # параметром {{...}}) и защищаются при записи в .xlsx (guard_text, см. services/excel_safety.py).
                 resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": False, "style": cell.get("style") or {}, "guard_text": kind != "formula"})
@@ -318,7 +318,7 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
                     is_dt = isinstance(value, datetime)
                 else:  # static — например, постоянная подпись рядом с данными в той же строке
                     value = substitute_params(cell.get("text", ""), params)
-                # Код-ревью п.3.2: см. комментарий в ветке row.get("repeat") is falsy выше — formula не защищаем
+                # См. комментарий в ветке row.get("repeat") is falsy выше — formula не защищаем
                 # намеренно, остальное (в первую очередь kind == "field" — данные из БД, потенциально
                 # пользовательский ввод) защищаем при записи в .xlsx.
                 resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": is_dt, "style": cell.get("style") or {}, "guard_text": kind != "formula"})

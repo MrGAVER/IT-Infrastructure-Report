@@ -12,7 +12,7 @@ from ..models import (
     DeviceStackMember, ProtocolPortCatalog,
 )
 
-# Код-ревью п.3.4: формат IPv4/длина префикса проверялись только на клиенте
+# Формат IPv4/длина префикса проверялись только на клиенте
 # (frontend-vue/src/utils/ipValidation.ts) — прямой запрос к API мимо формы (или старый
 # кэшированный фронтенд-бандл) мог записать в IPAddress.ip_address произвольную строку. Семантика зеркальна ipValidation.ts: пустая строка/None считаются валидными — это не
 # проверка на обязательность поля, а на "если что-то введено, это должно быть похоже на IP/
@@ -103,7 +103,7 @@ def validate_hypervisor(data: dict[str, Any], session: Session) -> None:
         raise HTTPException(422, 'В поле гипервизора можно выбрать только ОС из категории «Гипервизор»')
 
 def validate_container_host(data: dict[str, Any]) -> None:
-    """Код-ревью (отчёт по анализу БД, вопрос 6): Container.physical_device_id и
+    """Container.physical_device_id и
     .virtual_machine_id — по смыслу альтернативы («контейнер размещается либо на ВМ, либо
     напрямую на физическом устройстве, либо нигде конкретно не указан», см. models.Container и
     комментарий в ContainerFormModal.vue), но модель и БД допускают заполнение обоих сразу — это

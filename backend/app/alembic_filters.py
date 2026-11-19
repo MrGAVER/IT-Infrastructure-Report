@@ -1,4 +1,4 @@
-"""Фильтр сравнения схемы для `alembic check` / `--autogenerate` (R1-02 код-ревью).
+"""Фильтр сравнения схемы для `alembic check` / `--autogenerate`.
 
 SQLite хранит ограничение UNIQUE, объявленное без имени (`UNIQUE(domain_id, vlan_id)` внутри CREATE TABLE), без имени — через
 reflection оно приходит с `name=None`, а Alembic исходит из предположения «ограничение из базы всегда именованное». Поэтому каждое
@@ -8,7 +8,7 @@ reflection оно приходит с `name=None`, а Alembic исходит и�
 наличие проверяет отдельный тест (`test_migrations_match_models.py::test_sqlite_model_uniqueness_exists_in_the_database`):
 он сверяет по колонкам, а не по именам. На PostgreSQL имена ограничений сохраняются, и сравнение полное.
 
-Индексы, которые существуют только в PostgreSQL и не описаны в моделях (Н-4: trigram-индексы поиска по журналу аудита, миграция
+Индексы, которые существуют только в PostgreSQL и не описаны в моделях (trigram-индексы поиска по журналу аудита, миграция
 4e8b2d6f9a13), в сравнении пропускаются по имени: SQLite их не имеет, а выражение `lower(колонка) gin_trgm_ops` моделью не выражается.
 Их наличие и использование планировщиком проверяет test_review_p2_audit_search_trigram_indexes.py.
 

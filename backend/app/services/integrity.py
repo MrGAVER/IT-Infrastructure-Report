@@ -61,7 +61,7 @@ SAME_PORT_CHECK = "ck_connections_distinct_ports"
 def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPException:
     """409 для нарушения ограничения БД БЕЗ текста исходной ошибки.
 
-    Раньше клиенту уходило `str(exc.orig)[:300]` — имена таблиц, колонок и ограничений (код-ревью, п. 8).
+    Раньше клиенту уходило `str(exc.orig)[:300]` — имена таблиц, колонок и ограничений.
     Теперь детали пишутся только в лог сервера, а клиент получает общий код INTEGRITY_ERROR. Исключения — ожидаемые исходы гонки
     двух запросов, для которых есть понятные коды: слот в стойке (RACK_POSITION_OCCUPIED) и порт подключения — уже занят другим
     активным подключением (PORT_ALREADY_CONNECTED) или соединён сам с собой (CONNECTION_SAME_PORT).
@@ -424,7 +424,7 @@ def _devices_by_id(session: Session, ids: set[str]) -> dict[str, PhysicalDevice]
 
 
 def _device_names(session: Session, ids: set[str]) -> dict[str, str]:
-    """Физическое устройство: подпись по единому правилу (R1-03) с запасным id — диагностика должна показывать и «грязные» строки. Один запрос."""
+    """Физическое устройство: подпись по единому правилу с запасным id — диагностика должна показывать и «грязные» строки. Один запрос."""
     return {device_id: device_label(device, fallback=device_id) for device_id, device in _devices_by_id(session, ids).items()}
 
 

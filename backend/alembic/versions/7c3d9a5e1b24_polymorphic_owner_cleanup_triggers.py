@@ -1,4 +1,4 @@
-"""Триггеры БД: удаление владельца убирает его полиморфных потомков; разовая чистка уже осиротевших записей (С-8)
+"""Триггеры БД: удаление владельца убирает его полиморфных потомков; разовая чистка уже осиротевших записей
 
 Revision ID: 7c3d9a5e1b24
 Revises: d6c1a8f3e594
@@ -94,7 +94,7 @@ def _record_in_audit_log(bind, removed: dict[str, dict[str, int]]) -> None:
     resource_keys = dict(_CHILDREN)
     for child, by_owner_type in removed.items():
         breakdown = "; ".join(f"{owner_type}: {count}" for owner_type, count in sorted(by_owner_type.items()))
-        details = f"Миграция {revision} (С-8): удалены записи без владельца — {sum(by_owner_type.values())} ({breakdown})"
+        details = f"Миграция {revision}: удалены записи без владельца — {sum(by_owner_type.values())} ({breakdown})"
         logger.info("%s: %s", child, details)
         bind.execute(
             sa.text(

@@ -10,7 +10,7 @@ def _unicode_lower(value):
 
 
 def register_sqlite_adapters() -> None:
-    """Явные адаптеры date/datetime для драйвера sqlite3 (код-ревью, раздел 5: предупреждения тестового прогона).
+    """Явные адаптеры date/datetime для драйвера sqlite3 (стандартные адаптеры sqlite3 объявлены устаревшими в Python 3.12 и засоряют журнал предупреждениями).
 
     Python 3.12 объявил адаптеры по умолчанию устаревшими: каждый параметр date/datetime, переданный драйверу напрямую, мимо типов
     SQLAlchemy (`text()`, `op.execute()` и `bulk_insert` в миграциях), давал DeprecationWarning — тысячи за прогон тестов, — а в
