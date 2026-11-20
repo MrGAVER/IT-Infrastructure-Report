@@ -9,6 +9,7 @@ Docker и EXE миграции применяют сами, на них изме
 
 Запуск: pytest backend/tests/test_startup_without_migrations.py -v
 """
+
 from __future__ import annotations
 
 import pytest

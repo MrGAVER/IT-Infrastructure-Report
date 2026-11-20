@@ -8,6 +8,7 @@
 соответствие installer/README_EXE.md коду (ключи файла настроек, число копий базы) и README.md.
 Запуск: pytest backend/tests/test_build_windows_bat.py -v
 """
+
 from __future__ import annotations
 
 import re
@@ -85,8 +86,17 @@ class TestReadmeExe:
 
     def test_covers_start_data_backup_and_network_access(self, text):
         for needle in (
-            "InfraRegistry.exe", "infra_registry.toml", "infra_registry.db", "reports", "INFRA_REGISTRY_DATA_DIR",
-            ".bak", "allowed_clients", "брандмауэр", "http://127.0.0.1:8000", "--port", "--no-browser",
+            "InfraRegistry.exe",
+            "infra_registry.toml",
+            "infra_registry.db",
+            "reports",
+            "INFRA_REGISTRY_DATA_DIR",
+            ".bak",
+            "allowed_clients",
+            "брандмауэр",
+            "http://127.0.0.1:8000",
+            "--port",
+            "--no-browser",
         ):
             assert needle.lower() in text.lower(), f"в инструкции нет «{needle}»"
 

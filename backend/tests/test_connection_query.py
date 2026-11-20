@@ -4,6 +4,7 @@
 
 Запуск: pytest backend/tests/test_connection_query.py -v
 """
+
 from __future__ import annotations
 
 from itertools import product
@@ -81,6 +82,7 @@ def _many(client, device_type, cable, count: int, role_a=PortRole.DATA, role_b=P
 
 # --- пагинация ---------------------------------------------------------------------------
 
+
 def test_pagination_returns_slices_in_stable_order_with_total(client, device_type, cable):
     created = _many(client, device_type, cable, 7)
 
@@ -112,8 +114,8 @@ def test_invalid_query_params_are_rejected(client, params):
 
 
 def test_rows_carry_names_roles_and_status(client, device_type, cable):
-    a, = _device(client, device_type, "N-A", [_port("idrac", PortRole.MANAGEMENT)], system_name="srv-01")
-    b, = _device(client, device_type, "N-B", [_port("Gi0/5", PortRole.DATA)], system_name="sw-01")
+    (a,) = _device(client, device_type, "N-A", [_port("idrac", PortRole.MANAGEMENT)], system_name="srv-01")
+    (b,) = _device(client, device_type, "N-B", [_port("Gi0/5", PortRole.DATA)], system_name="sw-01")
     _connect(client, a, b, cable)
 
     row = _page(client)["items"][0]
@@ -125,6 +127,7 @@ def test_rows_carry_names_roles_and_status(client, device_type, cable):
 
 
 # --- фильтры -----------------------------------------------------------------------------
+
 
 def test_filter_by_status(client, device_type, cable):
     ok = _many(client, device_type, cable, 2, PortRole.DATA, PortRole.DATA, "OK")
@@ -158,6 +161,7 @@ def test_total_reflects_filters_but_summary_does_not(client, device_type, cable)
 
 # --- поиск -------------------------------------------------------------------------------
 
+
 def test_database_lower_is_unicode_aware(db_session):
     """Встроенный LOWER() SQLite не трогает кириллицу; без Unicode-aware замены (app/db.py) поиск
     по «Коммутатор» при вводе «коммутатор» ничего бы не находил."""
@@ -168,11 +172,11 @@ def test_database_lower_is_unicode_aware(db_session):
 
 
 def test_search_is_case_insensitive_for_cyrillic(client, device_type, cable):
-    a, = _device(client, device_type, "C-A", [_port("eth0")], system_name="Коммутатор-Ядро")
-    b, = _device(client, device_type, "C-B", [_port("eth0")], system_name="srv-02")
+    (a,) = _device(client, device_type, "C-A", [_port("eth0")], system_name="Коммутатор-Ядро")
+    (b,) = _device(client, device_type, "C-B", [_port("eth0")], system_name="srv-02")
     target = _connect(client, a, b, cable)
-    other_a, = _device(client, device_type, "C-C", [_port("eth0")], system_name="fw-01")
-    other_b, = _device(client, device_type, "C-D", [_port("eth0")], system_name="fw-02")
+    (other_a,) = _device(client, device_type, "C-C", [_port("eth0")], system_name="fw-01")
+    (other_b,) = _device(client, device_type, "C-D", [_port("eth0")], system_name="fw-02")
     _connect(client, other_a, other_b, cable)
 
     assert _ids(_page(client, q="коммутатор")) == [target["id"]]
@@ -180,8 +184,8 @@ def test_search_is_case_insensitive_for_cyrillic(client, device_type, cable):
 
 
 def test_search_matches_devices_ports_cable_type_and_role_labels(client, device_type, cable):
-    a, = _device(client, device_type, "F-A", [_port("idrac", PortRole.MANAGEMENT)], system_name="srv-77")
-    b, = _device(client, device_type, "F-B", [_port("Gi0/9", PortRole.DATA)], system_name="sw-77")
+    (a,) = _device(client, device_type, "F-A", [_port("idrac", PortRole.MANAGEMENT)], system_name="srv-77")
+    (b,) = _device(client, device_type, "F-B", [_port("Gi0/9", PortRole.DATA)], system_name="sw-77")
     conn = _connect(client, a, b, cable)
     c, d = _device(client, device_type, "F-C", [_port("x1", PortRole.DATA)]), _device(client, device_type, "F-D", [_port("x2", PortRole.DATA)])
     _connect(client, c[0], d[0], cable)
@@ -194,19 +198,19 @@ def test_search_matches_devices_ports_cable_type_and_role_labels(client, device_
 
 
 def test_search_falls_back_to_serial_number_when_system_name_is_empty(client, device_type, cable):
-    a, = _device(client, device_type, "SERIAL-XYZ-1", [_port("p1")])
-    b, = _device(client, device_type, "SERIAL-XYZ-2", [_port("p1")], system_name="named")
+    (a,) = _device(client, device_type, "SERIAL-XYZ-1", [_port("p1")])
+    (b,) = _device(client, device_type, "SERIAL-XYZ-2", [_port("p1")], system_name="named")
     conn = _connect(client, a, b, cable)
     assert _ids(_page(client, q="serial-xyz-1")) == [conn["id"]]
 
 
 def test_search_treats_percent_and_underscore_literally(client, device_type, cable):
-    a, = _device(client, device_type, "E-A", [_port("port_1")], system_name="srv_a")
-    b, = _device(client, device_type, "E-B", [_port("port-1")], system_name="srvXa")
+    (a,) = _device(client, device_type, "E-A", [_port("port_1")], system_name="srv_a")
+    (b,) = _device(client, device_type, "E-B", [_port("port-1")], system_name="srvXa")
     conn = _connect(client, a, b, cable)
 
-    assert _ids(_page(client, q="srv_a")) == [conn["id"]]     # «_» не «любой символ»
-    assert _page(client, q="%")["items"] == []                 # «%» не «всё»
+    assert _ids(_page(client, q="srv_a")) == [conn["id"]]  # «_» не «любой символ»
+    assert _page(client, q="%")["items"] == []  # «%» не «всё»
 
 
 def test_search_and_filters_combine_and_paginate(client, device_type, cable):
@@ -220,6 +224,7 @@ def test_search_and_filters_combine_and_paginate(client, device_type, cable):
 
 
 # --- одобрить все найденные --------------------------------------------------------------
+
 
 def test_approve_match_approves_all_matching_mismatches_across_pages(client, device_type, cable):
     bad = _many(client, device_type, cable, 5, PortRole.MANAGEMENT, PortRole.DATA, "M")
@@ -274,6 +279,7 @@ def test_approve_match_validates_conditions(client, match):
 
 # --- запросы не растут с размером страницы -----------------------------------------------
 
+
 def test_query_count_does_not_grow_with_page_size(client, device_type, cable, sql_log):
     _many(client, device_type, cable, 12, PortRole.MANAGEMENT, PortRole.DATA, "Q")
 
@@ -287,6 +293,7 @@ def test_query_count_does_not_grow_with_page_size(client, device_type, cable, sq
 
 
 # --- SQL-статус == Python-статус ---------------------------------------------------------
+
 
 def test_sql_status_matches_python_status_for_all_combinations(client, db_session, device_type, cable):
     """96 подключений: 4 роли источника × 4 роли назначения × 3 состояния подписи одобрения

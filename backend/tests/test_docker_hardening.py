@@ -13,6 +13,7 @@ docker daemon и доступ к реестру образов в этом ок�
 командами. Не покрыто тестами: фактическая сборка, `docker stop` < 3 с и «Permission denied» при записи в /app/app.
 Запуск: pytest backend/tests/test_docker_hardening.py -v
 """
+
 from __future__ import annotations
 
 import json

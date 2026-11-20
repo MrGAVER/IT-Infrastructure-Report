@@ -7,6 +7,7 @@ Python 3.12 объявил адаптеры sqlite3 по умолчанию ус
 
 Запуск: pytest backend/tests/test_sqlite_adapters.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

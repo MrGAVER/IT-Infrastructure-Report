@@ -10,6 +10,7 @@
 
 Запуск: pytest backend/tests/test_vlan_mode_cascade.py -v
 """
+
 from __future__ import annotations
 
 import pytest

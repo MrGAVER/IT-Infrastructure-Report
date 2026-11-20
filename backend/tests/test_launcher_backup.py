@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_launcher_backup.py -v  (launcher.py лежит в корне репозитория — тест добавляет его в sys.path)
 """
+
 from __future__ import annotations
 
 import importlib
@@ -197,11 +198,11 @@ class TestRotation:
 
     def test_only_files_of_this_mask_are_removed(self, db_backup, old_db, tmp_path, monkeypatch):
         foreign = [
-            tmp_path / "manual_copy.bak",                                  # копия пользователя
-            tmp_path / "infra_registry.bak",                               # без метки ревизии/времени
+            tmp_path / "manual_copy.bak",  # копия пользователя
+            tmp_path / "infra_registry.bak",  # без метки ревизии/времени
             tmp_path / "infra_registry.pre-12345678.20200101-000000.bak.tmp",  # временный файл, не копия
-            tmp_path / "other.pre-12345678.20200101-000000.bak",           # копия другой БД
-            tmp_path / "infra_registry.pre-12345678.2020-01-01.bak",       # похоже, но не маска
+            tmp_path / "other.pre-12345678.20200101-000000.bak",  # копия другой БД
+            tmp_path / "infra_registry.pre-12345678.2020-01-01.bak",  # похоже, но не маска
         ]
         for path in foreign:
             path.write_bytes(b"x")
