@@ -38,6 +38,7 @@
 (в исходном документе — буквально "ИС ТО"); подставляется в заголовки при формировании файла,
 пользователь может изменить значение по умолчанию или ввести своё перед каждым формированием.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -64,8 +65,13 @@ def _heading(text: str, level: int = 1) -> dict[str, Any]:
 
 def _table(root_entity: str, columns: list[tuple[str, str]], *, sort_by: str = "", title: str = "") -> dict[str, Any]:
     return {
-        "type": "table", "title": title, "root_entity": root_entity, "expand": "",
-        "include_empty_expand": True, "sort_by": sort_by, "filters": [],
+        "type": "table",
+        "title": title,
+        "root_entity": root_entity,
+        "expand": "",
+        "include_empty_expand": True,
+        "sort_by": sort_by,
+        "filters": [],
         "columns": [{"header": h, "source": "field", "path": p, "separator": "; "} for h, p in columns],
     }
 
@@ -77,25 +83,45 @@ def default_structural_appendix_config() -> dict[str, Any]:
         "blocks": [
             _heading("Приложение к структурной схеме", 1),
             _heading("ИС {{is_name}}", 2),
-
             _heading("Сведения о назначении линий связи ИС {{is_name}}", 3),
-            _table("registry-connection-rows", [
-                ("Устройство", "own_system_name"), ("Порт", "own_port_name"),
-                ("Соседнее устройство", "neighbor_system_name"), ("Назначение", "link_purpose"),
-            ], sort_by="own_system_name", title="Сведения о назначении линий связи"),
-
+            _table(
+                "registry-connection-rows",
+                [
+                    ("Устройство", "own_system_name"),
+                    ("Порт", "own_port_name"),
+                    ("Соседнее устройство", "neighbor_system_name"),
+                    ("Назначение", "link_purpose"),
+                ],
+                sort_by="own_system_name",
+                title="Сведения о назначении линий связи",
+            ),
             _heading("Перечень виртуальных локальных вычислительных сетей (VLAN) ИС {{is_name}}", 3),
-            _table("device-vlans", [
-                ("Устройство", "physical_device.system_name"), ("Серийный номер", "physical_device.serial_number"),
-                ("Идентификатор VLAN", "vlan.vlan_id"), ("Имя VLAN", "vlan.name"),
-                ("IP-адрес", "ip_address"), ("Префикс", "prefix_length"),
-            ], sort_by="physical_device.system_name", title="Перечень VLAN"),
-
+            _table(
+                "device-vlans",
+                [
+                    ("Устройство", "physical_device.system_name"),
+                    ("Серийный номер", "physical_device.serial_number"),
+                    ("Идентификатор VLAN", "vlan.vlan_id"),
+                    ("Имя VLAN", "vlan.name"),
+                    ("IP-адрес", "ip_address"),
+                    ("Префикс", "prefix_length"),
+                ],
+                sort_by="physical_device.system_name",
+                title="Перечень VLAN",
+            ),
             _heading("Перечень телекоммуникационного оборудования ИС {{is_name}}", 3),
-            _table("registry-device-rows", [
-                ("Производитель", "manufacturer"), ("Модель", "model"),
-                ("Заводской номер", "serial_number"), ("Системное имя", "system_name"),
-                ("IP-адрес управления", "management_ip"), ("Здание", "building_name"), ("Помещение", "room_name"),
-            ], title="Перечень телекоммуникационного оборудования"),
+            _table(
+                "registry-device-rows",
+                [
+                    ("Производитель", "manufacturer"),
+                    ("Модель", "model"),
+                    ("Заводской номер", "serial_number"),
+                    ("Системное имя", "system_name"),
+                    ("IP-адрес управления", "management_ip"),
+                    ("Здание", "building_name"),
+                    ("Помещение", "room_name"),
+                ],
+                title="Перечень телекоммуникационного оборудования",
+            ),
         ],
     }

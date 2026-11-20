@@ -25,6 +25,7 @@ grid-движка, как в любом другом шаблоне. "Точно
 оформление, или удалить эти листы целиком и начать с чистого листа. Отредактированный шаблон,
 разумеется, перестаёт быть точной копией — в этом и есть его предназначение: отправная точка.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -55,9 +56,7 @@ _INDEX_STYLE = {"wrap": True, "valign": "top", "align": "center"}
 
 
 def _header_row(headers: list[str]) -> dict[str, Any]:
-    return {"height": 46, "repeat": False, "data_source": None, "cells": [
-        {"col": i, "kind": "static", "text": h, "style": _HEADER_STYLE} for i, h in enumerate(headers)
-    ]}
+    return {"height": 46, "repeat": False, "data_source": None, "cells": [{"col": i, "kind": "static", "text": h, "style": _HEADER_STYLE} for i, h in enumerate(headers)]}
 
 
 def _sheet(title: str, entity_key: str, headers: list[str], widths: list[int]) -> dict[str, Any]:
@@ -90,12 +89,12 @@ def _sheet(title: str, entity_key: str, headers: list[str], widths: list[int]) -
         cells.append({"col": i + offset, "kind": "field", "path": f.name, "separator": "; ", "style": _DATA_STYLE})
 
     data_row = {
-        "height": 20, "repeat": True,
+        "height": 20,
+        "repeat": True,
         # Виртуальные сущности уже отдают строки в нужном порядке (для листа 3 — уже
         # отсортированном/сгруппированном как в оригинале) — дополнительная sort_by здесь была бы
         # лишней и могла бы разойтись с порядком строк оригинального отчёта.
-        "data_source": {"root_entity": entity_key, "expand": "", "include_empty_expand": True,
-                         "filters": [], "sort_by": ""},
+        "data_source": {"root_entity": entity_key, "expand": "", "include_empty_expand": True, "filters": [], "sort_by": ""},
         "cells": cells,
     }
     return {
@@ -111,19 +110,27 @@ def default_registry_template_config() -> dict[str, Any]:
     данных (данные И заголовки) — test_report_registry_rows.py::ExactParityTestCase."""
 
     sheet1 = _sheet(
-        "Перечень ИС", "registry-is-rows", HEADERS1,
+        "Перечень ИС",
+        "registry-is-rows",
+        HEADERS1,
         widths=[5, 26, 32, 26, 24, 18, 42, 30, 30, 16, 12, 24, 20, 30, 30, 24, 26, 26],
     )
     sheet2 = _sheet(
-        "Инвентаризац. физ. устройств ИС", "registry-device-rows", HEADERS2,
+        "Инвентаризац. физ. устройств ИС",
+        "registry-device-rows",
+        HEADERS2,
         widths=[5, 20, 20, 20, 22, 20, 24, 28, 12, 20, 26, 20, 20],
     )
     sheet3 = _sheet(
-        "Организация подключений", "registry-connection-rows", HEADERS3,
+        "Организация подключений",
+        "registry-connection-rows",
+        HEADERS3,
         widths=[5, 18, 20, 20, 20, 14, 22, 30, 20, 16, 20, 16, 22, 18, 20, 20, 20, 22],
     )
     sheet4 = _sheet(
-        "Организация управления ВМ", "registry-vm-rows", HEADERS4,
+        "Организация управления ВМ",
+        "registry-vm-rows",
+        HEADERS4,
         widths=[22, 20, 20, 24, 20, 28, 22, 32, 20, 32],
     )
 

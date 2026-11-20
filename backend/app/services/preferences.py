@@ -5,6 +5,7 @@ localStorage браузера — на другом компьютере и по
 они хранятся на сервере. Сервис ничего не знает про HTTP: владельца (owner) определяет роутер
 (api/preferences.py), набор допустимых ключей и значений задают схемы (schemas.*PreferencesUpdate).
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,6 @@ GLOBAL_KEYS = ("organization_name",)
 USER_KEYS = ("color_scheme", "device_vlan_collapse_rows", "page_sizes")
 # Ключи-словари сливаются с сохранённым значением (null у элемента убирает его), остальные — заменяются.
 MERGED_MAP_KEYS = frozenset({"page_sizes"})
-
 
 
 def user_owner(user: User) -> str:

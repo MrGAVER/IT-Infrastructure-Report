@@ -5,6 +5,7 @@
 500, `structural_unit_ids` или `params` неподходящего типа падали уже внутри построения отчёта. Здесь — единые проверки с
 понятным ответом 422; сообщения в стиле остальных 422 приложения (`detail: str`).
 """
+
 from __future__ import annotations
 
 import math
@@ -63,11 +64,7 @@ def parse_structural_unit_ids(raw: Any) -> list[str] | None:
     """`structural_unit_ids`: `null` или пустой список — без фильтра (None), иначе список непустых строк-идентификаторов."""
     if raw is None:
         return None
-    valid = (
-        isinstance(raw, list)
-        and len(raw) <= MAX_STRUCTURAL_UNIT_IDS
-        and all(isinstance(item, str) and 0 < len(item) <= MAX_ID_LENGTH for item in raw)
-    )
+    valid = isinstance(raw, list) and len(raw) <= MAX_STRUCTURAL_UNIT_IDS and all(isinstance(item, str) and 0 < len(item) <= MAX_ID_LENGTH for item in raw)
     if not valid:
         raise HTTPException(422, "structural_unit_ids должен быть списком идентификаторов")
     return raw or None

@@ -21,6 +21,7 @@ SQL-аналог для сверки подключений — services/connect
 Запись — services/port_writes.py (write_port_vlans) и services/crud/interfaces.py: у порта с признаком
 связи удаляются, у порта без признака — пишутся выбранные.
 """
+
 from __future__ import annotations
 
 from typing import Any, Iterable, Sequence
@@ -37,7 +38,7 @@ _CHUNK = 400
 
 def _chunks(values: Sequence[str]):
     for start in range(0, len(values), _CHUNK):
-        yield values[start:start + _CHUNK]
+        yield values[start : start + _CHUNK]
 
 
 def carries_all_vlans(obj: Any) -> bool:

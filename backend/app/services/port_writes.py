@@ -16,6 +16,7 @@
 и `write_port_roles` (признак на IP-адресах несколькими UPDATE): одиночные функции остаются для правок
 одного порта и работают через те же примитивы.
 """
+
 from __future__ import annotations
 
 from typing import Sequence
@@ -34,7 +35,7 @@ _CHUNK = 400
 
 def _chunks(values: Sequence[str]):
     for start in range(0, len(values), _CHUNK):
-        yield values[start:start + _CHUNK]
+        yield values[start : start + _CHUNK]
 
 
 def write_port_roles(items: Sequence[tuple[DeviceInterface, PortRole]], session: Session) -> None:
@@ -49,11 +50,7 @@ def write_port_roles(items: Sequence[tuple[DeviceInterface, PortRole]], session:
         by_flag[is_management].append(port.id)
     for is_management, port_ids in by_flag.items():
         for chunk in _chunks(port_ids):
-            session.execute(
-                update(IPAddress)
-                .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(chunk))
-                .values(is_management=is_management)
-            )
+            session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(chunk)).values(is_management=is_management))
 
 
 def write_port_role(port: DeviceInterface, role: PortRole, session: Session) -> None:

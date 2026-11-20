@@ -12,6 +12,7 @@ relationship() — тот же подход уже используется в r
 Полученная структура используется и для API отдачи списка полей/связей в UI конструктора, и
 самим движком рендеринга (report_engine.py) для обхода путей вида "relation[].field".
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -26,18 +27,45 @@ from .report_registry_rows import VIRTUAL_ENTITIES
 _HIDDEN_FIELDS = {"created_at", "updated_at"}
 
 _RU_FIELD_LABELS: dict[str, str] = {
-    "id": "ID", "name": "Наименование", "description": "Описание", "short_name": "Краткое наименование",
-    "number": "№", "type": "Тип", "purpose": "Назначение", "localization": "Локализация",
-    "system_name": "Системное имя", "serial_number": "Серийный номер",
-    "siem_enabled": "SIEM", "crypto_protection_enabled": "СКЗИ", "process_description": "Процесс функционирования",
-    "ip_address": "IP-адрес", "prefix_length": "Префикс (CIDR)", "is_management": "Управление",
-    "is_data_transfer": "Передача данных", "mac_address": "MAC-адрес", "protocol": "Протокол",
-    "port": "Порт", "transport_protocol": "Транспортный протокол", "version": "Версия",
-    "vendor": "Производитель", "model": "Модель", "address": "Адрес", "height_u": "Высота, U",
-    "rack_position": "Позиция в стойке", "role": "Роль", "runtime": "Runtime", "runtime_version": "Версия runtime",
-    "vlan_id": "VLAN ID", "mode": "Режим", "category": "Категория",
-    "external_interaction": "Внешнее взаимодействие", "auto_sync": "Автосинхронизация", "action": "Действие",
-    "entity_type": "Тип сущности", "entity_id": "ID сущности", "details": "Подробности",
+    "id": "ID",
+    "name": "Наименование",
+    "description": "Описание",
+    "short_name": "Краткое наименование",
+    "number": "№",
+    "type": "Тип",
+    "purpose": "Назначение",
+    "localization": "Локализация",
+    "system_name": "Системное имя",
+    "serial_number": "Серийный номер",
+    "siem_enabled": "SIEM",
+    "crypto_protection_enabled": "СКЗИ",
+    "process_description": "Процесс функционирования",
+    "ip_address": "IP-адрес",
+    "prefix_length": "Префикс (CIDR)",
+    "is_management": "Управление",
+    "is_data_transfer": "Передача данных",
+    "mac_address": "MAC-адрес",
+    "protocol": "Протокол",
+    "port": "Порт",
+    "transport_protocol": "Транспортный протокол",
+    "version": "Версия",
+    "vendor": "Производитель",
+    "model": "Модель",
+    "address": "Адрес",
+    "height_u": "Высота, U",
+    "rack_position": "Позиция в стойке",
+    "role": "Роль",
+    "runtime": "Runtime",
+    "runtime_version": "Версия runtime",
+    "vlan_id": "VLAN ID",
+    "mode": "Режим",
+    "category": "Категория",
+    "external_interaction": "Внешнее взаимодействие",
+    "auto_sync": "Автосинхронизация",
+    "action": "Действие",
+    "entity_type": "Тип сущности",
+    "entity_id": "ID сущности",
+    "details": "Подробности",
 }
 
 
@@ -67,12 +95,14 @@ def build_entity_metadata() -> dict[str, dict[str, Any]]:
         for col in inspect(model).columns:
             if col.key in _HIDDEN_FIELDS:
                 continue
-            fields.append({
-                "name": col.key,
-                "label": _field_label(col.key),
-                "type": str(col.type),
-                "is_foreign_key": bool(col.foreign_keys),
-            })
+            fields.append(
+                {
+                    "name": col.key,
+                    "label": _field_label(col.key),
+                    "type": str(col.type),
+                    "is_foreign_key": bool(col.foreign_keys),
+                }
+            )
             if col.foreign_keys:
                 fk = next(iter(col.foreign_keys))
                 target_key = table_to_key.get(fk.column.table.name)
@@ -104,7 +134,9 @@ def build_entity_metadata() -> dict[str, dict[str, Any]]:
             base_name = key.replace("-", "_")
             reverse_name = f"{base_name}_via_{rel_name}" if multi else base_name
             meta[target]["to_many"][reverse_name] = {
-                "source": key, "fk_column": rel["fk_column"], "via_relation": rel_name,
+                "source": key,
+                "fk_column": rel["fk_column"],
+                "via_relation": rel_name,
             }
 
     # "Виртуальные" сущности report_registry_rows.py — плоские, уже полностью посчитанные строки
@@ -130,11 +162,13 @@ def entity_metadata_public() -> list[dict[str, Any]]:
     meta = build_entity_metadata()
     out = []
     for key, info in sorted(meta.items(), key=lambda kv: kv[1]["label"]):
-        out.append({
-            "key": key,
-            "label": info["label"],
-            "fields": info["fields"],
-            "to_one": [{"name": n, "target": r["target"]} for n, r in sorted(info["to_one"].items())],
-            "to_many": [{"name": n, "target": r["source"]} for n, r in sorted(info["to_many"].items())],
-        })
+        out.append(
+            {
+                "key": key,
+                "label": info["label"],
+                "fields": info["fields"],
+                "to_one": [{"name": n, "target": r["target"]} for n, r in sorted(info["to_one"].items())],
+                "to_many": [{"name": n, "target": r["source"]} for n, r in sorted(info["to_many"].items())],
+            }
+        )
     return out
