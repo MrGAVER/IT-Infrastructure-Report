@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_migrations_audit_log_indexes.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

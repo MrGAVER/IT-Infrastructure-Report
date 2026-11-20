@@ -12,6 +12,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_diagram.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -89,10 +90,7 @@ def test_device_types_category_id_backfilled_and_not_null_in_ddl(alembic_config)
     columns = {r["name"]: r for r in conn.execute("PRAGMA table_info(device_types)").fetchall()}
     assert columns["category_id"]["notnull"] == 1, "category_id должен быть NOT NULL в реальном DDL"
 
-    rows = conn.execute(
-        "SELECT dt.name AS type_name, dc.name AS category_name FROM device_types dt "
-        "JOIN device_categories dc ON dt.category_id = dc.id"
-    ).fetchall()
+    rows = conn.execute("SELECT dt.name AS type_name, dc.name AS category_name FROM device_types dt JOIN device_categories dc ON dt.category_id = dc.id").fetchall()
     by_type = {r["type_name"]: r["category_name"] for r in rows}
     assert by_type["Сервер"] == "Серверы и СХД"
     assert by_type["Точка доступа Wi-Fi"] == "Сетевая инфраструктура"
@@ -234,9 +232,7 @@ def test_categories_migration_upgrade_downgrade_upgrade_cycle(alembic_config):
     command.upgrade(cfg, CATEGORIES_REVISION)
     command.downgrade(cfg, PRE_CATEGORY_REVISION)
     conn = _connect(db_path)
-    table_exists = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='device_categories'"
-    ).fetchone()
+    table_exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_categories'").fetchone()
     assert table_exists is None
     conn.close()
     command.upgrade(cfg, CATEGORIES_REVISION)
@@ -252,9 +248,7 @@ def test_diagram_icons_migration_creates_table_and_fk_columns(alembic_config):
     cfg, db_path = alembic_config
     command.upgrade(cfg, DIAGRAM_ICONS_REVISION)
     conn = _connect(db_path)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'"
-    ).fetchone() is not None
+    assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'").fetchone() is not None
     model_cols = {r["name"] for r in conn.execute("PRAGMA table_info(device_models)").fetchall()}
     device_cols = {r["name"] for r in conn.execute("PRAGMA table_info(physical_devices)").fetchall()}
     assert "diagram_icon_id" in model_cols
@@ -263,9 +257,7 @@ def test_diagram_icons_migration_creates_table_and_fk_columns(alembic_config):
 
     command.downgrade(cfg, DEVICE_TYPES_REVISION)
     conn = _connect(db_path)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'"
-    ).fetchone() is None
+    assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'").fetchone() is None
     conn.close()
     command.upgrade(cfg, DIAGRAM_ICONS_REVISION)
 
@@ -280,18 +272,15 @@ def test_saved_diagrams_migration_creates_tables_with_cascade(alembic_config):
     conn.execute("PRAGMA foreign_keys=ON")
     now = "2026-01-01 00:00:00"
     conn.execute(
-        "INSERT INTO saved_diagrams (id, name, scope_filter, group_by, collapse_threshold, created_at, updated_at) "
-        "VALUES ('d1', 'Диаграмма 1', '{}', 'structural_unit', 20, ?, ?)",
+        "INSERT INTO saved_diagrams (id, name, scope_filter, group_by, collapse_threshold, created_at, updated_at) VALUES ('d1', 'Диаграмма 1', '{}', 'structural_unit', 20, ?, ?)",
         (now, now),
     )
     conn.execute(
-        "INSERT INTO diagram_layouts (id, saved_diagram_id, node_positions, auto_layout_algorithm, created_at, updated_at) "
-        "VALUES ('l1', 'd1', '{}', 'hierarchical', ?, ?)",
+        "INSERT INTO diagram_layouts (id, saved_diagram_id, node_positions, auto_layout_algorithm, created_at, updated_at) VALUES ('l1', 'd1', '{}', 'hierarchical', ?, ?)",
         (now, now),
     )
     conn.execute(
-        "INSERT INTO diagram_group_states (id, saved_diagram_id, group_key, is_collapsed, device_count, created_at, updated_at) "
-        "VALUES ('g1', 'd1', 'structural_unit:1', 1, 25, ?, ?)",
+        "INSERT INTO diagram_group_states (id, saved_diagram_id, group_key, is_collapsed, device_count, created_at, updated_at) VALUES ('g1', 'd1', 'structural_unit:1', 1, 25, ?, ?)",
         (now, now),
     )
     conn.commit()
@@ -304,8 +293,6 @@ def test_saved_diagrams_migration_creates_tables_with_cascade(alembic_config):
 
     command.downgrade(cfg, DIAGRAM_ICONS_REVISION)
     conn = _connect(db_path)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='saved_diagrams'"
-    ).fetchone() is None
+    assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='saved_diagrams'").fetchone() is None
     conn.close()
     command.upgrade(cfg, SAVED_DIAGRAMS_REVISION)

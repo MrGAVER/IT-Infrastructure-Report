@@ -7,6 +7,7 @@ upgrade(): колонки добавляются, признак простав�
 
 Запуск: pytest backend/tests/test_migrations_all_vlans.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

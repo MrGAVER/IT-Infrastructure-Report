@@ -6,6 +6,7 @@ group_id добавляется через batch_alter_table (на SQLite это
 
 Запуск: pytest backend/tests/test_migrations_interface_groups.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

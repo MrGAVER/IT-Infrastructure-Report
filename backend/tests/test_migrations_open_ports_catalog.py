@@ -7,6 +7,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_open_ports_catalog.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -53,8 +54,7 @@ def _insert_legacy_open_port(conn: sqlite3.Connection, *, port: int, protocol: s
     open_port_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO open_ports (id, owner_type, owner_id, transport_protocol, port, protocol, "
-        "protocol_catalog_id, created_at, updated_at) VALUES (?, 'virtual_machine', ?, ?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO open_ports (id, owner_type, owner_id, transport_protocol, port, protocol, protocol_catalog_id, created_at, updated_at) VALUES (?, 'virtual_machine', ?, ?, ?, ?, NULL, ?, ?)",
         (open_port_id, _uid(), transport_protocol, port, protocol, now, now),
     )
     conn.commit()
@@ -94,8 +94,7 @@ def test_backfill_creates_catalog_entry_for_unknown_combination(alembic_config):
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)
     row = conn.execute(
-        "SELECT c.port, c.protocol_type FROM open_ports o JOIN protocol_port_catalogs c ON o.protocol_catalog_id = c.id "
-        "WHERE o.id=?",
+        "SELECT c.port, c.protocol_type FROM open_ports o JOIN protocol_port_catalogs c ON o.protocol_catalog_id = c.id WHERE o.id=?",
         (open_port_id,),
     ).fetchone()
     assert row["port"] == 54321

@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_migrations_interface_sort_order.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -64,8 +65,7 @@ def _device(conn: sqlite3.Connection) -> str:
 def _port(conn: sqlite3.Connection, device_id: str, name: str, created_at: str | None = None) -> str:
     port_id = _uid()
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, all_vlans, created_at, updated_at) "
-        "VALUES (?, ?, ?, 0, 0, 'trunk', 0, ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, all_vlans, created_at, updated_at) VALUES (?, ?, ?, 0, 0, 'trunk', 0, ?, ?)",
         (port_id, device_id, name, created_at or _now(), _now()),
     )
     return port_id

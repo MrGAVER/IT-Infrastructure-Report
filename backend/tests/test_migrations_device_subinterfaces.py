@@ -6,6 +6,7 @@ IP, а downgrade() работает — удаляет таблицу вмест
 
 Запуск: pytest backend/tests/test_migrations_device_subinterfaces.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

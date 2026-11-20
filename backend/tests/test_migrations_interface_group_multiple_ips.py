@@ -6,6 +6,7 @@ upgrade() переносит единственный IP каждой групп
 
 Запуск: pytest backend/tests/test_migrations_interface_group_multiple_ips.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -60,8 +61,7 @@ def _insert_groups(conn: sqlite3.Connection) -> dict[str, str]:
     )
     ids = {"С IP": _uid(), "Без IP": _uid()}
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, ip_purpose, manage_open_ports, created_at, updated_at) "
-        "VALUES (?, ?, 'С IP', '10.0.0.5', 24, 'Управление', 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, ip_purpose, manage_open_ports, created_at, updated_at) VALUES (?, ?, 'С IP', '10.0.0.5', 24, 'Управление', 0, ?, ?)",
         (ids["С IP"], dev_id, _NOW, _NOW),
     )
     conn.execute(
@@ -159,10 +159,7 @@ def test_upgrade_does_not_duplicate_ips_when_table_exists_but_columns_remain(ale
     command.upgrade(cfg, MULTIPLE_IPS_REV)
     command.downgrade(cfg, PRE_REVISION)  # колонки вернулись с первым адресом
     conn = _connect(db_path)
-    conn.execute(
-        "CREATE TABLE interface_group_ips (id VARCHAR(36) PRIMARY KEY, group_id VARCHAR(36) NOT NULL REFERENCES interface_groups(id) ON DELETE CASCADE, "
-        "ip_address VARCHAR(64) NOT NULL, prefix_length INTEGER, purpose VARCHAR(255), created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
-    )
+    conn.execute("CREATE TABLE interface_group_ips (id VARCHAR(36) PRIMARY KEY, group_id VARCHAR(36) NOT NULL REFERENCES interface_groups(id) ON DELETE CASCADE, ip_address VARCHAR(64) NOT NULL, prefix_length INTEGER, purpose VARCHAR(255), created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)")
     conn.execute("INSERT INTO interface_group_ips VALUES (?, ?, '10.0.0.5', 24, 'Управление', ?, ?)", (_uid(), ids["С IP"], _NOW, _NOW))
     conn.commit()
     conn.close()

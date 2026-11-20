@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_migrations_group_subinterfaces.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

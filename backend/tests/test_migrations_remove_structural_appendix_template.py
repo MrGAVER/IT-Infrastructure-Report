@@ -5,6 +5,7 @@ downgrade() возвращает заготовку. Работает на на�
 
 Запуск: pytest backend/tests/test_migrations_remove_structural_appendix_template.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -60,8 +61,7 @@ def test_upgrade_removes_untouched_seed_template_with_its_versions(alembic_confi
         seeded = _template(conn)
         assert seeded is not None, "предусловие: b44cd42f9fa0 добавила шаблон"
         conn.execute(
-            "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, config, created_at, updated_at) "
-            "VALUES (?, ?, 1, ?, NULL, 'docx', ?, ?, ?)",
+            "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, config, created_at, updated_at) VALUES (?, ?, 1, ?, NULL, 'docx', ?, ?, ?)",
             (str(uuid.uuid4()), seeded["id"], seeded["name"], seeded["config"], _now(), _now()),
         )
 

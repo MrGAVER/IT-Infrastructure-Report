@@ -7,6 +7,7 @@
 Гоняется на одноразовой SQLite БД (PostgreSQL — в test_migrations_postgres.py).
 Запуск: pytest backend/tests/test_migrations_drop_entity_status.py -v
 """
+
 from __future__ import annotations
 
 import copy
@@ -33,20 +34,31 @@ migration = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(migration)
 strip = migration.strip_status_paths
 
-GRID = {"sheets": [{"title": "ИС", "columns": [{"width": 22}, {"width": 30}], "rows": [
-    {"height": 22, "repeat": False, "cells": [{"col": 0, "kind": "static", "text": "Отчёт"}]},
-    {"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "expand": None,
-                                                   "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}], "sort_by": "name"},
-     "cells": [{"col": 0, "kind": "index"}, {"col": 1, "kind": "field", "path": "name", "separator": "; "},
-               {"col": 2, "kind": "field", "path": "status", "separator": "; ", "style": {"bold": True}, "colspan": 2}]},
-]}]}
+GRID = {
+    "sheets": [
+        {
+            "title": "ИС",
+            "columns": [{"width": 22}, {"width": 30}],
+            "rows": [
+                {"height": 22, "repeat": False, "cells": [{"col": 0, "kind": "static", "text": "Отчёт"}]},
+                {
+                    "height": 18,
+                    "repeat": True,
+                    "data_source": {"root_entity": "information-systems", "expand": None, "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}], "sort_by": "name"},
+                    "cells": [{"col": 0, "kind": "index"}, {"col": 1, "kind": "field", "path": "name", "separator": "; "}, {"col": 2, "kind": "field", "path": "status", "separator": "; ", "style": {"bold": True}, "colspan": 2}],
+                },
+            ],
+        }
+    ]
+}
 
-DOCX = {"blocks": [
-    {"type": "heading", "text": "Устройства"},
-    {"type": "table", "root_entity": "devices", "filters": [{"path": "status", "op": "ne", "value": "retired"}], "sort_by": "status",
-     "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}]},
-    {"type": "table", "root_entity": "devices", "columns": [{"header": "Состояние", "source": "field", "path": "status"}]},
-]}
+DOCX = {
+    "blocks": [
+        {"type": "heading", "text": "Устройства"},
+        {"type": "table", "root_entity": "devices", "filters": [{"path": "status", "op": "ne", "value": "retired"}], "sort_by": "status", "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}]},
+        {"type": "table", "root_entity": "devices", "columns": [{"header": "Состояние", "source": "field", "path": "status"}]},
+    ]
+}
 
 
 class TestStripStatusPaths:
@@ -232,18 +244,25 @@ class TestMigrationOnADatabase:
 # Раньше проверялись только преобразование JSON и validate_config. Здесь шаблон проходит настоящую миграцию, а затем по нему строятся
 # настоящие файлы xlsx и docx из ORM-сессии на мигрированной базе.
 
-E2E_GRID = {"sheets": [{"title": "ИС", "columns": [{"width": 6}, {"width": 30}, {"width": 18}], "rows": [
-    {"height": 20, "repeat": False, "cells": [{"col": 0, "kind": "static", "text": "№", "colspan": 1}, {"col": 1, "kind": "static", "text": "Наименование"}, {"col": 2, "kind": "static", "text": "Состояние"}]},
-    {"height": 18, "repeat": True,
-     "data_source": {"root_entity": "information-systems", "expand": None, "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}], "sort_by": "status"},
-     "cells": [{"col": 0, "kind": "index"}, {"col": 1, "kind": "field", "path": "name"}, {"col": 2, "kind": "field", "path": "status"}]},
-]}]}
+E2E_GRID = {
+    "sheets": [
+        {
+            "title": "ИС",
+            "columns": [{"width": 6}, {"width": 30}, {"width": 18}],
+            "rows": [
+                {"height": 20, "repeat": False, "cells": [{"col": 0, "kind": "static", "text": "№", "colspan": 1}, {"col": 1, "kind": "static", "text": "Наименование"}, {"col": 2, "kind": "static", "text": "Состояние"}]},
+                {"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "expand": None, "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}], "sort_by": "status"}, "cells": [{"col": 0, "kind": "index"}, {"col": 1, "kind": "field", "path": "name"}, {"col": 2, "kind": "field", "path": "status"}]},
+            ],
+        }
+    ]
+}
 
-E2E_DOCX = {"blocks": [
-    {"type": "heading", "text": "Устройства", "level": 1},
-    {"type": "table", "root_entity": "devices", "filters": [{"path": "status", "op": "ne", "value": "retired"}], "sort_by": "status",
-     "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}]},
-]}
+E2E_DOCX = {
+    "blocks": [
+        {"type": "heading", "text": "Устройства", "level": 1},
+        {"type": "table", "root_entity": "devices", "filters": [{"path": "status", "op": "ne", "value": "retired"}], "sort_by": "status", "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}]},
+    ]
+}
 
 
 def _xlsx_names(path) -> list[str]:

@@ -12,6 +12,7 @@
 Запуск: pytest backend/tests/test_migrations_timestamps_not_null.py (SQLite);
         INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest ... (PostgreSQL).
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -50,6 +51,7 @@ def _utc_now() -> datetime:
 # Снимок схемы и данных
 # ----------------------------------------------------------------------------------------------------------------------
 
+
 def _relaxed(table: str, column: str) -> bool:
     return column in MIGRATION.TIMESTAMP_COLUMNS.get(table, ())
 
@@ -59,14 +61,8 @@ def schema_snapshot(engine: sa.engine.Engine) -> dict[str, dict]:
     inspector = sa.inspect(engine)
     snapshot: dict[str, dict] = {}
     for table in sorted(inspector.get_table_names()):
-        columns = [
-            (c["name"], str(c["type"]), None if _relaxed(table, c["name"]) else c["nullable"], str(c.get("default")))
-            for c in inspector.get_columns(table)
-        ]
-        foreign_keys = sorted(
-            (fk.get("name") or "", tuple(fk["constrained_columns"]), fk["referred_table"], tuple(fk["referred_columns"]), (fk.get("options") or {}).get("ondelete") or "")
-            for fk in inspector.get_foreign_keys(table)
-        )
+        columns = [(c["name"], str(c["type"]), None if _relaxed(table, c["name"]) else c["nullable"], str(c.get("default"))) for c in inspector.get_columns(table)]
+        foreign_keys = sorted((fk.get("name") or "", tuple(fk["constrained_columns"]), fk["referred_table"], tuple(fk["referred_columns"]), (fk.get("options") or {}).get("ondelete") or "") for fk in inspector.get_foreign_keys(table))
         indexes = sorted((i["name"], tuple(i["column_names"]), bool(i["unique"])) for i in inspector.get_indexes(table))
         uniques = sorted((u.get("name") or "", tuple(u["column_names"])) for u in inspector.get_unique_constraints(table))
         snapshot[table] = {
@@ -86,11 +82,7 @@ def row_counts(engine: sa.engine.Engine) -> dict[str, int]:
 
 def nullability(engine: sa.engine.Engine) -> dict[tuple[str, str], bool]:
     inspector = sa.inspect(engine)
-    return {
-        (table, column): next(c["nullable"] for c in inspector.get_columns(table) if c["name"] == column)
-        for table, columns in MIGRATION.TIMESTAMP_COLUMNS.items()
-        for column in columns
-    }
+    return {(table, column): next(c["nullable"] for c in inspector.get_columns(table) if c["name"] == column) for table, columns in MIGRATION.TIMESTAMP_COLUMNS.items() for column in columns}
 
 
 def sqlite_triggers(engine: sa.engine.Engine) -> list[str]:
@@ -101,6 +93,7 @@ def sqlite_triggers(engine: sa.engine.Engine) -> list[str]:
 # ----------------------------------------------------------------------------------------------------------------------
 # Сценарий
 # ----------------------------------------------------------------------------------------------------------------------
+
 
 def _seed_rows_with_null_timestamps(engine: sa.engine.Engine) -> dict[str, str]:
     """Строки на схеме ПРЕДЫДУЩЕЙ ревизии: часть с NULL в метках времени, часть с явными значениями, плюс дочерние строки каскадов."""
@@ -191,6 +184,7 @@ def test_postgres_null_timestamps_are_filled_and_nothing_else_changes():
 # SQLite: внешние ключи и защитные проверки
 # ----------------------------------------------------------------------------------------------------------------------
 
+
 def _upgrade_through_operations(connection: sa.engine.Connection) -> None:
     """Выполняет upgrade() миграции на УЖЕ открытом соединении (так можно проверить миграцию при включённых внешних ключах)."""
     with Operations.context(MigrationContext.configure(connection)):
@@ -264,12 +258,7 @@ def test_migration_covers_every_timestamp_column_the_models_require():
     """Список миграции не должен отставать от моделей: колонки-метки времени, которые модель объявляет обязательными, перечислены."""
     from app.models import Base
 
-    required = {
-        (table.name, column.name)
-        for table in Base.metadata.tables.values()
-        for column in table.columns
-        if column.name in ("created_at", "updated_at") and not column.nullable
-    }
+    required = {(table.name, column.name) for table in Base.metadata.tables.values() for column in table.columns if column.name in ("created_at", "updated_at") and not column.nullable}
     listed = {(table, column) for table, columns in MIGRATION.TIMESTAMP_COLUMNS.items() for column in columns}
     # Таблицы, где NOT NULL задан с самого начала (и в миграциях), в списке не нужны, но всё из списка обязано быть в моделях.
     assert listed <= required, sorted(listed - required)
