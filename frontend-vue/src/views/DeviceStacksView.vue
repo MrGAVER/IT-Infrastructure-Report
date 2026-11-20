@@ -3,22 +3,16 @@
 // раскрывается в таблицу участников. Сводка собирается на клиенте из списка стеков и реестра устройств (на устройстве есть
 // stack_id и stack_position), отдельного запроса состава по каждому стеку нет — см. utils/stackSummary.ts. Полная форма
 // стека (состав, топология, общие VLAN) открывается кнопкой «Открыть».
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted } from 'vue'
 import { useDeviceStacksStore } from '../stores/deviceStacks'
 import { useDevicesStore } from '../stores/devices'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useAuthStore } from '../stores/auth'
-import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
-import { usePagedList } from '../composables/usePagedList'
-import { useStackSharedVlans } from '../composables/useStackSharedVlans'
-import { buildStackSummaries, stackSearchTexts, stackStats } from '../utils/stackSummary'
+import { useDeviceStacksList } from '../composables/useDeviceStacksList'
+import { useStackEditor } from '../composables/useStackEditor'
 import type { StackSummary } from '../utils/stackSummary'
-import { filterBySearch } from '../utils/textSearch'
 import { deviceCountLabel } from '../utils/plural'
-import { formatStackValues, stackVlanStatus } from '../utils/stackVlans'
-import { deviceModelLabel, devicePlaceLabel } from '../utils/deviceLabels'
-import type { DeviceStack, StackVlanRow } from '../api/types'
 import DeviceStackFormModal from '../components/DeviceStackFormModal.vue'
 import DataLoadNotice from '../components/DataLoadNotice.vue'
 import StatCard from '../components/StatCard.vue'
@@ -26,6 +20,7 @@ import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import PagedListFooter from '../components/PagedListFooter.vue'
 import ListEmptyRow from '../components/ListEmptyRow.vue'
 import YesNoStatus from '../components/YesNoStatus.vue'
+import DeviceStackDetails from '../components/DeviceStackDetails.vue'
 // Общая панель фильтров (поиск, кнопки действий) — та же, что у «Устройств», «VLAN», «Подключений».
 import '../styles/list-toolbar.css'
 
@@ -35,11 +30,7 @@ const stacks = useDeviceStacksStore()
 const devices = useDevicesStore()
 const catalogs = useCatalogsStore()
 const auth = useAuthStore()
-const { notify, notifyError } = useToast()
-
-const modalStack = ref<DeviceStack | null>(null)
-const modalOpen = ref(false)
-const deletingId = ref<string | null>(null)
+const { notifyError } = useToast()
 
 onMounted(async () => {
   try {
@@ -52,52 +43,29 @@ onMounted(async () => {
   }
 })
 
-const summaries = computed(() =>
-  buildStackSummaries(stacks.all, devices.all, { model: (d) => deviceModelLabel(catalogs, d), place: (d) => devicePlaceLabel(catalogs, d) }),
-)
-const stats = computed(() => stackStats(summaries.value))
-
-// Поиск — по названию и описанию стека и по тому, что показано о его составе (см. stackSearchTexts); несколько слов сужают выбор.
-const search = ref('')
-const filtered = computed(() => filterBySearch(summaries.value, search.value, stackSearchTexts))
-const isSearching = computed(() => search.value.trim() !== '')
-
-const { page, pageSize, pageSizeOptions, pageCount, pageItems, total, rangeFrom, rangeTo, setPage, setPageSize, resetPage } = usePagedList(
-  () => filtered.value,
-  { listId: 'deviceStacks' },
-)
-watch(search, () => resetPage())
-
-// Раскрытые строки: id стеков. Набор общий для всех страниц, поэтому раскрытие не теряется при переходе по страницам.
-const expanded = ref(new Set<string>())
-function isExpanded(id: string): boolean {
-  return expanded.value.has(id)
-}
-function toggle(id: string) {
-  if (expanded.value.has(id)) expanded.value.delete(id)
-  else expanded.value.add(id)
-}
-const allExpanded = computed(() => filtered.value.length > 0 && filtered.value.every((s) => expanded.value.has(s.stack.id)))
-function toggleAll() {
-  const ids = filtered.value.map((s) => s.stack.id)
-  if (allExpanded.value) for (const id of ids) expanded.value.delete(id)
-  else for (const id of ids) expanded.value.add(id)
-}
-
-// Общие VLAN стека не входят в реестр устройств, поэтому подгружаются отдельным запросом на стек — только для раскрытых строк
-// текущей страницы (см. composables/useStackSharedVlans.ts). По ним поиск не ведётся: они появляются после раскрытия строки.
-const stackVlans = useStackSharedVlans(() => pageItems.value.filter((s) => expanded.value.has(s.stack.id)).map((s) => s.stack.id))
-function vlanLoadStatus(stackId: string): 'loading' | 'ready' | 'error' {
-  return stackVlans.stateOf(stackId)?.status ?? 'loading'
-}
-function vlanRows(stackId: string): StackVlanRow[] {
-  const state = stackVlans.stateOf(stackId)
-  return state?.status === 'ready' ? state.items : []
-}
-function vlanLoadError(stackId: string): string {
-  const state = stackVlans.stateOf(stackId)
-  return state?.status === 'error' ? state.message : ''
-}
+// Сводка, поиск, страницы, раскрытие строк и общие VLAN — composables/useDeviceStacksList.ts.
+const {
+  summaries,
+  stats,
+  search,
+  filtered,
+  isSearching,
+  page,
+  pageSize,
+  pageSizeOptions,
+  pageCount,
+  pageItems,
+  total,
+  rangeFrom,
+  rangeTo,
+  setPage,
+  setPageSize,
+  isExpanded,
+  toggle,
+  allExpanded,
+  toggleAll,
+  stackVlans,
+} = useDeviceStacksList()
 
 function listText(values: readonly string[]): string {
   return values.join('; ')
@@ -106,47 +74,8 @@ function siemTitle(s: StackSummary): string {
   return `SIEM: ${s.siemCovered} из ${s.members.length}`
 }
 
-function openCreate() {
-  modalStack.value = null
-  modalOpen.value = true
-}
-function openEdit(s: DeviceStack) {
-  modalStack.value = s
-  modalOpen.value = true
-}
-/** Перечитать всё, что показывает экран: стеки и устройства — и общие VLAN раскрытых строк (в окне стека их меняют). */
-function refresh() {
-  stackVlans.invalidate()
-  void stacks.reloadWithDevices()
-}
-function closeModal() {
-  modalOpen.value = false
-  modalStack.value = null
-  // Состав стека меняется прямо в окне (добавить/убрать устройство применяется сразу), а таблица строится из реестра
-  // устройств, поэтому при любом закрытии окна — в том числе крестиком — перечитываются и стеки, и устройства.
-  refresh()
-}
-function onSaved() {
-  const wasEdit = modalStack.value !== null
-  closeModal()
-  notify(wasEdit ? 'Стек обновлён' : 'Стек добавлен', 'success')
-}
-
-async function removeStack(s: DeviceStack) {
-  if (!confirm(`Удалить стек «${s.name}»?`)) return
-  deletingId.value = s.id
-  try {
-    await deleteResource('device-stacks', s.id)
-    await stacks.reload()
-    notify('Стек удалён', 'success')
-  } catch (err) {
-    // Стек с участниками delete_resource не удалит (REFERENCED_BY_OTHER_RECORDS) — сообщение с
-    // бэкенда уже объясняет, что сперва нужно убрать устройства из стека.
-    notifyError(err)
-  } finally {
-    deletingId.value = null
-  }
-}
+// Окно стека, перечитывание и удаление — composables/useStackEditor.ts.
+const { modalStack, modalOpen, deletingId, openCreate, openEdit, refresh, closeModal, onSaved, removeStack } = useStackEditor(() => stackVlans.invalidate())
 </script>
 
 <template>
@@ -263,58 +192,7 @@ async function removeStack(s: DeviceStack) {
               </tr>
               <tr v-if="isExpanded(s.stack.id)" class="members-row">
                 <td :colspan="COLUMN_COUNT">
-                  <p v-if="!s.members.length" class="members-empty">В стеке пока нет устройств — добавьте их в окне стека («Открыть»).</p>
-                  <table v-else class="members-table" :aria-label="`Состав стека «${s.stack.name}»`">
-                    <thead>
-                      <tr>
-                        <th>Поз.</th>
-                        <th>Системное имя</th>
-                        <th>Серийный №</th>
-                        <th>Производитель / модель</th>
-                        <th>IP управления</th>
-                        <th>Здание · помещение</th>
-                        <th>SIEM</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="m in s.members" :key="m.device.id" class="member-row">
-                        <td class="nowrap">{{ m.position ?? '—' }}</td>
-                        <td>
-                          <span class="clip" :title="m.name">{{ m.name }}</span>
-                        </td>
-                        <td class="mono">
-                          <span class="clip" :title="m.device.serial_number">{{ m.device.serial_number }}</span>
-                        </td>
-                        <td>
-                          <span class="clip" :title="m.model || undefined">{{ m.model || '—' }}</span>
-                        </td>
-                        <td class="mono">{{ m.device.management_ips || '—' }}</td>
-                        <td>
-                          <span class="clip" :title="m.place || undefined">{{ m.place || '—' }}</span>
-                        </td>
-                        <td class="nowrap"><YesNoStatus :value="m.device.siem_enabled" /></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <div class="stack-vlans">
-                    <h4 class="stack-vlans-title">Общие VLAN стека</h4>
-                    <p v-if="vlanLoadStatus(s.stack.id) === 'loading'" class="members-empty">Загрузка общих VLAN…</p>
-                    <p v-else-if="vlanLoadStatus(s.stack.id) === 'error'" class="members-empty vlan-error">
-                      Не удалось загрузить общие VLAN: {{ vlanLoadError(s.stack.id) }}
-                      <button type="button" class="btn btn-secondary" @click="stackVlans.retry(s.stack.id)">Повторить</button>
-                    </p>
-                    <p v-else-if="!vlanRows(s.stack.id).length" class="members-empty">Общие VLAN не заданы — настраиваются в окне стека («Открыть»).</p>
-                    <ul v-else class="stack-vlan-list">
-                      <li v-for="v in vlanRows(s.stack.id)" :key="v.vlan_id" class="stack-vlan-item">
-                        <b class="vlan-id">VLAN {{ v.vlan_number }}</b>
-                        <span v-if="v.vlan_name" class="vlan-name">{{ v.vlan_name }}</span>
-                        <span class="mono vlan-values">{{ formatStackValues(v) }}</span>
-                        <span class="status" :class="stackVlanStatus(v).kind === 'ok' ? 'on' : 'off'">
-                          <span class="status-dot"></span>{{ stackVlanStatus(v).text }}
-                        </span>
-                      </li>
-                    </ul>
-                  </div>
+                  <DeviceStackDetails :summary="s" :vlans="stackVlans.stateOf(s.stack.id)" @retry="stackVlans.retry(s.stack.id)" />
                 </td>
               </tr>
             </template>
@@ -498,62 +376,6 @@ tbody tr:last-child > td {
   padding: 0 14px 12px 38px;
   background: var(--surface-2);
 }
-.members-empty {
-  margin: 0;
-  padding: 10px 0;
-  font-size: 12px;
-  color: var(--ink-muted);
-}
-.stack-vlans {
-  margin-top: 10px;
-}
-.stack-vlans-title {
-  margin: 0;
-  padding-top: 4px;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--ink-muted);
-  font-weight: 600;
-}
-.stack-vlan-list {
-  list-style: none;
-  margin: 6px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.stack-vlan-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  font-size: 12.5px;
-}
-.vlan-name {
-  color: var(--ink-muted);
-}
-.vlan-error .btn {
-  margin-left: 10px;
-}
-.members-table {
-  min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-}
-.members-table thead th {
-  padding: 7px 12px;
-  background: transparent;
-}
-.members-table tbody td {
-  padding: 8px 12px;
-}
-.member-row:hover > td {
-  background: var(--surface-2);
-}
-
 @media (max-width: 860px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
