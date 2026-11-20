@@ -15,6 +15,7 @@ reporting.py (`ws.append(...)` в _populate_sheet1..4), services/audit_export.py
 
 Единая точка защиты для всех генераторов отчётов — правило одно на проект, а не по копии в каждом.
 """
+
 from __future__ import annotations
 
 from typing import Any

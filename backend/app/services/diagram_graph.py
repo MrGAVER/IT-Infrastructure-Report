@@ -41,6 +41,7 @@
 Рёбра, у которых устройство хотя бы одного конца не входит в текущий scope_filter, не строятся —
 на диаграмме физически нет второго узла, к которому их подключить.
 """
+
 from __future__ import annotations
 
 import json
@@ -53,9 +54,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import (
-    Building, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceSubinterface, DeviceType,
-    DiagramGroupState, DiagramIcon, IPAddress, InterfaceVLAN, Manufacturer, PhysicalDevice,
-    PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN,
+    Building,
+    Connection,
+    ConnectionType,
+    DeviceCategory,
+    DeviceInterface,
+    DeviceModel,
+    DeviceSubinterface,
+    DeviceType,
+    DiagramGroupState,
+    DiagramIcon,
+    IPAddress,
+    InterfaceVLAN,
+    Manufacturer,
+    PhysicalDevice,
+    PhysicalDeviceVLAN,
+    SavedDiagram,
+    StructuralUnit,
+    VLAN,
 )
 from ..constants import OwnerType
 from .timeutil import utcnow_naive
@@ -326,9 +342,7 @@ def _insert_missing_group_states(session: Session, states: list[DiagramGroupStat
     session.execute(dialect_insert(DiagramGroupState).on_conflict_do_nothing(index_elements=["saved_diagram_id", "group_key"]), rows)
 
 
-def apply_grouping(
-    session: Session, saved_diagram: SavedDiagram, group_counts: dict[str, int], *, persist: bool = True
-) -> dict[str, DiagramGroupState]:
+def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: dict[str, int], *, persist: bool = True) -> dict[str, DiagramGroupState]:
     """Раздел 8 ТЗ. Группа НИЖЕ порога без существующей записи не получает DiagramGroupState вообще —
     отсутствие записи трактуется как "не свёрнута" (см. build_graph). Существующая запись никогда не получает
     переписанный is_collapsed/custom_threshold — только device_count обновляется при каждом regenerate.
@@ -341,10 +355,7 @@ def apply_grouping(
     несохранённое состояние ``is_collapsed=True`` — результат тот же, что дала бы запись, но безопасный метод GET не
     меняет данные (в том числе от имени роли viewer) и не конкурирует с другими запросами; device_count у существующих
     записей не обновляется (граф берёт число устройств из текущего расчёта, а не из записи)."""
-    existing = {
-        s.group_key: s
-        for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id)).all()
-    }
+    existing = {s.group_key: s for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id)).all()}
     result: dict[str, DiagramGroupState] = {}
     created: list[DiagramGroupState] = []
     for group_key, device_count in group_counts.items():
@@ -357,22 +368,13 @@ def apply_grouping(
         threshold = saved_diagram.collapse_threshold
         if device_count >= threshold:
             # Только внешний ключ, без relationship: иначе backref-каскад добавил бы объект в сессию даже при persist=False.
-            state = DiagramGroupState(
-                id=str(uuid.uuid4()), saved_diagram_id=saved_diagram.id, group_key=group_key, is_collapsed=True, device_count=device_count
-            )
+            state = DiagramGroupState(id=str(uuid.uuid4()), saved_diagram_id=saved_diagram.id, group_key=group_key, is_collapsed=True, device_count=device_count)
             created.append(state)
             result[group_key] = state
     if persist and created:
         session.flush()  # отложенные изменения (device_count существующих записей) — до core-вставки
         _insert_missing_group_states(session, created)
-        stored = {
-            s.group_key: s
-            for s in session.scalars(
-                select(DiagramGroupState).where(
-                    DiagramGroupState.saved_diagram_id == saved_diagram.id, DiagramGroupState.group_key.in_([s.group_key for s in created])
-                )
-            ).all()
-        }
+        stored = {s.group_key: s for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id, DiagramGroupState.group_key.in_([s.group_key for s in created]))).all()}
         for state in created:
             result[state.group_key] = stored.get(state.group_key, state)  # победитель гонки, если вставила другая транзакция
     return result
@@ -473,12 +475,8 @@ def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, t
     # САМОГО устройства, а не свёрнут в узел-группу (build_graph.resolve_node_id) — у узла-группы
     # нет своих засечек порта, анкерить туда конкретный port_index было бы некуда (см. пункт 5
     # docstring модуля).
-    source_supports_port_index = bool(
-        source_device is not None and source_node_id == source_device.id and ctx.device_supports_port_index(source_device)
-    )
-    target_supports_port_index = bool(
-        target_device is not None and target_node_id == target_device.id and ctx.device_supports_port_index(target_device)
-    )
+    source_supports_port_index = bool(source_device is not None and source_node_id == source_device.id and ctx.device_supports_port_index(source_device))
+    target_supports_port_index = bool(target_device is not None and target_node_id == target_device.id and ctx.device_supports_port_index(target_device))
 
     vlans: dict[str, dict] = {}
     for iface in (source_iface, target_iface):
@@ -512,9 +510,7 @@ def _grid_position(index: int) -> dict:
     return {"x": (index % GRID_COLUMNS) * GRID_STEP_X, "y": (index // GRID_COLUMNS) * GRID_STEP_Y}
 
 
-def build_graph(
-    session: Session, saved_diagram: SavedDiagram, *, node_positions: Optional[dict] = None, persist: bool = True
-) -> dict:
+def build_graph(session: Session, saved_diagram: SavedDiagram, *, node_positions: Optional[dict] = None, persist: bool = True) -> dict:
     """Точка входа: собирает {"nodes": [...], "edges": [...]} для GET /diagrams/{id} (раздел 4.4/7
     ТЗ). `node_positions` — уже распарсенный DiagramLayout.node_positions текущей диаграммы (пусто при первой генерации).
 

@@ -3,6 +3,7 @@
 Чистая логика сверки не знает про БД; здесь — пакетная загрузка номеров VLAN портов и сборка
 снимков PortConfig. Один запрос на весь набор портов, а не по запросу на порт.
 """
+
 from __future__ import annotations
 
 from typing import Iterable, Sequence
@@ -28,7 +29,7 @@ def load_vlan_numbers(session: Session, interface_ids: Iterable[str]) -> dict[st
     wanted = list(set().union(*by_port.values())) if by_port else []
     number_of: dict[str, int] = {}
     for start in range(0, len(wanted), _CHUNK):
-        for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted[start:start + _CHUNK]))).all():
+        for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted[start : start + _CHUNK]))).all():
             number_of[vlan_id] = number
     numbers = {port_id: frozenset(number_of[v] for v in vlan_ids if v in number_of) for port_id, vlan_ids in by_port.items()}
     return {port_id: values for port_id, values in numbers.items() if values}

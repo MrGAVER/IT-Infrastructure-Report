@@ -11,6 +11,7 @@
   с Host вида ``evil.example``, а адрес-литерал перенацелить через DNS нельзя. Поэтому для сетевого режима
   EXE достаточно перечислить имена компьютера, а обращение по ``http://192.168.1.10:8000`` работает само.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -47,10 +48,7 @@ def parse_client_networks(entries: Iterable[str]) -> list[IPNetwork]:
         try:
             networks.append(ipaddress.ip_network(entry.strip(), strict=False))
         except ValueError as exc:
-            raise ValueError(
-                f"Некорректный IP-адрес или подсеть: {entry!r}. Ожидается адрес (192.168.1.15) "
-                f"или подсеть в формате CIDR (192.168.1.0/24)."
-            ) from exc
+            raise ValueError(f"Некорректный IP-адрес или подсеть: {entry!r}. Ожидается адрес (192.168.1.15) или подсеть в формате CIDR (192.168.1.0/24).") from exc
     return networks
 
 
@@ -86,8 +84,7 @@ def _log_rejected_client(host: str) -> None:
     """Одна запись в журнале на каждый отвергнутый адрес (кэш по адресу): иначе сканирование сети
     заполнило бы консоль EXE. Для администратора этого достаточно, чтобы понять, какой адрес добавить."""
     logger.warning(
-        "Отклонено подключение с адреса %s: он не входит в список разрешённых клиентов "
-        "(allowed_clients в файле настроек / INFRA_REGISTRY_ALLOWED_CLIENTS).",
+        "Отклонено подключение с адреса %s: он не входит в список разрешённых клиентов (allowed_clients в файле настроек / INFRA_REGISTRY_ALLOWED_CLIENTS).",
         host,
     )
 
@@ -117,11 +114,12 @@ class ClientAccessMiddleware:
             return
         response = JSONResponse(
             status_code=403,
-            content={"detail": {
-                "code": ErrorCode.CLIENT_NOT_ALLOWED,
-                "message": "Доступ с этого адреса запрещён настройками приложения. "
-                           "Администратор должен добавить адрес в список разрешённых клиентов.",
-            }},
+            content={
+                "detail": {
+                    "code": ErrorCode.CLIENT_NOT_ALLOWED,
+                    "message": "Доступ с этого адреса запрещён настройками приложения. Администратор должен добавить адрес в список разрешённых клиентов.",
+                }
+            },
         )
         await response(scope, receive, send)
 
@@ -130,7 +128,7 @@ def _host_without_port(header: str) -> str:
     """Host из значения заголовка без порта: ``10.0.0.5:8000`` → ``10.0.0.5``, ``[::1]:8000`` → ``::1``."""
     header = header.strip()
     if header.startswith("["):
-        return header[1:header.find("]")] if "]" in header else ""
+        return header[1 : header.find("]")] if "]" in header else ""
     if header.count(":") == 1:
         return header.split(":", 1)[0]
     return header  # без порта, либо «голый» IPv6 (в Host он бывает только в скобках)

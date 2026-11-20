@@ -32,6 +32,7 @@
 переносом по словам для Calibri 11, с запасом в «безопасную» сторону — лучше лишняя полстроки
 свободного места, чем обрезанный заголовок.
 """
+
 from __future__ import annotations
 
 import math
@@ -51,23 +52,23 @@ FRAME_SIDE = Side(style="medium", color="000000")
 HEADER_FONT = Font(name="Calibri", size=11, bold=True)
 HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-LINE_HEIGHT_PT = 15.0         # высота одной строки текста Calibri 11 в Excel
-MAX_ROW_HEIGHT_PT = 409.0     # потолок высоты строки в Excel
-MIN_COLUMN_WIDTH = 8          # не уже (в символах) — иначе колонка с «№» или «Да/Нет» теряет читаемость
-MAX_COLUMN_WIDTH = 55         # не шире: длинный текст переносится по строкам, а не растягивает колонку
-MAX_HEADER_LINES = 8          # шапка не выше стольких строк: колонку с длинным заголовком расширяем
-DEFAULT_COLUMN_WIDTH = 8.43   # ширина колонки Excel, если не задана явно
+LINE_HEIGHT_PT = 15.0  # высота одной строки текста Calibri 11 в Excel
+MAX_ROW_HEIGHT_PT = 409.0  # потолок высоты строки в Excel
+MIN_COLUMN_WIDTH = 8  # не уже (в символах) — иначе колонка с «№» или «Да/Нет» теряет читаемость
+MAX_COLUMN_WIDTH = 55  # не шире: длинный текст переносится по строкам, а не растягивает колонку
+MAX_HEADER_LINES = 8  # шапка не выше стольких строк: колонку с длинным заголовком расширяем
+DEFAULT_COLUMN_WIDTH = 8.43  # ширина колонки Excel, если не задана явно
 
 # Модель переноса строк: символов в строке = (ширина колонки − поля) / коэффициент. Параметры подобраны
 # по метрикам Calibri 11 (в LibreOffice это Carlito) на заголовках отчёта при разной ширине колонок —
 # около тысячи случаев, ни одного занижения числа строк, а завышение — как правило, на одну строку.
 # Пробелы и строчные буквы уже «цифры», заглавные шире, поэтому коэффициент не 1.0 — оценка
 # сознательно пессимистичнее, чтобы текст не обрезался.
-TEXT_WIDTH_FACTOR = 1.05      # обычный текст
-BOLD_WIDTH_FACTOR = 1.1       # жирные символы шире обычных
-COLUMN_PADDING = 1.5          # поля ячейки внутри ширины колонки (в символах)
-FILTER_BUTTON_WIDTH = 2.0     # кнопка автофильтра в ячейке шапки закрывает часть строки (LibreOffice сужает
-                              # под неё текст, в Excel она перекрывает его) — шапке оставляем под неё место
+TEXT_WIDTH_FACTOR = 1.05  # обычный текст
+BOLD_WIDTH_FACTOR = 1.1  # жирные символы шире обычных
+COLUMN_PADDING = 1.5  # поля ячейки внутри ширины колонки (в символах)
+FILTER_BUTTON_WIDTH = 2.0  # кнопка автофильтра в ячейке шапки закрывает часть строки (LibreOffice сужает
+# под неё текст, в Excel она перекрывает его) — шапке оставляем под неё место
 
 RowSpan = tuple[int, int]
 
@@ -189,6 +190,7 @@ def style_header(ws, header_rows: int = 1) -> None:
 # Размеры: оценка переноса строк, ширина колонок, высота шапки и объединённых блоков
 # --------------------------------------------------------------------------------------------
 
+
 def _padding(filter_button: bool) -> float:
     return COLUMN_PADDING + (FILTER_BUTTON_WIDTH if filter_button else 0.0)
 
@@ -215,9 +217,9 @@ def _paragraph_lines(paragraph: str, capacity: float) -> int:
         if used and used + 1 + size <= capacity:
             used += 1 + size
             continue
-        if used:                    # слово не влезло в остаток строки — начинается новая
+        if used:  # слово не влезло в остаток строки — начинается новая
             lines += 1
-        while size > capacity:      # слово длиннее строки — приложение режет его по символам
+        while size > capacity:  # слово длиннее строки — приложение режет его по символам
             lines += 1
             size -= capacity
         used = size
@@ -322,8 +324,7 @@ def fit_merged_block_heights(ws, spans: Iterable[RowSpan], columns: Iterable[int
             ws.row_dimensions[row].height = min((lines + share + (index < rest)) * LINE_HEIGHT_PT, MAX_ROW_HEIGHT_PT)
 
 
-def apply_sheet_layout(ws, *, spans: Optional[list[RowSpan]] = None, merge_columns: Iterable[int] = (),
-                        header_rows: int = 1) -> None:
+def apply_sheet_layout(ws, *, spans: Optional[list[RowSpan]] = None, merge_columns: Iterable[int] = (), header_rows: int = 1) -> None:
     """Полное оформление листа отчёта: объединение, рамки, закрепление шапки.
 
     spans — группы строк, относящиеся к одной записи реестра. None — каждая строка данных сама

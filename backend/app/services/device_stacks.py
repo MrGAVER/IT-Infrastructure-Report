@@ -3,6 +3,7 @@
 Вынесено из api/device_stacks.py. Тела функций перенесены из обработчиков без изменения логики;
 описание контрактов — в docstring обработчиков api/device_stacks.py (они же попадают в /docs).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,7 +23,8 @@ def stack_detail(session: Session, stack_id: str) -> dict[str, Any]:
     """Участники стека (полными карточками, по позиции) и подключения, оба конца которых принадлежат стеку."""
 
     stack = session.get(DeviceStack, stack_id)
-    if not stack: raise HTTPException(404, 'Стек не найден')
+    if not stack:
+        raise HTTPException(404, "Стек не найден")
 
     member_rows = session.scalars(select(DeviceStackMember).where(DeviceStackMember.stack_id == stack_id).order_by(DeviceStackMember.position)).all()
     device_ids = [m.physical_device_id for m in member_rows]
@@ -38,17 +40,15 @@ def stack_detail(session: Session, stack_id: str) -> dict[str, Any]:
     # DeviceStackFormModal.vue для DELETE /device-stack-members/{id} при исключении из стека.
     member_row_id_by_device = {m.physical_device_id: m.id for m in member_rows}
     for item in members:
-        item['stack_member_id'] = member_row_id_by_device.get(item['id'])
+        item["stack_member_id"] = member_row_id_by_device.get(item["id"])
 
     connections = []
     if device_ids:
         interface_ids = session.scalars(select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(device_ids))).all()
         if interface_ids:
-            connections = session.scalars(
-                select(Connection).where(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids))
-            ).all()
+            connections = session.scalars(select(Connection).where(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids))).all()
 
-    return {'stack': serialize(stack), 'members': members, 'connections': enrich_connections(connections, session)}
+    return {"stack": serialize(stack), "members": members, "connections": enrich_connections(connections, session)}
 
 
 def add_stack_member(session: Session, stack_id: str, physical_device_id: str | None, position: int) -> dict[str, Any]:
@@ -56,18 +56,23 @@ def add_stack_member(session: Session, stack_id: str, physical_device_id: str | 
 
     stack = session.get(DeviceStack, stack_id)
     device = session.get(PhysicalDevice, physical_device_id) if physical_device_id else None
-    if not stack or not device: raise HTTPException(404, 'Стек или физическое устройство не найдено')
+    if not stack or not device:
+        raise HTTPException(404, "Стек или физическое устройство не найдено")
     existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == device.id))
-    if existing and existing.stack_id == stack_id: return serialize(existing)
-    data = {'stack_id': stack_id, 'physical_device_id': device.id, 'position': position}
+    if existing and existing.stack_id == stack_id:
+        return serialize(existing)
+    data = {"stack_id": stack_id, "physical_device_id": device.id, "position": position}
     validate_resource(DeviceStackMember, data, session, item_id=None)
     # Общие настройки VLAN стека записываются устройству той же транзакцией (до добавления: VLAN вне домена устройства — 422,
     # и участник не создаётся). Окно подтверждения в интерфейсе перед этим показывает, что будет добавлено и заменено.
     applied = apply_stack_settings_to_device(session, stack_id, device)
     obj = DeviceStackMember(**data)
-    session.add(obj); session.flush()
-    details = f'Устройство добавлено в стек «{stack.name}»'
-    if applied['added'] or applied['updated']:
-        details += f'; общие настройки VLAN: назначено {applied["added"]}, заменено {applied["updated"]}'
-    audit(session, 'device-stack-members', obj.id, AuditAction.CREATE, details)
-    session.commit(); session.refresh(obj); return serialize(obj)
+    session.add(obj)
+    session.flush()
+    details = f"Устройство добавлено в стек «{stack.name}»"
+    if applied["added"] or applied["updated"]:
+        details += f"; общие настройки VLAN: назначено {applied['added']}, заменено {applied['updated']}"
+    audit(session, "device-stack-members", obj.id, AuditAction.CREATE, details)
+    session.commit()
+    session.refresh(obj)
+    return serialize(obj)

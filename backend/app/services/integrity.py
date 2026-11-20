@@ -25,6 +25,7 @@ services/crud/deletion.py:delete_resource(). Любой новый путь уд
   таблицами SQLAlchemy не гарантирует, а проверка (и ORM, и триггер) смотрит на состояние БД в
   момент удаления владельца.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,9 +39,24 @@ from sqlalchemy.orm import Session
 
 from ..constants import ErrorCode, OwnerType, SourceType
 from ..models import (
-    Container, DeployedSoftware, DeviceInterface, DeviceSubinterface, DeviceTypeVLAN, IPAddress, InformationSystem,
-    InformationSystemSource, InterfaceGroup, InterfaceGroupOpenPort, InterfaceGroupSubinterface, ISProtocol, OpenPort, PhysicalDevice,
-    PhysicalDeviceVLAN, ProtocolPortCatalog, VLAN, VirtualMachine,
+    Container,
+    DeployedSoftware,
+    DeviceInterface,
+    DeviceSubinterface,
+    DeviceTypeVLAN,
+    IPAddress,
+    InformationSystem,
+    InformationSystemSource,
+    InterfaceGroup,
+    InterfaceGroupOpenPort,
+    InterfaceGroupSubinterface,
+    ISProtocol,
+    OpenPort,
+    PhysicalDevice,
+    PhysicalDeviceVLAN,
+    ProtocolPortCatalog,
+    VLAN,
+    VirtualMachine,
 )
 from ..registry import DISPLAY_NAMES
 from .port_vlans import allowed_vlan_ids_by_device, effective_group_vlan_ids, effective_vlan_ids
@@ -72,31 +88,39 @@ def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPExceptio
     logger.warning("Нарушение целостности данных в ресурсе %s: %s", resource, detail_text)
     lowered = detail_text.lower()
     if RACK_SLOT_INDEX in lowered or ("rack_position" in lowered and "unique" in lowered):
-        return HTTPException(409, detail={
-            "code": ErrorCode.RACK_POSITION_OCCUPIED,
-            "message": "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой пользователь). Обновите данные и повторите.",
-        })
+        return HTTPException(
+            409,
+            detail={
+                "code": ErrorCode.RACK_POSITION_OCCUPIED,
+                "message": "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой пользователь). Обновите данные и повторите.",
+            },
+        )
     if SAME_PORT_CHECK in lowered:
         message = "Порт нельзя подключить к самому себе. Выберите другой порт."
         return HTTPException(409, detail={"code": ErrorCode.CONNECTION_SAME_PORT, "message": message})
     sqlite_column_failure = "unique constraint failed" in lowered and any(column in lowered for column in ACTIVE_PORT_COLUMNS)
     if any(name in lowered for name in ACTIVE_PORT_INDEXES) or sqlite_column_failure:
-        return HTTPException(409, detail={
-            "code": ErrorCode.PORT_ALREADY_CONNECTED,
-            "message": (
-                "Порт уже участвует в другом активном подключении (возможно, его только что подключил другой пользователь). "
-                "Обновите данные и повторите."
-            ),
-        })
+        return HTTPException(
+            409,
+            detail={
+                "code": ErrorCode.PORT_ALREADY_CONNECTED,
+                "message": ("Порт уже участвует в другом активном подключении (возможно, его только что подключил другой пользователь). Обновите данные и повторите."),
+            },
+        )
     return HTTPException(409, detail={"code": ErrorCode.INTEGRITY_ERROR, "message": "Нарушение целостности данных: операция противоречит существующим записям."})
+
 
 # resource_key (см. registry.MODEL_MAP) → значение InformationSystemSource.source_type, которое
 # соответствует этому типу владельца (source_type играет роль owner_type).
 SOURCE_TYPE_BY_RESOURCE: dict[str, str] = {
-    'devices': SourceType.DEVICE, 'vms': SourceType.VM, 'containers': SourceType.CONTAINER,
+    "devices": SourceType.DEVICE,
+    "vms": SourceType.VM,
+    "containers": SourceType.CONTAINER,
 }
 SOURCE_TYPE_BY_MODEL: dict[type, str] = {
-    PhysicalDevice: SourceType.DEVICE, VirtualMachine: SourceType.VM, Container: SourceType.CONTAINER,
+    PhysicalDevice: SourceType.DEVICE,
+    VirtualMachine: SourceType.VM,
+    Container: SourceType.CONTAINER,
 }
 
 
@@ -115,18 +139,15 @@ class ReferencedRecordError(Exception):
 def format_referenced_message(refs: list[tuple[str, int]]) -> str:
     """Единая формулировка 409 «запись используется в других данных» — для generic FK-ссылок,
     для owner_id-ссылок источников ИС и для ORM-защиты (чтобы текст не разъезжался)."""
-    details = ', '.join(f'{name}: {count}' for name, count in refs)
-    return f'Нельзя удалить: запись используется в других данных ({details}).'
+    details = ", ".join(f"{name}: {count}" for name, count in refs)
+    return f"Нельзя удалить: запись используется в других данных ({details})."
 
 
 def count_source_references(bind: Any, source_type: str, owner_id: str) -> int:
     """Сколько строк information_system_sources ссылаются на владельца. bind — Session или
     Connection (у обоих есть .scalar), поэтому одна функция обслуживает и прикладную проверку,
     и before_delete, которому доступно только соединение."""
-    return bind.scalar(
-        select(func.count()).select_from(InformationSystemSource)
-        .where(InformationSystemSource.source_type == source_type, InformationSystemSource.owner_id == owner_id)
-    ) or 0
+    return bind.scalar(select(func.count()).select_from(InformationSystemSource).where(InformationSystemSource.source_type == source_type, InformationSystemSource.owner_id == owner_id)) or 0
 
 
 def source_reference_refs(resource: str, item_id: str, bind: Any) -> list[tuple[str, int]]:
@@ -136,7 +157,7 @@ def source_reference_refs(resource: str, item_id: str, bind: Any) -> list[tuple[
     if source_type is None:
         return []
     count = count_source_references(bind, source_type, item_id)
-    return [(DISPLAY_NAMES['is-sources'], count)] if count else []
+    return [(DISPLAY_NAMES["is-sources"], count)] if count else []
 
 
 def _guard_before_delete(mapper, connection, target) -> None:
@@ -145,7 +166,7 @@ def _guard_before_delete(mapper, connection, target) -> None:
         return
     count = count_source_references(connection, source_type, target.id)
     if count:
-        raise ReferencedRecordError([(DISPLAY_NAMES['is-sources'], count)])
+        raise ReferencedRecordError([(DISPLAY_NAMES["is-sources"], count)])
 
 
 def register_delete_guards() -> None:
@@ -153,8 +174,8 @@ def register_delete_guards() -> None:
     Идемпотентна: повторный вызов (например, при повторном импорте модуля в тестах) не дублирует
     слушателя."""
     for model in SOURCE_TYPE_BY_MODEL:
-        if not event.contains(model, 'before_delete', _guard_before_delete):
-            event.listen(model, 'before_delete', _guard_before_delete)
+        if not event.contains(model, "before_delete", _guard_before_delete):
+            event.listen(model, "before_delete", _guard_before_delete)
 
 
 register_delete_guards()
@@ -185,44 +206,29 @@ def find_orphaned_owner_references(session: Session) -> list[dict[str, Any]]:
 
     for child in _POLYMORPHIC_CHILD_MODELS:
         for owner_type, owner_model in _OWNER_MODEL_BY_TYPE.items():
-            rows = session.execute(
-                select(child.id, child.owner_id)
-                .where(child.owner_type == owner_type, ~child.owner_id.in_(select(owner_model.id)))
-            ).all()
-            orphans.extend(
-                {'table': child.__tablename__, 'id': r.id, 'owner_type': owner_type, 'owner_id': r.owner_id, 'reason': 'owner_missing'}
-                for r in rows
-            )
-        rows = session.execute(
-            select(child.id, child.owner_type, child.owner_id).where(child.owner_type.not_in(list(_OWNER_MODEL_BY_TYPE)))
-        ).all()
-        orphans.extend(
-            {'table': child.__tablename__, 'id': r.id, 'owner_type': r.owner_type, 'owner_id': r.owner_id, 'reason': 'unknown_owner_type'}
-            for r in rows
-        )
+            rows = session.execute(select(child.id, child.owner_id).where(child.owner_type == owner_type, ~child.owner_id.in_(select(owner_model.id)))).all()
+            orphans.extend({"table": child.__tablename__, "id": r.id, "owner_type": owner_type, "owner_id": r.owner_id, "reason": "owner_missing"} for r in rows)
+        rows = session.execute(select(child.id, child.owner_type, child.owner_id).where(child.owner_type.not_in(list(_OWNER_MODEL_BY_TYPE)))).all()
+        orphans.extend({"table": child.__tablename__, "id": r.id, "owner_type": r.owner_type, "owner_id": r.owner_id, "reason": "unknown_owner_type"} for r in rows)
 
     for owner_model, source_type in SOURCE_TYPE_BY_MODEL.items():
         rows = session.execute(
-            select(InformationSystemSource.id, InformationSystemSource.owner_id)
-            .where(
+            select(InformationSystemSource.id, InformationSystemSource.owner_id).where(
                 InformationSystemSource.source_type == source_type,
                 InformationSystemSource.owner_id.is_not(None),
                 ~InformationSystemSource.owner_id.in_(select(owner_model.id)),
             )
         ).all()
-        orphans.extend(
-            {'table': InformationSystemSource.__tablename__, 'id': r.id, 'owner_type': source_type, 'owner_id': r.owner_id, 'reason': 'owner_missing'}
-            for r in rows
-        )
+        orphans.extend({"table": InformationSystemSource.__tablename__, "id": r.id, "owner_type": source_type, "owner_id": r.owner_id, "reason": "owner_missing"} for r in rows)
     return orphans
 
 
 # Владелец у открытых портов ГРУППЫ — не полиморфный OpenPort.owner_type, а отдельная таблица с
 # настоящим FK (InterfaceGroupOpenPort.group_id); в отчёте о дублях помечается этим псевдо-типом.
-INTERFACE_GROUP_OWNER = 'interface_group'
+INTERFACE_GROUP_OWNER = "interface_group"
 # Протоколы передачи данных ИС (ISProtocol) — открытые порты информационной системы; тоже отдельная
 # таблица с настоящим FK (information_system_id), в отчёте — этот псевдо-тип.
-INFORMATION_SYSTEM_OWNER = 'information_system'
+INFORMATION_SYSTEM_OWNER = "information_system"
 
 
 def find_duplicate_open_port_numbers(session: Session) -> list[dict[str, Any]]:
@@ -235,39 +241,17 @@ def find_duplicate_open_port_numbers(session: Session) -> list[dict[str, Any]]:
     сохранение формы упрётся в 422 из-за старых данных). Запросов по числу ТИПОВ владельцев (не строк).
     """
     port_count = func.count(OpenPort.id)
-    owned = session.execute(
-        select(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port, port_count.label('n'))
-        .join(ProtocolPortCatalog, ProtocolPortCatalog.id == OpenPort.protocol_catalog_id)
-        .group_by(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port)
-        .having(port_count > 1)
-    ).all()
+    owned = session.execute(select(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port, port_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == OpenPort.protocol_catalog_id).group_by(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port).having(port_count > 1)).all()
     group_count = func.count(InterfaceGroupOpenPort.id)
-    grouped = session.execute(
-        select(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port, group_count.label('n'))
-        .join(ProtocolPortCatalog, ProtocolPortCatalog.id == InterfaceGroupOpenPort.protocol_catalog_id)
-        .group_by(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port)
-        .having(group_count > 1)
-    ).all()
+    grouped = session.execute(select(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port, group_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == InterfaceGroupOpenPort.protocol_catalog_id).group_by(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port).having(group_count > 1)).all()
 
     protocol_count = func.count(ISProtocol.id)
-    protocols = session.execute(
-        select(ISProtocol.information_system_id, ProtocolPortCatalog.port, protocol_count.label('n'))
-        .join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id)
-        .group_by(ISProtocol.information_system_id, ProtocolPortCatalog.port)
-        .having(protocol_count > 1)
-    ).all()
+    protocols = session.execute(select(ISProtocol.information_system_id, ProtocolPortCatalog.port, protocol_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id).group_by(ISProtocol.information_system_id, ProtocolPortCatalog.port).having(protocol_count > 1)).all()
 
-    found = (
-        [(r.owner_type, r.owner_id, r.port, r.n) for r in owned]
-        + [(INTERFACE_GROUP_OWNER, r.group_id, r.port, r.n) for r in grouped]
-        + [(INFORMATION_SYSTEM_OWNER, r.information_system_id, r.port, r.n) for r in protocols]
-    )
+    found = [(r.owner_type, r.owner_id, r.port, r.n) for r in owned] + [(INTERFACE_GROUP_OWNER, r.group_id, r.port, r.n) for r in grouped] + [(INFORMATION_SYSTEM_OWNER, r.information_system_id, r.port, r.n) for r in protocols]
     names = _owner_names(session, {(t, i) for t, i, _, _ in found})
-    result = [
-        {'owner_type': t, 'owner_id': i, 'owner_name': names.get((t, i)), 'port': port, 'count': n}
-        for t, i, port, n in found
-    ]
-    return sorted(result, key=lambda d: (d['owner_type'], d['owner_name'] or '', d['port']))
+    result = [{"owner_type": t, "owner_id": i, "owner_name": names.get((t, i)), "port": port, "count": n} for t, i, port, n in found]
+    return sorted(result, key=lambda d: (d["owner_type"], d["owner_name"] or "", d["port"]))
 
 
 def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> list[dict[str, Any]]:
@@ -287,10 +271,17 @@ def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> li
     Порядок: устройство, порт, подинтерфейс."""
     query = (
         select(
-            DeviceSubinterface.id.label('subinterface_id'), DeviceSubinterface.name.label('subinterface_name'),
-            DeviceSubinterface.vlan_id, DeviceInterface.id.label('port_id'), DeviceInterface.name.label('port_name'),
-            PhysicalDevice.id.label('device_id'), PhysicalDevice.device_type_id, PhysicalDevice.system_name, PhysicalDevice.serial_number,
-            VLAN.vlan_id.label('vlan_number'), VLAN.name.label('vlan_name'),
+            DeviceSubinterface.id.label("subinterface_id"),
+            DeviceSubinterface.name.label("subinterface_name"),
+            DeviceSubinterface.vlan_id,
+            DeviceInterface.id.label("port_id"),
+            DeviceInterface.name.label("port_name"),
+            PhysicalDevice.id.label("device_id"),
+            PhysicalDevice.device_type_id,
+            PhysicalDevice.system_name,
+            PhysicalDevice.serial_number,
+            VLAN.vlan_id.label("vlan_number"),
+            VLAN.name.label("vlan_name"),
         )
         .join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id)
         .join(PhysicalDevice, PhysicalDevice.id == DeviceInterface.physical_device_id)
@@ -307,22 +298,25 @@ def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> li
     used_vlans = select(DeviceSubinterface.vlan_id)
     if vlan_id is not None:
         used_vlans = used_vlans.where(DeviceSubinterface.vlan_id == vlan_id)
-    assigned = {(r.physical_device_id, r.vlan_id) for r in session.execute(
-        select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.vlan_id.in_(used_vlans)))}
-    by_type = {(r.device_type_id, r.vlan_id) for r in session.execute(
-        select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.vlan_id.in_(used_vlans)))}
+    assigned = {(r.physical_device_id, r.vlan_id) for r in session.execute(select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.vlan_id.in_(used_vlans)))}
+    by_type = {(r.device_type_id, r.vlan_id) for r in session.execute(select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.vlan_id.in_(used_vlans)))}
 
     stale = [
         {
-            'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
-            'port_id': r.port_id, 'port_name': r.port_name,
-            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
-            'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
+            "subinterface_id": r.subinterface_id,
+            "subinterface_name": r.subinterface_name,
+            "port_id": r.port_id,
+            "port_name": r.port_name,
+            "device_id": r.device_id,
+            "device_name": device_label(r, fallback=r.device_id),
+            "vlan_id": r.vlan_id,
+            "vlan_number": r.vlan_number,
+            "vlan_name": r.vlan_name,
         }
         for r in rows
         if (r.device_id, r.vlan_id) not in assigned and (r.device_type_id, r.vlan_id) not in by_type
     ]
-    return sorted(stale, key=lambda d: (d['device_name'], d['port_name'], d['subinterface_name']))
+    return sorted(stale, key=lambda d: (d["device_name"], d["port_name"], d["subinterface_name"]))
 
 
 def find_off_port_subinterfaces(session: Session) -> list[dict[str, Any]]:
@@ -338,10 +332,16 @@ def find_off_port_subinterfaces(session: Session) -> list[dict[str, Any]]:
     числа порций. Порядок: устройство, порт, подинтерфейс."""
     rows = session.execute(
         select(
-            DeviceSubinterface.id.label('subinterface_id'), DeviceSubinterface.name.label('subinterface_name'),
-            DeviceSubinterface.vlan_id, DeviceInterface.id.label('port_id'), DeviceInterface.name.label('port_name'),
-            PhysicalDevice.id.label('device_id'), PhysicalDevice.system_name, PhysicalDevice.serial_number,
-            VLAN.vlan_id.label('vlan_number'), VLAN.name.label('vlan_name'),
+            DeviceSubinterface.id.label("subinterface_id"),
+            DeviceSubinterface.name.label("subinterface_name"),
+            DeviceSubinterface.vlan_id,
+            DeviceInterface.id.label("port_id"),
+            DeviceInterface.name.label("port_name"),
+            PhysicalDevice.id.label("device_id"),
+            PhysicalDevice.system_name,
+            PhysicalDevice.serial_number,
+            VLAN.vlan_id.label("vlan_number"),
+            VLAN.name.label("vlan_name"),
         )
         .join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id)
         .join(PhysicalDevice, PhysicalDevice.id == DeviceInterface.physical_device_id)
@@ -353,15 +353,20 @@ def find_off_port_subinterfaces(session: Session) -> list[dict[str, Any]]:
     on_port = effective_vlan_ids(session, [r.port_id for r in rows])
     found = [
         {
-            'subinterface_id': r.subinterface_id, 'subinterface_name': r.subinterface_name,
-            'port_id': r.port_id, 'port_name': r.port_name,
-            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
-            'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
+            "subinterface_id": r.subinterface_id,
+            "subinterface_name": r.subinterface_name,
+            "port_id": r.port_id,
+            "port_name": r.port_name,
+            "device_id": r.device_id,
+            "device_name": device_label(r, fallback=r.device_id),
+            "vlan_id": r.vlan_id,
+            "vlan_number": r.vlan_number,
+            "vlan_name": r.vlan_name,
         }
         for r in rows
         if r.vlan_id in allowed.get(r.device_id, set()) and r.vlan_id not in on_port.get(r.port_id, set())
     ]
-    return sorted(found, key=lambda d: (d['device_name'], d['port_name'], d['subinterface_name']))
+    return sorted(found, key=lambda d: (d["device_name"], d["port_name"], d["subinterface_name"]))
 
 
 def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None) -> list[dict[str, Any]]:
@@ -377,10 +382,15 @@ def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None)
     другой домен). Только чтение. Порядок: устройство, группа, номер VLAN."""
     query = (
         select(
-            InterfaceGroupSubinterface.id.label('subinterface_id'), InterfaceGroupSubinterface.vlan_id,
-            InterfaceGroup.id.label('group_id'), InterfaceGroup.name.label('group_name'),
-            PhysicalDevice.id.label('device_id'), PhysicalDevice.system_name, PhysicalDevice.serial_number,
-            VLAN.vlan_id.label('vlan_number'), VLAN.name.label('vlan_name'),
+            InterfaceGroupSubinterface.id.label("subinterface_id"),
+            InterfaceGroupSubinterface.vlan_id,
+            InterfaceGroup.id.label("group_id"),
+            InterfaceGroup.name.label("group_name"),
+            PhysicalDevice.id.label("device_id"),
+            PhysicalDevice.system_name,
+            PhysicalDevice.serial_number,
+            VLAN.vlan_id.label("vlan_number"),
+            VLAN.name.label("vlan_name"),
         )
         .join(InterfaceGroup, InterfaceGroup.id == InterfaceGroupSubinterface.group_id)
         .join(PhysicalDevice, PhysicalDevice.id == InterfaceGroup.physical_device_id)
@@ -396,14 +406,19 @@ def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None)
     on_group = effective_group_vlan_ids(groups, session)
     stale = [
         {
-            'subinterface_id': r.subinterface_id, 'group_id': r.group_id, 'group_name': r.group_name,
-            'device_id': r.device_id, 'device_name': device_label(r, fallback=r.device_id),
-            'vlan_id': r.vlan_id, 'vlan_number': r.vlan_number, 'vlan_name': r.vlan_name,
+            "subinterface_id": r.subinterface_id,
+            "group_id": r.group_id,
+            "group_name": r.group_name,
+            "device_id": r.device_id,
+            "device_name": device_label(r, fallback=r.device_id),
+            "vlan_id": r.vlan_id,
+            "vlan_number": r.vlan_number,
+            "vlan_name": r.vlan_name,
         }
         for r in rows
         if r.vlan_id not in on_group.get(r.group_id, set())
     ]
-    return sorted(stale, key=lambda d: (d['device_name'], d['group_name'], d['vlan_number']))
+    return sorted(stale, key=lambda d: (d["device_name"], d["group_name"], d["vlan_number"]))
 
 
 _NameLoader = Callable[[Session, set[str]], dict[str, str]]

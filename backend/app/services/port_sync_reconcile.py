@@ -44,6 +44,7 @@ VLAN устройства — те же, что проверяет PUT /devices/
 воркер) — пересчёт; если план при этом изменился (другой `plan_hash`) — 409, как и у применения. Применение
 кэш не использует: оно всегда считает план заново.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -115,7 +116,7 @@ class _Port:
 
 def _chunks(values: Sequence[str], size: int = _CHUNK):
     for start in range(0, len(values), size):
-        yield values[start:start + size]
+        yield values[start : start + size]
 
 
 def _lock_statement(interface_ids: Sequence[str]):
@@ -274,9 +275,7 @@ def _raw_changes(changes: Changes) -> dict[str, Any]:
     return raw
 
 
-def _describe(
-    role: tuple[str, str] | None, mode: tuple[str, str] | None, vlans: tuple[list[int], list[int]] | None, *, all_vlans: bool = False
-) -> str:
+def _describe(role: tuple[str, str] | None, mode: tuple[str, str] | None, vlans: tuple[list[int], list[int]] | None, *, all_vlans: bool = False) -> str:
     parts = []
     if role:
         parts.append(f"роль {PORT_ROLE_LABELS[PortRole(role[0])]} → {PORT_ROLE_LABELS[PortRole(role[1])]}")
@@ -378,9 +377,7 @@ def _blocked_reason(changes: Changes, target: _Port, target_id: str, outcome: _V
     return None
 
 
-def _change_pairs(
-    target: _Port, changes: Changes, outcome: _VlanOutcome
-) -> tuple[tuple[str, str] | None, tuple[str, str] | None, tuple[list[int], list[int]] | None]:
+def _change_pairs(target: _Port, changes: Changes, outcome: _VlanOutcome) -> tuple[tuple[str, str] | None, tuple[str, str] | None, tuple[list[int], list[int]] | None]:
     """Пары «было → станет» по роли, режиму и набору VLAN; None — грань не меняется."""
     role_pair = (target.facts.role.value, changes.role.value) if changes.role else None
     mode_pair = (target.facts.mode, changes.mode) if changes.mode else None
@@ -466,9 +463,7 @@ def _decision_item(parts: list[_TargetPlan], ready: list[_TargetPlan]) -> dict[s
     return item
 
 
-def _apply_decision(
-    decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]
-) -> tuple[dict[str, Any], list[_Planned]]:
+def _apply_decision(decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]) -> tuple[dict[str, Any], list[_Planned]]:
     """Превращает решение auto в запись плана и список изменений портов (пустой — применять нечего).
 
     Обычно целевой порт один. У симметричного правила (политика VLAN «объединить») портов два, и они
@@ -544,10 +539,7 @@ def _parse_page(payload: dict[str, Any]) -> tuple[int, int, str | None]:
 
 
 def _plan_hash(planned: list[_Planned]) -> str:
-    effects = [
-        [p.connection.id, p.port.iface.id, p.role.value if p.role else None, p.mode, sorted(p.vlan_ids) if p.vlan_ids is not None else None, p.rule.id or p.rule.code]
-        for p in planned
-    ]
+    effects = [[p.connection.id, p.port.iface.id, p.role.value if p.role else None, p.mode, sorted(p.vlan_ids) if p.vlan_ids is not None else None, p.rule.id or p.rule.code] for p in planned]
     return hashlib.sha256(json.dumps(effects, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
@@ -644,7 +636,7 @@ def preview_reconcile(payload: Any, session: Session) -> dict[str, Any]:
         plan_hash = plan.hash
         plan_cache.put(scope, plan_hash, cached)
 
-    page = list(cached.items[offset:offset + limit])
+    page = list(cached.items[offset : offset + limit])
     return {
         "items": page,
         "summary": {**cached.summary, "shown": len(page)},

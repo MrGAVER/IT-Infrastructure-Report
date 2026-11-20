@@ -50,6 +50,7 @@ trunk-портах (стандартное правило `trunk_vlans_union`). 
     full = PortFacts(PortRole.DATA, "trunk", frozenset({10, 20}))
     decide(rules, empty, full).outcome   # -> Outcome.AUTO, пустому trunk будут применены VLAN соседа
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
@@ -354,8 +355,14 @@ def _priority_from_payload(payload: Mapping[str, Any], current: RuleSpec) -> int
 
 
 def _merged_side(
-    payload: Mapping[str, Any], key: str, existing: Side, label: str,
-    *, roles: Sequence[str] = ROLE_CONDITIONS, modes: Sequence[str] = MODE_CONDITIONS, vlans: Sequence[str] = VLAN_CONDITIONS,
+    payload: Mapping[str, Any],
+    key: str,
+    existing: Side,
+    label: str,
+    *,
+    roles: Sequence[str] = ROLE_CONDITIONS,
+    modes: Sequence[str] = MODE_CONDITIONS,
+    vlans: Sequence[str] = VLAN_CONDITIONS,
 ) -> Side:
     """Условие на порт из тела: нет ключа или `null` — прежнее значение, объект — поверх прежнего по полям."""
     if key not in payload:
@@ -488,11 +495,7 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
     RuleSpec(
         code=EMPTY_TRUNK_RULE,
         name="Пустой trunk получает VLAN соседа",
-        description=(
-            "Если на порту режим trunk и VLAN не назначены совсем, а на соседнем порту trunk с назначенными VLAN "
-            "(или с «Все VLAN»), порту применяется trunk с VLAN соседнего порта. Применяется автоматически — "
-            "после предпросмотра и подтверждения."
-        ),
+        description=("Если на порту режим trunk и VLAN не назначены совсем, а на соседнем порту trunk с назначенными VLAN (или с «Все VLAN»), порту применяется trunk с VLAN соседнего порта. Применяется автоматически — после предпросмотра и подтверждения."),
         action="auto",
         priority=10,
         target=Side(mode=VLAN_MODE_TRUNK, vlans="none"),
@@ -524,10 +527,7 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
     RuleSpec(
         code=ROLE_MATCH_RULE,
         name="Роль порта совпадает с ролью соседа",
-        description=(
-            "Роль («Управление» / «Передача данных») порта должна совпадать с ролью порта на другом конце "
-            "подключения. Какой порт менять — решает человек: порту применяется роль соседа."
-        ),
+        description=("Роль («Управление» / «Передача данных») порта должна совпадать с ролью порта на другом конце подключения. Какой порт менять — решает человек: порту применяется роль соседа."),
         action="manual",
         priority=20,
         relation=Side(role="differs"),
@@ -536,11 +536,7 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
     RuleSpec(
         code=MODE_MATCH_RULE,
         name="Режим порта совпадает с режимом соседа",
-        description=(
-            "Режим порта (access / trunk) должен совпадать с режимом порта на другом конце подключения. "
-            "Какой порт менять — решает человек: порту применяется режим соседа; в access остаётся один VLAN "
-            "(с наименьшим номером), в trunk назначенные VLAN сохраняются."
-        ),
+        description=("Режим порта (access / trunk) должен совпадать с режимом порта на другом конце подключения. Какой порт менять — решает человек: порту применяется режим соседа; в access остаётся один VLAN (с наименьшим номером), в trunk назначенные VLAN сохраняются."),
         action="manual",
         priority=30,
         relation=Side(mode="differs"),
@@ -550,10 +546,7 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
     RuleSpec(
         code=VLANS_MATCH_RULE,
         name="Наборы VLAN на концах линии совпадают",
-        description=(
-            "Набор VLAN порта должен совпадать с набором VLAN порта на другом конце подключения (по номерам "
-            "VLAN). Какой порт менять — решает человек: порту применяются VLAN соседа."
-        ),
+        description=("Набор VLAN порта должен совпадать с набором VLAN порта на другом конце подключения (по номерам VLAN). Какой порт менять — решает человек: порту применяются VLAN соседа."),
         action="manual",
         priority=40,
         relation=Side(vlans="differs"),
