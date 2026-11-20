@@ -14,6 +14,7 @@ reflection оно приходит с `name=None`, а Alembic исходит и�
 
 Один и тот же фильтр подключён в `alembic/env.py` и в тесте-страже, поэтому `alembic check` и CI видят одно и то же.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable

@@ -6,6 +6,7 @@
 статус сверки пары портов ДО сохранения, чтобы правила не дублировались на клиенте. Каждая операция — одна
 транзакция с записью в журнал аудита.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -138,9 +139,11 @@ def _approve_connections(connections: Sequence[Connection], session: Session) ->
             conn.port_config_approved_signature = approval_signature(source, destination)
             facets = ", ".join(_FACET_LABELS[f] for f in config_differences(source, destination))
             audit(
-                session, "connections", conn.id, AuditAction.UPDATE,
-                f"Одобрено расхождение конфигурации портов ({facets}): "
-                f"{_describe(names[conn.source_interface_id], source)}; {_describe(names[conn.destination_interface_id], destination)}",
+                session,
+                "connections",
+                conn.id,
+                AuditAction.UPDATE,
+                f"Одобрено расхождение конфигурации портов ({facets}): {_describe(names[conn.source_interface_id], source)}; {_describe(names[conn.destination_interface_id], destination)}",
             )
             covered.append(conn)
             newly_approved += 1
@@ -231,7 +234,7 @@ def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, 
     ids = select_connection_ids(session, selection.query)
     approved = 0
     for start in range(0, len(ids), _APPROVE_CHUNK):
-        chunk = session.scalars(select(Connection).where(Connection.id.in_(ids[start:start + _APPROVE_CHUNK]))).all()
+        chunk = session.scalars(select(Connection).where(Connection.id.in_(ids[start : start + _APPROVE_CHUNK]))).all()
         approved += _approve_connections(chunk, session)[2]
     session.commit()
     return {"items": [], "skipped_ids": [], "approved_count": approved}

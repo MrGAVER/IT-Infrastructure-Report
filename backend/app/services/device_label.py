@@ -25,6 +25,7 @@ PostgreSQL убирает по умолчанию только пробел; `st
     '—'
     # SQL: select(PhysicalDevice.id).where(device_label_expr(PhysicalDevice).contains("srv"))
 """
+
 from __future__ import annotations
 
 from typing import Any, Protocol
