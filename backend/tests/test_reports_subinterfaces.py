@@ -6,6 +6,7 @@
 
 Использует тот же мок SQLAlchemy, что и test_reporting.py (tests/mock_sqlalchemy.py).
 """
+
 from __future__ import annotations
 
 import sys
@@ -47,30 +48,32 @@ class SubinterfaceReportCase(unittest.TestCase):
     def seed_router_and_switch(self, *, router_port_flags=(False, True)):
         """Маршрутизатор r1 (порт Gi0/0 с двумя подинтерфейсами на VLAN 10 и 20) соединён с коммутатором s1."""
         C = self.C
-        self.table.update({
-            "DeviceType": [C["DeviceType"](id="dt1", name="Маршрутизатор"), C["DeviceType"](id="dt2", name="Коммутатор")],
-            "PhysicalDevice": [
-                C["PhysicalDevice"](id="r1", device_type_id="dt1", serial_number="R-1", system_name="rtr"),
-                C["PhysicalDevice"](id="s1", device_type_id="dt2", serial_number="S-1", system_name="sw"),
-            ],
-            "DeviceInterface": [
-                C["DeviceInterface"](id="r-if", physical_device_id="r1", name="Gi0/0", is_management=router_port_flags[0], is_data_transfer=router_port_flags[1]),
-                C["DeviceInterface"](id="s-if", physical_device_id="s1", name="Gi1/0/1", is_management=False, is_data_transfer=True),
-            ],
-            "ConnectionType": [C["ConnectionType"](id="ct1", name="Ethernet")],
-            "Connection": [C["Connection"](id="c1", source_interface_id="r-if", destination_interface_id="s-if", connection_type_id="ct1")],
-            "VLAN": [C["VLAN"](id="v10", vlan_id=10, name="Серверы"), C["VLAN"](id="v20", vlan_id=20, name="Гости")],
-            # порядок в таблице нарочно «неправильный»: в отчёте подинтерфейсы идут по номеру VLAN
-            "DeviceSubinterface": [
-                C["DeviceSubinterface"](id="sub20", parent_interface_id="r-if", name="Gi0/0.20", vlan_id="v20", is_management=False, is_data_transfer=False),
-                C["DeviceSubinterface"](id="sub10", parent_interface_id="r-if", name="Gi0/0.10", vlan_id="v10", is_management=False, is_data_transfer=True),
-            ],
-            "IPAddress": [
-                C["IPAddress"](id="ip-port", owner_type="device_interface", owner_id="r-if", ip_address="192.168.0.1", prefix_length=30),
-                C["IPAddress"](id="ip-s10", owner_type="device_subinterface", owner_id="sub10", ip_address="10.0.10.1", prefix_length=24),
-                C["IPAddress"](id="ip-s20", owner_type="device_subinterface", owner_id="sub20", ip_address="10.0.20.1", prefix_length=24),
-            ],
-        })
+        self.table.update(
+            {
+                "DeviceType": [C["DeviceType"](id="dt1", name="Маршрутизатор"), C["DeviceType"](id="dt2", name="Коммутатор")],
+                "PhysicalDevice": [
+                    C["PhysicalDevice"](id="r1", device_type_id="dt1", serial_number="R-1", system_name="rtr"),
+                    C["PhysicalDevice"](id="s1", device_type_id="dt2", serial_number="S-1", system_name="sw"),
+                ],
+                "DeviceInterface": [
+                    C["DeviceInterface"](id="r-if", physical_device_id="r1", name="Gi0/0", is_management=router_port_flags[0], is_data_transfer=router_port_flags[1]),
+                    C["DeviceInterface"](id="s-if", physical_device_id="s1", name="Gi1/0/1", is_management=False, is_data_transfer=True),
+                ],
+                "ConnectionType": [C["ConnectionType"](id="ct1", name="Ethernet")],
+                "Connection": [C["Connection"](id="c1", source_interface_id="r-if", destination_interface_id="s-if", connection_type_id="ct1")],
+                "VLAN": [C["VLAN"](id="v10", vlan_id=10, name="Серверы"), C["VLAN"](id="v20", vlan_id=20, name="Гости")],
+                # порядок в таблице нарочно «неправильный»: в отчёте подинтерфейсы идут по номеру VLAN
+                "DeviceSubinterface": [
+                    C["DeviceSubinterface"](id="sub20", parent_interface_id="r-if", name="Gi0/0.20", vlan_id="v20", is_management=False, is_data_transfer=False),
+                    C["DeviceSubinterface"](id="sub10", parent_interface_id="r-if", name="Gi0/0.10", vlan_id="v10", is_management=False, is_data_transfer=True),
+                ],
+                "IPAddress": [
+                    C["IPAddress"](id="ip-port", owner_type="device_interface", owner_id="r-if", ip_address="192.168.0.1", prefix_length=30),
+                    C["IPAddress"](id="ip-s10", owner_type="device_subinterface", owner_id="sub10", ip_address="10.0.10.1", prefix_length=24),
+                    C["IPAddress"](id="ip-s20", owner_type="device_subinterface", owner_id="sub20", ip_address="10.0.20.1", prefix_length=24),
+                ],
+            }
+        )
 
     def router_row(self, wb):
         header, rows = self.rows(wb, SHEET3)
@@ -115,13 +118,15 @@ class Sheet3SubinterfacesInsidePort(SubinterfaceReportCase):
     def test_open_ports_and_protocols_of_subinterface_are_labeled_with_its_name(self):
         C = self.C
         self.seed_router_and_switch()
-        self.table.update({
-            "ProtocolPortCatalog": [C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH"), C["ProtocolPortCatalog"](id="cat-https", port=443, protocol_type="HTTPS")],
-            "OpenPort": [
-                C["OpenPort"](id="op1", owner_type="device_interface", owner_id="r-if", protocol_catalog_id="cat-ssh", transport_protocol="TCP"),
-                C["OpenPort"](id="op2", owner_type="device_subinterface", owner_id="sub10", protocol_catalog_id="cat-https", transport_protocol="TCP"),
-            ],
-        })
+        self.table.update(
+            {
+                "ProtocolPortCatalog": [C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH"), C["ProtocolPortCatalog"](id="cat-https", port=443, protocol_type="HTTPS")],
+                "OpenPort": [
+                    C["OpenPort"](id="op1", owner_type="device_interface", owner_id="r-if", protocol_catalog_id="cat-ssh", transport_protocol="TCP"),
+                    C["OpenPort"](id="op2", owner_type="device_subinterface", owner_id="sub10", protocol_catalog_id="cat-https", transport_protocol="TCP"),
+                ],
+            }
+        )
         header, row = self.router_row(self.build("ports"))
         # формат одного порта прежний («TCP/22; SSH» — транспорт/порт и протокол через «;»), у порта подинтерфейса
         # перед ним имя подинтерфейса
@@ -205,10 +210,12 @@ class ManagementOnSubinterface(SubinterfaceReportCase):
     def test_sheet1_physical_server_ip_includes_management_subinterface_ip(self):
         C = self.C
         self.seed_management_subinterface()
-        self.table.update({
-            "InformationSystem": [C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)],
-            "InformationSystemSource": [C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="r1")],
-        })
+        self.table.update(
+            {
+                "InformationSystem": [C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)],
+                "InformationSystemSource": [C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="r1")],
+            }
+        )
         header, rows = self.rows(self.build("s1"), "Перечень ИС")
         self.assertEqual(rows[0][self.col(header, "IP-адрес физического сервера")], "10.0.10.1/24")
 

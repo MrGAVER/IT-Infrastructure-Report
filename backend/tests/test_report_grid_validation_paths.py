@@ -4,6 +4,7 @@
 из 17 разных отказов раскладывается на шаги при снижении сложности (код-ревью, п. 10) — сообщения менять нельзя.
 Запуск: pytest backend/tests/test_report_grid_validation_paths.py -v
 """
+
 from __future__ import annotations
 
 import pytest

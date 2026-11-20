@@ -5,6 +5,7 @@
 файл и обратное чтение: формула в файле не появляется, телефон и отрицательные числа-строки читаются без апострофа.
 Запуск: pytest backend/tests/test_excel_safety_acceptance.py -v
 """
+
 from __future__ import annotations
 
 import io

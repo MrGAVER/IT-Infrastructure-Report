@@ -46,7 +46,7 @@ def test_the_limit_is_not_silently_raised():
 
 # --- Исключения из `ruff format` (ИА-05) ---------------------------------------------------------------------------------------------------
 # Число модулей-исключений на момент ИА-05. Менять его можно только вниз: отформатировали модуль — удалили запись из pyproject.toml и уменьшили число.
-MAX_EXCLUDED_FILES = 197
+MAX_EXCLUDED_FILES = 173
 CI_FORMAT_COMMAND = "ruff format --check backend"
 CI_FILE = ROOT / ".github" / "workflows" / "ci.yml"
 

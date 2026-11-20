@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_diagram_export_drawio_steps.py -v
 """
+
 from __future__ import annotations
 
 import tomllib

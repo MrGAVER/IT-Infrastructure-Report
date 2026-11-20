@@ -9,6 +9,7 @@
 
 Запуск: pytest backend/tests/test_report_data_behaviour.py -v
 """
+
 from __future__ import annotations
 
 import sys
@@ -49,14 +50,66 @@ def _load(session, only_is=None, units=None) -> SimpleNamespace:
 
 
 ATTRIBUTES = {
-    "allowed_device_ids", "buildings", "connection_types", "conns", "container_map", "containers", "crypto_means", "dep_by_is",
-    "dep_map", "departments", "deployed_software", "device_map", "device_types", "device_vlan_by_device", "device_vlan_rows",
-    "devices", "embedded_os", "iface_map", "iface_vlans", "ifaces_by_device", "interface_ips", "interface_types", "interfaces",
-    "ips_by_iface", "ips_by_source", "ips_by_sub", "is_deps", "is_protocols", "is_sources", "manufacturers", "models",
-    "open_ports", "open_ports_by_owner", "operating_systems", "placement_assets", "placement_by_is", "protocol_by_is",
-    "protocol_catalog", "protocols", "rooms", "software", "software_by_device", "software_by_vm", "source_by_is", "source_ips",
-    "structural_units", "subinterfaces", "subs_by_device", "subs_by_iface", "support_map", "support_methods", "support_orgs",
-    "systems", "vlan_by_iface", "vlan_map", "vlans", "vm_map", "vmips", "vmips_by_vm", "vms",
+    "allowed_device_ids",
+    "buildings",
+    "connection_types",
+    "conns",
+    "container_map",
+    "containers",
+    "crypto_means",
+    "dep_by_is",
+    "dep_map",
+    "departments",
+    "deployed_software",
+    "device_map",
+    "device_types",
+    "device_vlan_by_device",
+    "device_vlan_rows",
+    "devices",
+    "embedded_os",
+    "iface_map",
+    "iface_vlans",
+    "ifaces_by_device",
+    "interface_ips",
+    "interface_types",
+    "interfaces",
+    "ips_by_iface",
+    "ips_by_source",
+    "ips_by_sub",
+    "is_deps",
+    "is_protocols",
+    "is_sources",
+    "manufacturers",
+    "models",
+    "open_ports",
+    "open_ports_by_owner",
+    "operating_systems",
+    "placement_assets",
+    "placement_by_is",
+    "protocol_by_is",
+    "protocol_catalog",
+    "protocols",
+    "rooms",
+    "software",
+    "software_by_device",
+    "software_by_vm",
+    "source_by_is",
+    "source_ips",
+    "structural_units",
+    "subinterfaces",
+    "subs_by_device",
+    "subs_by_iface",
+    "support_map",
+    "support_methods",
+    "support_orgs",
+    "systems",
+    "vlan_by_iface",
+    "vlan_map",
+    "vlans",
+    "vm_map",
+    "vmips",
+    "vmips_by_vm",
+    "vms",
 }
 
 
@@ -82,10 +135,19 @@ class TestOrderingAndMaps:
         assert [ip.ip_address for ip in d.interface_ips] == ["10.0.0.2", "10.0.0.2", "192.168.1.1", "192.168.1.2"]
         assert [ip.ip_address for ip in d.vmips] == ["10.1.1.10", "10.1.1.20"]
 
-    @pytest.mark.parametrize(("mapping", "listing"), [
-        ("dep_map", "departments"), ("support_map", "support_orgs"), ("device_map", "devices"), ("iface_map", "interfaces"),
-        ("vm_map", "vms"), ("container_map", "containers"), ("vlan_map", "vlans"), ("protocol_catalog", "protocols"),
-    ])
+    @pytest.mark.parametrize(
+        ("mapping", "listing"),
+        [
+            ("dep_map", "departments"),
+            ("support_map", "support_orgs"),
+            ("device_map", "devices"),
+            ("iface_map", "interfaces"),
+            ("vm_map", "vms"),
+            ("container_map", "containers"),
+            ("vlan_map", "vlans"),
+            ("protocol_catalog", "protocols"),
+        ],
+    )
     def test_maps_are_keyed_by_id_and_hold_the_same_records_as_the_lists(self, registry, mapping, listing):
         d = _load(registry)
         assert {key: value.id for key, value in getattr(d, mapping).items()} == {item.id: item.id for item in getattr(d, listing)}
@@ -93,14 +155,39 @@ class TestOrderingAndMaps:
 
     def test_reference_catalogs_are_loaded_in_full_by_id(self, registry):
         d = _load(registry)
-        assert {name: sorted(getattr(d, name)) for name in (
-            "device_types", "manufacturers", "models", "buildings", "rooms", "structural_units", "operating_systems", "embedded_os",
-            "support_methods", "crypto_means", "placement_assets", "interface_types", "connection_types", "software",
-        )} == {
-            "device_types": ["dt-rt", "dt-srv", "dt-sw"], "manufacturers": ["m1"], "models": ["mod1"], "buildings": ["b1", "b2", "b3"],
-            "rooms": ["rm1"], "structural_units": ["u-child", "u-other", "u-root"], "operating_systems": ["os1"], "embedded_os": ["eos1"],
-            "support_methods": ["sm1"], "crypto_means": ["cp1"], "placement_assets": ["pa1"], "interface_types": ["it1"],
-            "connection_types": ["ct1"], "software": ["sa1", "sa2"],
+        assert {
+            name: sorted(getattr(d, name))
+            for name in (
+                "device_types",
+                "manufacturers",
+                "models",
+                "buildings",
+                "rooms",
+                "structural_units",
+                "operating_systems",
+                "embedded_os",
+                "support_methods",
+                "crypto_means",
+                "placement_assets",
+                "interface_types",
+                "connection_types",
+                "software",
+            )
+        } == {
+            "device_types": ["dt-rt", "dt-srv", "dt-sw"],
+            "manufacturers": ["m1"],
+            "models": ["mod1"],
+            "buildings": ["b1", "b2", "b3"],
+            "rooms": ["rm1"],
+            "structural_units": ["u-child", "u-other", "u-root"],
+            "operating_systems": ["os1"],
+            "embedded_os": ["eos1"],
+            "support_methods": ["sm1"],
+            "crypto_means": ["cp1"],
+            "placement_assets": ["pa1"],
+            "interface_types": ["it1"],
+            "connection_types": ["ct1"],
+            "software": ["sa1", "sa2"],
         }
 
     def test_plain_lists_hold_every_row_of_their_tables(self, registry):
@@ -128,7 +215,10 @@ class TestGroupings:
         d = _load(registry)
         assert _ids(d.ifaces_by_device) == {"rt1": ["r1"], "sw2": ["q1", "q2", "q3"], "sw1": ["p1", "p2", "p3", "p4", "p5", "p6"], "srv1": ["n1"]}
         assert _ids(d.open_ports_by_owner) == {
-            ("device_interface", "p1"): ["op1"], ("device_subinterface", "s-a"): ["op2"], ("virtual_machine", "vm1"): ["op3"], ("physical_device", "sw1"): ["op4"],
+            ("device_interface", "p1"): ["op1"],
+            ("device_subinterface", "s-a"): ["op2"],
+            ("virtual_machine", "vm1"): ["op3"],
+            ("physical_device", "sw1"): ["op4"],
         }
         assert _ids(d.device_vlan_by_device) == {"sw1": ["pdv1", "pdv2"]}
 
@@ -136,7 +226,12 @@ class TestGroupings:
         d = _load(registry)
         assert _ids(d.dep_by_is) == {"is1": ["isd1"]} and _ids(d.protocol_by_is) == {"is1": ["isp1"]} and _ids(d.placement_by_is) == {"is1": ["isa1"]}
         assert _ids(d.source_by_is) == {
-            "is1": ["src-dev", "src-vm", "src-ct", "src-dup", "src-gone"], "is2": ["src-ct2"], "is3": ["src-lost"], "is5": ["src-ct3"], "is6": ["src-ct4"], "is7": ["src-vm3"],
+            "is1": ["src-dev", "src-vm", "src-ct", "src-dup", "src-gone"],
+            "is2": ["src-ct2"],
+            "is3": ["src-lost"],
+            "is5": ["src-ct3"],
+            "is6": ["src-ct4"],
+            "is7": ["src-vm3"],
         }
 
     def test_software_is_split_by_owner_kind_and_everything_but_a_vm_lands_in_the_device_bucket(self, registry):

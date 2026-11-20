@@ -13,6 +13,7 @@ report_grid.build_xlsx_grid()) на ОДНИХ и тех же данных и с
 Запуск: python3 -m unittest discover -s backend/tests -v
 Требует sqlalchemy/openpyxl (как test_report_grid.py) — при их отсутствии тесты пропускаются.
 """
+
 from __future__ import annotations
 
 import sys
@@ -42,10 +43,33 @@ except ImportError:
 # моделей без обновления этого файла, тест упадёт явной ImportError, а не тихим skip.
 if DEPS_AVAILABLE:
     from app.models import (
-        Base, Building, Connection, ConnectionType, Container, Department, DeviceCategory, DeviceInterface, DeviceType,
-        EmbeddedOperatingSystem, InformationSystem, InformationSystemSource, IPAddress, InterfaceVLAN,
-        ISDepartment, Manufacturer, OpenPort, OperatingSystem,
-        OperatingSystemCategory, PhysicalDevice, ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, VirtualMachine, VLAN, DeployedSoftware,
+        Base,
+        Building,
+        Connection,
+        ConnectionType,
+        Container,
+        Department,
+        DeviceCategory,
+        DeviceInterface,
+        DeviceType,
+        EmbeddedOperatingSystem,
+        InformationSystem,
+        InformationSystemSource,
+        IPAddress,
+        InterfaceVLAN,
+        ISDepartment,
+        Manufacturer,
+        OpenPort,
+        OperatingSystem,
+        OperatingSystemCategory,
+        PhysicalDevice,
+        ProtocolPortCatalog,
+        Room,
+        SoftwareAsset,
+        StructuralUnit,
+        VirtualMachine,
+        VLAN,
+        DeployedSoftware,
     )
     from app.reporting import HEADERS1, HEADERS2, HEADERS3, HEADERS4, build_report
     from app.services.report_engine import ReportContext
@@ -156,11 +180,8 @@ def _seed_rich_dataset(session):
     session.add_all([operating_system, room])
     session.flush()
 
-    dev1 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-001",
-                           system_name="srv-01", embedded_os_id=embedded_os.id, building_id=building.id,
-                           room_id=room.id, siem_enabled=True)
-    dev2 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-002",
-                           system_name="sw-01", embedded_os_id=embedded_os.id)
+    dev1 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-001", system_name="srv-01", embedded_os_id=embedded_os.id, building_id=building.id, room_id=room.id, siem_enabled=True)
+    dev2 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-002", system_name="sw-01", embedded_os_id=embedded_os.id)
     session.add_all([dev1, dev2])
     session.flush()
 
@@ -175,8 +196,7 @@ def _seed_rich_dataset(session):
     ctype = ConnectionType(name="Витая пара")
     session.add(ctype)
     session.flush()
-    session.add(Connection(source_interface_id=iface1.id, destination_interface_id=iface2.id,
-                            connection_type_id=ctype.id))
+    session.add(Connection(source_interface_id=iface1.id, destination_interface_id=iface2.id, connection_type_id=ctype.id))
 
     vlan = VLAN(vlan_id=100, name="Servers")
     session.add(vlan)
@@ -188,22 +208,20 @@ def _seed_rich_dataset(session):
     ssh_catalog = ProtocolPortCatalog(port=22, protocol_type="SSH")
     session.add(ssh_catalog)
     session.flush()
-    session.add(OpenPort(owner_type="physical_device", owner_id=dev1.id,
-                          transport_protocol="TCP", protocol_catalog_id=ssh_catalog.id))
+    session.add(OpenPort(owner_type="physical_device", owner_id=dev1.id, transport_protocol="TCP", protocol_catalog_id=ssh_catalog.id))
 
-    isys = InformationSystem(name="ИС Бухгалтерия", description="Учётная система", purpose="Учёт",
-                              localization="ЦОД-1", siem_enabled=True, crypto_protection_enabled=True)
+    isys = InformationSystem(name="ИС Бухгалтерия", description="Учётная система", purpose="Учёт", localization="ЦОД-1", siem_enabled=True, crypto_protection_enabled=True)
     session.add(isys)
     session.flush()
     session.add(ISDepartment(information_system_id=isys.id, department_id=dep.id))
     from app.models import ISProtocol
+
     https_catalog = ProtocolPortCatalog(port=443, protocol_type="HTTPS")
     session.add(https_catalog)
     session.flush()
     session.add(ISProtocol(information_system_id=isys.id, protocol_catalog_id=https_catalog.id, description="Веб-интерфейс"))
 
-    vm1 = VirtualMachine(name="vm-buh-01", physical_device_id=dev1.id, purpose="1С сервер",
-                          operating_system_id=operating_system.id)
+    vm1 = VirtualMachine(name="vm-buh-01", physical_device_id=dev1.id, purpose="1С сервер", operating_system_id=operating_system.id)
     session.add(vm1)
     session.flush()
     session.add(IPAddress(owner_type="virtual_machine", owner_id=vm1.id, ip_address="192.168.1.10", is_management=True))
@@ -214,16 +232,13 @@ def _seed_rich_dataset(session):
     onec_catalog = ProtocolPortCatalog(port=1540, protocol_type="1C")
     session.add(onec_catalog)
     session.flush()
-    session.add(OpenPort(owner_type="virtual_machine", owner_id=vm1.id,
-                          transport_protocol="TCP", protocol_catalog_id=onec_catalog.id))
+    session.add(OpenPort(owner_type="virtual_machine", owner_id=vm1.id, transport_protocol="TCP", protocol_catalog_id=onec_catalog.id))
     container = Container(name="buh-container", virtual_machine_id=vm1.id)
     session.add(container)
     session.flush()
 
-    session.add(InformationSystemSource(information_system_id=isys.id, source_type="device",
-                                         owner_id=dev1.id))
-    src_vm = InformationSystemSource(information_system_id=isys.id, source_type="vm",
-                                      owner_id=vm1.id)
+    session.add(InformationSystemSource(information_system_id=isys.id, source_type="device", owner_id=dev1.id))
+    src_vm = InformationSystemSource(information_system_id=isys.id, source_type="vm", owner_id=vm1.id)
     session.add(src_vm)
     session.flush()
     session.add(IPAddress(owner_type="information_system_source", owner_id=src_vm.id, ip_address="203.0.113.5"))
@@ -251,14 +266,11 @@ class ExactParityTestCase(unittest.TestCase):
             orig_path = build_report(session, tmp_path)
             wb_orig = openpyxl.load_workbook(orig_path)
 
-            grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path,
-                                         template_name=TEMPLATE_NAME, params={})
+            grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path, template_name=TEMPLATE_NAME, params={})
             wb_grid = openpyxl.load_workbook(grid_path)
 
             self.assertEqual(wb_orig.sheetnames, wb_grid.sheetnames)
-            for name, expected_headers in zip(
-                wb_orig.sheetnames, [HEADERS1, HEADERS2, HEADERS3, HEADERS4]
-            ):
+            for name, expected_headers in zip(wb_orig.sheetnames, [HEADERS1, HEADERS2, HEADERS3, HEADERS4]):
                 ws_o = wb_orig[name]
                 ws_g = wb_grid[name]
 
@@ -276,6 +288,7 @@ class ExactParityTestCase(unittest.TestCase):
 
     def test_exact_parity_with_current_source_model(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             self._build_both_and_compare(Path(tmp))
 
@@ -286,6 +299,7 @@ class ExactParityTestCase(unittest.TestCase):
         размещён в building без структурной единицы — привязываем её здесь, dev2 её не получает и
         должен выпасть из отфильтрованного вывода обоих движков одинаково."""
         import tempfile
+
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         session = sessionmaker(bind=engine)()
@@ -302,8 +316,7 @@ class ExactParityTestCase(unittest.TestCase):
                 tmp_path = Path(tmp)
                 orig_path = build_report(session, tmp_path, structural_unit_ids=[unit.id])
                 wb_orig = openpyxl.load_workbook(orig_path)
-                grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path,
-                                             template_name=TEMPLATE_NAME, params={}, structural_unit_ids=[unit.id])
+                grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path, template_name=TEMPLATE_NAME, params={}, structural_unit_ids=[unit.id])
                 wb_grid = openpyxl.load_workbook(grid_path)
 
                 for name in wb_orig.sheetnames:
@@ -323,6 +336,7 @@ class ExactParityTestCase(unittest.TestCase):
     def test_empty_registry_produces_matching_empty_sheets(self):
         """Пустой реестр — граничный случай (ни одной ИС/устройства/подключения/ВМ)."""
         import tempfile
+
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         session = sessionmaker(bind=engine)()
@@ -331,8 +345,7 @@ class ExactParityTestCase(unittest.TestCase):
                 tmp_path = Path(tmp)
                 orig_path = build_report(session, tmp_path)
                 wb_orig = openpyxl.load_workbook(orig_path)
-                grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path,
-                                             template_name=TEMPLATE_NAME, params={})
+                grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path, template_name=TEMPLATE_NAME, params={})
                 wb_grid = openpyxl.load_workbook(grid_path)
                 for name in wb_orig.sheetnames:
                     orig_rows = expanded_rows(wb_orig[name], min_row=2)

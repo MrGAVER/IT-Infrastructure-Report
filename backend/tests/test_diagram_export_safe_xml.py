@@ -8,6 +8,7 @@ register_namespace) осталась на стандартной библиот�
 Тесты вызывают функции постобработки пакета напрямую на собранных вручную zip-архивах: нужны только сами XML-части, а не
 полный экспорт с шаблоном Visio.
 """
+
 from __future__ import annotations
 
 import ast
@@ -26,14 +27,8 @@ PACKAGE_FILES = sorted(Path(diagram_export.__file__).parent.glob("*.py"))
 VISIO_NS = "http://schemas.microsoft.com/office/visio/2012/main"
 
 # Взрыв сущностей («billion laughs» в миниатюре) и внешняя сущность (XXE): обе объявляют сущность в DTD.
-ENTITY_BOMB = (
-    b'<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;&lol;">]>'
-    b'<ns0:Pages xmlns:ns0="urn:x">&lol2;</ns0:Pages>'
-)
-EXTERNAL_ENTITY = (
-    b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/hostname">]>'
-    b'<ns0:Pages xmlns:ns0="urn:x">&x;</ns0:Pages>'
-)
+ENTITY_BOMB = b'<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;&lol;">]><ns0:Pages xmlns:ns0="urn:x">&lol2;</ns0:Pages>'
+EXTERNAL_ENTITY = b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/hostname">]><ns0:Pages xmlns:ns0="urn:x">&x;</ns0:Pages>'
 HOSTILE_PARTS = [pytest.param(ENTITY_BOMB, id="entity-expansion"), pytest.param(EXTERNAL_ENTITY, id="external-entity")]
 
 
@@ -139,11 +134,7 @@ class TestNoUnsafeParsingInModule:
         calls = []
         for path in PACKAGE_FILES:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-            calls.extend(
-                (node.func.value.id, node.func.attr, node.lineno)
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
-            )
+            calls.extend((node.func.value.id, node.func.attr, node.lineno) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name))
         return calls
 
     def test_the_scan_really_covers_the_package(self):
