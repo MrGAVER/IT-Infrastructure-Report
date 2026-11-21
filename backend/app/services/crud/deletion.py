@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from ...models import DeployedSoftware, IPAddress, OpenPort
 from ...registry import MODEL_MAP, DISPLAY_NAMES
 from ...constants import ErrorCode, AuditAction, OwnerType
-from ..integrity import format_referenced_message, source_reference_refs
-from .audit_log import audit
+from ..integrity import format_referenced_message, integrity_error_response, source_reference_refs
+from .audit_log import audit, describe_record
 from .columns import model_for
 from .payload import ensure_writable
 from .subinterfaces import purge_subinterfaces_of_interfaces, subinterface_references
@@ -90,6 +90,8 @@ def delete_resource(resource: str, item_id: str, session: Session):
     model = model_for(resource); obj = session.get(model, item_id)
     if not obj: raise HTTPException(404, 'Запись не найдена')
     assert_deletable(resource, item_id, session)
+    # Снимок для журнала — до удаления: после session.delete(obj) имя и серийный номер уже не прочитать (код-ревью С-2).
+    details = f'Удаление записи: {describe_record(obj)}'
     try:
         # Подтверждено эмпирически: DELETE /resources/interfaces/{id} в обход sync_interfaces
         # удалял интерфейс, но оставлял открытые порты/IP в БД с owner_id, указывающим на уже не
@@ -100,6 +102,11 @@ def delete_resource(resource: str, item_id: str, session: Session):
         if resource == 'interfaces': purge_subinterfaces_of_interfaces([item_id], session)
         for cleanup_model, owner_type in _POLYMORPHIC_OWNER_CLEANUP.get(resource, []):
             session.execute(delete(cleanup_model).where(cleanup_model.owner_type == owner_type, cleanup_model.owner_id == item_id))
-        session.delete(obj); session.flush(); audit(session, resource, item_id, AuditAction.DELETE, 'Удаление записи'); session.commit(); return {'status': 'deleted', 'id': item_id}
+        session.delete(obj)
+        session.flush()
+        audit(session, resource, item_id, AuditAction.DELETE, details)
+        session.commit()
+        return {'status': 'deleted', 'id': item_id}
     except IntegrityError as exc:
-        session.rollback(); raise HTTPException(409, 'Запись нельзя удалить: на неё ссылаются другие объекты') from exc
+        session.rollback()
+        raise integrity_error_response(resource, exc) from exc

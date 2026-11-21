@@ -11,7 +11,7 @@ from ..services import port_sync_store as store
 from ..services.port_sync_plan_cache import plan_cache
 
 # Правила автоматического согласования данных порта (services/port_sync_rules.py) и их хранение.
-# Изменяющие запросы доступны только администратору — общая проверка роли по методу (auth_gate_middleware).
+# Изменяющие запросы доступны только администратору — общая проверка роли по методу (AuthGateMiddleware).
 router = APIRouter(prefix='/api/v1/port-sync', tags=['PortSync'])
 
 

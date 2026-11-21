@@ -11,6 +11,7 @@ from typing import NamedTuple, Optional
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ... import db as db_module
 from ...constants import UserRole
@@ -18,7 +19,6 @@ from ...models import User
 from ..actor_context import Actor, current_actor
 from ._common import extract_bearer, request_client_ip
 from .proxy_headers import warn_once_if_proxy_untrusted
-from .security_headers import with_security_headers
 from .sessions import resolve_session
 from .settings import auth_enabled_cached
 
@@ -56,31 +56,6 @@ def _is_read_only_post(method: str, path: str) -> bool:
     if method != "POST":
         return False
     return path in READ_ONLY_POST_PATHS or _TEMPLATE_GENERATE_PATH.match(path) is not None
-
-
-async def auth_gate_middleware(request: Request, call_next):
-    """Раздача Vue-оболочки (`/`, `/assets/*`, SPA-фоллбэк в main.py) не проходит проверку
-    доступа — статика всегда отдаётся, экран логина рисует сам Vue-роутер на клиенте (см.
-    frontend-vue/src/router/index.ts). Контроль — только над `/api/*`, и только над данными, а не
-    над тем, загрузится ли вообще интерфейс. Базовые security-заголовки (см. _SECURITY_HEADERS)
-    добавляются на ВСЕ ответы, включая статику и короткое замыкание на 401/403.
-
-    request.state.user / request.state.auth_enabled выставляются здесь для ЛЮБОГО запроса к
-    /api/* (в т.ч. публичных) — api/auth.py читает их напрямую вместо повторного похода в БД.
-
-    На время запроса выставляется current_actor (адрес клиента, а после проверки токена — ещё и
-    пользователь): из него crud.audit() берёт автора действия для журнала аудита."""
-    path = request.url.path
-    if not path.startswith("/api/"):
-        return with_security_headers(await call_next(request), path)
-
-    warn_once_if_proxy_untrusted(request)
-    actor_token = current_actor.set(Actor(ip=request_client_ip(request)))
-    try:
-        response = await _gate_api_request(request, call_next)
-    finally:
-        current_actor.reset(actor_token)
-    return with_security_headers(response, path)
 
 
 class _GateDecision(NamedTuple):
@@ -128,12 +103,51 @@ def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDec
         db_session.close()
 
 
-async def _gate_api_request(request: Request, call_next):
-    decision = await run_in_threadpool(_authorize, request.method, request.url.path, request.headers.get("authorization"))
-    request.state.auth_enabled = decision.auth_enabled
-    request.state.user = decision.user
-    if decision.user is not None:
-        current_actor.set(Actor(decision.user.id, decision.user.username, request_client_ip(request)))
-    if decision.deny_status is not None:
-        return JSONResponse({"detail": decision.deny_detail}, status_code=decision.deny_status)
-    return await call_next(request)
+class AuthGateMiddleware:
+    """Единая точка контроля доступа к /api/*: чистый ASGI-middleware (код-ревью С-5).
+
+    Раньше шлюз был функцией под ``BaseHTTPMiddleware``: тот запускает приложение в отдельной задаче anyio и читает ``receive``
+    внутри группы задач, из-за чего исключение предела тела запроса приходило в FastAPI обёрнутым в ``ExceptionGroup`` и
+    превращалось в 400 (обход жил в body_limit.py). Теперь шлюз вызывает приложение прямо, как остальные слои
+    (csrf_guard, body_limit, network_access, security_headers).
+
+    Раздача Vue-оболочки (`/`, `/assets/*`, SPA-фоллбэк в main.py) проверку доступа не проходит: статика отдаётся всегда, экран
+    логина рисует сам Vue-роутер на клиенте (frontend-vue/src/router/index.ts). Контроль — только над `/api/*`, и только над
+    данными, а не над тем, загрузится ли интерфейс. Заголовки безопасности ставит SecurityHeadersMiddleware — самый внешний
+    слой, поэтому они есть и на отказах 401/403 отсюда.
+
+    Для любого запроса к /api/* (в том числе публичному) в ``scope["state"]`` кладутся ``auth_enabled`` и ``user``:
+    ``request.state`` в Starlette читает именно этот словарь, и api/auth.py берёт оттуда результат проверки, а не ходит в БД
+    повторно. На время запроса выставляется ``current_actor`` (адрес клиента, а после проверки токена — ещё и пользователь):
+    из него crud.audit() берёт автора действия для журнала аудита.
+
+    Пример: ``app.add_middleware(AuthGateMiddleware)`` — внутри CORS, проверки Host и origin и предела тела запроса (main.py)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        path = request.url.path
+        if not path.startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        warn_once_if_proxy_untrusted(request)
+        client_ip = request_client_ip(request)
+        actor_token = current_actor.set(Actor(ip=client_ip))
+        try:
+            decision = await run_in_threadpool(_authorize, request.method, path, request.headers.get("authorization"))
+            scope.setdefault("state", {}).update(auth_enabled=decision.auth_enabled, user=decision.user)
+            if decision.user is not None:
+                current_actor.set(Actor(decision.user.id, decision.user.username, client_ip))
+            if decision.deny_status is not None:
+                response = JSONResponse({"detail": decision.deny_detail}, status_code=decision.deny_status)
+                await response(scope, receive, send)
+                return
+            await self.app(scope, receive, send)
+        finally:
+            current_actor.reset(actor_token)

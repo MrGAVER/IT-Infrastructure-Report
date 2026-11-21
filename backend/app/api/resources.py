@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
+from ..constants import MAX_PAGE_OFFSET, MAX_SEARCH_LENGTH
 from ..db import get_db
 from ..models import InformationSystem
 from ..registry import DISPLAY_NAMES, MODEL_MAP
@@ -35,7 +36,16 @@ def resource_schema(resource: str, request: Request):
     return {'key': resource, 'name': DISPLAY_NAMES.get(resource, resource), 'columns': columns_for(model)}
 
 @router.get('/{resource}')
-def list_endpoint(resource: str, request: Request, q: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), date_from: str | None = None, date_to: str | None = None, session: Session = Depends(get_db)):
+def list_endpoint(
+    resource: str,
+    request: Request,
+    q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
+    offset: int = Query(0, ge=0, le=MAX_PAGE_OFFSET),
+    limit: int = Query(100, ge=1, le=1000),
+    date_from: str | None = None,
+    date_to: str | None = None,
+    session: Session = Depends(get_db),
+):
     _guard(resource, request)
     # Any query param other than q/offset/limit/date_from/date_to is treated as an equality filter
     # on that column, e.g. GET /resources/interfaces?physical_device_id=<id> — validated against

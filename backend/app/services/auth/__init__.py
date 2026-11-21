@@ -1,5 +1,5 @@
 """Аутентификация/авторизация: хеширование паролей, непрозрачные токены сессий, блокировка после
-серии неудачных попыток входа, и единая точка контроля доступа — ASGI-middleware auth_gate_middleware
+серии неудачных попыток входа, и единая точка контроля доступа — ASGI-middleware AuthGateMiddleware
 (регистрируется в main.py).
 
 Архитектурные решения:
@@ -44,7 +44,7 @@ from .gate import (
     ROLE_CHECK_EXEMPT_PATHS,
     ROLE_CHECK_EXEMPT_PREFIXES,
     WRITE_METHODS,
-    auth_gate_middleware,
+    AuthGateMiddleware,
 )
 from .guards import require_admin, require_admin_if_auth_enabled, require_setup_access
 from .login import authenticate
@@ -87,7 +87,7 @@ __all__ = [
     "authenticate",
     # gate
     "PUBLIC_API_PATHS", "READ_ONLY_POST_PATHS", "ROLE_CHECK_EXEMPT_PATHS", "ROLE_CHECK_EXEMPT_PREFIXES", "WRITE_METHODS",
-    "auth_gate_middleware",
+    "AuthGateMiddleware",
     # guards
     "require_admin", "require_admin_if_auth_enabled", "require_setup_access",
     # _common

@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..config import APP_VERSION
 from ..db import get_db
 from ..models import Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine
 from ..services.catalogs import seed_defaults
@@ -12,7 +11,10 @@ from ..services.integrity import find_duplicate_open_port_numbers, find_off_port
 router = APIRouter(tags=['System'])
 
 @router.get('/api/v1/health')
-def health(): return {'status':'ok','service':'infra-registry','version':APP_VERSION}
+def health():
+    """Проверка живости для Docker, CI и балансировщиков. Путь публичный (до входа), поэтому версию приложения не отдаёт: по ней
+    посторонний подбирает известные уязвимости (код-ревью Н-2). Версия — в CHANGELOG.md и, если включён ENABLE_DOCS, в /openapi.json."""
+    return {'status': 'ok', 'service': 'infra-registry'}
 
 @router.get('/api/v1/integrity')
 def integrity_report(session: Session = Depends(get_db)):
@@ -47,10 +49,26 @@ def stale_subinterfaces_report(session: Session = Depends(get_db)):
     total = len(ports) + len(groups)
     return {'ok': total == 0, 'total': total, 'subinterfaces': ports, 'group_subinterfaces': groups}
 
+_DASHBOARD_ENTITIES = {
+    'information_systems': InformationSystem,
+    'physical_devices': PhysicalDevice,
+    'virtual_machines': VirtualMachine,
+    'containers': Container,
+    'connections': Connection,
+    'vlan': VLAN,
+    'software': SoftwareAsset,
+}
+
 @router.get('/api/v1/dashboard')
 def dashboard(session: Session = Depends(get_db)):
-    entities = {'information_systems': InformationSystem, 'physical_devices': PhysicalDevice, 'virtual_machines': VirtualMachine, 'containers': Container, 'connections': Connection, 'vlan': VLAN, 'software': SoftwareAsset}
-    return {key: session.scalar(select(func.count()).select_from(model)) or 0 for key, model in entities.items()}
+    """Счётчики главной страницы одним запросом: SELECT (SELECT count(*) FROM …) AS …, … — вместо отдельного COUNT на каждую сущность
+    (код-ревью Н-8): одно обращение к БД, а не по одному на сущность, на каждом открытии главной страницы."""
+    counters = [
+        select(func.count()).select_from(model).scalar_subquery().label(key)
+        for key, model in _DASHBOARD_ENTITIES.items()
+    ]
+    row = session.execute(select(*counters)).one()
+    return {key: row._mapping[key] or 0 for key in _DASHBOARD_ENTITIES}
 
 @router.post('/api/v1/seed')
 def seed(session: Session = Depends(get_db)):

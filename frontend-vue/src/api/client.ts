@@ -417,4 +417,6 @@ export const ErrorCode = {
   REQUEST_BODY_TOO_LARGE: 'REQUEST_BODY_TOO_LARGE',
   /** 422: неверный текущий пароль при смене собственного пароля. Сессию не завершает (в отличие от 401), попытка считается неудачным входом. */
   WRONG_CURRENT_PASSWORD: 'WRONG_CURRENT_PASSWORD',
+  /** 409: запись изменили после того, как форма её получила (PUT с expected_updated_at устарел). Нужно перечитать запись и повторить правку. */
+  STALE_RECORD: 'STALE_RECORD',
 } as const

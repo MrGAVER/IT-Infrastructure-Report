@@ -34,7 +34,7 @@ LEGACY_PUBLIC_NAMES = [
     "create_session", "cleanup_expired_sessions", "resolve_session", "revoke_session", "revoke_all_sessions", "revoke_all_sessions_except",
     "revoke_session_by_id", "list_active_sessions", "serialize_session",
     "authenticate",
-    "WRITE_METHODS", "PUBLIC_API_PATHS", "ROLE_CHECK_EXEMPT_PATHS", "ROLE_CHECK_EXEMPT_PREFIXES", "READ_ONLY_POST_PATHS", "auth_gate_middleware",
+    "WRITE_METHODS", "PUBLIC_API_PATHS", "ROLE_CHECK_EXEMPT_PATHS", "ROLE_CHECK_EXEMPT_PREFIXES", "READ_ONLY_POST_PATHS", "AuthGateMiddleware",
     "require_setup_access", "require_admin_if_auth_enabled", "require_admin",
     "Actor", "current_actor",  # реэкспортировались и раньше (__all__ старого модуля)
 ]

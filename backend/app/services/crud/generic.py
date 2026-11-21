@@ -14,9 +14,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ...constants import AuditAction
+from ...constants import AuditAction, ErrorCode
 from ..integrity import integrity_error_response
-from .audit_log import _describe_update, audit
+from .audit_log import _describe_update, audit, describe_record
 from .columns import allowed_columns, model_for
 from ..timeutil import to_naive_utc
 from .hooks import hooks_for
@@ -37,7 +37,9 @@ def _parse_range_datetime(value: str, *, end_of_day: bool) -> datetime:
         # присланное клиентом обратно (например, created_at записи как граница периода), приводится к UTC без tzinfo —
         # иначе сравнение с колонкой шло бы по тексту со смещением. Чистая дата и время без смещения — как раньше.
         return to_naive_utc(datetime.fromisoformat(text))
-    except ValueError as exc:
+    except (ValueError, OverflowError) as exc:
+        # OverflowError — не подкласс ValueError: приведение крайней даты со смещением к UTC («0001-01-01T00:00:00+14:00»,
+        # «9999-12-31T23:59:59-14:00») выходит за пределы datetime и раньше отвечало 500.
         raise HTTPException(422, f'Некорректная дата: {value}') from exc
 
 
@@ -118,15 +120,49 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     with _translated_write_errors(resource, session):
         session.flush()
         hooks.after_create(obj, session)
-        audit(session, resource, str(obj.id), AuditAction.CREATE, 'Создание записи'); session.commit()
+        audit(session, resource, str(obj.id), AuditAction.CREATE, f'Создание записи: {describe_record(obj)}')
+        session.commit()
         return hooks.to_dict(obj, session)
+
+
+_STALE_RECORD_MESSAGE = 'Запись изменена другим пользователем. Обновите форму и повторите правку.'
+
+
+def _to_millis(value: datetime) -> datetime:
+    """Время с точностью до миллисекунды: JavaScript (Date.toISOString) микросекунды отбрасывает, и клиент, пересобравший строку,
+    иначе получал бы ложный конфликт на собственной непротиворечивой записи."""
+    return value.replace(microsecond=value.microsecond // 1000 * 1000)
+
+
+def _assert_not_stale(obj: Any, expected: Any) -> None:
+    """Оптимистичная блокировка (код-ревью С-4): если клиент прислал expected_updated_at — значение updated_at записи, которое он
+    получил при чтении, — а в БД оно уже другое, запись изменил кто-то ещё и тихо затирать его правку нельзя: 409 STALE_RECORD.
+
+    Поле необязательное: без него (старый клиент, скрипт, импорт) поведение прежнее — выигрывает последняя запись. Модель без
+    отметки updated_at сверять не с чем, её проверка пропускается. Значение не строка или не дата — 422, а не молчаливый пропуск:
+    клиент, который проверку просил, должен узнать, что она не сработала."""
+    if expected is None:
+        return
+    current = getattr(obj, 'updated_at', None)
+    if current is None:
+        return
+    if not isinstance(expected, str):
+        raise HTTPException(422, 'expected_updated_at: ожидается строка с датой и временем ISO 8601')
+    if _to_millis(_parse_range_datetime(expected, end_of_day=False)) != _to_millis(current):
+        raise HTTPException(409, {'code': ErrorCode.STALE_RECORD, 'message': _STALE_RECORD_MESSAGE})
 
 
 def update_resource(resource: str, item_id: str, payload: dict[str, Any], session: Session):
     ensure_writable(resource)
     payload = validate_payload_schema(resource, payload, is_update=True)
-    model = model_for(resource); hooks = hooks_for(model); obj = session.get(model, item_id)
-    if not obj: raise HTTPException(404, 'Запись не найдена')
+    # with_for_update: на PostgreSQL строка блокируется до commit, и два одновременных PUT выстраиваются в очередь — второй увидит
+    # новый updated_at и получит 409, а не пройдёт проверку по старому снимку. SQLite FOR UPDATE игнорирует (запись и так одна за раз).
+    model = model_for(resource)
+    hooks = hooks_for(model)
+    obj = session.get(model, item_id, with_for_update=True)
+    if obj is None:
+        raise HTTPException(404, 'Запись не найдена')
+    _assert_not_stale(obj, payload.get('expected_updated_at'))
     allowed = allowed_columns(model); before = {k: getattr(obj, k) for k in allowed}
     changes = {k: v for k, v in payload.items() if k in allowed}
     validate_column_types(model, changes)

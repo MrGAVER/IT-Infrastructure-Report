@@ -179,3 +179,66 @@ def test_environment_variable_parsing(monkeypatch, raw, expected):
     finally:
         monkeypatch.delenv("INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS", raising=False)
         importlib.reload(config)
+
+
+# --- С-3 код-ревью: «знакомый адрес» не работает за прокси, которому uvicorn не доверяет ----------------------------------------------
+# Если прокси не перечислен в FORWARDED_ALLOW_IPS, у всех клиентов за ним один адрес: после первого же успешного входа
+# «знакомым» стал бы любой запрос через прокси, и блокировка по числу неудач переставала бы защищать учётную запись.
+# Теперь исключение действует только при надёжно определённом адресе (proxy_headers.client_ip_is_reliable);
+# иначе запрос получает 423, как с незнакомого адреса.
+
+from starlette.requests import Request
+
+from app.services.auth.proxy_headers import client_ip_is_reliable
+
+
+def _request(headers: dict[str, str], client: tuple[str, int] | None = (OWNER_ADDRESS, 50000)) -> Request:
+    return Request({
+        "type": "http", "method": "POST", "path": LOGIN, "query_string": b"",
+        "headers": [(k.lower().encode("latin1"), v.encode("latin1")) for k, v in headers.items()],
+        "client": client,
+    })
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({}, True),  # прямое соединение без прокси-заголовков
+        ({"X-Forwarded-For": OWNER_ADDRESS}, True),  # доверенный прокси: uvicorn уже подставил адрес клиента из заголовка
+        ({"X-Forwarded-For": f"198.51.100.1, {OWNER_ADDRESS}"}, True),
+        ({"X-Forwarded-For": "198.51.100.1"}, False),  # заголовок есть, адреса соединения среди записей нет: uvicorn его не разбирал
+        ({"Forwarded": "for=198.51.100.1"}, False),  # uvicorn заголовок Forwarded не разбирает вовсе
+        ({"X-Real-IP": "198.51.100.1"}, False),  # и X-Real-IP тоже
+        # nginx шлёт оба заголовка; верно настроенный прокси остаётся надёжным
+        ({"X-Real-IP": "198.51.100.1", "X-Forwarded-For": OWNER_ADDRESS}, True),
+    ],
+)
+def test_client_ip_is_reliable(headers, expected):
+    assert client_ip_is_reliable(_request(headers)) is expected
+
+
+def test_no_request_or_no_client_address_is_never_reliable():
+    assert client_ip_is_reliable(None) is False
+    assert client_ip_is_reliable(_request({}, client=None)) is False
+
+
+@pytest.mark.parametrize("header", [{"X-Forwarded-For": "198.51.100.1"}, {"Forwarded": "for=198.51.100.1"}, {"X-Real-IP": "198.51.100.1"}])
+def test_the_bypass_is_off_behind_an_untrusted_proxy(setup, db_session, header):
+    owner, attacker = setup(OWNER_ADDRESS), setup(ATTACKER_ADDRESS)
+    assert _attempt(owner, "Admin1234").status_code == 200
+    _lock_from(attacker)
+
+    behind_proxy = owner.post(LOGIN, json={"username": "admin", "password": "Admin1234"}, headers=header)
+    assert behind_proxy.status_code == 423 and behind_proxy.json()["detail"]["code"] == "ACCOUNT_LOCKED"
+    assert _admin(db_session).locked_until is not None, "блокировка не снята"
+
+    assert _attempt(owner, "Admin1234").status_code == 200, "тот же адрес без прокси-заголовков — по-прежнему «знакомый»"
+
+
+def test_the_bypass_still_works_behind_a_trusted_proxy(setup, db_session):
+    """uvicorn доверяет прокси и подставил в request.client адрес из X-Forwarded-For — то есть адрес самого клиента."""
+    owner, attacker = setup(OWNER_ADDRESS), setup(ATTACKER_ADDRESS)
+    assert _attempt(owner, "Admin1234").status_code == 200
+    _lock_from(attacker)
+    response = owner.post(LOGIN, json={"username": "admin", "password": "Admin1234"}, headers={"X-Forwarded-For": OWNER_ADDRESS})
+    assert response.status_code == 200 and response.json()["token"]
