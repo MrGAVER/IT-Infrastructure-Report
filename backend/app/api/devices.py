@@ -5,52 +5,55 @@ from ..db import get_db
 from ..schemas import DeployedSoftwareSync, DeviceInterfacesSync, DeviceVlansSync
 from ..services.crud import get_device_interface_ips, get_device_interface_open_ports, get_device_interface_vlans, get_device_subinterfaces, get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
 from ..services.device_connectivity import list_device_options, list_free_interfaces, list_interface_connections
-router = APIRouter(prefix='/api/v1/devices', tags=['Devices'])
-@router.put('/{device_id}/interfaces')
+
+router = APIRouter(prefix="/api/v1/devices", tags=["Devices"])
+
+
+@router.put("/{device_id}/interfaces")
 def sync_device_interfaces(device_id: str, payload: DeviceInterfacesSync, session: Session = Depends(get_db)):
     return sync_interfaces(device_id, payload.model_dump(exclude_unset=True), session)
 
 
-@router.put('/{device_id}/vlans')
+@router.put("/{device_id}/vlans")
 def sync_vlans(device_id: str, payload: DeviceVlansSync, session: Session = Depends(get_db)):
     return sync_device_vlans(device_id, payload.model_dump(exclude_unset=True), session)
 
 
-@router.put('/{device_id}/deployed-software')
+@router.put("/{device_id}/deployed-software")
 def sync_deployed_software(device_id: str, payload: DeployedSoftwareSync, session: Session = Depends(get_db)):
     return sync_device_deployed_software(device_id, payload.model_dump(exclude_unset=True), session)
 
 
-@router.get('/{device_id}/interface-groups')
+@router.get("/{device_id}/interface-groups")
 def interface_groups(device_id: str, session: Session = Depends(get_db)):
     return get_interface_groups(device_id, session)
 
 
-@router.get('/{device_id}/interface-vlans')
+@router.get("/{device_id}/interface-vlans")
 def device_interface_vlans(device_id: str, session: Session = Depends(get_db)):
     """VLAN всех портов устройства (с учётом «Все VLAN») — для формы устройства; ответ ограничен одним устройством."""
     return get_device_interface_vlans(device_id, session)
 
 
-@router.get('/{device_id}/interface-ips')
+@router.get("/{device_id}/interface-ips")
 def device_interface_ips(device_id: str, session: Session = Depends(get_db)):
     """IP-адреса всех портов устройства — для формы устройства; ответ ограничен одним устройством."""
     return get_device_interface_ips(device_id, session)
 
 
-@router.get('/{device_id}/interface-open-ports')
+@router.get("/{device_id}/interface-open-ports")
 def device_interface_open_ports(device_id: str, session: Session = Depends(get_db)):
     """Открытые порты всех портов устройства — для формы устройства; ответ ограничен одним устройством."""
     return get_device_interface_open_ports(device_id, session)
 
 
-@router.get('/{device_id}/subinterfaces')
+@router.get("/{device_id}/subinterfaces")
 def device_subinterfaces(device_id: str, session: Session = Depends(get_db)):
     """Подинтерфейсы всех портов устройства (с IP-адресами и открытыми портами) — для формы устройства."""
     return get_device_subinterfaces(device_id, session)
 
 
-@router.get('/{device_id}/free-interfaces')
+@router.get("/{device_id}/free-interfaces")
 def free_interfaces(
     device_id: str,
     q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
@@ -64,13 +67,13 @@ def free_interfaces(
     return list_free_interfaces(device_id, session, q=q, include=include, offset=offset, limit=limit)
 
 
-@router.get('/{device_id}/interface-connections')
+@router.get("/{device_id}/interface-connections")
 def interface_connections(device_id: str, session: Session = Depends(get_db)):
     """Действующие подключения портов устройства со сведениями о соседнем порте и устройстве."""
     return list_interface_connections(device_id, session)
 
 
-@router.get('/options')
+@router.get("/options")
 def device_options(
     q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
     include: list[str] = Query(default=[]),

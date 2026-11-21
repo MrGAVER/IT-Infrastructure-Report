@@ -32,6 +32,7 @@ def _validate_by_format(meta: dict, fmt: str, config: dict) -> None:
     else:
         raise ReportBuilderError(f"Неизвестный формат отчёта: '{fmt}' (ожидается xlsx или docx)")
 
+
 router = APIRouter(prefix="/api/v1", tags=["Report builder"])
 
 
@@ -41,8 +42,12 @@ def _template_out(t: ReportTemplate) -> dict:
     except json.JSONDecodeError:
         config = {}
     return {
-        "id": t.id, "name": t.name, "description": t.description, "format": t.format,
-        "config": config, "created_at": iso_utc(t.created_at),
+        "id": t.id,
+        "name": t.name,
+        "description": t.description,
+        "format": t.format,
+        "config": config,
+        "created_at": iso_utc(t.created_at),
         "updated_at": iso_utc(t.updated_at),
     }
 
@@ -69,13 +74,17 @@ def _snapshot_version(t: ReportTemplate, session: Session) -> None:
     """Сохраняет ТЕКУЩЕЕ (ещё не изменённое) состояние шаблона как запись истории версий —
     вызывается непосредственно перед тем, как t будет перезаписан (обновление или восстановление
     другой версии), чтобы это состояние можно было потом вернуть."""
-    next_number = (session.scalar(
-        select(func.max(ReportTemplateVersion.version_number)).where(ReportTemplateVersion.report_template_id == t.id)
-    ) or 0) + 1
-    session.add(ReportTemplateVersion(
-        report_template_id=t.id, version_number=next_number,
-        name=t.name, description=t.description, format=t.format, config=t.config,
-    ))
+    next_number = (session.scalar(select(func.max(ReportTemplateVersion.version_number)).where(ReportTemplateVersion.report_template_id == t.id)) or 0) + 1
+    session.add(
+        ReportTemplateVersion(
+            report_template_id=t.id,
+            version_number=next_number,
+            name=t.name,
+            description=t.description,
+            format=t.format,
+            config=t.config,
+        )
+    )
 
 
 @router.get("/report-builder/entities")
@@ -117,9 +126,11 @@ def create_template(body: ReportTemplateWrite, session: Session = Depends(get_db
     if session.scalar(select(ReportTemplate).where(ReportTemplate.name == name)):
         raise HTTPException(409, "Шаблон с таким названием уже существует")
     t = ReportTemplate(name=name, description=description, format=fmt, config=json.dumps(config, ensure_ascii=False))
-    session.add(t); session.flush()
+    session.add(t)
+    session.flush()
     audit(session, "report-templates", t.id, AuditAction.CREATE, f"Создан шаблон «{t.name}»")
-    session.commit(); session.refresh(t)
+    session.commit()
+    session.refresh(t)
     return _template_out(t)
 
 
@@ -130,10 +141,14 @@ def update_template(template_id: str, body: ReportTemplateWrite, t: ReportTempla
     if dup:
         raise HTTPException(409, "Шаблон с таким названием уже существует")
     _snapshot_version(t, session)
-    t.name = name; t.description = description; t.format = fmt; t.config = json.dumps(config, ensure_ascii=False)
+    t.name = name
+    t.description = description
+    t.format = fmt
+    t.config = json.dumps(config, ensure_ascii=False)
     session.flush()
     audit(session, "report-templates", t.id, AuditAction.UPDATE, f"Изменён шаблон «{t.name}»")
-    session.commit(); session.refresh(t)
+    session.commit()
+    session.refresh(t)
     return _template_out(t)
 
 
@@ -144,7 +159,8 @@ def delete_template(template_id: str, session: Session = Depends(get_db)):
         raise HTTPException(404, "Шаблон отчёта не найден")
     name = t.name
     session.execute(delete(ReportTemplateVersion).where(ReportTemplateVersion.report_template_id == template_id))
-    session.delete(t); session.flush()
+    session.delete(t)
+    session.flush()
     audit(session, "report-templates", template_id, AuditAction.DELETE, f"Удалён шаблон «{name}»")
     session.commit()
     return {"status": "ok"}
@@ -157,15 +173,14 @@ def list_template_versions(template_id: str, session: Session = Depends(get_db))
     отдельный просмотр содержимого прошлой версии не нужен для этого сценария."""
     if not session.get(ReportTemplate, template_id):
         raise HTTPException(404, "Шаблон отчёта не найден")
-    rows = session.scalars(
-        select(ReportTemplateVersion)
-        .where(ReportTemplateVersion.report_template_id == template_id)
-        .order_by(ReportTemplateVersion.version_number.desc())
-    ).all()
+    rows = session.scalars(select(ReportTemplateVersion).where(ReportTemplateVersion.report_template_id == template_id).order_by(ReportTemplateVersion.version_number.desc())).all()
     return [
         {
-            "id": v.id, "version_number": v.version_number, "name": v.name,
-            "description": v.description, "format": v.format,
+            "id": v.id,
+            "version_number": v.version_number,
+            "name": v.name,
+            "description": v.description,
+            "format": v.format,
             "created_at": iso_utc(v.created_at),
         }
         for v in rows
@@ -185,10 +200,14 @@ def restore_template_version(template_id: str, version_id: str, session: Session
         raise HTTPException(409, f"Нельзя восстановить: название «{v.name}» уже занято другим шаблоном")
     # Текущее состояние тоже сохраняется как версия перед восстановлением — откат обратим.
     _snapshot_version(t, session)
-    t.name = v.name; t.description = v.description; t.format = v.format; t.config = v.config
+    t.name = v.name
+    t.description = v.description
+    t.format = v.format
+    t.config = v.config
     session.flush()
     audit(session, "report-templates", t.id, AuditAction.UPDATE, f"Восстановлена версия №{v.version_number} («{v.name}»)")
-    session.commit(); session.refresh(t)
+    session.commit()
+    session.refresh(t)
     return _template_out(t)
 
 
@@ -198,13 +217,17 @@ def duplicate_template(template_id: str, session: Session = Depends(get_db)):
     if not src:
         raise HTTPException(404, "Шаблон отчёта не найден")
     base_name = f"{src.name} (копия)"
-    name = base_name; n = 2
+    name = base_name
+    n = 2
     while session.scalar(select(ReportTemplate).where(ReportTemplate.name == name)):
-        name = f"{base_name} {n}"; n += 1
+        name = f"{base_name} {n}"
+        n += 1
     t = ReportTemplate(name=name, description=src.description, format=src.format, config=src.config)
-    session.add(t); session.flush()
+    session.add(t)
+    session.flush()
     audit(session, "report-templates", t.id, AuditAction.CREATE, f"Дублирован из шаблона «{src.name}»")
-    session.commit(); session.refresh(t)
+    session.commit()
+    session.refresh(t)
     return _template_out(t)
 
 
