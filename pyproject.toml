@@ -15,10 +15,6 @@ exclude = [
   # Alembic
   "backend/alembic/env.py",
   # backend/app: 91 модулей. «Горячие» app/config.py и app/main.py правят почти все изменения — их форматируют отдельным коммитом
-  "backend/app/config.py",
-  "backend/app/db.py",
-  "backend/app/main.py",
-  "backend/app/models.py",
   # backend/tests: 180 модулей
   "backend/tests/conftest.py",
   "backend/tests/migration_support.py",
