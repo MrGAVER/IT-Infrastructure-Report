@@ -361,3 +361,40 @@ jobs:
               connection.execute(psycopg.sql.SQL("CREATE DATABASE {} OWNER {}").format(psycopg.sql.Identifier(os.environ["POSTGRES_DB"]), psycopg.sql.Identifier(os.environ["POSTGRES_USER"])))
           PY
           python tests/tools/pg_app_smoke.py
+
+  # Сборка EXE под Windows тем же installer\build_windows.bat, которым собирает разработчик. Вместе со сборкой проходят проверки
+  # уязвимостей пакетов — их делает сам скрипт: `npm run audit:gate` и pip-audit по requirements.lock блокируют сборку, pip-audit
+  # по requirements-build.lock только сообщает (как одноимённые шаги job test). Linux-job test проверяет те же lock-файлы, но не
+  # может проверить, что EXE вообще собирается и что скрипт работает под cmd.
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Установить Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-build.lock
+
+      - name: Установить Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          cache: "npm"
+          cache-dependency-path: frontend-vue/package-lock.json
+
+      # Единственная команда шага: код возврата шага — это код возврата .bat, ошибка любой проверки или сборки краснит job.
+      - name: Собрать EXE (installer\build_windows.bat — npm audit gate, pip-audit по lock-файлам, PyInstaller)
+        shell: cmd
+        run: call installer\build_windows.bat
+
+      - name: Проверить результат сборки (EXE и сопутствующие файлы)
+        shell: cmd
+        run: |
+          if not exist dist\InfraRegistry.exe exit /b 1
+          if not exist dist\README_EXE.md exit /b 1
+          if not exist dist\run_infra_registry.bat exit /b 1
+          dir dist

@@ -2,3 +2,4 @@
 # рантайма сервера. Устанавливаются поверх requirements.txt.
 -r requirements.txt
 pyinstaller>=6.10,<7
+pip-audit>=2.7,<3  # проверка уязвимостей при сборке: installer/build_windows.bat запускает `python -m pip_audit` из того же venv, а в EXE он не попадает
