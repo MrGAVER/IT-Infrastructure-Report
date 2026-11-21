@@ -6385,3 +6385,16 @@ GHSA-fc5q-39xc-vjpf, до 2026-12-31).
   `eslint .`, `prettier --check .` чисты; `vitest run` — 283 файла, 4127 тестов passed; `npm run build` проходит; `npm run audit:gate` — без замечаний (одно действующее исключение).
 - **Что не проверено.** PostgreSQL (job `test-postgres` и `compose-postgres` в CI; на ветке исполнителя 1 прогонялись тесты миграций и пакета — 342 passed), e2e Playwright, `pip-audit`, сборка EXE и образа Docker (нет
   Windows и Docker), Node 26 (локально Node 22). Коммиты ветки `feature/building-unit-plus-catalog-search-stacks-dashboard` сохранили автора `claude@anthropic.com`: чужую историю не переписывали.
+
+#### Dependabot, четвёртый пакет: fastapi 0.165.0, httpx2 2.16.2 и нижние границы drawpyo, openpyxl, bandit, пять обновлений frontend
+
+Ветка `chore/deps-sweep-4` (от `main` @ `ea9f473`). Номер версии не менялся. Ветки Dependabot влиты merge-коммитами, поэтому GitHub отметит их PR как влитые; код приложения не менялся, только `requirements*.txt`, lock-файлы и `frontend-vue/package*.json`.
+
+- **#49** `drawpyo>=0.2.5`, **#50** `openpyxl>=3.1.5`, **#54** `bandit>=1.9.4`: lock-файлы уже стояли на этих версиях (`drawpyo` 0.2.5, `openpyxl` 3.1.5, `bandit` 1.9.4), менялись только границы в `requirements*.txt`.
+- **#52** `fastapi>=0.163.2`: lock `fastapi` 0.162.7 → 0.165.0 (все три lock-файла). Dependabot lock не обновляет, поэтому PR был красным на шаге «Lock-файлы backend актуальны»; пересборка взяла новейшую подходящую версию, а не 0.163.2.
+- **#53** `httpx2>=2.16.2` (dev): `requirements-dev.lock` `httpx2` и `httpcore2` 2.16.0 → 2.16.2. Тот же шаг CI, та же причина.
+- **#51** frontend, группа minor-and-patch: `dompurify` 3.4.18, `@vue/test-utils` 2.6.0, `axe-core` 4.14.1, `jsdom` 31.0.1, `typescript-eslint` 8.73.0. В `package-lock.json` у 34 опциональных нативных пакетов (`@rolldown/binding-*`, `lightningcss-*`, `fsevents`, `@emnapi/*`, `tslib` и др.) исчез флаг `dev`: в `npm ci --omit=dev` их платформенные сборки теперь считаются продовыми. На сборку, тесты и `audit:gate` это не повлияло; lock оставлен как его сформировал Dependabot.
+- Lock перегенерирован `uv pip compile --universal --generate-hashes --python-version 3.12 --upgrade-package fastapi --upgrade-package httpx2 --upgrade-package httpcore2`; больше никаких версий не менялось, пересборка без флагов не меняет файлы.
+
+**Проверено** (SQLite, Python 3.12.3, Node 22.23.5 / npm 10.9.9; окружение из `requirements-dev.lock`). Backend: `pytest -n auto -m "not slow"` — 4 703 passed, 74 пропущено (PostgreSQL-тесты и PyInstaller); `pytest -m slow` — 5 passed; `ruff check`, `ruff format --check`, `bandit -ll`, `pip-audit` чисты; `alembic upgrade head` с нуля и `alembic check` — без расхождений, один head `d6c1a8f3e594`. Frontend: `npm ci`, `eslint`, `prettier --check` чисты; `npm run build` проходит; `npm run audit:gate` — уязвимостей high и выше нет; `vitest run` — 283 файла, 4 127 тестов passed.
+**Не проверено локально:** PostgreSQL-job-ы, `compose-postgres`, e2e Playwright, образ Docker, сборка EXE, Node 26 — их подтверждает CI. Замечание вне пакета: `audit:gate` сообщает, что исключение GHSA-fc5q-39xc-vjpf (`picomatch`) в `ALLOWLIST` больше не нужно; то же сообщение выдаёт и `main` @ `ea9f473`, к этому пакету оно не относится, исключение не трогал.
