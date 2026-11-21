@@ -423,10 +423,11 @@ jobs:
           $data = Join-Path $env:RUNNER_TEMP 'infra-smoke'
           New-Item -ItemType Directory -Force -Path $data | Out-Null
           $env:INFRA_REGISTRY_DATA_DIR = $data
-          $exe = Start-Process -FilePath (Resolve-Path 'dist\InfraRegistry.exe') -ArgumentList '--no-browser', '--port', $port `
-            -PassThru -WindowStyle Hidden `
-            -RedirectStandardOutput (Join-Path $data 'exe.out.log') -RedirectStandardError (Join-Path $data 'exe.err.log')
+          $exe = $null
           try {
+            $exe = Start-Process -FilePath (Resolve-Path 'dist\InfraRegistry.exe') -ArgumentList '--no-browser', '--port', $port `
+              -PassThru -WindowStyle Hidden `
+              -RedirectStandardOutput (Join-Path $data 'exe.out.log') -RedirectStandardError (Join-Path $data 'exe.err.log')
             $health = $null
             for ($i = 0; $i -lt 60 -and -not $health; $i++) {
               if ($exe.HasExited) { throw "InfraRegistry.exe завершился при старте, код $($exe.ExitCode)" }
@@ -450,9 +451,14 @@ jobs:
           '@ | Set-Content -Path $probe -Encoding ascii
             python $probe (Join-Path $data 'infra_registry.db')
             if ($LASTEXITCODE -ne 0) { throw 'в infra_registry.db нет схемы или ревизии alembic: миграции внутри EXE не прошли' }
+          } catch {
+            # Причина — в аннотацию (видна на странице запуска и в API), затем падаем: журнал шага не всегда под рукой.
+            $reason = $_.Exception.Message -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Host "::error title=Smoke-запуск EXE::$reason"
+            throw
           } finally {
             # onefile-EXE — загрузчик и дочерний процесс: останавливаем всё дерево, иначе порт останется занятым.
-            if (-not $exe.HasExited) { taskkill /PID $exe.Id /T /F | Out-Null }
+            if ($exe -and -not $exe.HasExited) { taskkill /PID $exe.Id /T /F | Out-Null }
           }
           $global:LASTEXITCODE = 0
 
@@ -463,5 +469,11 @@ jobs:
           foreach ($name in 'exe.out.log', 'exe.err.log') {
             $path = Join-Path $env:RUNNER_TEMP "infra-smoke\$name"
             Write-Host "=== $name"
-            if (Test-Path $path) { Get-Content -Path $path -Tail 100 } else { Write-Host '(файла нет)' }
+            if (-not (Test-Path $path)) { Write-Host '(файла нет)'; continue }
+            $tail = (Get-Content -Path $path -Tail 40) -join "`n"
+            Write-Host $tail
+            if ($tail) {
+              $encoded = $tail -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+              Write-Host "::error title=Журнал $name (последние строки)::$encoded"
+            }
           }

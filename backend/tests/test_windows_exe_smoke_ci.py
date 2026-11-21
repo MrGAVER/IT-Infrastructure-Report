@@ -110,6 +110,14 @@ def test_the_exe_logs_are_printed_when_the_job_fails(steps):
     assert "exe.out.log" in _smoke(steps)["run"]
 
 
+def test_the_failure_reason_is_published_as_an_annotation(steps):
+    """Текст исключения и хвост логов EXE уходят в аннотации (`::error`): они видны на странице запуска и в API, а не только в журнале шага."""
+    smoke = steps.index(_smoke(steps))
+    assert "catch" in _smoke(steps)["run"] and "::error" in _smoke(steps)["run"]
+    logs = next(step for step in steps[smoke + 1 :] if step.get("if") == "failure()")
+    assert "::error" in logs["run"] and "%0A" in logs["run"], "переводы строк в команде workflow кодируются как %0A"
+
+
 def test_the_smoke_step_does_not_mention_the_build_script(steps):
     """Тест A-15/A-11 ищут единственный шаг со сборкой по имени скрипта: smoke не должен путать эту проверку."""
     assert "build_windows.bat" not in _smoke(steps)["run"]
