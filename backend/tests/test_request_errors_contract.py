@@ -21,6 +21,7 @@
 
 Запуск: pytest backend/tests/test_request_errors_contract.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -49,6 +50,7 @@ ENGLISH_PYDANTIC = re.compile(
 
 
 # --- слой «таблица» --------------------------------------------------------------------------------------------------------
+
 
 class _Child(BaseModel):
     a: int
@@ -79,8 +81,23 @@ class _Probe(BaseModel):
 
 
 VALID: dict[str, Any] = {
-    "required": "r", "text": "t", "flag": True, "count": 1, "ratio": 1.5, "items": ["i"], "mapping": {"k": 1}, "child": {"a": 1},
-    "at_least": 1, "above": 1, "at_most": 5, "below": 4, "long": "abc", "short": "ab", "many": [1], "few": [1, 2], "choice": "a",
+    "required": "r",
+    "text": "t",
+    "flag": True,
+    "count": 1,
+    "ratio": 1.5,
+    "items": ["i"],
+    "mapping": {"k": 1},
+    "child": {"a": 1},
+    "at_least": 1,
+    "above": 1,
+    "at_most": 5,
+    "below": 4,
+    "long": "abc",
+    "short": "ab",
+    "many": [1],
+    "few": [1, 2],
+    "choice": "a",
 }
 
 # ожидаемый тип ошибки → (что испортить, значение; None — убрать поле). Значения с меткой проверяют, что она не попадёт в текст.

@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_wrong_current_password.py -v
 """
+
 from __future__ import annotations
 
 import pytest

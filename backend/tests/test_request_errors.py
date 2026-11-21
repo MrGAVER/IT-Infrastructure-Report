@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_request_errors.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -73,6 +74,7 @@ def test_messages_are_deduplicated_and_capped():
 
 
 # --- Через настоящее приложение: другие эндпоинты с моделями и параметрами запроса ------------------------------------
+
 
 def test_login_validation_error_does_not_echo_the_submitted_value(client):
     secret = "секрет-пароль-123"

@@ -6,6 +6,7 @@ PUT /api/v1/vms/{id}/ip-addresses и PUT /api/v1/vms/{id}/deployed-software.
 id (services/crud/owned_rows.py:_sync_owned_rows) — id и дата создания сохраняются, любая ошибка откатывает весь
 запрос, а в журнал аудита попадает только реальное изменение.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import select

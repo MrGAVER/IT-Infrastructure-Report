@@ -15,31 +15,6 @@ exclude = [
   # Alembic
   # backend/app: 91 модулей. «Горячие» app/config.py и app/main.py правят почти все изменения — их форматируют отдельным коммитом
   # backend/tests: 180 модулей
-  "backend/tests/test_referential_integrity.py",
-  "backend/tests/test_registry_display_names.py",
-  "backend/tests/test_report_builder.py",
-  "backend/tests/test_report_download_access.py",
-  "backend/tests/test_report_endpoint_limits.py",
-  "backend/tests/test_request_body_cleanup.py",
-  "backend/tests/test_request_body_schemas.py",
-  "backend/tests/test_request_errors.py",
-  "backend/tests/test_request_errors_contract.py",
-  "backend/tests/test_resources_access.py",
-  "backend/tests/test_rule_from_payload_behaviour.py",
-  "backend/tests/test_serial_number_not_unique.py",
-  "backend/tests/test_setup_token_throttle.py",
-  "backend/tests/test_stale_subinterfaces_report.py",
-  "backend/tests/test_support_crypto_device_links.py",
-  "backend/tests/test_sync_interfaces_behaviour.py",
-  "backend/tests/test_timeutil.py",
-  "backend/tests/test_validate_resource_registry.py",
-  "backend/tests/test_viewer_read_only_posts.py",
-  "backend/tests/test_vlan_move_between_domains.py",
-  "backend/tests/test_vm_nested_lists_sync.py",
-  "backend/tests/test_vm_open_ports_sync.py",
-  "backend/tests/test_wrong_current_password.py",
-  "backend/tests/tools/pg_app_smoke.py",
-  "backend/tests/xlsx_helpers.py",
 ]
 
 [tool.ruff.lint]

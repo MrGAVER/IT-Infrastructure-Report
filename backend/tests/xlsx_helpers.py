@@ -1,4 +1,5 @@
 """Общие хелперы для тестов Excel-отчётов."""
+
 from __future__ import annotations
 
 
@@ -17,7 +18,4 @@ def expanded_rows(ws, min_row: int = 1) -> list[tuple]:
         for row in range(rng.min_row, rng.max_row + 1):
             for column in range(rng.min_col, rng.max_col + 1):
                 merged[(row, column)] = value
-    return [
-        tuple(merged[(c.row, c.column)] if (c.row, c.column) in merged else c.value for c in row)
-        for row in ws.iter_rows(min_row=min_row)
-    ]
+    return [tuple(merged[(c.row, c.column)] if (c.row, c.column) in merged else c.value for c in row) for row in ws.iter_rows(min_row=min_row)]

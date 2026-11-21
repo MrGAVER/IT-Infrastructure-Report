@@ -12,6 +12,7 @@ A-05: одной проверки по имени мало — любой нов
 
 Запуск: pytest backend/tests/test_report_download_access.py -v
 """
+
 from __future__ import annotations
 
 import unicodedata

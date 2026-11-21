@@ -6,6 +6,7 @@
 этого VLAN». Теперь VLAN снимается с устройств прежнего домена, которых нет в новом, вместе со связями
 с их портами и группами портов (services/crud/vlan_domains.py:_unassign_moved_vlan_from_former_domain_devices).
 """
+
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -232,9 +233,14 @@ class TestSubinterfacesOnMovedVlan:
         device = _device(client, device_type, serial)
         assert client.post(f"{API}/vlan-domains/{domain['id']}/members", json={"physical_device_id": device["id"]}).status_code == 200
         assert vlan["id"] in _assigned(client, device)
-        r = client.put(f"{API}/devices/{device['id']}/interfaces", json={"interfaces": [
-            {"name": "Gi0/0", "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": vlan["id"], "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}]}]},
-        ]})
+        r = client.put(
+            f"{API}/devices/{device['id']}/interfaces",
+            json={
+                "interfaces": [
+                    {"name": "Gi0/0", "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": vlan["id"], "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}]}]},
+                ]
+            },
+        )
         assert r.status_code == 200, r.text
         return device
 
@@ -278,10 +284,13 @@ class TestSubinterfacesOnMovedVlan:
         vlan = _vlan(client, 412, old_domain)
         router = _device(client, dt, "MV-GRP-RTR")
         assert client.post(f"{API}/vlan-domains/{old_domain['id']}/members", json={"physical_device_id": router["id"]}).status_code == 200
-        r = client.put(f"{API}/devices/{router['id']}/interfaces", json={
-            "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-            "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"], "ips": [{"ip_address": "10.4.12.1", "prefix_length": 24}]}]}],
-        })
+        r = client.put(
+            f"{API}/devices/{router['id']}/interfaces",
+            json={
+                "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
+                "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"], "ips": [{"ip_address": "10.4.12.1", "prefix_length": 24}]}]}],
+            },
+        )
         assert r.status_code == 200, r.text
         group_id = r.json()["groups"][0]["id"]
 
@@ -301,14 +310,16 @@ class TestSubinterfacesOnMovedVlan:
         dt = _device_type(client, "Тип с VLAN в каталоге для групп", allow_vlan=vlan)
         router = _device(client, dt, "MV-GRP-CAT")
         assert client.post(f"{API}/vlan-domains/{vlan_domain['id']}/members", json={"physical_device_id": router["id"]}).status_code == 200
-        r = client.put(f"{API}/devices/{router['id']}/interfaces", json={
-            "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-            "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"]}]}],
-        })
+        r = client.put(
+            f"{API}/devices/{router['id']}/interfaces",
+            json={
+                "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
+                "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"]}]}],
+            },
+        )
         assert r.status_code == 200, r.text
 
         _move(client, vlan, new_domain)
 
         details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
         assert not [d for d in details if d.startswith("Подинтерфейсы групп портов остались")]
-

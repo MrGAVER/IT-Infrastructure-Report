@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_registry_display_names.py -v
 """
+
 from __future__ import annotations
 
 import re

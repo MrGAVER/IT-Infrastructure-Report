@@ -2,6 +2,7 @@
 dict-реестр _RESOURCE_VALIDATORS, чтобы добавление валидации для новой модели не требовало
 правки тела самой функции (OCP). Эти тесты фиксируют контракт диспетчера на уровне юнит-теста
 (остальное поведение конкретных валидаторов по-прежнему покрыто интеграционными тестами API)."""
+
 import pytest
 from fastapi import HTTPException
 
@@ -29,6 +30,8 @@ def test_registry_covers_all_previously_hardcoded_models():
     """Гарантирует, что рефакторинг не потерял ни одной из ранее захардкоженных в if/elif
     моделей при переносе в словарь."""
     assert set(_RESOURCE_VALIDATORS.keys()) >= {
-        PhysicalDevice, Connection, DeviceType,
+        PhysicalDevice,
+        Connection,
+        DeviceType,
     }
     assert all(callable(v) for v in _RESOURCE_VALIDATORS.values())

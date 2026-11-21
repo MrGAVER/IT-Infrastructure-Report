@@ -6,6 +6,7 @@ find_off_port_subinterfaces (VLAN разрешён устройству, но н
 VLAN разрешён устройству, если он назначен ему (PhysicalDeviceVLAN) ИЛИ разрешён его типом (DeviceTypeVLAN);
 подинтерфейс на любом другом VLAN — «устаревший»: система его не удаляет, а диагностика показывает.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import delete
@@ -67,8 +68,16 @@ def test_vlan_removed_from_the_device_type_makes_the_subinterface_reported_with_
     assert (body["ok"], body["total"]) == (False, 1)
     (item,) = body["subinterfaces"]
     assert item == {
-        "subinterface_id": sub["id"], "subinterface_name": "Gi0/0.10", "port_id": sub["parent_interface_id"], "port_name": "Gi0/0",
-        "device_id": dev["id"], "device_name": "RTR-STALE", "vlan_id": v10["id"], "vlan_number": 10, "vlan_name": "VLAN 10", "reason": "device",
+        "subinterface_id": sub["id"],
+        "subinterface_name": "Gi0/0.10",
+        "port_id": sub["parent_interface_id"],
+        "port_name": "Gi0/0",
+        "device_id": dev["id"],
+        "device_name": "RTR-STALE",
+        "vlan_id": v10["id"],
+        "vlan_number": 10,
+        "vlan_name": "VLAN 10",
+        "reason": "device",
     }
     # диагностика только читает: подинтерфейс на месте
     assert [s["id"] for s in client.get(f"{API}/devices/{dev['id']}/subinterfaces").json()["items"]] == [sub["id"]]
@@ -88,10 +97,15 @@ def test_only_stale_subinterfaces_are_listed_in_device_port_name_order_and_vlan_
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     b_dev = _device(client, "B-RTR", (v10, v20))
     a_dev = _device(client, "A-FW", (v10,))
-    r = client.put(f"{API}/devices/{b_dev['id']}/interfaces", json={"interfaces": [
-        {"name": "Gi0/1", "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": "Gi0/1.20", "vlan_id": v20["id"]}]},
-        {"name": "Gi0/0", "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": v10["id"]}]},
-    ]})
+    r = client.put(
+        f"{API}/devices/{b_dev['id']}/interfaces",
+        json={
+            "interfaces": [
+                {"name": "Gi0/1", "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": "Gi0/1.20", "vlan_id": v20["id"]}]},
+                {"name": "Gi0/0", "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": v10["id"]}]},
+            ]
+        },
+    )
     assert r.status_code == 200, r.text
     _add_subinterface(client, a_dev, "eth0", "eth0.10", v10)
     _drop_type_vlan(client, b_dev, v10)
@@ -106,6 +120,7 @@ def test_only_stale_subinterfaces_are_listed_in_device_port_name_order_and_vlan_
 
 
 # --- подинтерфейс на VLAN, который не выбран на порту ---------------------------------------------------------------
+
 
 def _drop_port_vlans(db_session, port_id: str) -> None:
     """Снимает VLAN с порта в обход формы (окно порта, согласование портов, каскад режима правят VLAN порта отдельно от подинтерфейсов)."""
@@ -130,8 +145,15 @@ def test_vlan_removed_from_the_port_only_makes_the_subinterface_off_port_not_sta
     assert find_stale_subinterfaces(db_session) == []  # устройству VLAN по-прежнему разрешён
     (item,) = find_off_port_subinterfaces(db_session)
     assert item == {
-        "subinterface_id": port["subinterfaces"][0]["id"], "subinterface_name": "Gi0/0.10", "port_id": port["id"], "port_name": "Gi0/0",
-        "device_id": dev["id"], "device_name": "RTR-OFFPORT", "vlan_id": v10["id"], "vlan_number": 10, "vlan_name": "VLAN 10",
+        "subinterface_id": port["subinterfaces"][0]["id"],
+        "subinterface_name": "Gi0/0.10",
+        "port_id": port["id"],
+        "port_name": "Gi0/0",
+        "device_id": dev["id"],
+        "device_name": "RTR-OFFPORT",
+        "vlan_id": v10["id"],
+        "vlan_number": 10,
+        "vlan_name": "VLAN 10",
     }
     body = client.get(REPORT).json()
     assert (body["ok"], body["total"]) == (False, 1)
@@ -162,11 +184,15 @@ def test_all_vlans_port_never_reports_off_port(client, db_session):
 
 # --- шаблоны подинтерфейсов групп портов -----------------------------------------------------------------------------
 
+
 def _group_with_template(client, device: dict, vlans: tuple[dict, ...], template_vlan: dict, name: str = "Группа") -> dict:
-    r = client.put(f"{API}/devices/{device['id']}/interfaces", json={
-        "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-        "groups": [{"key": "g1", "name": name, "vlan_mode": "trunk", "vlan_ids": [v["id"] for v in vlans], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": template_vlan["id"]}]}],
-    })
+    r = client.put(
+        f"{API}/devices/{device['id']}/interfaces",
+        json={
+            "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
+            "groups": [{"key": "g1", "name": name, "vlan_mode": "trunk", "vlan_ids": [v["id"] for v in vlans], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": template_vlan["id"]}]}],
+        },
+    )
     assert r.status_code == 200, r.text
     return r.json()["groups"][0]
 
@@ -190,8 +216,14 @@ def test_group_template_left_without_its_vlan_is_reported_with_details_and_not_r
 
     (item,) = find_stale_group_subinterfaces(db_session)
     assert item == {
-        "subinterface_id": group["subinterfaces"][0]["id"], "group_id": group["id"], "group_name": "Группа",
-        "device_id": dev["id"], "device_name": "RTR-GRP-STALE", "vlan_id": v10["id"], "vlan_number": 10, "vlan_name": "VLAN 10",
+        "subinterface_id": group["subinterfaces"][0]["id"],
+        "group_id": group["id"],
+        "group_name": "Группа",
+        "device_id": dev["id"],
+        "device_name": "RTR-GRP-STALE",
+        "vlan_id": v10["id"],
+        "vlan_number": 10,
+        "vlan_name": "VLAN 10",
     }
     body = client.get(REPORT).json()
     assert (body["ok"], body["total"], body["subinterfaces"]) == (False, 1, [])
@@ -204,14 +236,16 @@ def test_group_template_left_without_its_vlan_is_reported_with_details_and_not_r
 def test_all_vlans_group_template_follows_the_device_vlans(client, db_session):
     v10 = _vlan(client, 10)
     dev = _device(client, "RTR-GRP-ALL", (v10,))
-    r = client.put(f"{API}/devices/{dev['id']}/interfaces", json={
-        "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-        "groups": [{"key": "g1", "name": "Все", "vlan_mode": "trunk", "all_vlans": True, "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": v10["id"]}]}],
-    })
+    r = client.put(
+        f"{API}/devices/{dev['id']}/interfaces",
+        json={
+            "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
+            "groups": [{"key": "g1", "name": "Все", "vlan_mode": "trunk", "all_vlans": True, "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": v10["id"]}]}],
+        },
+    )
     assert r.status_code == 200, r.text
     assert find_stale_group_subinterfaces(db_session) == []
 
     _drop_type_vlan(client, dev, v10)  # VLAN пропал у устройства — вместе с ним из набора группы «Все VLAN»
 
     assert [i["vlan_number"] for i in find_stale_group_subinterfaces(db_session)] == [10]
-

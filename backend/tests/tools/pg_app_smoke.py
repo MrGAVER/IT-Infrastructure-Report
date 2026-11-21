@@ -7,6 +7,7 @@
     INFRA_REGISTRY_DB_HOST=localhost POSTGRES_USER=u POSTGRES_PASSWORD='p@ss' POSTGRES_DB=infra_smoke python tests/tools/pg_app_smoke.py
 Выход 0 — всё прошло; иначе в stderr причина и хвост лога сервера.
 """
+
 from __future__ import annotations
 
 import json

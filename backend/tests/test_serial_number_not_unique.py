@@ -9,6 +9,7 @@ SQLite из миграций ограничение потерялось слу�
 Запуск: pytest backend/tests/test_serial_number_not_unique.py -v
 PostgreSQL-часть: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest backend/tests/test_serial_number_not_unique.py
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -61,10 +62,7 @@ def test_model_column_is_not_unique():
     column = table.c.serial_number
     assert not column.unique
     assert not column.nullable, "NOT NULL сохраняется: серийный номер по-прежнему обязателен"
-    unique_on_serial = [
-        constraint for constraint in table.constraints
-        if isinstance(constraint, sa.UniqueConstraint) and [c.name for c in constraint.columns] == ["serial_number"]
-    ]
+    unique_on_serial = [constraint for constraint in table.constraints if isinstance(constraint, sa.UniqueConstraint) and [c.name for c in constraint.columns] == ["serial_number"]]
     assert not unique_on_serial
     assert not [index for index in table.indexes if index.unique and [c.name for c in index.columns] == ["serial_number"]]
 
@@ -227,11 +225,12 @@ class TestUpgradeFunctionOnSchemasWithTheConstraint:
     """В цепочке миграций SQLite ограничения уже нет, поэтому ветки «снять ограничение/индекс» проверяются на самодельных схемах."""
 
     def test_named_unique_constraint_is_dropped_and_other_constraints_stay(self, tmp_path):
-        engine = _scratch_engine(tmp_path, [
-            "CREATE TABLE physical_devices ("
-            "id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL, system_name VARCHAR(255), "
-            "CONSTRAINT uq_serial UNIQUE (serial_number), CONSTRAINT uq_system UNIQUE (system_name))",
-        ])
+        engine = _scratch_engine(
+            tmp_path,
+            [
+                "CREATE TABLE physical_devices (id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL, system_name VARCHAR(255), CONSTRAINT uq_serial UNIQUE (serial_number), CONSTRAINT uq_system UNIQUE (system_name))",
+            ],
+        )
         assert _has_unique_on_serial(engine)
 
         _run_upgrade(engine)
@@ -244,11 +243,14 @@ class TestUpgradeFunctionOnSchemasWithTheConstraint:
         engine.dispose()
 
     def test_standalone_unique_index_is_dropped(self, tmp_path):
-        engine = _scratch_engine(tmp_path, [
-            "CREATE TABLE physical_devices (id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL, rack_id VARCHAR(36))",
-            "CREATE UNIQUE INDEX ix_physical_devices_serial_number ON physical_devices (serial_number)",
-            "CREATE UNIQUE INDEX uq_device_rack_slot ON physical_devices (rack_id) WHERE rack_id IS NOT NULL",
-        ])
+        engine = _scratch_engine(
+            tmp_path,
+            [
+                "CREATE TABLE physical_devices (id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL, rack_id VARCHAR(36))",
+                "CREATE UNIQUE INDEX ix_physical_devices_serial_number ON physical_devices (serial_number)",
+                "CREATE UNIQUE INDEX uq_device_rack_slot ON physical_devices (rack_id) WHERE rack_id IS NOT NULL",
+            ],
+        )
         assert _has_unique_on_serial(engine)
 
         _run_upgrade(engine)

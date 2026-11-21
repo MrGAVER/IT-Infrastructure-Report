@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_report_endpoint_limits.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -22,9 +23,7 @@ from app.services.report_params import (
 )
 
 API = "/api/v1"
-VALID_CONFIG = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{
-    "height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"},
-    "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+VALID_CONFIG = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
 
 
 @pytest.fixture()
@@ -80,8 +79,7 @@ class TestPreviewLimit:
             assert client.post(f"{API}/report-builder/preview", json={"format": fmt, "config": VALID_CONFIG, "limit": 10**9}).status_code == 422
 
     def test_docx_preview_uses_the_same_limit_rule(self, client):
-        config = {"blocks": [{"type": "table", "root_entity": "information-systems",
-                              "columns": [{"header": "Наименование", "source": "field", "path": "name"}]}]}
+        config = {"blocks": [{"type": "table", "root_entity": "information-systems", "columns": [{"header": "Наименование", "source": "field", "path": "name"}]}]}
         assert client.post(f"{API}/report-builder/preview", json={"format": "docx", "config": config, "limit": 20}).status_code == 200
         assert client.post(f"{API}/report-builder/preview", json={"format": "docx", "config": config, "limit": 0}).status_code == 422
 

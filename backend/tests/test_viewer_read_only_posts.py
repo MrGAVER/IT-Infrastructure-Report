@@ -2,6 +2,7 @@
 
 `POST /reports/structural-appendix` только формирует файл (как `/reports/inventory`), а `POST /port-sync/preview` по докстрингу
 «ничего не записывает». Остальные POST и подобные пути у viewer по-прежнему закрыты (403)."""
+
 from __future__ import annotations
 
 
@@ -47,6 +48,7 @@ def test_anonymous_still_needs_a_token(client):
 
 
 # --- A-23 (вариант «закрыть журнал аудита»): журнал с IP-адресами и неудачными входами — только администратору ----------------
+
 
 def test_audit_log_is_admin_only_once_authentication_is_enabled(client):
     admin, viewer = _admin_and_viewer(client)

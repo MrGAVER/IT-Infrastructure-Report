@@ -10,6 +10,7 @@ Pydantic-моделями вместо ``payload: dict`` (модели — api/r
 
 Запуск: pytest backend/tests/test_request_body_schemas.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -180,6 +181,7 @@ def test_information_system_details_reject_a_non_list(client, key, value):
 
 # --- Порядок проверок не изменился: где был 404 раньше разбора тела, там он и остался ----------------------------------------
 
+
 def test_an_unknown_template_is_404_before_the_body_is_checked(client):
     assert client.put(f"/api/v1/report-templates/{MISSING}", json={}).status_code == 404
     assert client.post(f"/api/v1/report-templates/{MISSING}/generate", json={"params": "x"}).status_code == 404
@@ -196,6 +198,7 @@ def test_the_port_part_of_a_cascade_is_checked_after_the_port_is_found(client):
 
 # --- То, что раньше давало 500 или принималось молча ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("name", [5, ["Т"], {"a": 1}, True])
 def test_a_template_name_that_is_not_a_string_is_a_422_not_a_500(client, name):
     _assert_422(client.post("/api/v1/report-templates", json={"name": name, "config": {}}), "Укажите название шаблона")
@@ -207,6 +210,7 @@ def test_a_template_description_must_be_a_string_or_null(client, description):
 
 
 # --- На корректных запросах поведение прежнее -----------------------------------------------------------------------------------
+
 
 def test_a_valid_preview_still_uses_the_defaults(client):
     # Ни формата, ни limit, ни config: xlsx, 15 строк, пустое описание — его отклоняет предметная проверка шаблона, а не модель.

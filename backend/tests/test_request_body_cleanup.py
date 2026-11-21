@@ -10,6 +10,7 @@
 
 Запуск: pytest backend/tests/test_request_body_cleanup.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -35,6 +36,7 @@ def _assert_422(response, message: str) -> None:
 
 
 # --- Обязательные поля без подавления типов ------------------------------------------------------------------------------------
+
 
 def test_api_schemas_have_no_type_ignore():
     offenders = [path.name for path in sorted(API_DIR.glob("*_schemas.py")) if "type: ignore" in path.read_text(encoding="utf-8")]
@@ -97,6 +99,7 @@ def test_absent_as_null_fills_only_the_missing_names_and_keeps_the_input_intact(
 
 # --- Общая основа и публичные имена -----------------------------------------------------------------------------------------
 
+
 def test_diagram_bodies_share_the_common_request_body_base():
     assert not hasattr(diagram_schemas, "_Body")
     for model in (diagram_schemas.DiagramCreate, diagram_schemas.DiagramRename, diagram_schemas.DiagramLayoutUpdate, diagram_schemas.DiagramGroupStateUpdate):
@@ -112,6 +115,7 @@ def test_cascade_parsers_are_plain_public_functions_not_aliases():
 
 
 # --- Разбор тела одобрения --------------------------------------------------------------------------------------------------
+
 
 def test_approve_request_by_ids_is_deduplicated_in_arrival_order():
     selection = parse_approve_request({"connection_ids": ["b", "a", "b"]})
