@@ -126,7 +126,7 @@ def _validate_device_type_entry(data: dict[str, Any], session: Session, item_id:
 
 
 def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
-    # Код-ревью п.3.1: без этой проверки svg_markup сохранялся бы в БД как есть и затем
+    # Без этой проверки svg_markup сохранялся бы в БД как есть и затем
     # выполнялся бы в браузере через v-html (фронтенд) и при экспорте .svg (бэкенд).
     validate_svg_markup(data.get("svg_markup"))
 
@@ -175,7 +175,7 @@ def _validate_interface_vlan_entry(data: dict[str, Any], session: Session, item_
 
 
 def _validate_ip_address_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
-    # Код-ревью п.3.4 + объединение InterfaceIP/VMIP в IPAddress (owner_type/owner_id, миграция
+    # После объединения InterfaceIP/VMIP в IPAddress (owner_type/owner_id, миграция
     # d8e35a1c7f60): владение интерфейсом синхронизируется отдельной функцией
     # (_sync_interface_ips, свой вызов validate_ipv4_field ниже по файлу), владение источником ИС —
     # тоже отдельной (_sync_information_system_sources). Этот валидатор покрывает оставшийся путь —
@@ -189,7 +189,7 @@ def _validate_information_system_entry(data: dict[str, Any], session: Session, i
     validate_support_method_organization(data, session)
 
 
-# Реестр валидаторов по модели (код-ревью п.3.5): раньше это была цепочка if/elif внутри
+# Реестр валидаторов по модели: раньше это была цепочка if/elif внутри
 # validate_resource() — каждая новая модель, которой требуется своя проверка, была обязана
 # трогать тело диспетчера (нарушение OCP; интеграция feature/network-topology-diagram и
 # fix/usability-batch4 уже доказала риск на примере DeviceType). Теперь новая модель

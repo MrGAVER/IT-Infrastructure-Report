@@ -8,6 +8,8 @@
    места, где он хранится; CI проверяет одной командой `ruff format --check backend`. Новый модуль форматируется автоматически, а список исключений
    только сокращается: тест не даёт ему расти, не терпит записей, которые уже не нужны, и следит, чтобы шаг CI остался одним.
 
+3. Ссылки на номера замечаний ревью и на «память проекта» в backend/app запрещены: в комментарии пишут, почему так, а не какое замечание это потребовало.
+
 Запуск: pytest backend/tests/test_code_style_limits.py -v
 """
 from __future__ import annotations
@@ -102,56 +104,21 @@ def test_ci_checks_the_format_of_the_whole_backend_in_one_step():
 
 # --- Ссылки на номера замечаний ревью и на «память проекта» ---------------------------------------------------------------------------------
 # Номера замечаний (R1-07, A-05, ИА-01…) теряют смысл вместе с самим отчётом, а «память проекта» — артефакт вне репозитория, читатель не может его
-# открыть. В комментарии пишется ПОЧЕМУ так (инвариант), история — в CHANGELOG.md и git. Первая волна почистила файлы вне владения первого исполнителя
-# (API и безопасность); файлы из списка ниже правит вторая волна после слияния его PR (иначе правки комментариев конфликтовали бы с правками логики).
-# Список только сокращается: очистили файл — удалите его отсюда, тест не терпит устаревших записей.
+# открыть. В комментарии пишется ПОЧЕМУ так (инвариант), история — в CHANGELOG.md и git. Исключений нет: файлы, которые чистили по волнам
+# (сначала вне владения первого исполнителя, затем — после слияния его PR — остальные), закончились.
 REVIEW_REFERENCE = re.compile(
     r"память проекта|\bR\d?-\d+\b|\b(?:ИА|ИБ|BE|FE|UI|F)-\d+\b|\b[AB]-\d{2}\b|\b[СНП]-\d+\b|код-ревью|\bревью\b", re.IGNORECASE
 )
-REVIEW_REFERENCES_UNTIL_WAVE_2 = (
-    "api/device_stacks.py",
-    "api/diagram_schemas.py",
-    "api/diagrams.py",
-    "api/port_config_schemas.py",
-    "api/report_builder.py",
-    "api/report_schemas.py",
-    "api/reports.py",
-    "api/resource_schemas.py",
-    "api/schema_base.py",
-    "api/vlan.py",
-    "main.py",
-    "services/auth/__init__.py",
-    "services/auth/_common.py",
-    "services/auth/gate.py",
-    "services/auth/guards.py",
-    "services/auth/proxy_headers.py",
-    "services/auth/settings.py",
-    "services/auth/users.py",
-    "services/body_limit.py",
-    "services/crud/__init__.py",
-    "services/crud/deletion.py",
-    "services/crud/interfaces.py",
-    "services/crud/payload.py",
-    "services/crud/validators.py",
-    "services/diagram_icons.py",
-    "services/login_throttle.py",
-)
 
 
-def _files_with_review_references() -> set[str]:
-    return {
-        path.relative_to(APP_DIR).as_posix()
-        for path in APP_DIR.rglob("*.py")
-        if any(REVIEW_REFERENCE.search(line) for line in path.read_text(encoding="utf-8").splitlines())
-    }
+def _review_references() -> list[str]:
+    return [
+        f"{path.relative_to(APP_DIR).as_posix()}:{number}"
+        for path in sorted(APP_DIR.rglob("*.py"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if REVIEW_REFERENCE.search(line)
+    ]
 
 
 def test_comments_do_not_refer_to_review_numbers_or_to_the_project_memory():
-    unexpected = sorted(_files_with_review_references() - set(REVIEW_REFERENCES_UNTIL_WAVE_2))
-    assert unexpected == [], f"замените номер замечания/«память проекта» описанием инварианта (почему так): {unexpected}"
-
-
-def test_the_review_reference_allowlist_has_no_stale_entries():
-    stale = sorted(set(REVIEW_REFERENCES_UNTIL_WAVE_2) - _files_with_review_references())
-    assert stale == [], f"файлы уже чисты — удалите их из REVIEW_REFERENCES_UNTIL_WAVE_2: {stale}"
-    assert len(REVIEW_REFERENCES_UNTIL_WAVE_2) == len(set(REVIEW_REFERENCES_UNTIL_WAVE_2))
+    assert _review_references() == [], "замените номер замечания/«память проекта» описанием инварианта (почему так)"

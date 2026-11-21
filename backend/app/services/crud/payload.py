@@ -26,8 +26,7 @@ def ensure_writable(resource: str) -> None:
 
 def validate_payload_schema(resource: str, payload: dict[str, Any], *, is_update: bool) -> dict[str, Any]:
     """Валидирует и приводит типы payload по Pydantic-схеме, если она зарегистрирована для
-    этого ресурса (см. schemas.RESOURCE_SCHEMAS: пока только devices/information-systems/vlans
-    — код-ревью п.2). Для остальных ресурсов возвращает payload без изменений — они по-прежнему
+    этого ресурса (см. schemas.RESOURCE_SCHEMAS: пока только devices/information-systems/vlans). Для остальных ресурсов возвращает payload без изменений — они по-прежнему
     проходят через generic CRUD как сырой dict, это осознанное инкрементальное покрытие.
 
     Возвращает НОВЫЙ dict — исходный payload с наложенными сверху провалидированными полями,
@@ -57,7 +56,7 @@ _ECHOED_READONLY_KEYS = frozenset({"id", "created_at", "updated_at", "number"})
 
 
 def _reject_unknown_keys(resource: str, payload: dict[str, Any]) -> None:
-    """422 на ключ, которого нет среди колонок модели, служебных флагов и «эхо»-ключей (код-ревью, п. 8).
+    """422 на ключ, которого нет среди колонок модели, служебных флагов и «эхо»-ключей.
 
     Generic CRUD отбрасывает ключи вне allowed_columns() молча (`{k: v ... if k in allowed}`), поэтому
     опечатка в имени поля — `serial_numbr`, `rack_positon` — давала «успех»: запись создавалась без
@@ -87,7 +86,7 @@ def _format_schema_validation_error(exc: ValidationError) -> str:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Типы и длины по метаданным модели (A-09)
+# Типы и длины по метаданным модели
 # ---------------------------------------------------------------------------------------------------------------------
 # Pydantic-схемы есть только у devices / information-systems / vlans, остальные ресурсы шли «сырым dict» в model(**data):
 # строка `{"a": 1}` или список в колонке-строке давали 500 (необработанная ошибка драйвера), число сохранялось как текст,

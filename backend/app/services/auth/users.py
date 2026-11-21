@@ -21,7 +21,7 @@ from .sessions import revoke_all_sessions, revoke_all_sessions_except
 
 def find_user_by_username(session: Session, username: str) -> Optional[User]:
     """Регистронезависимый поиск на стороне Python, а не через SQL lower() — тот же принцип, что
-    в миграциях/бэкфиллах справочников (SQLite lower() не умеет в кириллицу; см. память проекта).
+    в миграциях/бэкфиллах справочников (SQLite lower() не умеет в кириллицу).
     Таблица пользователей на практике маленькая (единицы-десятки учётных записей), полный перебор
     дешевле, чем заводить ради этого объёма регистронезависимый индекс."""
     normalized = username.strip().casefold()

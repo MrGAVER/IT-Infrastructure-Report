@@ -104,7 +104,7 @@ def install_http_security(
     max_body_bytes: int | None = None,
     accept_ip_hosts: bool = False,
 ) -> None:
-    """CORS, проверка заголовка Host, проверка origin, предел размера тела и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
+    """CORS, проверка заголовка Host, проверка origin, предел размера тела и список разрешённых клиентов — внешний слой защиты HTTP.
 
     - Пустой cors_origins — CORS не включается вовсе: чужие origin'ы не получают ни заголовков
       Access-Control-*, ни ответа на preflight, то есть браузер не даст стороннему сайту читать API.
@@ -120,8 +120,7 @@ def install_http_security(
       DELETE к /api/ с чужого origin (CSRF: CORS защищает чтение, но не мешает браузеру отправить сам запрос). Origin'ы
       из cors_origins считаются доверенными; X-Forwarded-Host учитывается при trust_forwarded_host. Стоит внутри CORS
       и проверки Host, но снаружи AuthGateMiddleware: чужая страница получает отказ раньше, чем 401/обработчик.
-    - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (F-06 код-ревью main:
-      раньше тело любого размера целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
+    - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (раньше тело любого размера целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
       дошёл до браузера на dev-сервере с понятным текстом, а не CORS-ошибкой, и внутри проверок клиента, Host и origin — чужие
       запросы отсекаются раньше. Снаружи AuthGateMiddleware: тело больше предела не читается и до проверки входа.
     allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через
@@ -156,7 +155,7 @@ install_http_security(
 app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(auth_router)
 app.include_router(preferences_router)
-# Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
+# Бывший api/system.py (357 строк) разрезан по темам; адреса эндпоинтов не менялись.
 app.include_router(system_router)
 app.include_router(listings_router)
 app.include_router(vms_router)
@@ -174,7 +173,7 @@ app.include_router(diagrams_router)
 
 # 422 при ошибке разбора запроса — строкой на русском, как остальные 422 приложения (по умолчанию FastAPI отдаёт список объектов).
 app.add_exception_handler(RequestValidationError, request_validation_handler)
-# Схема OpenAPI описывает те же ответы, что отдают обработчики: 422 — строкой, 413 — для операций с телом (код-ревью, BE-02).
+# Схема OpenAPI описывает те же ответы, что отдают обработчики: 422 — строкой, 413 — для операций с телом.
 install_error_formats(app, max_body_bytes=MAX_REQUEST_BODY_BYTES)
 
 
@@ -239,10 +238,10 @@ def seed_catalogs_on_startup():
 
 
 def _warn_if_weak_secrets() -> None:
-    """Токен первичной настройки или пароль БД — заглушка из .env.example либо слишком короткое значение (код-ревью, BE-03).
+    """Токен первичной настройки или пароль БД — заглушка из .env.example либо слишком короткое значение.
 
     docker-compose.yml требует лишь непустое значение, поэтому скопированный и не отредактированный .env запускается. Слабый токен
-    сервер не принимает (services/auth/guards.require_setup_access, A-02 код-ревью r3): он приравнен к незаданному, и первичная
+    сервер не принимает (services/auth/guards.require_setup_access): он приравнен к незаданному, и первичная
     настройка остаётся только за прямым localhost. Запуск НЕ блокируется (существующие установки должны продолжать работать) —
     пишется предупреждение; само значение в журнал не попадает, называется лишь переменная."""
     if weak_setup_token(SETUP_TOKEN):
@@ -271,7 +270,7 @@ def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
 
 
 def _warn_if_host_check_disabled(auth_enabled: bool) -> None:
-    """Проверка заголовка Host выключена ('*' в INFRA_REGISTRY_ALLOWED_HOSTS), а аутентификация выключена (код-ревью, R1-01).
+    """Проверка заголовка Host выключена ('*' в INFRA_REGISTRY_ALLOWED_HOSTS), а аутентификация выключена.
 
     Охранник same-origin сравнивает Origin с Host: при DNS-rebinding браузер жертвы шлёт Host: evil.example и Origin: http://evil.example,
     оба заголовка совпадают и запрос проходит — страница в браузере пользователя читает и меняет весь реестр. Предупреждение зависит

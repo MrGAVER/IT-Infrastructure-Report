@@ -63,7 +63,7 @@ def _load_and_validate(body: ReportTemplateWrite) -> tuple[str, dict, str, str |
 
 def _existing_template(template_id: str, session: Session = Depends(get_db)) -> ReportTemplate:
     """Шаблон по id или 404. Зависимость, а не строка в обработчике: FastAPI выполняет зависимости раньше разбора тела запроса,
-    поэтому неизвестный шаблон по-прежнему отвечает 404, а не 422 про тело (порядок A-10, закреплён тестом)."""
+    поэтому неизвестный шаблон по-прежнему отвечает 404, а не 422 про тело (порядок закреплён тестом)."""
     t = session.get(ReportTemplate, template_id)
     if not t:
         raise HTTPException(404, "Шаблон отчёта не найден")

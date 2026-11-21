@@ -87,7 +87,7 @@ def _sync_port_ips(obj: DeviceInterface, item: dict[str, Any], session: Session)
     for ip_data in ips:
         if not isinstance(ip_data, dict) or not ip_data.get("ip_address"):
             continue
-        # Код-ревью п.3.4: формат проверялся только на фронтенде (ipValidation.ts) — прямой
+        # Формат проверялся только на фронтенде (ipValidation.ts) — прямой
         # запрос к API мог записать в IPAddress произвольную строку вместо IPv4-адреса.
         validate_ipv4_field(ip_data.get("ip_address"), "IP-адрес интерфейса")
         validate_prefix_length_field(ip_data.get("prefix_length"), "Префикс IP-адреса интерфейса")

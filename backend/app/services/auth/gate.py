@@ -48,8 +48,8 @@ READ_ONLY_POST_PATHS = frozenset(
     {
         "/api/v1/reports/inventory",
         "/api/v1/report-builder/preview",
-        "/api/v1/reports/structural-appendix",  # формирует Word-файл, реестр не меняет (A-23)
-        "/api/v1/port-sync/preview",  # «план согласования портов — ничего не записывает» (api/port_sync.py, A-23)
+        "/api/v1/reports/structural-appendix",  # формирует Word-файл, реестр не меняет
+        "/api/v1/port-sync/preview",  # «план согласования портов — ничего не записывает» (api/port_sync.py)
     }
 )
 _TEMPLATE_GENERATE_PATH = re.compile(r"^/api/v1/report-templates/[^/]+/generate$")
@@ -102,7 +102,7 @@ def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDec
 
 
 class AuthGateMiddleware:
-    """Единая точка контроля доступа к /api/*: чистый ASGI-middleware (код-ревью С-5).
+    """Единая точка контроля доступа к /api/*: чистый ASGI-middleware.
 
     Раньше шлюз был функцией под ``BaseHTTPMiddleware``: тот запускает приложение в отдельной задаче anyio и читает ``receive``
     внутри группы задач, из-за чего исключение предела тела запроса приходило в FastAPI обёрнутым в ``ExceptionGroup`` и

@@ -22,7 +22,7 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
     (через FK) на удаляемую запись. Используется, чтобы дать конкретное предупреждение перед
     удалением, а не полагаться только на то, что БД сама остановит операцию через FK-констрейнт.
 
-    Код-ревью п.3.7: раньше здесь был отдельный SELECT COUNT(*) на каждую FK-колонку каждой из
+    Раньше здесь был отдельный SELECT COUNT(*) на каждую FK-колонку каждой из
     ~40 моделей реестра (MODEL_MAP) — при удалении часто ссылаемой записи (например,
     производителя устройства) это десятки последовательных round-trip'ов к БД на одно
     удаление. Теперь все подзапросы объединяются в один через UNION ALL и выполняются ОДНИМ
@@ -52,7 +52,7 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
     return [(DISPLAY_NAMES.get(resource_keys[row.ord], resource_keys[row.ord]), row.cnt) for row in rows if row.cnt]
 
 
-# Код-ревью (отчёт по рефакторингу и безопасности, находка 1): открытые порты (OpenPort),
+# Открытые порты (OpenPort),
 # развёрнутое ПО (DeployedSoftware) и IP-адреса (IPAddress) — три модели с полиморфным владельцем
 # (owner_type/owner_id без настоящего FK), поэтому _find_referencing_counts() выше их структурно
 # не видит. Значение словаря — СПИСОК (модель, owner_type), не один элемент: у одного resource_key
@@ -87,7 +87,7 @@ def delete_resource(resource: str, item_id: str, session: Session):
     if not obj:
         raise HTTPException(404, "Запись не найдена")
     assert_deletable(resource, item_id, session)
-    # Снимок для журнала — до удаления: после session.delete(obj) имя и серийный номер уже не прочитать (код-ревью С-2).
+    # Снимок для журнала — до удаления: после session.delete(obj) имя и серийный номер уже не прочитать.
     details = f"Удаление записи: {describe_record(obj)}"
     try:
         # Подтверждено эмпирически: DELETE /resources/interfaces/{id} в обход sync_interfaces
