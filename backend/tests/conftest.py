@@ -10,6 +10,7 @@ mock_sqlalchemy.py, чтобы не требовать установленны�
 
 Запуск:  pip install -r backend/requirements-dev.txt && pytest backend/tests -v
 """
+
 from __future__ import annotations
 
 import os

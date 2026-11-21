@@ -1,5 +1,6 @@
 """Общие помощники тестов миграций: вставка строк в схему ЛЮБОЙ ревизии (test_migrations_postgres.py,
 test_migrations_drop_entity_status.py). Тесты в репозитории самодостаточны, но эта вставка нужна обоим и не зависит от СУБД."""
+
 from __future__ import annotations
 
 import uuid

@@ -11,6 +11,7 @@
 
 Запуск: pytest backend/tests/test_all_vlans_flag.py -v
 """
+
 from __future__ import annotations
 
 import pytest

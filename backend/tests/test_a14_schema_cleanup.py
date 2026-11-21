@@ -13,6 +13,7 @@
 Запуск: pytest tests/test_a14_schema_cleanup.py
 PostgreSQL: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest tests/test_a14_schema_cleanup.py
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -185,12 +186,23 @@ def _legacy_rows(database, *, migrated: bool = True) -> dict:
         hypervisor_os = _insert(connection, "operating_systems", category_id=category, name="KVM", version="8")
         platform = _insert(connection, "virtualization_platforms", name="KVM", version="8")
         device = _insert(
-            connection, "physical_devices", os_name="Debian", os_version="12", operating_system_id=guest_os if migrated else None,
-            serial_number="SN-1", rack_position=None,
+            connection,
+            "physical_devices",
+            os_name="Debian",
+            os_version="12",
+            operating_system_id=guest_os if migrated else None,
+            serial_number="SN-1",
+            rack_position=None,
         )
         vm = _insert(
-            connection, "virtual_machines", name="vm-a14", os_name="Debian", os_version="12", virtualization_platform_id=platform,
-            operating_system_id=guest_os if migrated else None, hypervisor_os_id=hypervisor_os if migrated else None,
+            connection,
+            "virtual_machines",
+            name="vm-a14",
+            os_name="Debian",
+            os_version="12",
+            virtualization_platform_id=platform,
+            operating_system_id=guest_os if migrated else None,
+            hypervisor_os_id=hypervisor_os if migrated else None,
             physical_device_id=device,
         )
     return {"guest_os": guest_os, "hypervisor_os": hypervisor_os, "platform": platform, "device": device, "vm": vm}
@@ -280,10 +292,7 @@ class TestDropLegacyOsAndPlatformObjects:
         assert "virtualization_platforms" in inspector.get_table_names()
         for table, legacy in LEGACY.items():
             assert legacy <= {c["name"] for c in inspector.get_columns(table)}
-        assert any(
-            fk["referred_table"] == "virtualization_platforms" and fk["constrained_columns"] == ["virtualization_platform_id"]
-            for fk in inspector.get_foreign_keys("virtual_machines")
-        )
+        assert any(fk["referred_table"] == "virtualization_platforms" and fk["constrained_columns"] == ["virtualization_platform_id"] for fk in inspector.get_foreign_keys("virtual_machines"))
         with database.engine.connect() as connection:
             assert connection.execute(sa.text("SELECT COUNT(*) FROM virtualization_platforms")).scalar() == 0
             assert connection.execute(sa.text("SELECT COUNT(*) FROM virtual_machines WHERE os_name IS NOT NULL OR virtualization_platform_id IS NOT NULL")).scalar() == 0

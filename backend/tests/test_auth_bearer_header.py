@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_auth_bearer_header.py -v
 """
+
 from __future__ import annotations
 
 import pytest

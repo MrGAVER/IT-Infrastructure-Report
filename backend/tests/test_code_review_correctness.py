@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_code_review_correctness.py -v
 """
+
 from __future__ import annotations
 
 import os
@@ -190,8 +191,7 @@ class TestRackSlotMigration:
 
     def _insert_device(self, conn, device_id: str, created: str, rack: str | None, position: str | None) -> None:
         conn.execute(
-            "INSERT INTO physical_devices (id, device_type_id, serial_number, rack_id, rack_position, siem_enabled, created_at, updated_at) "
-            "VALUES (?, 'dt', ?, ?, ?, 0, ?, ?)",
+            "INSERT INTO physical_devices (id, device_type_id, serial_number, rack_id, rack_position, siem_enabled, created_at, updated_at) VALUES (?, 'dt', ?, ?, ?, 0, ?, ?)",
             (device_id, f"SN-{device_id}", rack, position, created, created),
         )
 
@@ -258,11 +258,15 @@ class TestIntegrityErrors:
 # ---------------------------------------------------------------------------
 # п. 9. Роль viewer: отчёты — чтение
 # ---------------------------------------------------------------------------
-TEMPLATE_CONFIG = {"sheets": [{
-    "title": "Лист1",
-    "columns": [{"width": 25}],
-    "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
-}]}
+TEMPLATE_CONFIG = {
+    "sheets": [
+        {
+            "title": "Лист1",
+            "columns": [{"width": 25}],
+            "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+        }
+    ]
+}
 
 
 def _create_template(client, admin_token: str) -> str:
@@ -460,8 +464,7 @@ class TestStreamingAuditExport:
         from app.models import AuditLog
 
         for i in range(count):
-            db_session.add(AuditLog(entity_type="devices", entity_id=f"id-{i:03d}", action="UPDATE", details=f"Запись {i}",
-                                    created_at=datetime(2026, 1, 1, 0, 0, i % 60) if i < 60 else datetime(2026, 1, 2, 0, 0, i % 60)))
+            db_session.add(AuditLog(entity_type="devices", entity_id=f"id-{i:03d}", action="UPDATE", details=f"Запись {i}", created_at=datetime(2026, 1, 1, 0, 0, i % 60) if i < 60 else datetime(2026, 1, 2, 0, 0, i % 60)))
         db_session.commit()
 
     def test_all_rows_survive_page_boundaries_without_duplicates(self, db_session, tmp_path, monkeypatch):

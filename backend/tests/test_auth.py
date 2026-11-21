@@ -3,6 +3,7 @@
 Каждый тест получает изолированную in-memory БД (фикстура client/db_session из conftest.py),
 поэтому AuthSettings всегда стартует в состоянии по умолчанию: enabled=False.
 """
+
 from __future__ import annotations
 
 

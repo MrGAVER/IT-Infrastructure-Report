@@ -9,6 +9,7 @@ CORS и подмену Host (п. 2), действовать без следа в
 
 Запуск: pytest backend/tests/test_code_review_security.py -v
 """
+
 from __future__ import annotations
 
 import base64
@@ -325,8 +326,7 @@ def test_svg_validator_is_reached_through_the_catalog_api(client):
 def test_svg_export_embeds_a_custom_icon_as_an_image_not_as_raw_markup():
     marker = 'class="custom-mark"'
     graph = {
-        "nodes": [{"id": "n1", "type": "device", "label": "sw", "x": 0, "y": 0,
-                   "icon": {"mode": "custom", "svg_markup": f'<circle r="5" {marker}/>'}}],
+        "nodes": [{"id": "n1", "type": "device", "label": "sw", "x": 0, "y": 0, "icon": {"mode": "custom", "svg_markup": f'<circle r="5" {marker}/>'}}],
         "edges": [],
     }
     svg = export_svg(graph)

@@ -8,6 +8,7 @@ require_admin_if_auth_enabled — сразу, для require_admin — даль�
 
 Запуск: pytest backend/tests/test_auth_guards_fail_closed.py -v
 """
+
 from __future__ import annotations
 
 import pytest

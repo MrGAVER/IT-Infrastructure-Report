@@ -13,33 +13,8 @@ extend-exclude = ["frontend"]
 exclude = [
   "backend/alembic/versions/*.py",  # исторические миграции не переписываем (так же, как в per-file-ignores ниже)
   # Alembic
-  "backend/alembic/env.py",
   # backend/app: 91 модулей. «Горячие» app/config.py и app/main.py правят почти все изменения — их форматируют отдельным коммитом
   # backend/tests: 180 модулей
-  "backend/tests/conftest.py",
-  "backend/tests/migration_support.py",
-  "backend/tests/mock_sqlalchemy.py",
-  "backend/tests/openapi_walk.py",
-  "backend/tests/report_bench_seed.py",
-  "backend/tests/report_seed.py",
-  "backend/tests/test_a14_schema_cleanup.py",
-  "backend/tests/test_all_vlans_flag.py",
-  "backend/tests/test_api.py",
-  "backend/tests/test_api_routers_structure.py",
-  "backend/tests/test_audit_log_query.py",
-  "backend/tests/test_auth.py",
-  "backend/tests/test_auth_atomic_changes.py",
-  "backend/tests/test_auth_bearer_header.py",
-  "backend/tests/test_auth_flag_cache.py",
-  "backend/tests/test_auth_gate_connections.py",
-  "backend/tests/test_auth_guards_fail_closed.py",
-  "backend/tests/test_auth_package_structure.py",
-  "backend/tests/test_body_field_limits.py",
-  "backend/tests/test_body_limit.py",
-  "backend/tests/test_catalog_seed_marker.py",
-  "backend/tests/test_code_review_correctness.py",
-  "backend/tests/test_code_review_schemas.py",
-  "backend/tests/test_code_review_security.py",
   "backend/tests/test_code_review_strict_payload.py",
   "backend/tests/test_code_style_limits.py",
   "backend/tests/test_column_types_validation.py",

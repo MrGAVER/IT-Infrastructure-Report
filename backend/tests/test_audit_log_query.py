@@ -3,6 +3,7 @@
 
 Запуск: pytest backend/tests/test_audit_log_query.py -v
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -113,8 +114,8 @@ def test_search_treats_percent_and_underscore_literally(client, seed):
     seed(_entry(1, details="скидка 50% на всё"), _entry(2, details="port_1"), _entry(3, details="portX1"))
 
     assert _ids(_page(client, q="50%")) == ["id-00001"]
-    assert _ids(_page(client, q="port_1")) == ["id-00002"]   # «_» не «любой символ»
-    assert _page(client, q="%")["total"] == 1                # «%» ищется как символ, а не «всё»
+    assert _ids(_page(client, q="port_1")) == ["id-00002"]  # «_» не «любой символ»
+    assert _page(client, q="%")["total"] == 1  # «%» ищется как символ, а не «всё»
 
 
 def test_search_ignores_entries_without_details(client, seed):

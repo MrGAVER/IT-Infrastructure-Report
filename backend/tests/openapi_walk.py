@@ -3,6 +3,7 @@
 Строит тела запросов по схеме операции, подставляет реальные родительские записи в путь и отправляет запрос так, чтобы
 необработанное исключение сервера считалось ответом 500. Это вспомогательный модуль, не тестовый: тестов здесь нет.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,14 +24,13 @@ MISSING_ID = "does-not-exist"
 
 # Допустимое описание листа отчёта: схема OpenAPI называет ``config`` просто объектом, поэтому глубокие поля (ширина столбца, высота
 # строки …) обход по схеме не видит.
-REPORT_CONFIG = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{
-    "height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "limit": 5},
-    "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+REPORT_CONFIG = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "limit": 5}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
 
 _PLAIN_STRING = "a"
 
 
 # --- обход схемы OpenAPI ---------------------------------------------------------------------------------------------------
+
 
 def deref(spec: dict, schema: dict) -> dict:
     """Раскрывает ``$ref`` (на любую глубину цепочки ссылок)."""
@@ -102,6 +102,7 @@ class Builder:
 
 
 # --- отправка запроса -------------------------------------------------------------------------------------------------------
+
 
 def send(client, db_session, method: str, url: str, body: Any) -> tuple[int, str]:
     """(статус, начало ответа). ``body`` — объект (кодируется в JSON) или готовые байты. Необработанное исключение сервера — 500:

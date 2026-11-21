@@ -9,6 +9,7 @@ FastAPI разбирал бы в память. Теперь тело больш�
 
 Запуск: pytest backend/tests/test_body_limit.py -v
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_code_review_schemas.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -124,8 +125,7 @@ def test_openapi_documents_the_request_bodies():
 
     spec = app.openapi()
     schemas = spec["components"]["schemas"]
-    for name in ("DeviceInterfacesSync", "DeviceVlansSync", "DeployedSoftwareSync", "VMOpenPortsSync", "VMIPAddressesSync",
-                 "VlanCopyRequest", "BulkVlanAssignRequest", "VLANDomainMemberRequest", "VLANDomainSyncRequest", "DeviceStackMemberRequest"):
+    for name in ("DeviceInterfacesSync", "DeviceVlansSync", "DeployedSoftwareSync", "VMOpenPortsSync", "VMIPAddressesSync", "VlanCopyRequest", "BulkVlanAssignRequest", "VLANDomainMemberRequest", "VLANDomainSyncRequest", "DeviceStackMemberRequest"):
         assert name in schemas, name
         assert schemas[name].get("additionalProperties") is False, name  # extra="forbid" виден и в документации
     body = spec["paths"]["/api/v1/devices/{device_id}/interfaces"]["put"]["requestBody"]["content"]["application/json"]["schema"]

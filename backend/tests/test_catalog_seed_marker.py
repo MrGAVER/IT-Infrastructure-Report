@@ -7,6 +7,7 @@ seed_defaults(force=True)) по-прежнему возвращает всё.
 
 Запуск: pytest backend/tests/test_catalog_seed_marker.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -136,9 +137,5 @@ def test_application_restart_does_not_restore_deleted_default(client, db_session
 def test_marker_name_matches_migration_constant():
     """Миграция не импортирует код приложения — имя маркера продублировано, тест не даёт им разойтись."""
     tree = ast.parse(MIGRATION.read_text(encoding="utf-8"))
-    values = {
-        node.targets[0].id: node.value.value
-        for node in tree.body
-        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant)
-    }
+    values = {node.targets[0].id: node.value.value for node in tree.body if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Constant)}
     assert values["DEFAULT_CATALOGS_SEED_MARKER"] == DEFAULT_CATALOGS_SEED_MARKER

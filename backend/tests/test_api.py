@@ -7,6 +7,7 @@
 
 Запуск:  pip install -r backend/requirements-dev.txt && pytest backend/tests/test_api.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -92,8 +93,6 @@ class TestInformationSystemNameUniqueness:
 
         r = client.put(f"/api/v1/resources/information-systems/{a['id']}", json={"name": "ИС Б"})
         assert r.status_code == 409
-
-
 
 
 class TestCrudBasics:
@@ -216,7 +215,8 @@ class TestHypervisorAndVmHostFlags:
         host = client.post(
             "/api/v1/resources/devices",
             json={
-                "device_type_id": server_type["id"], "serial_number": "SN-HYP-1",
+                "device_type_id": server_type["id"],
+                "serial_number": "SN-HYP-1",
                 "operating_system_id": hypervisor_os["id"],
             },
         ).json()
@@ -233,9 +233,7 @@ class TestHypervisorAndVmHostFlags:
         """Обратная сторона того же правила: имя записи больше ни на что не влияет — без
         is_hypervisor=True (значение по умолчанию — False) в поле гипервизора эту ОС выбрать
         нельзя, даже если категория выглядит как гипервизорная."""
-        category = client.post(
-            "/api/v1/resources/os-categories", json={"name": "Гипервизор (не настоящий)"}
-        ).json()
+        category = client.post("/api/v1/resources/os-categories", json={"name": "Гипервизор (не настоящий)"}).json()
         assert category["is_hypervisor"] is False
         hypervisor_os = client.post(
             "/api/v1/resources/operating-systems",
@@ -245,7 +243,8 @@ class TestHypervisorAndVmHostFlags:
         host = client.post(
             "/api/v1/resources/devices",
             json={
-                "device_type_id": server_type["id"], "serial_number": "SN-HYP-2",
+                "device_type_id": server_type["id"],
+                "serial_number": "SN-HYP-2",
                 "operating_system_id": hypervisor_os["id"],
             },
         ).json()
@@ -361,8 +360,11 @@ class TestReferentialIntegrity:
         first = client.post(
             "/api/v1/resources/devices",
             json={
-                "device_type_id": dt["id"], "serial_number": "SN-200",
-                "room_id": room["id"], "rack_id": rack["id"], "rack_position": "10U",
+                "device_type_id": dt["id"],
+                "serial_number": "SN-200",
+                "room_id": room["id"],
+                "rack_id": rack["id"],
+                "rack_position": "10U",
             },
         )
         assert first.status_code == 201, first.text
@@ -370,8 +372,11 @@ class TestReferentialIntegrity:
         conflict = client.post(
             "/api/v1/resources/devices",
             json={
-                "device_type_id": dt["id"], "serial_number": "SN-201",
-                "room_id": room["id"], "rack_id": rack["id"], "rack_position": "10U",
+                "device_type_id": dt["id"],
+                "serial_number": "SN-201",
+                "room_id": room["id"],
+                "rack_id": rack["id"],
+                "rack_position": "10U",
             },
         )
         assert conflict.status_code == 409
@@ -489,15 +494,8 @@ class TestInterfacesSync:
         assert r.status_code == 200, r.text
         assert all(item["vlan_mode"] == "access" for item in r.json()["items"])
 
-        update_queries = [
-            s for s in sql_log
-            if s.strip().upper().startswith("UPDATE") and "DEVICE_INTERFACES" in s.upper()
-        ]
-        assert not update_queries, (
-            f"Создание новых интерфейсов не должно требовать UPDATE device_interfaces "
-            f"(vlan_mode должен уходить в исходный INSERT), получено {len(update_queries)}: "
-            f"{update_queries}"
-        )
+        update_queries = [s for s in sql_log if s.strip().upper().startswith("UPDATE") and "DEVICE_INTERFACES" in s.upper()]
+        assert not update_queries, f"Создание новых интерфейсов не должно требовать UPDATE device_interfaces (vlan_mode должен уходить в исходный INSERT), получено {len(update_queries)}: {update_queries}"
 
     def test_sync_interfaces_creates_and_lists_open_ports(self, client):
         """п.1.4 (батч4): открытые порты теперь свойство интерфейса — переживают сохранение и
@@ -542,9 +540,17 @@ class TestInterfacesSync:
         https_alt_entry = _create_protocol_catalog_entry(client, 8443, "HTTPS-alt")
         first = client.put(
             f"/api/v1/devices/{dev['id']}/interfaces",
-            json={"interfaces": [{"name": "Gi0/1", "open_ports": [
-                {"protocol_catalog_id": ssh_entry["id"]}, {"protocol_catalog_id": http_entry["id"]},
-            ]}]},
+            json={
+                "interfaces": [
+                    {
+                        "name": "Gi0/1",
+                        "open_ports": [
+                            {"protocol_catalog_id": ssh_entry["id"]},
+                            {"protocol_catalog_id": http_entry["id"]},
+                        ],
+                    }
+                ]
+            },
         ).json()
         iface = first["items"][0]
         port_to_keep = next(p for p in iface["open_ports"] if p["port"] == 22)
@@ -964,24 +970,14 @@ class TestNPlusOneRegressions:
     def test_sync_vlan_domain_does_not_query_per_device_per_vlan_pair(self, client, sql_log):
         dt = _create_device_type(client, "Тип для домена подсчёта")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "QC-SRC"}).json()
-        members = [
-            client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"QC-M{i}"}).json()
-            for i in range(5)
-        ]
-        domain = client.post(
-            "/api/v1/resources/vlan-domains", json={"name": "Домен подсчёта", "source_device_id": source["id"]}
-        ).json()
+        members = [client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"QC-M{i}"}).json() for i in range(5)]
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен подсчёта", "source_device_id": source["id"]}).json()
         for dev in [source, *members]:
             r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": dev["id"]})
             assert r.status_code == 200, r.text
-        vlans = [
-            client.post("/api/v1/resources/vlans", json={"vlan_id": 900 + i, "name": f"Домен-{i}"}).json()
-            for i in range(3)
-        ]
+        vlans = [client.post("/api/v1/resources/vlans", json={"vlan_id": 900 + i, "name": f"Домен-{i}"}).json() for i in range(3)]
         for vlan in vlans:
-            r = client.post(
-                "/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan["id"]}
-            )
+            r = client.post("/api/v1/resources/device-vlans", json={"physical_device_id": source["id"], "vlan_id": vlan["id"]})
             assert r.status_code == 201, r.text
 
         sql_log.clear()
@@ -1001,10 +997,7 @@ class TestNPlusOneRegressions:
         внутри этих функций не используется (нужен только у уже существующих, которые и так
         приходят с id из первого SELECT), поэтому один flush() после цикла достаточен."""
         info = client.post("/api/v1/resources/information-systems", json={"name": "ИС для батчинга flush"}).json()
-        departments = [
-            client.post("/api/v1/resources/departments", json={"name": f"Отдел батч {i}"}).json()
-            for i in range(8)
-        ]
+        departments = [client.post("/api/v1/resources/departments", json={"name": f"Отдел батч {i}"}).json() for i in range(8)]
 
         sql_log.clear()
         r = client.put(
@@ -1022,10 +1015,7 @@ class TestNPlusOneRegressions:
 class TestBulkVlanAssign:
     def _setup(self, client, n_devices=3):
         dt = _create_device_type(client, "Тип для bulk-VLAN")
-        devices = [
-            client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"BULK-{i}"}).json()
-            for i in range(n_devices)
-        ]
+        devices = [client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": f"BULK-{i}"}).json() for i in range(n_devices)]
         vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 88, "name": "Bulk"}).json()
         return devices, vlan
 
@@ -1082,7 +1072,6 @@ class TestBulkVlanAssign:
         )
         assert r.status_code == 404
 
-
     def test_bulk_assign_writes_audit_entry(self, client):
         devices, vlan = self._setup(client, n_devices=2)
         client.post(
@@ -1099,9 +1088,7 @@ class TestVlanDomainMemberAudit:
         dt = _create_device_type(client, "Тип для аудита членства")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUD-SRC"}).json()
         member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "AUD-M"}).json()
-        domain = client.post(
-            "/api/v1/resources/vlan-domains", json={"name": "Домен для аудита", "source_device_id": source["id"]}
-        ).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен для аудита", "source_device_id": source["id"]}).json()
 
         r = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
         assert r.status_code == 200, r.text
@@ -1115,9 +1102,7 @@ class TestVlanDomainMemberAudit:
         dt = _create_device_type(client, "Тип идемпотентности членства")
         source = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "IDM-SRC"}).json()
         member = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "IDM-M"}).json()
-        domain = client.post(
-            "/api/v1/resources/vlan-domains", json={"name": "Домен идемпотентности", "source_device_id": source["id"]}
-        ).json()
+        domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Домен идемпотентности", "source_device_id": source["id"]}).json()
 
         r1 = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
         r2 = client.post(f"/api/v1/vlan-domains/{domain['id']}/members", json={"physical_device_id": member["id"]})
@@ -1298,11 +1283,7 @@ class TestVlanDomainReplaceSync:
         assert r.status_code == 200, r.text
         assert r.json() == {"status": "ok", "created_definitions": 2, "assigned": 2, "removed": 0}
 
-        source_vlan20_link = next(
-            row
-            for row in client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}").json()["items"]
-            if client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] == 20
-        )
+        source_vlan20_link = next(row for row in client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}").json()["items"] if client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] == 20)
         client.delete(f"/api/v1/resources/device-vlans/{source_vlan20_link['id']}")
         return domain, member
 
@@ -1379,9 +1360,11 @@ class TestOpenPortCatalogIsSourceOfTruth:
         r = client.post(
             "/api/v1/resources/open-ports",
             json={
-                "owner_type": "virtual_machine", "owner_id": "vm-1",
+                "owner_type": "virtual_machine",
+                "owner_id": "vm-1",
                 "protocol_catalog_id": entry["id"],
-                "port": 9999, "protocol": "ПОДДЕЛЬНЫЙ",
+                "port": 9999,
+                "protocol": "ПОДДЕЛЬНЫЙ",
             },
         )
         assert r.status_code == 201, r.text
@@ -1397,7 +1380,7 @@ class TestOpenPortCatalogIsSourceOfTruth:
             json={"owner_type": "virtual_machine", "owner_id": "vm-1", "protocol_catalog_id": old_entry["id"]},
         ).json()
 
-        r = client.put(f"/api/v1/resources/open-ports/{created['id']}", json={"protocol_catalog_id": new_entry['id']})
+        r = client.put(f"/api/v1/resources/open-ports/{created['id']}", json={"protocol_catalog_id": new_entry["id"]})
         assert r.status_code == 200, r.text
         assert r.json()["port"] == 443
         assert r.json()["protocol"] == "HTTPS"
@@ -1962,9 +1945,7 @@ class TestAuditLog:
         # Штатное действие создаёт настоящую запись в audit-log, на которую опираемся ниже.
         created = client.post("/api/v1/resources/manufacturers", json={"name": "Аудит-RO-тест"})
         assert created.status_code == 201, created.text
-        existing_entry = client.get(
-            "/api/v1/resources/audit-log", params={"entity_id": created.json()["id"], "limit": 10}
-        ).json()["items"][0]
+        existing_entry = client.get("/api/v1/resources/audit-log", params={"entity_id": created.json()["id"], "limit": 10}).json()["items"][0]
 
         forged = client.post(
             "/api/v1/resources/audit-log",
@@ -1972,9 +1953,7 @@ class TestAuditLog:
         )
         assert forged.status_code == 403
 
-        updated = client.put(
-            f"/api/v1/resources/audit-log/{existing_entry['id']}", json={"details": "подмена"}
-        )
+        updated = client.put(f"/api/v1/resources/audit-log/{existing_entry['id']}", json={"details": "подмена"})
         assert updated.status_code == 403
 
         deleted = client.delete(f"/api/v1/resources/audit-log/{existing_entry['id']}")
@@ -2031,9 +2010,7 @@ class TestAuditLog:
         diff вида 'name: Х → Х'."""
         created = client.post("/api/v1/resources/manufacturers", json={"name": "Без изменений"}).json()
 
-        updated = client.put(
-            f"/api/v1/resources/manufacturers/{created['id']}", json={"name": "Без изменений"}
-        )
+        updated = client.put(f"/api/v1/resources/manufacturers/{created['id']}", json={"name": "Без изменений"})
         assert updated.status_code == 200, updated.text
 
         entry = client.get(
@@ -2045,15 +2022,22 @@ class TestAuditLog:
 
 
 class TestReportTemplateVersions:
-    VALID_CONFIG = {"sheets": [{
-        "title": "Лист1",
-        "columns": [{"width": 25}],
-        "rows": [{
-            "height": 18, "repeat": True,
-            "data_source": {"root_entity": "information-systems"},
-            "cells": [{"col": 0, "kind": "field", "path": "name"}],
-        }],
-    }]}
+    VALID_CONFIG = {
+        "sheets": [
+            {
+                "title": "Лист1",
+                "columns": [{"width": 25}],
+                "rows": [
+                    {
+                        "height": 18,
+                        "repeat": True,
+                        "data_source": {"root_entity": "information-systems"},
+                        "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                    }
+                ],
+            }
+        ]
+    }
 
     def _create(self, client, name="Шаблон версий"):
         r = client.post("/api/v1/report-templates", json={"name": name, "config": self.VALID_CONFIG})
@@ -2155,9 +2139,7 @@ class TestReports:
 
         r2 = client.get(body["download_url"])
         assert r2.status_code == 200
-        assert r2.headers["content-type"].startswith(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        assert r2.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     def test_download_report_rejects_path_traversal(self, client):
         r = client.get("/api/v1/reports/download/..%2F..%2Fetc%2Fpasswd")
@@ -2173,9 +2155,7 @@ class TestReports:
 
         r2 = client.get(body["download_url"])
         assert r2.status_code == 200
-        assert r2.headers["content-type"].startswith(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        assert r2.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     def test_audit_log_report_respects_filters(self, client):
         client.post("/api/v1/resources/manufacturers", json={"name": "Останется за пределами фильтра"})
@@ -2184,6 +2164,7 @@ class TestReports:
         assert r.status_code == 200, r.text
 
         import openpyxl
+
         path = REPORT_DIR / "audit" / r.json()["file_name"]  # отчёты аудита лежат в подкаталоге (A-05)
         wb = openpyxl.load_workbook(path)
         ws = wb.active
@@ -2209,6 +2190,7 @@ class TestReports:
         assert r.status_code == 200, r.text
 
         import openpyxl
+
         path = REPORT_DIR / r.json()["file_name"]
         wb = openpyxl.load_workbook(path)
         rows = list(wb["Инвентаризац. физ. устройств ИС"].iter_rows(min_row=2, values_only=True))
@@ -2226,18 +2208,22 @@ class TestReports:
         client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-IN", "building_id": building_in["id"]})
         client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SU-OUT", "building_id": building_out["id"]})
 
-        config = {"sheets": [{
-            "title": "Устройства", "columns": [{"width": 20}],
-            "rows": [{"height": 18, "repeat": True,
-                      "data_source": {"root_entity": "registry-device-rows"},
-                      "cells": [{"col": 0, "kind": "field", "path": "serial_number"}]}],
-        }]}
+        config = {
+            "sheets": [
+                {
+                    "title": "Устройства",
+                    "columns": [{"width": 20}],
+                    "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "registry-device-rows"}, "cells": [{"col": 0, "kind": "field", "path": "serial_number"}]}],
+                }
+            ]
+        }
         t = client.post("/api/v1/report-templates", json={"name": "Тест устройств", "format": "xlsx", "config": config}).json()
 
         r = client.post(f"/api/v1/report-templates/{t['id']}/generate", json={"structural_unit_ids": [unit["id"]]})
         assert r.status_code == 200, r.text
 
         import openpyxl
+
         path = REPORT_DIR / r.json()["file_name"]
         wb = openpyxl.load_workbook(path)
         values = [row[0] for row in wb["Устройства"].iter_rows(min_row=1, values_only=True) if row[0]]
