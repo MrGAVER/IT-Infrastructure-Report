@@ -24,6 +24,7 @@ from .config import (
     MIN_DB_PASSWORD_LENGTH,
     MIN_SETUP_TOKEN_LENGTH,
     SETUP_TOKEN,
+    ensure_data_dirs,
     weak_db_password,
     weak_setup_token,
 )
@@ -71,6 +72,7 @@ ALLOWED_CLIENT_NETWORKS: list[IPNetwork] = parse_client_networks(ALLOWED_CLIENTS
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_data_dirs()  # config при импорте ничего не создаёт: каталог данных и отчётов появляются здесь
     seed_catalogs_on_startup()
     cleanup_audit_log_on_startup()
     yield

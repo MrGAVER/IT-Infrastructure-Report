@@ -366,6 +366,9 @@ def client_factory(db_session, monkeypatch):
     test_session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, expire_on_commit=False)
     monkeypatch.setattr(app_main, "SessionLocal", test_session_factory)
     monkeypatch.setattr(app_db, "SessionLocal", test_session_factory)
+    # lifespan создаёт каталоги данных (config.ensure_data_dirs), а `_isolated_audit_archive_dir` подменяет REPORT_DIR на `<tmp_path>/reports`:
+    # без заглушки этот каталог появлялся бы в tmp_path, содержимое которого проверяют тесты отчётов. Тесты, которым важен сам вызов, ставят свой шпион.
+    monkeypatch.setattr(app_main, "ensure_data_dirs", lambda *directories: None)
 
     def _override_get_db():
         yield db_session

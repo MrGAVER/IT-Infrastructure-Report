@@ -9,6 +9,7 @@ import threading
 import time
 import webbrowser
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
 from typing import NoReturn
 
@@ -98,6 +99,17 @@ def load_exe_settings():
     return load_settings(path), path
 
 
+def apply_environment(overrides: Mapping[str, str]) -> None:
+    """Выставляет переменные окружения, которые ``app.config`` читает при импорте.
+
+    Модуль настроек разбирает окружение один раз, при первом импорте: переменная, выставленная после него, молча не подействует
+    (например, доступ по сети остался бы закрытым или, хуже, база оказалась бы не там). Поэтому порядок «сначала окружение, потом
+    ``import app.main``» здесь не только описан, но и проверяется: нарушение — ``RuntimeError`` при запуске, а не тихая ошибка настройки."""
+    if "app.config" in sys.modules:
+        raise RuntimeError("app.config уже импортирован: переменные окружения нужно выставлять до первого импорта приложения")
+    os.environ.update(overrides)
+
+
 def fail(message: str) -> NoReturn:
     """Ошибка запуска: в EXE окно консоли закрывается вместе с процессом, поэтому ждём Enter, чтобы текст прочитали."""
     print(f"\nОШИБКА: {message}", file=sys.stderr)
@@ -124,15 +136,22 @@ def main():
         fail(f"{exc}\nИсправьте файл {app_dir() / SETTINGS_FILENAME} или удалите его (он будет создан заново).")
     port = args.port if args.port is not None else settings.port
 
-    os.environ["INFRA_REGISTRY_BUNDLE_DIR"] = str(root)
-    # Единственный UI — собранный Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR),
-    # упакован в EXE как данные, см. datas в infra_registry.spec.
-    os.environ["INFRA_REGISTRY_FRONTEND_DIR"] = str(root / 'frontend-vue' / 'dist')
-    os.environ["INFRA_REGISTRY_DATA_DIR"] = str(data_dir())
-    os.environ["DATABASE_URL"] = f"sqlite:///{data_dir() / DB_FILENAME}"
-    # Список разрешённых клиентов и имён Host читает app.config при импорте — выставляем ДО import app.main.
-    os.environ.update(settings.environment())
+    # Окружение выставляется ДО первого импорта app.config (apply_environment проверяет порядок). Единственный UI — собранный
+    # Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR), упакован в EXE как данные, см. datas в infra_registry.spec.
+    apply_environment(
+        {
+            "INFRA_REGISTRY_BUNDLE_DIR": str(root),
+            "INFRA_REGISTRY_FRONTEND_DIR": str(root / "frontend-vue" / "dist"),
+            "INFRA_REGISTRY_DATA_DIR": str(data_dir()),
+            "DATABASE_URL": f"sqlite:///{data_dir() / DB_FILENAME}",
+            # Список разрешённых клиентов и имён Host из файла настроек рядом с EXE
+            **settings.environment(),
+        }
+    )
 
+    from app.config import ensure_data_dirs
+
+    ensure_data_dirs()  # app.config при импорте каталогов не создаёт
     migrate_or_fail()
 
     import uvicorn
