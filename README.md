@@ -598,6 +598,22 @@ installer\build_windows.bat
 
 Результат — `dist\InfraRegistry.exe`.
 
+**Проверка уязвимостей при сборке.** Скрипт сам останавливается на известных уязвимостях в пакетах: после `npm ci` запускает
+`npm run audit:gate` (`npm audit` по runtime-зависимостям frontend, уровень high и выше, с исключениями из
+`frontend-vue/scripts/audit-gate.mjs`), а после установки Python-пакетов — `python -m pip_audit` по `backend\requirements.lock`
+(блокирует сборку: эти пакеты попадают в EXE) и по `backend\requirements-build.lock` (только сообщает: PyInstaller и его хуки иногда
+дают замечания, не относящиеся к рантайму). pip-audit входит в `requirements-build.txt` и ставится в `.venv` из того же lock с хешами;
+в EXE он не попадает. Правила совпадают с одноимёнными шагами CI. Проверкам нужен доступ к PyPI и registry.npmjs.org — тот же, что и для
+установки пакетов. В CI эту сборку и эти проверки выполняет job `build-windows` (windows-latest): он запускает тот же
+`installer\build_windows.bat` и проверяет, что в `dist\` появились `InfraRegistry.exe`, `README_EXE.md` и `run_infra_registry.bat`.
+Затем job делает smoke-запуск готового EXE: `InfraRegistry.exe --no-browser` на порту 8765 с базой во временном каталоге
+(`INFRA_REGISTRY_DATA_DIR`), проверка `/api/v1/health` (версия совпадает с `APP_VERSION` из `backend/app/config.py`), раздачи собранного
+интерфейса на `/` и того, что миграции внутри EXE создали схему в `infra_registry.db`; при падении в журнал шага выводятся логи EXE.
+Вход в систему и экспорт `.vsdx` smoke не проверяет. Job `build-windows` выполняется и по расписанию — раз в неделю, по понедельникам
+(04:17 UTC): новая уязвимость в уже влитых зависимостях иначе осталась бы незамеченной до следующего PR; остальные job по расписанию
+пропускаются. Весь CI можно запустить и вручную (`workflow_dispatch`, вкладка Actions). Расписание работает только в ветке по умолчанию,
+а GitHub отключает его в репозитории без активности 60 дней.
+
 Рядом с ним скрипт кладёт `dist\README_EXE.md` (краткая инструкция для пользователя; исходник — `installer\README_EXE.md`) и
 `dist\run_infra_registry.bat`. Ошибка копирования любого из файлов, как и ошибка PyInstaller, прерывает сборку с ненулевым кодом.
 
@@ -1009,8 +1025,9 @@ docker-compose.yml
 (`installer/build_windows.bat`) ставят пакеты из lock-файлов (`pip install --require-hashes -r ...`), поэтому сборка завтра даёт те
 же версии, что сегодня, а подмена пакета на PyPI не пройдёт проверку хеша. Версии общих пакетов во всех трёх lock-файлах
 одинаковы: в EXE попадает ровно то, что тестируется в CI. Lock универсальный (Linux, Windows, macOS), Python 3.12. Скрипт
-сборки EXE не обновляет `pip` (версия из venv Python 3.12 понимает `--require-hashes`) и не удаляет лишние пакеты из уже
-существующего `.venv`: для воспроизводимой сборки удалите каталог `.venv` перед запуском.
+сборки EXE не обновляет `pip` отдельно (версия из venv Python 3.12 понимает `--require-hashes`, а нужная версия закреплена
+в самом `requirements-build.lock`) и не удаляет лишние пакеты из уже существующего `.venv`: для воспроизводимой сборки удалите
+каталог `.venv` перед запуском.
 
 Обновление после правки `requirements*.txt` (или чтобы подтянуть свежие версии в пределах диапазонов):
 
@@ -1025,6 +1042,7 @@ uv pip compile requirements-build.txt --universal --generate-hashes --python-ver
 
 CI проверяет, что lock-файлы актуальны (пересборка не даёт diff), запускает `pip-audit` по `requirements.lock` (блокирует сборку)
 и по `requirements-build.lock` (только сообщает: PyInstaller и его хуки иногда дают замечания, не относящиеся к рантайму).
+Те же проверки выполняет `installer/build_windows.bat` при сборке EXE, а job `build-windows` гоняет этот скрипт на windows-latest.
 Кроме того, CI запускает `bandit -r backend/app -ll` — статический анализ безопасности собственного кода (срабатывания среднего и
 высокого уровня блокируют слияние; неактуальные помечены в коде `# nosec Bxxx # пояснение`).
 
@@ -1041,9 +1059,9 @@ lock-файлы и тесты идут на Python 3.12, а TypeScript 7 пок�
 на новую линию Node красный, пока `node-version` в `ci.yml` не поднят той же миграцией. Смена версии Python или Node — отдельная миграция (Dockerfile, `ci.yml`, lock-файлы и тесты вместе).
 
 **`npm audit` при сборке EXE.** `npm ci` в `installer/build_windows.bat` печатает итог `npm audit` по всему дереву, включая dev-инструменты
-(ESLint, Vitest), хотя блокирующий шаг CI смотрит только runtime-зависимости (`npm run audit:gate` — `npm audit --omit=dev`, уровень high и выше,
-с явным списком исключений в `frontend-vue/scripts/audit-gate.mjs`: id advisory, причина и срок; с 2.160.0 действует одно — `picomatch`,
-GHSA-fc5q-39xc-vjpf, до 2026-12-31, исправленной версии в npm пока нет; подробности — `frontend-vue/README.md`, «Аудит зависимостей»). В 2.159.0 сборка
+(ESLint, Vitest), хотя блокирующий gate — и в CI, и следом за `npm ci` в том же скрипте — смотрит только runtime-зависимости (`npm run audit:gate` — `npm audit --omit=dev`, уровень high и выше,
+с явным списком исключений в `frontend-vue/scripts/audit-gate.mjs`: id advisory, причина и срок; сейчас список пуст (исключение для `picomatch`,
+GHSA-fc5q-39xc-vjpf, действовавшее с 2.160.0, снято: advisory отозван 2026-11-18); подробности — `frontend-vue/README.md`, «Аудит зависимостей»). В 2.159.0 сборка
 показывала 12 замечаний уровня moderate — два пакета в цепочках `typescript-eslint` и `@vue/test-utils` → `js-beautify`: `minimatch`
 (GHSA-g3hv-75wg-m249, отказ в обслуживании при разборе шаблона) и `glob` (GHSA-3g3m-2fjr-6pw4, обход отмены через `AbortSignal`). В
 собранный интерфейс (`dist/`) они не попадают. Закрыто блоком `overrides` в `frontend-vue/package.json` (`minimatch` `^11.0.8`, `glob`

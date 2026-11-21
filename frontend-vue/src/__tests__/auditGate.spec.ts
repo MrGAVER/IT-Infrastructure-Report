@@ -109,4 +109,8 @@ describe('audit-gate: исключения', () => {
       expect(r.reason.length).toBeGreaterThan(40)
     }
   })
+
+  it('исключение для picomatch снято: advisory GHSA-fc5q-39xc-vjpf отозван 2026-11-18, `npm audit` его больше не показывает', () => {
+    expect(ALLOWLIST.map((r) => r.id)).not.toContain('GHSA-fc5q-39xc-vjpf')
+  })
 })

@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Раз в неделю (понедельник, 04:17 UTC) выполняется только job build-windows: сборка EXE с проверками уязвимостей пакетов и smoke-запуском.
+  # Новая уязвимость в уже влитых зависимостях иначе осталась бы незамеченной до следующего PR. Остальные job по расписанию пропускаются
+  # условием `if`. Расписание работает только в ветке по умолчанию, а о падении по расписанию GitHub сообщает тому, кто последним менял cron.
+  schedule:
+    - cron: "17 4 * * 1"
+  # Ручной запуск (вкладка Actions) выполняет весь CI, а не только сборку под Windows.
+  workflow_dispatch:
 
 # Токену workflow достаточно чтения репозитория: CI ничего не публикует и не пишет в репозиторий.
 permissions:
@@ -12,6 +19,7 @@ permissions:
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -158,6 +166,7 @@ jobs:
   # резервная копия SQLite перед миграцией (os.replace, блокировки файлов), запуск экспорта .vsdx в дочернем процессе (spawn) и пути вида
   # C:\... проверяются только здесь. Набор намеренно узкий — только то, что зависит от платформы: полный набор тестов уже идёт на Linux.
   windows-smoke:
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -213,6 +222,7 @@ jobs:
   # внешнему CDN ловятся только здесь. backend поднимается на чистой SQLite (frontend-vue/e2e/start-backend.mjs), фронтенд
   # собирается самим `npm run e2e`. Описание и переменные окружения — frontend-vue/README.md, «E2E-проверки интерфейса».
   e2e:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -262,6 +272,7 @@ jobs:
   # (app/config.py) и запуск `alembic upgrade head` ИЗ контейнера против PostgreSQL проверяет только этот job. Значения ниже — тестовые,
   # на настоящий сервер не попадают (разовая виртуальная машина раннера).
   compose-postgres:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-compose-smoke-pg-password
@@ -306,6 +317,7 @@ jobs:
   # INFRA_REGISTRY_TEST_DATABASE_URL); тесты миграций на SQLite работают на собственных файлах и от этого не зависят.
   # Цепочку Alembic на чистой PostgreSQL проверяют tests/test_migrations_postgres.py (идут и здесь) и job ниже.
   test-postgres:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -346,6 +358,7 @@ jobs:
   # первом запуске docker-compose, а не из моделей: так проверяется схема, которую получат реальные установки.
   # Затем приложение запускается живьём на пустой базе (alembic upgrade head → uvicorn → API → Excel-отчёт).
   test-postgres-migrations:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -415,3 +428,107 @@ jobs:
               connection.execute(psycopg.sql.SQL("CREATE DATABASE {} OWNER {}").format(psycopg.sql.Identifier(os.environ["POSTGRES_DB"]), psycopg.sql.Identifier(os.environ["POSTGRES_USER"])))
           PY
           python tests/tools/pg_app_smoke.py
+
+  # Сборка EXE под Windows тем же installer\build_windows.bat, которым собирает разработчик. Вместе со сборкой проходят проверки
+  # уязвимостей пакетов — их делает сам скрипт: `npm run audit:gate` и pip-audit по requirements.lock блокируют сборку, pip-audit
+  # по requirements-build.lock только сообщает (как одноимённые шаги job test). Linux-job test проверяет те же lock-файлы, но не
+  # может проверить, что EXE вообще собирается и что скрипт работает под cmd.
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Установить Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-build.lock
+
+      - name: Установить Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          cache: "npm"
+          cache-dependency-path: frontend-vue/package-lock.json
+
+      # Единственная команда шага: код возврата шага — это код возврата .bat, ошибка любой проверки или сборки краснит job.
+      - name: Собрать EXE (installer\build_windows.bat — npm audit gate, pip-audit по lock-файлам, PyInstaller)
+        shell: cmd
+        run: call installer\build_windows.bat
+
+      - name: Проверить результат сборки (EXE и сопутствующие файлы)
+        shell: cmd
+        run: |
+          if not exist dist\InfraRegistry.exe exit /b 1
+          if not exist dist\README_EXE.md exit /b 1
+          if not exist dist\run_infra_registry.bat exit /b 1
+          dir dist
+
+      # Smoke: собранный EXE стартует на своём порту с базой во временном каталоге, мигрирует её и отвечает. Без этой проверки пакет без alembic
+      # или без frontend-vue/dist собирался «успешно» и падал только у пользователя. Не проверяет вход в систему и экспорт .vsdx.
+      - name: Smoke-запуск dist\InfraRegistry.exe (health, версия, интерфейс, миграции)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $port = 8765
+          $base = "http://127.0.0.1:$port"
+          $data = Join-Path $env:RUNNER_TEMP 'infra-smoke'
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          $env:INFRA_REGISTRY_DATA_DIR = $data
+          $exe = $null
+          try {
+            $exe = Start-Process -FilePath (Resolve-Path 'dist\InfraRegistry.exe') -ArgumentList '--no-browser', '--port', $port `
+              -PassThru -WindowStyle Hidden `
+              -RedirectStandardOutput (Join-Path $data 'exe.out.log') -RedirectStandardError (Join-Path $data 'exe.err.log')
+            $health = $null
+            for ($i = 0; $i -lt 60 -and -not $health; $i++) {
+              if ($exe.HasExited) { throw "InfraRegistry.exe завершился при старте, код $($exe.ExitCode)" }
+              try { $health = Invoke-RestMethod -Uri "$base/api/v1/health" -TimeoutSec 3 } catch { Start-Sleep -Seconds 2 }
+            }
+            if (-not $health) { throw 'InfraRegistry.exe не ответил на /api/v1/health за 120 с' }
+            Write-Host "health: $($health | ConvertTo-Json -Compress)"
+            $expected = (Select-String -Path 'backend\app\config.py' -Pattern '^APP_VERSION\s*=\s*[''"]([^''"]+)[''"]').Matches[0].Groups[1].Value
+            if ($health.status -ne 'ok' -or $health.service -ne 'infra-registry') { throw "неожиданный ответ health: $($health | ConvertTo-Json -Compress)" }
+            if ($health.version -ne $expected) { throw "версия в EXE $($health.version), в backend\app\config.py $expected" }
+            $page = Invoke-WebRequest -Uri "$base/" -UseBasicParsing -TimeoutSec 10
+            if ($page.StatusCode -ne 200 -or $page.Content -notmatch 'id="app"') { throw 'собранный интерфейс не раздаётся: на / нет <div id="app">' }
+            $probe = Join-Path $data 'probe_db.py'
+            @'
+          import sqlite3, sys
+          connection = sqlite3.connect(sys.argv[1])
+          tables = [row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+          revisions = [row[0] for row in connection.execute("SELECT version_num FROM alembic_version")]
+          print("tables:", len(tables), "alembic_version:", revisions)
+          sys.exit(0 if len(tables) > 10 and revisions else 1)
+          '@ | Set-Content -Path $probe -Encoding ascii
+            python $probe (Join-Path $data 'infra_registry.db')
+            if ($LASTEXITCODE -ne 0) { throw 'в infra_registry.db нет схемы или ревизии alembic: миграции внутри EXE не прошли' }
+          } catch {
+            # Причина — в аннотацию (видна на странице запуска и в API), затем падаем: журнал шага не всегда под рукой.
+            $reason = $_.Exception.Message -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Host "::error title=Smoke-запуск EXE::$reason"
+            throw
+          } finally {
+            # onefile-EXE — загрузчик и дочерний процесс: останавливаем всё дерево, иначе порт останется занятым.
+            if ($exe -and -not $exe.HasExited) { taskkill /PID $exe.Id /T /F | Out-Null }
+          }
+          $global:LASTEXITCODE = 0
+
+      - name: Журналы EXE (при падении)
+        if: failure()
+        shell: pwsh
+        run: |
+          foreach ($name in 'exe.out.log', 'exe.err.log') {
+            $path = Join-Path $env:RUNNER_TEMP "infra-smoke\$name"
+            Write-Host "=== $name"
+            if (-not (Test-Path $path)) { Write-Host '(файла нет)'; continue }
+            $tail = (Get-Content -Path $path -Tail 40) -join "`n"
+            Write-Host $tail
+            if ($tail) {
+              $encoded = $tail -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+              Write-Host "::error title=Журнал $name (последние строки)::$encoded"
+            }
+          }
