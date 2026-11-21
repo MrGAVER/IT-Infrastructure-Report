@@ -7,5 +7,5 @@ pytest-xdist>=3.8.0,<4
 httpx2>=2.16.2,<3
 ruff>=0.17.5,<1
 pip-audit>=2.7,<3
-bandit>=1.8,<2
+bandit>=1.9.4,<2
 pyyaml>=6.0.3,<7  # тесты разбирают docker-compose.yml, ci.yml и dependabot.yml (import yaml): объявлена явно, а не через транзитивную зависимость bandit
