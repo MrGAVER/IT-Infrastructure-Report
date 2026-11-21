@@ -1004,8 +1004,8 @@ lock-файлы и тесты идут на Python 3.12, а TypeScript 7 пок�
 
 **`npm audit` при сборке EXE.** `npm ci` в `installer/build_windows.bat` печатает итог `npm audit` по всему дереву, включая dev-инструменты
 (ESLint, Vitest), хотя блокирующий шаг CI смотрит только runtime-зависимости (`npm run audit:gate` — `npm audit --omit=dev`, уровень high и выше,
-с явным списком исключений в `frontend-vue/scripts/audit-gate.mjs`: id advisory, причина и срок; с 2.160.0 действует одно — `picomatch`,
-GHSA-fc5q-39xc-vjpf, до 2026-12-31, исправленной версии в npm пока нет; подробности — `frontend-vue/README.md`, «Аудит зависимостей»). В 2.159.0 сборка
+с явным списком исключений в `frontend-vue/scripts/audit-gate.mjs`: id advisory, причина и срок; сейчас список пуст (исключение для `picomatch`,
+GHSA-fc5q-39xc-vjpf, действовавшее с 2.160.0, снято: advisory отозван 2026-11-18); подробности — `frontend-vue/README.md`, «Аудит зависимостей»). В 2.159.0 сборка
 показывала 12 замечаний уровня moderate — два пакета в цепочках `typescript-eslint` и `@vue/test-utils` → `js-beautify`: `minimatch`
 (GHSA-g3hv-75wg-m249, отказ в обслуживании при разборе шаблона) и `glob` (GHSA-3g3m-2fjr-6pw4, обход отмены через `AbortSignal`). В
 собранный интерфейс (`dist/`) они не попадают. Закрыто блоком `overrides` в `frontend-vue/package.json` (`minimatch` `^11.0.8`, `glob`
