@@ -1,4 +1,5 @@
 """Доменная валидация записей generic CRUD: реестр валидаторов по моделям, слот в стойке."""
+
 from __future__ import annotations
 
 from typing import Any, Callable
@@ -15,20 +16,26 @@ from ..validation import duplicate_system_name, validate_connection, validate_co
 
 
 def _validate_physical_device(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
-    validate_device_model_relation(data, session, item_id); validate_operating_system(data, session); validate_embedded_os(data, session); validate_device_location_hierarchy(data, session)
-    if data.get('system_name') and duplicate_system_name(session, data['system_name'], item_id) and not confirm_duplicate:
-        raise HTTPException(409, detail={'code': ErrorCode.DUPLICATE_SYSTEM_NAME, 'message': 'Системное имя уже используется другим устройством. Сохранить дубликат?'})
+    validate_device_model_relation(data, session, item_id)
+    validate_operating_system(data, session)
+    validate_embedded_os(data, session)
+    validate_device_location_hierarchy(data, session)
+    if data.get("system_name") and duplicate_system_name(session, data["system_name"], item_id) and not confirm_duplicate:
+        raise HTTPException(409, detail={"code": ErrorCode.DUPLICATE_SYSTEM_NAME, "message": "Системное имя уже используется другим устройством. Сохранить дубликат?"})
     occupant = _find_rack_slot_occupant(data, session, item_id)
     if occupant and not confirm_rack_reassign:
-        raise HTTPException(409, detail={'code': ErrorCode.RACK_POSITION_OCCUPIED, 'message': f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?'})
+        raise HTTPException(409, detail={"code": ErrorCode.RACK_POSITION_OCCUPIED, "message": f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?'})
 
 
 def _find_rack_slot_occupant(data: dict[str, Any], session: Session, item_id: str | None) -> PhysicalDevice | None:
     """Устройство, уже занимающее слот (стойка + позиция) из data, не считая редактируемого item_id."""
-    rack_id = data.get('rack_id'); rack_position = data.get('rack_position')
-    if not (rack_id and rack_position): return None
+    rack_id = data.get("rack_id")
+    rack_position = data.get("rack_position")
+    if not (rack_id and rack_position):
+        return None
     stmt = select(PhysicalDevice).where(PhysicalDevice.rack_id == rack_id, PhysicalDevice.rack_position == rack_position)
-    if item_id: stmt = stmt.where(PhysicalDevice.id != item_id)
+    if item_id:
+        stmt = stmt.where(PhysicalDevice.id != item_id)
     return session.scalar(stmt)
 
 
@@ -40,38 +47,44 @@ def _release_rack_slot(model: type, data: dict[str, Any], session: Session, item
     UPDATE прежнего, и индекс отвергал бы запись. Поэтому освобождение вынесено сюда и идёт отдельным flush()
     ДО сохранения нового устройства. Вызывается только после validate_resource(): без подтверждения тот уже
     бросил 409, так что занятый слот здесь означает «подтверждено»."""
-    if model is not PhysicalDevice: return
+    if model is not PhysicalDevice:
+        return
     occupant = _find_rack_slot_occupant(data, session, item_id)
-    if occupant is None: return
+    if occupant is None:
+        return
     occupant.rack_position = None
     session.flush()
 
 
 def _validate_physical_device_vlan(data: dict[str, Any], session: Session) -> None:
-    device=session.get(PhysicalDevice, data.get('physical_device_id')) if data.get('physical_device_id') else None
-    vlan=session.get(VLAN, data.get('vlan_id')) if data.get('vlan_id') else None
-    if not device or not vlan: raise HTTPException(422, 'Необходимо указать физическое устройство и VLAN')
+    device = session.get(PhysicalDevice, data.get("physical_device_id")) if data.get("physical_device_id") else None
+    vlan = session.get(VLAN, data.get("vlan_id")) if data.get("vlan_id") else None
+    if not device or not vlan:
+        raise HTTPException(422, "Необходимо указать физическое устройство и VLAN")
     # A device may define a local VLAN, or use a VLAN from a shared domain.
     # The old device-type VLAN catalog remains compatible, but is no longer
     # required for a newly created device-local VLAN.
     if vlan.domain_id:
-        member=session.scalar(select(VLANDomainDevice.id).where(
-            VLANDomainDevice.domain_id==vlan.domain_id,
-            VLANDomainDevice.physical_device_id==device.id))
+        member = session.scalar(select(VLANDomainDevice.id).where(VLANDomainDevice.domain_id == vlan.domain_id, VLANDomainDevice.physical_device_id == device.id))
         if not member:
-            raise HTTPException(422, 'Устройство не включено в домен этого VLAN')
+            raise HTTPException(422, "Устройство не включено в домен этого VLAN")
 
 
 def _validate_device_model(data: dict[str, Any], session: Session, item_id: str | None) -> None:
-    if not data.get('manufacturer_id') or not data.get('device_type_id'): raise HTTPException(422, 'Для модели необходимо указать производителя и тип устройства')
-    if data.get('model'):
-        stmt = select(DeviceModel).where(DeviceModel.manufacturer_id == data['manufacturer_id'], DeviceModel.device_type_id == data['device_type_id'], DeviceModel.model == data['model'])
-        if item_id: stmt = stmt.where(DeviceModel.id != item_id)
-        if session.scalar(stmt): raise HTTPException(409, 'Такая модель уже существует для выбранных производителя и типа устройства')
+    if not data.get("manufacturer_id") or not data.get("device_type_id"):
+        raise HTTPException(422, "Для модели необходимо указать производителя и тип устройства")
+    if data.get("model"):
+        stmt = select(DeviceModel).where(DeviceModel.manufacturer_id == data["manufacturer_id"], DeviceModel.device_type_id == data["device_type_id"], DeviceModel.model == data["model"])
+        if item_id:
+            stmt = stmt.where(DeviceModel.id != item_id)
+        if session.scalar(stmt):
+            raise HTTPException(409, "Такая модель уже существует для выбранных производителя и типа устройства")
 
 
 def _validate_virtual_machine_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
-    validate_operating_system(data, session); validate_hypervisor(data, session); validate_vm_host(data, session)
+    validate_operating_system(data, session)
+    validate_hypervisor(data, session)
+    validate_vm_host(data, session)
 
 
 def _validate_container_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
@@ -81,12 +94,14 @@ def _validate_container_entry(data: dict[str, Any], session: Session, item_id: s
 def _validate_physical_device_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     _validate_physical_device_vlan(data, session)
     # Значения VLAN, заданные общей настройкой стека, не меняются и этим путём (data — запись целиком, в том числе при правке).
-    device_id, vlan_id = data.get('physical_device_id'), data.get('vlan_id')
+    device_id, vlan_id = data.get("physical_device_id"), data.get("vlan_id")
     if device_id and vlan_id and vlan_id in locked_vlan_ids(session, device_id):
-        prefix = data.get('prefix_length')
-        try: prefix = None if prefix in (None, '') else int(prefix)
-        except (TypeError, ValueError): pass  # нечисловое значение заведомо не равно настройке — получит понятный 409
-        assert_device_vlan_editable(session, device_id, {vlan_id: (normalize_ip(data.get('ip_address')), prefix, bool(data.get('is_management')))}, set())
+        prefix = data.get("prefix_length")
+        try:
+            prefix = None if prefix in (None, "") else int(prefix)
+        except (TypeError, ValueError):
+            pass  # нечисловое значение заведомо не равно настройке — получит понятный 409
+        assert_device_vlan_editable(session, device_id, {vlan_id: (normalize_ip(data.get("ip_address")), prefix, bool(data.get("is_management")))}, set())
 
 
 def _validate_device_model_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
@@ -106,26 +121,26 @@ def _validate_device_type_entry(data: dict[str, Any], session: Session, item_id:
     # Саму ссылочную целостность (существует ли такая категория) отдельно не проверяем —
     # некорректный category_id всё равно упадёт на FK при commit() и обработается уже
     # существующим общим обработчиком IntegrityError в create_resource/update_resource.
-    if not data.get('category_id'):
-        raise HTTPException(422, 'Поле category_id обязательно для типа устройства')
+    if not data.get("category_id"):
+        raise HTTPException(422, "Поле category_id обязательно для типа устройства")
 
 
 def _validate_diagram_icon_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     # Код-ревью п.3.1: без этой проверки svg_markup сохранялся бы в БД как есть и затем
     # выполнялся бы в браузере через v-html (фронтенд) и при экспорте .svg (бэкенд).
-    validate_svg_markup(data.get('svg_markup'))
+    validate_svg_markup(data.get("svg_markup"))
 
 
 def _validate_device_category_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     """Цвет и форма категории попадают в разметку экспорта диаграммы (.svg, .drawio, .vsdx): без проверки строка вроде
     `x" onload="alert(1)` внедрялась бы в атрибут. Пустое значение допустимо — стиль наследуется от родителя или берётся
     по умолчанию (services/diagram_icons.resolve_category_style)."""
-    color = data.get('diagram_color')
-    if color not in (None, '') and not is_hex_color(color):
-        raise HTTPException(422, 'diagram_color должен быть HEX-цветом вида #4f7cff или #4cf')
-    shape = data.get('diagram_shape')
-    if shape not in (None, '') and not (isinstance(shape, str) and shape in SHAPE_GLYPHS):
-        raise HTTPException(422, f'diagram_shape должен быть одним из значений: {", ".join(sorted(SHAPE_GLYPHS))}')
+    color = data.get("diagram_color")
+    if color not in (None, "") and not is_hex_color(color):
+        raise HTTPException(422, "diagram_color должен быть HEX-цветом вида #4f7cff или #4cf")
+    shape = data.get("diagram_shape")
+    if shape not in (None, "") and not (isinstance(shape, str) and shape in SHAPE_GLYPHS):
+        raise HTTPException(422, f"diagram_shape должен быть одним из значений: {', '.join(sorted(SHAPE_GLYPHS))}")
 
 
 def _validate_device_interface_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
@@ -137,11 +152,14 @@ def _validate_device_interface_entry(data: dict[str, Any], session: Session, ite
     признаком и со связями (после снятия признака связи «воскресли» бы). `data` — payload при создании и payload,
     дополненный текущими значениями, при правке, поэтому переключение режима у порта с признаком без снятия
     признака тоже отклоняется (в sync_interfaces признак и режим приходят вместе)."""
-    all_vlans = data.get('all_vlans', False)
-    if not isinstance(all_vlans, bool): raise HTTPException(422, 'Поле all_vlans интерфейса должно быть true или false')
-    mode = data.get('vlan_mode')
-    if mode not in (None, '', VLAN_MODE_ACCESS, VLAN_MODE_TRUNK): raise HTTPException(422, "Поле vlan_mode интерфейса должно быть 'access' или 'trunk'")
-    if not all_vlans: return
+    all_vlans = data.get("all_vlans", False)
+    if not isinstance(all_vlans, bool):
+        raise HTTPException(422, "Поле all_vlans интерфейса должно быть true или false")
+    mode = data.get("vlan_mode")
+    if mode not in (None, "", VLAN_MODE_ACCESS, VLAN_MODE_TRUNK):
+        raise HTTPException(422, "Поле vlan_mode интерфейса должно быть 'access' или 'trunk'")
+    if not all_vlans:
+        return
     if (mode or DEFAULT_VLAN_MODE) != VLAN_MODE_TRUNK:
         raise HTTPException(422, "«Все VLAN» возможно только в режиме trunk: снимите all_vlans, если порт переводится в access")
     if item_id and session.scalar(select(InterfaceVLAN.id).where(InterfaceVLAN.interface_id == item_id).limit(1)) is not None:
@@ -151,7 +169,7 @@ def _validate_device_interface_entry(data: dict[str, Any], session: Session, ite
 def _validate_interface_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
     """Связь «порт — VLAN» через generic-ресурс `interface-vlans`: у порта с «Все VLAN» связей нет, его набор — это VLAN
     устройства (см. _validate_device_interface_entry), поэтому добавить такому порту связь нельзя."""
-    port = session.get(DeviceInterface, data['interface_id']) if data.get('interface_id') else None
+    port = session.get(DeviceInterface, data["interface_id"]) if data.get("interface_id") else None
     if port is not None and port.all_vlans:
         raise HTTPException(422, "У порта включено «Все VLAN»: его набор берётся из VLAN устройства и в связях не хранится — снимите признак, чтобы выбрать VLAN вручную")
 
@@ -163,8 +181,8 @@ def _validate_ip_address_entry(data: dict[str, Any], session: Session, item_id: 
     # тоже отдельной (_sync_information_system_sources). Этот валидатор покрывает оставшийся путь —
     # ПОЛНОСТЬЮ generic create_resource/update_resource (владение виртуальной машиной, как и было
     # у VMIP до объединения).
-    validate_ipv4_field(data.get('ip_address'), 'IP-адрес')
-    validate_prefix_length_field(data.get('prefix_length'), 'Префикс IP-адреса')
+    validate_ipv4_field(data.get("ip_address"), "IP-адрес")
+    validate_prefix_length_field(data.get("prefix_length"), "Префикс IP-адреса")
 
 
 def _validate_information_system_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
@@ -184,12 +202,12 @@ def _validate_device_stack_member_entry(data: dict[str, Any], session: Session, 
     ОДНОМ стеке одновременно (см. UniqueConstraint('physical_device_id') на DeviceStackMember) —
     без этой проверки повторная попытка добавить уже состоящее в другом стеке устройство падала
     бы сырым 409 IntegrityError вместо понятного сообщения с названием стека, где оно уже состоит."""
-    if not data.get('stack_id') or not data.get('physical_device_id'):
-        raise HTTPException(422, 'Необходимо указать стек и устройство')
-    existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == data['physical_device_id']))
+    if not data.get("stack_id") or not data.get("physical_device_id"):
+        raise HTTPException(422, "Необходимо указать стек и устройство")
+    existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == data["physical_device_id"]))
     if existing and existing.id != item_id:
         stack = session.get(DeviceStack, existing.stack_id)
-        raise HTTPException(409, f'Устройство уже состоит в стеке «{stack.name if stack else existing.stack_id}»')
+        raise HTTPException(409, f"Устройство уже состоит в стеке «{stack.name if stack else existing.stack_id}»")
 
 
 _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, bool, bool], None]] = {

@@ -1,4 +1,5 @@
 """Удаление записей: проверка ссылающихся записей, очистка полиморфных владельцев."""
+
 from __future__ import annotations
 
 from fastapi import HTTPException
@@ -40,21 +41,15 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
             if not c.foreign_keys:
                 continue
             target = next(iter(c.foreign_keys)).target_fullname
-            if target.split('.')[0] != target_table:
+            if target.split(".")[0] != target_table:
                 continue
-            subqueries.append(
-                select(literal(len(resource_keys)).label('ord'), func.count().label('cnt'))
-                .select_from(other_model).where(c == item_id)
-            )
+            subqueries.append(select(literal(len(resource_keys)).label("ord"), func.count().label("cnt")).select_from(other_model).where(c == item_id))
             resource_keys.append(resource_key)
     if not subqueries:
         return []
     combined = union_all(*subqueries) if len(subqueries) > 1 else subqueries[0]
     rows = sorted(session.execute(combined).all(), key=lambda row: row.ord)
-    return [
-        (DISPLAY_NAMES.get(resource_keys[row.ord], resource_keys[row.ord]), row.cnt)
-        for row in rows if row.cnt
-    ]
+    return [(DISPLAY_NAMES.get(resource_keys[row.ord], resource_keys[row.ord]), row.cnt) for row in rows if row.cnt]
 
 
 # Код-ревью (отчёт по рефакторингу и безопасности, находка 1): открытые порты (OpenPort),
@@ -65,10 +60,10 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
 # Если правки из отчёта по анализу БД добавят owner_type/owner_id ещё куда-то — этот словарь и
 # вызывающий его delete_resource() снова первое, что нужно будет расширить.
 _POLYMORPHIC_OWNER_CLEANUP: dict[str, list[tuple[type, str]]] = {
-    'interfaces': [(OpenPort, OwnerType.DEVICE_INTERFACE), (IPAddress, OwnerType.DEVICE_INTERFACE)],
-    'vms': [(OpenPort, OwnerType.VIRTUAL_MACHINE), (DeployedSoftware, OwnerType.VIRTUAL_MACHINE), (IPAddress, OwnerType.VIRTUAL_MACHINE)],
-    'devices': [(OpenPort, OwnerType.PHYSICAL_DEVICE), (DeployedSoftware, OwnerType.PHYSICAL_DEVICE)],
-    'is-sources': [(IPAddress, OwnerType.INFORMATION_SYSTEM_SOURCE)],
+    "interfaces": [(OpenPort, OwnerType.DEVICE_INTERFACE), (IPAddress, OwnerType.DEVICE_INTERFACE)],
+    "vms": [(OpenPort, OwnerType.VIRTUAL_MACHINE), (DeployedSoftware, OwnerType.VIRTUAL_MACHINE), (IPAddress, OwnerType.VIRTUAL_MACHINE)],
+    "devices": [(OpenPort, OwnerType.PHYSICAL_DEVICE), (DeployedSoftware, OwnerType.PHYSICAL_DEVICE)],
+    "is-sources": [(IPAddress, OwnerType.INFORMATION_SYSTEM_SOURCE)],
 }
 
 
@@ -82,16 +77,18 @@ def assert_deletable(resource: str, item_id: str, session: Session) -> None:
     model = model_for(resource)
     refs = _find_referencing_counts(model, item_id, session) + source_reference_refs(resource, item_id, session) + subinterface_references(resource, item_id, session)
     if refs:
-        raise HTTPException(409, detail={'code': ErrorCode.REFERENCED_BY_OTHER_RECORDS, 'message': format_referenced_message(refs)})
+        raise HTTPException(409, detail={"code": ErrorCode.REFERENCED_BY_OTHER_RECORDS, "message": format_referenced_message(refs)})
 
 
 def delete_resource(resource: str, item_id: str, session: Session):
     ensure_writable(resource)
-    model = model_for(resource); obj = session.get(model, item_id)
-    if not obj: raise HTTPException(404, 'Запись не найдена')
+    model = model_for(resource)
+    obj = session.get(model, item_id)
+    if not obj:
+        raise HTTPException(404, "Запись не найдена")
     assert_deletable(resource, item_id, session)
     # Снимок для журнала — до удаления: после session.delete(obj) имя и серийный номер уже не прочитать (код-ревью С-2).
-    details = f'Удаление записи: {describe_record(obj)}'
+    details = f"Удаление записи: {describe_record(obj)}"
     try:
         # Подтверждено эмпирически: DELETE /resources/interfaces/{id} в обход sync_interfaces
         # удалял интерфейс, но оставлял открытые порты/IP в БД с owner_id, указывающим на уже не
@@ -99,14 +96,15 @@ def delete_resource(resource: str, item_id: str, session: Session):
         # зарегистрированной для этого resource_key выше.
         # У порта удаляются и его подинтерфейсы: FK ON DELETE CASCADE убрал бы только их строки, но не
         # полиморфные IP/открытые порты подинтерфейсов.
-        if resource == 'interfaces': purge_subinterfaces_of_interfaces([item_id], session)
+        if resource == "interfaces":
+            purge_subinterfaces_of_interfaces([item_id], session)
         for cleanup_model, owner_type in _POLYMORPHIC_OWNER_CLEANUP.get(resource, []):
             session.execute(delete(cleanup_model).where(cleanup_model.owner_type == owner_type, cleanup_model.owner_id == item_id))
         session.delete(obj)
         session.flush()
         audit(session, resource, item_id, AuditAction.DELETE, details)
         session.commit()
-        return {'status': 'deleted', 'id': item_id}
+        return {"status": "deleted", "id": item_id}
     except IntegrityError as exc:
         session.rollback()
         raise integrity_error_response(resource, exc) from exc

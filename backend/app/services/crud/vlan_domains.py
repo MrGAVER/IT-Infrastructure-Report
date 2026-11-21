@@ -1,4 +1,5 @@
 """Согласование VLAN устройств с VLAN-доменами при создании и изменении ресурсов."""
+
 from __future__ import annotations
 
 from sqlalchemy import delete, select
@@ -17,7 +18,7 @@ def _domain_device_ids(domain_id: str, session: Session) -> set[str]:
     return device_ids
 
 
-def _unassign_moved_vlan_from_former_domain_devices(vlan: 'VLAN', old_domain_id: str | None, session: Session) -> int:
+def _unassign_moved_vlan_from_former_domain_devices(vlan: "VLAN", old_domain_id: str | None, session: Session) -> int:
     """VLAN, перенесённый из одного домена в другой, снимается с устройств прежнего домена, которых нет
     в новом (ни участник, ни источник): VLAN чужого для них домена нельзя оставить в «VLAN устройства» —
     _validate_physical_device_vlan отклонял бы следующее же сохранение такого устройства (422 «Устройство
@@ -72,7 +73,7 @@ def _stale_group_subinterfaces_on_vlan(vlan_id: str, session: Session) -> list[s
     return [f"{r['device_name']} / {r['group_name']}" for r in find_stale_group_subinterfaces(session, vlan_id=vlan_id)]
 
 
-def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:
+def _auto_assign_new_domain_vlan_to_domain_devices(vlan: "VLAN", session: Session) -> None:
     """Правка "VLAN домена": VLAN, заведённый в «справочник VLAN» (VLANFormModal.vue) сразу с
     привязкой к домену — или привязанный к домену позже обновлением domain_id — должен появиться в
     блоке «VLAN устройства» ВСЕХ физических устройств этого домена (участников VLANDomainDevice и
@@ -96,12 +97,14 @@ def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Sessio
     device_ids = _domain_device_ids(domain.id, session)
     if not device_ids:
         return
-    already_assigned = set(session.scalars(
-        select(PhysicalDeviceVLAN.physical_device_id).where(
-            PhysicalDeviceVLAN.vlan_id == vlan.id,
-            PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
-        )
-    ).all())
+    already_assigned = set(
+        session.scalars(
+            select(PhysicalDeviceVLAN.physical_device_id).where(
+                PhysicalDeviceVLAN.vlan_id == vlan.id,
+                PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
+            )
+        ).all()
+    )
     for device_id in sorted(device_ids - already_assigned):
         session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan.id, description=vlan.description))
 
