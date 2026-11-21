@@ -10,6 +10,7 @@ HEAVY_EXPORT_MAX_CONCURRENT экспортов тяжёлых форматов; 
 
 Запуск: pytest backend/tests/test_diagram_export_concurrency.py -v
 """
+
 from __future__ import annotations
 
 import threading

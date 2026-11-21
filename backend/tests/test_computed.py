@@ -6,6 +6,7 @@ reporting.py (Лист 2 и Лист 3). Модуль не имеет завис
 
 Запуск: python3 -m unittest discover -s backend/tests -v
 """
+
 from __future__ import annotations
 
 import sys
@@ -47,15 +48,16 @@ class IpLabelTestCase(unittest.TestCase):
 
 class DeviceManagementPortsAndIpsTestCase(unittest.TestCase):
     def test_physical_interface_only(self):
-        names, ips = device_management_ports_and_ips(
-            [iface("eth0")], {"if1": [ip("if1", "10.0.0.5", 24)]}, [], {}
-        )
+        names, ips = device_management_ports_and_ips([iface("eth0")], {"if1": [ip("if1", "10.0.0.5", 24)]}, [], {})
         self.assertEqual(names, ["eth0"])
         self.assertEqual(ips, ["10.0.0.5/24"])
 
     def test_vlan_only_with_name(self):
         names, ips = device_management_ports_and_ips(
-            [], {}, [vlan_link("v1", "10.10.10.5", 24)], {"v1": vlan(100, "Mgmt")},
+            [],
+            {},
+            [vlan_link("v1", "10.10.10.5", 24)],
+            {"v1": vlan(100, "Mgmt")},
             vlan_label_with_name=True,
         )
         self.assertEqual(names, ["VLAN 100 — Mgmt"])
@@ -64,22 +66,30 @@ class DeviceManagementPortsAndIpsTestCase(unittest.TestCase):
     def test_vlan_only_without_name_for_strict_port_field(self):
         """Лист 2 отчета — строгое поле 'номер порта', имя VLAN туда не идёт."""
         names, _ = device_management_ports_and_ips(
-            [], {}, [vlan_link("v1", "10.10.10.5", 24)], {"v1": vlan(100, "Mgmt")},
+            [],
+            {},
+            [vlan_link("v1", "10.10.10.5", 24)],
+            {"v1": vlan(100, "Mgmt")},
             vlan_label_with_name=False,
         )
         self.assertEqual(names, ["VLAN 100"])
 
     def test_both_interface_and_vlan_combined(self):
         names, ips = device_management_ports_and_ips(
-            [iface("eth0")], {"if1": [ip("if1", "10.0.0.5", 24)]},
-            [vlan_link("v1", "10.10.10.5", 24)], {"v1": vlan(100, "Mgmt")},
+            [iface("eth0")],
+            {"if1": [ip("if1", "10.0.0.5", 24)]},
+            [vlan_link("v1", "10.10.10.5", 24)],
+            {"v1": vlan(100, "Mgmt")},
         )
         self.assertEqual(names, ["eth0", "VLAN 100 — Mgmt"])
         self.assertEqual(ips, ["10.0.0.5/24", "10.10.10.5/24"])
 
     def test_vlan_without_ip_address_contributes_no_ip(self):
         names, ips = device_management_ports_and_ips(
-            [], {}, [vlan_link("v1", ip_address=None)], {"v1": vlan(100, "Mgmt")},
+            [],
+            {},
+            [vlan_link("v1", ip_address=None)],
+            {"v1": vlan(100, "Mgmt")},
         )
         self.assertEqual(names, ["VLAN 100 — Mgmt"])
         self.assertEqual(ips, [])
@@ -87,7 +97,10 @@ class DeviceManagementPortsAndIpsTestCase(unittest.TestCase):
     def test_unknown_vlan_id_is_skipped_not_crashed(self):
         """vlan_map не содержит записи — не должно падать, просто пропускается."""
         names, ips = device_management_ports_and_ips(
-            [], {}, [vlan_link("missing-vlan", "10.10.10.5")], {},
+            [],
+            {},
+            [vlan_link("missing-vlan", "10.10.10.5")],
+            {},
         )
         self.assertEqual(names, [])
         self.assertEqual(ips, [])
@@ -96,7 +109,8 @@ class DeviceManagementPortsAndIpsTestCase(unittest.TestCase):
         names, ips = device_management_ports_and_ips(
             [iface("eth0"), iface("eth0")],  # одноимённый порт дважды
             {"if1": [ip("if1", "10.0.0.5", 24), ip("if1", "10.0.0.5", 24)]},
-            [], {},
+            [],
+            {},
         )
         self.assertEqual(names, ["eth0"])
         self.assertEqual(ips, ["10.0.0.5/24"])
@@ -105,7 +119,6 @@ class DeviceManagementPortsAndIpsTestCase(unittest.TestCase):
         names, ips = device_management_ports_and_ips([], {}, [], {})
         self.assertEqual(names, [])
         self.assertEqual(ips, [])
-
 
 
 def sub(id_, name, vlan_id="v10", parent="if1"):
@@ -132,7 +145,10 @@ class SubinterfaceTestCase(unittest.TestCase):
 
     def test_management_subinterface_adds_port_label_and_ip_to_device_management(self):
         ports, ips = device_management_ports_and_ips(
-            [iface("Gi0/1", "if2")], {"if2": [ip("if2", "192.168.1.1", 24)]}, [], {},
+            [iface("Gi0/1", "if2")],
+            {"if2": [ip("if2", "192.168.1.1", 24)]},
+            [],
+            {},
             management_subinterfaces=[sub("s1", "Gi0/0.99", parent="if1")],
             ips_by_subinterface={"s1": [ip("s1", "10.0.99.1", 24)]},
             port_name_by_id={"if1": "Gi0/0"},
@@ -147,6 +163,7 @@ class SubinterfaceTestCase(unittest.TestCase):
     def test_without_subinterface_arguments_the_result_is_unchanged(self):
         ports, ips = device_management_ports_and_ips([iface("Gi0/1", "if2")], {"if2": [ip("if2", "192.168.1.1", 24)]}, [], {})
         self.assertEqual((ports, ips), (["Gi0/1"], ["192.168.1.1/24"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_report_cleanup.py -v
 """
+
 from __future__ import annotations
 
 import logging
@@ -249,7 +250,8 @@ class TestThrottle:
 
     def test_directories_are_throttled_independently(self, tmp_path, clock):
         one, two = tmp_path / "one", tmp_path / "two"
-        one.mkdir(); two.mkdir()
+        one.mkdir()
+        two.mkdir()
         a, b = self._stale(one, "a.xlsx"), self._stale(two, "b.xlsx")
         assert cleanup_before_new_report(one) == 1
         assert cleanup_before_new_report(two) == 1 and not a.exists() and not b.exists()
@@ -293,9 +295,7 @@ class TestEndpointsKeepTheQuota:
     def test_all_three_generating_endpoints_respect_a_small_quota(self, client, report_dir, monkeypatch):
         monkeypatch.setattr(report_cleanup, "REPORT_MAX_FILES", 3)
         monkeypatch.setattr(report_cleanup, "REPORT_RETENTION_DAYS", 0)
-        config = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{
-            "height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"},
-            "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+        config = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
         template = client.post(f"{API}/report-templates", json={"name": "Квота А-10", "config": config}).json()["id"]
         for _ in range(3):
             assert client.post(f"{API}/reports/inventory").status_code == 200

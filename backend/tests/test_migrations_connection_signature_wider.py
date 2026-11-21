@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_migrations_connection_signature_wider.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -59,8 +60,7 @@ def _insert_interface(conn: sqlite3.Connection) -> str:
         (device_id, device_type_id, device_id[:12], _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, created_at, updated_at) "
-        "VALUES (?, ?, 'p1', 0, 1, 'trunk', ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, created_at, updated_at) VALUES (?, ?, 'p1', 0, 1, 'trunk', ?, ?)",
         (iface_id, device_id, _now(), _now()),
     )
     return iface_id
@@ -74,8 +74,7 @@ def _seed_connections(db_path: Path) -> dict[str, str]:
     for key, signature in (("legacy", LEGACY), ("short_new", NEW_FORMAT), ("long_new", LONG_NEW_FORMAT), ("none", None)):
         ids[key] = _uid()
         conn.execute(
-            "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, is_active, "
-            "port_config_approved_signature, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+            "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, is_active, port_config_approved_signature, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
             (ids[key], _insert_interface(conn), _insert_interface(conn), cable_id, signature, _now(), _now()),
         )
     conn.commit()
@@ -120,8 +119,8 @@ def test_downgrade_clears_new_format_signatures_and_keeps_legacy_ones(alembic_co
 
     assert _signature_column_type(db_path) == "VARCHAR(64)"
     assert _signature(db_path, ids["legacy"]) == LEGACY
-    assert _signature(db_path, ids["short_new"]) is None   # формат с `|` прежний код не сверяет
-    assert _signature(db_path, ids["long_new"]) is None    # и длиннее колонки — не вместился бы в PostgreSQL
+    assert _signature(db_path, ids["short_new"]) is None  # формат с `|` прежний код не сверяет
+    assert _signature(db_path, ids["long_new"]) is None  # и длиннее колонки — не вместился бы в PostgreSQL
     assert _signature(db_path, ids["none"]) is None
 
 

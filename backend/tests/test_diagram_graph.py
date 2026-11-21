@@ -8,13 +8,27 @@ collapse_threshold; regenerate не сбрасывает явно заданны
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_diagram_graph.py -v
 """
+
 from __future__ import annotations
 
 import json
 
 from app.models import (
-    Building, Connection, ConnectionType, DeviceInterface, DeviceSubinterface, DeviceType, DiagramGroupState, IPAddress,
-    InterfaceVLAN, PhysicalDevice, PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN, VLANDomain,
+    Building,
+    Connection,
+    ConnectionType,
+    DeviceInterface,
+    DeviceSubinterface,
+    DeviceType,
+    DiagramGroupState,
+    IPAddress,
+    InterfaceVLAN,
+    PhysicalDevice,
+    PhysicalDeviceVLAN,
+    SavedDiagram,
+    StructuralUnit,
+    VLAN,
+    VLANDomain,
 )
 from app.services.catalogs import seed_defaults
 from app.services.diagram_graph import (
@@ -392,7 +406,6 @@ def test_subinterfaces_do_not_count_as_ports_of_the_device_icon(db_session):
     assert GraphContext(db_session).interface_count(router.id) == 1
 
 
-
 def _edge_for_port_modes(db_session, source_mode: str, destination_mode: str) -> dict:
     """Ребро диаграммы между двумя портами с заданными режимами VLAN (access / trunk)."""
     server_type, switch_type = _seed_base_catalogs(db_session)
@@ -439,10 +452,25 @@ def test_clean_position_keeps_finite_numbers_and_drops_extra_keys(raw):
     assert cleaned == {"x": raw["x"], "y": raw["y"]}
 
 
-@pytest.mark.parametrize("raw", [
-    "str", None, 5, [1, 2], {}, {"x": 1}, {"y": 1}, {"x": "1", "y": 2}, {"x": True, "y": 2}, {"x": None, "y": 2},
-    {"x": float("nan"), "y": 1}, {"x": 1, "y": float("inf")}, {"x": 1, "y": float("-inf")}, {"x": {"a": 1}, "y": 1},
-])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "str",
+        None,
+        5,
+        [1, 2],
+        {},
+        {"x": 1},
+        {"y": 1},
+        {"x": "1", "y": 2},
+        {"x": True, "y": 2},
+        {"x": None, "y": 2},
+        {"x": float("nan"), "y": 1},
+        {"x": 1, "y": float("inf")},
+        {"x": 1, "y": float("-inf")},
+        {"x": {"a": 1}, "y": 1},
+    ],
+)
 def test_clean_position_rejects_everything_else(raw):
     assert clean_position(raw) is None
 

@@ -14,6 +14,7 @@ INFRA_REGISTRY_TEST_DATABASE_URL (маркер postgres_only), каждый — 
 
 Запуск: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest backend/tests/test_migrations_postgres.py
 """
+
 from __future__ import annotations
 
 import json
@@ -118,6 +119,7 @@ def _get_or_insert(connection, table: str, lookup: dict, **extra) -> str:
 
 # ----- структура схемы -----------------------------------------------------------------------------------------------
 
+
 class TestChain:
     def test_chain_has_a_single_head_and_the_database_is_stamped_with_it(self, migrated):
         heads = ScriptDirectory.from_config(_config()).get_heads()
@@ -137,12 +139,7 @@ class TestSchemaMatchesWhatTheAppNeeds:
         tables = set(inspector.get_table_names())
         missing_tables = {table.name for table in Base.metadata.tables.values()} - tables
         assert not missing_tables
-        missing_columns = {
-            f"{table.name}.{column.name}"
-            for table in Base.metadata.tables.values()
-            for column in table.columns
-            if column.name not in {c["name"] for c in inspector.get_columns(table.name)}
-        }
+        missing_columns = {f"{table.name}.{column.name}" for table in Base.metadata.tables.values() for column in table.columns if column.name not in {c["name"] for c in inspector.get_columns(table.name)}}
         assert not missing_columns
 
     def test_columns_left_behind_by_old_migrations_never_block_an_insert(self, migrated):
@@ -196,6 +193,7 @@ class TestSchemaMatchesWhatTheAppNeeds:
 
 # ----- ветки миграций, работающие с данными ---------------------------------------------------------------------------
 
+
 class TestMigrationsThatMoveData:
     def test_old_management_fields_move_into_interfaces(self, scratch):
         """e8c2f1a9b430: management_port/management_ip устройства → интерфейс управления и его IP; тип подключения из cable_type."""
@@ -243,8 +241,7 @@ class TestMigrationsThatMoveData:
         """b3f7a2c91d54: колонки status удалены (ALTER TABLE … DROP COLUMN), данные строк целы, сохранённые шаблоны переписаны, откат возвращает колонки."""
         revision = "b3f7a2c91d54"
         scratch.upgrade(_down_revision(revision))
-        config = {"sheets": [{"rows": [{"repeat": True, "data_source": {"root_entity": "information-systems", "filters": [{"path": "status", "op": "eq", "value": "active"}], "sort_by": "name"},
-                                         "cells": [{"col": 0, "kind": "field", "path": "name"}, {"col": 1, "kind": "field", "path": "status"}]}]}]}
+        config = {"sheets": [{"rows": [{"repeat": True, "data_source": {"root_entity": "information-systems", "filters": [{"path": "status", "op": "eq", "value": "active"}], "sort_by": "name"}, "cells": [{"col": 0, "kind": "field", "path": "name"}, {"col": 1, "kind": "field", "path": "status"}]}]}]}
         with scratch.engine.begin() as connection:
             device = insert_row(connection, "physical_devices", serial_number="SN-9", status="retired")
             system = insert_row(connection, "information_systems", name="ИС-9", status="planned")

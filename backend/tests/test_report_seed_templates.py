@@ -12,6 +12,7 @@ data-миграцию alembic/versions/b1f0a2265711_seed_report_builder_template
 Запуск: python3 -m unittest discover -s backend/tests -v
 Требует sqlalchemy/openpyxl/alembic (как test_report_grid.py) — при их отсутствии тесты пропускаются.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -31,7 +32,9 @@ try:
     from app.services.report_engine import ReportBuilderError
     from app.services.report_meta import build_entity_metadata
     from app.services.report_seed_templates import (
-        TEMPLATE_DESCRIPTION, TEMPLATE_NAME, default_registry_template_config,
+        TEMPLATE_DESCRIPTION,
+        TEMPLATE_NAME,
+        default_registry_template_config,
     )
 
     DEPS_AVAILABLE = True
@@ -66,10 +69,15 @@ class DefaultRegistryTemplateConfigTestCase(unittest.TestCase):
     def test_four_sheets_in_original_order(self):
         cfg = default_registry_template_config()
         titles = [s["title"] for s in cfg["sheets"]]
-        self.assertEqual(titles, [
-            "Перечень ИС", "Инвентаризац. физ. устройств ИС",
-            "Организация подключений", "Организация управления ВМ",
-        ])
+        self.assertEqual(
+            titles,
+            [
+                "Перечень ИС",
+                "Инвентаризац. физ. устройств ИС",
+                "Организация подключений",
+                "Организация управления ВМ",
+            ],
+        )
 
     def test_is_pure_function_no_shared_mutable_state(self):
         """Два вызова не должны возвращать общие вложенные списки/словари — иначе правка одного
@@ -77,8 +85,7 @@ class DefaultRegistryTemplateConfigTestCase(unittest.TestCase):
         cfg1 = default_registry_template_config()
         cfg2 = default_registry_template_config()
         cfg1["sheets"][0]["rows"][0]["cells"][0]["text"] = "испорчено"
-        self.assertNotEqual(cfg1["sheets"][0]["rows"][0]["cells"][0]["text"],
-                             cfg2["sheets"][0]["rows"][0]["cells"][0]["text"])
+        self.assertNotEqual(cfg1["sheets"][0]["rows"][0]["cells"][0]["text"], cfg2["sheets"][0]["rows"][0]["cells"][0]["text"])
 
     def test_every_header_fits_in_its_column(self):
         """Заголовки регламентированной формы — жирные, до 300 символов; в колонках по 20-30 символов они
@@ -99,8 +106,7 @@ class DefaultRegistryTemplateConfigTestCase(unittest.TestCase):
         """Заданная вручную ширина — минимум под данные: подгонка под заголовки только расширяет колонки."""
         from app.services.excel_layout import MAX_COLUMN_WIDTH
 
-        manual = {"Перечень ИС": [5, 26, 32, 26, 24, 18, 42, 30, 30, 16, 12, 24, 20, 30, 30, 24, 26, 26],
-                  "Организация управления ВМ": [22, 20, 20, 24, 20, 28, 22, 32, 20, 32]}
+        manual = {"Перечень ИС": [5, 26, 32, 26, 24, 18, 42, 30, 30, 16, 12, 24, 20, 30, 30, 24, 26, 26], "Организация управления ВМ": [22, 20, 20, 24, 20, 28, 22, 32, 20, 32]}
         for sheet in default_registry_template_config()["sheets"]:
             if sheet["title"] in manual:
                 for column, minimum in zip(sheet["columns"], manual[sheet["title"]]):
@@ -125,9 +131,7 @@ class SeedMigrationTestCase(unittest.TestCase):
         self.migration = _load_migration_module()
 
     def _table_rows(self, conn):
-        return conn.execute(
-            self.migration._report_templates.select()
-        ).mappings().all()
+        return conn.execute(self.migration._report_templates.select()).mappings().all()
 
     def test_upgrade_inserts_exactly_one_row_and_is_idempotent(self):
         with self.engine.begin() as conn:
@@ -153,9 +157,7 @@ class SeedMigrationTestCase(unittest.TestCase):
         with self.engine.begin() as conn:
             self.migration.op = _FakeOp(conn)
             self.migration.upgrade()
-            conn.execute(
-                self.migration._report_templates.update().values(config=json.dumps({"sheets": [], "params": []}))
-            )
+            conn.execute(self.migration._report_templates.update().values(config=json.dumps({"sheets": [], "params": []})))
             self.migration.downgrade()
             rows = self._table_rows(conn)
             self.assertEqual(len(rows), 1, "отредактированный пользователем шаблон не должен удаляться откатом")

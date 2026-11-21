@@ -7,6 +7,7 @@ docker-compose.yml требует лишь непустое значение, п
 
 Запуск: pytest backend/tests/test_weak_secrets_warning.py -v
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,6 +40,7 @@ def _warnings(caplog) -> list[str]:
 
 # --- Чистые функции проверки ---------------------------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("token", ["change_me", "change_me_long_random_string", "ChangeMe", "  CHANGE_ME  ", "changeme", "secret", "password"])
 def test_placeholders_are_weak_regardless_of_case_and_padding(token):
     assert weak_setup_token(token) and weak_db_password(token)
@@ -64,6 +66,7 @@ def test_a_generated_token_is_strong():
 
 
 # --- Предупреждение при старте -------------------------------------------------------------------------------------------
+
 
 def test_a_placeholder_token_produces_a_warning_without_the_value(secrets_config, caplog):
     secrets_config(token="change_me_long_random_string")

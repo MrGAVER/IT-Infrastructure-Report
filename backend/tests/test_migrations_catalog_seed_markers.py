@@ -10,6 +10,7 @@
 
 Запуск: pytest backend/tests/test_migrations_catalog_seed_markers.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

@@ -541,7 +541,7 @@ class IPAddress(TimestampMixin, Base):
     один UI (см. комментарий в ContainerFormModal.vue "у контейнера нет своего IP на уровне
     отчёта") — мёртвая колонка, удалена той же миграцией, а не активирована задним числом."""
     __tablename__ = "ip_addresses"
-    # Индекс по владельцу создаёт миграция d8e35a1c7f60; описан здесь, чтобы схема из миграций и модель совпадали (R1-02).
+    # Индекс по владельцу создаёт миграция d8e35a1c7f60; описан здесь, чтобы схема из миграций и модель совпадали.
     __table_args__ = (Index("ix_ip_addresses_owner", "owner_type", "owner_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
@@ -586,7 +586,7 @@ class PhysicalDeviceVLAN(TimestampMixin, Base):
     __tablename__ = "physical_device_vlans"
     __table_args__ = (
         UniqueConstraint("physical_device_id", "vlan_id", name="uq_physical_device_vlan"),
-        # Имя индекса — как в миграциях (`index=True` дало бы ix_physical_device_vlans_physical_device_id): так схема совпадает (R1-02).
+        # Имя индекса — как в миграциях (`index=True` дало бы ix_physical_device_vlans_physical_device_id): так схема совпадает.
         Index("ix_physical_device_vlans_device_id", "physical_device_id"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -712,7 +712,7 @@ class DeployedSoftware(TimestampMixin, Base):
     двух разных формах и хранились в двух отдельных таблицах, отличавшихся только именем FK-
     колонки владельца."""
     __tablename__ = "deployed_software"
-    # Индексы создаёт миграция c4a91e6f2b83 (поиск по владельцу и по записи каталога); описаны здесь, чтобы схема совпадала (R1-02).
+    # Индексы создаёт миграция c4a91e6f2b83 (поиск по владельцу и по записи каталога); описаны здесь, чтобы схема совпадала.
     __table_args__ = (
         Index("ix_deployed_software_owner", "owner_type", "owner_id"),
         Index("ix_deployed_software_software_asset_id", "software_asset_id"),
@@ -898,13 +898,12 @@ class User(TimestampMixin, Base):
 
 class AuthSession(Base):
     """Активная сессия входа. Хранится ХЕШ токена (sha256), а не сам токен — токен виден клиенту
-    только один раз, в ответе на /api/v1/auth/login, и не восстановим из БД (в т.ч. из стухшей
-    infra_registry.db в репозитории, см. память проекта про этот файл). user_agent/ip_address —
+    только один раз, в ответе на /api/v1/auth/login, и не восстановим из БД (в т.ч. из копии базы). user_agent/ip_address —
     только для отображения администратору списка активных входов (см. GET /auth/sessions), не
     участвуют в проверке подлинности запроса."""
     __tablename__ = "auth_sessions"
     # Уникальность хеша — именованное ограничение, как в миграциях (раньше `unique=True, index=True` давало unique-индекс под другим
-    # именем и вечное расхождение схемы из миграций с моделью, R1-02). Поиск по хешу идёт по индексу этого ограничения.
+    # именем и вечное расхождение схемы из миграций с моделью). Поиск по хешу идёт по индексу этого ограничения.
     __table_args__ = (UniqueConstraint("token_hash", name="uq_auth_sessions_token_hash"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     token_hash: Mapped[str] = mapped_column(String(64))
@@ -994,7 +993,7 @@ class DiagramLayout(TimestampMixin, Base):
     (POST /diagrams/{id}/regenerate) — раскладка переживает пересборку графа из реестра."""
     __tablename__ = "diagram_layouts"
     # В базе из миграций — UNIQUE-ограничение и отдельный обычный индекс (не один unique-индекс, как давало `unique=True, index=True`);
-    # модель описывает ровно это, чтобы схема из миграций и модели совпадали (R1-02).
+    # модель описывает ровно это, чтобы схема из миграций и модели совпадали.
     __table_args__ = (Index("ix_diagram_layouts_saved_diagram_id", "saved_diagram_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), unique=True)

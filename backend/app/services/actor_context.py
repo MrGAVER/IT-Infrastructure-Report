@@ -8,6 +8,7 @@ auth_gate_middleware (services/auth/gate.py) на время запроса, а 
 ContextVar, а не глобальная переменная и не request.state: значение изолировано между параллельными
 запросами и корректно переходит в потоки синхронных эндпоинтов (anyio копирует контекст).
 """
+
 from __future__ import annotations
 
 from contextvars import ContextVar
@@ -20,6 +21,7 @@ class Actor:
     """user_id/username — None, пока аутентификация выключена или запрос анонимный; ip — адрес клиента
     (None, если он неизвестен). username хранится вместе с id, чтобы запись журнала оставалась
     читаемой после удаления учётной записи."""
+
     user_id: Optional[str] = None
     username: Optional[str] = None
     ip: Optional[str] = None

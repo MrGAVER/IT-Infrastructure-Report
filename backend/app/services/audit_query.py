@@ -11,6 +11,7 @@
 «новые сверху, затем id»: без второго ключа записи с одинаковым временем могли бы «переезжать»
 между страницами при листании.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -55,9 +56,7 @@ def list_audit_log(session: Session, query: AuditQuery, *, offset: int, limit: i
     ВСЕМУ журналу (не зависят от поиска и фильтров)."""
     where = _conditions(query)
     total = session.scalar(select(func.count(AuditLog.id)).where(*where)) or 0
-    rows = session.scalars(
-        select(AuditLog).where(*where).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit)
-    ).all()
+    rows = session.scalars(select(AuditLog).where(*where).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit)).all()
     return {
         "items": [serialize(row) for row in rows],
         "total": total,

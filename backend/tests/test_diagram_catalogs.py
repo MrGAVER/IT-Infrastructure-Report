@@ -4,6 +4,7 @@ DeviceType.category_id, заведённые для диаграммы топо�
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_diagram_catalogs.py -v
 """
+
 from __future__ import annotations
 
 from sqlalchemy import select

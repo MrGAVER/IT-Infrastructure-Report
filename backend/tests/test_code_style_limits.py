@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tomllib
@@ -45,7 +46,7 @@ def test_the_limit_is_not_silently_raised():
 
 # --- Исключения из `ruff format` (ИА-05) ---------------------------------------------------------------------------------------------------
 # Число модулей-исключений на момент ИА-05. Менять его можно только вниз: отформатировали модуль — удалили запись из pyproject.toml и уменьшили число.
-MAX_EXCLUDED_FILES = 271
+MAX_EXCLUDED_FILES = 146
 CI_FORMAT_COMMAND = "ruff format --check backend"
 CI_FILE = ROOT / ".github" / "workflows" / "ci.yml"
 
@@ -97,3 +98,60 @@ def test_ci_checks_the_format_of_the_whole_backend_in_one_step():
     workflow = yaml.safe_load(CI_FILE.read_text(encoding="utf-8"))
     commands = [str(step["run"]).strip() for job in workflow["jobs"].values() for step in job.get("steps", []) if "ruff format" in str(step.get("run", ""))]
     assert commands == [CI_FORMAT_COMMAND]
+
+
+# --- Ссылки на номера замечаний ревью и на «память проекта» ---------------------------------------------------------------------------------
+# Номера замечаний (R1-07, A-05, ИА-01…) теряют смысл вместе с самим отчётом, а «память проекта» — артефакт вне репозитория, читатель не может его
+# открыть. В комментарии пишется ПОЧЕМУ так (инвариант), история — в CHANGELOG.md и git. Первая волна почистила файлы вне владения первого исполнителя
+# (API и безопасность); файлы из списка ниже правит вторая волна после слияния его PR (иначе правки комментариев конфликтовали бы с правками логики).
+# Список только сокращается: очистили файл — удалите его отсюда, тест не терпит устаревших записей.
+REVIEW_REFERENCE = re.compile(
+    r"память проекта|\bR\d?-\d+\b|\b(?:ИА|ИБ|BE|FE|UI|F)-\d+\b|\b[AB]-\d{2}\b|\b[СНП]-\d+\b|код-ревью|\bревью\b", re.IGNORECASE
+)
+REVIEW_REFERENCES_UNTIL_WAVE_2 = (
+    "api/device_stacks.py",
+    "api/diagram_schemas.py",
+    "api/diagrams.py",
+    "api/port_config_schemas.py",
+    "api/report_builder.py",
+    "api/report_schemas.py",
+    "api/reports.py",
+    "api/resource_schemas.py",
+    "api/schema_base.py",
+    "api/vlan.py",
+    "main.py",
+    "services/auth/__init__.py",
+    "services/auth/_common.py",
+    "services/auth/gate.py",
+    "services/auth/guards.py",
+    "services/auth/proxy_headers.py",
+    "services/auth/settings.py",
+    "services/auth/users.py",
+    "services/body_limit.py",
+    "services/crud/__init__.py",
+    "services/crud/deletion.py",
+    "services/crud/interfaces.py",
+    "services/crud/payload.py",
+    "services/crud/validators.py",
+    "services/diagram_icons.py",
+    "services/login_throttle.py",
+)
+
+
+def _files_with_review_references() -> set[str]:
+    return {
+        path.relative_to(APP_DIR).as_posix()
+        for path in APP_DIR.rglob("*.py")
+        if any(REVIEW_REFERENCE.search(line) for line in path.read_text(encoding="utf-8").splitlines())
+    }
+
+
+def test_comments_do_not_refer_to_review_numbers_or_to_the_project_memory():
+    unexpected = sorted(_files_with_review_references() - set(REVIEW_REFERENCES_UNTIL_WAVE_2))
+    assert unexpected == [], f"замените номер замечания/«память проекта» описанием инварианта (почему так): {unexpected}"
+
+
+def test_the_review_reference_allowlist_has_no_stale_entries():
+    stale = sorted(set(REVIEW_REFERENCES_UNTIL_WAVE_2) - _files_with_review_references())
+    assert stale == [], f"файлы уже чисты — удалите их из REVIEW_REFERENCES_UNTIL_WAVE_2: {stale}"
+    assert len(REVIEW_REFERENCES_UNTIL_WAVE_2) == len(set(REVIEW_REFERENCES_UNTIL_WAVE_2))

@@ -7,6 +7,7 @@ applied, перезапись связей порта и группы, груп�
 Тесты написаны на прежнем коде и проходят без правок после рефакторинга.
 Запуск: pytest backend/tests/test_vlan_mode_cascade_apply_behaviour.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -84,8 +85,7 @@ def group_pair(client, cable):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     devices = {name: _device(client, f"APL-{name}", (v10, v20)) for name in ("A", "B")}
     for name, device in devices.items():
-        _sync(client, device["id"], [{"name": f"{name.lower()}1", "group_key": "g"}, {"name": f"{name.lower()}2", "group_key": "g"}],
-              [{"key": "g", "name": f"Группа {name}", "vlan_mode": "trunk", "vlan_ids": [v10["id"], v20["id"]]}])
+        _sync(client, device["id"], [{"name": f"{name.lower()}1", "group_key": "g"}, {"name": f"{name.lower()}2", "group_key": "g"}], [{"key": "g", "name": f"Группа {name}", "vlan_mode": "trunk", "vlan_ids": [v10["id"], v20["id"]]}])
     pa, pb = _ports(client, devices["A"]["id"]), _ports(client, devices["B"]["id"])
     _connect(client, cable, pa["a1"], pb["b1"])
     _connect(client, cable, pa["a2"], pb["b2"])

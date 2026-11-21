@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_diagram_export_package.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -90,6 +91,5 @@ def test_a_stale_monkeypatch_on_the_facade_fails_loudly_instead_of_silently_doin
 
 def test_every_private_name_the_facade_reexports_exists_in_a_submodule():
     # Страж реэкспорта для существующих тестов: переименование функции в подмодуле должно ломаться здесь, а не в десятке тестов.
-    for name in ("_device_fill_color", "_vlan_label", "_custom_icon_tile_svg", "_rasterize_custom_icon_png", "_standalone_custom_svg",
-                 "_drawio_edge_anchors", "_embed_vsdx_category_icons", "_finalize_vsdx_package"):
+    for name in ("_device_fill_color", "_vlan_label", "_custom_icon_tile_svg", "_rasterize_custom_icon_png", "_standalone_custom_svg", "_drawio_edge_anchors", "_embed_vsdx_category_icons", "_finalize_vsdx_package"):
         assert callable(getattr(diagram_export, name)), name

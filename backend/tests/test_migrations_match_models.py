@@ -16,6 +16,7 @@ SQLite: ограничения UNIQUE в сравнении пропускают
 Запуск: `pytest backend/tests/test_migrations_match_models.py` (SQLite);
         INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest backend/tests/test_migrations_match_models.py (PostgreSQL).
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -77,9 +78,7 @@ def _describe(item) -> str:
 def schema_drift(engine: sa.engine.Engine, metadata: sa.MetaData = Base.metadata) -> set[str]:
     """Расхождения между базой и metadata; compare_type — как в alembic/env.py."""
     with engine.connect() as connection:
-        context = MigrationContext.configure(
-            connection, opts={"compare_type": True, "include_object": make_include_object(connection.dialect.name)}
-        )
+        context = MigrationContext.configure(connection, opts={"compare_type": True, "include_object": make_include_object(connection.dialect.name)})
         return {_describe(item) for item in _flatten(compare_metadata(context, metadata))}
 
 
@@ -87,10 +86,7 @@ def _assert_matches_whitelist(drift: set[str], expected: set[str]) -> None:
     new, fixed = sorted(drift - expected), sorted(expected - drift)
     problems = []
     if new:
-        problems.append(
-            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ дописывайте строки в EXPECTED_DRIFT:\n  "
-            + "\n  ".join(new)
-        )
+        problems.append("Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ дописывайте строки в EXPECTED_DRIFT:\n  " + "\n  ".join(new))
     if fixed:
         problems.append("Эти расхождения уже исправлены — удалите их из EXPECTED_DRIFT, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed))
     assert not problems, "\n\n".join(problems)
@@ -107,6 +103,7 @@ def _models_copy() -> sa.MetaData:
 # ----------------------------------------------------------------------------------------------------------------------
 # Общие проверки (вызываются и на SQLite, и на PostgreSQL)
 # ----------------------------------------------------------------------------------------------------------------------
+
 
 def _check_guard(url: str, expected: set[str]) -> None:
     engine = sa.create_engine(url)
@@ -158,6 +155,7 @@ def _check_missing_indexes_are_created(url: str) -> None:
 # ----------------------------------------------------------------------------------------------------------------------
 # SQLite
 # ----------------------------------------------------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def sqlite_url():
@@ -250,6 +248,7 @@ def test_the_index_migration_is_idempotent_on_sqlite():
 # ----------------------------------------------------------------------------------------------------------------------
 # PostgreSQL (INFRA_REGISTRY_TEST_DATABASE_URL)
 # ----------------------------------------------------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def postgres_database():

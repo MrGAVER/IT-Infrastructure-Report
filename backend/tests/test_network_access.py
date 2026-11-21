@@ -3,6 +3,7 @@
 Фильтр клиентов — самый внешний слой HTTP-защиты (app.services.network_access): адрес вне списка получает 403
 до проверки Host и аутентификации. Запуск: pytest backend/tests/test_network_access.py -v
 """
+
 from __future__ import annotations
 
 import logging

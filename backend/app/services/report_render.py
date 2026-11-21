@@ -5,6 +5,7 @@
 диспетчеризация по template.format), поэтому этот модуль по-прежнему содержит общую для обоих
 форматов _sheet_rows() (нужна блокам-таблицам docx) и preview_rows() (нужна предпросмотру docx —
 предпросмотр xlsx переехал в report_grid.preview_grid())."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,7 +15,11 @@ from sqlalchemy.orm import Session
 
 from .computed import local_timestamp_suffix
 from .report_engine import (
-    ReportBuilderError, ReportContext, column_value, iter_report_rows, safe_report_filename,
+    ReportBuilderError,
+    ReportContext,
+    column_value,
+    iter_report_rows,
+    safe_report_filename,
     substitute_params,
 )
 
@@ -28,19 +33,22 @@ def _sheet_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, Any
         raise ReportBuilderError(f"У листа '{sheet.get('title')}' нет ни одной колонки")
 
     out: list[list[Any]] = []
-    for i, (row, expand_rel, expand_obj) in enumerate(iter_report_rows(
-        ctx, root_entity,
-        expand=sheet.get("expand"),
-        include_empty_expand=sheet.get("include_empty_expand", True),
-        filters=sheet.get("filters"),
-        sort_by=sheet.get("sort_by"),
-    ), 1):
+    for i, (row, expand_rel, expand_obj) in enumerate(
+        iter_report_rows(
+            ctx,
+            root_entity,
+            expand=sheet.get("expand"),
+            include_empty_expand=sheet.get("include_empty_expand", True),
+            filters=sheet.get("filters"),
+            sort_by=sheet.get("sort_by"),
+        ),
+        1,
+    ):
         out.append([column_value(ctx, root_entity, row, expand_rel, expand_obj, c, i, params) for c in columns])
     return out
 
 
-def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str,
-                params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None) -> Path:
+def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str, params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None) -> Path:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
@@ -87,9 +95,7 @@ def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, te
     return path
 
 
-def build_report_from_template(session: Session, template, report_dir: Path,
-                                params: dict[str, Any] | None = None,
-                                structural_unit_ids: list[str] | None = None) -> Path:
+def build_report_from_template(session: Session, template, report_dir: Path, params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None) -> Path:
     """template — объект ReportTemplate (или любой с .format/.config/.name).
 
     structural_unit_ids — необязательный runtime-фильтр по структурным единицам размещения
@@ -100,12 +106,11 @@ def build_report_from_template(session: Session, template, report_dir: Path,
 
     config = json.loads(template.config or "{}")
     if template.format == "docx":
-        return build_docx(session, config, report_dir, template_name=template.name, params=params,
-                           structural_unit_ids=structural_unit_ids)
+        return build_docx(session, config, report_dir, template_name=template.name, params=params, structural_unit_ids=structural_unit_ids)
     if template.format == "xlsx":
         from .report_grid import build_xlsx_grid  # локальный импорт: report_grid не зависит от этого модуля
-        return build_xlsx_grid(session, config, report_dir, template_name=template.name, params=params,
-                                structural_unit_ids=structural_unit_ids)
+
+        return build_xlsx_grid(session, config, report_dir, template_name=template.name, params=params, structural_unit_ids=structural_unit_ids)
     raise ReportBuilderError(f"Неизвестный формат отчёта: {template.format}")
 
 
@@ -121,10 +126,14 @@ def preview_rows(session: Session, config: dict[str, Any], *, limit: int = 20) -
         except ReportBuilderError as e:
             result["sections"].append({"title": block.get("title", ""), "error": str(e)})
             continue
-        result["sections"].append({
-            "title": block.get("title", ""), "headers": headers,
-            "rows": rows[:limit], "total": len(rows),
-        })
+        result["sections"].append(
+            {
+                "title": block.get("title", ""),
+                "headers": headers,
+                "rows": rows[:limit],
+                "total": len(rows),
+            }
+        )
     return result
 
 

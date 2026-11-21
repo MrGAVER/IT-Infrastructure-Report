@@ -6,6 +6,7 @@ services/crud/stack_vlan_settings.py).
 
 Запуск:  pytest backend/tests/test_device_stack_vlans.py -v
 """
+
 from __future__ import annotations
 
 from app.models import DeviceInterface, InterfaceVLAN, PhysicalDeviceVLAN
@@ -228,10 +229,14 @@ class TestLockedOnDevice:
 
     def test_device_form_saves_unchanged_shared_row_and_edits_other_vlans(self, client):
         a, _, _, _, v10, v20 = self._shared(client)
-        r = _set_device_vlans(client, a["id"], [
-            {"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True, "description": "новое описание"},
-            {"vlan_id": v20["id"], "ip_address": "10.0.20.7", "prefix_length": 24},
-        ])
+        r = _set_device_vlans(
+            client,
+            a["id"],
+            [
+                {"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True, "description": "новое описание"},
+                {"vlan_id": v20["id"], "ip_address": "10.0.20.7", "prefix_length": 24},
+            ],
+        )
         assert r.status_code == 200, r.text
         stored = _stored(client, a["id"])
         assert stored[v10["id"]]["description"] == "новое описание"  # описание не входит в общую настройку
@@ -350,8 +355,10 @@ class TestRemoveSetting:
     def test_remove_from_devices_is_refused_while_a_port_uses_the_vlan(self, client, db_session):
         a, b, _, stack, v = self._shared(client)
         port = DeviceInterface(physical_device_id=a["id"], name="Gi1/0/1")
-        db_session.add(port); db_session.flush()
-        db_session.add(InterfaceVLAN(interface_id=port.id, vlan_id=v["id"], mode="trunk")); db_session.commit()
+        db_session.add(port)
+        db_session.flush()
+        db_session.add(InterfaceVLAN(interface_id=port.id, vlan_id=v["id"], mode="trunk"))
+        db_session.commit()
 
         r = client.delete(f"/api/v1/device-stacks/{stack['id']}/vlans/{v['id']}", params={"remove_from_devices": "true"})
 
@@ -396,8 +403,7 @@ class TestAddingAMember:
     def test_preview_hides_unchanged_and_is_empty_without_settings(self, client):
         stack, v10, v20 = self._stack_with_settings(client)
         twin = _device(client, "CL-AM-3")
-        assert _set_device_vlans(client, twin["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True},
-                                                      {"vlan_id": v20["id"], "ip_address": "10.0.20.1", "prefix_length": 24}]).status_code == 200
+        assert _set_device_vlans(client, twin["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True}, {"vlan_id": v20["id"], "ip_address": "10.0.20.1", "prefix_length": 24}]).status_code == 200
         data = self._preview(client, stack["id"], twin).json()
         assert (data["changes"], data["unchanged_count"]) == ([], 2)
         plain = _stack(client, "Без настроек", [])

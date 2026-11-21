@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_diagram_name_cleaning.py -v
 """
+
 from __future__ import annotations
 
 from urllib.parse import unquote

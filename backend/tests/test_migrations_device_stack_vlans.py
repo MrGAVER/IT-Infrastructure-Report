@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_migrations_device_stack_vlans.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -61,8 +62,7 @@ def test_unique_pair_and_vlan_without_cascade_but_stack_with_cascade(alembic_con
     command.upgrade(cfg, TARGET_REVISION)
     with _connect(db_path) as conn:
         stack_id, vlan_id = _seed_stack_and_vlan(conn)
-        insert = ("INSERT INTO device_stack_vlans (id, stack_id, vlan_id, is_management, created_at, updated_at) "
-                  "VALUES (?, ?, ?, 0, '2026-01-01', '2026-01-01')")
+        insert = "INSERT INTO device_stack_vlans (id, stack_id, vlan_id, is_management, created_at, updated_at) VALUES (?, ?, ?, 0, '2026-01-01', '2026-01-01')"
         conn.execute(insert, ("a", stack_id, vlan_id))
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(insert, ("b", stack_id, vlan_id))  # одна настройка на пару «стек — VLAN»

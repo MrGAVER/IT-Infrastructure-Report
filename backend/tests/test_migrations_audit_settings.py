@@ -57,10 +57,13 @@ def _insert_settings(db: Database, **values) -> None:
         )
 
 
-def test_the_migration_continues_the_single_chain_and_is_the_head():
+def test_the_migration_continues_the_single_chain():
+    """Миграция продолжает цепочку, а сама цепочка остаётся линейной (одна голова). Позже в неё добавляются новые миграции, поэтому
+    «голова» — не эта ревизия: проверяется, что она лежит на пути к голове."""
     script = ScriptDirectory.from_config(alembic_config())
     assert script.get_revision(TARGET_REVISION).down_revision == PRE_REVISION
-    assert script.get_heads() == [TARGET_REVISION]
+    (head,) = script.get_heads()
+    assert TARGET_REVISION in {revision.revision for revision in script.iterate_revisions(head, PRE_REVISION)}
 
 
 def test_upgrade_creates_an_empty_settings_table_and_keeps_the_audit_log(database):

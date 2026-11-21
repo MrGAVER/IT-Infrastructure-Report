@@ -1,10 +1,11 @@
-"""Проверка параметров запросов формирования отчётов и предпросмотра (A-10).
+"""Проверка параметров запросов формирования отчётов и предпросмотра.
 
 Эти POST-эндпоинты доступны роли viewer (`READ_ONLY_POST_PATHS`) и при выключенной аутентификации — любому клиенту, а тело
 запроса раньше шло в код как есть: `limit=10**9` собирал огромную сетку в памяти, `limit="x"` и `config` не-словарь давали
 500, `structural_unit_ids` или `params` неподходящего типа падали уже внутри построения отчёта. Здесь — единые проверки с
 понятным ответом 422; сообщения в стиле остальных 422 приложения (`detail: str`).
 """
+
 from __future__ import annotations
 
 import math
@@ -63,11 +64,7 @@ def parse_structural_unit_ids(raw: Any) -> list[str] | None:
     """`structural_unit_ids`: `null` или пустой список — без фильтра (None), иначе список непустых строк-идентификаторов."""
     if raw is None:
         return None
-    valid = (
-        isinstance(raw, list)
-        and len(raw) <= MAX_STRUCTURAL_UNIT_IDS
-        and all(isinstance(item, str) and 0 < len(item) <= MAX_ID_LENGTH for item in raw)
-    )
+    valid = isinstance(raw, list) and len(raw) <= MAX_STRUCTURAL_UNIT_IDS and all(isinstance(item, str) and 0 < len(item) <= MAX_ID_LENGTH for item in raw)
     if not valid:
         raise HTTPException(422, "structural_unit_ids должен быть списком идентификаторов")
     return raw or None

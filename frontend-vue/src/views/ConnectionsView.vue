@@ -7,8 +7,8 @@ import { useDevicesStore } from '../stores/devices'
 import { useAuthStore } from '../stores/auth'
 import { deleteResource } from '../api/client'
 import { useToast } from '../composables/useToast'
+import { useConnectionPortDialogs } from '../composables/useConnectionPortDialogs'
 import type { Connection } from '../api/types'
-import { facetsLabel, formatVlans, modeAndVlansLabel, modeLabel, roleLabel } from '../utils/portConfig'
 import { debounce } from '../utils/debounce'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
@@ -16,6 +16,7 @@ import PortSyncPlanModal from '../components/PortSyncPlanModal.vue'
 import StatCard from '../components/StatCard.vue'
 import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import ListEmptyRow from '../components/ListEmptyRow.vue'
+import ConnectionTableRow from '../components/ConnectionTableRow.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConnectionCanvasModal from '../components/ConnectionCanvasModal.vue'
 import PortConfigReviewModal from '../components/PortConfigReviewModal.vue'
@@ -45,64 +46,20 @@ async function closeCanvas() {
   await dashboard.refreshAfterChange() // подключения, созданные на схеме, должны сразу попасть в таблицу
 }
 
-// Прямое управление портами устройства из строки таблицы — без захода в форму подключения
-// (см. DevicePortsModal.vue). Connection отдаёт только *_interface_id и уже резолвленные
-// *_name (enrich_connections() на бэкенде), без physical_device_id напрямую — id устройства
-// находим через уже загруженный каталог 'interfaces' (ConnectionsView грузит его в onMounted).
-const portsTarget = ref<{ deviceId: string; deviceLabel: string } | null>(null)
-function openPortsForInterface(interfaceId: string, deviceLabel: string) {
-  const deviceId = catalogs.indexOf('interfaces').get(interfaceId)?.physical_device_id as string | undefined
-  if (!deviceId) return
-  portsTarget.value = { deviceId, deviceLabel }
-}
-function closePorts() {
-  portsTarget.value = null
-}
-async function onPortsSaved() {
-  closePorts()
-  // Переименование/добавление порта могло изменить то, что показывает таблица
-  // (source_interface_name/destination_interface_name резолвятся один раз при загрузке
-  // подключений), поэтому перечитываем список — тот же принцип, что onSaved() ниже.
-  await dashboard.refreshAfterChange()
-}
-
-// Проверка ролей портов-соседей (см. services/port_config.py): строка с расхождением/одобрением
-// открывает модалку, где расхождение одобряют или устраняют.
-const reviewing = ref<Connection | null>(null)
-// Окно плана «Согласовать по правилам» для всех подключений с неодобренным расхождением.
-const syncPlanOpen = ref(false)
-
-/** Из окна проверки — к настройке режима и VLAN порта: окно проверки закрываем, открываем порты
- * устройства; после их сохранения таблица перечитывается (onPortsSaved), и статус пересчитывает сервер. */
-function manageFromReview(target: { interfaceId: string; deviceLabel: string }) {
-  reviewing.value = null
-  openPortsForInterface(target.interfaceId, target.deviceLabel)
-}
-
-// Правка роли, режима и VLAN одного порта подключения (PortConfigEditModal.vue) — из строки таблицы и из окна
-// проверки расхождения. Таблицу после сохранения перечитывает само окно.
-const editing = ref<{ connection: Connection; side: 'source' | 'destination' } | null>(null)
-function editPort(connection: Connection, side: 'source' | 'destination') {
-  editing.value = { connection, side }
-}
-function editPortFromReview(side: 'source' | 'destination') {
-  const connection = reviewing.value
-  reviewing.value = null
-  if (connection) editPort(connection, side)
-}
-/** Из окна правки порта — к окну всех портов устройства (например, чтобы изменить группу, задающую VLAN). */
-function manageFromEdit(target: { interfaceId: string; deviceLabel: string }) {
-  editing.value = null
-  openPortsForInterface(target.interfaceId, target.deviceLabel)
-}
-
-/** Обе стороны подключения для строки с расхождением: порт, роль, режим, VLAN. */
-function sidesOf(c: Connection) {
-  return [
-    { key: 'source', port: c.source_interface_name, role: c.source_port_role, mode: c.source_vlan_mode, vlans: c.source_vlans },
-    { key: 'destination', port: c.destination_interface_name, role: c.destination_port_role, mode: c.destination_vlan_mode, vlans: c.destination_vlans },
-  ]
-}
+// Окна портов устройства, проверки расхождения, правки порта и плана согласования — composables/useConnectionPortDialogs.ts.
+const {
+  portsTarget,
+  openPortsForInterface,
+  closePorts,
+  onPortsSaved,
+  reviewing,
+  syncPlanOpen,
+  manageFromReview,
+  editing,
+  editPort,
+  editPortFromReview,
+  manageFromEdit,
+} = useConnectionPortDialogs()
 const bulkApproving = ref(false)
 
 // Поиск уходит на сервер, поэтому не на каждую букву. Смена фильтра — сразу и отменяет
@@ -282,103 +239,18 @@ async function removeConnection(c: Connection) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in dashboard.items" :key="c.id">
-              <td>
-                <span class="devname">{{ c.source_device_name }}</span>
-                <span class="portname mono">
-                  {{ c.source_interface_name }}
-                  <button
-                    v-if="auth.canWrite"
-                    type="button"
-                    class="port-manage-btn"
-                    data-action="edit-port-source"
-                    aria-label="Изменить роль, режим и VLAN порта источника"
-                    title="Изменить роль, режим и VLAN порта"
-                    @click="editPort(c, 'source')"
-                  >
-                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
-                  </button>
-                  <button
-                    v-if="auth.canWrite"
-                    type="button"
-                    class="port-manage-btn"
-                    aria-label="Управлять портами исходного устройства"
-                    title="Управлять портами устройства"
-                    @click="openPortsForInterface(c.source_interface_id, c.source_device_name)"
-                  >
-                    <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
-                  </button>
-                </span>
-              </td>
-              <td class="link-cell">
-                <svg class="icon"><use href="/icons.svg#i-network" /></svg>
-              </td>
-              <td>
-                <span class="devname">{{ c.destination_device_name }}</span>
-                <span class="portname mono">
-                  {{ c.destination_interface_name }}
-                  <button
-                    v-if="auth.canWrite"
-                    type="button"
-                    class="port-manage-btn"
-                    data-action="edit-port-destination"
-                    aria-label="Изменить роль, режим и VLAN порта назначения"
-                    title="Изменить роль, режим и VLAN порта"
-                    @click="editPort(c, 'destination')"
-                  >
-                    <svg class="icon"><use href="/icons.svg#i-edit" /></svg>
-                  </button>
-                  <button
-                    v-if="auth.canWrite"
-                    type="button"
-                    class="port-manage-btn"
-                    aria-label="Управлять портами конечного устройства"
-                    title="Управлять портами устройства"
-                    @click="openPortsForInterface(c.destination_interface_id, c.destination_device_name)"
-                  >
-                    <svg class="icon"><use href="/icons.svg#i-settings" /></svg>
-                  </button>
-                </span>
-              </td>
-              <td>{{ c.connection_type_name }}</td>
-              <td class="roles-cell">
-                <template v-if="c.port_config_status === 'ok'">
-                  {{ roleLabel(c.source_port_role) }}
-                  <span v-if="c.source_vlan_mode" class="role-line config-line">{{ modeAndVlansLabel(c.source_vlan_mode, c.source_vlans) }}</span>
-                </template>
-                <template v-else>
-                  <span v-for="side in sidesOf(c)" :key="side.key" class="role-line">
-                    <span class="mono">{{ side.port }}</span>: <span :class="{ diff: c.port_config_diff.includes('role') }">{{ roleLabel(side.role) }}</span> ·
-                    <span :class="{ diff: c.port_config_diff.includes('mode') }">{{ modeLabel(side.mode) }}</span> ·
-                    <span :class="{ diff: c.port_config_diff.includes('vlans') }">VLAN {{ formatVlans(side.vlans) }}</span>
-                  </span>
-                  <button
-                    type="button"
-                    class="port-badge"
-                    :class="c.port_config_status"
-                    :aria-label="`Проверить конфигурацию портов: ${c.source_device_name} — ${c.destination_device_name}`"
-                    @click="reviewing = c"
-                  >
-                    {{ c.port_config_status === 'mismatch' ? 'Расхождение' : 'Одобрено'
-                    }}<template v-if="c.port_config_diff.length"> ({{ facetsLabel(c.port_config_diff) }})</template
-                    >{{ c.port_config_status === 'mismatch' ? ' — проверить' : '' }}
-                  </button>
-                </template>
-              </td>
-              <td>
-                <span class="status" :class="c.is_active ? 'on' : 'off'"> <span class="status-dot"></span>{{ c.is_active ? 'Активно' : 'Неактивно' }} </span>
-              </td>
-              <td>
-                <div class="row-actions">
-                  <button type="button" :aria-label="auth.canWrite ? 'Редактировать' : 'Просмотр'" @click="openEdit(c)">
-                    <svg class="icon"><use :href="auth.canWrite ? '/icons.svg#i-edit' : '/icons.svg#i-file'" /></svg>
-                  </button>
-                  <button v-if="auth.canWrite" type="button" aria-label="Удалить" :disabled="deletingId === c.id" @click="removeConnection(c)">
-                    <svg class="icon"><use href="/icons.svg#i-trash" /></svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
+            <ConnectionTableRow
+              v-for="c in dashboard.items"
+              :key="c.id"
+              :connection="c"
+              :can-write="auth.canWrite"
+              :deleting="deletingId === c.id"
+              @edit-port="editPort(c, $event)"
+              @manage-ports="openPortsForInterface"
+              @review="reviewing = c"
+              @open="openEdit(c)"
+              @remove="removeConnection(c)"
+            />
             <!-- «Реестр пуст» — по итогам всего реестра (summary), а не по текущей странице: на ней пусто и тогда, когда фильтр ничего не оставил. -->
             <ListEmptyRow
               v-if="!dashboard.items.length"
@@ -480,97 +352,17 @@ thead th {
   font-weight: 600;
   white-space: nowrap;
 }
-tbody td {
+tbody :deep(td) {
   padding: 11px 14px;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
   vertical-align: top;
 }
-tbody tr:last-child td {
+tbody :deep(tr:last-child td) {
   border-bottom: none;
 }
-tbody tr:hover td {
+tbody :deep(tr:hover td) {
   background: var(--surface-2);
-}
-.devname {
-  font-weight: 600;
-  display: block;
-}
-.portname {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--ink-muted);
-  font-size: 11.3px;
-  margin-top: 2px;
-}
-.port-manage-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
-  background: none;
-  color: var(--ink-muted);
-  border-radius: var(--r-s);
-  opacity: 0;
-  transition: opacity 0.1s;
-}
-tr:hover .port-manage-btn {
-  opacity: 1;
-}
-.port-manage-btn:hover {
-  color: var(--brand);
-  background: var(--surface-2);
-}
-.port-manage-btn .icon {
-  width: 11px;
-  height: 11px;
-}
-.link-cell {
-  text-align: center;
-  color: var(--ink-muted);
-}
-.link-cell .icon {
-  width: 14px;
-  height: 14px;
-}
-.roles-cell {
-  color: var(--ink-muted);
-  max-width: 320px;
-}
-.role-line {
-  display: block;
-  font-size: 11.8px;
-}
-.config-line {
-  font-size: 11px;
-}
-.role-line .diff {
-  color: var(--ink);
-  font-weight: 700;
-  text-decoration: underline dotted var(--status-warn);
-  text-underline-offset: 2px;
-}
-.port-badge {
-  margin-top: 5px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-s);
-  background: var(--surface-2);
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ink-muted);
-}
-.port-badge.mismatch {
-  border-color: var(--status-warn);
-  background: var(--status-warn-soft);
-  color: var(--ink);
-}
-.port-badge:hover {
-  border-color: var(--brand);
-  color: var(--brand);
 }
 .error-banner {
   display: flex;
@@ -585,30 +377,6 @@ tr:hover .port-manage-btn {
   text-align: center;
   color: var(--ink-muted);
   font-size: 13px;
-}
-.row-actions {
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-}
-.row-actions button {
-  background: none;
-  border: none;
-  padding: 5px;
-  color: var(--ink-muted);
-  border-radius: var(--r-s);
-}
-.row-actions button:hover:not(:disabled) {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-.row-actions button:disabled {
-  opacity: 0.4;
-}
-.row-actions .icon {
-  width: 14px;
-  height: 14px;
-  display: block;
 }
 .table-foot {
   display: flex;

@@ -8,6 +8,7 @@
 соответствие installer/README_EXE.md коду (ключи файла настроек, число копий базы) и README.md.
 Запуск: pytest backend/tests/test_build_windows_bat.py -v
 """
+
 from __future__ import annotations
 
 import re
@@ -22,6 +23,7 @@ BAT = ROOT / "installer" / "build_windows.bat"
 README_EXE = ROOT / "installer" / "README_EXE.md"
 README = ROOT / "README.md"
 LAUNCHER = ROOT / "launcher.py"
+DB_BACKUP = ROOT / "backend" / "app" / "services" / "db_backup.py"
 
 COPY_LINE = re.compile(r"^copy\s+/Y\s+(?P<src>\S+)\s+(?P<dst>\S+)(?P<tail>.*)$", re.IGNORECASE)
 
@@ -84,8 +86,17 @@ class TestReadmeExe:
 
     def test_covers_start_data_backup_and_network_access(self, text):
         for needle in (
-            "InfraRegistry.exe", "infra_registry.toml", "infra_registry.db", "reports", "INFRA_REGISTRY_DATA_DIR",
-            ".bak", "allowed_clients", "брандмауэр", "http://127.0.0.1:8000", "--port", "--no-browser",
+            "InfraRegistry.exe",
+            "infra_registry.toml",
+            "infra_registry.db",
+            "reports",
+            "INFRA_REGISTRY_DATA_DIR",
+            ".bak",
+            "allowed_clients",
+            "брандмауэр",
+            "http://127.0.0.1:8000",
+            "--port",
+            "--no-browser",
         ):
             assert needle.lower() in text.lower(), f"в инструкции нет «{needle}»"
 
@@ -95,8 +106,9 @@ class TestReadmeExe:
         assert documented == known, f"таблица настроек расходится с кодом: {documented ^ known}"
         assert f"`{exe_settings.DEFAULT_PORT}`" in text
 
-    def test_number_of_kept_backups_matches_the_launcher(self, text):
-        keep = re.search(r"^BACKUPS_TO_KEEP = (\d+)$", LAUNCHER.read_text(encoding="utf-8"), re.MULTILINE)
+    def test_number_of_kept_backups_matches_the_backup_module(self, text):
+        """Копию делает общий модуль app/services/db_backup.py (его же использует docker-entrypoint.sh), а не сам launcher.py."""
+        keep = re.search(r"^BACKUPS_TO_KEEP = (\d+)$", DB_BACKUP.read_text(encoding="utf-8"), re.MULTILINE)
         assert keep and f"{keep.group(1)} последних" in text
         assert "infra_registry.pre-" in text
 

@@ -33,6 +33,7 @@
   несколькими контроллерами в образце).
 - Порядок устройств — порядок создания в реестре; участники одного стека идут подряд.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -176,11 +177,16 @@ def _link_rows(d: SimpleNamespace) -> list[LinkRow]:
         if allowed is not None and src_dev.id not in allowed and dst_dev.id not in allowed:
             continue
         rank = _purpose_rank(_port_roles(src, d) | _port_roles(dst, d))
-        ranked.append((rank, LinkRow(
-            left=f"{equipment_name(src_dev, d)} ({_device_label(src_dev)}) ({src.name})",
-            right=f"{equipment_name(dst_dev, d)} ({_device_label(dst_dev)}) ({dst.name})",
-            purpose=_PURPOSE_GROUPS[rank][1],
-        )))
+        ranked.append(
+            (
+                rank,
+                LinkRow(
+                    left=f"{equipment_name(src_dev, d)} ({_device_label(src_dev)}) ({src.name})",
+                    right=f"{equipment_name(dst_dev, d)} ({_device_label(dst_dev)}) ({dst.name})",
+                    purpose=_PURPOSE_GROUPS[rank][1],
+                ),
+            )
+        )
     ranked.sort(key=lambda pair: pair[0])  # сортировка устойчива: внутри группы порядок создания
     return [row for _rank, row in ranked]
 
@@ -203,10 +209,17 @@ def _ordered_devices(devices: Iterable[Any], stack_of: dict[str, str], position_
         cluster = stack_of.get(dev.id, dev.id)
         created = _naive(dev.created_at)
         anchor[cluster] = min(anchor.get(cluster, created), created)
-    return sorted(devices, key=lambda dev: (
-        anchor[stack_of.get(dev.id, dev.id)], stack_of.get(dev.id, dev.id), position_of.get(dev.id, 0),
-        _naive(dev.created_at), _device_label(dev).casefold(), dev.serial_number,
-    ))
+    return sorted(
+        devices,
+        key=lambda dev: (
+            anchor[stack_of.get(dev.id, dev.id)],
+            stack_of.get(dev.id, dev.id),
+            position_of.get(dev.id, 0),
+            _naive(dev.created_at),
+            _device_label(dev).casefold(),
+            dev.serial_number,
+        ),
+    )
 
 
 def _vlan_groups(devices: list[Any], stack_of: dict[str, str], d: SimpleNamespace) -> list[VlanGroup]:
@@ -250,8 +263,12 @@ def _management_ips(dev: Any, d: SimpleNamespace) -> list[str]:
     mgmt_vlans = [x for x in d.device_vlan_by_device.get(dev.id, []) if x.is_management]
     mgmt_subs = [x for x in d.subs_by_device.get(dev.id, []) if x.is_management]
     _ports, ips = device_management_ports_and_ips(
-        mgmt_ifaces, d.ips_by_iface, mgmt_vlans, d.vlan_map,
-        management_subinterfaces=mgmt_subs, ips_by_subinterface=d.ips_by_sub,
+        mgmt_ifaces,
+        d.ips_by_iface,
+        mgmt_vlans,
+        d.vlan_map,
+        management_subinterfaces=mgmt_subs,
+        ips_by_subinterface=d.ips_by_sub,
     )
     return list(dict.fromkeys(ip.split("/", 1)[0] for ip in ips))
 
@@ -273,10 +290,16 @@ def _equipment_rows(devices: list[Any], d: SimpleNamespace) -> list[EquipmentRow
     rows = []
     for dev in grouped:
         label, key = placement_of(dev)
-        rows.append(EquipmentRow(
-            name=equipment_name(dev, d), serial_number=dev.serial_number, system_name=clean_system_name(dev.system_name),
-            management_ips=_management_ips(dev, d), placement=label, placement_key=key,
-        ))
+        rows.append(
+            EquipmentRow(
+                name=equipment_name(dev, d),
+                serial_number=dev.serial_number,
+                system_name=clean_system_name(dev.system_name),
+                management_ips=_management_ips(dev, d),
+                placement=label,
+                placement_key=key,
+            )
+        )
     return rows
 
 

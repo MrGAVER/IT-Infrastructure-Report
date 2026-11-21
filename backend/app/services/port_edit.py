@@ -35,6 +35,7 @@
 Пример:
     set_port_config(port_id, {"role": "data", "mode": "trunk", "vlan_ids": [vlan_10_id, vlan_20_id]}, session)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

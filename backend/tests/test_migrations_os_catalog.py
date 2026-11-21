@@ -8,6 +8,7 @@
 Гоняется на одноразовой SQLite БД.
 Запуск: pytest backend/tests/test_migrations_os_catalog.py -v
 """
+
 from __future__ import annotations
 
 import sys

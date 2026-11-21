@@ -14,6 +14,7 @@ Word-документ «Приложение к структурной схем�
 Оформление (шрифт Times New Roman, сетка таблиц, поля) выбрано по обычаям делового документа: самого
 образца .docx в задаче не было, только его текст, поэтому ширины колонок и кегль — не копия.
 """
+
 from __future__ import annotations
 
 import re
@@ -82,6 +83,7 @@ def _text(value: str) -> str:
 
 # ---------- низкоуровневые помощники над python-docx ----------
 
+
 def _style_document(doc: DocumentObject) -> None:
     section = doc.sections[0]
     section.orientation = WD_ORIENT.PORTRAIT
@@ -99,8 +101,7 @@ def _style_document(doc: DocumentObject) -> None:
     normal.paragraph_format.space_before = Pt(0)
 
 
-def _write(cell: _Cell, text: str, *, bold: bool = False, italic: bool = False,
-           align: int = WD_ALIGN_PARAGRAPH.LEFT) -> None:
+def _write(cell: _Cell, text: str, *, bold: bool = False, italic: bool = False, align: int = WD_ALIGN_PARAGRAPH.LEFT) -> None:
     """Заменяет содержимое ячейки; "\n" в тексте — отдельный абзац (несколько IP в одной ячейке)."""
     cell.text = ""
     lines = _text(text).split("\n") if text else [""]
@@ -193,6 +194,7 @@ def _empty_row(table: Table, widths: Sequence[float]) -> None:
 
 # ---------- таблицы ----------
 
+
 def _links_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
     widths = _LINKS_WIDTHS
     table = _new_table(doc, widths, f"Сведения о назначении линий связи ИС {is_name}")
@@ -221,8 +223,7 @@ def _links_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
 
 def _vlan_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
     widths = _VLAN_WIDTHS
-    table = _new_table(doc, widths, f"Перечень виртуальных локальных вычислительных сетей (VLAN) ИС {is_name}",
-                       ("Идентификатор VLAN", "Имя VLAN", "IP-адресация"))
+    table = _new_table(doc, widths, f"Перечень виртуальных локальных вычислительных сетей (VLAN) ИС {is_name}", ("Идентификатор VLAN", "Имя VLAN", "IP-адресация"))
     if not data.vlan_groups:
         _empty_row(table, widths)
         return
@@ -240,8 +241,7 @@ def _vlan_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
 
 def _equipment_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
     widths = _EQUIPMENT_WIDTHS
-    table = _new_table(doc, widths, f"Перечень телекоммуникационного оборудования ИС {is_name}",
-                       ("Наименование оборудования", "Заводской номер", "Системное имя", "IP-адрес управления", "Место размещения"))
+    table = _new_table(doc, widths, f"Перечень телекоммуникационного оборудования ИС {is_name}", ("Наименование оборудования", "Заводской номер", "Системное имя", "IP-адрес управления", "Место размещения"))
     if not data.equipment:
         _empty_row(table, widths)
         return
@@ -263,6 +263,7 @@ def _equipment_table(doc: DocumentObject, data: AppendixData, is_name: str) -> N
 
 # ---------- сборка документа ----------
 
+
 def render_structural_appendix(data: AppendixData, is_name: str) -> DocumentObject:
     doc = Document()
     _style_document(doc)
@@ -281,8 +282,7 @@ def render_structural_appendix(data: AppendixData, is_name: str) -> DocumentObje
     return doc
 
 
-def build_structural_appendix(session: Session, report_dir: Path, *, is_name: Optional[str],
-                              structural_unit_ids: Optional[list[str]] = None) -> Path:
+def build_structural_appendix(session: Session, report_dir: Path, *, is_name: Optional[str], structural_unit_ids: Optional[list[str]] = None) -> Path:
     """Формирует docx в report_dir и возвращает путь к файлу.
 
     Пример: build_structural_appendix(session, REPORT_DIR, is_name="ЕАИС ТО")  # в заголовках — «ЕАИС ТО», «… ИС ТО»

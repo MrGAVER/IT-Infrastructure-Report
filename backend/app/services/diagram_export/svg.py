@@ -37,8 +37,8 @@ _ATTR_ENTITIES = {'"': "&quot;", "'": "&apos;"}
 def _esc(value) -> str:
     """Экранирование для текста И для значений атрибутов (data-node-id, fill…): в отличие от saxutils.escape по умолчанию, кавычки тоже.
 
-    Без кавычек значение с `"` выходило бы из атрибута, и первый же id или цвет из пользовательского ввода дал бы XSS в скачанном .svg
-    (ИА-02 код-ревью r3). Пустое значение (None, "") — пустая строка."""
+    Без кавычек значение с `"` выходило бы из атрибута, и первый же id или цвет из пользовательского ввода дал бы XSS в скачанном .svg.
+    Пустое значение (None, "") — пустая строка."""
     return escape(str(value), _ATTR_ENTITIES) if value not in (None, "") else ""
 
 
@@ -67,7 +67,7 @@ def _svg_node(node: dict, x: float, y: float) -> str:
         # Пользовательская разметка попадает в документ ТОЛЬКО как вложенное изображение (data URI), а не
         # как есть: так же, как в .drawio и .vsdx. Браузер обрабатывает такое изображение без скриптов и
         # без внешних запросов, поэтому открытый в браузере .svg не выполняет код из каталога иконок
-        # (код-ревью, п. 4, остаточный риск .svg-экспорта).
+        # (остаточный риск .svg-экспорта).
         encoded = base64.b64encode(custom_svg.encode("utf-8")).decode("ascii")
         parts.append(f'<image x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" preserveAspectRatio="xMidYMid meet" xlink:href="data:image/svg+xml;base64,{encoded}"/>')
     else:

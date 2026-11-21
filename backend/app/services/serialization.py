@@ -43,6 +43,7 @@ from .computed import device_management_ports_and_ips
 from .device_label import device_label
 from .timeutil import iso_utc
 
+
 def serialize(obj: Any) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for col in inspect(obj).mapper.column_attrs:
@@ -52,7 +53,9 @@ def serialize(obj: Any) -> dict[str, Any]:
         result[col.key] = iso_utc(value)
     return result
 
+
 # --- общие помощники загрузки: одна пачка запросов на все строки, а не по запросу на строку -------------------------
+
 
 def _select_in(session: Session, model: Any, column: Any, values: Iterable[Any], *order_by: Any, extra: Sequence[Any] = ()) -> list[Any]:
     """Строки модели, у которых column входит в values (extra — дополнительные условия WHERE). Без значений запрос не выполняется."""
@@ -83,12 +86,12 @@ def _ips_by_owner(session: Session, owner_type: str, owner_ids: Iterable[str]) -
 
 
 def _ip_text(ip: IPAddress) -> str:
-    return f'{ip.ip_address}/{ip.prefix_length}' if ip.prefix_length is not None else ip.ip_address
+    return f"{ip.ip_address}/{ip.prefix_length}" if ip.prefix_length is not None else ip.ip_address
 
 
 def _unique_joined(values: Iterable[str]) -> str:
     """Значения через «; » без повторов, в порядке первого появления."""
-    return '; '.join(dict.fromkeys(values))
+    return "; ".join(dict.fromkeys(values))
 
 
 def enrich_open_port(obj: OpenPort, session: Session) -> dict[str, Any]:
@@ -99,29 +102,33 @@ def enrich_open_port(obj: OpenPort, session: Session) -> dict[str, Any]:
     update_resource), где батч-загрузка каталога не даёт выигрыша."""
     data = serialize(obj)
     cat = session.get(ProtocolPortCatalog, obj.protocol_catalog_id)
-    data['port'] = cat.port if cat else None
-    data['protocol'] = cat.protocol_type if cat else None
+    data["port"] = cat.port if cat else None
+    data["protocol"] = cat.protocol_type if cat else None
     return data
+
 
 def enrich_open_ports(items: Sequence[OpenPort], session: Session) -> list[dict[str, Any]]:
     """Батч-вариант enrich_open_port() — для списков (list_resource('open-ports'),
     sync_interfaces): одним запросом подгружает все нужные записи справочника, а не по одной на
     порт."""
-    if not items: return []
+    if not items:
+        return []
     catalog_ids = {x.protocol_catalog_id for x in items if x.protocol_catalog_id}
     catalog_map = {x.id: x for x in session.scalars(select(ProtocolPortCatalog).where(ProtocolPortCatalog.id.in_(catalog_ids))).all()} if catalog_ids else {}
     result = []
     for obj in items:
         data = serialize(obj)
         cat = catalog_map.get(obj.protocol_catalog_id)
-        data['port'] = cat.port if cat else None
-        data['protocol'] = cat.protocol_type if cat else None
+        data["port"] = cat.port if cat else None
+        data["protocol"] = cat.protocol_type if cat else None
         result.append(data)
     return result
+
 
 @dataclass(frozen=True)
 class _DeviceLookups:
     """Всё, что нужно собрать вычисляемые поля устройств, загруженное разом для всех устройств страницы."""
+
     interfaces_by_device: dict[str, list[DeviceInterface]]
     ips_by_interface: dict[str, list[IPAddress]]
     mgmt_subs_by_device: dict[str, list[DeviceSubinterface]]
@@ -146,7 +153,7 @@ def _load_device_lookups(devices: Sequence[PhysicalDevice], session: Session) ->
     # Устройство состоит максимум в одном стеке (UniqueConstraint на DeviceStackMember.physical_device_id), поэтому
     # member_by_device — словарь «один к одному», без списков.
     members = _select_in(session, DeviceStackMember, DeviceStackMember.physical_device_id, device_ids)
-    embedded_ids = {d.embedded_os_id for d in devices if getattr(d, 'embedded_os_id', None)}
+    embedded_ids = {d.embedded_os_id for d in devices if getattr(d, "embedded_os_id", None)}
     return _DeviceLookups(
         interfaces_by_device=_group_by(interfaces, lambda i: i.physical_device_id),
         ips_by_interface=_ips_by_owner(session, OwnerType.DEVICE_INTERFACE, device_by_interface),
@@ -164,27 +171,26 @@ def _load_device_lookups(devices: Sequence[PhysicalDevice], session: Session) ->
 def _device_computed_fields(device: PhysicalDevice, lk: _DeviceLookups) -> dict[str, Any]:
     ports = lk.interfaces_by_device.get(device.id, [])
     vlan_links = lk.vlans_by_device.get(device.id, [])
-    mgmt_names, mgmt_ips = device_management_ports_and_ips(
-        [i for i in ports if i.is_management], lk.ips_by_interface, [x for x in vlan_links if x.is_management], lk.vlan_map,
-        management_subinterfaces=lk.mgmt_subs_by_device.get(device.id, []), ips_by_subinterface=lk.ips_by_subinterface, port_name_by_id=lk.port_name_by_id)
+    mgmt_names, mgmt_ips = device_management_ports_and_ips([i for i in ports if i.is_management], lk.ips_by_interface, [x for x in vlan_links if x.is_management], lk.vlan_map, management_subinterfaces=lk.mgmt_subs_by_device.get(device.id, []), ips_by_subinterface=lk.ips_by_subinterface, port_name_by_id=lk.port_name_by_id)
     embedded = lk.embedded_map.get(device.embedded_os_id) if device.embedded_os_id else None
     member = lk.member_by_device.get(device.id)
     stack = lk.stack_map.get(member.stack_id) if member else None
     return {
-        'management_interface': '; '.join(mgmt_names),
-        'management_ips': '; '.join(mgmt_ips),
-        'interface_count': len(ports),
-        'embedded_os_name': embedded.name if embedded else '',
-        'embedded_os_version': embedded.version if embedded else '',
-        'vlan_summary': _unique_joined(f"{lk.vlan_map[x.vlan_id].vlan_id} {lk.vlan_map[x.vlan_id].name}" for x in vlan_links if x.vlan_id in lk.vlan_map),
-        'stack_id': member.stack_id if member else None,
-        'stack_name': stack.name if stack else None,
-        'stack_position': member.position if member else None,
+        "management_interface": "; ".join(mgmt_names),
+        "management_ips": "; ".join(mgmt_ips),
+        "interface_count": len(ports),
+        "embedded_os_name": embedded.name if embedded else "",
+        "embedded_os_version": embedded.version if embedded else "",
+        "vlan_summary": _unique_joined(f"{lk.vlan_map[x.vlan_id].vlan_id} {lk.vlan_map[x.vlan_id].name}" for x in vlan_links if x.vlan_id in lk.vlan_map),
+        "stack_id": member.stack_id if member else None,
+        "stack_name": stack.name if stack else None,
+        "stack_position": member.position if member else None,
     }
 
 
 def enrich_devices(devices: Sequence[PhysicalDevice], session: Session) -> list[dict[str, Any]]:
-    if not devices: return []
+    if not devices:
+        return []
     lookups = _load_device_lookups(devices, session)
     return [{**serialize(device), **_device_computed_fields(device, lookups)} for device in devices]
 
@@ -196,18 +202,20 @@ def enrich_interfaces(items: Sequence[DeviceInterface], session: Session) -> lis
     result = []
     for iface in items:
         data = serialize(iface)
-        ip_text = '; '.join(_ip_text(ip) for ip in ips_by_interface.get(iface.id, []))
-        data['ip_addresses'] = ip_text
-        data['management_ips'] = ip_text if iface.is_management else ''
+        ip_text = "; ".join(_ip_text(ip) for ip in ips_by_interface.get(iface.id, []))
+        data["ip_addresses"] = ip_text
+        data["management_ips"] = ip_text if iface.is_management else ""
         result.append(data)
     return result
+
 
 def _ip_sort_key(ip: InterfaceGroupIP) -> tuple[Any, ...]:
     """Числовой порядок IPv4 (10.0.0.9 перед 10.0.0.10); нечитаемый адрес — после остальных, по тексту."""
     try:
-        return (0, tuple(int(part) for part in ip.ip_address.split('.')), ip.id)
+        return (0, tuple(int(part) for part in ip.ip_address.split(".")), ip.id)
     except ValueError:
         return (1, (), ip.ip_address, ip.id)
+
 
 def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) -> list[dict[str, Any]]:
     """Группы портов с вложенными VLAN (vlan_ids, по номеру VLAN), общими IP-адресами (ips — id, ip_address,
@@ -218,18 +226,8 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
     if not groups:
         return []
     group_ids = [g.id for g in groups]
-    vlan_links = session.execute(
-        select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id)
-        .join(VLAN, VLAN.id == InterfaceGroupVLAN.vlan_id)
-        .where(InterfaceGroupVLAN.group_id.in_(group_ids))
-        .order_by(VLAN.vlan_id, InterfaceGroupVLAN.vlan_id)
-    ).all()
-    ports = session.scalars(
-        select(InterfaceGroupOpenPort)
-        .join(ProtocolPortCatalog, InterfaceGroupOpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
-        .where(InterfaceGroupOpenPort.group_id.in_(group_ids))
-        .order_by(ProtocolPortCatalog.port, InterfaceGroupOpenPort.transport_protocol)
-    ).all()
+    vlan_links = session.execute(select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id).join(VLAN, VLAN.id == InterfaceGroupVLAN.vlan_id).where(InterfaceGroupVLAN.group_id.in_(group_ids)).order_by(VLAN.vlan_id, InterfaceGroupVLAN.vlan_id)).all()
+    ports = session.scalars(select(InterfaceGroupOpenPort).join(ProtocolPortCatalog, InterfaceGroupOpenPort.protocol_catalog_id == ProtocolPortCatalog.id).where(InterfaceGroupOpenPort.group_id.in_(group_ids)).order_by(ProtocolPortCatalog.port, InterfaceGroupOpenPort.transport_protocol)).all()
     ips_by_group: dict[str, list[dict[str, Any]]] = {}
     for ip in sorted(session.scalars(select(InterfaceGroupIP).where(InterfaceGroupIP.group_id.in_(group_ids))).all(), key=_ip_sort_key):
         ips_by_group.setdefault(ip.group_id, []).append(serialize(ip))
@@ -247,10 +245,8 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
     ports_by_group: dict[str, list[dict[str, Any]]] = {}
     for port in ports:
         ports_by_group.setdefault(port.group_id, []).append(serialize(port))
-    return [
-        {**serialize(g), 'vlan_ids': vlans_by_group.get(g.id, []), 'ips': ips_by_group.get(g.id, []), 'open_ports': ports_by_group.get(g.id, [])}
-        for g in groups
-    ]
+    return [{**serialize(g), "vlan_ids": vlans_by_group.get(g.id, []), "ips": ips_by_group.get(g.id, []), "open_ports": ports_by_group.get(g.id, [])} for g in groups]
+
 
 @dataclass(frozen=True)
 class _ConnectionLookups:
@@ -274,11 +270,11 @@ def _load_connection_lookups(items: Sequence[Connection], session: Session) -> _
 def _endpoint_fields(side: str, iface: DeviceInterface | None, device: PhysicalDevice | None, config: Any) -> dict[str, Any]:
     """Поля одного конца подключения (side — 'source' или 'destination'): устройство, порт и его конфигурация."""
     return {
-        f'{side}_device_name': device_label(device),
-        f'{side}_interface_name': iface.name if iface else '',
-        f'{side}_port_role': config.role.value if config else None,
-        f'{side}_vlan_mode': config.mode if config else None,
-        f'{side}_vlans': sorted(config.vlans) if config else [],
+        f"{side}_device_name": device_label(device),
+        f"{side}_interface_name": iface.name if iface else "",
+        f"{side}_port_role": config.role.value if config else None,
+        f"{side}_vlan_mode": config.mode if config else None,
+        f"{side}_vlans": sorted(config.vlans) if config else [],
     }
 
 
@@ -288,8 +284,8 @@ def _port_config_fields(conn: Connection, src_cfg: Any, dst_cfg: Any) -> dict[st
     paired = src_cfg is not None and dst_cfg is not None
     active = conn.is_active is not False
     return {
-        'port_config_diff': [f.value for f in config_differences(src_cfg, dst_cfg)] if paired and active else [],
-        'port_config_status': evaluate_port_config(src_cfg, dst_cfg, conn.port_config_approved_signature, is_active=active).value if paired else PortConfigStatus.OK.value,
+        "port_config_diff": [f.value for f in config_differences(src_cfg, dst_cfg)] if paired and active else [],
+        "port_config_status": evaluate_port_config(src_cfg, dst_cfg, conn.port_config_approved_signature, is_active=active).value if paired else PortConfigStatus.OK.value,
     }
 
 
@@ -299,9 +295,9 @@ def _connection_computed_fields(conn: Connection, lk: _ConnectionLookups) -> dic
     src_cfg, dst_cfg = lk.configs.get(conn.source_interface_id), lk.configs.get(conn.destination_interface_id)
     connection_type = lk.connection_types.get(conn.connection_type_id)
     return {
-        **_endpoint_fields('source', src, lk.devices.get(src.physical_device_id) if src else None, src_cfg),
-        **_endpoint_fields('destination', dst, lk.devices.get(dst.physical_device_id) if dst else None, dst_cfg),
-        'connection_type_name': connection_type.name if connection_type else '',
+        **_endpoint_fields("source", src, lk.devices.get(src.physical_device_id) if src else None, src_cfg),
+        **_endpoint_fields("destination", dst, lk.devices.get(dst.physical_device_id) if dst else None, dst_cfg),
+        "connection_type_name": connection_type.name if connection_type else "",
         **_port_config_fields(conn, src_cfg, dst_cfg),
     }
 
@@ -314,7 +310,7 @@ def enrich_connections(items: Sequence[Connection], session: Session) -> list[di
     for conn in items:
         data = {**serialize(conn), **_connection_computed_fields(conn, lookups)}
         # Сырая подпись одобрения — внутренняя деталь: наружу отдаётся только итоговый статус и список различающихся граней.
-        data.pop('port_config_approved_signature', None)
+        data.pop("port_config_approved_signature", None)
         result.append(data)
     return result
 
@@ -322,6 +318,7 @@ def enrich_connections(items: Sequence[Connection], session: Session) -> list[di
 @dataclass(frozen=True)
 class _InformationSystemLinks:
     """Связанные данные всех ИС страницы, загруженные разом (иначе — запрос на каждую ИС)."""
+
     support_map: dict[str, SupportOrganization]
     method_map: dict[str, SupportMethod]
     placement_map: dict[str, PlacementAsset]
@@ -374,7 +371,7 @@ def _load_information_systems_links(items: Sequence[InformationSystem], session:
 
 def _name_in(rows: dict[str, Any], key: str | None) -> str:
     row = rows.get(key) if key else None
-    return row.name if row else ''
+    return row.name if row else ""
 
 
 def _distinct_owners(sources: Sequence[InformationSystemSource], source_type: str, owners: dict[str, Any]) -> list[Any]:
@@ -405,18 +402,18 @@ def _enrich_single_information_system(obj: InformationSystem, ln: _InformationSy
     ip_addresses = _is_ip_addresses(sources, vms, ln)
     return {
         **serialize(obj),
-        'support_organization_name': _name_in(ln.support_map, obj.support_organization_id),
-        'support_method_name': _name_in(ln.method_map, obj.support_method_id),
-        'placement_assets_summary': _unique_joined(ln.placement_map[x.placement_asset_id].name for x in ln.placement_by_is.get(obj.id, []) if x.placement_asset_id in ln.placement_map),
-        'departments_summary': _unique_joined(ln.dep_map[x.department_id].name for x in ln.dep_by_is.get(obj.id, []) if x.department_id in ln.dep_map),
+        "support_organization_name": _name_in(ln.support_map, obj.support_organization_id),
+        "support_method_name": _name_in(ln.method_map, obj.support_method_id),
+        "placement_assets_summary": _unique_joined(ln.placement_map[x.placement_asset_id].name for x in ln.placement_by_is.get(obj.id, []) if x.placement_asset_id in ln.placement_map),
+        "departments_summary": _unique_joined(ln.dep_map[x.department_id].name for x in ln.dep_by_is.get(obj.id, []) if x.department_id in ln.dep_map),
         # Список — для экрана (по строке на адрес), строка — для отчётов и конструктора.
-        'ip_addresses': ip_addresses,
-        'ip_addresses_summary': '; '.join(ip_addresses),
+        "ip_addresses": ip_addresses,
+        "ip_addresses_summary": "; ".join(ip_addresses),
         # protocol_catalog_id обязателен для ISProtocol (NOT NULL, миграция b7f2c1e5a904): свободного текста без справочника не бывает.
-        'protocols_summary': _unique_joined(f'{ln.proto_map[x.protocol_catalog_id].protocol_type}/{ln.proto_map[x.protocol_catalog_id].port}' for x in ln.proto_by_is.get(obj.id, []) if x.protocol_catalog_id in ln.proto_map),
-        'physical_devices_summary': _unique_joined(device_label(d, fallback=d.id) for d in devices),
-        'vms_summary': _unique_joined(v.name or v.id for v in vms),
-        'containers_summary': _unique_joined(c.name or c.id for c in containers),
+        "protocols_summary": _unique_joined(f"{ln.proto_map[x.protocol_catalog_id].protocol_type}/{ln.proto_map[x.protocol_catalog_id].port}" for x in ln.proto_by_is.get(obj.id, []) if x.protocol_catalog_id in ln.proto_map),
+        "physical_devices_summary": _unique_joined(device_label(d, fallback=d.id) for d in devices),
+        "vms_summary": _unique_joined(v.name or v.id for v in vms),
+        "containers_summary": _unique_joined(c.name or c.id for c in containers),
     }
 
 

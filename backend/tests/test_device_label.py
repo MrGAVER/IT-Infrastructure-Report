@@ -10,6 +10,7 @@
 
 Запуск: pytest backend/tests/test_device_label.py -v
 """
+
 from __future__ import annotations
 
 import re
@@ -95,8 +96,8 @@ def cable(client) -> str:
 
 def test_device_with_blank_system_name_is_labelled_by_serial_everywhere(client, cable):
     device_type = _device_type(client)
-    blank, = _device(client, device_type, "BLANK-SER-1", [_port("Gi0/1")], system_name="   ")
-    named, = _device(client, device_type, "NAMED-SER-2", [_port("Gi0/1")], system_name="sw-named")
+    (blank,) = _device(client, device_type, "BLANK-SER-1", [_port("Gi0/1")], system_name="   ")
+    (named,) = _device(client, device_type, "NAMED-SER-2", [_port("Gi0/1")], system_name="sw-named")
     _connect(client, blank, named, cable)
 
     found = _page(client, q="BLANK-SER")  # SQL-версия: имя из пробелов не должно скрывать серийный номер от поиска

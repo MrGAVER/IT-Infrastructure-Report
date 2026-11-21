@@ -9,6 +9,7 @@ legacy-таблицы information_system_devices/vms/containers/ips удаляю
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_isprotocol_catalog.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -54,8 +55,7 @@ def _insert_information_system(conn: sqlite3.Connection, *, name: str | None = N
     is_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, updated_at) "
-        "VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
+        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
         (is_id, name or f"ИС {is_id[:8]}", now, now),
     )
     conn.commit()
@@ -77,8 +77,7 @@ def _insert_physical_device(conn: sqlite3.Connection) -> str:
 def _insert_legacy_is_device(conn: sqlite3.Connection, is_id: str, device_id: str, *, role: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_devices (id, information_system_id, physical_device_id, role, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO information_system_devices (id, information_system_id, physical_device_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (_uid(), is_id, device_id, role, now, now),
     )
     conn.commit()
@@ -98,8 +97,7 @@ def _insert_virtual_machine(conn: sqlite3.Connection) -> str:
 def _insert_legacy_is_vm(conn: sqlite3.Connection, is_id: str, vm_id: str, *, role: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_vms (id, information_system_id, virtual_machine_id, role, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO information_system_vms (id, information_system_id, virtual_machine_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (_uid(), is_id, vm_id, role, now, now),
     )
     conn.commit()
@@ -119,8 +117,7 @@ def _insert_container(conn: sqlite3.Connection) -> str:
 def _insert_legacy_is_container(conn: sqlite3.Connection, is_id: str, container_id: str, *, role: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_containers (id, information_system_id, container_id, role, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO information_system_containers (id, information_system_id, container_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (_uid(), is_id, container_id, role, now, now),
     )
     conn.commit()
@@ -129,8 +126,7 @@ def _insert_legacy_is_container(conn: sqlite3.Connection, is_id: str, container_
 def _insert_legacy_is_ip(conn: sqlite3.Connection, is_id: str, ip_address: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_ips (id, information_system_id, ip_address, external_interaction, created_at, updated_at) "
-        "VALUES (?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_ips (id, information_system_id, ip_address, external_interaction, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
         (_uid(), is_id, ip_address, now, now),
     )
     conn.commit()
@@ -139,8 +135,7 @@ def _insert_legacy_is_ip(conn: sqlite3.Connection, is_id: str, ip_address: str) 
 def _insert_information_system_source(conn: sqlite3.Connection, is_id: str, *, source_type: str = "manual", ip_address: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_sources (id, information_system_id, source_type, ip_address, external_interaction, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_sources (id, information_system_id, source_type, ip_address, external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
         (_uid(), is_id, source_type, ip_address, now, now),
     )
     conn.commit()
@@ -152,8 +147,7 @@ def _insert_legacy_is_protocol(conn: sqlite3.Connection, is_id: str, *, protocol
     protocol_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_protocols (id, information_system_id, protocol, port, protocol_catalog_id, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO information_system_protocols (id, information_system_id, protocol, port, protocol_catalog_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)",
         (protocol_id, is_id, protocol, port, now, now),
     )
     conn.commit()
@@ -267,9 +261,7 @@ def test_legacy_is_ip_migrated_to_sources_when_no_sources_exist(alembic_config):
 
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)
-    row = conn.execute(
-        "SELECT source_type, ip_address FROM information_system_sources WHERE information_system_id=?", (is_id,)
-    ).fetchone()
+    row = conn.execute("SELECT source_type, ip_address FROM information_system_sources WHERE information_system_id=?", (is_id,)).fetchone()
     assert row is not None
     assert row["source_type"] == "manual"
     assert row["ip_address"] == "192.168.1.10"
@@ -316,8 +308,7 @@ def test_is_protocol_backfill_creates_catalog_entry_for_unknown_combination(alem
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)
     row = conn.execute(
-        "SELECT c.port, c.protocol_type FROM information_system_protocols p "
-        "JOIN protocol_port_catalogs c ON p.protocol_catalog_id = c.id WHERE p.id=?",
+        "SELECT c.port, c.protocol_type FROM information_system_protocols p JOIN protocol_port_catalogs c ON p.protocol_catalog_id = c.id WHERE p.id=?",
         (protocol_id,),
     ).fetchone()
     assert row["port"] == 54321

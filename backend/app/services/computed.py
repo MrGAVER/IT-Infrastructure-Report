@@ -7,6 +7,7 @@
 разработки (например, добавление VLAN в "Порт управления" дашборда и в Лист 2 отчета делалось как
 два отдельных исправления одной и той же логики). Теперь это одна функция.
 """
+
 from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional, Sequence
@@ -18,7 +19,7 @@ def local_timestamp_suffix() -> str:
     (`Отчёт_2026-08-15_14-30-00_3fa9c1d2.xlsx`).
 
     Хвост нужен потому, что секундной метки мало: два пользователя, сформировавшие отчёт в одну
-    секунду, перезаписали бы файлы друг друга (код-ревью, п. 11).
+    секунду, перезаписали бы файлы друг друга.
 
     Намеренно локальное время сервера (datetime.now(), без timezone), а не UTC: это не хранимая
     и не сравниваемая метка времени вроде created_at/updated_at (те хранятся как naive UTC —
@@ -77,10 +78,7 @@ def device_management_ports_and_ips(
     parent_names = port_name_by_id or {}
     sub_ips = ips_by_subinterface or {}
     # «Gi0/0 (подинтерфейс Gi0/0.99)»; если имя порта-родителя неизвестно — только имя подинтерфейса.
-    subinterface_labels = [
-        f"{parent_names[sub.parent_interface_id]} (подинтерфейс {sub.name})" if parent_names.get(sub.parent_interface_id) else sub.name
-        for sub in management_subinterfaces
-    ]
+    subinterface_labels = [f"{parent_names[sub.parent_interface_id]} (подинтерфейс {sub.name})" if parent_names.get(sub.parent_interface_id) else sub.name for sub in management_subinterfaces]
     port_names = [i.name for i in management_interfaces] + subinterface_labels + vlan_labels
 
     ip_values = [ip_label(ip) for iface in management_interfaces for ip in ips_by_interface.get(iface.id, [])]

@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_port_sync_reconcile.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -127,6 +128,7 @@ def _empty_trunk_pair(world: World, *, neighbor_vlans=(10, 20), allowed=(10, 20,
 
 # --- главное: пустой trunk получает VLAN соседа --------------------------------------------------
 
+
 def test_preview_proposes_the_neighbors_vlans_for_an_empty_trunk(world):
     a, b, connection = _empty_trunk_pair(world)
 
@@ -159,8 +161,12 @@ def test_apply_gives_the_empty_trunk_the_neighbors_vlans_and_clears_the_discrepa
     assert result["applied"] == {"ports": 1, "connections": 1} and result["connection_ids"] == [connection]
     # Набор выбран явно (не «Все VLAN»): признак не выставлен, VLAN хранятся связями.
     assert world.port(a) == {
-        "mode": "trunk", "role": (False, True), "vlans": [10, 20],
-        "all_vlans": False, "stored_links": 2, "link_modes": {"trunk"},
+        "mode": "trunk",
+        "role": (False, True),
+        "vlans": [10, 20],
+        "all_vlans": False,
+        "stored_links": 2,
+        "link_modes": {"trunk"},
     }
     assert world.port(b)["vlans"] == [10, 20]  # сосед не тронут
     assert world.status(connection) == "ok"
@@ -200,6 +206,7 @@ def test_second_apply_is_a_no_op(world):
 
 
 # --- VLAN, которых нет у устройства порта -------------------------------------------------------
+
 
 def test_vlans_missing_on_the_target_device_are_skipped_with_a_warning(world):
     a, b, _c = _empty_trunk_pair(world, neighbor_vlans=(10, 20, 30), allowed=(10, 20, 30))
@@ -250,6 +257,7 @@ def test_vlans_are_matched_by_number_to_the_record_available_to_the_target(world
 
 
 # --- запреты -----------------------------------------------------------------------------------
+
 
 def test_port_in_a_group_that_sets_mode_and_vlans_is_never_changed_individually(world):
     a, b, connection = _empty_trunk_pair(world)
@@ -319,6 +327,7 @@ def test_a_port_with_two_connections_is_changed_by_the_first_only(world):
 
 # --- что не согласуется ------------------------------------------------------------------------
 
+
 def test_role_mismatch_is_reported_as_manual_with_both_directions_and_is_not_applied(world):
     (a,) = world.device("ROLE-A", ["Gi0/1"])
     (b,) = world.device("ROLE-B", ["Gi0/1"])
@@ -364,6 +373,7 @@ def test_connections_without_a_discrepancy_are_not_listed_in_bulk_mode(world):
 
 
 # --- явный список и правило --------------------------------------------------------------------
+
 
 def test_apply_with_connection_ids_touches_only_those_connections(world):
     a1, b1, c1 = _empty_trunk_pair(world)
@@ -429,6 +439,7 @@ def test_unknown_rule_id_is_404(world):
 
 # --- правила пользователя вступают в силу -------------------------------------------------------
 
+
 def test_a_user_rule_can_copy_the_role_and_mirrors_it_to_the_ports_ip_addresses(world):
     (a,) = world.device("UR-A", ["Gi0/1"])
     (b,) = world.device("UR-B", ["Gi0/1"])
@@ -461,8 +472,12 @@ def test_mode_rule_adapts_vlans_when_the_target_becomes_access(world):
     world.apply()
 
     assert world.port(a) == {
-        "mode": "access", "role": (False, True), "vlans": [10],
-        "all_vlans": False, "stored_links": 1, "link_modes": {"access"},
+        "mode": "access",
+        "role": (False, True),
+        "vlans": [10],
+        "all_vlans": False,
+        "stored_links": 1,
+        "link_modes": {"access"},
     }
     assert world.status(connection) == "ok"
     assert world.audit("режим trunk → access", "VLAN 10, 20, 30 → 10")
@@ -479,6 +494,7 @@ def test_ignore_rule_excludes_pairs_from_automatic_changes(world):
 
 
 # --- безопасность применения --------------------------------------------------------------------
+
 
 def test_apply_requires_confirmation(world):
     _empty_trunk_pair(world)
@@ -567,6 +583,7 @@ def test_preview_query_count_does_not_grow_with_the_number_of_connections(world,
 
 
 # --- trunk с разными наборами VLAN: объединение на обоих портах ----------------------------------
+
 
 def _trunk_pair(world: World, *, a_vlans=(10, 20), b_vlans=(20, 30), a_allowed=(10, 20, 30), b_allowed=(10, 20, 30)):
     (a,) = world.device("TRUNK-A", ["Gi0/1"], allowed=a_allowed)
@@ -708,6 +725,7 @@ def test_default_merge_rule_is_created_for_an_existing_installation(world):
 
 # --- массовое применение: число запросов не растёт с числом портов -------------------------------
 
+
 def _statements_while(db, action) -> list[str]:
     """SQL-запросы, выполненные во время `action` (через событие движка)."""
     from sqlalchemy import event
@@ -750,6 +768,7 @@ def test_applying_many_ports_does_not_query_or_flush_per_port(world):
 
 
 # --- неполный результат: расхождение после применения останется ----------------------------------
+
 
 def test_a_complete_merge_is_not_partial(world):
     _trunk_pair(world)
@@ -804,6 +823,7 @@ def _trunk_pair_numbered(world: World, index: int):
 
 
 # --- «Все VLAN» на порту → «Все VLAN» у соседа ----------------------------------------------------
+
 
 def _all_vlans_pair(world: World, *, a_allowed=(10, 20, 30), b_allowed=(10, 20, 30), a_vlans=(10,)):
     """a — trunk с частью VLAN; b — trunk с «Все VLAN» (признак; набор — все VLAN его устройства)."""
@@ -910,6 +930,7 @@ def test_all_vlans_does_not_touch_a_neighbor_in_access_mode(world):
 
 
 # --- постраничный предпросмотр и кэш плана --------------------------------------------------------
+
 
 def _auto_pairs(world: World, count: int) -> list[str]:
     """count подключений с решением auto (пустой trunk получает VLAN соседа)."""
@@ -1056,6 +1077,7 @@ def test_offset_past_the_end_gives_an_empty_page(world):
 
 
 # --- «Все VLAN» на обоих портах, но номера различаются --------------------------------------------
+
 
 def test_all_vlans_on_both_ports_with_different_numbers_is_excluded_from_the_plan_not_blocked(world):
     """У устройств разные наборы VLAN: ни «объединить», ни «взять набор» не поможет — пара остаётся как есть и

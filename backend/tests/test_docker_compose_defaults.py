@@ -4,6 +4,7 @@
 Docker, а не localhost). Поэтому compose обязан требовать INFRA_REGISTRY_SETUP_TOKEN и по умолчанию привязывать порт к
 127.0.0.1. Docker в тестовой среде недоступен — проверяется сам файл (как test_docker_frontend_dirs.py проверяет Dockerfile).
 """
+
 from __future__ import annotations
 
 import re
@@ -28,9 +29,7 @@ def _env_example() -> dict[str, str]:
 
 def test_setup_token_is_required_with_a_message():
     value = APP["environment"]["INFRA_REGISTRY_SETUP_TOKEN"]
-    assert re.fullmatch(r"\$\{INFRA_REGISTRY_SETUP_TOKEN:\?[^}]+\}", value), (
-        "токен установки должен быть обязательным (${VAR:?сообщение}): без него защиту из Docker не включить"
-    )
+    assert re.fullmatch(r"\$\{INFRA_REGISTRY_SETUP_TOKEN:\?[^}]+\}", value), "токен установки должен быть обязательным (${VAR:?сообщение}): без него защиту из Docker не включить"
 
 
 def test_postgres_password_is_still_required():
