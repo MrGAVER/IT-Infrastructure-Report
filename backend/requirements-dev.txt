@@ -4,7 +4,7 @@
 pytest>=9.2.0,<10
 pytest-cov>=6,<8
 pytest-xdist>=3.8.0,<4
-httpx2>=2.16.0,<3
+httpx2>=2.16.2,<3
 ruff>=0.17.5,<1
 pip-audit>=2.7,<3
 bandit>=1.8,<2
