@@ -3,7 +3,7 @@
 Ставит их один слой — SecurityHeadersMiddleware, САМЫЙ внешний в приложении (main.py): заголовки получает любой ответ, в том числе
 сформированный внутренними слоями — 400 проверки Host, 403 проверки клиента и origin, 413 предела тела запроса, 401/403 шлюза
 доступа. Раньше их дополнительно ставил сам шлюз (with_security_headers) — дублирование убрано вместе с переходом шлюза на
-чистый ASGI (код-ревью С-5, Н-8).
+чистый ASGI.
 
 apply_security_headers пишет через ``setdefault``: заголовок, уже выставленный обработчиком или обратным прокси,
 не перезаписывается и не дублируется.
@@ -43,7 +43,7 @@ def apply_security_headers(headers: MutableHeaders, path: str = "") -> None:
     if CSP_POLICY and path not in _CSP_EXEMPT_PATHS:
         headers.setdefault("Content-Security-Policy", CSP_POLICY)
     # Данные реестра не должны оседать в кэше браузера и промежуточных прокси — на общем компьютере их потом откроет следующий
-    # пользователь (код-ревью Н-2). setdefault: ответ, у которого обработчик сам задал Cache-Control, остаётся как есть.
+    # пользователь. setdefault: ответ, у которого обработчик сам задал Cache-Control, остаётся как есть.
     if path.startswith(_NO_STORE_PREFIX):
         headers.setdefault("Cache-Control", "no-store")
 

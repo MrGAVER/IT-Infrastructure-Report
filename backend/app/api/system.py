@@ -13,7 +13,7 @@ router = APIRouter(tags=['System'])
 @router.get('/api/v1/health')
 def health():
     """Проверка живости для Docker, CI и балансировщиков. Путь публичный (до входа), поэтому версию приложения не отдаёт: по ней
-    посторонний подбирает известные уязвимости (код-ревью Н-2). Версия — в CHANGELOG.md и, если включён ENABLE_DOCS, в /openapi.json."""
+    посторонний подбирает известные уязвимости. Версия — в CHANGELOG.md и, если включён ENABLE_DOCS, в /openapi.json."""
     return {'status': 'ok', 'service': 'infra-registry'}
 
 @router.get('/api/v1/integrity')
@@ -62,7 +62,7 @@ _DASHBOARD_ENTITIES = {
 @router.get('/api/v1/dashboard')
 def dashboard(session: Session = Depends(get_db)):
     """Счётчики главной страницы одним запросом: SELECT (SELECT count(*) FROM …) AS …, … — вместо отдельного COUNT на каждую сущность
-    (код-ревью Н-8): одно обращение к БД, а не по одному на сущность, на каждом открытии главной страницы."""
+    — одно обращение к БД, а не по одному на сущность, на каждом открытии главной страницы."""
     counters = [
         select(func.count()).select_from(model).scalar_subquery().label(key)
         for key, model in _DASHBOARD_ENTITIES.items()
