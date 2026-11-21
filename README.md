@@ -607,7 +607,8 @@ installer\build_windows.bat
 установки пакетов. В CI эту сборку и эти проверки выполняет job `build-windows` (windows-latest): он запускает тот же
 `installer\build_windows.bat` и проверяет, что в `dist\` появились `InfraRegistry.exe`, `README_EXE.md` и `run_infra_registry.bat`.
 Затем job делает smoke-запуск готового EXE: `InfraRegistry.exe --no-browser` на порту 8765 с базой во временном каталоге
-(`INFRA_REGISTRY_DATA_DIR`), проверка `/api/v1/health` (версия совпадает с `APP_VERSION` из `backend/app/config.py`), раздачи собранного
+(`INFRA_REGISTRY_DATA_DIR`), проверка `/api/v1/health` и версии (она совпадает с `APP_VERSION` из `backend/app/config.py`; публичный health версию
+не отдаёт, поэтому smoke включает `INFRA_REGISTRY_ENABLE_DOCS=1` и читает её из `/openapi.json`), раздачи собранного
 интерфейса на `/` и того, что миграции внутри EXE создали схему в `infra_registry.db`; при падении в журнал шага выводятся логи EXE.
 Вход в систему и экспорт `.vsdx` smoke не проверяет. Job `build-windows` выполняется и по расписанию — раз в неделю, по понедельникам
 (04:17 UTC): новая уязвимость в уже влитых зависимостях иначе осталась бы незамеченной до следующего PR; остальные job по расписанию

@@ -45,6 +45,14 @@ def test_pyinstaller_is_installed_so_that_the_spec_test_does_not_skip(job):
     assert "requirements-build.lock" in _run_scripts(job)
 
 
+def test_windows_installs_the_locked_packages_through_python_m_pip(job):
+    """Lock-файлы закрепляют и сам pip; `pip.exe` на Windows не может заменить сам себя («To modify pip, please run python -m pip install»),
+    поэтому установка падала, не поставив ни одного пакета, а следующий шаг не находил `pytest`."""
+    installs = [line.strip() for line in _run_scripts(job).splitlines() if "pip install" in line]
+    assert installs, "в задании нет установки зависимостей"
+    assert all(line.startswith("python -m pip install") for line in installs), installs
+
+
 def test_it_starts_the_launcher_and_checks_health_on_the_same_port(job):
     scripts = _run_scripts(job)
     port = re.search(r"'--port', '(\d+)'", scripts).group(1)

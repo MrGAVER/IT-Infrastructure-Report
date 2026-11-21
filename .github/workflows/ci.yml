@@ -186,8 +186,8 @@ jobs:
         # Lock-файлы универсальные (uv --universal): в них есть и пакеты только для win32 (colorama, tzdata). Набор для сборки нужен,
         # чтобы test_pyinstaller_spec.py реально выполнялся, а не пропускался из-за отсутствия PyInstaller.
         run: |
-          pip install --require-hashes -r backend/requirements-dev.lock
-          pip install --require-hashes -r backend/requirements-build.lock
+          python -m pip install --require-hashes -r backend/requirements-dev.lock
+          python -m pip install --require-hashes -r backend/requirements-build.lock
 
       - name: Тесты, зависящие от платформы (резервная копия, спецификация PyInstaller, сборка .bat)
         # Бюджет «неожиданных» пропусков (ИА-08, backend/tests/skip_budget.py) — 0: PyInstaller здесь установлен, spec-тест обязан выполняться.
@@ -478,6 +478,7 @@ jobs:
           $data = Join-Path $env:RUNNER_TEMP 'infra-smoke'
           New-Item -ItemType Directory -Force -Path $data | Out-Null
           $env:INFRA_REGISTRY_DATA_DIR = $data
+          $env:INFRA_REGISTRY_ENABLE_DOCS = '1'  # публичный health версию не отдаёт; она есть в /openapi.json, а он включается только этим флагом
           $exe = $null
           try {
             $exe = Start-Process -FilePath (Resolve-Path 'dist\InfraRegistry.exe') -ArgumentList '--no-browser', '--port', $port `
@@ -492,7 +493,8 @@ jobs:
             Write-Host "health: $($health | ConvertTo-Json -Compress)"
             $expected = (Select-String -Path 'backend\app\config.py' -Pattern '^APP_VERSION\s*=\s*[''"]([^''"]+)[''"]').Matches[0].Groups[1].Value
             if ($health.status -ne 'ok' -or $health.service -ne 'infra-registry') { throw "неожиданный ответ health: $($health | ConvertTo-Json -Compress)" }
-            if ($health.version -ne $expected) { throw "версия в EXE $($health.version), в backend\app\config.py $expected" }
+            $openapi = Invoke-RestMethod -Uri "$base/openapi.json" -TimeoutSec 10
+            if ($openapi.info.version -ne $expected) { throw "версия в EXE $($openapi.info.version), в backend\app\config.py $expected" }
             $page = Invoke-WebRequest -Uri "$base/" -UseBasicParsing -TimeoutSec 10
             if ($page.StatusCode -ne 200 -or $page.Content -notmatch 'id="app"') { throw 'собранный интерфейс не раздаётся: на / нет <div id="app">' }
             $probe = Join-Path $data 'probe_db.py'
