@@ -18,18 +18,11 @@ export const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 
 /**
  * Принятые исключения. Добавлять только когда исправленной версии нет (first_patched_version: null) И уязвимый код не попадает
  * в собранное приложение — проверяйте это и записывайте в reason. `expires` — последний день действия (включительно), YYYY-MM-DD.
+ *
+ * Сейчас список пуст. Исключение для picomatch (GHSA-fc5q-39xc-vjpf, ReDoS в picomatch <= 4.0.7), действовавшее с 2.160.0, снято:
+ * advisory отозван (withdrawn) 2026-11-18, и `npm audit` его больше не показывает, хотя исправленной версии picomatch так и нет.
  */
-export const ALLOWLIST = [
-  {
-    id: 'GHSA-fc5q-39xc-vjpf',
-    package: 'picomatch',
-    reason:
-      'ReDoS в picomatch <= 4.0.7 (последняя версия в npm, исправления нет). picomatch приходит через vue-router 5 (`vue-router/vite`, ' +
-      'unplugin) и vite — это сборка, а не рантайм: в dist/ библиотеки нет, а glob-шаблоны для неё пишет разработчик (пользовательского ' +
-      'ввода нет). Условие снятия: вышла исправленная версия picomatch — удалить это исключение и обновить lock.',
-    expires: '2026-12-31',
-  },
-]
+export const ALLOWLIST = []
 
 /** id advisory из его ссылки (`https://github.com/advisories/GHSA-…` → `GHSA-…`); без ссылки — числовой source npm. */
 export function advisoryId(via) {
