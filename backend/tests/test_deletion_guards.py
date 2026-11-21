@@ -8,6 +8,7 @@
 5. статическая проверка исходников (TestNoUnreviewedDeletionPaths ниже) — новый путь прямого
    удаления в app/ без явного разрешения роняет тест.
 """
+
 from __future__ import annotations
 
 import ast
@@ -19,14 +20,26 @@ from fastapi import HTTPException
 
 from app.constants import OwnerType, SourceType
 from app.models import (
-    Container, DeployedSoftware, DeviceCategory, DeviceInterface, DeviceType, IPAddress,
-    InformationSystem, InformationSystemSource, OpenPort, PhysicalDevice, ProtocolPortCatalog,
-    SoftwareAsset, VirtualMachine,
+    Container,
+    DeployedSoftware,
+    DeviceCategory,
+    DeviceInterface,
+    DeviceType,
+    IPAddress,
+    InformationSystem,
+    InformationSystemSource,
+    OpenPort,
+    PhysicalDevice,
+    ProtocolPortCatalog,
+    SoftwareAsset,
+    VirtualMachine,
 )
 from app.services import crud
 from app.services.crud import deletion as crud_deletion
 from app.services.integrity import (
-    ReferencedRecordError, find_orphaned_owner_references, format_referenced_message,
+    ReferencedRecordError,
+    find_orphaned_owner_references,
+    format_referenced_message,
 )
 
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
@@ -189,18 +202,12 @@ class TestNoUnreviewedDeletionPaths:
         found, _ = _scan_deletions()
         new = sorted(found - ALLOWED_DELETIONS)
         assert not new, (
-            "Найдены новые пути прямого удаления в app/, не прошедшие ревью:\n  "
-            + "\n  ".join(f"{f} → {fn}() удаляет {arg or '<query>'}" for f, fn, arg in new)
-            + "\nУдаление устройства/ВМ/контейнера должно идти через crud.delete_resource() / "
-            "crud.assert_deletable() (см. services/integrity.py). Если это удаление ДОЧЕРНИХ записей "
-            "и оно безопасно — добавьте его в ALLOWED_DELETIONS с комментарием."
+            "Найдены новые пути прямого удаления в app/, не прошедшие ревью:\n  " + "\n  ".join(f"{f} → {fn}() удаляет {arg or '<query>'}" for f, fn, arg in new) + "\nУдаление устройства/ВМ/контейнера должно идти через crud.delete_resource() / crud.assert_deletable() (см. services/integrity.py). Если это удаление ДОЧЕРНИХ записей и оно безопасно — добавьте его в ALLOWED_DELETIONS с комментарием."
         )
 
     def test_protected_models_never_deleted_via_core_or_raw_sql(self):
         _, violations = _scan_deletions()
-        assert not violations, (
-            "Массовое удаление защищённых моделей / сырой DELETE в обход ORM-защит:\n  " + "\n  ".join(violations)
-        )
+        assert not violations, "Массовое удаление защищённых моделей / сырой DELETE в обход ORM-защит:\n  " + "\n  ".join(violations)
 
     def test_scanner_detects_a_forbidden_pattern(self):
         """Сам сторож не должен молча ослепнуть: проверяем его на искусственном коде."""
@@ -210,6 +217,7 @@ class TestNoUnreviewedDeletionPaths:
 
 
 # --- Фабрики тестовых данных ---------------------------------------------------------------------
+
 
 def _device(session, serial: str = "SN-GUARD-1") -> PhysicalDevice:
     category = session.query(DeviceCategory).first() or DeviceCategory(name="Категория теста")
@@ -249,6 +257,7 @@ RESOURCE_BY_KIND = {SourceType.DEVICE: "devices", SourceType.VM: "vms", SourceTy
 
 
 # --- Уровень 2: before_delete на уровне ORM ------------------------------------------------------
+
 
 class TestOrmDeleteGuard:
     @pytest.mark.parametrize("kind", OWNER_KINDS)
@@ -319,6 +328,7 @@ class TestOrmDeleteGuard:
 
 # --- Уровень 1: единая точка проверки ------------------------------------------------------------
 
+
 class TestAssertDeletable:
     @pytest.mark.parametrize("kind", OWNER_KINDS)
     def test_raises_409_for_referenced_owner(self, db_session, kind):
@@ -343,6 +353,7 @@ class TestAssertDeletable:
 
 # --- Уровень 4: диагностика «висячих» ссылок -----------------------------------------------------
 
+
 def _seed_orphan_dataset(session):
     """Корректные ссылки + по одной висячей во всех четырёх моделях без FK + запись с неизвестным
     owner_type."""
@@ -358,19 +369,23 @@ def _seed_orphan_dataset(session):
     good_source = _source(session, SourceType.DEVICE, device.id)
 
     # корректные
-    session.add_all([
-        IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=iface.id, ip_address="10.0.0.1"),
-        IPAddress(owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id=good_source.id, ip_address="10.0.0.2"),
-        OpenPort(owner_type=OwnerType.VIRTUAL_MACHINE, owner_id=vm.id, protocol_catalog_id=catalog.id),
-        DeployedSoftware(owner_type=OwnerType.PHYSICAL_DEVICE, owner_id=device.id, software_asset_id=software.id),
-    ])
+    session.add_all(
+        [
+            IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=iface.id, ip_address="10.0.0.1"),
+            IPAddress(owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id=good_source.id, ip_address="10.0.0.2"),
+            OpenPort(owner_type=OwnerType.VIRTUAL_MACHINE, owner_id=vm.id, protocol_catalog_id=catalog.id),
+            DeployedSoftware(owner_type=OwnerType.PHYSICAL_DEVICE, owner_id=device.id, software_asset_id=software.id),
+        ]
+    )
     # висячие
-    session.add_all([
-        OpenPort(owner_type=OwnerType.VIRTUAL_MACHINE, owner_id="ghost-vm", protocol_catalog_id=catalog.id),
-        DeployedSoftware(owner_type=OwnerType.PHYSICAL_DEVICE, owner_id="ghost-device", software_asset_id=software.id),
-        IPAddress(owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id="ghost-source", ip_address="10.9.9.9"),
-        IPAddress(owner_type="bogus_owner", owner_id="whatever", ip_address="10.9.9.8"),
-    ])
+    session.add_all(
+        [
+            OpenPort(owner_type=OwnerType.VIRTUAL_MACHINE, owner_id="ghost-vm", protocol_catalog_id=catalog.id),
+            DeployedSoftware(owner_type=OwnerType.PHYSICAL_DEVICE, owner_id="ghost-device", software_asset_id=software.id),
+            IPAddress(owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id="ghost-source", ip_address="10.9.9.9"),
+            IPAddress(owner_type="bogus_owner", owner_id="whatever", ip_address="10.9.9.8"),
+        ]
+    )
     _source(session, SourceType.CONTAINER, "ghost-container")
     session.commit()
 

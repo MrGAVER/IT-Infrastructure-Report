@@ -5,6 +5,7 @@ generic.py не должен знать о конкретных моделях (
 исходника generic.py, чтобы ветви `model is X` не вернулись.
 Запуск: pytest backend/tests/test_crud_hooks.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -49,7 +50,7 @@ def _generic_tree() -> ast.Module:
 def _order_by_sql(model: type, columns: tuple) -> str:
     """Хвост `ORDER BY ...` запроса к модели — так порядок сравнивается независимо от вида элементов (атрибут, desc())."""
     sql = str(select(model).order_by(*columns))
-    return sql[sql.index("ORDER BY"):]
+    return sql[sql.index("ORDER BY") :]
 
 
 def _overridden(hooks: ResourceHooks) -> set[str]:
@@ -115,13 +116,7 @@ class TestGenericIsModelAgnostic:
     """Критерии приёмки П-7: в generic.py нет ветвлений по модели и почти нет импортов моделей."""
 
     def test_no_identity_comparison_with_a_class(self):
-        offenders = [
-            node.lineno
-            for node in ast.walk(_generic_tree())
-            if isinstance(node, ast.Compare)
-            and any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops)
-            and any(isinstance(operand, ast.Name) and operand.id[:1].isupper() for operand in [node.left, *node.comparators])
-        ]
+        offenders = [node.lineno for node in ast.walk(_generic_tree()) if isinstance(node, ast.Compare) and any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops) and any(isinstance(operand, ast.Name) and operand.id[:1].isupper() for operand in [node.left, *node.comparators])]
         assert not offenders, f"в generic.py появилось ветвление по классу модели (строки {offenders}) — вынесите его в crud/hooks.py"
 
     def test_models_imported_at_most_five(self):

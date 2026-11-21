@@ -3,6 +3,7 @@
 
 Запуск: pytest backend/tests/test_connection_port_config_api.py -v
 """
+
 from __future__ import annotations
 
 import pytest

@@ -8,6 +8,7 @@ Pydantic-схемы есть только у devices / information-systems / vla
 Запуск: pytest backend/tests/test_column_types_validation.py -v
 На PostgreSQL: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest backend/tests/test_column_types_validation.py
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime

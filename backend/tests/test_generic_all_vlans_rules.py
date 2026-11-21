@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_generic_all_vlans_rules.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -29,11 +30,13 @@ class Lab:
         self.db.commit()
         self.db.add(PhysicalDeviceVLAN(physical_device_id=self.device, vlan_id=self.vlan.id))
         self.db.commit()
-        ports = self.save([
-            {"name": "plain", "vlan_mode": "trunk", "vlan_ids": []},
-            {"name": "flagged", "vlan_mode": "trunk", "all_vlans": True},
-            {"name": "access", "vlan_mode": "access", "vlan_ids": [self.vlan.id]},
-        ])
+        ports = self.save(
+            [
+                {"name": "plain", "vlan_mode": "trunk", "vlan_ids": []},
+                {"name": "flagged", "vlan_mode": "trunk", "all_vlans": True},
+                {"name": "access", "vlan_mode": "access", "vlan_ids": [self.vlan.id]},
+            ]
+        )
         self.plain, self.flagged, self.access = ports["plain"], ports["flagged"], ports["access"]
 
     def save(self, interfaces: list[dict]) -> dict[str, str]:

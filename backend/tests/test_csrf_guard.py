@@ -7,6 +7,7 @@ Origin либо с `Sec-Fetch-Site: cross-site` получают 403 `CROSS_ORIG
 
 Запуск: pytest backend/tests/test_csrf_guard.py -v
 """
+
 from __future__ import annotations
 
 import logging

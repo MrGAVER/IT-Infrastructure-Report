@@ -3,6 +3,7 @@
 Разбиение не должно ломать вызывающий код: публичный API прежний, а модули зависят друг от друга в одну
 сторону. Запуск: pytest backend/tests/test_crud_package.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -21,12 +22,32 @@ SUBMODULES = sorted(p.stem for p in PACKAGE_DIR.glob("*.py") if p.stem != "__ini
 
 # Всё, что остальное приложение и тесты импортировали из services.crud до разбиения.
 PUBLIC_API = [
-    "audit", "columns_for", "allowed_columns", "model_for", "ensure_writable", "validate_payload_schema",
-    "list_resource", "create_resource", "update_resource", "delete_resource", "assert_deletable", "validate_resource",
-    "assign_domain_vlans_to_device", "get_information_system_details", "sync_information_system_details",
-    "get_interface_groups", "list_interface_groups", "sync_interfaces", "sync_device_vlans",
-    "sync_device_deployed_software", "sync_vm_open_ports", "sync_vm_ip_addresses", "sync_vm_deployed_software",
-    "sync_owner_open_ports", "sync_owner_ip_addresses", "sync_owner_deployed_software",
+    "audit",
+    "columns_for",
+    "allowed_columns",
+    "model_for",
+    "ensure_writable",
+    "validate_payload_schema",
+    "list_resource",
+    "create_resource",
+    "update_resource",
+    "delete_resource",
+    "assert_deletable",
+    "validate_resource",
+    "assign_domain_vlans_to_device",
+    "get_information_system_details",
+    "sync_information_system_details",
+    "get_interface_groups",
+    "list_interface_groups",
+    "sync_interfaces",
+    "sync_device_vlans",
+    "sync_device_deployed_software",
+    "sync_vm_open_ports",
+    "sync_vm_ip_addresses",
+    "sync_vm_deployed_software",
+    "sync_owner_open_ports",
+    "sync_owner_ip_addresses",
+    "sync_owner_deployed_software",
 ]
 
 
@@ -45,7 +66,9 @@ def test_every_submodule_imports_on_its_own(module):
     # Свежий интерпретатор: цикл между модулями проявился бы только при определённом порядке импорта.
     result = subprocess.run(
         [sys.executable, "-c", f"import app.services.crud.{module}"],
-        capture_output=True, text=True, cwd=PACKAGE_DIR.parents[2],
+        capture_output=True,
+        text=True,
+        cwd=PACKAGE_DIR.parents[2],
     )
     assert result.returncode == 0, result.stderr
 
@@ -125,6 +148,7 @@ def test_old_flat_module_is_gone():
 
 # --- A-08 код-ревью r3: __all__ фасада синхронен с его импортами и не расходится с ними ---------------------------------------------------
 # Каждое имя в фасаде перечислено дважды (импорт и __all__): это лишняя точка поддержки, поэтому расхождение ловят тесты, а не ревью.
+
 
 def _facade_ast() -> ast.Module:
     return ast.parse((PACKAGE_DIR / "__init__.py").read_text(encoding="utf-8"))

@@ -9,6 +9,7 @@
 
 Запуск: pytest backend/tests/test_diagram_icon_attribute_values.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -23,6 +24,7 @@ def _icon(attribute: str, value: str) -> str:
 
 
 # --- безобидные значения со словом «script» принимаются ------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     ("attribute", "value"),
@@ -47,6 +49,7 @@ def test_a_use_reference_to_an_element_with_such_an_id_is_accepted():
 
 
 # --- исполняемые схемы по-прежнему отвергаются, в том числе спрятанные от подстрочного сравнения ------------------------------
+
 
 @pytest.mark.parametrize(
     "value",
@@ -82,6 +85,7 @@ def test_the_message_names_the_attribute_the_tag_and_the_scheme_problem():
 
 
 # --- остальные рубежи не ослаблены ---------------------------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "markup",

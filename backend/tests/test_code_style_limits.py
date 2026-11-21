@@ -12,6 +12,7 @@
 
 Запуск: pytest backend/tests/test_code_style_limits.py -v
 """
+
 from __future__ import annotations
 
 import re
@@ -32,12 +33,7 @@ def _line_length_limit() -> int:
 
 def test_no_application_line_is_longer_than_the_declared_line_length():
     limit = _line_length_limit()
-    too_long = [
-        f"{path.relative_to(ROOT)}:{number} ({len(line)} симв.)"
-        for path in sorted(APP_DIR.rglob("*.py"))
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if len(line) > limit
-    ]
+    too_long = [f"{path.relative_to(ROOT)}:{number} ({len(line)} симв.)" for path in sorted(APP_DIR.rglob("*.py")) for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if len(line) > limit]
     assert too_long == [], f"строки длиннее {limit} символов (оберните оператор `ruff format`-ом): {too_long}"
 
 
@@ -48,7 +44,7 @@ def test_the_limit_is_not_silently_raised():
 
 # --- Исключения из `ruff format` (ИА-05) ---------------------------------------------------------------------------------------------------
 # Число модулей-исключений на момент ИА-05. Менять его можно только вниз: отформатировали модуль — удалили запись из pyproject.toml и уменьшили число.
-MAX_EXCLUDED_FILES = 75
+MAX_EXCLUDED_FILES = 50
 CI_FORMAT_COMMAND = "ruff format --check backend"
 CI_FILE = ROOT / ".github" / "workflows" / "ci.yml"
 
@@ -106,18 +102,11 @@ def test_ci_checks_the_format_of_the_whole_backend_in_one_step():
 # Номера замечаний (R1-07, A-05, ИА-01…) теряют смысл вместе с самим отчётом, а «память проекта» — артефакт вне репозитория, читатель не может его
 # открыть. В комментарии пишется ПОЧЕМУ так (инвариант), история — в CHANGELOG.md и git. Исключений нет: файлы, которые чистили по волнам
 # (сначала вне владения первого исполнителя, затем — после слияния его PR — остальные), закончились.
-REVIEW_REFERENCE = re.compile(
-    r"память проекта|\bR\d?-\d+\b|\b(?:ИА|ИБ|BE|FE|UI|F)-\d+\b|\b[AB]-\d{2}\b|\b[СНП]-\d+\b|код-ревью|\bревью\b", re.IGNORECASE
-)
+REVIEW_REFERENCE = re.compile(r"память проекта|\bR\d?-\d+\b|\b(?:ИА|ИБ|BE|FE|UI|F)-\d+\b|\b[AB]-\d{2}\b|\b[СНП]-\d+\b|код-ревью|\bревью\b", re.IGNORECASE)
 
 
 def _review_references() -> list[str]:
-    return [
-        f"{path.relative_to(APP_DIR).as_posix()}:{number}"
-        for path in sorted(APP_DIR.rglob("*.py"))
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if REVIEW_REFERENCE.search(line)
-    ]
+    return [f"{path.relative_to(APP_DIR).as_posix()}:{number}" for path in sorted(APP_DIR.rglob("*.py")) for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if REVIEW_REFERENCE.search(line)]
 
 
 def test_comments_do_not_refer_to_review_numbers_or_to_the_project_memory():

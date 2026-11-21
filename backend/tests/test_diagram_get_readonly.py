@@ -7,6 +7,7 @@
 Запуск: pytest backend/tests/test_diagram_get_readonly.py -v
 PostgreSQL-часть (реальная гонка потоков): INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://... pytest <этот файл>
 """
+
 from __future__ import annotations
 
 import threading
@@ -27,10 +28,7 @@ WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE")
 
 def _add_devices(db_session, building, count: int) -> list[PhysicalDevice]:
     server_type = db_session.query(DeviceType).filter_by(name="Сервер").one()
-    devices = [
-        PhysicalDevice(device_type_id=server_type.id, serial_number=f"SN-A13-{building.name}-{i}", building_id=building.id)
-        for i in range(count)
-    ]
+    devices = [PhysicalDevice(device_type_id=server_type.id, serial_number=f"SN-A13-{building.name}-{i}", building_id=building.id) for i in range(count)]
     db_session.add_all(devices)
     db_session.commit()
     return devices
@@ -219,8 +217,13 @@ class TestApplyGrouping:
         def competitor_wins_first(session, states):
             session.execute(
                 DiagramGroupState.__table__.insert().values(
-                    id="competitor", saved_diagram_id=diagram.id, group_key="building:x", is_collapsed=False, device_count=99,
-                    created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1),
+                    id="competitor",
+                    saved_diagram_id=diagram.id,
+                    group_key="building:x",
+                    is_collapsed=False,
+                    device_count=99,
+                    created_at=datetime(2026, 1, 1),
+                    updated_at=datetime(2026, 1, 1),
                 )
             )
             real_insert(session, states)

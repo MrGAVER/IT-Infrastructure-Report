@@ -9,6 +9,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_diagram_icons.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -190,7 +191,7 @@ def test_build_device_icon_defaults_manufacturer_and_model_labels_to_empty_strin
     "svg_markup",
     [
         '<svg onload="alert(1)"></svg>',
-        '<svg><script>alert(1)</script></svg>',
+        "<svg><script>alert(1)</script></svg>",
         '<svg ONLOAD="alert(1)"></svg>',  # регистронезависимость
         '<svg><foreignObject><body onload="alert(1)"/></foreignObject></svg>',
         '<svg><a href="javascript:alert(1)">кликни</a></svg>',

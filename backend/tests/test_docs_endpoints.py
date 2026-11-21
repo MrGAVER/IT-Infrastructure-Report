@@ -6,6 +6,7 @@
 Приложение создаётся при импорте app.main, адреса документации задаются в `FastAPI(...)` один раз, поэтому состояние
 «включено» проверяем в отдельном процессе с нужной переменной окружения, а не перезагрузкой модуля в процессе тестов.
 """
+
 from __future__ import annotations
 
 import json
@@ -40,11 +41,10 @@ def _probe(tmp_path: Path, enable_docs: str | None) -> dict:
     env["INFRA_REGISTRY_DATA_DIR"] = str(tmp_path)
     if enable_docs is not None:
         env["INFRA_REGISTRY_ENABLE_DOCS"] = enable_docs
-    result = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, %r); exec(sys.stdin.read())" % str(BACKEND_DIR)],
-                            input=_PROBE, capture_output=True, text=True, env=env, cwd=tmp_path, timeout=120)
+    result = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, %r); exec(sys.stdin.read())" % str(BACKEND_DIR)], input=_PROBE, capture_output=True, text=True, env=env, cwd=tmp_path, timeout=120)
     assert result.returncode == 0, result.stderr[-2000:]
     line = next(line for line in result.stdout.splitlines() if line.startswith("PROBE"))
-    return json.loads(line[len("PROBE"):])
+    return json.loads(line[len("PROBE") :])
 
 
 @pytest.mark.parametrize("value", [None, "", "0", "false", "no"])

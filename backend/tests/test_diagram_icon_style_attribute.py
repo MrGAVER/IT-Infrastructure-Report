@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_diagram_icon_style_attribute.py -v
 """
+
 from __future__ import annotations
 
 import pytest

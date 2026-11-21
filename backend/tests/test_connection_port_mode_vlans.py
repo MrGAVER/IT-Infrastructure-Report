@@ -3,6 +3,7 @@
 
 Запуск: pytest backend/tests/test_connection_port_mode_vlans.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -155,10 +156,10 @@ def test_approving_a_mode_mismatch_and_dropping_it_when_the_mode_changes(lab):
     assert lab.approve()["approved_count"] == 1
     assert lab.row()["port_config_status"] == "approved"
 
-    lab.configure(lab.dst, "trunk")        # выровняли режимы — расхождения нет
+    lab.configure(lab.dst, "trunk")  # выровняли режимы — расхождения нет
     assert lab.row()["port_config_status"] == "ok"
 
-    lab.configure(lab.dst, "access")       # режимы снова разошлись так же — одобрение прежнее, но
+    lab.configure(lab.dst, "access")  # режимы снова разошлись так же — одобрение прежнее, но
     assert lab.row()["port_config_status"] == "approved"  # подпись описывает ту же пару «trunk>access»
 
 
@@ -233,6 +234,7 @@ def test_orphan_connection_has_empty_mode_and_vlans(lab, db_session):
 
 
 # --- предпросмотр сверки пары портов для формы подключения ---------------------------------
+
 
 def _preview(lab: Lab, **params) -> dict:
     query = {"source_interface_id": lab.src, "destination_interface_id": lab.dst, **params}

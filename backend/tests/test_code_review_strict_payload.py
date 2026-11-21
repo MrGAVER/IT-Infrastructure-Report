@@ -3,6 +3,7 @@
 Раньше ключ вне колонок модели отбрасывался молча: опечатка `serial_numbr` давала «успех» без значения,
 а правка с опечаткой ничего не меняла. Запуск: pytest backend/tests/test_code_review_strict_payload.py -v
 """
+
 from __future__ import annotations
 
 
