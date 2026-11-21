@@ -78,6 +78,16 @@ export async function seedDiagram(request: APIRequestContext, options: { devices
 }
 
 /**
+ * Виртуальная машина с заданным назначением для проверок редактирования (без хоста и ОС: форме они не нужны). Название уникально в
+ * прогоне — база общая для параллельных тестов. Убирается cleanupSeeded().
+ */
+export async function seedVirtualMachine(request: APIRequestContext, options: { purpose: string }): Promise<{ id: string; name: string }> {
+  const name = `e2e-vm-${Date.now().toString(36)}-${counter++}`
+  const vm = await postJson<{ id: string }>(request, '/resources/vms', { name, purpose: options.purpose })
+  return { id: vm.id, name }
+}
+
+/**
  * Диаграмма из двух коммутаторов с `links` параллельными связями между соседними портами (0…links − 1 на обоих концах) — именно
  * так подписи портов у соседних засечек наслаиваются друг на друга (UI-22). Возвращает id диаграммы.
  */

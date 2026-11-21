@@ -7,6 +7,7 @@ import { useConnectionsStore } from '../../stores/connections'
 import { makeRow } from '../../utils/__tests__/interfaceRowFixture'
 import { deviceOf, makeDraft, setVlanDefinitions, setupStores, vlanDef } from './deviceFormTestkit'
 import { usePortSyncPlanRequest } from '../usePortSyncPlanRequest'
+import { useStaleRecordConflict, type StaleRecordChoice } from '../useStaleRecordConflict'
 import { useToast } from '../useToast'
 import { useDeviceSave, type DeviceSaveDeps } from '../useDeviceSave'
 import type { DeviceDomains } from '../useDeviceDomains'
@@ -60,6 +61,7 @@ function setup(device: Device | null = null, overrides: Partial<DeviceSaveDeps> 
     reviewNeighbors: vi.fn(() => undefined),
     expandVlanEditor: vi.fn(),
     onSaved: vi.fn(),
+    close: vi.fn(),
     ...overrides,
   }
   return { draft, domains, deps, save: useDeviceSave(draft, deps), portVlanOptions }
@@ -404,6 +406,79 @@ describe('сбой после создания устройства', () => {
     const { draft, save } = setup(deviceOf({ id: 'dev-1' }))
     await save.submit()
     expect(draft.errorMessage.value).toBe('Не удалось сохранить устройство')
+  })
+})
+
+describe('конфликт версий записи (409 STALE_RECORD)', () => {
+  const OPENED = '2026-11-01T10:00:00.000Z'
+  const UPDATED = '2026-11-01T10:05:00.000Z'
+
+  /** Отвечает на вопрос о конфликте так, как это сделало бы окно StaleRecordHost. */
+  async function answer(choice: StaleRecordChoice) {
+    await settle()
+    expect(useStaleRecordConflict().question.value).not.toBeNull()
+    useStaleRecordConflict().resolve(choice)
+  }
+
+  beforeEach(() => {
+    useStaleRecordConflict().resolve('stay')
+    updateResource.mockImplementationOnce(async () => {
+      throw new ApiError(409, 'Запись изменена другим пользователем', ErrorCode.STALE_RECORD)
+    })
+  })
+
+  it('updated_at устройства, с которым открыта форма, уходит серверу четвёртым аргументом', async () => {
+    updateResource.mockReset()
+    updateResource.mockResolvedValue({ ...savedDevice, id: 'dev-1', updated_at: UPDATED })
+    const { save } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await save.submit()
+    expect(updateResource).toHaveBeenCalledWith('devices', 'dev-1', expect.objectContaining({ serial_number: 'SN-1' }), OPENED)
+  })
+
+  it('«Остаться в форме»: ничего не пишется, форма не закрывается, ошибки нет', async () => {
+    const { draft, save, deps } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await Promise.all([save.submit(), answer('stay')])
+
+    expect(updateResource).toHaveBeenCalledTimes(1)
+    expect(syncDeviceDeployedSoftware).not.toHaveBeenCalled()
+    expect(persistDeviceInterfaces).not.toHaveBeenCalled()
+    expect(deps.onSaved).not.toHaveBeenCalled()
+    expect(deps.close).not.toHaveBeenCalled()
+    expect(draft.errorMessage.value).toBeNull()
+    expect(save.saving.value).toBe(false)
+  })
+
+  it('«Сохранить мои изменения»: запись отправляется повторно без токена и сохранение доходит до конца', async () => {
+    const { save, deps } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await Promise.all([save.submit(), answer('overwrite')])
+
+    expect(updateResource).toHaveBeenCalledTimes(2)
+    expect(updateResource).toHaveBeenLastCalledWith('devices', 'dev-1', expect.objectContaining({ serial_number: 'SN-1' }))
+    expect(syncDeviceDeployedSoftware).toHaveBeenCalledWith('dev-1', [])
+    expect(deps.onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('«Загрузить свежие данные»: список устройств перечитывается, форма закрывается, записи нет', async () => {
+    const { save, deps } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await Promise.all([save.submit(), answer('reload')])
+
+    expect(stores.spies.devicesReload).toHaveBeenCalledTimes(1)
+    expect(deps.close).toHaveBeenCalledTimes(1)
+    expect(deps.onSaved).not.toHaveBeenCalled()
+    expect(syncDeviceDeployedSoftware).not.toHaveBeenCalled()
+  })
+
+  it('новое устройство: после создания токен берётся из ответа, повторное сохранение обновляет его с этим токеном', async () => {
+    updateResource.mockReset()
+    updateResource.mockResolvedValue({ ...savedDevice, id: 'dev-new', updated_at: UPDATED })
+    createResource.mockResolvedValue({ ...savedDevice, id: 'dev-new', updated_at: OPENED })
+    persistDeviceVlans.mockRejectedValueOnce(new Error('сбой VLAN'))
+    const { save } = setup()
+    await save.submit() // создано, но следующий шаг упал: форма остаётся открытой
+    await save.submit()
+
+    expect(createResource).toHaveBeenCalledTimes(1)
+    expect(updateResource).toHaveBeenCalledWith('devices', 'dev-new', expect.anything(), OPENED)
   })
 })
 

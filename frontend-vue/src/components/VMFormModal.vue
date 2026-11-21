@@ -8,7 +8,7 @@
 // типы с 422) — фильтрация здесь не замена серверной проверке, а просто не даёт
 // пользователю выбрать заведомо невалидный вариант.
 import { computed, reactive, ref, watch, useId } from 'vue'
-import { createResource, listAllResource, updateResource } from '../api/client'
+import { createResource, listAllResource } from '../api/client'
 import { loadNestedList, type NestedListResult, type NestedLoadIssue } from '../composables/loadNestedList'
 import { syncVmDeployedSoftware, syncVmIpAddresses, syncVmOpenPorts } from '../api/vmNestedLists'
 import type { VirtualMachine, Device, IPAddress, OpenPort, DeployedSoftware, VmIpDraftRow, OpenPortDraftRow, SoftwareAssetDraftRow } from '../api/types'
@@ -18,6 +18,7 @@ import { useFormPreferencesStore } from '../stores/formPreferences'
 import { filterHostDevices } from '../utils/deviceFilters'
 import { isValidIPv4, isValidPrefixLength } from '../utils/ipValidation'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
+import { toIpDraftRow, toOpenPortDraftRow, toSoftwareDraftRow } from '../utils/vmDraftRows'
 import { sortOptionsByLabel } from '../utils/selectOptions'
 import VmIpListEditor from './VmIpListEditor.vue'
 import OpenPortListEditor from './OpenPortListEditor.vue'
@@ -28,6 +29,7 @@ import SearchableSelect from './SearchableSelect.vue'
 import BaseModal from './BaseModal.vue'
 import { stripIds } from '../utils/copyEntity'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+import { useStaleRecordGuard } from '../composables/useStaleRecordGuard'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
 const { readOnly } = useReadOnlyForm()
@@ -39,6 +41,7 @@ const titleId = useId()
 
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
+const stale = useStaleRecordGuard({ resource: 'vms', record: () => props.vm, close: () => emit('close') })
 const formPreferences = useFormPreferencesStore() // общий порог сворачивания списка открытых портов (из «Настроек»)
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -71,29 +74,6 @@ type NestedKey = 'ips' | 'ports' | 'software'
 const NESTED_KEYS: readonly NestedKey[] = ['ips', 'ports', 'software']
 const NESTED_WHAT: Record<NestedKey, string> = { ips: 'IP-адресов ВМ', ports: 'открытых портов ВМ', software: 'ПО ВМ' }
 const nestedIssues = reactive<Record<NestedKey, NestedLoadIssue | null>>({ ips: null, ports: null, software: null })
-
-function toIpDraftRow(x: IPAddress): VmIpDraftRow {
-  return {
-    id: x.id,
-    ip_address: x.ip_address,
-    prefix_length: x.prefix_length == null ? '' : String(x.prefix_length),
-    purpose: x.purpose ?? '',
-    is_management: x.is_management,
-  }
-}
-
-function toOpenPortDraftRow(x: OpenPort): OpenPortDraftRow {
-  return {
-    id: x.id,
-    protocol_catalog_id: x.protocol_catalog_id ?? '',
-    transport_protocol: x.transport_protocol,
-    description: x.description ?? '',
-  }
-}
-
-function toSoftwareDraftRow(x: DeployedSoftware): SoftwareAssetDraftRow {
-  return { id: x.id, software_asset_id: x.software_asset_id, version: x.version ?? '' }
-}
 
 watch(
   () => props.vm ?? props.copyFrom ?? null,
@@ -285,7 +265,8 @@ async function submit() {
   saving.value = true
   try {
     const payload = toPayload()
-    const saved = isEdit.value ? await updateResource<VirtualMachine>('vms', props.vm!.id, payload) : await createResource<VirtualMachine>('vms', payload)
+    const saved = isEdit.value ? await stale.update<VirtualMachine>(props.vm!.id, payload) : await createResource<VirtualMachine>('vms', payload)
+    if (!saved) return // при конфликте версий пользователь отказался сохранять
     await persistVmIps(saved.id)
     await persistOpenPorts(saved.id)
     await persistSoftwareAssets(saved.id)

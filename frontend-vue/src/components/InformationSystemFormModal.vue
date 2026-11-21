@@ -7,16 +7,8 @@
 // containers) удалены вместе со всей их поддержкой (миграция b7f2c1e5a904, см. models.py) —
 // sources (InformationSystemSource) теперь единственный источник этих данных.
 import { computed, reactive, ref, watch, useId } from 'vue'
-import { api, createResource, updateResource } from '../api/client'
-import type {
-  InformationSystem,
-  InformationSystemDetails,
-  ISSource,
-  ISSourceDraftRow,
-  ISProtocolDraftRow,
-  CatalogPickerDraftRow,
-  CatalogItem,
-} from '../api/types'
+import { api, createResource } from '../api/client'
+import type { InformationSystem, InformationSystemDetails, ISSourceDraftRow, ISProtocolDraftRow, CatalogPickerDraftRow, CatalogItem } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
 import { useVMsStore } from '../stores/vms'
@@ -33,7 +25,9 @@ import BaseModal from './BaseModal.vue'
 import { vTruncateTooltip } from '../directives/truncateTooltip'
 import { stripIds } from '../utils/copyEntity'
 import { duplicatePortNumbers, sortOpenPortRows } from '../utils/openPorts'
+import { toSourceDraftRow } from '../utils/informationSystemDraftRows'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+import { useStaleRecordGuard } from '../composables/useStaleRecordGuard'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
 const { readOnly } = useReadOnlyForm()
@@ -51,6 +45,7 @@ const vmsStore = useVMsStore()
 // vmsStore: форма читает уже загруженный родительским view стор, а не грузит сама
 // (InformationSystemsView.vue вызывает containersStore.ensureLoaded() в onMounted).
 const containersStore = useContainersStore()
+const stale = useStaleRecordGuard({ resource: 'information-systems', record: () => props.system, close: () => emit('close') })
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.system !== null)
@@ -130,22 +125,6 @@ const protocols = ref<ISProtocolDraftRow[]>([])
 const sources = ref<ISSourceDraftRow[]>([])
 const placementAssets = ref<CatalogPickerDraftRow[]>([])
 const loadingNested = ref(false)
-
-function toSourceDraftRow(x: ISSource): ISSourceDraftRow {
-  return {
-    id: x.id || undefined,
-    source_type: (x.source_type as ISSourceDraftRow['source_type']) || 'manual',
-    owner_id: x.owner_id ?? '',
-    // Пусто: ВМ (если это source_type='vm') уже сохранена, её хост показывается через vmOptions
-    // по owner_id (см. deviceSelectValue в ISSourcesListEditor.vue) — hint нужен только для ещё не
-    // сохранённого выбора.
-    vmHostHint: '',
-    ips: x.ips.map((ip) => ({ id: ip.id, ip_address: ip.ip_address })),
-    purpose: x.purpose ?? '',
-    role: x.role ?? '',
-    external_interaction: x.external_interaction,
-  }
-}
 
 watch(
   () => props.system ?? props.copyFrom ?? null,
@@ -272,8 +251,9 @@ async function submit() {
   try {
     const payload = toPayload()
     const saved = isEdit.value
-      ? await updateResource<InformationSystem>('information-systems', props.system!.id, payload)
+      ? await stale.update<InformationSystem>(props.system!.id, payload)
       : await createResource<InformationSystem>('information-systems', payload)
+    if (!saved) return // при конфликте версий пользователь отказался сохранять
     await api.put(`/resources/information-systems/${saved.id}/details`, buildDetailsPayload())
     emit('saved', saved)
   } catch (err) {

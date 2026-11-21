@@ -4,7 +4,7 @@
 // специфичных кода 409-ошибки (см. backend/app/constants.py:ErrorCode) предлагают подтверждение через window.confirm() и
 // повторную отправку с флагом, вместо того чтобы просто показать ошибку и заставить пользователя вводить всё заново.
 import { ref, type ComputedRef, type Ref } from 'vue'
-import { ApiError, createResource, ErrorCode, updateResource } from '../api/client'
+import { ApiError, createResource, ErrorCode } from '../api/client'
 import { syncDeviceDeployedSoftware } from '../api/deviceDeployedSoftware'
 import { fetchDeviceInterfaceConnections } from '../api/deviceConnectivity'
 import { persistDeviceInterfaces } from '../api/deviceInterfaces'
@@ -22,6 +22,7 @@ import { buildPortConflictNotice, computePortConflicts, type PortRowLike } from 
 import { findPortSyncNotice } from '../utils/portSyncNotice'
 import type { PortConfig } from '../utils/portConflicts'
 import { usePortSyncPlanRequest } from './usePortSyncPlanRequest'
+import { useStaleRecordGuard } from './useStaleRecordGuard'
 import { useToast } from './useToast'
 import type { DeviceDomains } from './useDeviceDomains'
 import type { DeviceDraft } from './useDeviceDraft'
@@ -39,6 +40,8 @@ export interface DeviceSaveDeps {
   /** Раскрыть блок «VLAN устройства» (ошибка относится к строке, скрытой сворачиванием). */
   expandVlanEditor: () => void
   onSaved: (device: Device) => void
+  /** Закрыть форму (выбор «Загрузить свежие данные» при конфликте версий записи). */
+  close: () => void
 }
 
 export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
@@ -49,6 +52,7 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
   const devicesStore = useDevicesStore()
   const { notify } = useToast()
   const portSyncPlan = usePortSyncPlanRequest()
+  const stale = useStaleRecordGuard({ resource: 'devices', record: deps.device, close: deps.close })
   const saving = ref(false)
 
   // После изменения списка VLAN устройства порты подхватывают их сами, а согласование с соседями идёт только вручную —
@@ -128,8 +132,11 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
           const payload = deviceFormPayload(draft.form, extra)
           // Устройство уже есть — редактирование либо повтор после сбоя (см. createdDevice): обновляем его.
           const deviceId = draft.existingDeviceId.value
-          const saved = deviceId ? await updateResource<Device>('devices', deviceId, payload) : await createResource<Device>('devices', payload)
+          const saved = deviceId ? await stale.update<Device>(deviceId, payload) : await createResource<Device>('devices', payload)
+          // Конфликт версий: пользователь отказался сохранять (остался в форме или закрыл её со свежими данными).
+          if (!saved) return
           if (!deviceId) {
+            stale.remember(saved)
             draft.createdDevice.value = saved
             createdByThisSubmit = true
           }

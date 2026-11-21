@@ -113,4 +113,6 @@ export interface Container {
   runtime: string | null
   runtime_version: string | null
   purpose: string | null
+  /** Отметка последнего изменения: форма передаёт её серверу при сохранении (оптимистичная блокировка, см. useStaleRecordGuard). */
+  updated_at?: string
 }

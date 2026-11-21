@@ -382,8 +382,14 @@ export function createResource<T>(resource: string, payload: Record<string, unkn
   return api.post<T>(`/resources/${resource}`, payload)
 }
 
-export function updateResource<T>(resource: string, id: string, payload: Record<string, unknown>) {
-  return api.put<T>(`/resources/${resource}/${id}`, payload)
+/**
+ * Обновление записи. `expectedUpdatedAt` — `updated_at` записи в том виде, в каком форма её получила: сервер сверит его с текущим и, если запись
+ * успели изменить, ответит 409 STALE_RECORD вместо того, чтобы молча затереть чужую правку (оптимистичная блокировка). Без значения (null, undefined,
+ * у записи нет отметки времени) проверки нет, как раньше: выигрывает последняя запись.
+ */
+export function updateResource<T>(resource: string, id: string, payload: Record<string, unknown>, expectedUpdatedAt?: string | null) {
+  const body = expectedUpdatedAt ? { ...payload, expected_updated_at: expectedUpdatedAt } : payload
+  return api.put<T>(`/resources/${resource}/${id}`, body)
 }
 
 export function deleteResource(resource: string, id: string) {
