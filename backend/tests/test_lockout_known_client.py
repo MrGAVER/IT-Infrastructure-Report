@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_lockout_known_client.py -v
 """
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -141,7 +142,8 @@ class TestWhatMakesAnAddressKnown:
         owner, attacker = setup(OWNER_ADDRESS), setup(ATTACKER_ADDRESS)
         token = _attempt(owner, "Admin1234").json()["token"]
         created = owner.post(
-            "/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"},
+            "/api/v1/auth/users",
+            json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert created.status_code == 201, created.text
@@ -193,11 +195,16 @@ from app.services.auth.proxy_headers import client_ip_is_reliable
 
 
 def _request(headers: dict[str, str], client: tuple[str, int] | None = (OWNER_ADDRESS, 50000)) -> Request:
-    return Request({
-        "type": "http", "method": "POST", "path": LOGIN, "query_string": b"",
-        "headers": [(k.lower().encode("latin1"), v.encode("latin1")) for k, v in headers.items()],
-        "client": client,
-    })
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": LOGIN,
+            "query_string": b"",
+            "headers": [(k.lower().encode("latin1"), v.encode("latin1")) for k, v in headers.items()],
+            "client": client,
+        }
+    )
 
 
 @pytest.mark.parametrize(

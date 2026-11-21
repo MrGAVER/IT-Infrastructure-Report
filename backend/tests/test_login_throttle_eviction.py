@@ -9,6 +9,7 @@
 
 Запуск: pytest backend/tests/test_login_throttle_eviction.py -v
 """
+
 from __future__ import annotations
 
 import time

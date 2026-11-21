@@ -3,6 +3,7 @@
 
 Запуск: pytest backend/tests/test_port_sync_api.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -36,6 +37,7 @@ def _audit(db_session, *needles: str) -> list[str]:
 
 
 # --- стандартные правила ------------------------------------------------------------------------
+
 
 def test_standard_rules_are_seeded_at_startup_in_priority_order(client):
     rules = _rules(client)
@@ -127,6 +129,7 @@ def test_seeding_survives_a_user_rule_that_took_a_standard_name(client, db_sessi
 
 # --- создание ----------------------------------------------------------------------------------
 
+
 def test_create_rule_returns_it_and_puts_it_last_when_no_priority_is_given(client, db_session):
     response = client.post(BASE, json=_custom())
 
@@ -182,6 +185,7 @@ def test_create_rule_requires_a_json_object(client):
 
 
 # --- правка ------------------------------------------------------------------------------------
+
 
 def test_update_changes_only_the_given_fields_of_a_custom_rule(client, db_session):
     created = client.post(BASE, json=_custom(description="первое")).json()
@@ -245,6 +249,7 @@ def test_update_of_unknown_rule_is_404(client):
 
 # --- удаление и сброс --------------------------------------------------------------------------
 
+
 def test_custom_rule_can_be_deleted(client, db_session):
     created = client.post(BASE, json=_custom()).json()
 
@@ -303,6 +308,7 @@ def test_reset_fails_cleanly_when_the_original_name_is_taken(client):
 
 
 # --- порядок -----------------------------------------------------------------------------------
+
 
 def test_reorder_rewrites_priorities_in_steps_of_ten(client, db_session):
     ids = [r["id"] for r in _rules(client)]

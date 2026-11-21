@@ -3,6 +3,7 @@
 
 Запуск: pytest backend/tests/test_port_edit_api.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -197,6 +198,7 @@ def test_duplicate_vlan_ids_are_collapsed(lab):
 
 
 # --- режим + роль + VLAN одной транзакцией (каскад с полем port) ---------------------------------
+
 
 def _cascade_url(port: str, step: str = "") -> str:
     return f"/api/v1/interfaces/{port}/vlan-mode-cascade{step}"

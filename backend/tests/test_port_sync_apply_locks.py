@@ -9,6 +9,7 @@
 на PostgreSQL (на SQLite FOR UPDATE не рисуется — там запись и так сериализована блокировкой файла).
 Запуск: pytest backend/tests/test_port_sync_apply_locks.py -v
 """
+
 from __future__ import annotations
 
 import threading

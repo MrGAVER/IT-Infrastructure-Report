@@ -10,6 +10,7 @@ tests/test_vm_open_ports_sync.py):
 
 Плюс то же правило «не пересоздавать» для открытых портов портов устройства, которыми управляет группа.
 """
+
 from __future__ import annotations
 
 API = "/api/v1"
@@ -87,10 +88,14 @@ class TestDetailsSync:
         by_catalog = {p["protocol_catalog_id"]: p for p in first}
 
         # Две строки меняются номерами за один запрос — это не повтор, записи остаются теми же.
-        r = _put_details(client, system["id"], [
-            {"id": by_catalog[ssh["id"]]["id"], "protocol_catalog_id": http["id"], "description": "админка"},
-            {"id": by_catalog[http["id"]]["id"], "protocol_catalog_id": ssh["id"]},
-        ])
+        r = _put_details(
+            client,
+            system["id"],
+            [
+                {"id": by_catalog[ssh["id"]]["id"], "protocol_catalog_id": http["id"], "description": "админка"},
+                {"id": by_catalog[http["id"]]["id"], "protocol_catalog_id": ssh["id"]},
+            ],
+        )
 
         assert r.status_code == 200, r.text
         after = {p["id"]: p for p in r.json()["protocols"]}

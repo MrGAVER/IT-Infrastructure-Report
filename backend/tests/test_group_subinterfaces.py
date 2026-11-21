@@ -5,6 +5,7 @@
 `<порт>.<номер VLAN>` (models.DeviceSubinterface со своими IP и открытыми портами), поэтому отчёты и схемы читают итоговые
 подинтерфейсы портов и о группах ничего не знают. Группа без manage_subinterfaces подинтерфейсы своих портов не трогает.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -64,11 +65,13 @@ def test_group_template_is_written_into_every_member_port(client):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     dev = _device(client, vlans=(v10, v20))
     ssh = _catalog_entry(client, 22, "SSH")
-    group = _group([v10, v20], [
-        _tpl(v10, is_management=True, description="управление", ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}],
-             open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]),
-        _tpl(v20, is_data_transfer=True),
-    ])
+    group = _group(
+        [v10, v20],
+        [
+            _tpl(v10, is_management=True, description="управление", ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}], open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]),
+            _tpl(v20, is_data_transfer=True),
+        ],
+    )
 
     r = _sync(client, dev["id"], [_port("Gi0/0"), _port("Gi0/1"), _port("Gi0/2", group_key=None)], [group])
 

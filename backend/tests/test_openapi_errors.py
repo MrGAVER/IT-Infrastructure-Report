@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_openapi_errors.py -v
 """
+
 from __future__ import annotations
 
 import copy
@@ -37,6 +38,7 @@ def _body_operations(spec: dict) -> list[tuple[str, str, dict]]:
 
 # --- 422 ------------------------------------------------------------------------------------------------------------------
 
+
 def test_the_422_schema_describes_a_plain_string_detail():
     schema = app.openapi()["components"]["schemas"][VALIDATION_ERROR_SCHEMA]
     assert schema["properties"]["detail"]["type"] == "string"
@@ -56,12 +58,13 @@ def test_every_reference_in_the_schema_resolves():
     # Замена схемы ошибки не должна оставлять «висячих» ссылок (ни на удалённый ValidationError, ни на несозданный RequestBodyTooLarge).
     spec = app.openapi()
     schemas = spec["components"]["schemas"]
-    missing = {ref for ref in _collect_refs(spec) if ref.startswith(REF_PREFIX) and ref[len(REF_PREFIX):] not in schemas}
+    missing = {ref for ref in _collect_refs(spec) if ref.startswith(REF_PREFIX) and ref[len(REF_PREFIX) :] not in schemas}
     assert not missing
     assert "ValidationError" not in schemas  # на него больше никто не ссылается
 
 
 # --- 413 ------------------------------------------------------------------------------------------------------------------
+
 
 def test_413_is_described_for_every_operation_with_a_request_body_and_only_for_them():
     spec = app.openapi()
@@ -88,6 +91,7 @@ def test_a_real_413_answer_matches_the_schema(client):
 
 
 # --- Сборка схемы ---------------------------------------------------------------------------------------------------------
+
 
 def test_the_schema_is_built_once_and_rebuilds_identically():
     first = app.openapi()

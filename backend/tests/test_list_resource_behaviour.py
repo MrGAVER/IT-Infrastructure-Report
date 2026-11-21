@@ -4,6 +4,7 @@
 обогащения строк. Тесты написаны на прежнем коде и должны проходить без изменений на коде после рефакторинга.
 Запуск: pytest backend/tests/test_list_resource_behaviour.py -v
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -64,8 +65,7 @@ class TestFilters:
 class TestDateRange:
     def _seed(self, db_session) -> None:
         for day, entity in ((14, "a"), (15, "b"), (16, "c")):
-            db_session.add(AuditLog(entity_type="devices", entity_id=entity, action="UPDATE", details=entity,
-                                    created_at=datetime(2026, 8, day, 12, 0, 0)))
+            db_session.add(AuditLog(entity_type="devices", entity_id=entity, action="UPDATE", details=entity, created_at=datetime(2026, 8, day, 12, 0, 0)))
         db_session.commit()
 
     def _ids(self, db_session, **kwargs) -> list[str]:

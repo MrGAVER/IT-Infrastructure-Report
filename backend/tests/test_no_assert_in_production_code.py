@@ -8,6 +8,7 @@
 
 Запуск: pytest backend/tests/test_no_assert_in_production_code.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -28,12 +29,7 @@ def _asserts_in(path: Path) -> list[int]:
 
 
 def test_production_code_has_no_assert_statements():
-    found = {
-        str(path.relative_to(BACKEND_DIR)): lines
-        for directory in PRODUCTION_DIRS
-        for path in sorted(directory.rglob("*.py"))
-        if (lines := _asserts_in(path))
-    }
+    found = {str(path.relative_to(BACKEND_DIR)): lines for directory in PRODUCTION_DIRS for path in sorted(directory.rglob("*.py")) if (lines := _asserts_in(path))}
     assert found == {}, "assert в боевом коде исчезает при `python -O`; нужна явная проверка с понятной ошибкой"
 
 
@@ -52,7 +48,10 @@ def test_a_sheet_with_the_wrong_number_of_widths_is_rejected_with_a_clear_messag
 def test_the_default_template_still_builds_all_four_sheets():
     config = report_seed_templates.default_registry_template_config()
     assert [sheet["title"] for sheet in config["sheets"]] == [
-        "Перечень ИС", "Инвентаризац. физ. устройств ИС", "Организация подключений", "Организация управления ВМ",
+        "Перечень ИС",
+        "Инвентаризац. физ. устройств ИС",
+        "Организация подключений",
+        "Организация управления ВМ",
     ]
 
 

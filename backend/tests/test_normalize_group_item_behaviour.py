@@ -6,6 +6,7 @@ _sync_interface_groups), зафиксированное до снижения с
 последний рубеж для любого вызывающего. Порядок проверок тоже часть поведения: при нескольких ошибках сразу клиент
 видит ту, что выше по списку (см. TestCheckOrder). Запуск: pytest backend/tests/test_normalize_group_item_behaviour.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -180,10 +181,17 @@ class TestOpenPorts:
 
     def test_rows_are_normalized_with_defaults(self, client, db_session):
         http, ssh = _catalog_entry(client, 80), _catalog_entry(client, 22)
-        result = _normalize(db_session, {"name": "Г", "manage_open_ports": True, "open_ports": [
-            {"id": "row-1", "protocol_catalog_id": http["id"], "transport_protocol": "UDP", "description": "веб", "лишнее": 1},
-            {"protocol_catalog_id": ssh["id"], "description": ""},
-        ]})
+        result = _normalize(
+            db_session,
+            {
+                "name": "Г",
+                "manage_open_ports": True,
+                "open_ports": [
+                    {"id": "row-1", "protocol_catalog_id": http["id"], "transport_protocol": "UDP", "description": "веб", "лишнее": 1},
+                    {"protocol_catalog_id": ssh["id"], "description": ""},
+                ],
+            },
+        )
         assert result["manage_open_ports"] is True
         assert result["open_ports"] == [
             {"id": "row-1", "protocol_catalog_id": http["id"], "transport_protocol": "UDP", "description": "веб"},
@@ -192,9 +200,20 @@ class TestOpenPorts:
 
     def test_placeholder_rows_are_skipped(self, client, db_session):
         http = _catalog_entry(client, 80)
-        result = _normalize(db_session, {"name": "Г", "manage_open_ports": True, "open_ports": [
-            {"protocol_catalog_id": ""}, {"description": "без записи справочника"}, "строка", None, {"protocol_catalog_id": http["id"]},
-        ]})
+        result = _normalize(
+            db_session,
+            {
+                "name": "Г",
+                "manage_open_ports": True,
+                "open_ports": [
+                    {"protocol_catalog_id": ""},
+                    {"description": "без записи справочника"},
+                    "строка",
+                    None,
+                    {"protocol_catalog_id": http["id"]},
+                ],
+            },
+        )
         assert [p["protocol_catalog_id"] for p in result["open_ports"]] == [http["id"]]
 
     def test_unknown_catalog_entry_is_rejected(self, db_session):
@@ -241,40 +260,64 @@ class TestSubinterfaces:
 class TestResultShape:
     def test_full_item_is_normalized_to_column_values(self, client, db_session):
         http = _catalog_entry(client, 80)
-        result = _normalize(db_session, {
-            "name": " Магистраль ", "vlan_mode": "trunk", "vlan_ids": ["v20", "v10", "v20"], "ips": [{"ip_address": "10.1.1.1", "prefix_length": "24", "purpose": "управление"}], "manage_open_ports": 1, "open_ports": [{"protocol_catalog_id": http["id"]}], "manage_subinterfaces": 0,
-        })
+        result = _normalize(
+            db_session,
+            {
+                "name": " Магистраль ",
+                "vlan_mode": "trunk",
+                "vlan_ids": ["v20", "v10", "v20"],
+                "ips": [{"ip_address": "10.1.1.1", "prefix_length": "24", "purpose": "управление"}],
+                "manage_open_ports": 1,
+                "open_ports": [{"protocol_catalog_id": http["id"]}],
+                "manage_subinterfaces": 0,
+            },
+        )
         assert result == {
-            "name": "Магистраль", "vlan_mode": "trunk", "all_vlans": False, "vlan_ids": ["v20", "v10"],
-            "ips": [{"id": None, "ip_address": "10.1.1.1", "prefix_length": 24, "purpose": "управление"}], "manage_open_ports": True,
+            "name": "Магистраль",
+            "vlan_mode": "trunk",
+            "all_vlans": False,
+            "vlan_ids": ["v20", "v10"],
+            "ips": [{"id": None, "ip_address": "10.1.1.1", "prefix_length": 24, "purpose": "управление"}],
+            "manage_open_ports": True,
             "open_ports": [{"id": None, "protocol_catalog_id": http["id"], "transport_protocol": "TCP", "description": None}],
-            "manage_subinterfaces": False, "subinterfaces": [],
+            "manage_subinterfaces": False,
+            "subinterfaces": [],
         }
 
     def test_minimal_item_leaves_every_parameter_unmanaged(self, db_session):
         assert _normalize(db_session, {"name": "Г"}) == {
-            "name": "Г", "vlan_mode": None, "all_vlans": False, "vlan_ids": [], "ips": [],
-            "manage_open_ports": False, "open_ports": [], "manage_subinterfaces": False, "subinterfaces": [],
+            "name": "Г",
+            "vlan_mode": None,
+            "all_vlans": False,
+            "vlan_ids": [],
+            "ips": [],
+            "manage_open_ports": False,
+            "open_ports": [],
+            "manage_subinterfaces": False,
+            "subinterfaces": [],
         }
 
 
 class TestCheckOrder:
     """Если нарушено сразу несколько правил, сообщение берётся у первого по порядку проверок."""
 
-    @pytest.mark.parametrize(("item", "fragment"), [
-        ({"name": "", "vlan_mode": "hybrid"}, "наименование"),
-        ({"name": "Г", "vlan_mode": "hybrid", "vlan_ids": "10"}, "vlan_mode"),
-        ({"name": "Г", "vlan_ids": "10", "all_vlans": "yes"}, "vlan_ids группы портов должно быть массивом"),
-        ({"name": "Г", "vlan_ids": ["v10"], "all_vlans": "yes"}, "all_vlans группы портов должно быть true или false"),
-        ({"name": "Г", "vlan_ids": ["чужой"], "all_vlans": True}, "«Все VLAN»"),
-        ({"name": "Г", "vlan_ids": ["чужой"]}, "только вместе с режимом порта"),
-        ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["чужой", "v10"], "ips": [{"ip_address": "bad"}]}, "не разрешены для типа данного устройства"),
-        ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v20"], "ips": [{"ip_address": "bad"}]}, "не более одного VLAN"),
-        ({"name": "Г", "ips": [{"ip_address": "bad", "prefix_length": 99}], "open_ports": "x"}, "IP-адрес"),
-        ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 99}], "open_ports": "x"}, "префикс IP-адреса"),
-        ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "purpose": "н" * 256}], "open_ports": "x"}, "назначение IP-адреса"),
-        ({"name": "Г", "open_ports": "x", "manage_subinterfaces": True, "subinterfaces": "y"}, "open_ports группы портов должно быть массивом"),
-    ])
+    @pytest.mark.parametrize(
+        ("item", "fragment"),
+        [
+            ({"name": "", "vlan_mode": "hybrid"}, "наименование"),
+            ({"name": "Г", "vlan_mode": "hybrid", "vlan_ids": "10"}, "vlan_mode"),
+            ({"name": "Г", "vlan_ids": "10", "all_vlans": "yes"}, "vlan_ids группы портов должно быть массивом"),
+            ({"name": "Г", "vlan_ids": ["v10"], "all_vlans": "yes"}, "all_vlans группы портов должно быть true или false"),
+            ({"name": "Г", "vlan_ids": ["чужой"], "all_vlans": True}, "«Все VLAN»"),
+            ({"name": "Г", "vlan_ids": ["чужой"]}, "только вместе с режимом порта"),
+            ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["чужой", "v10"], "ips": [{"ip_address": "bad"}]}, "не разрешены для типа данного устройства"),
+            ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v20"], "ips": [{"ip_address": "bad"}]}, "не более одного VLAN"),
+            ({"name": "Г", "ips": [{"ip_address": "bad", "prefix_length": 99}], "open_ports": "x"}, "IP-адрес"),
+            ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 99}], "open_ports": "x"}, "префикс IP-адреса"),
+            ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "purpose": "н" * 256}], "open_ports": "x"}, "назначение IP-адреса"),
+            ({"name": "Г", "open_ports": "x", "manage_subinterfaces": True, "subinterfaces": "y"}, "open_ports группы портов должно быть массивом"),
+        ],
+    )
     def test_first_violated_rule_wins(self, db_session, item, fragment):
         assert fragment in _rejected(db_session, item)
 

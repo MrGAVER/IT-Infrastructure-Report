@@ -7,6 +7,7 @@
 
 Плюс диагностика уже существующих дублей: GET /api/v1/integrity/open-port-duplicates (только чтение).
 """
+
 from __future__ import annotations
 
 API = "/api/v1"
@@ -164,13 +165,15 @@ class TestDuplicatesDiagnostics:
         group = InterfaceGroup(physical_device_id=dev["id"], name="Серверные")
         db_session.add_all([vm, group])
         db_session.flush()
-        db_session.add_all([
-            OpenPort(owner_type="virtual_machine", owner_id=vm.id, protocol_catalog_id=http["id"], transport_protocol="TCP"),
-            OpenPort(owner_type="virtual_machine", owner_id=vm.id, protocol_catalog_id=proxy["id"], transport_protocol="TCP"),
-            OpenPort(owner_type="virtual_machine", owner_id=vm.id, protocol_catalog_id=ssh["id"], transport_protocol="TCP"),
-            InterfaceGroupOpenPort(group_id=group.id, protocol_catalog_id=ssh["id"], transport_protocol="TCP"),
-            InterfaceGroupOpenPort(group_id=group.id, protocol_catalog_id=ssh["id"], transport_protocol="UDP"),
-        ])
+        db_session.add_all(
+            [
+                OpenPort(owner_type="virtual_machine", owner_id=vm.id, protocol_catalog_id=http["id"], transport_protocol="TCP"),
+                OpenPort(owner_type="virtual_machine", owner_id=vm.id, protocol_catalog_id=proxy["id"], transport_protocol="TCP"),
+                OpenPort(owner_type="virtual_machine", owner_id=vm.id, protocol_catalog_id=ssh["id"], transport_protocol="TCP"),
+                InterfaceGroupOpenPort(group_id=group.id, protocol_catalog_id=ssh["id"], transport_protocol="TCP"),
+                InterfaceGroupOpenPort(group_id=group.id, protocol_catalog_id=ssh["id"], transport_protocol="UDP"),
+            ]
+        )
         db_session.commit()
         return vm, group
 

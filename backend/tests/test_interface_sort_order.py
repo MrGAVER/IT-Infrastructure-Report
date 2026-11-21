@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_interface_sort_order.py -v
 """
+
 from __future__ import annotations
 
 API = "/api/v1"

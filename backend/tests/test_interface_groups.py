@@ -6,6 +6,7 @@ _sync_interface_groups/_apply_group_to_interface).
 МАТЕРИАЛИЗУЮТСЯ в порты группы — VLAN-связи, IPAddress и OpenPort самого порта, поэтому отчёты и
 диаграммы читают итоговые значения порта и о группах ничего не знают.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -113,7 +114,10 @@ def _as_loaded(client, iface: dict, group_key: str | None) -> dict:
     """Порт в том виде, в каком его снова отправляет форма после загрузки: с id и со всеми
     значениями (VLAN, режим, IP и открытые порты с их id)."""
     return {
-        "id": iface["id"], "name": iface["name"], "group_key": group_key, "vlan_mode": iface["vlan_mode"],
+        "id": iface["id"],
+        "name": iface["name"],
+        "group_key": group_key,
+        "vlan_mode": iface["vlan_mode"],
         "vlan_ids": [l["vlan_id"] for l in _links(client, iface["id"])],
         "ips": [{"id": i["id"], "ip_address": i["ip_address"], "prefix_length": i["prefix_length"]} for i in _ips(client, iface["id"])],
         "open_ports": [{"id": p["id"], "protocol_catalog_id": p["protocol_catalog_id"], "transport_protocol": p["transport_protocol"]} for p in _open_ports(client, iface["id"])],
@@ -132,8 +136,7 @@ def test_repeated_sync_updates_in_place_without_recreating_rows(client):
     saved_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
 
     # Меняем только IP группы и убираем HTTP: строка IP и порт SSH обновляются на месте.
-    group2 = {**group, "key": saved_group["id"], "id": saved_group["id"], "ips": [{**saved_group["ips"][0], "ip_address": "10.0.0.6"}],
-              "open_ports": [next(p for p in saved_group["open_ports"] if p["protocol_catalog_id"] == ssh["id"])]}
+    group2 = {**group, "key": saved_group["id"], "id": saved_group["id"], "ips": [{**saved_group["ips"][0], "ip_address": "10.0.0.6"}], "open_ports": [next(p for p in saved_group["open_ports"] if p["protocol_catalog_id"] == ssh["id"])]}
     r = _sync(client, dev["id"], [_as_loaded(client, iface, saved_group["id"])], [group2])
 
     assert r.status_code == 200, r.text
@@ -243,9 +246,9 @@ def test_vlan_rules_for_groups(client):
     def attempt(**extra):
         return _sync(client, dev["id"], [_port("Gi0/1")], [{**base, **extra}])
 
-    assert attempt(vlan_mode="access", vlan_ids=[v10["id"], v20["id"]]).status_code == 422   # access — не более одного
-    assert attempt(vlan_ids=[v10["id"]]).status_code == 422                                    # VLAN без режима
-    assert attempt(vlan_mode="trunk", vlan_ids=[foreign["id"]]).status_code == 422             # VLAN не разрешён устройству
+    assert attempt(vlan_mode="access", vlan_ids=[v10["id"], v20["id"]]).status_code == 422  # access — не более одного
+    assert attempt(vlan_ids=[v10["id"]]).status_code == 422  # VLAN без режима
+    assert attempt(vlan_mode="trunk", vlan_ids=[foreign["id"]]).status_code == 422  # VLAN не разрешён устройству
     assert attempt(vlan_mode="trunk", vlan_ids=[v10["id"], v20["id"]]).status_code == 200
 
 

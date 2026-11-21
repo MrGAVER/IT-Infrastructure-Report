@@ -8,6 +8,7 @@
 
 Запуск: pytest backend/tests/test_host_check_defaults.py -v
 """
+
 from __future__ import annotations
 
 import logging

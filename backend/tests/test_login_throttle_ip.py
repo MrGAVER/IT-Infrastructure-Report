@@ -7,6 +7,7 @@
 
 Время в счётчике по адресу — управляемые часы: задержки проверяются точно и не зависят от скорости машины.
 """
+
 from __future__ import annotations
 
 import threading
@@ -40,7 +41,8 @@ def ip_clock(monkeypatch) -> FakeClock:
     clock = FakeClock()
     prod = login_module.ip_throttle
     monkeypatch.setattr(
-        login_module, "ip_throttle",
+        login_module,
+        "ip_throttle",
         LoginThrottle(free_attempts=prod.free_attempts, base_delay=prod.base_delay, max_delay=prod.max_delay, window=prod.window, clock=clock),
     )
     return clock

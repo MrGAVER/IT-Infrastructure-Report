@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_interface_group_multiple_ips.py -v
 """
+
 from __future__ import annotations
 
 import pytest

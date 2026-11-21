@@ -15,6 +15,7 @@
 
 Запуск: pytest backend/tests/test_no_5xx_on_extreme_input.py -v
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -115,6 +116,7 @@ OPERATIONS = operations()
 
 
 # --- тесты -------------------------------------------------------------------------------------------------------------------
+
 
 def test_the_walk_finds_the_write_endpoints():
     # Охрана самого теста: если обход схемы перестанет находить операции, остальные тесты станут пустыми и «зелёными».
