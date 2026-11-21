@@ -2,6 +2,7 @@
 
 В БД хранится только sha256-хеш токена (AuthSession.token_hash); сам токен виден клиенту один раз — в ответе на вход.
 Причины выбора непрозрачных токенов вместо JWT — в докстринге пакета (services/auth/__init__.py)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -18,6 +19,7 @@ from ...constants import MAX_SESSIONS_PER_USER
 from ...models import AuthSession, User
 from ..timeutil import iso_utc
 from ._common import naive_utc_now
+
 
 def _generate_token() -> str:
     return secrets.token_urlsafe(32)
@@ -56,12 +58,7 @@ def _trim_user_sessions(session: Session, user_id: str, *, keep: int) -> int:
 
     Порядок — по времени создания, при равенстве по id, чтобы результат был детерминированным. Без коммита: его делает вызывающий
     create_session вместе с добавлением новой строки, и обрезка с входом либо проходят обе, либо ни одна."""
-    surplus = session.scalars(
-        select(AuthSession.id)
-        .where(AuthSession.user_id == user_id)
-        .order_by(AuthSession.created_at.desc(), AuthSession.id.desc())
-        .offset(max(keep, 0))
-    ).all()
+    surplus = session.scalars(select(AuthSession.id).where(AuthSession.user_id == user_id).order_by(AuthSession.created_at.desc(), AuthSession.id.desc()).offset(max(keep, 0))).all()
     if not surplus:
         return 0
     session.execute(delete(AuthSession).where(AuthSession.id.in_(surplus)))
@@ -127,15 +124,15 @@ def revoke_session_by_id(session: Session, user_id: str, session_id: str) -> boo
 
 
 def list_active_sessions(session: Session, user_id: str) -> list[AuthSession]:
-    return list(session.scalars(
-        select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= naive_utc_now())
-        .order_by(AuthSession.created_at.desc())
-    ).all())
+    return list(session.scalars(select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= naive_utc_now()).order_by(AuthSession.created_at.desc())).all())
 
 
 def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) -> dict:
     return {
-        "id": row.id, "created_at": iso_utc(row.created_at),
-        "expires_at": iso_utc(row.expires_at), "user_agent": row.user_agent, "ip_address": row.ip_address,
+        "id": row.id,
+        "created_at": iso_utc(row.created_at),
+        "expires_at": iso_utc(row.expires_at),
+        "user_agent": row.user_agent,
+        "ip_address": row.ip_address,
         "current": bool(current_token) and row.token_hash == _hash_token(current_token),
     }

@@ -27,6 +27,7 @@ O(n log n) под общей блокировкой на каждую неуда
     throttle.record_failure(key)          # после неверного пароля
     throttle.reset(key)                   # после успешного входа
 """
+
 from __future__ import annotations
 
 import threading

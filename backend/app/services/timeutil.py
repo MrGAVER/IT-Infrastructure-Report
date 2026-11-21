@@ -14,6 +14,7 @@
   • даты без времени (`date`, `YYYY-MM-DD`) не меняются.
 
 Модуль не импортирует ничего из приложения: его используют и модели (`models.py`), и сервисы."""
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone

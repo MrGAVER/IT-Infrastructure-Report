@@ -29,6 +29,7 @@ OPTIONS) не проверяются: они ничего не меняют, а 
   заголовок: кросс-сайтовый запрос с ним потребовал бы preflight, а CORS его не разрешает), поэтому доверие к нему
   не открывает путь для CSRF; без настройки заголовок игнорируется.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -131,8 +132,7 @@ def _log_blocked_origin(origin: str) -> None:
     """Одна запись в журнале на каждый отвергнутый origin: чаще всего это не атака, а прокси, подменяющий Host,
     и по записи администратор видит, что добавить в ``INFRA_REGISTRY_CORS_ORIGINS``."""
     logger.warning(
-        "Отклонён запрос, меняющий данные, с origin %r: он не совпадает с Host приложения. Если это адрес самого "
-        "реестра за обратным прокси, передавайте исходный Host либо добавьте origin в INFRA_REGISTRY_CORS_ORIGINS.",
+        "Отклонён запрос, меняющий данные, с origin %r: он не совпадает с Host приложения. Если это адрес самого реестра за обратным прокси, передавайте исходный Host либо добавьте origin в INFRA_REGISTRY_CORS_ORIGINS.",
         origin,
     )
 
@@ -160,11 +160,12 @@ class SameOriginGuardMiddleware:
                 _log_blocked_origin((headers.get("origin") or f"Sec-Fetch-Site: {headers.get('sec-fetch-site', '')}")[:_MAX_LOGGED_ORIGIN_LENGTH])
                 response = JSONResponse(
                     status_code=403,
-                    content={"detail": {
-                        "code": ErrorCode.CROSS_ORIGIN_BLOCKED,
-                        "message": "Запрос с другого сайта отклонён: адрес страницы не совпадает с адресом приложения. "
-                                   "Если реестр работает за обратным прокси, см. раздел «Безопасность» в README.",
-                    }},
+                    content={
+                        "detail": {
+                            "code": ErrorCode.CROSS_ORIGIN_BLOCKED,
+                            "message": "Запрос с другого сайта отклонён: адрес страницы не совпадает с адресом приложения. Если реестр работает за обратным прокси, см. раздел «Безопасность» в README.",
+                        }
+                    },
                 )
                 await response(scope, receive, send)
                 return

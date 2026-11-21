@@ -1,5 +1,6 @@
 """Заголовки обратного прокси, которым не доверяет uvicorn: предупреждение администратору (код-ревью 2.158.0, П-3) и признак
 «адрес клиента определён надёжно» для исключения «знакомый адрес» из блокировки учётной записи (код-ревью С-3)."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -98,6 +99,8 @@ def warn_once_if_proxy_untrusted(request: Request) -> None:
         "числе для настоящего администратора) и «знакомые» адреса считают их одним клиентом, а в журнале аудита и списке "
         "сессий будет адрес прокси. Перечислите адрес прокси в FORWARDED_ALLOW_IPS (README, «Аутентификация и авторизация»).%s "
         "Сообщение выводится один раз за процесс.",
-        header, request.client.host if request.client else "—",
-        ", ".join(FORWARDED_ALLOW_IPS) if FORWARDED_ALLOW_IPS else "не задана, по умолчанию 127.0.0.1", hint,
+        header,
+        request.client.host if request.client else "—",
+        ", ".join(FORWARDED_ALLOW_IPS) if FORWARDED_ALLOW_IPS else "не задана, по умолчанию 127.0.0.1",
+        hint,
     )

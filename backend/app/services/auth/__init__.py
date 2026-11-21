@@ -34,6 +34,7 @@
 подменять имена в тестах нужно в том подмодуле, который их ЧИТАЕТ (monkeypatch.setattr(login, "login_throttle", …)): подмена
 имени на самом пакете функции подмодулей не затрагивает.
 """
+
 from __future__ import annotations
 
 from ..actor_context import Actor, current_actor
@@ -72,24 +73,47 @@ from .users import (
 )
 
 __all__ = [
-    "Actor", "current_actor",  # актор запроса: тесты и роутеры берут его отсюда
+    "Actor",
+    "current_actor",  # актор запроса: тесты и роутеры берут его отсюда
     # passwords
-    "hash_password", "validate_password_strength", "verify_password",
+    "hash_password",
+    "validate_password_strength",
+    "verify_password",
     # sessions
-    "cleanup_expired_sessions", "create_session", "list_active_sessions", "resolve_session", "revoke_all_sessions",
-    "revoke_all_sessions_except", "revoke_session", "revoke_session_by_id", "serialize_session",
+    "cleanup_expired_sessions",
+    "create_session",
+    "list_active_sessions",
+    "resolve_session",
+    "revoke_all_sessions",
+    "revoke_all_sessions_except",
+    "revoke_session",
+    "revoke_session_by_id",
+    "serialize_session",
     # users
-    "change_own_password", "create_user", "delete_user", "ensure_not_last_admin", "find_user_by_username", "serialize_user",
+    "change_own_password",
+    "create_user",
+    "delete_user",
+    "ensure_not_last_admin",
+    "find_user_by_username",
+    "serialize_user",
     "update_user",
     # settings
-    "get_or_create_auth_settings", "reset_auth_enabled_cache", "set_auth_enabled",
+    "get_or_create_auth_settings",
+    "reset_auth_enabled_cache",
+    "set_auth_enabled",
     # login
     "authenticate",
     # gate
-    "PUBLIC_API_PATHS", "READ_ONLY_POST_PATHS", "ROLE_CHECK_EXEMPT_PATHS", "ROLE_CHECK_EXEMPT_PREFIXES", "WRITE_METHODS",
+    "PUBLIC_API_PATHS",
+    "READ_ONLY_POST_PATHS",
+    "ROLE_CHECK_EXEMPT_PATHS",
+    "ROLE_CHECK_EXEMPT_PREFIXES",
+    "WRITE_METHODS",
     "AuthGateMiddleware",
     # guards
-    "require_admin", "require_admin_if_auth_enabled", "require_setup_access",
+    "require_admin",
+    "require_admin_if_auth_enabled",
+    "require_setup_access",
     # _common
     "extract_bearer",
 ]

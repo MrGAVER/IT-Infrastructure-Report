@@ -11,6 +11,7 @@ apply_security_headers пишет через ``setdefault``: заголовок,
 Пример: ``app.add_middleware(SecurityHeadersMiddleware)`` — после install_http_security(...): последний добавленный слой
 в Starlette самый внешний.
 """
+
 from __future__ import annotations
 
 from starlette.datastructures import MutableHeaders

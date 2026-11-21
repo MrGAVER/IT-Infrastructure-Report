@@ -3,6 +3,7 @@
 Счётчик неудач считается атомарным UPDATE в самой БД, при пороге AUTH_MAX_FAILED_ATTEMPTS запись блокируется на
 AUTH_LOCKOUT_MINUTES, каждая неудача попадает в журнал аудита. Троттлинг по адресу и логину (в памяти процесса) — отдельная
 защита, она живёт рядом со входом (auth/login.py)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -59,15 +60,22 @@ def is_known_client(session: Session, user_id: str, client_ip: Optional[str], no
 
 def account_locked(locked_until: datetime, now: datetime) -> HTTPException:
     remaining_minutes = max(1, int((locked_until - now).total_seconds() // 60) + 1)
-    return HTTPException(423, {
-        "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. "
-                   f"Повторите попытку через {remaining_minutes} мин.",
-        "code": ErrorCode.ACCOUNT_LOCKED,
-    })
+    return HTTPException(
+        423,
+        {
+            "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. Повторите попытку через {remaining_minutes} мин.",
+            "code": ErrorCode.ACCOUNT_LOCKED,
+        },
+    )
 
 
 def register_failed_password(
-    session: Session, user: User, *, details: str, now: datetime, actor: Optional[Actor] = None,
+    session: Session,
+    user: User,
+    *,
+    details: str,
+    now: datetime,
+    actor: Optional[Actor] = None,
 ) -> bool:
     """Учёт неверного пароля — общий для входа и смены пароля: атомарный инкремент `failed_attempts`, блокировка учётной записи на
     AUTH_LOCKOUT_MINUTES при достижении AUTH_MAX_FAILED_ATTEMPTS, запись LOGIN_FAILED в журнал аудита. Возвращает True, если эта
@@ -78,11 +86,15 @@ def register_failed_password(
         # Тоже атомарный UPDATE, не user.locked_until = ...; session.commit() — user здесь
         # уже мог устареть относительно счётчика, только что изменённого выше отдельным
         # запросом (см. _increment_failed_attempts); пишем оба поля явным UPDATE по id.
-        session.execute(update(User).where(User.id == user.id).values(
-            locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES), failed_attempts=0,
-        ))
+        session.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(
+                locked_until=now + timedelta(minutes=AUTH_LOCKOUT_MINUTES),
+                failed_attempts=0,
+            )
+        )
         session.commit()
-    audit(session, "auth", user.id, AuditAction.LOGIN_FAILED,
-          details + (" — учётная запись заблокирована" if locked_now else ""), actor=actor)
+    audit(session, "auth", user.id, AuditAction.LOGIN_FAILED, details + (" — учётная запись заблокирована" if locked_now else ""), actor=actor)
     session.commit()
     return locked_now

@@ -3,6 +3,7 @@
 Решает по пути и методу запроса, не заглядывая в конкретный роутер. Пути и роли, на которые распространяются исключения
 (публичные пути, действия любой роли, POST без записи), перечислены здесь же. Причины выбора middleware вместо Depends()
 на каждом роутере — в докстринге пакета (services/auth/__init__.py)."""
+
 from __future__ import annotations
 
 import re
@@ -43,12 +44,14 @@ def _is_role_check_exempt(path: str) -> bool:
 # метод POST выбран из-за тела запроса (параметры, выбор структурных единиц). Роль viewer («только чтение»)
 # должна уметь формировать отчёты — иначе просмотр без выгрузки теряет смысл. Допускаются точные пути:
 # создание, правка, удаление и дублирование шаблонов, как и /seed, остаются только для администратора.
-READ_ONLY_POST_PATHS = frozenset({
-    "/api/v1/reports/inventory",
-    "/api/v1/report-builder/preview",
-    "/api/v1/reports/structural-appendix",  # формирует Word-файл, реестр не меняет (A-23)
-    "/api/v1/port-sync/preview",            # «план согласования портов — ничего не записывает» (api/port_sync.py, A-23)
-})
+READ_ONLY_POST_PATHS = frozenset(
+    {
+        "/api/v1/reports/inventory",
+        "/api/v1/report-builder/preview",
+        "/api/v1/reports/structural-appendix",  # формирует Word-файл, реестр не меняет (A-23)
+        "/api/v1/port-sync/preview",  # «план согласования портов — ничего не записывает» (api/port_sync.py, A-23)
+    }
+)
 _TEMPLATE_GENERATE_PATH = re.compile(r"^/api/v1/report-templates/[^/]+/generate$")
 
 
@@ -91,12 +94,7 @@ def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDec
         user = resolve_session(db_session, token) if token else None
         if user is None:
             return _GateDecision(True, None, 401, "Требуется аутентификация.")
-        if (
-            user.role != UserRole.ADMIN
-            and method in WRITE_METHODS
-            and not _is_role_check_exempt(path)
-            and not _is_read_only_post(method, path)
-        ):
+        if user.role != UserRole.ADMIN and method in WRITE_METHODS and not _is_role_check_exempt(path) and not _is_read_only_post(method, path):
             return _GateDecision(True, user, 403, "Недостаточно прав: требуется роль администратора.")
         return _GateDecision(True, user)
     finally:
