@@ -173,6 +173,23 @@ def load_exe_settings():
     return load_settings(path), path
 
 
+def configure_stdio() -> None:
+    """Вывод не должен ронять запуск на кириллице, если он перенаправлен.
+
+    Все сообщения этого модуля русские. Когда stdout/stderr — не консоль (`InfraRegistry.exe > log.txt`, служба, планировщик задач, CI),
+    Python на Windows берёт кодировку ANSI системы; на английской Windows это cp1252, и `print("Создан файл настроек…")` падает с
+    UnicodeEncodeError — EXE не стартует. Для файла и канала включаем UTF-8 (в журнале читаемый текст, а не «?»); у консоли кодировку не
+    трогаем, но то, что она показать не может, заменяется, а не поднимает исключение. В сборке без консоли потока может не быть вовсе.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        if stream.isatty():
+            stream.reconfigure(errors="replace")
+        else:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def fail(message: str) -> NoReturn:
     """Ошибка запуска: в EXE окно консоли закрывается вместе с процессом, поэтому ждём Enter, чтобы текст прочитали."""
     print(f"\nОШИБКА: {message}", file=sys.stderr)
@@ -182,6 +199,7 @@ def fail(message: str) -> NoReturn:
 
 
 def main():
+    configure_stdio()
     parser = argparse.ArgumentParser(description="РИС — Реестр ИТ-инфраструктуры")
     parser.add_argument("--no-browser", action="store_true", help="не открывать браузер автоматически")
     parser.add_argument("--port", type=int, default=None, help="порт (по умолчанию — из файла настроек, 8000)")
