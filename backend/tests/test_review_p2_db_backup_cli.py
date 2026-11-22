@@ -98,6 +98,20 @@ def test_skip_variable_disables_the_backup(tmp_path):
     assert _backups(tmp_path) == [] and SKIP_BACKUP_ENV in result.stdout
 
 
+@pytest.mark.parametrize("encoding", ["cp1252", "ascii"])
+def test_cyrillic_output_survives_a_redirect_to_a_narrow_encoding(tmp_path, encoding):
+    """Нашёл windows-smoke в CI: на английской Windows перенаправленный вывод — cp1252, и `print` с кириллицей ронял команду (код 1) ещё до копии.
+    PYTHONIOENCODING воспроизводит это на любой ОС."""
+    db_path = tmp_path / "infra_registry.db"
+    _legacy_database(db_path)
+
+    result = _run(f"sqlite:///{db_path}", tmp_path, PYTHONIOENCODING=encoding)
+
+    assert result.returncode == 0, result.stderr
+    assert "Резервная копия базы перед обновлением" in result.stdout, "в канал уходит UTF-8, а не «?» вместо букв"
+    assert len(_backups(tmp_path)) == 1
+
+
 def test_postgresql_is_left_to_the_database_tools(tmp_path):
     """К серверу команда не подключается (его там может ещё не быть): только подсказка, код 0."""
     result = _run("postgresql+psycopg://infra:secret@127.0.0.1:1/infra_registry", tmp_path)

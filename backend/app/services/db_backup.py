@@ -162,5 +162,23 @@ def main() -> int:
     return 0
 
 
+def configure_output() -> None:
+    """Сообщения команды русские и не должны ронять её, когда вывод перенаправлен (файл, канал, служба, CI).
+
+    Если stdout/stderr — не консоль, Python на Windows берёт ANSI-кодировку системы; на английской Windows это cp1252, и первый же `print` с
+    кириллицей падает с UnicodeEncodeError (код 1: миграция не стартует из-за сообщения, а не из-за ошибки копии). Для файла и канала включаем
+    UTF-8; у консоли кодировку не трогаем, но непредставимое заменяется, а не поднимает исключение. Тот же приём — `configure_stdio()` в
+    launcher.py (там он выполняется до того, как в sys.path попадёт каталог `backend`, поэтому импортировать его отсюда нельзя). Вызывается только
+    из точки входа процесса, а не из `main()`: тесты вызывают `main()` в процессе pytest и не должны менять его потоки."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        if stream.isatty():
+            stream.reconfigure(errors="replace")
+        else:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 if __name__ == "__main__":
+    configure_output()
     sys.exit(main())
